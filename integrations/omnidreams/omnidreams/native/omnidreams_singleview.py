@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import importlib.util
 import json
@@ -27,6 +28,13 @@ import threading
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Iterator
+
+try:  # POSIX only; absent on Windows.
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
+
+from loguru import logger
 
 from omnidreams.native.acceleration import (
     NativeAccelerationConfig,
@@ -50,6 +58,17 @@ _DIT_STREAMING_COMMON_DIR = _DIT_STREAMING_DIR / "common"
 _VAE_STREAMING_DIR = _SOURCE_DIR / "vae_streaming"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
 _DEFAULT_MAX_JOBS_CAP = 8
+# Heavy CUTLASS/SageAttention translation units peak at several GB of host RAM
+# each under -O3. On memory-constrained hosts, running one nvcc per core can
+# exhaust RAM and swap and lock up the machine, so we also cap concurrency by
+# available memory. Tunable via the env var below.
+_NATIVE_MEM_PER_JOB_ENV = "OMNIDREAMS_SINGLEVIEW_NATIVE_MEM_PER_JOB_GB"
+_DEFAULT_MEM_PER_JOB_GB = 8.0
+# PyTorch JIT (FileBaton) and Ninja lock files left behind by an interrupted
+# build (Ctrl-C, OOM, crash). When we hold the cross-process build guard these
+# are definitively stale and are reclaimed.
+_STALE_LOCK_NAMES = ("lock", ".ninja_lock")
+_BUILD_GUARD_NAME = ".build.flock"
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
@@ -225,12 +244,45 @@ def _validate_max_jobs(value: int | str) -> str:
     return str(jobs)
 
 
+def _total_ram_gb() -> float | None:
+    """Return total physical RAM in GiB, or ``None`` if it cannot be queried."""
+
+    try:
+        return (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) / (1024**3)
+    except (AttributeError, ValueError, OSError):  # non-POSIX or unsupported key
+        return None
+
+
+def _mem_per_job_gb() -> float:
+    raw = os.environ.get(_NATIVE_MEM_PER_JOB_ENV)
+    if not raw:
+        return _DEFAULT_MEM_PER_JOB_GB
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_MEM_PER_JOB_GB
+    return value if value > 0 else _DEFAULT_MEM_PER_JOB_GB
+
+
+def _memory_job_cap() -> int | None:
+    """Max parallel compile jobs the host RAM can absorb, or ``None`` if unknown."""
+
+    ram_gb = _total_ram_gb()
+    if ram_gb is None:
+        return None
+    return max(1, int(ram_gb // _mem_per_job_gb()))
+
+
 def _resolved_max_jobs(max_jobs: int | str | None) -> str | None:
     if max_jobs is not None:
         return _validate_max_jobs(max_jobs)
     if os.environ.get(_PYTORCH_MAX_JOBS_ENV):
         return None
-    return str(min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP))
+    cap = min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP)
+    memory_cap = _memory_job_cap()
+    if memory_cap is not None:
+        cap = min(cap, memory_cap)
+    return str(max(1, cap))
 
 
 def _resolved_cuda_arch_list() -> str | None:
@@ -290,6 +342,76 @@ def _scoped_cuda_arch_list() -> Iterator[None]:
             os.environ.pop(_PYTORCH_CUDA_ARCH_LIST_ENV, None)
         else:
             os.environ[_PYTORCH_CUDA_ARCH_LIST_ENV] = previous
+
+
+class NativeBuildBusyError(RuntimeError):
+    """Raised when another live process is already compiling the extension."""
+
+
+def _reclaim_stale_locks(build_dir: Path) -> None:
+    """Delete leftover JIT/Ninja lock files in ``build_dir``.
+
+    Only safe to call while holding the build guard: that guarantees no other
+    live process is mid-build for this directory, so any ``lock``/``.ninja_lock``
+    is an orphan from an interrupted run (Ctrl-C, OOM, crash) rather than an
+    active baton. Without this, PyTorch's ``FileBaton`` would poll the orphaned
+    lock forever and the build would stall indefinitely.
+    """
+
+    for name in _STALE_LOCK_NAMES:
+        lock_path = build_dir / name
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:  # pragma: no cover - unexpected fs error
+            logger.warning("Could not remove stale native build lock {}: {}", lock_path, exc)
+            continue
+        logger.warning(
+            "Reclaimed stale native build lock {} (orphaned by an interrupted build)",
+            lock_path,
+        )
+
+
+@contextlib.contextmanager
+def _native_build_guard(build_dir: Path) -> Iterator[None]:
+    """Serialize native builds across processes and reclaim stale locks.
+
+    Uses a non-blocking ``flock`` on a sentinel file. The kernel drops an
+    ``flock`` automatically when its holder dies, so a build killed by Ctrl-C or
+    a crash never wedges the next run. If the guard is already held by a *live*
+    process we fail fast with :class:`NativeBuildBusyError` instead of blocking.
+
+    On non-POSIX platforms (no ``fcntl``) this is a no-op and the build relies on
+    PyTorch's own locking, preserving prior behavior.
+    """
+
+    if fcntl is None:  # pragma: no cover - non-POSIX platforms
+        yield
+        return
+
+    guard_path = build_dir / _BUILD_GUARD_NAME
+    guard = open(guard_path, "w")  # noqa: SIM115 - lifetime managed below
+    try:
+        try:
+            fcntl.flock(guard.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+                message = (
+                    "Another process is compiling the OmniDreams single-view "
+                    "native extension. Wait for it to finish, then relaunch."
+                )
+                logger.warning(message)
+                raise NativeBuildBusyError(message) from exc
+            raise
+        # We hold the exclusive guard: any leftover torch/ninja lock is stale.
+        _reclaim_stale_locks(build_dir)
+        yield
+    finally:
+        try:
+            fcntl.flock(guard.fileno(), fcntl.LOCK_UN)
+        finally:
+            guard.close()
 
 
 def load_extension(
@@ -354,7 +476,11 @@ def load_extension(
             )
             extension_build_dir.mkdir(parents=True, exist_ok=True)
 
-            with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
+            with (
+                _native_build_guard(extension_build_dir),
+                _scoped_torch_max_jobs(max_jobs),
+                _scoped_cuda_arch_list(),
+            ):
                 _extension = load_torch_extension(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],

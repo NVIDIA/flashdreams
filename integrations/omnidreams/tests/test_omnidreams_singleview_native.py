@@ -152,8 +152,12 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
+    # Pin RAM well above the CPU/hard cap so the memory throttle does not bind
+    # and the assertion below is independent of the CI runner's memory.
+    monkeypatch.setattr(native, "_total_ram_gb", lambda: 1024.0)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.delenv("MAX_JOBS", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_NATIVE_MEM_PER_JOB_GB", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
 
@@ -341,6 +345,118 @@ def test_load_extension_retries_after_failed_build(
     extension = native.load_extension(build_root=tmp_path / "native-build")
     assert attempts == 2
     assert extension is not None, native.extension_load_error()
+    assert native.extension_load_error() is None
+
+
+@pytest.mark.ci_cpu
+def test_resolved_max_jobs_throttles_by_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MAX_JOBS", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_NATIVE_MEM_PER_JOB_GB", raising=False)
+    monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
+    # 16 GiB / 8 GiB-per-job -> 2 jobs, below the CPU and hard caps.
+    monkeypatch.setattr(native, "_total_ram_gb", lambda: 16.0)
+
+    assert native._resolved_max_jobs(None) == "2"
+
+
+@pytest.mark.ci_cpu
+def test_resolved_max_jobs_memory_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MAX_JOBS", raising=False)
+    monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
+    monkeypatch.setattr(native, "_total_ram_gb", lambda: 64.0)
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_NATIVE_MEM_PER_JOB_GB", "32")
+
+    # 64 GiB / 32 GiB-per-job -> 2 jobs.
+    assert native._resolved_max_jobs(None) == "2"
+
+
+@pytest.mark.ci_cpu
+def test_resolved_max_jobs_unknown_memory_uses_cpu_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MAX_JOBS", raising=False)
+    monkeypatch.setattr(native.os, "cpu_count", lambda: 4)
+    monkeypatch.setattr(native, "_total_ram_gb", lambda: None)
+
+    assert native._resolved_max_jobs(None) == "4"
+
+
+@pytest.mark.ci_cpu
+def test_resolved_max_jobs_explicit_value_bypasses_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native, "_total_ram_gb", lambda: 8.0)
+
+    assert native._resolved_max_jobs(6) == "6"
+
+
+@pytest.mark.ci_cpu
+def test_native_build_guard_reclaims_stale_locks(tmp_path: Path) -> None:
+    if native.fcntl is None:
+        pytest.skip("requires POSIX fcntl")
+
+    build_dir = tmp_path / "torch_extensions" / "ext"
+    build_dir.mkdir(parents=True)
+    (build_dir / "lock").write_text("")
+    (build_dir / ".ninja_lock").write_text("")
+
+    with native._native_build_guard(build_dir):
+        # While holding the guard, the orphaned locks are reclaimed.
+        assert not (build_dir / "lock").exists()
+        assert not (build_dir / ".ninja_lock").exists()
+
+
+@pytest.mark.ci_cpu
+def test_native_build_guard_fails_fast_when_held(tmp_path: Path) -> None:
+    if native.fcntl is None:
+        pytest.skip("requires POSIX fcntl")
+
+    build_dir = tmp_path / "torch_extensions" / "ext"
+    build_dir.mkdir(parents=True)
+
+    with native._native_build_guard(build_dir):
+        with pytest.raises(native.NativeBuildBusyError):
+            with native._native_build_guard(build_dir):
+                pass
+
+
+@pytest.mark.ci_cpu
+def test_load_extension_reclaims_stale_lock_before_building(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch.utils.cpp_extension as cpp_extension
+
+    build_root = tmp_path / "native-build"
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    seen: dict[str, bool] = {}
+
+    def fake_load_torch_extension(**kwargs: object) -> ModuleType:
+        build_dir = Path(str(kwargs["build_directory"]))
+        # By the time torch's builder runs, the stale lock has been cleared, so
+        # its FileBaton acquires immediately instead of polling forever.
+        seen["lock_present"] = (build_dir / "lock").exists()
+        return _fake_extension_module()
+
+    monkeypatch.setattr(native, "_extension", None)
+    monkeypatch.setattr(native, "_extension_load_error", None)
+    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
+
+    extension_name = native._extension_name(thirdparty_info)
+    build_dir = build_root / "torch_extensions" / extension_name
+    build_dir.mkdir(parents=True)
+    (build_dir / "lock").write_text("")  # orphan from an interrupted build
+
+    extension = native.load_extension(build_root=build_root)
+
+    assert extension is not None
+    assert seen["lock_present"] is False
     assert native.extension_load_error() is None
 
 
