@@ -38,16 +38,18 @@ recipe.
 Available models
 ----------------
 
-The models come in two flavors. Streaming and autoregressive recipes build a
-video step by step and stay fast once warmed up, aiming for sub-second latency
-per step; bidirectional recipes produce a clip in a single pass and serve as the
-quality reference for their streaming counterparts. Each card links to that
+The models come in three flavors. Streaming and autoregressive generation
+recipes build a video step by step and stay fast once warmed up, aiming for
+sub-second latency per step; bidirectional recipes produce a clip in a single
+pass and serve as the quality reference for their streaming counterparts; and
+super-resolution recipes upscale existing frames in chunks, so their latency
+scales with output resolution rather than step count. Each card links to that
 recipe's page, where you'll find the exact command to run it, the checkpoint it
 uses, and the settings you can tune.
 
 .. container:: fd-eyebrow
 
-   Streaming and autoregressive
+   Streaming and autoregressive generation
 
 .. grid:: 1 2 2 3
    :gutter: 3
@@ -127,25 +129,11 @@ uses, and the settings you can tune.
       OmniDreams checkpoints, including a diffusion-forcing AR
       variant.
 
-   .. grid-item-card:: FlashVSR
-      :class-card: fd-feature
-      :link: /models/flashvsr
-      :link-type: doc
-
-      .. raw:: html
-
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-         </video>
-
-      Streaming video super-resolution for the FlashVSR checkpoint
-      family.
-
 .. container:: fd-eyebrow
 
    Bidirectional reference
 
-.. grid:: 1 2 2 2
+.. grid:: 1 2 2 3
    :gutter: 3
 
    .. grid-item-card:: Wan 2.1
@@ -174,22 +162,44 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
          </video>
 
-      Bidirectional Cosmos-Predict2 recipes (T2V / I2V, 2B).
+      Bidirectional Cosmos-Predict2.5 recipes (T2V / I2V, 2B).
+
+.. container:: fd-eyebrow
+
+   Super-resolution
+
+.. grid:: 1 2 2 3
+   :gutter: 3
+
+   .. grid-item-card:: FlashVSR
+      :class-card: fd-feature
+      :link: /models/flashvsr
+      :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
+         </video>
+
+      Streaming video super-resolution for the FlashVSR checkpoint
+      family. Latency scales with output resolution and is reported
+      per scene.
 
 Benchmarks
 ----------
 
-The reported metric is **steady-state per-step latency**: the
-real elapsed time of one autoregressive step once past AR step 2 and the
-steady-state CUDA graph is captured. This is the ``total(w/o
-finalize)`` value the inference pipeline logs each step. Time to first
-frame is not reported, and quality metrics (FVD, CLIP-T) are out of
-scope here; they are tracked by each recipe's training pipeline. The
-benchmark only verifies that the inference path holds tolerance-bounded
-parity with the upstream reference, which is enforced per recipe (see
-`How the benchmarks were gathered`_).
+Every figure on this page is **latency** in milliseconds, lower is
+better: a FlashDreams runner timed against the upstream runner for the
+same checkpoint under matched runtime settings. The numbers verify that
+the inference path holds tolerance-bounded parity with the upstream
+reference, enforced per recipe (see `How the benchmarks were
+gathered`_). What differs between the two
+tables below is the cadence latency is measured against: per
+autoregressive step for the generation recipes (`Per-step latency`_) and
+per scene for super-resolution (`Per-scene latency`_).
 
-Several model pages also carry interactive per-device profiling charts
+Several model pages also carry per-device profiling charts
 (e.g. :doc:`/models/self_forcing`, :doc:`/models/lingbot_world`,
 :doc:`/models/wan21`), rendered from the same sources as the tables
 below.
@@ -197,23 +207,22 @@ below.
 Per-step latency
 ~~~~~~~~~~~~~~~~
 
-Steady-state per-step latency across the three devices we profile
-against, with each FlashDreams number paired against the upstream
-runner for the same checkpoint. Each cell is the median of the
-AR-2-onward window (warm-up steps dropped, steady-state CUDA graph
-captured) of a single run on that device. Bidirectional recipes
-(``wan21-*``) are treated as a single large-windowed causal rollout, so
-their per-step number lines up with the streaming variants in the same
-table. The FlashDreams runner calls the same model code paths as the
-upstream library but in a different inference environment (KV caches
-managed by ``flashdreams.infra``, ring attention provided by
-``flashdreams.core``, and a CUDA graph captured per recipe); for an
-apples-to-apples comparison both sides are forced to the cuDNN
-attention backend under matched runtime settings. Lower latency is
-better; speedup is ``(upstream − FlashDreams) ÷ FlashDreams`` expressed
-as a percentage, so a positive value means FlashDreams is faster (e.g.
-a 432 ms → 344 ms step is ``+26%``). A blank upstream cell means no
-matched upstream run is published for that device yet.
+**Steady-state per-step latency** is the real elapsed time of one
+autoregressive step once past AR step 2 and the steady-state CUDA graph
+is captured. It is the ``total(w/o finalize)`` value the inference
+pipeline logs each step. Across the three devices we profile against, each number
+is the median of the AR-2-onward window of a single run on that device.
+Bidirectional recipes (``wan21-*``) are treated as a single
+large-windowed causal rollout, so their per-step number lines up with
+the streaming variants in the same table. The FlashDreams runner calls
+the same model code paths as the upstream library but in a different
+inference environment (KV caches managed by ``flashdreams.infra``, ring
+attention provided by ``flashdreams.core``, and a CUDA graph captured
+per recipe); for an apples-to-apples comparison both sides are forced to
+the cuDNN attention backend under matched runtime settings. Speedup is
+``(upstream − FlashDreams) ÷ FlashDreams`` expressed as a percentage, so
+a positive value means FlashDreams is faster (e.g. a 432 ms → 344 ms
+step is ``+26%``).
 
 .. container:: fd-compare fd-compare-numeric
 
@@ -246,6 +255,18 @@ matched upstream run is published for that device yet.
         - +47%
         - Official Self-Forcing runner
       * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - H100
+        - 511
+        - 344
+        - +49%
+        - FastVideo runner
+      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
+        - GB200
+        - 374
+        - 203
+        - +84%
+        - FastVideo runner
+      * - ``self-forcing-wan2.1-t2v-1.3b-taehv``
         - GB300
         - 362
         - 171
@@ -265,10 +286,46 @@ matched upstream run is published for that device yet.
         - Official LingBot-World runner
       * - ``lingbot-world-fast``
         - 4×GB300
-        - —
+        - 1032
         - 394
-        - —
-        - —
+        - +162%
+        - Official LingBot-World runner
+      * - ``lingbot-world-fast``
+        - 4×H100
+        - 740
+        - 629
+        - +18%
+        - LightX2V runner
+      * - ``lingbot-world-fast``
+        - 4×GB200
+        - 717
+        - 449
+        - +60%
+        - LightX2V runner
+      * - ``lingbot-world-fast``
+        - 4×GB300
+        - 602
+        - 394
+        - +53%
+        - LightX2V runner
+      * - ``wan21-t2v-1.3b-480p``
+        - H100
+        - 1140
+        - 1040
+        - +10%
+        - Official Wan2.1 runner
+      * - ``wan21-t2v-1.3b-480p``
+        - GB200
+        - 481
+        - 441
+        - +9%
+        - Official Wan2.1 runner
+      * - ``wan21-t2v-1.3b-480p``
+        - GB300
+        - 429
+        - 382
+        - +12%
+        - Official Wan2.1 runner
       * - ``wan21-t2v-1.3b-480p``
         - H100
         - 1290
@@ -277,10 +334,10 @@ matched upstream run is published for that device yet.
         - FastVideo runner
       * - ``wan21-t2v-1.3b-480p``
         - GB200
-        - —
+        - 578
         - 441
-        - —
-        - —
+        - +31%
+        - FastVideo runner
       * - ``wan21-t2v-1.3b-480p``
         - GB300
         - 534
@@ -288,13 +345,13 @@ matched upstream run is published for that device yet.
         - +40%
         - FastVideo runner
 
-Super-resolution results
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Per-scene latency
+~~~~~~~~~~~~~~~~~
 
-FlashVSR is a streaming video super-resolution recipe, so its latency
-scales with output resolution rather than autoregressive step count and
-is reported per scene. Measured on GB200, FlashDreams against the
-official FlashVSR runner. Lower is better.
+FlashVSR super-resolution has no autoregressive steps, so its latency
+scales with output resolution: each row is the per-chunk 2× upsampling
+time (8-frame chunks) at one output scene, measured on GB200 against the
+official FlashVSR runner.
 
 .. container:: fd-compare fd-compare-numeric
 
@@ -304,7 +361,7 @@ official FlashVSR runner. Lower is better.
 
       * - Scene (resolution)
         - FlashDreams (ms)
-        - Official (ms)
+        - Upstream (ms)
       * - 384×384
         - 74.7
         - 130.5
@@ -327,9 +384,11 @@ official FlashVSR runner. Lower is better.
 How the benchmarks were gathered
 --------------------------------
 
-Each row is produced by driving a recipe end-to-end and parsing the
-per-step log lines: drop the first two AR steps as warm-up, then take
-the median of the remaining ``total(w/o finalize)`` values.
+Each `Per-step latency`_ row is produced by driving a generation recipe
+end-to-end and parsing the per-step log lines: drop the first two AR
+steps as warm-up, then take the median of the remaining ``total(w/o
+finalize)`` values. The `Per-scene latency`_ rows are gathered from the
+FlashVSR runner instead, timed per output scene rather than per AR step.
 
 .. code-block:: bash
 
