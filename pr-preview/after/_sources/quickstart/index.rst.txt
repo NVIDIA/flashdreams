@@ -50,15 +50,38 @@ one environment, use ``uv sync --extra dev --extra runners`` instead.
 Hugging Face authentication
 ---------------------------
 
-OmniDreams downloads scenes and checkpoints from Hugging Face on first
-run. Export an access token with read access to
-``nvidia/omni-dreams-scenes`` and ``nvidia/omni-dreams-models`` before
-launching the demo:
+OmniDreams downloads demo scenes and checkpoints from `Hugging Face
+<https://huggingface.co/>`_ the first time you run it. Before launching
+the demo, use a Hugging Face account with access to:
+
+- `nvidia/omni-dreams-models
+  <https://huggingface.co/nvidia/omni-dreams-models>`_: checkpoints.
+- `nvidia/omni-dreams-scenes
+  <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_: demo
+  scene data.
+- `nvidia/omni-dreams-samples
+  <https://huggingface.co/datasets/nvidia/omni-dreams-samples>`_ if you
+  plan to run the scripted example-data command later on this page.
+
+Then create a read token from `Hugging Face token settings
+<https://huggingface.co/settings/tokens>`_. The token must have read
+access to ``nvidia/omni-dreams-models`` and
+``nvidia/omni-dreams-scenes``. If you use a fine-grained token, include
+both repositories, plus ``nvidia/omni-dreams-samples`` if you plan to run
+the scripted example-data command. Export the token in the same shell
+where you run ``omnidreams-prepare``, ``interactive-drive``, or
+``flashdreams-run``:
 
 .. code-block:: bash
 
-   export HF_TOKEN=<your-hf-token>
-   export HF_HOME=~/.cache/huggingface  # optional cache location override
+   export HF_TOKEN=hf_...
+
+If the default cache under ``~/.cache/huggingface`` is on a small disk,
+point ``HF_HOME`` at a larger volume before the first download:
+
+.. code-block:: bash
+
+   export HF_HOME=/path/to/large/huggingface-cache
 
 For more environment and container details, see the project
 `README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
