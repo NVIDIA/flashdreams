@@ -115,6 +115,8 @@ class AppConfig:
     recording: RecordingConfig = RecordingConfig()
     bev: BevConfig = BevConfig()
     drive_trajectory_path: Path | None = None
+    headless: bool = False
+    realtime_pacing: bool = True
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
     # against the AABB-distance proximity.

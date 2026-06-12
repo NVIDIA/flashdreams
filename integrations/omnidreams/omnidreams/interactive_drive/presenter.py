@@ -17,6 +17,28 @@ from omnidreams.interactive_drive.recording import slangpy_key_name_candidates
 from omnidreams.interactive_drive.types import PresentedFrame
 
 
+class HeadlessPresenter:
+    """Presenter used for batch recording runs with no display or stream."""
+
+    def __init__(self) -> None:
+        self._closed = False
+        self.frame_count = 0
+
+    @property
+    def should_close(self) -> bool:
+        return self._closed
+
+    def close(self) -> None:
+        self._closed = True
+
+    def process_events(self) -> None:
+        return
+
+    def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        del frame, view_mode
+        self.frame_count += 1
+
+
 class SlangPyPresenter:
     def __init__(self, raster: RasterConfig, keyboard: KeyboardState) -> None:
         try:

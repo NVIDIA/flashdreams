@@ -53,7 +53,9 @@ def load_waypoint_trajectory(path: Path) -> WaypointTrajectory:
             f"Unsupported trajectory schema {schema!r}; expected {TRAJECTORY_SCHEMA!r}"
         )
     raw_waypoints = doc.get("waypoints") or []
-    waypoints = tuple(_parse_waypoint(item, index) for index, item in enumerate(raw_waypoints))
+    waypoints = tuple(
+        _parse_waypoint(item, index) for index, item in enumerate(raw_waypoints)
+    )
     if len(waypoints) < 2:
         raise ValueError("A drive trajectory requires at least two waypoints")
 
@@ -95,6 +97,10 @@ class WaypointTrajectoryInputBackend:
     def trajectory(self) -> WaypointTrajectory:
         return self._trajectory
 
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
     def sample(self) -> SampledInput:
         state = self._state_provider()
         command = self._command_for_state(state)
@@ -103,7 +109,10 @@ class WaypointTrajectoryInputBackend:
     def _command_for_state(self, state: VehicleState) -> DriverCommand:
         projection = _closest_projection(self._trajectory, state.x_m, state.y_m)
         remaining_m = _remaining_distance_to_end(self._trajectory, projection)
-        if not self._trajectory.loop and remaining_m <= self._trajectory.waypoint_tolerance_m:
+        if (
+            not self._trajectory.loop
+            and remaining_m <= self._trajectory.waypoint_tolerance_m
+        ):
             self._finished = True
 
         target = (
@@ -136,7 +145,9 @@ def _parse_waypoint(raw: Any, index: int) -> Waypoint:
             y_m = float(raw[1])
             z_m = float(raw[2]) if len(raw) > 2 else 0.0
     except (KeyError, TypeError, ValueError, IndexError) as exc:
-        raise ValueError(f"Waypoint {index + 1} must contain numeric x/y values") from exc
+        raise ValueError(
+            f"Waypoint {index + 1} must contain numeric x/y values"
+        ) from exc
     if not all(math.isfinite(value) for value in (x_m, y_m, z_m)):
         raise ValueError(f"Waypoint {index + 1} contains a non-finite value")
     return Waypoint(x_m=x_m, y_m=y_m, z_m=z_m)
@@ -153,7 +164,9 @@ def _positive_float(value: Any, name: str) -> float:
 
 
 def _segment_count(trajectory: WaypointTrajectory) -> int:
-    return len(trajectory.waypoints) if trajectory.loop else len(trajectory.waypoints) - 1
+    return (
+        len(trajectory.waypoints) if trajectory.loop else len(trajectory.waypoints) - 1
+    )
 
 
 def _segment(
@@ -283,7 +296,9 @@ def _target_speed(
     return min(trajectory.speed_mps, max(0.0, remaining_m / 2.0))
 
 
-def _pedal_command(speed_mps: float, target_speed_mps: float) -> tuple[float, float, bool]:
+def _pedal_command(
+    speed_mps: float, target_speed_mps: float
+) -> tuple[float, float, bool]:
     if target_speed_mps <= 0.05:
         return 0.0, 1.0, abs(speed_mps) < 0.4
 

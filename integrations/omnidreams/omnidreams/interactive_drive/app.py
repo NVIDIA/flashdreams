@@ -20,7 +20,7 @@ from omnidreams.interactive_drive.input.waypoint_trajectory import (
     WaypointTrajectoryInputBackend,
     load_waypoint_trajectory,
 )
-from omnidreams.interactive_drive.presenter import SlangPyPresenter
+from omnidreams.interactive_drive.presenter import HeadlessPresenter, SlangPyPresenter
 from omnidreams.interactive_drive.recording import InteractiveDriveRecorder
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
@@ -80,11 +80,12 @@ class InteractiveDriveApp:
         arguments outside :class:`AppConfig`'s vocabulary (scene-selector
         options, wheel device, control assets); the app rebinds it to its
         own long-lived keyboard. When ``None``, :func:`_build_presenter`
-        returns either the default :class:`SlangPyPresenter` (a local
-        Vulkan window) or, when ``config.stream_mjpeg_bind`` is set, an
-        :class:`MJPEGStreamingPresenter` that serves frames over HTTP with
-        no GPU-graphics dependency. Browser viewers with a richer frontend
-        are served by ``omnidreams.webrtc.server`` instead.
+        returns :class:`HeadlessPresenter`, the default
+        :class:`SlangPyPresenter` (a local Vulkan window), or, when
+        ``config.stream_mjpeg_bind`` is set, an :class:`MJPEGStreamingPresenter`
+        that serves frames over HTTP with no GPU-graphics dependency. Browser
+        viewers with a richer frontend are served by
+        ``omnidreams.webrtc.server`` instead.
         """
         self._config = config
         self._backend = backend
@@ -492,9 +493,11 @@ class InteractiveDriveApp:
                         oob_respawn_debounce_chunks=(
                             self._config.oob_respawn_debounce_chunks
                         ),
+                        realtime_pacing=self._config.realtime_pacing,
                     ),
                     loading_status=loading_status,
                     recorder=recorder,
+                    exit_on_input_complete=self._exit_on_input_complete(recorder),
                 )
                 if not reset_requested:
                     break
@@ -521,6 +524,15 @@ class InteractiveDriveApp:
         return WaypointTrajectoryInputBackend(
             trajectory,
             state_provider=lambda: simulation.current_state,
+        )
+
+    def _exit_on_input_complete(
+        self, recorder: InteractiveDriveRecorder | None
+    ) -> bool:
+        return (
+            self._config.drive_trajectory_path is not None
+            and recorder is not None
+            and recorder.auto_start
         )
 
     def _build_recorder(self) -> InteractiveDriveRecorder | None:
@@ -594,18 +606,18 @@ class InteractiveDriveApp:
 def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBackend:
     """Default presenter factory.
 
-    Returns an :class:`MJPEGStreamingPresenter` when
-    ``config.stream_mjpeg_bind`` is set (a HOST:PORT bind address) --
-    that path renders no window and has no graphics-GPU dependency, so
-    it works on compute-only SKUs (e.g. GB300) where SlangPy can't
-    create a Vulkan swapchain. Otherwise returns the default
-    :class:`SlangPyPresenter` -- a local Vulkan window.
+    Returns a :class:`HeadlessPresenter` when ``config.headless`` is set, an
+    :class:`MJPEGStreamingPresenter` when ``config.stream_mjpeg_bind`` is set
+    (a HOST:PORT bind address), or the default :class:`SlangPyPresenter` local
+    Vulkan window.
 
 
     For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
     (a separate entry point) is the preferred path; this MJPEG fallback
     is the in-process, dependency-free alternative for headless boxes.
     """
+    if config.headless:
+        return HeadlessPresenter()
     if config.stream_mjpeg_bind is not None:
         host, port = parse_bind(config.stream_mjpeg_bind)
         return MJPEGStreamingPresenter(

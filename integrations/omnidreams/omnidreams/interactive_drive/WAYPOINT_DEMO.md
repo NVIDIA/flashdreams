@@ -43,7 +43,9 @@ launch the matching scene archive with:
 uv run --package flashdreams-omnidreams interactive-drive \
   --scene /home/horde/omnidreams-scenes/clipgt-065dcac9-ee67-4434-a835-c6b816c88e48.usdz \
   --drive-trajectory /home/horde/omnidreams-scenes/065dcac9-ee67-4434-a835-c6b816c88e48/clipgt/drive_trajectory.json \
-  --auto-start
+  --backend raster \
+  --manifest example_world_model_perf.yaml \
+  --recording-auto-start
 ```
 
 To view the same route from a browser, use the MJPEG presenter:
@@ -63,6 +65,19 @@ When `--drive-trajectory` is set, the ego vehicle follows the waypoint route.
 Keyboard and wheel drive controls are ignored for steering, throttle, and
 brake, while runtime controls such as view switching, reset, exit scene, and
 quit remain available.
+
+If the selected manifest enables both `recording_enabled: true` and
+`recording_auto_start: true`, a non-looping waypoint trajectory runs as an
+unattended recording job: the demo starts the selected scene, records the
+route, saves the recording bundle when the final waypoint is reached, and
+then exits.
+
+For faster batch capture, pass `--headless` to skip local presentation. Passing
+`--recording-auto-start` (or the `--recording_auto_start` alias) also forces
+headless mode and disables realtime frame pacing, so the demo generates frames
+as fast as the backend can produce them. The recording bundle still uses the
+manifest FPS, so `example_world_model_perf.yaml` recordings play back at
+30 FPS even when captured faster than realtime.
 
 ## Sample Waypoint JSON
 

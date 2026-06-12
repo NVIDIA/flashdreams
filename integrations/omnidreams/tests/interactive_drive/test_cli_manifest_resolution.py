@@ -116,6 +116,32 @@ class CliManifestResolutionTest(unittest.TestCase):
         self.assertEqual(config.recording.hotkey, "f8")
         self.assertTrue(config.recording.auto_start)
 
+    def test_recording_auto_start_cli_forces_headless_uncapped_recording(
+        self,
+    ) -> None:
+        class FakeRasterRenderBackend:
+            def __init__(self, *, chunk, raster, bev) -> None:
+                del chunk, raster, bev
+
+        args = cli.build_parser().parse_args(
+            [
+                "--backend",
+                "raster",
+                "--recording_auto_start",
+            ]
+        )
+        with patch.object(cli, "RasterRenderBackend", FakeRasterRenderBackend):
+            config, _backend = cli.prepare_config_and_backend(args)
+
+        self.assertTrue(config.headless)
+        self.assertFalse(config.realtime_pacing)
+        self.assertTrue(config.recording.enabled)
+        self.assertTrue(config.recording.auto_start)
+        self.assertEqual(
+            config.recording.output_dir,
+            (cli._FLASHDREAMS_ROOT / "recordings").resolve(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

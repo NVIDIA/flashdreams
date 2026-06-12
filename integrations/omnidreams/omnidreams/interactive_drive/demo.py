@@ -22,7 +22,7 @@ from loguru import logger
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
-from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.config import AppConfig, BevConfig, RasterConfig
 from omnidreams.interactive_drive.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -693,6 +693,16 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
+    if args.recording_auto_start is True:
+        if args.stream_mjpeg is not None:
+            logger.info(
+                "[demo] --recording-auto-start forces headless mode; "
+                "ignoring --stream-mjpeg",
+            )
+            args.stream_mjpeg = None
+        args.headless = True
+    elif args.headless and args.stream_mjpeg is not None:
+        raise SystemExit("--headless cannot be combined with --stream-mjpeg")
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a
@@ -708,6 +718,9 @@ def main() -> None:
     # without MJPEG drops straight through to the bare CLI's Vulkan
     # window, which has no scene picker UI of its own. The default path
     # is the slangpy HUD with full chrome.
+    if args.headless:
+        _cli.run(args)
+        return
     if args.stream_mjpeg is not None:
         _run_streaming(args)
         return
@@ -788,6 +801,12 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # the presenter to it; scenes are switched in place via
     # ``app.load_scene`` so the warmed model is never rebuilt.
     config, backend = _cli.prepare_config_and_backend(args)
+    auto_run_trajectory_recording = _should_auto_run_trajectory_recording(config)
+    if auto_run_trajectory_recording and not args.auto_start:
+        logger.info(
+            "[demo] auto-starting waypoint trajectory because recording "
+            "auto-start is enabled",
+        )
     app = InteractiveDriveApp(
         config=config,
         backend=backend,
@@ -835,11 +854,13 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         # idle, so the video model stops generating -- the whole point of the
         # exit-scene affordance for long-running demos -- without closing the
         # window or dropping the warmed model.
-        need_selection = not args.auto_start
+        need_selection = not (args.auto_start or auto_run_trajectory_recording)
         # --auto-start + --preload-scenes: wait for the preloader to finish
         # before the auto-load below so it hits the cache instead of racing
         # the background thread with a second parse of the same USDZ.
-        if args.auto_start and app.preload_in_progress():
+        if (
+            args.auto_start or auto_run_trajectory_recording
+        ) and app.preload_in_progress():
             presenter.wait_while_preloading(app.preload_in_progress)
         while True:
             if need_selection:
@@ -956,6 +977,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
     # switches scenes in place via ``app.load_scene``, keeping the warmed
     # model resident across scene changes.
     config, backend = _cli.prepare_config_and_backend(args)
+    auto_run_trajectory_recording = _should_auto_run_trajectory_recording(config)
     app = InteractiveDriveApp(
         config=config,
         backend=backend,
@@ -975,23 +997,32 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        # Don't auto-load: always wait for the browser to pick the first
-        # scene. There's no Vulkan window to show progress in, so the
-        # presenter publishes an idle overlay frame ("Loading world
-        # model..." while warmup runs in the background, then "Select a
-        # scene to begin") so connected browsers have something to render
-        # while the wait spins.
-        logger.info(
-            "[demo] streaming presenter waiting for first scene selection...",
-        )
-        request = presenter.wait_for_scene_selection()
-        if request is None:
-            return  # presenter closed before any selection (Ctrl-C)
-        scene_path, variant = request
-        presenter.acknowledge_scene_change(scene_path, variant)
-        logger.info(
-            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-        )
+        if auto_run_trajectory_recording:
+            scene_path = config.scene_path
+            variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                "[demo] streaming auto-running waypoint trajectory "
+                f"scene={Path(str(scene_path)).name!r} variant={variant!r}",
+            )
+        else:
+            # Don't auto-load: wait for the browser to pick the first scene.
+            # There's no Vulkan window to show progress in, so the presenter
+            # publishes an idle overlay frame ("Loading world model..." while
+            # warmup runs in the background, then "Select a scene to begin")
+            # so connected browsers have something to render while the wait spins.
+            logger.info(
+                "[demo] streaming presenter waiting for first scene selection...",
+            )
+            request = presenter.wait_for_scene_selection()
+            if request is None:
+                return  # presenter closed before any selection (Ctrl-C)
+            scene_path, variant = request
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                "[demo] streaming initial scene -> "
+                f"{scene_path.name} variant={variant!r}",
+            )
 
         while True:
             # load_scene parses the USDZ on a background thread while the
@@ -1017,6 +1048,14 @@ def _run_streaming(args: argparse.Namespace) -> None:
     finally:
         app.shutdown()
         presenter.close()
+
+
+def _should_auto_run_trajectory_recording(config: AppConfig) -> bool:
+    return (
+        config.drive_trajectory_path is not None
+        and config.recording.enabled
+        and config.recording.auto_start
+    )
 
 
 def _apply_cuda_visible_devices_inplace(requested: str) -> None:

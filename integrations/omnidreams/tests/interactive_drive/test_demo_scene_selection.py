@@ -5,11 +5,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.demo import (
     SceneOption,
     _resolve_scene_variant,
+    _should_auto_run_trajectory_recording,
     build_parser,
 )
+from omnidreams.interactive_drive.recording import RecordingConfig
 
 
 def test_auto_start_flag_and_deprecated_alias() -> None:
@@ -20,6 +23,50 @@ def test_auto_start_flag_and_deprecated_alias() -> None:
     # --autoload-scene is kept as a backward-compatible alias for --auto-start.
     assert parser.parse_args(["--autoload-scene"]).auto_start is True
     assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
+
+
+def test_headless_and_recording_auto_start_flags() -> None:
+    parser = build_parser()
+
+    assert parser.parse_args(["--headless"]).headless is True
+    assert parser.parse_args(["--recording_auto_start"]).recording_auto_start is True
+    assert (
+        parser.parse_args(["--no-recording-auto-start"]).recording_auto_start is False
+    )
+
+
+def test_auto_run_trajectory_recording_requires_trajectory_and_auto_recording(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _should_auto_run_trajectory_recording(
+            AppConfig(
+                scene_path=tmp_path / "scene.usdz",
+                drive_trajectory_path=tmp_path / "drive_trajectory.json",
+                recording=RecordingConfig(enabled=True, auto_start=True),
+            )
+        )
+        is True
+    )
+    assert (
+        _should_auto_run_trajectory_recording(
+            AppConfig(
+                scene_path=tmp_path / "scene.usdz",
+                drive_trajectory_path=tmp_path / "drive_trajectory.json",
+                recording=RecordingConfig(enabled=True, auto_start=False),
+            )
+        )
+        is False
+    )
+    assert (
+        _should_auto_run_trajectory_recording(
+            AppConfig(
+                scene_path=tmp_path / "scene.usdz",
+                recording=RecordingConfig(enabled=True, auto_start=True),
+            )
+        )
+        is False
+    )
 
 
 def test_resolve_scene_variant_prefers_weather_archive_path_for_default(

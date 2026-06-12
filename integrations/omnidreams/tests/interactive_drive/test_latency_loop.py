@@ -71,12 +71,15 @@ def _make_frame() -> PresentedFrame:
     )
 
 
-def _loop_config(*, frame_interval_s: float) -> LoopConfig:
+def _loop_config(
+    *, frame_interval_s: float, realtime_pacing: bool = True
+) -> LoopConfig:
     return LoopConfig(
         initial_chunk_size=1,
         chunk_size=1,
         frame_interval_s=frame_interval_s,
         poll_timeout_s=0.0,
+        realtime_pacing=realtime_pacing,
     )
 
 
@@ -215,6 +218,23 @@ class _FakeInputBackend:
         return SampledInput(command=DriverCommand(), sample_time=time.perf_counter())
 
 
+class _CompletingInputBackend:
+    def __init__(self, *, finish_after_samples: int = 1) -> None:
+        self._finish_after_samples = finish_after_samples
+        self._samples = 0
+        self._finished = False
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    def sample(self) -> SampledInput:
+        self._samples += 1
+        if self._samples >= self._finish_after_samples:
+            self._finished = True
+        return SampledInput(command=DriverCommand(), sample_time=time.perf_counter())
+
+
 class _FakeSimulation:
     """Returns a canned trajectory."""
 
@@ -246,7 +266,10 @@ def _drive_loop(
     simulation: _FakeSimulation,
     initial: PresentedFrame,
     frame_interval_s: float,
+    input_backend: object | None = None,
     recorder: _RecorderProbe | None = None,
+    exit_on_input_complete: bool = False,
+    realtime_pacing: bool = True,
 ) -> bool:
     pipeline = ChunkPipeline(backend)
     pipeline.request_scene(minimal_scene())
@@ -255,11 +278,15 @@ def _drive_loop(
             presenter=presenter,
             runtime_controls=controls,
             initial_presented_frame=initial,
-            input_backend=_FakeInputBackend(),
+            input_backend=input_backend or _FakeInputBackend(),
             simulation=simulation,
             pipeline=pipeline,
-            config=_loop_config(frame_interval_s=frame_interval_s),
+            config=_loop_config(
+                frame_interval_s=frame_interval_s,
+                realtime_pacing=realtime_pacing,
+            ),
             recorder=recorder,
+            exit_on_input_complete=exit_on_input_complete,
         )
     finally:
         pipeline.shutdown()
@@ -473,6 +500,55 @@ def test_loop_auto_starts_recorder_and_records_backend_frames() -> None:
     assert recorder.recorded_frames
     assert all(frame is not initial for frame in recorder.recorded_frames)
     assert recorder.close_reasons == ["loop-end"]
+
+
+def test_loop_closes_auto_recording_after_input_completion() -> None:
+    initial = _make_frame()
+    presenter = _CountingPresenter(present_budget=50)
+    controls = _FakeRuntimeControls()
+    recorder = _RecorderProbe(auto_start=True)
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=7),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+        input_backend=_CompletingInputBackend(finish_after_samples=2),
+        recorder=recorder,
+        exit_on_input_complete=True,
+    )
+
+    assert result is False
+    assert recorder.start_calls == 1
+    assert recorder.recorded_frames
+    assert recorder.close_reasons == ["trajectory-complete"]
+    assert len(presenter.records) < 50
+
+
+def test_loop_can_disable_realtime_pacing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(loop_module.time, "sleep", sleep_calls.append)
+    initial = _make_frame()
+    presenter = _CountingPresenter(present_budget=3)
+    controls = _FakeRuntimeControls()
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=0),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=60.0,
+        realtime_pacing=False,
+    )
+
+    assert result is False
+    assert len(presenter.records) == 3
+    assert sleep_calls == []
 
 
 def test_loop_consumes_recording_hotkey_toggle() -> None:

@@ -196,6 +196,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--headless",
+        action="store_true",
+        help=(
+            "Run without opening a window or MJPEG server. Intended for "
+            "batch recording jobs driven by --drive-trajectory."
+        ),
+    )
+    parser.add_argument(
+        "--recording-auto-start",
+        "--recording_auto_start",
+        dest="recording_auto_start",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override the manifest's recording_auto_start value. When enabled "
+            "from the CLI, recording is enabled with the default recording "
+            "directory if needed, and the demo runs headless without realtime "
+            "frame pacing."
+        ),
+    )
+    parser.add_argument(
         "--official-hdmap-dir",
         type=Path,
         default=None,
@@ -434,6 +455,29 @@ def _recording_config_from_manifest(manifest: RecordingManifest) -> RecordingCon
     )
 
 
+def _apply_recording_cli_overrides(
+    config: AppConfig, args: argparse.Namespace
+) -> AppConfig:
+    requested_auto_start = getattr(args, "recording_auto_start", None)
+    if requested_auto_start is None:
+        return config
+
+    auto_start = bool(requested_auto_start)
+    enabled = config.recording.enabled or auto_start
+    output_dir = config.recording.output_dir
+    if enabled and output_dir is None:
+        output_dir = _resolve_recording_output_dir(None, enabled=True)
+    return replace(
+        config,
+        recording=replace(
+            config.recording,
+            enabled=enabled,
+            output_dir=output_dir,
+            auto_start=auto_start,
+        ),
+    )
+
+
 def main() -> None:
     """Stand-alone entry point for ``python -m omnidreams.interactive_drive.cli``.
 
@@ -512,6 +556,8 @@ def prepare_config_and_backend(
             if args.drive_trajectory is not None
             else None
         ),
+        headless=bool(args.headless) or args.recording_auto_start is True,
+        realtime_pacing=not (bool(args.headless) or args.recording_auto_start is True),
         stream_mjpeg_bind=args.stream_mjpeg,
         **_oob_kwargs(args),
     )
@@ -564,6 +610,7 @@ def prepare_config_and_backend(
             bev=config.bev,
             offload_text_encoder=config.world_model_offload_text_encoder,
         )
+    config = _apply_recording_cli_overrides(config, args)
     return config, backend
 
 

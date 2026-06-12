@@ -176,6 +176,7 @@ class LoopConfig:
     frame_interval_s: float
     poll_timeout_s: float = 0.001
     history_capacity: int = 16
+    realtime_pacing: bool = True
     # OOB thresholds applied to ``simulation.last_proximity`` (see
     # :meth:`MapBounds.proximity` for the 0.0 / (0,1] / 2.0 semantics).
     # Defaults match the alpasim driver: warn at the "approaching" 0.6,
@@ -417,6 +418,13 @@ def _consume_recording_toggle_request(runtime_controls: RuntimeControls) -> bool
     return bool(consume())
 
 
+def _input_backend_finished(input_backend: InputBackend) -> bool:
+    finished = getattr(input_backend, "finished", None)
+    if finished is None:
+        return False
+    return bool(finished() if callable(finished) else finished)
+
+
 def _close_recording(
     recorder: RecordingBackend | None,
     *,
@@ -436,6 +444,7 @@ def run_main_loop(
     config: LoopConfig,
     loading_status: Callable[[], str | None] | None = None,
     recorder: RecordingBackend | None = None,
+    exit_on_input_complete: bool = False,
 ) -> bool:
     """Drive the request -> render -> present pipeline.
 
@@ -448,12 +457,14 @@ def run_main_loop(
 
     Returns ``True`` when the user requested a reset or the OOB auto-respawn
     fired (caller rebuilds the simulation and re-runs), ``False`` when the
-    presenter requested close.
+    presenter requested close or the input backend completed and
+    ``exit_on_input_complete`` is set.
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
     ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory(config.history_capacity)
+    input_complete = False
     if _profile_input_to_present_enabled():
         reset_input_to_present_profile_window()
     if recorder is not None and recorder.auto_start and not presenter.should_close:
@@ -469,9 +480,13 @@ def run_main_loop(
         if _consume_recording_toggle_request(runtime_controls) and recorder is not None:
             recorder.toggle()
         sampled = input_backend.sample()
+        if exit_on_input_complete and _input_backend_finished(input_backend):
+            if not input_complete:
+                logger.info("[loop] input backend complete; draining queued frames")
+            input_complete = True
 
         # Keep one chunk in flight.
-        if should_request_chunk(state):
+        if should_request_chunk(state) and not input_complete:
             chunk_request = make_chunk_request(
                 state=state,
                 simulation=simulation,
@@ -498,9 +513,12 @@ def run_main_loop(
             presenter=presenter,
             view_mode=view_mode,
         )
+        if input_complete and state.chunks_outstanding <= 0 and not ready_frames:
+            _close_recording(recorder, reason="trajectory-complete")
+            return False
 
         now = time.perf_counter()
-        if now < state.next_present_time:
+        if config.realtime_pacing and now < state.next_present_time:
             time.sleep(
                 min(config.poll_timeout_s, max(0.0, state.next_present_time - now))
             )
