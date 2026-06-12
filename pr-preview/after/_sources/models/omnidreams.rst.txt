@@ -198,7 +198,14 @@ network and pick a scene from the picker in the bottom-right.
 
 .. note::
 
-   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB.
+   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB:
+
+   .. code-block:: bash
+
+      uv run --package flashdreams-omnidreams interactive-drive \
+          --stream-mjpeg :8080 \
+          --offload-text-encoder
+
    The text and first-frame encoders are run once per scene and freed before the
    diffusion pipeline is built, and the resulting embeddings are cached and
    reused across world-model resets.

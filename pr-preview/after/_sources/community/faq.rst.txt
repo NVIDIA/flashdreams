@@ -47,12 +47,12 @@ First-party model integrations ship under ``integrations/`` in the
 repo. The :doc:`/models/index` page has the full list; the documented
 recipes are:
 
+- :doc:`/models/omnidreams` — HDMap-conditioned driving world model
+  (the GTC 2026 closed-loop demo).
 - :doc:`/models/self_forcing` — Streaming Wan 2.1 T2V (1.3B).
 - :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).
 - :doc:`/models/causal_wan22` — FastVideo Causal Wan 2.2 14B MoE T2V.
 - :doc:`/models/lingbot_world` — Camera-controllable I2V world model.
-- :doc:`/models/omnidreams` — HDMap-conditioned driving world model
-  (the GTC 2026 closed-loop demo).
 - :doc:`/models/flashvsr` — Streaming video super-resolution.
 - :doc:`/models/wan21` — Bidirectional Wan 2.1 T2V / I2V reference.
 - :doc:`/models/cosmos_predict2` — Bidirectional Cosmos-Predict2.5

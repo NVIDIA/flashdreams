@@ -208,7 +208,8 @@ streaming and bidirectional recipes, multi-GPU execution, and one CLI
 to drive them all.
 
 The :doc:`Get Started guide <quickstart/index>` walks from a fresh
-checkout to a generated frame on a single GPU.
+checkout to running OmniDreams, an interactive driving world-model demo
+built on FlashDreams.
 
 .. container:: fd-cta-row
 
@@ -228,6 +229,15 @@ invocation, the checkpoint source, and the per-recipe knobs.
 
 .. grid:: 1 2 2 3
    :gutter: 3
+
+   .. grid-item-card:: OmniDreams
+      :class-card: fd-feature
+      :link: models/omnidreams
+      :link-type: doc
+
+      Single-view and multi-view streaming recipes against the
+      OmniDreams checkpoints, including a diffusion-forcing AR
+      variant.
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
@@ -259,15 +269,6 @@ invocation, the checkpoint source, and the per-recipe knobs.
 
       Camera-controlled I2V with bundled prompt, first-frame, and
       camera arrays.
-
-   .. grid-item-card:: OmniDreams
-      :class-card: fd-feature
-      :link: models/omnidreams
-      :link-type: doc
-
-      Single-view and multi-view streaming recipes against the
-      OmniDreams checkpoints, including a diffusion-forcing AR
-      variant.
 
    .. grid-item-card:: FlashVSR
       :class-card: fd-feature

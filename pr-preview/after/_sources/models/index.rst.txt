@@ -20,13 +20,13 @@ Models
    :hidden:
    :maxdepth: 1
 
+   omnidreams
    self_forcing
    causal_forcing
    causal_wan22
    cosmos_predict2
    flashvsr
    lingbot_world
-   omnidreams
    wan21
 
 FlashDreams runs a growing family of world and video models (text-to-video,
@@ -53,6 +53,21 @@ uses, and the settings you can tune.
 
 .. grid:: 1 2 2 3
    :gutter: 3
+
+   .. grid-item-card:: OmniDreams
+      :class-card: fd-feature
+      :link: /models/omnidreams
+      :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
+         </video>
+
+      Single-view and multi-view streaming recipes against the
+      OmniDreams checkpoints, including a diffusion-forcing AR
+      variant.
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
@@ -113,21 +128,6 @@ uses, and the settings you can tune.
 
       Camera-controlled I2V with bundled prompt, first-frame, and
       camera arrays.
-
-   .. grid-item-card:: OmniDreams
-      :class-card: fd-feature
-      :link: /models/omnidreams
-      :link-type: doc
-
-      .. raw:: html
-
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
-         </video>
-
-      Single-view and multi-view streaming recipes against the
-      OmniDreams checkpoints, including a diffusion-forcing AR
-      variant.
 
 .. container:: fd-eyebrow
 
@@ -398,8 +398,8 @@ FlashVSR runner instead, timed per output scene rather than per AR step.
        2>&1 | tee /tmp/bench-self-forcing.log
 
 ``--total-blocks`` is defined on the streaming-runner subclasses
-(``self_forcing``, ``causal_forcing``, ``fastvideo_causal_wan22``,
-``lingbot``, ``omnidreams``); bidirectional runners (``wan21-*``,
+(``omnidreams``, ``self_forcing``, ``causal_forcing``,
+``fastvideo_causal_wan22``, ``lingbot``); bidirectional runners (``wan21-*``,
 ``cosmos2-*``) drop the flag and emit a single end-to-end output.
 
 For multi-GPU recipes, launch the same command under ``torchrun``; the

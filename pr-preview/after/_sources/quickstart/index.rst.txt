@@ -17,8 +17,8 @@ Get Started
 ===========
 
 Welcome to FlashDreams! This page will guide you from a fresh checkout
-of the repository all the way to your first generated clip, running on a
-single CUDA-capable GPU.
+of the repository to running NVIDIA OmniDreams, the interactive
+HDMap-conditioned driving world-model demo built on FlashDreams.
 
 Install
 -------
@@ -27,27 +27,128 @@ FlashDreams uses the ``uv`` python package manager. Installation
 instructions for ``uv`` are available in the `Astral documentation
 <https://docs.astral.sh/uv/getting-started/installation/>`_.
 
-With ``uv`` installed, clone the repository and synchronise the workspace
-environment:
+With ``uv`` installed, clone the repository and synchronize the OmniDreams
+workspace environment:
 
 .. code-block:: bash
 
    git clone https://github.com/NVIDIA/flashdreams.git
    cd flashdreams
-   uv sync --extra dev --extra runners
+   uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-The unified runner CLI is then available through ``uv run``:
+This installs the FlashDreams core package, the OmniDreams integration,
+and the ``interactive-drive`` demo dependencies. The unified runner CLI is
+also available through the OmniDreams workspace member:
 
 .. code-block:: bash
 
-   uv run flashdreams-run --help
+   uv run --package flashdreams-omnidreams flashdreams-run --help
+
+If you are developing FlashDreams itself or want every shipped runner in
+one environment, use ``uv sync --extra dev --extra runners`` instead.
+
+Hugging Face authentication
+---------------------------
+
+OmniDreams downloads scenes and checkpoints from Hugging Face on first
+run. Export an access token with read access to
+``nvidia/omni-dreams-scenes`` and ``nvidia/omni-dreams-models`` before
+launching the demo:
+
+.. code-block:: bash
+
+   export HF_TOKEN=<your-hf-token>
+   export HF_HOME=~/.cache/huggingface  # optional cache location override
+
+For more environment and container details, see the project
+`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
+
+Run OmniDreams
+--------------
+
+Start with the :doc:`OmniDreams </models/omnidreams>` interactive driving
+demo. The command below runs the world model in one process and streams
+the generated camera view to a browser:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+
+On VRAM-constrained GPUs, add ``--offload-text-encoder`` to reduce peak
+VRAM usage by about 15 GB:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive \
+       --stream-mjpeg :8080 \
+       --offload-text-encoder
+
+This runs the text and first-frame encoders once per scene, frees them
+before building the diffusion pipeline, and reuses the cached embeddings
+across world-model resets. The trade-off is slower first loads and
+scene/variant switches.
+
+Then open ``http://<server-ip>:8080/`` in a browser on the same network.
+Use ``localhost`` when the browser is on the same machine. The default
+scene auto-stages on first launch when ``HF_TOKEN`` is set.
+
+Optionally, pre-download the default scene and model assets so access
+errors and multi-GB downloads happen before the demo starts:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams omnidreams-prepare \
+       --scene-uuid clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4
+
+The first launch can spend several minutes loading checkpoints,
+compiling kernels, capturing CUDA graphs, and autotuning. Later launches
+reuse cached assets and compiled kernels.
+
+Scripted OmniDreams generation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To generate a fixed OmniDreams rollout through ``flashdreams-run``, use
+the single-view runner with bundled example data:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams \
+       flashdreams-run \
+       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       --example-data True \
+       --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
+       --total-blocks 20
+
+See :doc:`/models/omnidreams` for local-window mode, WebRTC serving,
+scene variants, perf-manifest setup, multi-GPU launch commands, and
+additional example-data UUIDs.
+
+Other recipes
+~~~~~~~~~~~~~
+
+After OmniDreams, the model gallery covers the rest of the shipped
+FlashDreams recipes and their runner slugs. For example, the offline
+:doc:`Self-Forcing </models/self_forcing>` Wan 2.1 1.3B T2V recipe runs
+with:
+
+.. code-block:: bash
+
+   uv run --project integrations/self_forcing \
+       flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
+       --total-blocks 7
+
+Additional setup options
+------------------------
+
+These steps are not required for the basic OmniDreams demo, but they are
+useful for development workflows and downstream projects.
 
 Speeding up CUDA builds
-~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
 
-The first synchronisation compiles CUDA extensions from source, which
-can be slow. Restricting compilation to the local GPU architecture and
-parallelising build jobs reduces wall time substantially:
+The first synchronization can compile CUDA extensions from source.
+Restricting compilation to the local GPU architecture and parallelizing
+build jobs reduces wall time substantially:
 
 .. code-block:: bash
 
@@ -61,7 +162,7 @@ The `Contributing Guide
 documents each variable in full and recommends an ``.envrc`` setup.
 
 Use FlashDreams as a library
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you only need FlashDreams as a dependency in another project rather
 than running the shipped recipes, install it from PyPI instead:
@@ -75,60 +176,6 @@ Or track the current ``main`` branch:
 .. code-block:: bash
 
    pip install "git+https://github.com/NVIDIA/flashdreams.git"
-
-Hugging Face authentication
----------------------------
-
-Most checkpoints download from Hugging Face on first run, so set this up
-before launching a model. Export an access token before your first run:
-
-.. code-block:: bash
-
-   export HF_TOKEN=<your-hf-token>
-   export HF_HOME=~/.cache/huggingface  # optional cache location override
-
-For more environment and container details, see the project
-`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
-
-Run your first model
---------------------
-
-Two reference paths cover the two primary usage modes: offline long
-rollouts and interactive serving.
-
-Offline inference with Self-Forcing
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Launch an offline streaming run against the
-:doc:`Self-Forcing </models/self_forcing>` Wan 2.1 1.3B T2V recipe with
-the TAEHV decoder:
-
-.. code-block:: bash
-
-   uv run --project integrations/self_forcing \
-       flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
-       --total-blocks 7
-
-The first invocation downloads checkpoints from Hugging Face into
-``HF_HOME``. First runs take some time (Triton autotuning +
-CUDA-graph warmup) but subsequent runs reuse the local cache and finish
-far sooner. Output lands at
-``outputs/self-forcing-wan2.1-t2v-1.3b-taehv.mp4`` (16 FPS, 480×832 by
-default). See :doc:`/models/self_forcing` for ``--total-blocks``,
-measured runtimes, and multi-GPU guidance.
-
-Interactive serving with LingBot-World
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Launch the :doc:`LingBot-World </models/lingbot_world>` camera-controlled
-I2V recipe with the bundled example data:
-
-.. code-block:: bash
-
-   uv run --project integrations/lingbot \
-       flashdreams-run lingbot-world-fast \
-       --example-data True \
-       --total-blocks 21
 
 Where to next
 -------------

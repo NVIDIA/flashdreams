@@ -537,12 +537,12 @@ A typical <a class="reference internal" href="../api/infra.html#flashdreams.infr
 <h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
 <p>Samples on how existing models use this structure:</p>
 <ul class="simple">
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/omnidreams/omnidreams/config.py">NVIDIA OmniDreams config</a>:
+An I2V video model with a VAE-based causal encoder for HDMap control.</p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/lingbot/lingbot/config.py">LingBot-World config</a>:
 A camera-controlled I2V model that uses the per-step camera encoder.</p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/self_forcing/self_forcing/config.py">Self-Forcing config</a>:
 A pure T2V model that sets <code class="docutils literal notranslate"><span class="pre">encoder=None</span></code>, so each rollout starts from noise.</p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/omnidreams/omnidreams/config.py">NVIDIA OmniDreams config</a>:
-An I2V video model with a VAE-based causal encoder for HDMap control.</p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/wan21/wan21/config.py">Wan2.1 config</a>:
 Treats a bidirectional video model as a single-rollout autoregressive model.</p></li>
 </ul>
