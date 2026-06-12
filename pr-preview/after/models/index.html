@@ -521,10 +521,10 @@ scope here; they are tracked by each recipe’s training pipeline. The
 benchmark only verifies that the inference path holds tolerance-bounded
 parity with the upstream reference, which is enforced per recipe (see
 <a class="reference internal" href="#how-the-benchmarks-were-gathered">How the benchmarks were gathered</a>).</p>
-<p>Each model page also carries interactive per-device profiling charts
+<p>Several model pages also carry interactive per-device profiling charts
 (e.g. <a class="reference internal" href="self_forcing.html"><span class="doc">Self-Forcing</span></a>, <a class="reference internal" href="lingbot_world.html"><span class="doc">LingBot-World</span></a>,
-<a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>), rendered from the same per-recipe markdown files
-under <code class="docutils literal notranslate"><span class="pre">_static/performance/</span></code> that the tables below cite.</p>
+<a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>), rendered from the same sources as the tables
+below.</p>
 <section id="per-step-latency">
 <h3>Per-step latency<a class="headerlink" href="#per-step-latency" title="Link to this heading">#</a></h3>
 <p>Steady-state per-step latency across the three devices we profile
@@ -590,24 +590,24 @@ matched upstream run is published for that device yet.</p>
 <td><p>362</p></td>
 <td><p>171</p></td>
 <td><p>+112%</p></td>
-<td><p>FastVideo runner (landing-page hero)</p></td>
+<td><p>FastVideo runner</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (4×GPU, Ulysses)</p></td>
-<td><p>H100</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
+<td><p>4×H100</p></td>
 <td><p>1950</p></td>
 <td><p>629</p></td>
 <td><p>+210%</p></td>
 <td><p>Official LingBot-World runner</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (4×GPU, Ulysses)</p></td>
-<td><p>GB200</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
+<td><p>4×GB200</p></td>
 <td><p>1113</p></td>
 <td><p>449</p></td>
 <td><p>+148%</p></td>
 <td><p>Official LingBot-World runner</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code> (4×GPU, Ulysses)</p></td>
-<td><p>GB300</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
+<td><p>4×GB300</p></td>
 <td><p>—</p></td>
 <td><p>394</p></td>
 <td><p>—</p></td>
@@ -632,23 +632,19 @@ matched upstream run is published for that device yet.</p>
 <td><p>534</p></td>
 <td><p>382</p></td>
 <td><p>+40%</p></td>
-<td><p>FastVideo runner (landing-page hero)</p></td>
+<td><p>FastVideo runner</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 </div>
-<p>Sources: <code class="docutils literal notranslate"><span class="pre">_static/performance/self_forcing/perf-0521.md</span></code>,
-<code class="docutils literal notranslate"><span class="pre">_static/performance/lingbot_world/perf-0521.md</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">_static/performance/wan21/perf-0521.md</span></code>.</p>
 </section>
 <section id="super-resolution-results">
 <h3>Super-resolution results<a class="headerlink" href="#super-resolution-results" title="Link to this heading">#</a></h3>
 <p>FlashVSR is a streaming video super-resolution recipe, so its latency
 scales with output resolution rather than autoregressive step count and
 is reported per scene. Measured on GB200, FlashDreams against the
-official FlashVSR runner; source
-<code class="docutils literal notranslate"><span class="pre">_static/performance/flashvsr/perf-0527.md</span></code>. Lower is better.</p>
+official FlashVSR runner. Lower is better.</p>
 <div class="fd-compare fd-compare-numeric docutils container">
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -718,9 +714,12 @@ parallelism across 4 GPUs):</p>
 </div>
 <p>The upstream baseline in <a class="reference internal" href="#per-step-latency">Per-step latency</a> runs the same checkpoint
 under the upstream library’s own runner; per-integration instructions
-live under <code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/</span></code>.</p>
+live in the repo under each integration’s
+<code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/</span></code> directory (see the
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a>
+tree).</p>
 <p>Six integrations ship a parity check against their upstream reference
-under <code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/run.sh</span></code>:
+under <code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/run.sh</span></code> in the repo:
 <code class="docutils literal notranslate"><span class="pre">self_forcing</span></code>, <code class="docutils literal notranslate"><span class="pre">lingbot</span></code>, <code class="docutils literal notranslate"><span class="pre">wan21</span></code>, <code class="docutils literal notranslate"><span class="pre">cosmos_predict2</span></code>,
 <code class="docutils literal notranslate"><span class="pre">flashvsr</span></code>, and <code class="docutils literal notranslate"><span class="pre">hy_worldplay</span></code>. These are intended for manual
 execution in the upstream environment, not in CI. The numbers on this
