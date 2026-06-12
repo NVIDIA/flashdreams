@@ -409,12 +409,28 @@ one environment, use <code class="docutils literal notranslate"><span class="pre
 </section>
 <section id="hugging-face-authentication">
 <h2>Hugging Face authentication<a class="headerlink" href="#hugging-face-authentication" title="Link to this heading">#</a></h2>
-<p>OmniDreams downloads scenes and checkpoints from Hugging Face on first
-run. Export an access token with read access to
-<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-scenes</span></code> and <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> before
-launching the demo:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
-<span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>~/.cache/huggingface<span class="w">  </span><span class="c1"># optional cache location override</span>
+<p>OmniDreams downloads demo scenes and checkpoints from <a class="reference external" href="https://huggingface.co/">Hugging Face</a> the first time you run it. Before launching
+the demo, use a Hugging Face account with access to:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>: checkpoints.</p></li>
+<li><p><a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>: demo
+scene data.</p></li>
+<li><p><a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-samples">nvidia/omni-dreams-samples</a> if you
+plan to run the scripted example-data command later on this page.</p></li>
+</ul>
+<p>Then create a read token from <a class="reference external" href="https://huggingface.co/settings/tokens">Hugging Face token settings</a>. The token must have read
+access to <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> and
+<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-scenes</span></code>. If you use a fine-grained token, include
+both repositories, plus <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-samples</span></code> if you plan to run
+the scripted example-data command. Export the token in the same shell
+where you run <code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span></code>, <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>hf_...
+</pre></div>
+</div>
+<p>If the default cache under <code class="docutils literal notranslate"><span class="pre">~/.cache/huggingface</span></code> is on a small disk,
+point <code class="docutils literal notranslate"><span class="pre">HF_HOME</span></code> at a larger volume before the first download:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/path/to/large/huggingface-cache
 </pre></div>
 </div>
 <p>For more environment and container details, see the project
