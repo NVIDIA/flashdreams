@@ -11,9 +11,14 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
+from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
+)
+from omnidreams.interactive_drive.input.waypoint_trajectory import (
+    WaypointTrajectoryInputBackend,
+    load_waypoint_trajectory,
 )
 from omnidreams.interactive_drive.presenter import SlangPyPresenter
 from omnidreams.interactive_drive.recording import InteractiveDriveRecorder
@@ -453,7 +458,7 @@ class InteractiveDriveApp:
                         # already rolling on initial load (and after a manual
                         # reset / OOB respawn), instead of launching at the
                         # clip's full recorded speed.
-                        initial_speed_mps=10.0,
+                        initial_speed_mps=1.0,
                     ),
                     vehicle_config=self._config.vehicle,
                     ground_snapper=self._ground_snapper,
@@ -470,7 +475,7 @@ class InteractiveDriveApp:
                 # requested its first chunk -- the "reset doesn't reset the
                 # displayed speed" symptom.
                 self._keyboard.update_telemetry(simulation.current_state)
-                input_backend = KeyboardInputBackend(self._keyboard)
+                input_backend = self._build_input_backend(simulation)
                 reset_requested = run_main_loop(
                     presenter=self._presenter,
                     runtime_controls=self._keyboard,
@@ -502,6 +507,21 @@ class InteractiveDriveApp:
         finally:
             if recorder is not None:
                 recorder.close(reason="scene-end")
+
+    def _build_input_backend(self, simulation: EgoVehicleKinematics) -> InputBackend:
+        trajectory_path = self._config.drive_trajectory_path
+        if trajectory_path is None:
+            return KeyboardInputBackend(self._keyboard)
+        trajectory = load_waypoint_trajectory(trajectory_path)
+        logger.info(
+            f"[interactive-drive] following trajectory {trajectory.name!r} "
+            f"from {trajectory_path} ({len(trajectory.waypoints)} waypoints, "
+            f"{trajectory.speed_mps:.1f} m/s)",
+        )
+        return WaypointTrajectoryInputBackend(
+            trajectory,
+            state_provider=lambda: simulation.current_state,
+        )
 
     def _build_recorder(self) -> InteractiveDriveRecorder | None:
         if not self._config.recording.enabled:

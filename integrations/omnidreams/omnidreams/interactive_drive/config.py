@@ -114,6 +114,7 @@ class AppConfig:
     world_model_offload_text_encoder: bool = False
     recording: RecordingConfig = RecordingConfig()
     bev: BevConfig = BevConfig()
+    drive_trajectory_path: Path | None = None
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
     # against the AABB-distance proximity.

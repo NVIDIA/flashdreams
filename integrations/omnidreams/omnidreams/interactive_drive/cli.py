@@ -202,6 +202,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional directory containing official hdmap_00.png... frames used to override the first world-model chunk",
     )
     parser.add_argument(
+        "--drive-trajectory",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a ClipGT scene-editor waypoint trajectory JSON file. "
+            "When set, the demo drives the ego vehicle along that route "
+            "instead of sampling keyboard/wheel steering."
+        ),
+    )
+    parser.add_argument(
         "--compute-device",
         choices=("cuda", "vulkan", "automatic"),
         default="cuda",
@@ -497,6 +507,11 @@ def prepare_config_and_backend(
         ),
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         bev=bev_config,
+        drive_trajectory_path=(
+            args.drive_trajectory.expanduser().resolve()
+            if args.drive_trajectory is not None
+            else None
+        ),
         stream_mjpeg_bind=args.stream_mjpeg,
         **_oob_kwargs(args),
     )
