@@ -26,6 +26,7 @@ Models
    causal_wan22
    cosmos_predict2
    flashvsr
+   hy_worldplay
    lingbot_world
    wan21
 
@@ -123,6 +124,19 @@ uses, and the settings you can tune.
          </div>
 
       Camera-controllable image-to-video world model.
+
+   .. grid-item-card:: HY-WorldPlay
+      :class-card: fd-feature
+      :link: /models/hy_worldplay
+      :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
+         </video>
+
+      Action- and camera-controllable image-to-video world model.
 
 .. container:: fd-eyebrow
 
