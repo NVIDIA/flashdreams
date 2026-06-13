@@ -97,15 +97,6 @@ Some generated samples from the above commands:
    <div class="model-video-grid">
      <div class="model-video-card">
        <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-1.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
-       <div class="model-video-overlay">
-         a person walking
-       </div>
-     </div>
-     <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
          <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-2.mp4" type="video/mp4">
          Your browser does not support the video tag.
        </video>
