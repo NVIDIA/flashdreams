@@ -1109,9 +1109,14 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 if isinstance(block_cache, HyWorldPlayPRoPEBlockCache):
                     block_cache.memory.reset()
 
-        # Narrow ``self.network`` to the HY-DiT type so the prefill entry
-        # point resolves.
+        # Narrow the parent's ``self.network`` (typed as ``Tensor | Module``
+        # by ``nn.Module``'s ``__getattr__`` overload) to the HY-DiT network
+        # so the memory-prefill entry point resolves.
+        # Unwrap torch.compile's OptimizedModule wrapper (present when
+        # compile_network=True) so isinstance resolves against the real class.
         network = self.network
+        if hasattr(network, "_orig_mod"):
+            network = network._orig_mod
         assert isinstance(network, HyWorldPlayWanDiTNetwork)
 
         # Conditional pass.
