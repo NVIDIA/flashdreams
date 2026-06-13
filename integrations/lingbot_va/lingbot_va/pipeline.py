@@ -44,7 +44,6 @@ class LingbotVAInferencePipelineConfig(StreamInferencePipelineConfig):
     action_dim: int = 30
     action_per_frame: int = 16
     attn_window: int = 64
-    sink_size: int = 2
     latent_height: int = 24
     latent_width: int = 20
     latent_channels: int = 48

@@ -57,7 +57,6 @@ from lingbot_va.constants import (
     ROBOTWIN_LATENT_CHANNELS,
     ROBOTWIN_OBS_CAM_KEYS,
     ROBOTWIN_PATCH_SIZE,
-    ROBOTWIN_SINK_SIZE,
     ROBOTWIN_SNR_SHIFT,
     ROBOTWIN_USED_ACTION_CHANNEL_IDS,
     ROBOTWIN_VIDEO_INFERENCE_STEPS,
@@ -108,7 +107,6 @@ class LingbotVARobotwinRunnerConfig(RunnerConfig):
     action_dim: int = ROBOTWIN_ACTION_DIM
     action_per_frame: int = ROBOTWIN_ACTION_PER_FRAME
     attn_window: int = ROBOTWIN_ATTENTION_WINDOW
-    sink_size: int = ROBOTWIN_SINK_SIZE
     guidance_scale: float = ROBOTWIN_GUIDANCE_SCALE
     action_guidance_scale: float = ROBOTWIN_ACTION_GUIDANCE_SCALE
     num_inference_steps: int = ROBOTWIN_VIDEO_INFERENCE_STEPS
@@ -185,9 +183,7 @@ class LingbotVARobotwinRunner(
         self._vae = load_vae(os.path.join(ckpt, "vae"), dtype, vae_device)
         self._streaming_vae = WanVAEStreamingWrapper(self._vae)
 
-        self._streaming_vae_half = None
-        vae_half = load_vae(os.path.join(ckpt, "vae"), dtype, vae_device)
-        self._streaming_vae_half = WanVAEStreamingWrapper(vae_half)
+        self._streaming_vae_half = WanVAEStreamingWrapper(self._vae)
 
         self._tokenizer = load_tokenizer(os.path.join(ckpt, "tokenizer"))
         self._text_encoder = load_text_encoder(
@@ -550,7 +546,6 @@ class LingbotVARobotwinRunner(
             self._streaming_vae.clear_cache()
             if self._streaming_vae_half:
                 self._streaming_vae_half.clear_cache()
-                self._streaming_vae_half.vae.to("cpu")
             # Move all models except VAE to CPU
             self._transformer.network.to("cpu")
             if hasattr(self, '_text_encoder') and self._text_encoder is not None:

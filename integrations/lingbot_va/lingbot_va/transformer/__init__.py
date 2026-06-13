@@ -215,13 +215,14 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             noisy_latent, timestep, cache.network_cache, rope_freqs, persist=persist,
         )
 
-        if cache.network_cache_uncond is None or self.config.guidance_scale <= 1.0:
-            return flow_cond
+        if cache.network_cache_uncond is not None:
+            flow_uncond = self.network.forward_video(
+                noisy_latent, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
+            )
+            if self.config.guidance_scale > 1.0:
+                return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
 
-        flow_uncond = self.network.forward_video(
-            noisy_latent, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
-        )
-        return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
+        return flow_cond
 
     def predict_action_flow(
         self,
@@ -243,13 +244,14 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             noisy_action, timestep, cache.network_cache, rope_freqs, persist=persist,
         )
 
-        if cache.network_cache_uncond is None or self.config.action_guidance_scale <= 1.0:
-            return flow_cond
+        if cache.network_cache_uncond is not None:
+            flow_uncond = self.network.forward_action(
+                noisy_action, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
+            )
+            if self.config.action_guidance_scale > 1.0:
+                return flow_uncond + self.config.action_guidance_scale * (flow_cond - flow_uncond)
 
-        flow_uncond = self.network.forward_action(
-            noisy_action, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
-        )
-        return flow_uncond + self.config.action_guidance_scale * (flow_cond - flow_uncond)
+        return flow_cond
 
     # ------------------------------------------------------------------
     # Abstract method stubs
