@@ -32,7 +32,7 @@ TI2V-5B backbone, 4-step distilled Euler).
 
    <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
      <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
+       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-1.mp4" type="video/mp4">
        Your browser does not support the video tag.
      </video>
    </div>
