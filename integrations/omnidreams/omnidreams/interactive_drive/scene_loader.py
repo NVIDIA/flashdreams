@@ -7,6 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -64,15 +65,63 @@ class _PromptEntry:
     text: str
 
 
-def _read_yaml(zf: zipfile.ZipFile, name: str) -> dict[str, Any]:
+class _DirectorySceneArchive:
+    """ZipFile-like reader for an extracted OmniDreams scene directory."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.resolve()
+        self.filename = str(self.root)
+        self._names = tuple(
+            sorted(
+                path.relative_to(self.root).as_posix()
+                for path in self.root.rglob("*")
+                if path.is_file()
+            )
+        )
+
+    def namelist(self) -> list[str]:
+        return list(self._names)
+
+    def read(self, name: str) -> bytes:
+        return self._path_for_name(name).read_bytes()
+
+    def open(self, name: str) -> Any:
+        return self._path_for_name(name).open("rb")
+
+    def _path_for_name(self, name: str) -> Path:
+        path = (self.root / name).resolve()
+        try:
+            path.relative_to(self.root)
+        except ValueError as exc:
+            raise FileNotFoundError(name) from exc
+        return path
+
+
+@contextmanager
+def _open_scene_archive(scene_path: Path) -> Any:
+    if scene_path.is_dir():
+        yield _DirectorySceneArchive(scene_path)
+        return
+    with zipfile.ZipFile(scene_path, "r") as zf:
+        yield zf
+
+
+def _resolve_scene_path(scene_path: Path, variant: str) -> Path:
+    scene_path = Path(scene_path)
+    if scene_path.is_dir():
+        return scene_path
+    return resolve_variant_archive(scene_path, variant)
+
+
+def _read_yaml(zf: Any, name: str) -> dict[str, Any]:
     return yaml.safe_load(zf.read(name))
 
 
-def _read_json(zf: zipfile.ZipFile, name: str) -> dict[str, Any]:
+def _read_json(zf: Any, name: str) -> dict[str, Any]:
     return json.loads(zf.read(name))
 
 
-def _read_parquet_records(zf: zipfile.ZipFile, name: str) -> list[dict[str, Any]]:
+def _read_parquet_records(zf: Any, name: str) -> list[dict[str, Any]]:
     with zf.open(name) as handle:
         return pq.read_table(handle).to_pylist()
 
@@ -84,7 +133,7 @@ def _points_from_records(points: list[dict[str, float]]) -> np.ndarray:
 
 
 def _load_initial_image(
-    zf: zipfile.ZipFile, camera_name: str, variant: str, raster: RasterConfig
+    zf: Any, camera_name: str, variant: str, raster: RasterConfig
 ) -> np.ndarray:
     """Seed frame: the GT first camera frame, else the ``first_image`` render.
 
@@ -98,7 +147,7 @@ def _load_initial_image(
         name = images.get(variant) or images.get("default")
     if name is None:
         raise FileNotFoundError(
-            "No frames/<camera>/*.jpeg or first_image*.png found in the USDZ archive"
+            "No frames/<camera>/*.jpeg or first_image*.png found in the scene"
         )
     _log_initial_frame_selection(
         zf,
@@ -112,7 +161,7 @@ def _load_initial_image(
         return np.asarray(resized, dtype=np.uint8)
 
 
-def _discover_initial_frame(zf: zipfile.ZipFile, camera_name: str) -> str | None:
+def _discover_initial_frame(zf: Any, camera_name: str) -> str | None:
     """Earliest GT frame for ``camera_name`` (``None`` if the archive has none).
 
     Frames are ``frames/<camera>/<ts_us>.jpeg``; the smallest timestamp is
@@ -141,7 +190,7 @@ def _discover_initial_frame(zf: zipfile.ZipFile, camera_name: str) -> str | None
     return sorted(candidates, key=_frame_sort_key)[0]
 
 
-def _load_prompt(zf: zipfile.ZipFile, variant: str, prompt_override: str | None) -> str:
+def _load_prompt(zf: Any, variant: str, prompt_override: str | None) -> str:
     if prompt_override is not None:
         _log_prompt_selection(
             zf,
@@ -189,13 +238,13 @@ def _select_prompt_variant(
     return None
 
 
-def _discover_prompts(zf: zipfile.ZipFile) -> dict[str, str]:
+def _discover_prompts(zf: Any) -> dict[str, str]:
     prompt_entries, _ = _discover_prompt_entries(zf)
     return {variant: entry.text for variant, entry in prompt_entries.items()}
 
 
 def _discover_prompt_entries(
-    zf: zipfile.ZipFile,
+    zf: Any,
 ) -> tuple[dict[str, _PromptEntry], tuple[str, ...]]:
     prompts: dict[str, _PromptEntry] = {}
     ignored_files: list[str] = []
@@ -217,7 +266,7 @@ def _discover_prompt_entries(
 
 
 def _log_prompt_selection(
-    zf: zipfile.ZipFile,
+    zf: Any,
     *,
     variant: str,
     selected_variant: str | None,
@@ -242,7 +291,7 @@ def _log_prompt_selection(
 
 
 def _log_initial_frame_selection(
-    zf: zipfile.ZipFile,
+    zf: Any,
     *,
     variant: str,
     camera_name: str,
@@ -258,7 +307,7 @@ def _log_initial_frame_selection(
     )
 
 
-def _discover_first_images(zf: zipfile.ZipFile) -> dict[str, str]:
+def _discover_first_images(zf: Any) -> dict[str, str]:
     images: dict[str, str] = {}
     for name in zf.namelist():
         if (
@@ -287,9 +336,7 @@ def _select_camera(
     raise KeyError(f"Camera {requested_name!r} was not found in the calibration rig")
 
 
-def _load_camera_calibration(
-    zf: zipfile.ZipFile, camera_name: str
-) -> CameraCalibration:
+def _load_camera_calibration(zf: Any, camera_name: str) -> CameraCalibration:
     calibration_row = _read_parquet_records(zf, "clipgt/calibration_estimate.parquet")[
         0
     ]["calibration_estimate"]
@@ -348,7 +395,7 @@ def _load_camera_calibration(
     )
 
 
-def _load_initial_state(zf: zipfile.ZipFile) -> tuple[np.ndarray, int, float, float]:
+def _load_initial_state(zf: Any) -> tuple[np.ndarray, int, float, float]:
     trajectory_doc = _read_json(zf, "rig_trajectories.json")
     rig_trajectory = trajectory_doc["rig_trajectories"][0]
     poses = np.asarray(rig_trajectory["T_rig_worlds"], dtype=np.float32)
@@ -668,7 +715,7 @@ def _map_obstacle_category_to_bbox_type(category: str) -> str:
     return "Others"
 
 
-def _load_vehicle_bbox_tracks(zf: zipfile.ZipFile) -> tuple[WorldVehicleBBoxTrack, ...]:
+def _load_vehicle_bbox_tracks(zf: Any) -> tuple[WorldVehicleBBoxTrack, ...]:
     if "clipgt/obstacle.parquet" not in zf.namelist():
         return tuple()
 
@@ -738,7 +785,7 @@ def _load_vehicle_bbox_tracks(zf: zipfile.ZipFile) -> tuple[WorldVehicleBBoxTrac
 
 
 def _load_map_layers(
-    zf: zipfile.ZipFile,
+    zf: Any,
     raster: RasterConfig,
 ) -> tuple[
     tuple[WorldLineSegments, ...],
@@ -854,13 +901,13 @@ def _load_map_layers(
 
 
 def _load_ground_mesh(
-    zf: zipfile.ZipFile,
+    zf: Any,
 ) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
-    """Read ``mesh_ground.ply`` from the USDZ archive if present.
+    """Read ``mesh_ground.ply`` from the scene if present.
 
     Returns ``(vertices, faces)`` for use by
     :class:`omnidreams.interactive_drive.simulation.ground_snap.GroundSnapper`, or ``(None, None)`` when the
-    archive ships no ground mesh (e.g. legacy fixtures), in which case
+    scene ships no ground mesh (e.g. legacy fixtures), in which case
     ground-snap silently no-ops at runtime.
     """
     if _GROUND_MESH_NAME not in zf.namelist():
@@ -883,10 +930,10 @@ def load_scene_bundle(
     prompt_override: str | None,
     raster: RasterConfig,
 ) -> SceneBundle:
-    # Swap to the requested variant's sibling archive when present; legacy
-    # single-archive scenes resolve to the same path (variant picked in-zip).
-    scene_path = resolve_variant_archive(Path(scene_path), variant)
-    with zipfile.ZipFile(scene_path, "r") as zf:
+    # Swap to the requested variant's sibling archive when present; extracted
+    # scene directories are read in place.
+    scene_path = _resolve_scene_path(Path(scene_path), variant)
+    with _open_scene_archive(scene_path) as zf:
         metadata = _read_yaml(zf, "metadata.yaml")
         camera = _load_camera_calibration(zf, camera_name)
         initial_pose, initial_timestamp, initial_yaw, initial_speed = (
@@ -929,11 +976,11 @@ def reseed_scene_bundle(
     """Re-seed an already-parsed ``bundle`` for a different weather variant.
 
     Variants share all geometry; only the initial frame and prompt differ, so
-    this reads just those from the variant's archive and reuses the rest,
+    this reads just those from the variant's scene data and reuses the rest,
     skipping the full re-parse and bounds/snapper rebuild.
     """
-    scene_path = resolve_variant_archive(Path(scene_path), variant)
-    with zipfile.ZipFile(scene_path, "r") as zf:
+    scene_path = _resolve_scene_path(Path(scene_path), variant)
+    with _open_scene_archive(scene_path) as zf:
         initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
         prompt = _load_prompt(zf, variant, prompt_override)
     return replace(

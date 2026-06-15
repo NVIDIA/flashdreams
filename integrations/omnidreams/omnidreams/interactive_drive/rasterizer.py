@@ -12,6 +12,7 @@ each :class:`PresentedFrame`.
 import concurrent.futures
 import contextlib
 import math
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -62,6 +63,55 @@ def _extract_clipgt_from_usdz(usdz_path: Path, dest_dir: Path) -> Path:
             (clipgt_dir / target_name).write_bytes(zf.read(name))
 
     return clipgt_dir
+
+
+def _find_extracted_clipgt_dir(scene_path: Path) -> Path:
+    if any(scene_path.glob("clipgt.*.parquet")):
+        return scene_path
+    nested = scene_path / "clipgt"
+    if nested.is_dir() and any(nested.glob("*.parquet")):
+        return nested
+    if any(scene_path.glob("*.parquet")):
+        return scene_path
+    raise FileNotFoundError(
+        f"No extracted ClipGT parquet directory found under {scene_path}"
+    )
+
+
+def _materialize_clipgt_from_directory(scene_path: Path, dest_dir: Path) -> Path:
+    """Copy an extracted scene's clipgt files into Ludus' flat layout."""
+    source_dir = _find_extracted_clipgt_dir(scene_path)
+    clipgt_dir = dest_dir / "clipgt"
+    clipgt_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for source in sorted(source_dir.iterdir()):
+        if not source.is_file():
+            continue
+        if source.suffix not in {".parquet", ".json"}:
+            continue
+        target_name = (
+            source.name
+            if source.name.startswith("clipgt.")
+            else f"clipgt.{source.name}"
+        )
+        shutil.copy2(source, clipgt_dir / target_name)
+        copied += 1
+    if copied == 0:
+        raise FileNotFoundError(f"No ClipGT parquet/json files found in {source_dir}")
+    logger.info(
+        "[rasterizer] materialized extracted clipgt source=%s output=%s files=%d",
+        source_dir,
+        clipgt_dir,
+        copied,
+    )
+    return clipgt_dir
+
+
+def _clipgt_dir_from_scene_path(scene_path: Path, dest_dir: Path) -> Path:
+    scene_path = Path(scene_path)
+    if scene_path.is_dir():
+        return _materialize_clipgt_from_directory(scene_path, dest_dir)
+    return _extract_clipgt_from_usdz(scene_path, dest_dir)
 
 
 @dataclass
@@ -215,10 +265,10 @@ class _LudusConditionRasterizerImpl:
         return torch.linalg.inv(camera_poses)
 
     def load_scene(self, scene: SceneBundle) -> None:
-        """Load a scene from the USDZ bundle.
+        """Load a scene from a USDZ bundle or extracted ClipGT directory.
 
         Args:
-            scene: Scene bundle containing path to USDZ and camera selection.
+            scene: Scene bundle containing the scene path and camera selection.
         """
         self.ctx.clear_scenes()
 
@@ -226,7 +276,7 @@ class _LudusConditionRasterizerImpl:
             self._temp_dir.cleanup()
         self._temp_dir = tempfile.TemporaryDirectory()
 
-        clipgt_dir = _extract_clipgt_from_usdz(
+        clipgt_dir = _clipgt_dir_from_scene_path(
             scene.scene_path, Path(self._temp_dir.name)
         )
 

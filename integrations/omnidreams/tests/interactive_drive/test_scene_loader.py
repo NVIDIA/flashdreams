@@ -10,6 +10,7 @@ import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import (
     _discover_prompts,
     load_scene_bundle,
@@ -31,6 +32,28 @@ def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
     assert prompts["1"] == "legacy one"
     assert prompts["2"] == "canonical two"
     assert "night" not in prompts
+
+
+def test_load_scene_bundle_from_extracted_scene_directory(tmp_path) -> None:
+    archive_path = build_synthetic_scene_usdz(tmp_path / "scene.usdz")
+    scene_dir = tmp_path / "scene"
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        zf.extractall(scene_dir)
+
+    bundle = load_scene_bundle(
+        scene_path=scene_dir,
+        camera_name="camera_front_wide_120fov",
+        variant="1",
+        prompt_override=None,
+        raster=RasterConfig(width=320, height=176),
+    )
+
+    assert bundle.scene_path == scene_dir
+    assert bundle.scene_id == "synthetic-test-scene"
+    assert bundle.selected_camera.logical_name == "camera_front_wide_120fov"
+    assert bundle.initial_rgb.shape == (176, 320, 3)
+    assert bundle.prompt == "Synthetic prompt variant 1."
+    assert len(bundle.vehicle_bbox_tracks) > 0
 
 
 # Opportunistic: exercises the real USDZ loader, so this test is silently

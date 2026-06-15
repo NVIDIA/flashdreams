@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 from omnidreams.interactive_drive.rasterizer import (
+    _clipgt_dir_from_scene_path,
     _LoadedSceneData,
     _LudusConditionRasterizerImpl,
     _RenderedCameraFrames,
@@ -72,3 +73,16 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert isinstance(first, np.ndarray)
     assert not callable(getattr(first, "to_cuda_tensor", None))
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
+
+
+def test_clipgt_dir_from_scene_path_accepts_extracted_scene_directory(tmp_path) -> None:
+    scene_root = tmp_path / "scene" / "clipgt"
+    source = scene_root / "clipgt"
+    source.mkdir(parents=True)
+    (source / "obstacle.parquet").write_bytes(b"obstacle")
+    (source / "metadata.json").write_text("{}", encoding="utf-8")
+
+    clipgt_dir = _clipgt_dir_from_scene_path(scene_root, tmp_path / "materialized")
+
+    assert (clipgt_dir / "clipgt.obstacle.parquet").read_bytes() == b"obstacle"
+    assert (clipgt_dir / "clipgt.metadata.json").read_text(encoding="utf-8") == "{}"
