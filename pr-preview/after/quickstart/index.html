@@ -384,65 +384,41 @@ SPDX-License-Identifier: Apache-2.0
   <section id="get-started">
 <h1>Get Started<a class="headerlink" href="#get-started" title="Link to this heading">#</a></h1>
 <p>Welcome to FlashDreams! This page will guide you from a fresh checkout
-of the repository to running NVIDIA OmniDreams, the interactive
-HDMap-conditioned driving world-model demo built on FlashDreams.</p>
+of the repository to a running model. It uses <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>, the interactive driving world model, as the
+example; the <a class="reference internal" href="../models/index.html"><span class="doc">model gallery</span></a> lists the run command
+for every other model.</p>
 <section id="install">
 <h2>Install<a class="headerlink" href="#install" title="Link to this heading">#</a></h2>
-<p>FlashDreams uses the <code class="docutils literal notranslate"><span class="pre">uv</span></code> python package manager. Installation
-instructions for <code class="docutils literal notranslate"><span class="pre">uv</span></code> are available in the <a class="reference external" href="https://docs.astral.sh/uv/getting-started/installation/">Astral documentation</a>.</p>
-<p>With <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed, clone the repository and synchronize the OmniDreams
-workspace environment:</p>
+<p>FlashDreams uses the <code class="docutils literal notranslate"><span class="pre">uv</span></code> Python package manager (<a class="reference external" href="https://docs.astral.sh/uv/getting-started/installation/">installation
+instructions</a>).
+With <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed, clone the repository and synchronize the
+OmniDreams workspace:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/NVIDIA/flashdreams.git
 <span class="nb">cd</span><span class="w"> </span>flashdreams
 uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
-<p>This installs the FlashDreams core package, the OmniDreams integration,
-and the <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> demo dependencies. The unified runner CLI is
-also available through the OmniDreams workspace member:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
+<p>Most runs need a Hugging Face token. For OmniDreams, use a token with
+read access to <a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a> and
+<a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
 </pre></div>
 </div>
-<p>If you are developing FlashDreams itself or want every shipped runner in
-one environment, use <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--extra</span> <span class="pre">dev</span> <span class="pre">--extra</span> <span class="pre">runners</span></code> instead.</p>
+<p>For container, caching, and other environment details, see the project
+<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/README.md">README</a> and
+<a class="reference internal" href="../troubleshooting.html"><span class="doc">Troubleshooting</span></a>.</p>
 </section>
-<section id="hugging-face-authentication">
-<h2>Hugging Face authentication<a class="headerlink" href="#hugging-face-authentication" title="Link to this heading">#</a></h2>
-<p>OmniDreams downloads demo scenes and checkpoints from <a class="reference external" href="https://huggingface.co/">Hugging Face</a> the first time you run it. Before launching
-the demo, use a Hugging Face account with access to:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://huggingface.co/nvidia/omni-dreams-models">nvidia/omni-dreams-models</a>: checkpoints.</p></li>
-<li><p><a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>: demo
-scene data.</p></li>
-<li><p><a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-samples">nvidia/omni-dreams-samples</a> if you
-plan to run the scripted example-data command later on this page.</p></li>
-</ul>
-<p>Then create a read token from <a class="reference external" href="https://huggingface.co/settings/tokens">Hugging Face token settings</a>. The token must have read
-access to <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-models</span></code> and
-<code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-scenes</span></code>. If you use a fine-grained token, include
-both repositories, plus <code class="docutils literal notranslate"><span class="pre">nvidia/omni-dreams-samples</span></code> if you plan to run
-the scripted example-data command. Export the token in the same shell
-where you run <code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span></code>, <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>hf_...
-</pre></div>
-</div>
-<p>If the default cache under <code class="docutils literal notranslate"><span class="pre">~/.cache/huggingface</span></code> is on a small disk,
-point <code class="docutils literal notranslate"><span class="pre">HF_HOME</span></code> at a larger volume before the first download:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/path/to/large/huggingface-cache
-</pre></div>
-</div>
-<p>For more environment and container details, see the project
-<a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/README.md">README</a>.</p>
-</section>
-<section id="run-omnidreams">
-<h2>Run OmniDreams<a class="headerlink" href="#run-omnidreams" title="Link to this heading">#</a></h2>
-<p>Start with the <a class="reference internal" href="../models/omnidreams.html"><span class="doc">OmniDreams</span></a> interactive driving
-demo. The command below runs the world model in one process and streams
-the generated camera view to a browser:</p>
+<section id="run-your-first-model">
+<h2>Run your first model<a class="headerlink" href="#run-your-first-model" title="Link to this heading">#</a></h2>
+<p>Launch the OmniDreams interactive driving demo. It runs the world model
+and streams the generated camera view to a browser:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
 </pre></div>
 </div>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in a browser on the same network
+(use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> on the same machine). The first launch spends several
+minutes loading checkpoints and compiling kernels; later launches reuse
+the cached assets.</p>
 <p>On VRAM-constrained GPUs, add <code class="docutils literal notranslate"><span class="pre">--offload-text-encoder</span></code> to reduce peak
 VRAM usage by about 15 GB:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
@@ -450,73 +426,14 @@ VRAM usage by about 15 GB:</p>
 <span class="w">    </span>--offload-text-encoder
 </pre></div>
 </div>
-<p>This runs the text and first-frame encoders once per scene, frees them
-before building the diffusion pipeline, and reuses the cached embeddings
-across world-model resets. The trade-off is slower first loads and
-scene/variant switches.</p>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in a browser on the same network.
-Use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> when the browser is on the same machine. The default
-scene auto-stages on first launch when <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> is set.</p>
-<p>Optionally, pre-download the default scene and model assets so access
-errors and multi-GB downloads happen before the demo starts:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--scene-uuid<span class="w"> </span>clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4
-</pre></div>
-</div>
-<p>The first launch can spend several minutes loading checkpoints,
-compiling kernels, capturing CUDA graphs, and autotuning. Later launches
-reuse cached assets and compiled kernels.</p>
-<section id="scripted-omnidreams-generation">
-<h3>Scripted OmniDreams generation<a class="headerlink" href="#scripted-omnidreams-generation" title="Link to this heading">#</a></h3>
-<p>To generate a fixed OmniDreams rollout through <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>, use
-the single-view runner with bundled example data:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example_data_uuid<span class="w"> </span><span class="s2">&quot;239560dc-33d1-11ef-9720-00044bcbccac&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">20</span>
-</pre></div>
-</div>
-<p>See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for local-window mode, WebRTC serving,
-scene variants, perf-manifest setup, multi-GPU launch commands, and
-additional example-data UUIDs.</p>
-</section>
-<section id="other-methods">
-<h3>Other methods<a class="headerlink" href="#other-methods" title="Link to this heading">#</a></h3>
-<p>After OmniDreams, the model gallery covers the rest of the shipped
-FlashDreams methods and their runner slugs. For example, the offline
-<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> Wan 2.1 1.3B T2V method runs
-with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="additional-setup-options">
-<h2>Additional setup options<a class="headerlink" href="#additional-setup-options" title="Link to this heading">#</a></h2>
-<p>These steps are not required for the basic OmniDreams demo, but they are
-useful for development workflows and downstream projects.</p>
-<section id="use-flashdreams-as-a-library">
-<h3>Use FlashDreams as a library<a class="headerlink" href="#use-flashdreams-as-a-library" title="Link to this heading">#</a></h3>
-<p>If you only need FlashDreams as a dependency in another project rather
-than running the shipped methods, install it from PyPI instead:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>flashdreams
-</pre></div>
-</div>
-<p>Or track the current <code class="docutils literal notranslate"><span class="pre">main</span></code> branch:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/NVIDIA/flashdreams.git&quot;</span>
-</pre></div>
-</div>
-</section>
+<p>See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for the offload trade-offs, scripted
+generation, scene variants, WebRTC serving, and multi-GPU options.</p>
 </section>
 <section id="where-to-next">
 <h2>Where to next<a class="headerlink" href="#where-to-next" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped method with its CLI slug,
-checkpoint source, per-method knobs, and the command to run it.</p></li>
+<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped model with its CLI slug and the
+command to run it.</p></li>
 <li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>: drive a world model in real time with the
 <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> demo.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>: the generation
@@ -528,22 +445,6 @@ method as a plugin.</p></li>
 <li><p><a class="reference internal" href="../api/index.html"><span class="doc">CLI and API Reference</span></a>: Reference docs for the
 <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> CLI and the FlashDreams Python API.</p></li>
 <li><p><a class="reference internal" href="../troubleshooting.html"><span class="doc">Troubleshooting</span></a>: common first-run failures and fixes.</p></li>
-</ul>
-</section>
-<section id="project-and-support">
-<h2>Project and support<a class="headerlink" href="#project-and-support" title="Link to this heading">#</a></h2>
-<p>FlashDreams is developed in the open on GitHub, and contributions are
-welcome. If you hit a bug or have a feature request, open an issue; if
-you have a fix or improvement, send a pull request. Browsing existing
-issues and pull requests is also a good way to see what others are
-working on.</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams">GitHub repository</a>: source,
-releases, and documentation.</p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/issues">Issues</a>: report bugs
-or request features.</p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/pulls">Pull requests</a>: review
-work in progress or contribute your own.</p></li>
 </ul>
 </section>
 </section>
@@ -596,18 +497,8 @@ work in progress or contribute your own.</p></li>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hugging-face-authentication">Hugging Face authentication</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-omnidreams">Run OmniDreams</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scripted-omnidreams-generation">Scripted OmniDreams generation</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#other-methods">Other methods</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-setup-options">Additional setup options</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-flashdreams-as-a-library">Use FlashDreams as a library</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-your-first-model">Run your first model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-to-next">Where to next</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-and-support">Project and support</a></li>
 </ul>
   </nav></div>
 

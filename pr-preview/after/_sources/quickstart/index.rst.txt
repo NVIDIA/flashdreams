@@ -17,18 +17,18 @@ Get Started
 ===========
 
 Welcome to FlashDreams! This page will guide you from a fresh checkout
-of the repository to running NVIDIA OmniDreams, the interactive
-HDMap-conditioned driving world-model demo built on FlashDreams.
+of the repository to a running model. It uses :doc:`NVIDIA OmniDreams
+</models/omnidreams>`, the interactive driving world model, as the
+example; the :doc:`model gallery </models/index>` lists the run command
+for every other model.
 
 Install
 -------
 
-FlashDreams uses the ``uv`` python package manager. Installation
-instructions for ``uv`` are available in the `Astral documentation
-<https://docs.astral.sh/uv/getting-started/installation/>`_.
-
-With ``uv`` installed, clone the repository and synchronize the OmniDreams
-workspace environment:
+FlashDreams uses the ``uv`` Python package manager (`installation
+instructions <https://docs.astral.sh/uv/getting-started/installation/>`_).
+With ``uv`` installed, clone the repository and synchronize the
+OmniDreams workspace:
 
 .. code-block:: bash
 
@@ -36,66 +36,34 @@ workspace environment:
    cd flashdreams
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-This installs the FlashDreams core package, the OmniDreams integration,
-and the ``interactive-drive`` demo dependencies. The unified runner CLI is
-also available through the OmniDreams workspace member:
+Most runs need a Hugging Face token. For OmniDreams, use a token with
+read access to `nvidia/omni-dreams-models
+<https://huggingface.co/nvidia/omni-dreams-models>`_ and
+`nvidia/omni-dreams-scenes
+<https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run --help
+   export HF_TOKEN=<your-hf-token>
 
-If you are developing FlashDreams itself or want every shipped runner in
-one environment, use ``uv sync --extra dev --extra runners`` instead.
+For container, caching, and other environment details, see the project
+`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_ and
+:doc:`/troubleshooting`.
 
-Hugging Face authentication
----------------------------
+Run your first model
+--------------------
 
-OmniDreams downloads demo scenes and checkpoints from `Hugging Face
-<https://huggingface.co/>`_ the first time you run it. Before launching
-the demo, use a Hugging Face account with access to:
-
-- `nvidia/omni-dreams-models
-  <https://huggingface.co/nvidia/omni-dreams-models>`_: checkpoints.
-- `nvidia/omni-dreams-scenes
-  <https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_: demo
-  scene data.
-- `nvidia/omni-dreams-samples
-  <https://huggingface.co/datasets/nvidia/omni-dreams-samples>`_ if you
-  plan to run the scripted example-data command later on this page.
-
-Then create a read token from `Hugging Face token settings
-<https://huggingface.co/settings/tokens>`_. The token must have read
-access to ``nvidia/omni-dreams-models`` and
-``nvidia/omni-dreams-scenes``. If you use a fine-grained token, include
-both repositories, plus ``nvidia/omni-dreams-samples`` if you plan to run
-the scripted example-data command. Export the token in the same shell
-where you run ``omnidreams-prepare``, ``interactive-drive``, or
-``flashdreams-run``:
-
-.. code-block:: bash
-
-   export HF_TOKEN=hf_...
-
-If the default cache under ``~/.cache/huggingface`` is on a small disk,
-point ``HF_HOME`` at a larger volume before the first download:
-
-.. code-block:: bash
-
-   export HF_HOME=/path/to/large/huggingface-cache
-
-For more environment and container details, see the project
-`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_.
-
-Run OmniDreams
---------------
-
-Start with the :doc:`OmniDreams </models/omnidreams>` interactive driving
-demo. The command below runs the world model in one process and streams
-the generated camera view to a browser:
+Launch the OmniDreams interactive driving demo. It runs the world model
+and streams the generated camera view to a browser:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+
+Then open ``http://<server-ip>:8080/`` in a browser on the same network
+(use ``localhost`` on the same machine). The first launch spends several
+minutes loading checkpoints and compiling kernels; later launches reuse
+the cached assets.
 
 On VRAM-constrained GPUs, add ``--offload-text-encoder`` to reduce peak
 VRAM usage by about 15 GB:
@@ -106,87 +74,14 @@ VRAM usage by about 15 GB:
        --stream-mjpeg :8080 \
        --offload-text-encoder
 
-This runs the text and first-frame encoders once per scene, frees them
-before building the diffusion pipeline, and reuses the cached embeddings
-across world-model resets. The trade-off is slower first loads and
-scene/variant switches.
-
-Then open ``http://<server-ip>:8080/`` in a browser on the same network.
-Use ``localhost`` when the browser is on the same machine. The default
-scene auto-stages on first launch when ``HF_TOKEN`` is set.
-
-Optionally, pre-download the default scene and model assets so access
-errors and multi-GB downloads happen before the demo starts:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams omnidreams-prepare \
-       --scene-uuid clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4
-
-The first launch can spend several minutes loading checkpoints,
-compiling kernels, capturing CUDA graphs, and autotuning. Later launches
-reuse cached assets and compiled kernels.
-
-Scripted OmniDreams generation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To generate a fixed OmniDreams rollout through ``flashdreams-run``, use
-the single-view runner with bundled example data:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams \
-       flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --example-data True \
-       --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
-       --total-blocks 20
-
-See :doc:`/models/omnidreams` for local-window mode, WebRTC serving,
-scene variants, perf-manifest setup, multi-GPU launch commands, and
-additional example-data UUIDs.
-
-Other methods
-~~~~~~~~~~~~~
-
-After OmniDreams, the model gallery covers the rest of the shipped
-FlashDreams methods and their runner slugs. For example, the offline
-:doc:`Self-Forcing </models/self_forcing>` Wan 2.1 1.3B T2V method runs
-with:
-
-.. code-block:: bash
-
-   uv run --project integrations/self_forcing \
-       flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
-       --total-blocks 7
-
-Additional setup options
-------------------------
-
-These steps are not required for the basic OmniDreams demo, but they are
-useful for development workflows and downstream projects.
-
-Use FlashDreams as a library
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you only need FlashDreams as a dependency in another project rather
-than running the shipped methods, install it from PyPI instead:
-
-.. code-block:: bash
-
-   pip install flashdreams
-
-Or track the current ``main`` branch:
-
-.. code-block:: bash
-
-   pip install "git+https://github.com/NVIDIA/flashdreams.git"
+See :doc:`/models/omnidreams` for the offload trade-offs, scripted
+generation, scene variants, WebRTC serving, and multi-GPU options.
 
 Where to next
 -------------
 
-- :doc:`/models/index`: every shipped method with its CLI slug,
-  checkpoint source, per-method knobs, and the command to run it.
+- :doc:`/models/index`: every shipped model with its CLI slug and the
+  command to run it.
 - :doc:`/models/omnidreams`: drive a world model in real time with the
   ``interactive-drive`` demo.
 - :doc:`/developer_guides/inference_pipeline_overview`: the generation
@@ -198,19 +93,3 @@ Where to next
 - :doc:`CLI and API Reference </api/index>`: Reference docs for the
   ``flashdreams-run`` CLI and the FlashDreams Python API.
 - :doc:`/troubleshooting`: common first-run failures and fixes.
-
-Project and support
--------------------
-
-FlashDreams is developed in the open on GitHub, and contributions are
-welcome. If you hit a bug or have a feature request, open an issue; if
-you have a fix or improvement, send a pull request. Browsing existing
-issues and pull requests is also a good way to see what others are
-working on.
-
-- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_: source,
-  releases, and documentation.
-- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_: report bugs
-  or request features.
-- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_: review
-  work in progress or contribute your own.
