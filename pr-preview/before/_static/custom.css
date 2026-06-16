@@ -870,8 +870,8 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* ----- 9. Reference-docs model-page components --------------------------- */
 
-/* Models index: drop the reading-measure cap so wide benchmark tables +
-   charts fill the main track. `fd-page-wide` is set on <body> in
+/* Models index: drop the reading-measure cap so the wide model-card
+   grid fills the main track. `fd-page-wide` is set on <body> in
    layout.html for the page whose left sidebar is disabled. */
 body.fd-page-wide .bd-main .bd-content .bd-article-container {
     max-width: none;

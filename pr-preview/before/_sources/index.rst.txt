@@ -123,8 +123,8 @@ Performance
 
 Each tile shows the speedup over a separate existing implementation of
 the same model. Both runs use the same weights on the same GPU, so the
-gain comes from FlashDreams' runtime alone. Full methodology and the
-per-tile baselines live on the :doc:`Models page </models/index>`.
+gain comes from FlashDreams' runtime alone. Each tile links to the
+profiling chart on its model page.
 
 .. grid:: 1 2 2 4
    :gutter: 3

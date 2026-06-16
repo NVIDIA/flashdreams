@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=34000ddd" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3414d026" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -389,16 +389,16 @@ SPDX-License-Identifier: Apache-2.0
 image-to-video, camera-controlled, and super-resolution), all through one
 consistent command line and Python interface. Browse the models below, pick the
 one that fits what you want to make, and follow its card through to the full
-recipe.</p>
+method.</p>
 <section id="available-models">
 <h2>Available models<a class="headerlink" href="#available-models" title="Link to this heading">#</a></h2>
 <p>The models come in three flavors. Streaming and autoregressive generation
-recipes build a video step by step and stay fast once warmed up, aiming for
-sub-second latency per step; bidirectional recipes produce a clip in a single
+methods build a video step by step and stay fast once warmed up, aiming for
+sub-second latency per step; bidirectional methods produce a clip in a single
 pass and serve as the quality reference for their streaming counterparts; and
-super-resolution recipes upscale existing frames in chunks, so their latency
+super-resolution methods upscale existing frames in chunks, so their latency
 scales with output resolution rather than step count. Each card links to that
-recipe’s page, where you’ll find the exact command to run it, the checkpoint it
+method’s page, where you’ll find the exact command to run it, the checkpoint it
 uses, and the settings you can tune.</p>
 <div class="fd-eyebrow docutils container">
 <p>Streaming and autoregressive generation</p>
@@ -412,7 +412,7 @@ uses, and the settings you can tune.</p>
 OmniDreams</div>
 <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
-</video><p class="sd-card-text">Single-view and multi-view streaming recipes against the
+</video><p class="sd-card-text">Single-view and multi-view streaming methods against the
 OmniDreams checkpoints, including a diffusion-forcing AR
 variant.</p>
 </div>
@@ -449,7 +449,7 @@ the Causal-Forcing plugin.</p>
 Causal Wan 2.2</div>
 <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
-</video><p class="sd-card-text">FastVideo Wan 2.2 14B causal T2V recipe.</p>
+</video><p class="sd-card-text">FastVideo Wan 2.2 14B causal T2V method.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="causal_wan22.html"><span class="doc">Causal Wan2.2</span></a></div>
 </div>
@@ -486,7 +486,7 @@ Wan 2.1</div>
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
 </video><p class="sd-card-text">Bidirectional Wan 2.1: T2V 1.3B / 480p and I2V 14B / 480p.
 The parity baseline for <code class="docutils literal notranslate"><span class="pre">self-forcing</span></code> and
-<code class="docutils literal notranslate"><span class="pre">causal-forcing</span></code> recipes.</p>
+<code class="docutils literal notranslate"><span class="pre">causal-forcing</span></code> methods.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a></div>
 </div>
@@ -497,7 +497,7 @@ The parity baseline for <code class="docutils literal notranslate"><span class="
 Cosmos-Predict2.5</div>
 <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
   <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
-</video><p class="sd-card-text">Bidirectional Cosmos-Predict2.5 recipes (T2V / I2V, 2B).</p>
+</video><p class="sd-card-text">Bidirectional Cosmos-Predict2.5 methods (T2V / I2V, 2B).</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="cosmos_predict2.html"><span class="doc">Cosmos-Predict2.5</span></a></div>
 </div>
@@ -524,280 +524,6 @@ per scene.</p>
 </div>
 </div>
 </section>
-<section id="benchmarks">
-<h2>Benchmarks<a class="headerlink" href="#benchmarks" title="Link to this heading">#</a></h2>
-<p>Every figure on this page is <strong>latency</strong> in milliseconds, lower is
-better: a FlashDreams runner timed against the upstream runner for the
-same checkpoint under matched runtime settings. The numbers verify that
-the inference path holds tolerance-bounded parity with the upstream
-reference, enforced per recipe (see <a class="reference internal" href="#how-the-benchmarks-were-gathered">How the benchmarks were
-gathered</a>). What differs between the two
-tables below is the cadence latency is measured against: per
-autoregressive step for the generation recipes (<a class="reference internal" href="#per-step-latency">Per-step latency</a>) and
-per scene for super-resolution (<a class="reference internal" href="#per-scene-latency">Per-scene latency</a>).</p>
-<p>Several model pages also carry per-device profiling charts
-(e.g. <a class="reference internal" href="self_forcing.html"><span class="doc">Self-Forcing</span></a>, <a class="reference internal" href="lingbot_world.html"><span class="doc">LingBot-World</span></a>,
-<a class="reference internal" href="wan21.html"><span class="doc">Wan2.1</span></a>), rendered from the same sources as the tables
-below.</p>
-<section id="per-step-latency">
-<h3>Per-step latency<a class="headerlink" href="#per-step-latency" title="Link to this heading">#</a></h3>
-<p><strong>Steady-state per-step latency</strong> is the real elapsed time of one
-autoregressive step once past AR step 2 and the steady-state CUDA graph
-is captured. It is the <code class="docutils literal notranslate"><span class="pre">total(w/o</span> <span class="pre">finalize)</span></code> value the inference
-pipeline logs each step. Across the three devices we profile against, each number
-is the median of the AR-2-onward window of a single run on that device.
-Bidirectional recipes (<code class="docutils literal notranslate"><span class="pre">wan21-*</span></code>) are treated as a single
-large-windowed causal rollout, so their per-step number lines up with
-the streaming variants in the same table. The FlashDreams runner calls
-the same model code paths as the upstream library but in a different
-inference environment (KV caches managed by <code class="docutils literal notranslate"><span class="pre">flashdreams.infra</span></code>, ring
-attention provided by <code class="docutils literal notranslate"><span class="pre">flashdreams.core</span></code>, and a CUDA graph captured
-per recipe); for an apples-to-apples comparison both sides are forced to
-the cuDNN attention backend under matched runtime settings. Speedup is
-<code class="docutils literal notranslate"><span class="pre">(upstream</span> <span class="pre">−</span> <span class="pre">FlashDreams)</span> <span class="pre">÷</span> <span class="pre">FlashDreams</span></code> expressed as a percentage, so
-a positive value means FlashDreams is faster (e.g. a 432 ms → 344 ms
-step is <code class="docutils literal notranslate"><span class="pre">+26%</span></code>).</p>
-<div class="fd-compare fd-compare-numeric docutils container">
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 26.0%" />
-<col style="width: 9.0%" />
-<col style="width: 13.0%" />
-<col style="width: 14.0%" />
-<col style="width: 11.0%" />
-<col style="width: 27.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Recipe (runner slug)</p></th>
-<th class="head"><p>GPU</p></th>
-<th class="head"><p>Upstream (ms)</p></th>
-<th class="head"><p>FlashDreams (ms)</p></th>
-<th class="head"><p>Speedup</p></th>
-<th class="head"><p>Baseline</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>H100</p></td>
-<td><p>432</p></td>
-<td><p>344</p></td>
-<td><p>+26%</p></td>
-<td><p>Official Self-Forcing runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>GB200</p></td>
-<td><p>350</p></td>
-<td><p>203</p></td>
-<td><p>+72%</p></td>
-<td><p>Official Self-Forcing runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>GB300</p></td>
-<td><p>251</p></td>
-<td><p>171</p></td>
-<td><p>+47%</p></td>
-<td><p>Official Self-Forcing runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>H100</p></td>
-<td><p>511</p></td>
-<td><p>344</p></td>
-<td><p>+49%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>GB200</p></td>
-<td><p>374</p></td>
-<td><p>203</p></td>
-<td><p>+84%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">self-forcing-wan2.1-t2v-1.3b-taehv</span></code></p></td>
-<td><p>GB300</p></td>
-<td><p>362</p></td>
-<td><p>171</p></td>
-<td><p>+112%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×H100</p></td>
-<td><p>1950</p></td>
-<td><p>629</p></td>
-<td><p>+210%</p></td>
-<td><p>Official LingBot-World runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×GB200</p></td>
-<td><p>1113</p></td>
-<td><p>449</p></td>
-<td><p>+148%</p></td>
-<td><p>Official LingBot-World runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×GB300</p></td>
-<td><p>1032</p></td>
-<td><p>394</p></td>
-<td><p>+162%</p></td>
-<td><p>Official LingBot-World runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×H100</p></td>
-<td><p>740</p></td>
-<td><p>629</p></td>
-<td><p>+18%</p></td>
-<td><p>LightX2V runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×GB200</p></td>
-<td><p>717</p></td>
-<td><p>449</p></td>
-<td><p>+60%</p></td>
-<td><p>LightX2V runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-fast</span></code></p></td>
-<td><p>4×GB300</p></td>
-<td><p>602</p></td>
-<td><p>394</p></td>
-<td><p>+53%</p></td>
-<td><p>LightX2V runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>H100</p></td>
-<td><p>1140</p></td>
-<td><p>1040</p></td>
-<td><p>+10%</p></td>
-<td><p>Official Wan2.1 runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>GB200</p></td>
-<td><p>481</p></td>
-<td><p>441</p></td>
-<td><p>+9%</p></td>
-<td><p>Official Wan2.1 runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>GB300</p></td>
-<td><p>429</p></td>
-<td><p>382</p></td>
-<td><p>+12%</p></td>
-<td><p>Official Wan2.1 runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>H100</p></td>
-<td><p>1290</p></td>
-<td><p>1040</p></td>
-<td><p>+24%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>GB200</p></td>
-<td><p>578</p></td>
-<td><p>441</p></td>
-<td><p>+31%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">wan21-t2v-1.3b-480p</span></code></p></td>
-<td><p>GB300</p></td>
-<td><p>534</p></td>
-<td><p>382</p></td>
-<td><p>+40%</p></td>
-<td><p>FastVideo runner</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</div>
-</section>
-<section id="per-scene-latency">
-<h3>Per-scene latency<a class="headerlink" href="#per-scene-latency" title="Link to this heading">#</a></h3>
-<p>FlashVSR super-resolution has no autoregressive steps, so its latency
-scales with output resolution: each row is the per-chunk 2× upsampling
-time (8-frame chunks) at one output scene, measured on GB200 against the
-official FlashVSR runner.</p>
-<div class="fd-compare fd-compare-numeric docutils container">
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 34.0%" />
-<col style="width: 33.0%" />
-<col style="width: 33.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Scene (resolution)</p></th>
-<th class="head"><p>FlashDreams (ms)</p></th>
-<th class="head"><p>Upstream (ms)</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>384×384</p></td>
-<td><p>74.7</p></td>
-<td><p>130.5</p></td>
-</tr>
-<tr class="row-odd"><td><p>672×384</p></td>
-<td><p>114.5</p></td>
-<td><p>235.7</p></td>
-</tr>
-<tr class="row-even"><td><p>384×672</p></td>
-<td><p>111.2</p></td>
-<td><p>181.3</p></td>
-</tr>
-<tr class="row-odd"><td><p>640×480</p></td>
-<td><p>132.5</p></td>
-<td><p>255.7</p></td>
-</tr>
-<tr class="row-even"><td><p>768×416</p></td>
-<td><p>135.5</p></td>
-<td><p>215.9</p></td>
-</tr>
-<tr class="row-odd"><td><p>1280×704</p></td>
-<td><p>372.5</p></td>
-<td><p>528.2</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</div>
-</section>
-</section>
-<section id="how-the-benchmarks-were-gathered">
-<h2>How the benchmarks were gathered<a class="headerlink" href="#how-the-benchmarks-were-gathered" title="Link to this heading">#</a></h2>
-<p>Each <a class="reference internal" href="#per-step-latency">Per-step latency</a> row is produced by driving a generation recipe
-end-to-end and parsing the per-step log lines: drop the first two AR
-steps as warm-up, then take the median of the remaining <code class="docutils literal notranslate"><span class="pre">total(w/o</span>
-<span class="pre">finalize)</span></code> values. The <a class="reference internal" href="#per-scene-latency">Per-scene latency</a> rows are gathered from the
-FlashVSR runner instead, timed per output scene rather than per AR step.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>/tmp/bench-self-forcing.log
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> is defined on the streaming-runner subclasses
-(<code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>, <code class="docutils literal notranslate"><span class="pre">self_forcing</span></code>, <code class="docutils literal notranslate"><span class="pre">causal_forcing</span></code>,
-<code class="docutils literal notranslate"><span class="pre">fastvideo_causal_wan22</span></code>, <code class="docutils literal notranslate"><span class="pre">lingbot</span></code>); bidirectional runners (<code class="docutils literal notranslate"><span class="pre">wan21-*</span></code>,
-<code class="docutils literal notranslate"><span class="pre">cosmos2-*</span></code>) drop the flag and emit a single end-to-end output.</p>
-<p>For multi-GPU recipes, launch the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code>; the
-recipe transformer auto-detects its context-parallel size from the
-launcher’s world group (LingBot-World uses Ulysses sequence
-parallelism across 4 GPUs):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
-<p>The upstream baseline in <a class="reference internal" href="#per-step-latency">Per-step latency</a> runs the same checkpoint
-under the upstream library’s own runner; per-integration instructions
-live in the repo under each integration’s
-<code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/</span></code> directory (see the
-<a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a>
-tree).</p>
-<p>Six integrations ship a parity check against their upstream reference
-under <code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/tests/parity_check/run.sh</span></code> in the repo:
-<code class="docutils literal notranslate"><span class="pre">self_forcing</span></code>, <code class="docutils literal notranslate"><span class="pre">lingbot</span></code>, <code class="docutils literal notranslate"><span class="pre">wan21</span></code>, <code class="docutils literal notranslate"><span class="pre">cosmos_predict2</span></code>,
-<code class="docutils literal notranslate"><span class="pre">flashvsr</span></code>, and <code class="docutils literal notranslate"><span class="pre">hy_worldplay</span></code>. These are intended for manual
-execution in the upstream environment, not in CI. The numbers on this
-page assume parity holds where it is enforced; see
-<a class="reference internal" href="../community/index.html"><span class="doc">Contributing to FlashDreams</span></a> for how to escalate a regression rather than
-averaging away a discrepancy.</p>
-</section>
 <section id="running-a-model-yourself">
 <h2>Running a model yourself<a class="headerlink" href="#running-a-model-yourself" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>&lt;MODEL_SLUG&gt;<span class="w"> </span>--help
@@ -818,11 +544,11 @@ guidance.</p>
 <h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p>Follow the <a class="reference internal" href="../quickstart/index.html"><span class="doc">Get Started</span></a> for the shortest path to
-reproducing these numbers on your own hardware.</p></li>
+running these methods on your own hardware.</p></li>
 <li><p>The <a class="reference internal" href="../developer_guides/index.html"><span class="doc">Developer Guides</span></a> cover the architecture behind the
-recipes you can run today.</p></li>
-<li><p><a class="reference internal" href="../community/index.html"><span class="doc">Contributing to FlashDreams</span></a> lists the channels to use if a number on
-this page does not reproduce on your hardware.</p></li>
+methods you can run today.</p></li>
+<li><p><a class="reference internal" href="../community/index.html"><span class="doc">Contributing to FlashDreams</span></a> lists the channels to use if a method on
+this page does not run on your hardware.</p></li>
 <li><p>Browse the source on GitHub at <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>.</p></li>
 </ul>
 </section>
@@ -876,12 +602,6 @@ this page does not reproduce on your hardware.</p></li>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-models">Available models</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benchmarks">Benchmarks</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#per-step-latency">Per-step latency</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#per-scene-latency">Per-scene latency</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-benchmarks-were-gathered">How the benchmarks were gathered</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-a-model-yourself">Running a model yourself</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-model">Adding your own model</a></li>
 </ul>

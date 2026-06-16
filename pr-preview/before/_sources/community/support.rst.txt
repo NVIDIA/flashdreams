@@ -81,7 +81,7 @@ Before you file an issue
 What makes a good bug report
 ----------------------------
 
-- **What you ran.** The exact command, recipe name, or Python snippet.
+- **What you ran.** The exact command, runner slug, or Python snippet.
 - **What you expected.** One sentence.
 - **What you saw.** Full stack trace or output. Wrap it in a code
   fence; don't paste a screenshot of text.

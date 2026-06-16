@@ -26,26 +26,24 @@ Getting started
 What hardware do I need to run FlashDreams?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-FlashDreams targets recent NVIDIA data-center GPUs. The profiling
-corpus on the :doc:`Models page </models/index>` runs across
-three devices — NVIDIA H100, GB200, and GB300 — and the
-per-recipe latency numbers on each model page (e.g.
-:doc:`/models/self_forcing`, :doc:`/models/lingbot_world`) are sourced
-from the same set.
+FlashDreams targets recent NVIDIA data-center GPUs. The per-method
+profiling charts on each model page (e.g.
+:doc:`/models/self_forcing`, :doc:`/models/lingbot_world`) run across
+three devices — NVIDIA H100, GB200, and GB300.
 
 Any CUDA-capable GPU with enough memory for the chosen checkpoint
-should run the streaming recipes; smaller GPUs may need to drop
-multi-GPU recipes back to a single device. See the
+should run the streaming methods; smaller GPUs may need to drop
+multi-GPU methods back to a single device. See the
 :doc:`/quickstart/index` for the cheapest path to a working clip,
-and the :doc:`Models page </models/index>` for the profiled
-configurations.
+and the :doc:`Models page </models/index>` for the available
+methods.
 
-Which model recipes ship in the box?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Which model integrations ship in the box?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 First-party model integrations ship under ``integrations/`` in the
 repo. The :doc:`/models/index` page has the full list; the documented
-recipes are:
+integrations are:
 
 - :doc:`/models/omnidreams` — HDMap-conditioned driving world model
   (the GTC 2026 closed-loop demo).
@@ -59,7 +57,7 @@ recipes are:
   T2V / I2V reference.
 
 Each model page has the canonical CLI invocation, checkpoint source,
-multi-GPU command, and per-recipe knobs.
+multi-GPU command, and per-method knobs.
 
 Installation and packaging
 --------------------------
@@ -87,21 +85,21 @@ To install an integration directly from the repo:
 The rationale is in `DEV.md
 <https://github.com/NVIDIA/flashdreams/blob/main/DEV.md>`__: the
 core ``flashdreams`` is the only stable, pip-installable surface; the
-per-recipe wheels move at the upstream model's pace and stay
+per-integration wheels move at the upstream model's pace and stay
 git-installable so they can pin against a known core commit.
 
 Usage
 -----
 
-How do I plug in a new model recipe?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+How do I plug in a new model integration?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :doc:`/developer_guides/new_integration` guide walks the full
 flow — what to subclass on the runner side, how the entry-point
 registration works, and what the per-integration directory layout
 looks like. The in-tree integrations under ``integrations/``
 are the canonical references; pick the one closest in shape to your
-new recipe and use it as a template.
+new integration and use it as a template.
 
 The minimum surface is: subclass the right runner base, register the
 slug via the ``flashdreams.runner_configs`` entry point, and (for

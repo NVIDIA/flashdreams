@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=34000ddd" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3414d026" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -407,24 +407,22 @@ and on Discord. If you don’t see your question here, check
 <h2>Getting started<a class="headerlink" href="#getting-started" title="Link to this heading">#</a></h2>
 <section id="what-hardware-do-i-need-to-run-flashdreams">
 <h3>What hardware do I need to run FlashDreams?<a class="headerlink" href="#what-hardware-do-i-need-to-run-flashdreams" title="Link to this heading">#</a></h3>
-<p>FlashDreams targets recent NVIDIA data-center GPUs. The profiling
-corpus on the <a class="reference internal" href="../models/index.html"><span class="doc">Models page</span></a> runs across
-three devices — NVIDIA H100, GB200, and GB300 — and the
-per-recipe latency numbers on each model page (e.g.
-<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a>, <a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a>) are sourced
-from the same set.</p>
+<p>FlashDreams targets recent NVIDIA data-center GPUs. The per-method
+profiling charts on each model page (e.g.
+<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a>, <a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a>) run across
+three devices — NVIDIA H100, GB200, and GB300.</p>
 <p>Any CUDA-capable GPU with enough memory for the chosen checkpoint
-should run the streaming recipes; smaller GPUs may need to drop
-multi-GPU recipes back to a single device. See the
+should run the streaming methods; smaller GPUs may need to drop
+multi-GPU methods back to a single device. See the
 <a class="reference internal" href="../quickstart/index.html"><span class="doc">Get Started</span></a> for the cheapest path to a working clip,
-and the <a class="reference internal" href="../models/index.html"><span class="doc">Models page</span></a> for the profiled
-configurations.</p>
+and the <a class="reference internal" href="../models/index.html"><span class="doc">Models page</span></a> for the available
+methods.</p>
 </section>
-<section id="which-model-recipes-ship-in-the-box">
-<h3>Which model recipes ship in the box?<a class="headerlink" href="#which-model-recipes-ship-in-the-box" title="Link to this heading">#</a></h3>
+<section id="which-model-integrations-ship-in-the-box">
+<h3>Which model integrations ship in the box?<a class="headerlink" href="#which-model-integrations-ship-in-the-box" title="Link to this heading">#</a></h3>
 <p>First-party model integrations ship under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code> in the
 repo. The <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a> page has the full list; the documented
-recipes are:</p>
+integrations are:</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> — HDMap-conditioned driving world model
 (the GTC 2026 closed-loop demo).</p></li>
@@ -438,7 +436,7 @@ recipes are:</p>
 T2V / I2V reference.</p></li>
 </ul>
 <p>Each model page has the canonical CLI invocation, checkpoint source,
-multi-GPU command, and per-recipe knobs.</p>
+multi-GPU command, and per-method knobs.</p>
 </section>
 </section>
 <section id="installation-and-packaging">
@@ -461,20 +459,20 @@ uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </s
 </div>
 <p>The rationale is in <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/DEV.md">DEV.md</a>: the
 core <code class="docutils literal notranslate"><span class="pre">flashdreams</span></code> is the only stable, pip-installable surface; the
-per-recipe wheels move at the upstream model’s pace and stay
+per-integration wheels move at the upstream model’s pace and stay
 git-installable so they can pin against a known core commit.</p>
 </section>
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
-<section id="how-do-i-plug-in-a-new-model-recipe">
-<h3>How do I plug in a new model recipe?<a class="headerlink" href="#how-do-i-plug-in-a-new-model-recipe" title="Link to this heading">#</a></h3>
+<section id="how-do-i-plug-in-a-new-model-integration">
+<h3>How do I plug in a new model integration?<a class="headerlink" href="#how-do-i-plug-in-a-new-model-integration" title="Link to this heading">#</a></h3>
 <p>The <a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a new method</span></a> guide walks the full
 flow — what to subclass on the runner side, how the entry-point
 registration works, and what the per-integration directory layout
 looks like. The in-tree integrations under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code>
 are the canonical references; pick the one closest in shape to your
-new recipe and use it as a template.</p>
+new integration and use it as a template.</p>
 <p>The minimum surface is: subclass the right runner base, register the
 slug via the <code class="docutils literal notranslate"><span class="pre">flashdreams.runner_configs</span></code> entry point, and (for
 streaming runners) wire <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> into the runner config.
@@ -545,7 +543,7 @@ separately.</p>
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#getting-started">Getting started</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-hardware-do-i-need-to-run-flashdreams">What hardware do I need to run FlashDreams?</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-model-recipes-ship-in-the-box">Which model recipes ship in the box?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-model-integrations-ship-in-the-box">Which model integrations ship in the box?</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation-and-packaging">Installation and packaging</a><ul class="nav section-nav flex-column">
@@ -553,7 +551,7 @@ separately.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-do-i-plug-in-a-new-model-recipe">How do I plug in a new model recipe?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-do-i-plug-in-a-new-model-integration">How do I plug in a new model integration?</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-and-licensing">Project and licensing</a><ul class="nav section-nav flex-column">
