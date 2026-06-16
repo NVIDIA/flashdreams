@@ -17,7 +17,7 @@ from omnidreams.interactive_drive.input.keyboard import (
     KeyboardState,
 )
 from omnidreams.interactive_drive.input.waypoint_trajectory import (
-    WaypointTrajectoryInputBackend,
+    WaypointTrajectoryPlaybackInputBackend,
     load_waypoint_trajectory,
 )
 from omnidreams.interactive_drive.presenter import HeadlessPresenter, SlangPyPresenter
@@ -31,6 +31,7 @@ from omnidreams.interactive_drive.scene_loader import (
     load_scene_bundle,
     reseed_scene_bundle,
 )
+from omnidreams.interactive_drive.simulation.backend import SimulationBackend
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
@@ -39,6 +40,9 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
 )
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
 from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
+from omnidreams.interactive_drive.simulation.waypoint_interpolation import (
+    InterpolatedWaypointTrajectorySimulation,
+)
 from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter,
     parse_bind,
@@ -451,23 +455,7 @@ class InteractiveDriveApp:
         recorder = self._build_recorder()
         try:
             while not self._presenter.should_close:
-                simulation = EgoVehicleKinematics(
-                    initial_state=state_from_initial_pose(
-                        initial_rig_to_world=self._scene.initial_rig_to_world,
-                        initial_yaw_rad=self._scene.initial_yaw_rad,
-                        # Start each rollout at a fixed 10 m/s so the ego is
-                        # already rolling on initial load (and after a manual
-                        # reset / OOB respawn), instead of launching at the
-                        # clip's full recorded speed.
-                        initial_speed_mps=1.0,
-                    ),
-                    vehicle_config=self._config.vehicle,
-                    ground_snapper=self._ground_snapper,
-                    initial_timestamp_us=self._scene.initial_timestamp_us,
-                    map_bounds=self._map_bounds,
-                    oob_margin_m=self._config.oob_margin_m,
-                    oob_warning_zone_m=self._config.oob_warning_zone_m,
-                )
+                simulation = self._build_simulation()
                 # Publish the freshly-built initial state up front so read-side
                 # speed readouts (the HUD speed digit, the browser ``/state``
                 # endpoint) reflect a reset / respawn immediately. Without this
@@ -511,19 +499,53 @@ class InteractiveDriveApp:
             if recorder is not None:
                 recorder.close(reason="scene-end")
 
-    def _build_input_backend(self, simulation: EgoVehicleKinematics) -> InputBackend:
+    def _build_simulation(self) -> SimulationBackend:
+        if self._scene is None or self._map_bounds is None:
+            raise RuntimeError("load_scene() must be called before building simulation")
+
+        initial_state = state_from_initial_pose(
+            initial_rig_to_world=self._scene.initial_rig_to_world,
+            initial_yaw_rad=self._scene.initial_yaw_rad,
+            # Start each rollout at a fixed 1 m/s so the ego is already rolling
+            # on initial load (and after a manual reset / OOB respawn), instead
+            # of launching at the clip's full recorded speed. Waypoint replay
+            # below replaces this with the route's configured speed.
+            initial_speed_mps=1.0,
+        )
         trajectory_path = self._config.drive_trajectory_path
         if trajectory_path is None:
-            return KeyboardInputBackend(self._keyboard)
+            return EgoVehicleKinematics(
+                initial_state=initial_state,
+                vehicle_config=self._config.vehicle,
+                ground_snapper=self._ground_snapper,
+                initial_timestamp_us=self._scene.initial_timestamp_us,
+                map_bounds=self._map_bounds,
+                oob_margin_m=self._config.oob_margin_m,
+                oob_warning_zone_m=self._config.oob_warning_zone_m,
+            )
+
         trajectory = load_waypoint_trajectory(trajectory_path)
         logger.info(
-            f"[interactive-drive] following trajectory {trajectory.name!r} "
+            f"[interactive-drive] replaying trajectory {trajectory.name!r} "
             f"from {trajectory_path} ({len(trajectory.waypoints)} waypoints, "
-            f"{trajectory.speed_mps:.1f} m/s)",
+            f"{trajectory.speed_mps:.1f} m/s) via frame-position interpolation",
         )
-        return WaypointTrajectoryInputBackend(
-            trajectory,
-            state_provider=lambda: simulation.current_state,
+        return InterpolatedWaypointTrajectorySimulation(
+            initial_state=initial_state,
+            trajectory=trajectory,
+            vehicle_config=self._config.vehicle,
+            ground_snapper=self._ground_snapper,
+            initial_timestamp_us=self._scene.initial_timestamp_us,
+            map_bounds=self._map_bounds,
+            oob_margin_m=self._config.oob_margin_m,
+            oob_warning_zone_m=self._config.oob_warning_zone_m,
+        )
+
+    def _build_input_backend(self, simulation: SimulationBackend) -> InputBackend:
+        if self._config.drive_trajectory_path is None:
+            return KeyboardInputBackend(self._keyboard)
+        return WaypointTrajectoryPlaybackInputBackend(
+            finished_provider=lambda: bool(getattr(simulation, "finished", False)),
         )
 
     def _exit_on_input_complete(

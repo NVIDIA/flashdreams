@@ -130,22 +130,23 @@ manifest FPS, so `example_world_model_perf.yaml` recordings play back at
 | `schema` | No | none | Must be omitted or set to `clipgt-waypoint-trajectory-v1`. |
 | `name` | No | `drive-trajectory` | Name printed in the launch log. |
 | `waypoints` | Yes | none | At least two points. Each point can be an object with `x`, `y`, optional `z`, or an array like `[x, y, z]`. |
-| `speed_mps` | No | `4.0` | Target forward speed while following the route. |
-| `lookahead_m` | No | `6.0` | Distance ahead on the polyline used as the steering target. Larger values smooth steering but cut corners more. |
-| `waypoint_tolerance_m` | No | derived from lookahead | Distance from the route end where a non-looping trajectory is considered finished. |
-| `stop_at_end` | No | `true` | For non-looping routes, brake to a stop at the final waypoint. Set to `false` to keep driving after the final waypoint. |
-| `loop` | No | `false` | Connect the final waypoint back to the first and keep following the route indefinitely. |
+| `speed_mps` | No | `4.0` | Replay speed. Frame `N` is sampled at `speed_mps * N / fps` meters along the polyline. |
+| `lookahead_m` | No | `6.0` | Accepted for compatibility with older scene-editor exports. Frame-position replay ignores this value. |
+| `waypoint_tolerance_m` | No | derived from lookahead | Accepted for compatibility with older scene-editor exports. Replay completes when it reaches the route end. |
+| `stop_at_end` | No | `true` | For non-looping routes, report zero speed after the final waypoint. Recording still completes at the route end. |
+| `loop` | No | `false` | Connect the final waypoint back to the first and keep replaying the route indefinitely. |
 | `coordinate_frame`, `scene_path`, `clipgt_dir` | No | ignored | Bookkeeping from scene-editor exports. The runtime ignores these fields. |
 
-The controller uses waypoint `x` and `y` for path following. The `z` value is
-accepted for compatibility with scene-editor exports but does not affect
-steering or speed.
+The replay path uses waypoint `x` and `y` for interpolation and yaw. The `z`
+value is accepted from scene-editor exports; when ground snapping is available,
+the road surface still determines the rendered ego height, pitch, and roll.
 
 ## Tuning Notes
 
-- Keep the first waypoint near the scene's starting ego pose to avoid an
-  aggressive initial turn.
-- Increase `lookahead_m` if the vehicle oscillates around the route.
-- Decrease `lookahead_m` or `speed_mps` for tight turns.
+- Keep the first waypoint near the scene's starting ego pose so the first
+  rendered trajectory frame starts where expected.
+- Add intermediate waypoints if a turn needs a more precise shape.
+- Decrease `speed_mps` for tight turns if the generated camera motion moves too
+  quickly between frames.
 - Use `loop: true` for closed courses. In loop mode the final waypoint is
   connected back to the first waypoint and `stop_at_end` has no effect.

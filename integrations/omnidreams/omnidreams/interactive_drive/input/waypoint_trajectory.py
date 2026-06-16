@@ -134,6 +134,26 @@ class WaypointTrajectoryInputBackend:
         )
 
 
+class WaypointTrajectoryPlaybackInputBackend:
+    """Neutral input backend used when the simulation replays poses directly."""
+
+    def __init__(
+        self,
+        *,
+        finished_provider: Callable[[], bool],
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        self._finished_provider = finished_provider
+        self._clock = clock
+
+    @property
+    def finished(self) -> bool:
+        return bool(self._finished_provider())
+
+    def sample(self) -> SampledInput:
+        return SampledInput(command=DriverCommand(), sample_time=self._clock())
+
+
 def _parse_waypoint(raw: Any, index: int) -> Waypoint:
     try:
         if isinstance(raw, dict):
