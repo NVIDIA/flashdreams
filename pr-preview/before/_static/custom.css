@@ -3,62 +3,50 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 */
 
-/* ==========================================================================
-   FlashDreams custom CSS
-   --------------------------------------------------------------------------
-   Layered on top of pydata-sphinx-theme. Components are keyed off a small
-   set of CSS custom properties so the site can be re-themed by editing
-   tokens instead of rewriting rules.
+/* FlashDreams custom CSS, layered on top of pydata-sphinx-theme.
+   Components are keyed off the design tokens in section 1.
 
-   Class-name convention: single dashes only (`fd-stat-value`, not
-   `fd-stat__value`). Docutils collapses `__` and `--` in `.. container::`
-   / `:class:` arguments to single dashes in the rendered HTML, so BEM-
-   style names in RST don't match what reaches the browser.
+   Two RST/docutils quirks the rules below account for:
+   - Class names use single dashes only; docutils collapses `__`/`--` in
+     `:class:` / `.. container::` args to single dashes in the HTML.
+   - `.. container::` / `.. rubric::` wrap their text in a `<p>`, so text
+     components reset that `<p>`'s margin.
 
-   `<p>`-wrapping convention: a `.. container::` / `.. rubric::` emits a
-   wrapping `<p>` around its text, so component rules that target text
-   (eyebrow, lede, CTA row, stat subcomponents) reset that `<p>`'s margin.
-
-   Section map:
-     1. Design tokens  (palette, type, spacing, radii, shadow)
-     2. Theme overrides (apply tokens to the upstream theme variables)
+   Sections:
+     1. Design tokens
+     2. Theme overrides
      3. Layout helpers
-     4. Components (4.1 Hero, 4.2 Feature card, 4.3 CTA row,
-        4.4 Stat block, 4.5 Callout, 4.6 Placeholder admonition)
-     5. Header chrome hide
+     4. Components (hero, feature card, CTA row, stat block)
+     5. Header chrome
      6. Front-of-site marketing layout
      7. Homepage "Supported Models" rail
      8. Misc upstream tweaks
-     9. Reference-docs model-page components
-    10. Unwired components — not yet used by any page (see TODO)
-   ========================================================================== */
+     9. Reference-docs model-page components */
 
 
 /* ----- 1. Design tokens --------------------------------------------------- */
 
 :root {
-    /* Accent, single source of truth for branded color. Tuned to the
-       green that the FlashDreams logo uses, but 20% darker. Re-brand
-       by editing these four values. */
+    /* Accent — single source of truth for branded color (FlashDreams
+       logo green, 20% darker). Re-brand by editing these four values. */
     --fd-accent:        #5e9400;
     --fd-accent-hover:  #4b7600;
     --fd-accent-soft:   rgba(94, 148, 0, 0.12);
     --fd-accent-ink:    #ffffff;        /* text color on top of --fd-accent */
 
-    /* Type scale — four sizes. Smaller labels (eyebrows, stat labels,
-       table cells, etc.) all share --fd-text-base and differentiate via
-       weight / color / letter-spacing / case rather than size. */
-    --fd-text-base: 1rem;        /* 16px  body, captions, eyebrows, small body, table cells */
+    /* Type scale — four canonical sizes. Smaller labels share
+       --fd-text-base and differentiate via weight/color/case. */
+    --fd-text-base: 1rem;        /* 16px  body, captions, eyebrows, table cells */
     --fd-text-lg:   1.25rem;     /* 20px  lede paragraphs, card titles */
     --fd-text-xl:   1.75rem;     /* 28px  section heads, stat values */
     --fd-text-3xl:  3.25rem;     /* 52px  hero head only */
 
-    /* Aliases onto the canonical four. Don't add new sizes here. */
+    /* Aliases onto the canonical four. */
     --fd-text-xs:   var(--fd-text-base);
     --fd-text-sm:   var(--fd-text-base);
     --fd-text-2xl:  var(--fd-text-xl);
 
-    /* Spacing scale (4px base, doubling-ish). */
+    /* Spacing scale (4px base). */
     --fd-space-1:   0.25rem;     /* 4px  */
     --fd-space-2:   0.5rem;      /* 8px  */
     --fd-space-3:   1rem;        /* 16px */
@@ -109,8 +97,7 @@ html[data-theme="dark"] {
     --fd-text-muted:    #a8b0bf;
     --fd-text-subtle:   #6b7385;
 
-    /* Dark-mode accent: a brighter green so it pops against #0f1218
-       without losing the NVIDIA-green identity. */
+    /* Brighter accent so it pops against the dark background. */
     --fd-accent:        #71b015;
     --fd-accent-hover:  #83bb2e;
     --fd-accent-soft:   rgba(113, 176, 21, 0.18);
@@ -124,10 +111,9 @@ html[data-theme="dark"] {
 
 /* ----- 2. Theme overrides ------------------------------------------------- */
 
-/* sphinx-design and pydata-sphinx-theme both define their own accent
-   palettes. Re-bind the most visible ones to --fd-accent so buttons,
-   links (including clicked/visited ones), and focus rings all use the
-   same green. */
+/* Re-bind sphinx-design and pydata-sphinx-theme accent palettes to
+   --fd-accent so buttons, links, badges, and focus rings share one green
+   (the theme defaults to blue links and a purple "secondary"). */
 html[data-theme="light"],
 html[data-theme="dark"] {
     --pst-color-primary:        var(--fd-accent);
@@ -139,9 +125,6 @@ html[data-theme="dark"] {
     --sd-color-primary-text:    var(--fd-accent-ink);
     --sd-color-primary-highlight: var(--fd-accent-hover);
 
-    /* "Secondary" defaults to a theme purple (pydata #8045e5 / #9c5ffd,
-       sphinx-design #6c757d gray). Re-bind both onto the same green so
-       secondary buttons / badges match the brand instead of standing out. */
     --pst-color-secondary:          var(--fd-accent);
     --pst-color-secondary-bg:       var(--fd-accent-soft);
     --sd-color-secondary:           var(--fd-accent);
@@ -152,8 +135,7 @@ html[data-theme="dark"] {
 
 /* ----- 3. Layout helpers -------------------------------------------------- */
 
-/* Hide the "Table of Contents" heading in the primary sidebar (preserved
-   from the prior custom.css). */
+/* Hide the "Table of Contents" heading in the primary sidebar. */
 .bd-links__title {
     display: none;
 }
@@ -175,21 +157,9 @@ html[data-theme="dark"] {
     border: var(--fd-border-width) solid var(--fd-border);
 }
 
-/* Eyebrow text above the hero title — small, uppercase, accent-tinted. */
-.fd-hero-eyebrow,
-.fd-hero-eyebrow > p {
-    margin: 0 0 var(--fd-space-2) 0;
-    font-size: var(--fd-text-xs);
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--fd-accent);
-}
-
-/* Hero title. Rendered from .. rubric:: with :class: fd-hero-title,
-   which docutils outputs as a <p class="fd-hero-title rubric">; we
-   override the rubric default margins. Weight is medium (500) by
-   design — the size + tight tracking carry the emphasis. */
+/* Hero title from `.. rubric:: :class: fd-hero-title`, which docutils
+   emits as `<p class="fd-hero-title rubric">`; override the rubric
+   default margins. */
 p.fd-hero-title.rubric,
 .fd-hero-title {
     font-size: var(--fd-text-3xl);
@@ -226,8 +196,7 @@ p.fd-hero-title.rubric,
 
 /* 4.2 Feature card --------------------------------------------------------- */
 
-/* Applied as :class-card: fd-feature on a sphinx-design card. We style the
-   rendered .sd-card element. */
+/* Applied as `:class-card: fd-feature` on a sphinx-design card. */
 .sd-card.fd-feature {
     border: var(--fd-border-width) solid var(--fd-border);
     border-radius: var(--fd-radius-md);
@@ -239,10 +208,8 @@ p.fd-hero-title.rubric,
     height: 100%;
 }
 
-/* Only lift on hover when the card is actually clickable. sphinx_design
-   adds `.sd-card-hover` to a card only when it has `:link:` set, so
-   cards without a link (e.g. Discord / Discussions placeholders) keep
-   their resting state instead of pretending to be interactive. */
+/* Only lift on hover when the card is clickable — sphinx-design adds
+   `.sd-card-hover` only to cards with a `:link:`. */
 .sd-card.fd-feature.sd-card-hover:hover {
     transform: translateY(-2px);
     box-shadow: var(--fd-shadow-2);
@@ -262,21 +229,6 @@ p.fd-hero-title.rubric,
     line-height: 1.55;
 }
 
-/* Optional icon slot — page writers prepend a single character or short
-   inline element with class fd-feature-icon. */
-.fd-feature-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: var(--fd-radius-sm);
-    background: var(--fd-accent-soft);
-    color: var(--fd-accent);
-    font-weight: 700;
-    margin-bottom: var(--fd-space-2);
-}
-
 
 /* 4.3 CTA button row ------------------------------------------------------- */
 
@@ -288,15 +240,12 @@ p.fd-hero-title.rubric,
     margin-block: var(--fd-space-3);
 }
 
-/* `display: contents` so the wrapping <p> drops out and buttons sit
-   flush in the flex row. */
+/* `display: contents` drops the wrapping <p> so buttons sit flush. */
 .fd-cta-row > p {
     margin: 0;
     display: contents;
 }
 
-/* Buttons in a CTA row are usually sphinx-design buttons (.sd-btn). Tighten
-   their look and ensure adequate hit area on touch. */
 .fd-cta-row .sd-btn {
     padding: 0.625rem 1.125rem;
     border-radius: var(--fd-radius-md);
@@ -321,8 +270,7 @@ p.fd-hero-title.rubric,
 
 /* 4.4 Stat block ----------------------------------------------------------- */
 
-/* A stat block is a small, scannable value + label, typically rendered
-   inside a sphinx-design grid. */
+/* A scannable value + label, typically inside a sphinx-design grid. */
 .fd-stat {
     padding: var(--fd-space-4) var(--fd-space-3);
     border: var(--fd-border-width) solid var(--fd-border);
@@ -332,8 +280,7 @@ p.fd-hero-title.rubric,
     height: 100%;
 }
 
-/* Each .fd-stat-* subcomponent is a .. container:: (<div> + inner <p>):
-   style the wrapper for layout and the <p> for typography. */
+/* Each .fd-stat-* subcomponent is a `.. container::` (<div> + inner <p>). */
 .fd-stat-value {
     margin-bottom: var(--fd-space-1);
 }
@@ -356,22 +303,9 @@ p.fd-hero-title.rubric,
     font-weight: 600;
 }
 
-.fd-stat-note {
-    margin-top: var(--fd-space-2);
-}
-.fd-stat-note > p {
-    margin: 0;
-    font-size: var(--fd-text-xs);
-    color: var(--fd-text-subtle);
-    line-height: 1.4;
-}
-
-/* Linked KPI stat tile — a sphinx-design `grid-item-card` with
-   `:class-card: fd-stat` and a `:link:` to the model's profiling
-   benchmark. The `.fd-stat` rule above already paints the card
-   (border, radius, surface, padding); here we neutralize the leftover
-   `.sd-card` chrome so the linked card matches a standalone `.fd-stat`,
-   and add an accent border on hover as the link affordance. */
+/* Linked KPI stat tile — a grid-item-card with `:class-card: fd-stat`
+   and a `:link:`. Neutralize the leftover `.sd-card` chrome so it
+   matches a standalone `.fd-stat`, with an accent border on hover. */
 .sd-card.fd-stat {
     text-decoration: none;
     box-shadow: none;
@@ -387,127 +321,11 @@ p.fd-hero-title.rubric,
 }
 
 
-/* 4.5 Callout / note ------------------------------------------------------- */
+/* ----- 5. Project-wide header chrome ------------------------------------- */
 
-/* Restyle standard admonitions used as callouts so they read as a designed
-   element rather than a default Sphinx box. Page writers can also use a
-   custom .admonition.fd-callout class for tone control. */
-.admonition.fd-callout {
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-left: 4px solid var(--fd-accent);
-    border-radius: var(--fd-radius-md);
-    background: var(--fd-bg-muted);
-    padding: var(--fd-space-3) var(--fd-space-4);
-    margin-block: var(--fd-space-3);
-    box-shadow: none;
-}
-
-.admonition.fd-callout > .admonition-title {
-    font-size: var(--fd-text-sm);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--fd-accent);
-    background: transparent;
-    padding: 0;
-    margin: 0 0 var(--fd-space-2) 0;
-}
-
-.admonition.fd-callout > .admonition-title::before {
-    display: none;   /* drop the default icon — we use the bar instead */
-}
-
-.admonition.fd-callout p {
-    color: var(--fd-text);
-    margin: 0 0 var(--fd-space-2) 0;
-}
-
-.admonition.fd-callout p:last-child {
-    margin-bottom: 0;
-}
-
-
-/* 4.6 Placeholder admonition ---------------------------------------------- */
-
-/* DELIBERATELY LOUD. Reviewers must be able to spot un-filled spots at a
-   glance, on either light or dark background. Hatched border + warning
-   color + monospaced "PLACEHOLDER" label. */
-.admonition.placeholder {
-    border: 2px dashed var(--fd-accent);
-    border-radius: var(--fd-radius-md);
-    background:
-        repeating-linear-gradient(
-            -45deg,
-            var(--fd-accent-soft) 0,
-            var(--fd-accent-soft) 8px,
-            transparent 8px,
-            transparent 18px
-        ),
-        var(--fd-bg-muted);
-    padding: var(--fd-space-3) var(--fd-space-4);
-    margin-block: var(--fd-space-3);
-    color: var(--fd-text);
-    box-shadow: none;
-    position: relative;
-}
-
-.admonition.placeholder > .admonition-title {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-                 "Liberation Mono", monospace;
-    font-size: var(--fd-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fd-accent);
-    background: transparent;
-    padding: 0;
-    margin: 0 0 var(--fd-space-2) 0;
-    display: flex;
-    align-items: center;
-    gap: var(--fd-space-2);
-}
-
-.admonition.placeholder > .admonition-title::before {
-    content: "[ ]";
-    color: var(--fd-accent);
-    font-weight: 700;
-    margin: 0;
-    background: none;
-    width: auto;
-    height: auto;
-}
-
-.admonition.placeholder p {
-    margin: 0 0 var(--fd-space-2) 0;
-    font-size: var(--fd-text-sm);
-}
-
-.admonition.placeholder p:last-child {
-    margin-bottom: 0;
-}
-
-.admonition.placeholder code,
-.admonition.placeholder kbd {
-    background: var(--fd-bg);
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-sm);
-    padding: 0 0.25rem;
-    font-size: 0.85em;
-}
-
-
-/* ----- 5. Project-wide header chrome hide -------------------------------- */
-
-/* Drop the pydata version subtitle ("FlashDreams v0.1.0a2") rendered
-   under the logo via `<p class="title logo__title">` — it reads as a
-   docs build tag on a front-of-site hero.
-
-   The navbar search button is intentionally NOT hidden: it shows on
-   every page. On reference-docs pages (which carry an inline
-   `search-field` in the sidebar — see `html_sidebars`) the theme's
-   button focuses that field; on pages without one it opens the
-   `pst-search-dialog` modal, so every page stays searchable. */
-
+/* Drop the pydata version subtitle ("FlashDreams v0.1.0a2") under the
+   logo — it reads as a build tag on a front-of-site hero. The navbar
+   search button is intentionally kept so every page stays searchable. */
 .navbar-brand .logo__title {
     display: none !important;
 }
@@ -515,17 +333,10 @@ p.fd-hero-title.rubric,
 
 /* ----- 6. Front-of-site marketing layout --------------------------------- */
 
-/* Front-of-site pages (homepage, models gallery, community) bypass pydata's
-   docs scaffold via the `docs_main` block override in
-   `_templates/layout.html`: body content renders into
-   `<div class="fd-landing-main">` directly inside `<main>`, with no
-   `bd-content` / `bd-article-container` / `bd-article` wrapping. The same
-   template sets `body.fd-page-landing` so these rules scope cleanly to
-   landing pages without `:has()` tricks.
-
-   Content runs full-bleed; widths come from per-section bands (below),
-   not a global wrapper. Section rhythm is alternating muted-vs-default
-   bands (see the `:nth-of-type` rule below). */
+/* Front-of-site pages bypass pydata's docs scaffold via the `docs_main`
+   override in `_templates/layout.html`: content renders into
+   `<div class="fd-landing-main">` and `<body>` gets `fd-page-landing`.
+   Content runs full-bleed; widths come from per-section bands. */
 
 /* Full-bleed wrapper for the body content. */
 body.fd-page-landing .fd-landing-main {
@@ -534,9 +345,7 @@ body.fd-page-landing .fd-landing-main {
     margin: 0;
 }
 
-/* Pydata's body container caps page width; reclaim the full viewport
-   on landing pages so the alternating section bands can stretch
-   edge-to-edge. */
+/* Reclaim the full viewport so the section bands can stretch edge-to-edge. */
 body.fd-page-landing .bd-container,
 body.fd-page-landing .bd-container__inner {
     max-width: 100%;
@@ -547,23 +356,17 @@ body.fd-page-landing .bd-main {
     padding-inline: 0;
 }
 
-/* The outer Sphinx-emitted `<section id="…">` carrying the H1 plus
-   all H2 sub-sections — strip its own padding so nested band
-   styles control the rhythm. */
+/* The outer Sphinx `<section>` carrying the H1 + all H2 sub-sections —
+   strip its padding so nested band styles control the rhythm. */
 body.fd-page-landing .fd-landing-main > section {
     padding: 0;
     margin: 0;
     max-width: none;
 }
 
-/* Hide the docs-y H1 that Sphinx emits at the top of every page —
-   on hero pages the authored `fd-hero-title` IS the page title, so the
-   structural H1 (kept only so the toctree caption, browser tab, and
-   page <title> resolve) is hidden to avoid showing the title twice.
-
-   Only hero pages (`index`, `community/index`) get this. Pages with no
-   hero carry `fd-page-plain` and show their H1, styled as the title
-   below. */
+/* Hero pages: hide the structural H1 (kept only for the toctree caption,
+   browser tab, and page <title>) since the authored `fd-hero-title` is
+   the visible title. Plain pages (`fd-page-plain`) show their H1 instead. */
 body.fd-page-landing:not(.fd-page-plain) .fd-landing-main > section > h1 {
     position: absolute;
     width: 1px;
@@ -573,10 +376,8 @@ body.fd-page-landing:not(.fd-page-plain) .fd-landing-main > section > h1 {
 }
 
 /* No-hero pages: style the H1 + intro prose as the page title — large
-   display H1 with a thin accent rule beneath. The Sphinx-emitted intro
-   paragraphs (between the H1 and the first H2) sit in the outer
-   `<section>` and would otherwise be unstyled. Same wide column as the
-   bands below, so the page reads as one coherent marketing width. */
+   display H1 with a thin accent rule beneath, on the same wide column
+   as the bands below. */
 body.fd-page-landing.fd-page-plain .fd-landing-main > section > h1 {
     font-size: var(--fd-text-xl);
     letter-spacing: -0.025em;
@@ -602,16 +403,8 @@ body.fd-page-landing.fd-page-plain .fd-landing-main > section > p:last-of-type {
     border-bottom: var(--fd-border-width) solid var(--fd-border);
 }
 
-/* DOCS-Y CHROME REMOVAL ---------------------------------------------------
-   Two artifacts that the docutils HTML emitter adds to every page read
-   distinctly as "documentation" on a marketing page:
-
-   - The `<a class="headerlink">#</a>` anchor after every heading.
-   - The `<hr class="docutils" />` separators from the `----` transitions
-     RST authors use to break up landing-page sections.
-
-   Both are useful on reference docs but defeat the marketing layout.
-   Hide them unconditionally on `fd-page-landing`. */
+/* Hide docutils artifacts that read as "documentation" on a marketing
+   page: the `#` headerlink anchors and the `----` transition `<hr>`s. */
 body.fd-page-landing .headerlink {
     display: none;
 }
@@ -619,12 +412,11 @@ body.fd-page-landing hr.docutils {
     display: none;
 }
 
-/* DEFAULT INNER WIDTH ----------------------------------------------------
-   Each top-level H2 section is a full-bleed band; its direct children are
-   auto-constrained to a centered, readable inner column (the `> *` rule
-   below). Flexbox column layout lets the optional `fd-eyebrow` — which RST
-   emits AFTER the H2, since docutils anchors the section by its heading —
-   be visually reordered above the H2 (see `order` rules). */
+/* Each top-level H2 section is a full-bleed band; its children are
+   auto-constrained to a centered readable column (the `> *` rule).
+   Flex column layout lets the optional eyebrow be reordered above the
+   H2 (RST emits it after the H2, since docutils anchors the section by
+   its heading). */
 body.fd-page-landing .fd-landing-main > section > section {
     padding-block: var(--fd-space-7);
     padding-inline: var(--fd-space-4);
@@ -640,19 +432,13 @@ body.fd-page-landing .fd-landing-main > section > section > * {
     box-sizing: border-box;
 }
 
-/* Visual reorder: the H2 itself stays at its source position; the
-   eyebrow (a direct-child fd-eyebrow container) gets pulled above it
-   with negative `order`. The lede sits immediately below the H2
-   (default DOM order). Everything else flows after. */
+/* Visual reorder: eyebrow above the H2, lede below it (DOM order). */
 body.fd-page-landing .fd-landing-main > section > section > .fd-eyebrow {
     order: -2;
 }
 
-/* H2 within a band — fixed at --fd-text-xl (28px). Every band's
-   section head reads at the same size; the four-step ladder is
-   base → lg → xl → 3xl with no in-between. `order: -1` pulls it
-   above the lede/grid/etc. but below the eyebrow (`order: -2`);
-   eyebrow → h2 → lede → body is the rhythm. */
+/* H2 within a band — pulled above the lede/grid (`order: -1`) but below
+   the eyebrow (`order: -2`). */
 body.fd-page-landing .fd-landing-main > section > section > h2 {
     order: -1;
     font-size: var(--fd-text-xl);
@@ -666,8 +452,7 @@ body.fd-page-landing .fd-landing-main > section > section > h2 {
     max-width: var(--fd-max-content);
 }
 
-/* H3 within a band — sub-section label. Slightly larger than docs
-   default, still secondary to the section H2. */
+/* H3 within a band — sub-section label. */
 body.fd-page-landing .fd-landing-main > section > section h3 {
     font-size: var(--fd-text-lg);
     letter-spacing: -0.01em;
@@ -678,9 +463,8 @@ body.fd-page-landing .fd-landing-main > section > section h3 {
     margin-bottom: var(--fd-space-3);
 }
 
-/* Alternating band backgrounds. `:nth-of-type` counts only sibling
-   `section`s, so non-section elements between H2s don't shift the
-   alternation. Even-numbered bands carry the muted neutral. */
+/* Alternating band backgrounds (`:nth-of-type` counts only sibling
+   sections). */
 body.fd-page-landing .fd-landing-main > section > section:nth-of-type(even) {
     background: var(--fd-bg-muted);
 }
@@ -688,24 +472,16 @@ body.fd-page-landing .fd-landing-main > section > section:nth-of-type(odd) {
     background: var(--fd-bg);
 }
 
-/* Smaller padding above the first H2 section when the page leads
-   with a hero — the hero already gives the page its top weight.
-   The hero itself carries `.fd-hero-band` and is a sibling of these
-   top-level sections. Use `:first-of-type` on the inner sections so
-   only the first H2 band tightens its top padding. */
+/* Tighter top padding on the first band when the page leads with a hero. */
 body.fd-page-landing .fd-landing-main > section > .fd-hero-band ~ section:first-of-type {
     padding-top: var(--fd-space-6);
 }
 
 
-/* HERO BAND --------------------------------------------------------------
-   On front-of-site the hero is a full-bleed band: no border, soft accent
-   wash, large display type (vs. the card-style `.fd-hero` used elsewhere).
-   Page-writers opt in via `.. container:: fd-hero fd-hero-band`. */
-
+/* Hero band — full-bleed hero variant (vs. the card-style `.fd-hero`).
+   Opt in via `.. container:: fd-hero fd-hero-band`. */
 body.fd-page-landing .fd-hero-band,
 body.fd-page-landing .fd-landing-main > section > .fd-hero-band {
-    /* Override the card-style fd-hero rule when in band mode. */
     background:
         radial-gradient(80% 120% at 0% 0%,
                         var(--fd-accent-soft) 0%,
@@ -724,14 +500,9 @@ body.fd-page-landing .fd-hero-band > * {
     margin-inline: auto;
 }
 
-/* Hero display title — scale much larger than docs H1, tightly tracked,
-   so the page leads with marketing-scale type. Weight is medium (500);
-   the display size and tracking carry the emphasis. */
+/* Hero display title — marketing-scale type. */
 body.fd-page-landing .fd-hero-band .fd-hero-title,
 body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
-    /* Matches the split-hero title clamp (below) so a bare hero-band
-       title — e.g. the Community landing — leads at the same size as
-       the homepage hero rather than a larger bare-rule size. */
     font-size: clamp(2.0rem, 4.0vw + 0.5rem, 3.5rem);
     letter-spacing: -0.03em;
     line-height: 1.02;
@@ -740,9 +511,6 @@ body.fd-page-landing .fd-hero-band p.fd-hero-title.rubric {
     max-width: var(--fd-max-content);
 }
 
-/* Hero lede — larger leading paragraph, muted color, capped width so
-   it stays scannable on wide viewports. Fixed at --fd-text-lg to
-   match every other lede on the site (no per-band drift). */
 body.fd-page-landing .fd-hero-band .fd-hero-lede,
 body.fd-page-landing .fd-hero-band .fd-hero-lede > p {
     font-size: var(--fd-text-lg);
@@ -754,8 +522,6 @@ body.fd-page-landing .fd-hero-band > .fd-hero-lede {
     max-width: var(--fd-max-content);
 }
 
-/* Hero CTA row — centered + larger primary button so the call to action
-   is unambiguous. */
 body.fd-page-landing .fd-hero-band .fd-cta-row {
     margin: 0 auto;
     max-width: var(--fd-max-content);
@@ -767,12 +533,8 @@ body.fd-page-landing .fd-hero-band .fd-cta-row .sd-btn {
     font-size: var(--fd-text-base);
 }
 
-/* HERO with internal split (asymmetric hero) ------------------------------
-   When the hero contains an `fd-split`, the split's two columns share
-   the hero's content width — let the split lay out without re-capping
-   each child to `--fd-max-content` (which would force the text column
-   to its own centered subwidth). Also let the hero title and lede
-   text-align left so they don't visually drift away from the CTA row. */
+/* Asymmetric hero: when the hero holds an `fd-split`, let the split lay
+   out across the hero width and left-align the title/lede/CTA. */
 body.fd-page-landing .fd-hero-band > .fd-split {
     max-width: var(--fd-max-content);
     margin-inline: auto;
@@ -788,17 +550,12 @@ body.fd-page-landing .fd-hero-band .fd-split .fd-cta-row {
 }
 body.fd-page-landing .fd-hero-band .fd-split .fd-hero-title,
 body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
-    /* Slightly smaller title when sharing horizontal space with a
-       visual companion — keep it readable in the 5/7 narrow column. */
     font-size: clamp(2.25rem, 4.5vw + 0.5rem, 3.75rem);
 }
 
 
-/* EYEBROW + SECTION KICKER ------------------------------------------------
-   A small uppercase label that sits above a section H2 — gives each
-   band a marketing-style eyebrow / title pairing instead of a bare H2.
-   Page-writers use `.. container:: fd-eyebrow` as the first child of
-   the section. */
+/* Eyebrow — small uppercase label above a section H2. Use
+   `.. container:: fd-eyebrow` as the first child of the section. */
 .fd-eyebrow,
 .fd-eyebrow > p {
     margin: 0 auto var(--fd-space-2);
@@ -810,94 +567,20 @@ body.fd-page-landing .fd-hero-band .fd-split p.fd-hero-title.rubric {
     max-width: var(--fd-max-content);
 }
 
-
-/* LEDE PARAGRAPH ---------------------------------------------------------
-   A larger leading paragraph under a section H2, pairing with
-   `.fd-eyebrow` for an eyebrow / head / lede stack. Fixed at
-   --fd-text-lg (20px) so every section's lede matches. */
-.fd-lede,
-.fd-lede > p {
-    font-size: var(--fd-text-lg);
-    line-height: 1.55;
-    color: var(--fd-text-muted);
-    max-width: 56rem;
-    margin: 0 auto var(--fd-space-5);
-}
-
-/* Normalize all band prose (including inside `.fd-split-text`) to the
-   canonical body size, so sections don't drift depending on whether they
-   open with an `.fd-lede` or a plain paragraph. Non-body elements
-   re-assert their size below with a matching-depth selector that
-   out-specifies this rule. */
+/* Normalize all band prose to body size so sections don't drift; the
+   eyebrow re-asserts its size below. */
 body.fd-page-landing .fd-landing-main > section > section p,
 body.fd-page-landing .fd-landing-main > section > section li {
     font-size: var(--fd-text-base);
 }
 
-/* Re-assert size for elements that are intentionally NOT body-size. */
-body.fd-page-landing .fd-landing-main > section > section .fd-lede,
-body.fd-page-landing .fd-landing-main > section > section .fd-lede > p {
-    font-size: var(--fd-text-lg);
-}
 body.fd-page-landing .fd-landing-main > section > section .fd-eyebrow,
 body.fd-page-landing .fd-landing-main > section > section .fd-eyebrow > p {
     font-size: var(--fd-text-base);
 }
 
 
-/* BAND TINT VARIANTS ----------------------------------------------------
-   Page-writers can mark a top-level section with one of:
-
-   - `.fd-band-accent` — accent-tinted band (use sparingly; one per page)
-   - `.fd-band-sunken` — deeper neutral band, for the footer-zone CTA
-   - `.fd-band-default` — explicit override to force the default bg on a
-     section the alternation would otherwise paint muted
-
-   These take priority over the nth-of-type alternation. */
-body.fd-page-landing .fd-landing-main > section > section.fd-band-accent {
-    background:
-        radial-gradient(70% 100% at 100% 0%,
-                        var(--fd-accent-soft) 0%,
-                        transparent 60%),
-        var(--fd-bg);
-}
-body.fd-page-landing .fd-landing-main > section > section.fd-band-sunken {
-    background: var(--fd-bg-sunken);
-}
-body.fd-page-landing .fd-landing-main > section > section.fd-band-default {
-    background: var(--fd-bg);
-}
-
-
-/* CTA BANNER -------------------------------------------------------------
-   Closing-band component for landing pages — a full-bleed accent band
-   carrying a final headline + CTA row. Page-writers wrap a section in
-   the `.fd-cta-banner` class (compose with `.fd-band-accent`). */
-body.fd-page-landing .fd-landing-main > section > section.fd-cta-banner {
-    text-align: center;
-    padding-block: var(--fd-space-7);
-}
-body.fd-page-landing .fd-cta-banner > h2 {
-    text-align: center;
-    margin-bottom: var(--fd-space-3);
-}
-body.fd-page-landing .fd-cta-banner > .fd-eyebrow {
-    text-align: center;
-}
-body.fd-page-landing .fd-cta-banner > .fd-lede {
-    text-align: center;
-    margin-inline: auto;
-    margin-bottom: var(--fd-space-5);
-}
-body.fd-page-landing .fd-cta-banner .fd-cta-row {
-    justify-content: center;
-}
-
-
-/* FEATURE CARD POLISH (marketing context) -------------------------------
-   On front-of-site, give feature cards a touch more vertical padding
-   and a subtle accent-tinted icon wash so they read as marketing tiles
-   rather than docs cards. */
+/* Feature card polish (marketing context). */
 body.fd-page-landing .sd-card.fd-feature {
     padding: var(--fd-space-3);
 }
@@ -910,10 +593,8 @@ body.fd-page-landing .sd-card.fd-feature .sd-card-title {
 }
 
 
-/* STAT BLOCK POLISH (marketing context) ---------------------------------
-   Stat values sit at --fd-text-xl, the same step as section heads. The
-   matching-depth selector out-specifies the band-prose normalization
-   rule above (which would otherwise force them to body size). */
+/* Stat block polish (marketing context). The matching-depth selector
+   out-specifies the band-prose normalization above. */
 body.fd-page-landing .fd-stat {
     padding: var(--fd-space-4);
 }
@@ -923,10 +604,8 @@ body.fd-page-landing .fd-landing-main > section > section .fd-stat-value > p {
 }
 
 
-/* LANDING FOOTER --------------------------------------------------------
-   On front-of-site pages, give the global `bd-footer` (copyright)
-   marketing-page presence — a deeper neutral band that anchors the
-   page bottom instead of a thin border-top docs footer. */
+/* Landing footer — give the global `bd-footer` (copyright) a deeper
+   neutral band that anchors the page bottom. */
 body.fd-page-landing .bd-footer {
     background: var(--fd-bg-sunken);
     border-top: var(--fd-border-width) solid var(--fd-border);
@@ -941,13 +620,9 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 }
 
 
-/* FOOTER ICON LINKS ------------------------------------------------------
-   GitHub + Discord icons rendered into the footer via the `icon-links`
-   entry in `html_theme_options["footer_end"]`. The component emits
-   `<ul class="navbar-icon-links">` with FontAwesome `<i>` glyphs inside
-   `.nav-link.pst-navbar-icon` anchors. Scoped to `.bd-footer` so the
-   rules don't reach the upstream navbar markup. */
-
+/* Footer icon links — GitHub + Discord glyphs from the `icon-links`
+   `footer_end` entry. Scoped to `.bd-footer` so they don't reach the
+   navbar markup. */
 .bd-footer .navbar-icon-links {
     display: flex;
     flex-wrap: wrap;
@@ -987,17 +662,12 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
     line-height: 1;
 }
 
-/* Strip default link underline on the icon anchors (some pydata
-   stylesheets re-apply text-decoration on visited / hover links). */
 .bd-footer .navbar-icon-links .nav-link.pst-navbar-icon,
 .bd-footer .navbar-icon-links .nav-link.pst-navbar-icon:visited {
     text-decoration: none;
 }
 
-/* The marketing-page footer block reserves an inner container with
-   `.bd-footer__inner`; the footer's start / end items sit on its left
-   and right via flexbox. Make sure the end (icon links) stays right-
-   aligned even when the copyright text wraps onto multiple lines. */
+/* Keep the icon links right-aligned even when the copyright wraps. */
 .bd-footer .bd-footer__inner {
     display: flex;
     flex-wrap: wrap;
@@ -1012,8 +682,6 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
     flex: 0 0 auto;
 }
 
-/* On narrow viewports stack the copyright above the icon row and
-   center both. */
 @media (max-width: 540px) {
     .bd-footer .bd-footer__inner {
         flex-direction: column;
@@ -1026,19 +694,10 @@ body.fd-page-landing .bd-footer .bd-footer__inner {
 }
 
 
-/* ASYMMETRIC LAYOUT COMPONENTS --------------------------------------------
-   Two-column split: a `.fd-split-text` and a `.fd-split-visual` as
-   siblings inside a `.fd-split` (or as `.. grid::` items). The band's
-   H2 / eyebrow / lede still render above; the split's columns lay out
-   beneath.
-
-   Variants:
-   - `.fd-split-reverse` — flip visual to the left on viewports ≥ 768px
-   - `.fd-split-asymmetric` — 5fr text / 7fr visual (showcase-leaning)
-   - `.fd-split-asymmetric-reverse` — 7fr text / 5fr visual (prose-leaning)
-
-   Below 768px every variant stacks to a single column, text first. */
-
+/* Two-column split — a `.fd-split-text` and a `.fd-split-visual` inside a
+   `.fd-split`. Variants: `.fd-split-reverse` (flip visual left ≥768px),
+   `.fd-split-asymmetric` (5fr/7fr), `.fd-split-asymmetric-reverse`
+   (7fr/5fr). Below 768px every variant stacks, text first. */
 body.fd-page-landing .fd-split {
     display: grid;
     grid-template-columns: 1fr;
@@ -1065,17 +724,10 @@ body.fd-page-landing .fd-split {
     }
 }
 
-/* When the split lives directly inside a section band the band's flex
-   layout (`flex-direction: column`) would force the split to full width
-   on its own row — that's exactly what we want. The split keeps its
-   own grid for the two-column layout inside. */
 body.fd-page-landing .fd-landing-main > section > section > .fd-split {
     margin-block: var(--fd-space-3);
 }
 
-/* Split visual containers: cap their height and round corners so
-   placeholders + images sit consistently. Children stretch to fill
-   the column. */
 body.fd-page-landing .fd-split-visual {
     display: flex;
     flex-direction: column;
@@ -1086,8 +738,6 @@ body.fd-page-landing .fd-split-visual > * {
     width: 100%;
 }
 
-/* Split text column: give prose a comfortable line length even inside
-   the half-width column. */
 body.fd-page-landing .fd-split-text {
     display: flex;
     flex-direction: column;
@@ -1102,187 +752,8 @@ body.fd-page-landing .fd-split-text > p:not(:last-child) {
 }
 
 
-/* ASYMMETRIC FEATURE GRID -------------------------------------------------
-   A 4-tile arrangement where the first tile spans the height of the
-   other three — hero feature tile on the left + 3 supporting tiles
-   stacked on the right. Use sphinx-design `grid-item` with a `:columns:
-   12 12 6 6` on the lead tile and `:columns: 12 12 6 2` on the others,
-   or apply `.fd-feature-hero` to the lead tile (style hook only — the
-   grid layout itself comes from sphinx-design).
-
-   This rule promotes a sphinx-design card with `.fd-feature-hero` to a
-   visually heavier presentation: larger padding, taller min-height,
-   and an accent-tinted top border. */
-body.fd-page-landing .sd-card.fd-feature.fd-feature-hero {
-    padding: var(--fd-space-5);
-    min-height: 100%;
-    border-top: 3px solid var(--fd-accent);
-    background: linear-gradient(180deg,
-                                var(--fd-accent-soft) 0%,
-                                transparent 40%),
-                var(--fd-surface);
-}
-body.fd-page-landing .sd-card.fd-feature.fd-feature-hero .sd-card-title {
-    font-size: var(--fd-text-lg);
-    margin-bottom: var(--fd-space-3);
-}
-body.fd-page-landing .sd-card.fd-feature.fd-feature-hero .sd-card-body {
-    padding: var(--fd-space-4);
-}
-
-
-/* MEDIA RAIL / SHOWCASE STRIP --------------------------------------------
-   A horizontally-arranged row of 3-4 visual tiles (each an image,
-   video, or placeholder admonition) under a section heading. Used for
-   feature-demo loops, supported-model gallery, chart strip, etc.
-
-   Page-writers compose this as either:
-   (a) a `.. grid:: 1 2 3 3` sphinx-design grid with the rail class on
-       the outer container, OR
-   (b) a `.. container:: fd-media-rail` wrapping 3-4 `.fd-media-tile`
-       containers.
-
-   Tiles maintain a consistent aspect ratio so the row reads as a
-   strip rather than as varying-height blocks. */
-body.fd-page-landing .fd-media-rail {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--fd-space-3);
-    width: 100%;
-    max-width: var(--fd-max-content);
-    margin: var(--fd-space-4) auto;
-}
-
-@media (min-width: 600px) {
-    body.fd-page-landing .fd-media-rail {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-@media (min-width: 960px) {
-    body.fd-page-landing .fd-media-rail {
-        grid-template-columns: repeat(3, 1fr);
-    }
-    body.fd-page-landing .fd-media-rail.fd-media-rail-4 {
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
-body.fd-page-landing .fd-media-tile {
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-md);
-    background: var(--fd-surface);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-body.fd-page-landing .fd-media-tile > * {
-    margin: 0;
-}
-
-/* Animated-image / video media in a tile. AVIF is the default
-   dynamic-image format on this site — render through `<img>` or
-   `<picture>` and the tile auto-sizes it to the column. `<video>` is
-   the fallback path. Each tile holds a 16:9 area so the rail reads
-   as a strip rather than as varying-height blocks. */
-body.fd-page-landing .fd-media-tile > img,
-body.fd-page-landing .fd-media-tile > picture,
-body.fd-page-landing .fd-media-tile > picture > img,
-body.fd-page-landing .fd-media-tile > video {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    object-fit: cover;
-    display: block;
-    background: var(--fd-bg-sunken);
-}
-body.fd-page-landing .fd-media-tile .fd-media-tile-body {
-    padding: var(--fd-space-3) var(--fd-space-4);
-    font-size: var(--fd-text-sm);
-    color: var(--fd-text-muted);
-    line-height: 1.5;
-}
-body.fd-page-landing .fd-media-tile .fd-media-tile-title {
-    font-weight: 700;
-    color: var(--fd-text);
-    margin: 0 0 var(--fd-space-1);
-    font-size: var(--fd-text-base);
-}
-
-/* When a `placeholder` admonition lives inside a media-tile or split-
-   visual, drop its outer margin so the tile / column controls the
-   spacing. */
-body.fd-page-landing .fd-media-tile .admonition.placeholder,
-body.fd-page-landing .fd-split-visual .admonition.placeholder {
-    margin: 0;
-    border-radius: 0;
-}
-body.fd-page-landing .fd-split-visual > .admonition.placeholder {
-    border-radius: var(--fd-radius-md);
-}
-
-
-/* INFO CARD ---------------------------------------------------------------
-   A neutral side-panel companion to prose in a `.fd-split`. Used when
-   the visual companion is metadata (hardware config, version list,
-   key facts) rather than a literal image. */
-body.fd-page-landing .fd-info-card {
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-md);
-    background: var(--fd-surface);
-    padding: var(--fd-space-4);
-    box-shadow: var(--fd-shadow-1);
-}
-body.fd-page-landing .fd-info-card > .fd-info-card-title,
-body.fd-page-landing .fd-info-card > p.fd-info-card-title {
-    font-size: var(--fd-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fd-accent);
-    margin: 0 0 var(--fd-space-2);
-}
-body.fd-page-landing .fd-info-card dl,
-body.fd-page-landing .fd-info-card ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-/* Ordered lists keep their numbering — they're the step-flow shape. */
-body.fd-page-landing .fd-info-card ol {
-    margin: 0;
-    padding-left: var(--fd-space-4);
-}
-body.fd-page-landing .fd-info-card ol > li {
-    font-size: var(--fd-text-sm);
-    color: var(--fd-text);
-    line-height: 1.5;
-    margin-bottom: var(--fd-space-2);
-}
-body.fd-page-landing .fd-info-card ol > li:last-child {
-    margin-bottom: 0;
-}
-body.fd-page-landing .fd-info-card dl > dt {
-    font-size: var(--fd-text-xs);
-    color: var(--fd-text-subtle);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    margin-top: var(--fd-space-2);
-}
-body.fd-page-landing .fd-info-card dl > dt:first-child {
-    margin-top: 0;
-}
-body.fd-page-landing .fd-info-card dl > dd {
-    margin: var(--fd-space-1) 0 0;
-    font-size: var(--fd-text-sm);
-    color: var(--fd-text);
-    line-height: 1.5;
-}
-
-
-/* SPLIT-EMBEDDED CODE BLOCK ----------------------------------------------
-   When a `.. code-block::` is dropped into a split column, kill the
-   horizontal margins it would otherwise inherit and give it the column
-   width. */
+/* A `.. code-block::` dropped into a split column: drop inherited
+   horizontal margins and fill the column width. */
 body.fd-page-landing .fd-split-visual .highlight,
 body.fd-page-landing .fd-split-text .highlight {
     margin: 0;
@@ -1290,8 +761,7 @@ body.fd-page-landing .fd-split-text .highlight {
 }
 
 
-/* RESPONSIVE — landing-specific overrides --------------------------------- */
-
+/* Responsive — landing-specific overrides. */
 @media (max-width: 768px) {
     body.fd-page-landing .fd-landing-main > section > section {
         padding-block: var(--fd-space-5);
@@ -1304,16 +774,12 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* ----- 7. Homepage "Supported Models" rail ------------------------------ */
 
-/* Right-hand secondary sidebar shown ONLY on the homepage (wired in by
-   `_templates/layout.html` for `master_doc`, populated by
-   `js/supported_models_nav.js`). The marketing layout runs full-bleed with
-   centered bands, so there's no content column to dock against — the rail
+/* Right-hand secondary sidebar shown only on the homepage (wired in by
+   `_templates/layout.html`, populated by `js/supported_models_nav.js`).
+   The marketing layout has no content column to dock against, so the rail
    floats `position: fixed` in the right gutter and only appears once the
-   viewport is wide enough to clear the centered --fd-max-content column
-   (below that it's display:none and the on-page grid is the only nav).
-
-   Hidden until JS finishes: `[hidden]` + the default `display: none` keep
-   it out until `.is-ready` is added inside the wide-screen media query. */
+   viewport clears the centered content column. Hidden until JS adds
+   `.is-ready` inside the wide-screen media query. */
 .fd-models-nav {
     display: none;
 }
@@ -1324,21 +790,18 @@ body.fd-page-landing .fd-split-text .highlight {
     }
 }
 
-/* Breakpoint in `em` (relative to the browser's default font size, so it
-   scales with a reader's accessibility font setting). Media queries can't
-   read `var()`, so this can't literally reference --fd-max-content; the
-   value is derived from it: the rail docks at 50% + 36rem (half the 72rem
-   content column) + 1.5rem and is 11rem wide, so its right edge sits at
-   50% + 48.5rem. It clears the viewport edge once ~50vw >= ~49rem, i.e.
-   ~98rem; 100em (1600px @ 16px) adds a little breathing room. If you change
-   --fd-max-content, nudge this to match (rough rule: content-rem + 28). */
+/* Breakpoint in `em` so it scales with the reader's font setting. Media
+   queries can't read `var()`, so this can't reference --fd-max-content
+   directly; the rail docks at 50% + half the content column + 1.5rem and
+   is 11rem wide, clearing the viewport edge around 98rem (100em adds
+   breathing room). If --fd-max-content changes, nudge this (content-rem
+   + ~28). */
 @media (min-width: 100em) {
     .fd-models-nav.is-ready {
         display: block;
         position: fixed;
         z-index: 5;
         top: calc(var(--pst-header-height, 4rem) + 2.5rem);
-        /* Dock just to the right of the centered content column. */
         left: calc(50% + (var(--fd-max-content) / 2) + 1.5rem);
         width: 11rem;
         max-height: calc(100vh - var(--pst-header-height, 4rem) - 5rem);
@@ -1356,8 +819,8 @@ body.fd-page-landing .fd-split-text .highlight {
     padding-left: var(--fd-space-3);
 }
 
-/* The list carries the rail "spine"; links overlay the spine with their own
-   transparent left border so hover/focus spacing stays stable. */
+/* The list carries the rail "spine"; links overlay it with a transparent
+   left border so hover/focus spacing stays stable. */
 .fd-models-nav__list {
     list-style: none;
     margin: 0;
@@ -1389,24 +852,14 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* ----- 8. Misc upstream tweaks ------------------------------------------- */
 
-/* Drop the "FlashDreams" caption row above the sidebar nav — it just
-   echoes the toctree caption from the root index.rst and adds noise on
-   per-section pages. */
+/* Drop the "FlashDreams" caption row above the sidebar nav — it echoes
+   the root toctree caption and adds noise on per-section pages. */
 .bd-sidenav + .caption,
 .bd-toc-item > .caption {
     display: none;
 }
 
-/* Slightly tighter line height on body text for design-y pages — only when
-   inside a .fd-prose wrapper so we don't fight the autodoc-heavy API
-   pages which prefer the theme default. */
-.fd-prose p,
-.fd-prose li {
-    line-height: 1.65;
-}
-
-/* Improve focus ring visibility for keyboard users on all interactive
-   FlashDreams components. */
+/* Keyboard focus rings on interactive FlashDreams components. */
 .sd-card.fd-feature:focus-visible,
 .fd-cta-row .sd-btn:focus-visible,
 .fd-stat:focus-visible {
@@ -1417,29 +870,15 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* ----- 9. Reference-docs model-page components --------------------------- */
 
-/* Models index: reclaim the empty left gutter.
-   `models/index` renders in the reference scaffold but has its primary
-   (left) sidebar disabled (`html_sidebars["models/index"] = []`). pydata
-   still caps the article at its 60em reading measure and centers it
-   (`.bd-content { justify-content: center }`), so the freed-up left column
-   sits empty while the wide benchmark tables + interactive charts read
-   cramped. `fd-page-wide` (set on <body> in layout.html) drops the reading
-   cap on this page so the content fills the main track — still bounded by
-   the outer `.bd-page-width`, and the right page-TOC is a separate grid
-   track, so nothing collides. */
+/* Models index: drop the reading-measure cap so wide benchmark tables +
+   charts fill the main track. `fd-page-wide` is set on <body> in
+   layout.html for the page whose left sidebar is disabled. */
 body.fd-page-wide .bd-main .bd-content .bd-article-container {
     max-width: none;
 }
 
-/* Used by the per-model RST pages under `models/*.rst` (raw HTML blocks
-   that render the "Blog / Model page / Code / arXiv" link row and the
-   side-by-side teaser-video card). Kept here so the page authors don't
-   have to reach for inline styles. */
-
-/* Note admonitions read in the branded accent (the primary --fd-accent
-   green) rather than the theme's default info-blue. Overrides the three
-   pydata note rules: the left accent border, the title background, and
-   the title icon. */
+/* Note admonitions read in the branded accent rather than the theme's
+   default info-blue (left border, title background, title icon). */
 .admonition.note,
 div.admonition.note {
     border-color: var(--fd-accent);
@@ -1453,38 +892,8 @@ div.admonition.note > .admonition-title::after {
     color: var(--fd-accent);
 }
 
-.video-slot {
-    border: 1px dashed var(--fd-border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin: 12px 0 18px;
-    background: var(--fd-bg-muted);
-}
-
-.ai-figure-placeholder {
-    border: 1px solid color-mix(in srgb, #2563eb 45%, #cbd5e1);
-    border-radius: 16px;
-    padding: 22px;
-    margin: 18px 0 24px;
-    background:
-        radial-gradient(circle at 12% 20%, rgba(11, 119, 109, 0.18), transparent 34%),
-        linear-gradient(135deg, rgba(11, 119, 109, 0.10), rgba(59, 130, 246, 0.08));
-    min-height: 220px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.ai-figure-title {
-    font-size: 1.05rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.ai-figure-body {
-    max-width: 760px;
-    color: var(--fd-text-muted);
-}
+/* Used by the per-model RST pages under `models/*.rst` (raw HTML for the
+   link row, teaser-video cards, and benchmark charts). */
 
 .fd-highlight-grid {
     display: grid;
@@ -1560,32 +969,6 @@ div.admonition.note > .admonition-title::after {
     background: #05070a;
 }
 
-.model-link-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 10px;
-    margin: 0 0 12px;
-}
-
-.model-link-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.35rem 0.75rem;
-    border-radius: 0.25rem;
-    border: 1px solid var(--fd-accent);
-    color: var(--fd-accent);
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.9rem;
-}
-
-.model-link-button:hover {
-    text-decoration: none;
-    background: color-mix(in srgb, var(--fd-accent) 8%, transparent);
-}
-
 .model-video-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1633,9 +1016,9 @@ div.admonition.note > .admonition-title::after {
     opacity: 1;
 }
 
-/* Sample-clip thumbnail shown at the top of each model card on the Models
-   index. Fixed 16:9 + object-fit:cover so the mixed-resolution sample clips
-   line up as a uniform strip across the grid. */
+/* Sample-clip thumbnail at the top of each model card on the Models
+   index. Fixed 16:9 + object-fit:cover so mixed-resolution clips line up
+   as a uniform strip. */
 .fd-feature .fd-card-video {
     display: block;
     width: 100%;
@@ -1647,9 +1030,7 @@ div.admonition.note > .admonition-title::after {
 }
 
 /* Picture-in-picture inset (e.g. LingBot-World's camera-trajectory clip
-   over the generated view), mirroring the inset on the model page. The
-   wrapper is the positioning context so the inset pins to the main clip,
-   not the padded card body. */
+   over the generated view). The wrapper is the positioning context. */
 .fd-feature .fd-card-video-wrap {
     position: relative;
     margin-bottom: var(--fd-space-3);
@@ -1679,8 +1060,7 @@ div.admonition.note > .admonition-title::after {
     }
 }
 
-/* -- Image click-to-zoom (JS-driven overlay) ----------------------------- */
-
+/* Image click-to-zoom (overlay built by js/image_zoom.js). */
 img.zoomable,
 .zoomable img,
 .zoomable video {
@@ -1726,69 +1106,9 @@ img.zoomable,
 }
 
 
-/* ----- 10. Unwired components -------------------------------------------- */
-
-/* TODO: No page currently uses any of the components below. They are
-   token-clean and ready to use, but unconsumed — before shipping, either
-   adopt them on a page (then move the rule back into its section above)
-   or delete it. Quarantined here so the live component sections only
-   contain rules that something actually renders.
-
-   - .fd-container / .fd-section : generic layout helpers
-   - .fd-video                   : responsive 16:9 embed (AVIF default;
-                                   styles <img>/<picture>/<video>/<iframe>
-                                   children identically)
-   - .fd-compare*                : benchmark comparison-table styling
-
-   NOTE: .fd-eyebrow and .fd-lede (in §6) are likewise not yet used by any
-   page, but are left in place because the marketing-band layout actively
-   wires them (order/re-assert/cta-banner rules depend on them). */
-
-.fd-container {
-    max-width: var(--fd-max-content);
-    margin-inline: auto;
-    padding-inline: var(--fd-space-3);
-}
-
-.fd-section {
-    margin-block: var(--fd-space-6);
-}
-
-@media (max-width: 640px) {
-    .fd-section {
-        margin-block: var(--fd-space-5);
-    }
-}
-
-/* Responsive 16:9 embed. AVIF is the default dynamic-image format, so
-   <img>/<picture> children are styled the same as <video>/<iframe>. */
-.fd-video {
-    width: 100%;
-    max-width: 100%;
-    aspect-ratio: 16 / 9;
-    border: var(--fd-border-width) solid var(--fd-border);
-    border-radius: var(--fd-radius-md);
-    overflow: hidden;
-    box-shadow: var(--fd-shadow-2);
-    background: var(--fd-bg-sunken);
-}
-
-.fd-video > iframe,
-.fd-video > video,
-.fd-video > img,
-.fd-video > picture,
-.fd-video > picture > img {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-    object-fit: cover;
-}
-
 /* Benchmark comparison table — wrap a list-table / csv-table in a
    `.. container:: fd-compare`. Numeric columns right-align via
-   `.fd-compare-numeric` (on table or row); `.fd-compare-best` highlights
-   a winning cell. */
+   `.fd-compare-numeric`; `.fd-compare-best` highlights a winning cell. */
 .fd-compare table {
     width: 100%;
     border-collapse: separate;
