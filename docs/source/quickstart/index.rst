@@ -13,19 +13,83 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
+Get Started
+===========
 
-Quickstart
-===================================
+Welcome to FlashDreams! This page will guide you from a fresh checkout
+of the repository to a running model. It uses :doc:`NVIDIA OmniDreams
+</models/omnidreams>`, the interactive driving world model, as the
+example; the :doc:`model gallery </models/index>` lists the run command
+for every other model.
 
-Start here for the shortest path to a first successful run.
+Install
+-------
 
-- :doc:`Install FlashDreams </quickstart/installation>`
-- :doc:`Launch your first model </quickstart/first_world_model>`
+FlashDreams uses the ``uv`` Python package manager (`installation
+instructions <https://docs.astral.sh/uv/getting-started/installation/>`_).
+With ``uv`` installed, clone the repository and synchronize the
+OmniDreams workspace:
 
-Project and support
--------------------
+.. code-block:: bash
 
-- `GitHub repository <https://github.com/NVIDIA/flashdreams>`_
-- `Issues <https://github.com/NVIDIA/flashdreams/issues>`_
-- `Pull requests <https://github.com/NVIDIA/flashdreams/pulls>`_
+   git clone https://github.com/NVIDIA/flashdreams.git
+   cd flashdreams
+   uv sync --package flashdreams-omnidreams --extra interactive-drive
+
+Most runs need a Hugging Face token. For OmniDreams, use a token with
+read access to `nvidia/omni-dreams-models
+<https://huggingface.co/nvidia/omni-dreams-models>`_ and
+`nvidia/omni-dreams-scenes
+<https://huggingface.co/datasets/nvidia/omni-dreams-scenes>`_:
+
+.. code-block:: bash
+
+   export HF_TOKEN=<your-hf-token>
+
+For container, caching, and other environment details, see the project
+`README <https://github.com/NVIDIA/flashdreams/blob/main/README.md>`_ and
+:doc:`/troubleshooting`.
+
+Run your first model
+--------------------
+
+Launch the OmniDreams interactive driving demo. It runs the world model
+and streams the generated camera view to a browser:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+
+Then open ``http://<server-ip>:8080/`` in a browser on the same network
+(use ``localhost`` on the same machine). The first launch spends several
+minutes loading checkpoints and compiling kernels; later launches reuse
+the cached assets.
+
+On VRAM-constrained GPUs, add ``--offload-text-encoder`` to reduce peak
+VRAM usage by about 15 GB:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive \
+       --stream-mjpeg :8080 \
+       --offload-text-encoder
+
+See :doc:`/models/omnidreams` for the offload trade-offs, scripted
+generation, scene variants, WebRTC serving, and multi-GPU options.
+
+Where to next
+-------------
+
+- :doc:`/models/index`: every shipped model with its CLI slug and the
+  command to run it.
+- :doc:`/models/omnidreams`: drive a world model in real time with the
+  ``interactive-drive`` demo.
+- :doc:`/developer_guides/inference_pipeline_overview`: the generation
+  loop end to end: KV cache, ring attention, CUDA-graph capture.
+- :doc:`/developer_guides/config_system`: the configuration layer
+  every method shares.
+- :doc:`/developer_guides/new_integration`: adding a new model or
+  method as a plugin.
+- :doc:`CLI and API Reference </api/index>`: Reference docs for the
+  ``flashdreams-run`` CLI and the FlashDreams Python API.
+- :doc:`/troubleshooting`: common first-run failures and fixes.

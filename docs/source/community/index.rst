@@ -13,5 +13,13 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   support
+   discord
+   faq
+
 .. include:: ../../../CONTRIBUTING.md
    :parser: myst_parser.sphinx_

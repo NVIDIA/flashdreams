@@ -16,12 +16,17 @@
 LingBot-World
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://technology.robbyant.com/lingbot-world" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://github.com/robbyant/lingbot-world" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://technology.robbyant.com/lingbot-world
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://github.com/robbyant/lingbot-world
+      :color: primary
+
+      Official code
 
 Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a camera-controllable image-to-video
 (I2V) world model with streaming inference and context-parallel runtime support.
@@ -56,8 +61,8 @@ Installation
 Running the method
 ------------------
 
-To run LingBot-World, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run LingBot-World, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 
@@ -74,8 +79,8 @@ Sample data is downloaded from the
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

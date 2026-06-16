@@ -3,10 +3,14 @@
 #
 # Sphinx configuration for the FlashDreams documentation site.
 
+import re
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+
+from sphinx.search import languages as _search_languages
+from sphinx.search.en import SearchEnglish
 
 # Ensure autodoc imports the in-repo package (flashdreams/flashdreams/*)
 # instead of any older site-packages install missing newer modules.
@@ -65,18 +69,73 @@ exclude_patterns: list[str] = []
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_title = f"FlashDreams {version}"
 html_show_sphinx = False
 html_static_path = ["_static", "../../assets/logo"]
 
 html_theme_options = {
-    "source_repository": "https://github.com/NVIDIA/flashdreams/",
-    "source_branch": "main",
-    "source_directory": "docs/source/",
-    "sidebar_hide_name": True,
-    "light_logo": "horizontal-light.svg",
-    "dark_logo": "horizontal-dark.svg",
+    # Light/dark logo split.
+    "logo": {
+        "image_light": "_static/horizontal-light.svg",
+        "image_dark": "_static/horizontal-dark.svg",
+    },
+    # Google Analytics (GA4) measurement ID.
+    "analytics": {
+        "google_analytics_id": "G-Q44TKZ8777",
+    },
+    # Map of pages to secondary sidebar items.
+    # Marketing-layout pages have no sidebar and therefore no secondary sidebar items.
+    "secondary_sidebar_items": {
+        "index": [],
+        "quickstart/index": ["page-toc"],
+        "community/*": ["page-toc"],
+        "models/*": ["page-toc"],
+        "documentation": ["page-toc"],
+        "troubleshooting": ["page-toc"],
+        "developer_guides/*": ["page-toc"],
+        "api/*": ["page-toc"],
+    },
+    # Pygments styles for light/dark mode.
+    "pygments_light_style": "tango",
+    "pygments_dark_style": "monokai",
+    # Channel icons for GitHub + Discord
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/NVIDIA/flashdreams",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        },
+        {
+            "name": "Discord",
+            "url": "https://discord.com/invite/nvidiaomniverse",
+            "icon": "fa-brands fa-discord",
+            "type": "fontawesome",
+        },
+    ],
+    "footer_start": ["copyright"],
+    "footer_end": ["icon-links"],
+    "navigation_depth": 4,
+    "collapse_navigation": False,
+    # Top navbar arrangement
+    "navbar_start": ["navbar-logo"],
+    "navbar_center": ["navbar-nav"],
+    "navbar_end": ["theme-switcher"],
+    "navbar_persistent": ["search-button"],
+    "show_nav_level": 2,
+}
+
+# Wire the left-sidebar nav-tree only for certain pages.
+html_sidebars = {
+    "index": [],
+    "quickstart/index": [],
+    "community/*": ["sidebar-nav-bs"],
+    "models/*": ["sidebar-nav-bs"],
+    "documentation": ["sidebar-nav-bs"],
+    "troubleshooting": ["sidebar-nav-bs"],
+    "developer_guides/*": ["sidebar-nav-bs"],
+    "api/*": ["sidebar-nav-bs"],
 }
 
 html_context = {
@@ -88,13 +147,59 @@ html_context = {
 }
 
 html_css_files = ["custom.css"]
-html_js_files = ["js/image_zoom.js"]
+html_js_files = ["js/image_zoom.js", "js/supported_models_nav.js"]
 
 # -- Copybutton --------------------------------------------------------------
 
 # Strip Python REPL prompts and shell prompts when copying snippets.
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
+
+# -- Search: keep hyphenated terms intact ------------------------------------
+#
+# Sphinx's stock search tokenizer (``\w+``) splits on every non-word character,
+# so a hyphenated command like ``flashdreams-run`` is indexed *and* queried as
+# the two unrelated words ``flashdreams`` + ``run``. Searching the command then
+# ranks every page where "run" merely appears in a heading above the pages that
+# actually document the command.
+#
+# We register an English search language with deliberately *asymmetric*
+# tokenizers:
+#
+#   * Index side (``split``): emit the cohesive token *and* its parts, so a
+#     page containing only ``flashdreams-run`` is still found by a bare
+#     ``flashdreams`` or ``run`` query (recall is preserved).
+#
+#   * Query side (``js_splitter_code``, embedded by Sphinx as ``splitQuery`` in
+#     language_data.js and overriding the stock one in searchtools.js): emit the
+#     cohesive token *only*. A hyphenated search then matches purely on the
+#     intact token, so an incidental "run" heading on some unrelated page can no
+#     longer pull it to the top of the results.
+#
+# The two sides need not be identical — they only need every query token to be
+# findable in the index, which the index-side parts guarantee.
+
+
+class _SearchEnglishHyphenated(SearchEnglish):
+    _word_re = re.compile(r"\w+(?:-\w+)*")
+
+    js_splitter_code = r"""
+var splitQuery = (query) =>
+  query.match(
+    /[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+(?:-[\p{Letter}\p{Number}_\p{Emoji_Presentation}]+)*/gu
+  ) || [];
+"""
+
+    def split(self, input: str) -> list[str]:
+        tokens: list[str] = []
+        for token in self._word_re.findall(input):
+            tokens.append(token)
+            if "-" in token:
+                tokens.extend(part for part in token.split("-") if part)
+        return tokens
+
+
+_search_languages["en"] = _SearchEnglishHyphenated
 
 # -- Autodoc -----------------------------------------------------------------
 
@@ -118,6 +223,7 @@ autodoc_mock_imports = [
     "botocore",
     "mediapy",
     "cv2",
+    "triton",
 ]
 
 # -- Napoleon ----------------------------------------------------------------
