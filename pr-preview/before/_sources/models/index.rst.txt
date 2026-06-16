@@ -65,9 +65,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
          </video>
 
-      Single-view and multi-view streaming methods against the
-      OmniDreams checkpoints, including a diffusion-forcing AR
-      variant.
+      Interactive world simulator for autonomous vehicles.
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
@@ -80,8 +78,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
          </video>
 
-      Streaming Wan 2.1 T2V via the Self-Forcing plugin. AR steps
-      after warmup are sub-second on H100 / GB200.
+      Autoregressive text-to-video based on Wan 2.1.
 
    .. grid-item-card:: Causal-Forcing
       :class-card: fd-feature
@@ -94,8 +91,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
          </video>
 
-      Causal-forcing framewise T2V and I2V variants of Wan 2.1 via
-      the Causal-Forcing plugin.
+      Autoregressive text/image-to-video based on Wan 2.1.
 
    .. grid-item-card:: Causal Wan 2.2
       :class-card: fd-feature
@@ -108,7 +104,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
          </video>
 
-      FastVideo Wan 2.2 14B causal T2V method.
+      Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
@@ -126,8 +122,7 @@ uses, and the settings you can tune.
            </video>
          </div>
 
-      Camera-controlled I2V with bundled prompt, first-frame, and
-      camera arrays.
+      Camera-controllable image-to-video world model.
 
 .. container:: fd-eyebrow
 
@@ -147,9 +142,8 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
          </video>
 
-      Bidirectional Wan 2.1: T2V 1.3B / 480p and I2V 14B / 480p.
-      The parity baseline for ``self-forcing`` and
-      ``causal-forcing`` methods.
+      Bidirectional video generation model that supports both
+      text-to-video and image-to-video.
 
    .. grid-item-card:: Cosmos-Predict2.5
       :class-card: fd-feature
@@ -162,7 +156,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
          </video>
 
-      Bidirectional Cosmos-Predict2.5 methods (T2V / I2V, 2B).
+      Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
 
 .. container:: fd-eyebrow
 
@@ -182,9 +176,7 @@ uses, and the settings you can tune.
            <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
          </video>
 
-      Streaming video super-resolution for the FlashVSR checkpoint
-      family. Latency scales with output resolution and is reported
-      per scene.
+      Streaming video super-resolution.
 
 Running a model yourself
 ------------------------
