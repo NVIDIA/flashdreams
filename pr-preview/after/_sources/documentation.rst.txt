@@ -43,6 +43,15 @@ Documentation
       cache limits, Hugging Face authentication, GPU memory)
       each with the likely cause and the next step to try.
 
+Where to start
+--------------
+
+New to FlashDreams? Start with :doc:`Get Started </quickstart/index>` to go
+from a fresh checkout to a running model. From there, read the
+:doc:`developer guides </developer_guides/index>` for the conceptual model,
+reach for the :doc:`CLI and API reference </api/index>` when you need exact
+symbols and flags, and check :doc:`/troubleshooting` when a first run fails.
+
 .. toctree::
    :hidden:
    :maxdepth: 1

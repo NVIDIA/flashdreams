@@ -792,19 +792,19 @@ body.fd-page-landing .fd-split-text .highlight {
 
 /* Breakpoint in `em` so it scales with the reader's font setting. Media
    queries can't read `var()`, so this can't reference --fd-max-content
-   directly; the rail docks at 50% + half the content column + 1.5rem and
-   is 11rem wide, clearing the viewport edge around 98rem (100em adds
-   breathing room). If --fd-max-content changes, nudge this (content-rem
-   + ~28). */
+   directly; the rail docks at 50% + half the content column + the same
+   gap used between the topnav and content (clamp 3.5-5rem) and is 11rem
+   wide, clearing the viewport edge around 98rem (100em adds breathing
+   room). If --fd-max-content changes, nudge this (content-rem + ~28). */
 @media (min-width: 100em) {
     .fd-models-nav.is-ready {
         display: block;
         position: fixed;
         z-index: 5;
-        top: calc(var(--pst-header-height, 4rem) + 2.5rem);
-        left: calc(50% + (var(--fd-max-content) / 2) + 1.5rem);
+        top: calc(var(--pst-header-height, 4rem) + clamp(var(--fd-space-6), 8vw, var(--fd-space-7)));
+        left: calc(50% + (var(--fd-max-content) / 2) + clamp(var(--fd-space-6), 8vw, var(--fd-space-7)));
         width: 11rem;
-        max-height: calc(100vh - var(--pst-header-height, 4rem) - 5rem);
+        max-height: calc(100vh - var(--pst-header-height, 4rem) - clamp(var(--fd-space-6), 8vw, var(--fd-space-7)) - var(--fd-space-4));
         overflow-y: auto;
     }
 }
@@ -869,13 +869,6 @@ body.fd-page-landing .fd-split-text .highlight {
 
 
 /* ----- 9. Reference-docs model-page components --------------------------- */
-
-/* Models index: drop the reading-measure cap so the wide model-card
-   grid fills the main track. `fd-page-wide` is set on <body> in
-   layout.html for the page whose left sidebar is disabled. */
-body.fd-page-wide .bd-main .bd-content .bd-article-container {
-    max-width: none;
-}
 
 /* Note admonitions read in the branded accent rather than the theme's
    default info-blue (left border, title background, title icon). */

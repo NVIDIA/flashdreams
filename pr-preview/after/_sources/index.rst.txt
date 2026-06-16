@@ -193,14 +193,6 @@ The :doc:`Get Started guide <quickstart/index>` walks from a fresh
 checkout to running OmniDreams, an interactive driving world-model demo
 built on FlashDreams.
 
-.. container:: fd-cta-row
-
-   .. button-ref:: quickstart/index
-      :ref-type: doc
-      :color: primary
-
-      Get Started!
-
 Supported Models
 ----------------
 
@@ -217,8 +209,7 @@ invocation, the checkpoint source, and the per-implementation knobs.
       :link: models/omnidreams
       :link-type: doc
 
-      Single-view streaming generation against the OmniDreams
-      checkpoints.
+      Interactive world simulator for autonomous vehicles.
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
