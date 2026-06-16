@@ -432,6 +432,19 @@ Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
       KV-cache Update is off the hot path and excluded from Total.
    </p>
 
+Further reading
+---------------
+
+- :doc:`latency_tuning` covers the supported ``interactive-drive`` latency
+  knobs: model and backend choice, resolution, chunk-size constraints, FP8 and
+  native acceleration, transport, and the validated GB300 reference.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   latency_tuning
+
 Citation
 --------
 

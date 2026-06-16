@@ -166,24 +166,6 @@ Additional setup options
 These steps are not required for the basic OmniDreams demo, but they are
 useful for development workflows and downstream projects.
 
-Speeding up CUDA builds
-~~~~~~~~~~~~~~~~~~~~~~~
-
-The first synchronization can compile CUDA extensions from source.
-Restricting compilation to the local GPU architecture and parallelizing
-build jobs reduces wall time substantially:
-
-.. code-block:: bash
-
-   CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.')
-   export NVTE_CUDA_ARCHS="${CUDA_ARCH}"
-   export BLOCK_SPARSE_ATTN_CUDA_ARCHS="${CUDA_ARCH}"
-   export MAX_JOBS=8
-
-The `Contributing Guide
-<https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds>`_
-documents each variable in full and recommends an ``.envrc`` setup.
-
 Use FlashDreams as a library
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

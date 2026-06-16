@@ -34,14 +34,6 @@ Developer Guides
       How every overridable field is surfaced as a CLI flag, how
       recipe defaults compose, and how to layer overrides on top.
 
-   .. grid-item-card:: Interactive-drive latency tuning
-      :link: latency_tuning
-      :link-type: doc
-
-      The supported knobs for ``interactive-drive`` latency: model and
-      backend choice, resolution, chunk-size constraints, FP8 and native
-      acceleration, transport, and the validated GB300 reference.
-
    .. grid-item-card:: Add a new method
       :link: new_integration
       :link-type: doc
@@ -63,7 +55,6 @@ generated clip, see :doc:`/quickstart/index`.
 
    inference_pipeline_overview
    config_system
-   latency_tuning
    new_integration
 
 ..

@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=941c393c" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=13a3600f" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -68,7 +68,7 @@ SPDX-License-Identifier: Apache-2.0
     <script>DOCUMENTATION_OPTIONS.pagename = 'quickstart/index';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
-    <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Documentation" href="../documentation.html" />
@@ -500,20 +500,6 @@ with:</p>
 <h2>Additional setup options<a class="headerlink" href="#additional-setup-options" title="Link to this heading">#</a></h2>
 <p>These steps are not required for the basic OmniDreams demo, but they are
 useful for development workflows and downstream projects.</p>
-<section id="speeding-up-cuda-builds">
-<h3>Speeding up CUDA builds<a class="headerlink" href="#speeding-up-cuda-builds" title="Link to this heading">#</a></h3>
-<p>The first synchronization can compile CUDA extensions from source.
-Restricting compilation to the local GPU architecture and parallelizing
-build jobs reduces wall time substantially:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">CUDA_ARCH</span><span class="o">=</span><span class="k">$(</span>nvidia-smi<span class="w"> </span>--query-gpu<span class="o">=</span>compute_cap<span class="w"> </span>--format<span class="o">=</span>csv,noheader<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;.&#39;</span><span class="k">)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NVTE_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">BLOCK_SPARSE_ATTN_CUDA_ARCHS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CUDA_ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">MAX_JOBS</span><span class="o">=</span><span class="m">8</span>
-</pre></div>
-</div>
-<p>The <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md#speeding-up-local-builds">Contributing Guide</a>
-documents each variable in full and recommends an <code class="docutils literal notranslate"><span class="pre">.envrc</span></code> setup.</p>
-</section>
 <section id="use-flashdreams-as-a-library">
 <h3>Use FlashDreams as a library<a class="headerlink" href="#use-flashdreams-as-a-library" title="Link to this heading">#</a></h3>
 <p>If you only need FlashDreams as a dependency in another project rather
@@ -619,7 +605,6 @@ work in progress or contribute your own.</p></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-setup-options">Additional setup options</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#speeding-up-cuda-builds">Speeding up CUDA builds</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-flashdreams-as-a-library">Use FlashDreams as a library</a></li>
 </ul>
 </li>

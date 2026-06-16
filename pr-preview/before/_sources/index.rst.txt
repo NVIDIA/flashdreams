@@ -121,12 +121,10 @@ world. That comes down to four things:
 Performance
 -----------
 
-Each tile shows the steady-state per-step speedup — post-warmup,
-post-graph-capture — over a separate existing implementation of the
-same model. Both runs use the same weights on the same GPU, so the
-gain comes from FlashDreams' runtime alone; each tile names its
-baseline below. Full methodology lives on the
-:doc:`Models page </models/index>`.
+Each tile shows the speedup over a separate existing implementation of
+the same model. Both runs use the same weights on the same GPU, so the
+gain comes from FlashDreams' runtime alone. Full methodology and the
+per-tile baselines live on the :doc:`Models page </models/index>`.
 
 .. grid:: 1 2 2 4
    :gutter: 3
@@ -144,10 +142,6 @@ baseline below. Full methodology lives on the
 
          Self-Forcing speedup
 
-      .. container:: fd-stat-note
-
-         GB300, vs FastVideo baseline (362 ms → 171 ms per step).
-
    .. grid-item-card::
       :link: models/lingbot_world.html#profiling-benchmark
       :link-type: url
@@ -160,10 +154,6 @@ baseline below. Full methodology lives on the
       .. container:: fd-stat-label
 
          LingBot-World speedup
-
-      .. container:: fd-stat-note
-
-         H100 (4×GPU), vs Official baseline (1950 ms → 629 ms per step).
 
    .. grid-item-card::
       :link: models/wan21.html#profiling-benchmark
@@ -178,33 +168,25 @@ baseline below. Full methodology lives on the
 
          Wan2.1 speedup
 
-      .. container:: fd-stat-note
-
-         GB300, vs FastVideo baseline (534 ms → 382 ms per step).
-
    .. grid-item-card::
-      :link: models/index.html
+      :link: models/flashvsr.html#profiling-benchmark
       :link-type: url
       :class-card: fd-stat
 
       .. container:: fd-stat-value
 
-         8
+         1.42×
 
       .. container:: fd-stat-label
 
-         Integrated models
-
-      .. container:: fd-stat-note
-
-         Streaming and bidirectional recipes, one CLI.
+         FlashVSR speedup
 
 Try FlashDreams!
 ----------------
 
 FlashDreams brings best-in-class per-step latency to interactive
 autoregressive video and world models: multiple integrated models across
-streaming and bidirectional recipes, multi-GPU execution, and one CLI
+streaming and bidirectional methods, multi-GPU execution, and one CLI
 to drive them all.
 
 The :doc:`Get Started guide <quickstart/index>` walks from a fresh
@@ -222,10 +204,10 @@ built on FlashDreams.
 Supported Models
 ----------------
 
-Streaming and autoregressive recipes emit per-step output with
-sub-second latency once warm; bidirectional recipes are kept as
+Streaming and autoregressive model implementations emit per-step output with
+sub-second latency once warm; bidirectional model implementations are kept as
 full-block parity references. Each model page carries the canonical
-invocation, the checkpoint source, and the per-recipe knobs.
+invocation, the checkpoint source, and the per-implementation knobs.
 
 .. grid:: 1 2 2 3
    :gutter: 3
@@ -235,63 +217,58 @@ invocation, the checkpoint source, and the per-recipe knobs.
       :link: models/omnidreams
       :link-type: doc
 
-      Single-view and multi-view streaming recipes against the
-      OmniDreams checkpoints, including a diffusion-forcing AR
-      variant.
+      Single-view streaming generation against the OmniDreams
+      checkpoints.
 
    .. grid-item-card:: Self-Forcing
       :class-card: fd-feature
       :link: models/self_forcing
       :link-type: doc
 
-      Streaming Wan 2.1 T2V via the Self-Forcing plugin. Sub-second
-      steps after warmup on H100 / GB200.
+      Autoregressive text-to-video based on Wan 2.1.
 
    .. grid-item-card:: Causal-Forcing
       :class-card: fd-feature
       :link: models/causal_forcing
       :link-type: doc
 
-      Causal-forcing framewise T2V and I2V variants of Wan 2.1 via
-      the Causal-Forcing plugin.
+      Autoregressive text/image-to-video based on Wan 2.1.
 
    .. grid-item-card:: Causal Wan 2.2
       :class-card: fd-feature
       :link: models/causal_wan22
       :link-type: doc
 
-      FastVideo Wan 2.2 14B causal T2V recipe.
+      Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
       :link: models/lingbot_world
       :link-type: doc
 
-      Camera-controlled I2V with bundled prompt, first-frame, and
-      camera arrays.
+      Camera-controllable image-to-video world model.
 
    .. grid-item-card:: FlashVSR
       :class-card: fd-feature
       :link: models/flashvsr
       :link-type: doc
 
-      Streaming video super-resolution for the FlashVSR checkpoint
-      family.
+      Streaming video super-resolution.
 
    .. grid-item-card:: Wan 2.1 (bidirectional)
       :class-card: fd-feature
       :link: models/wan21
       :link-type: doc
 
-      Bidirectional reference model used for parity testing — T2V
-      1.3B / 480p and I2V 14B / 480p.
+      Bidirectional video generation model that supports both
+      text-to-video and image-to-video.
 
    .. grid-item-card:: Cosmos-Predict2.5 (bidirectional)
       :class-card: fd-feature
       :link: models/cosmos_predict2
       :link-type: doc
 
-      Bidirectional Cosmos-Predict2 reference recipes (T2V / I2V, 2B).
+      Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
 
 .. Master toctree: one flat entry per top-level navbar item. Order
    here = order in the navbar.
