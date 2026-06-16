@@ -701,9 +701,14 @@ def _patchify(x: Tensor, patch_size: int) -> Tensor:
     if patch_size == 1:
         return x
     assert x.ndim == 5, f"_patchify expects [B, C, T, H, W]; got {tuple(x.shape)}"
+    # Channel order must be ``(c pw ph)`` to match the Wan 2.2 VAE checkpoint /
+    # diffusers ``AutoencoderKLWan`` convention (``patchify`` permute
+    # ``(0,1,6,4,2,3,5)``). Using ``(c ph pw)`` transposes each ``patch_size``-
+    # square sub-pixel block relative to the trained conv weights, which decodes
+    # to a fixed ~2px checkerboard on every frame.
     return rearrange(
         x,
-        "b c t (h ph) (w pw) -> b (c ph pw) t h w",
+        "b c t (h ph) (w pw) -> b (c pw ph) t h w",
         ph=patch_size,
         pw=patch_size,
     )
@@ -714,9 +719,11 @@ def _unpatchify(x: Tensor, patch_size: int) -> Tensor:
     if patch_size == 1:
         return x
     assert x.ndim == 5, f"_unpatchify expects [B, C, T, H, W]; got {tuple(x.shape)}"
+    # Inverse of :func:`_patchify`; channel order ``(c pw ph)`` matches the
+    # Wan 2.2 VAE checkpoint / diffusers convention (see :func:`_patchify`).
     return rearrange(
         x,
-        "b (c ph pw) t h w -> b c t (h ph) (w pw)",
+        "b (c pw ph) t h w -> b c t (h ph) (w pw)",
         ph=patch_size,
         pw=patch_size,
     )

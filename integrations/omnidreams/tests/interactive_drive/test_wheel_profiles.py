@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from omnidreams.interactive_drive.input import wheel_profiles
 from omnidreams.interactive_drive.input.wheel_profiles import (
     FF_AUTOCENTER,
     FF_CONSTANT,
@@ -37,6 +38,14 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     user_wheel_profiles_dir,
     wheel_profile_to_yaml_dict,
 )
+
+
+def test_evdev_helpers_without_fcntl(monkeypatch, tmp_path):
+    """On platforms without fcntl (e.g. Windows) the evdev entry points
+    short-circuit instead of dereferencing the absent ioctl interface."""
+    monkeypatch.setattr(wheel_profiles, "fcntl", None)
+    assert wheel_profiles.scan_evdev_devices() == ()
+    assert wheel_profiles.read_evdev_name(tmp_path / "event0") is None
 
 
 def _wheel_profile() -> WheelProfile:

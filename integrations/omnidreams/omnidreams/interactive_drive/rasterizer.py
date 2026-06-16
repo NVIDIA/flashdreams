@@ -433,8 +433,12 @@ class _LudusConditionRasterizerImpl:
         return _RenderedCameraFrames(frames_hwc_uint8=rgb, ready_event=ready_event)
 
     def cleanup(self) -> None:
-        if self._temp_dir is not None:
-            self._temp_dir.cleanup()
+        # getattr guard: __init__ can raise before _temp_dir is assigned (e.g.
+        # the ludus extension build fails), and __del__ still calls cleanup --
+        # without this the AttributeError masks the real __init__ error.
+        temp_dir = getattr(self, "_temp_dir", None)
+        if temp_dir is not None:
+            temp_dir.cleanup()
             self._temp_dir = None
 
     def __del__(self) -> None:

@@ -66,6 +66,11 @@ jobs:
         run: |
           uv run --no-project sphinx-build -b html docs/source _build
 
+      - name: Prune Sphinx cache artifacts from publish dir
+        # Prevent Sphinx cache/metadata from being published to gh-pages.
+        run: |
+          rm -rf _build/.doctrees
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         # Only publish for real landings on main, releases, or manual runs —

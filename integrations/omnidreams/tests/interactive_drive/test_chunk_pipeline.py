@@ -3,7 +3,7 @@
 
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -12,12 +12,76 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-from omnidreams.interactive_drive.runtime.timing import ChunkTimes
+from omnidreams.interactive_drive.runtime.timing import (
+    ChunkTimes,
+    TraceComponentValue,
+    TraceContext,
+)
 from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     ChunkRequest,
 )
+
+
+@dataclass(frozen=True)
+class _TraceEvent:
+    name: str
+    depends_on: list[int]
+    components: dict[str, TraceComponentValue]
+
+
+class _RecordingTraceSink:
+    def __init__(self) -> None:
+        self.threads: list[str] = []
+        self.events: list[_TraceEvent] = []
+
+    def add_thread(self, name: str) -> int:
+        self.threads.append(name)
+        return len(self.threads) - 1
+
+    def add_instant(
+        self,
+        name: str,
+        *,
+        thread: int,
+        time_ns: int,
+        depends_on: list[int] | None = None,
+        **components: TraceComponentValue,
+    ) -> int:
+        del thread, time_ns
+        return self._append_event(name, depends_on, components)
+
+    def add_range(
+        self,
+        name: str,
+        *,
+        thread: int,
+        begin_ns: int,
+        end_ns: int,
+        depends_on: list[int] | None = None,
+        **components: TraceComponentValue,
+    ) -> int:
+        del thread
+        event_components = dict(components)
+        event_components["begin_ns"] = begin_ns
+        event_components["end_ns"] = end_ns
+        return self._append_event(name, depends_on, event_components)
+
+    def _append_event(
+        self,
+        name: str,
+        depends_on: list[int] | None,
+        components: dict[str, TraceComponentValue],
+    ) -> int:
+        self.events.append(
+            _TraceEvent(
+                name=name,
+                depends_on=[] if depends_on is None else depends_on,
+                components=components,
+            )
+        )
+        return len(self.events) - 1
 
 
 class _GatedBackend:
@@ -278,3 +342,35 @@ def test_chunk_pipeline_skips_stale_scene_load_queued_behind_warmup() -> None:
 
     assert backend.loaded_prompts == ["snow"]
     assert backend.render_calls == 0
+
+
+def test_chunk_pipeline_emits_worker_trace_ranges() -> None:
+    sink = _RecordingTraceSink()
+    trace_context = TraceContext.create(sink)
+    backend = FakeVideoModelBackend(frames_per_render=1)
+    pipeline = ChunkPipeline(backend, trace_context=trace_context)
+    pipeline.request_scene(minimal_scene())
+    chunk_times = _chunk_times(chunk_size=1)
+    chunk_times.chunk_index = 1
+    pipeline.request_pose_chunk(
+        ChunkRequest(
+            trajectory=make_trajectory(1),
+            chunk_times=chunk_times,
+            trace_dependency_event=123,
+        )
+    )
+
+    queued = pipeline.frame_queue.get(timeout=1.0)
+    pipeline.shutdown()
+
+    assert queued.worker_ready_event_id is not None
+    names = [event.name for event in sink.events]
+    assert "worker_warmup" in names
+    assert "queue_wait" in names
+    assert "chunk_render" in names
+    queue_wait = sink.events[names.index("queue_wait")]
+    chunk_render = sink.events[names.index("chunk_render")]
+    assert queue_wait.depends_on == [123]
+    assert chunk_render.depends_on == [names.index("queue_wait")]
+    assert chunk_render.components["chunk_index"] == 1
+    assert chunk_render.components["source"] == "fake"

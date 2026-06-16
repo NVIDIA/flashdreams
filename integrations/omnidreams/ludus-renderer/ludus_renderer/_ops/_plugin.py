@@ -37,7 +37,6 @@ def _get_plugin():
 
     # Make sure we can find the necessary compiler and library binaries.
     if os.name == "nt":
-        lib_dir = os.path.dirname(__file__) + r"\..\lib"
 
         def find_cl_path():
             import glob
@@ -71,25 +70,44 @@ def _get_plugin():
 
     # Compiler options.
     common_defines = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE"]
-    # ``-Wno-psabi`` mutes the GCC 7.1 -> 10.1 PSABI advisory notes that fire
-    # on every value-returning ``Vec2f`` / ``Vec3f`` / ``Vec4f`` / ``Mat*``
-    # member in ``Math.hpp``. The notes are purely informational about an
-    # ABI change in older GCCs and have no source-level fix.
-    cc_opts = common_defines + ["-Wall", "-Werror", "-Wno-psabi"]
-    cuda_opts = common_defines + [
-        "-lineinfo",
-        "-Xcompiler", "-Wall,-Werror,-Wno-psabi",
-        # Suppress nvcc warning about __device__ functions redeclared without
-        # __device__ in out-of-line template definitions (Math.hpp MatrixBase).
-        "-diag-suppress", "20037",
-    ]
+    # ``-Wall/-Werror/-Wno-psabi`` are GCC/Clang-only and POSIX-only here: MSVC's
+    # cl.exe rejects them ("D8021: invalid numeric argument '/Werror'"). On
+    # Windows use the MSVC /wd warning-disables and skip the -Xcompiler warns.
+    # (-Wno-psabi mutes the GCC 7.1->10.1 PSABI advisory notes on Math.hpp
+    # Vec2f/Vec3f/Vec4f/Mat* members -- informational, no source-level fix.)
     if os.name == "nt":
-        cc_opts += ["/wd4067", "/wd4624"]
+        # TODO: add MSVC warnings-as-errors (/W3 /WX) so the Windows build does
+        # not drift to warnings-ignored; the POSIX branch already gates on
+        # -Wall -Werror. Bootstrapped without it to land the initial port.
+        cc_opts = common_defines + ["/wd4067", "/wd4624"]
+        cuda_opts = common_defines + [
+            "-lineinfo",
+            # Suppress nvcc warning about __device__ functions redeclared without
+            # __device__ in out-of-line template definitions (Math.hpp MatrixBase).
+            "-diag-suppress", "20037",
+        ]
+    else:
+        cc_opts = common_defines + ["-Wall", "-Werror", "-Wno-psabi"]
+        cuda_opts = common_defines + [
+            "-lineinfo",
+            "-Xcompiler", "-Wall,-Werror,-Wno-psabi",
+            "-diag-suppress", "20037",
+        ]
 
     # Linker options and source files.
     ldflags: list[str] = []
     if os.name == "posix":
         ldflags = ["-lcuda"]
+    elif os.name == "nt":
+        # Link the CUDA driver API (cu* functions). MSVC needs cuda.lib, which
+        # lives in $CUDA_HOME\lib\x64 (not auto-added like the runtime libs).
+        # torch's ninja writer quotes each ldflag via _nt_quote_args, so a
+        # /LIBPATH whose CUDA home contains spaces (C:\Program Files\...) is
+        # passed to link.exe as a single quoted token rather than splitting.
+        _cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH") or ""
+        ldflags = ["cuda.lib"]
+        if _cuda_home:
+            ldflags.append("/LIBPATH:" + os.path.join(_cuda_home, "lib", "x64"))
     source_files = [
         "../_cpp/common/common.cpp",
         "../_cpp/render/ludus_cuda.cu",

@@ -21,6 +21,7 @@ from omnidreams.interactive_drive.config import (
     WorldModelProfileConfig,
 )
 from omnidreams.interactive_drive.log import configure_logging
+from omnidreams.interactive_drive.runtime.timing import TraceSink
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 from omnidreams.scenes import local_scene_archive_path
@@ -214,6 +215,17 @@ def build_parser() -> argparse.ArgumentParser:
             "for a richer browser viewer prefer the separate "
             "``omnidreams.webrtc.server`` entry point. Implies --no-hud "
             "when launched via the demo wrapper."
+        ),
+    )
+    parser.add_argument(
+        "--stop-after-chunks",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Exit cleanly after consuming chunk index N from the present "
+            "queue. Used by internal latency tracing; chunk 0 is warmup, so "
+            "N yields N traced chunks (1..N)."
         ),
     )
     parser.add_argument(
@@ -443,6 +455,7 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         bev=bev_config,
         stream_mjpeg_bind=args.stream_mjpeg,
+        stop_after_consumed_chunks=args.stop_after_chunks,
         **_oob_kwargs(args),
     )
 
@@ -479,7 +492,7 @@ def prepare_config_and_backend(
     return config, backend
 
 
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
     """Execute the interactive-drive backend for ``args`` (single-scene ``--no-hud`` path).
 
     The HUD / streaming paths instead build one long-lived
@@ -487,5 +500,5 @@ def run(args: argparse.Namespace) -> None:
     """
     configure_logging()
     config, backend = prepare_config_and_backend(args)
-    app = InteractiveDriveApp(config=config, backend=backend)
+    app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
     app.run()

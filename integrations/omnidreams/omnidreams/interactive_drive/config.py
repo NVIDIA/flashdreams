@@ -126,6 +126,12 @@ class AppConfig:
     # the MJPEG streaming presenter (HTTP frames + keyboard) -- needed on
     # compute-only boxes with no Vulkan-capable GPU.
     stream_mjpeg_bind: str | None = None
+    # When set, the main loop exits cleanly after that many distinct
+    # chunk indices have been consumed off the present queue. Used by the
+    # internal LAG upload helper to produce deterministic, warmup-aware
+    # trace runs across machines instead of timing the run with a
+    # wall-clock sleep.
+    stop_after_consumed_chunks: int | None = None
     # Substring matched against the Vulkan adapter name to force the
     # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
     # the first enumerated adapter.
