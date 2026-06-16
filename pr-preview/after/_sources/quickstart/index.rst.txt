@@ -146,12 +146,12 @@ See :doc:`/models/omnidreams` for local-window mode, WebRTC serving,
 scene variants, perf-manifest setup, multi-GPU launch commands, and
 additional example-data UUIDs.
 
-Other recipes
+Other methods
 ~~~~~~~~~~~~~
 
 After OmniDreams, the model gallery covers the rest of the shipped
-FlashDreams recipes and their runner slugs. For example, the offline
-:doc:`Self-Forcing </models/self_forcing>` Wan 2.1 1.3B T2V recipe runs
+FlashDreams methods and their runner slugs. For example, the offline
+:doc:`Self-Forcing </models/self_forcing>` Wan 2.1 1.3B T2V method runs
 with:
 
 .. code-block:: bash
@@ -170,7 +170,7 @@ Use FlashDreams as a library
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you only need FlashDreams as a dependency in another project rather
-than running the shipped recipes, install it from PyPI instead:
+than running the shipped methods, install it from PyPI instead:
 
 .. code-block:: bash
 
@@ -185,15 +185,14 @@ Or track the current ``main`` branch:
 Where to next
 -------------
 
-- :doc:`/models/index`: every shipped recipe with its CLI slug,
-  checkpoint source, and per-recipe knobs, alongside steady-state
-  per-step latency numbers and reproducer commands.
+- :doc:`/models/index`: every shipped method with its CLI slug,
+  checkpoint source, per-method knobs, and the command to run it.
 - :doc:`/models/omnidreams`: drive a world model in real time with the
   ``interactive-drive`` demo.
 - :doc:`/developer_guides/inference_pipeline_overview`: the generation
   loop end to end: KV cache, ring attention, CUDA-graph capture.
 - :doc:`/developer_guides/config_system`: the configuration layer
-  every recipe shares.
+  every method shares.
 - :doc:`/developer_guides/new_integration`: adding a new model or
   method as a plugin.
 - :doc:`CLI and API Reference </api/index>`: Reference docs for the

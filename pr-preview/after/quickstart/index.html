@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=34000ddd" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3414d026" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -482,11 +482,11 @@ the single-view runner with bundled example data:</p>
 scene variants, perf-manifest setup, multi-GPU launch commands, and
 additional example-data UUIDs.</p>
 </section>
-<section id="other-recipes">
-<h3>Other recipes<a class="headerlink" href="#other-recipes" title="Link to this heading">#</a></h3>
+<section id="other-methods">
+<h3>Other methods<a class="headerlink" href="#other-methods" title="Link to this heading">#</a></h3>
 <p>After OmniDreams, the model gallery covers the rest of the shipped
-FlashDreams recipes and their runner slugs. For example, the offline
-<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> Wan 2.1 1.3B T2V recipe runs
+FlashDreams methods and their runner slugs. For example, the offline
+<a class="reference internal" href="../models/self_forcing.html"><span class="doc">Self-Forcing</span></a> Wan 2.1 1.3B T2V method runs
 with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/self_forcing<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
@@ -502,7 +502,7 @@ useful for development workflows and downstream projects.</p>
 <section id="use-flashdreams-as-a-library">
 <h3>Use FlashDreams as a library<a class="headerlink" href="#use-flashdreams-as-a-library" title="Link to this heading">#</a></h3>
 <p>If you only need FlashDreams as a dependency in another project rather
-than running the shipped recipes, install it from PyPI instead:</p>
+than running the shipped methods, install it from PyPI instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>flashdreams
 </pre></div>
 </div>
@@ -515,15 +515,14 @@ than running the shipped recipes, install it from PyPI instead:</p>
 <section id="where-to-next">
 <h2>Where to next<a class="headerlink" href="#where-to-next" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped recipe with its CLI slug,
-checkpoint source, and per-recipe knobs, alongside steady-state
-per-step latency numbers and reproducer commands.</p></li>
+<li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped method with its CLI slug,
+checkpoint source, per-method knobs, and the command to run it.</p></li>
 <li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>: drive a world model in real time with the
 <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> demo.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>: the generation
 loop end to end: KV cache, ring attention, CUDA-graph capture.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a>: the configuration layer
-every recipe shares.</p></li>
+every method shares.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a new method</span></a>: adding a new model or
 method as a plugin.</p></li>
 <li><p><a class="reference internal" href="../api/index.html"><span class="doc">CLI and API Reference</span></a>: Reference docs for the
@@ -600,7 +599,7 @@ work in progress or contribute your own.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hugging-face-authentication">Hugging Face authentication</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-omnidreams">Run OmniDreams</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scripted-omnidreams-generation">Scripted OmniDreams generation</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#other-recipes">Other recipes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#other-methods">Other methods</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-setup-options">Additional setup options</a><ul class="nav section-nav flex-column">
