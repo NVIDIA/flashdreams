@@ -131,7 +131,7 @@ uses, and the settings you can tune.
 
 .. container:: fd-eyebrow
 
-   Bidirectional reference
+   Bidirectional Video Generation
 
 .. grid:: 1 2 2 3
    :gutter: 3

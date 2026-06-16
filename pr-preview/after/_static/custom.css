@@ -1318,12 +1318,6 @@ body.fd-page-landing .fd-split-text .highlight {
     display: none;
 }
 
-/* Anchor offset so in-page jumps clear the sticky navbar. Applied by JS to
-   each model card's grid column (`.sd-col`). */
-.fd-model-anchor {
-    scroll-margin-top: calc(var(--pst-header-height, 4rem) + 1.5rem);
-}
-
 @media (prefers-reduced-motion: no-preference) {
     html {
         scroll-behavior: smooth;
@@ -1362,8 +1356,8 @@ body.fd-page-landing .fd-split-text .highlight {
     padding-left: var(--fd-space-3);
 }
 
-/* The list carries the rail "spine"; active links paint an accent segment
-   over it via their own left border (negative margin overlays the spine). */
+/* The list carries the rail "spine"; links overlay the spine with their own
+   transparent left border so hover/focus spacing stays stable. */
 .fd-models-nav__list {
     list-style: none;
     margin: 0;
@@ -1390,12 +1384,6 @@ body.fd-page-landing .fd-split-text .highlight {
 .fd-models-nav__link:hover,
 .fd-models-nav__link:focus-visible {
     color: var(--fd-text);
-}
-
-.fd-models-nav__link.is-active {
-    color: var(--fd-accent);
-    border-left-color: var(--fd-accent);
-    font-weight: 600;
 }
 
 

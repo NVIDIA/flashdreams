@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=941c393c" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=13a3600f" />
   
   <!-- So that users can add custom icons -->
   <script defer src="_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -68,7 +68,7 @@ SPDX-License-Identifier: Apache-2.0
     <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="_static/js/image_zoom.js?v=34b2b931"></script>
-    <script src="_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <script src="_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Get Started" href="quickstart/index.html" />
@@ -443,12 +443,10 @@ steps.</p>
 </section>
 <section id="performance">
 <h2>Performance<a class="headerlink" href="#performance" title="Link to this heading">#</a></h2>
-<p>Each tile shows the steady-state per-step speedup — post-warmup,
-post-graph-capture — over a separate existing implementation of the
-same model. Both runs use the same weights on the same GPU, so the
-gain comes from FlashDreams’ runtime alone; each tile names its
-baseline below. Full methodology lives on the
-<a class="reference internal" href="models/index.html"><span class="doc">Models page</span></a>.</p>
+<p>Each tile shows the speedup over a separate existing implementation of
+the same model. Both runs use the same weights on the same GPU, so the
+gain comes from FlashDreams’ runtime alone. Full methodology and the
+per-tile baselines live on the <a class="reference internal" href="models/index.html"><span class="doc">Models page</span></a>.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-2 sd-row-cols-md-2 sd-row-cols-lg-4 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -459,9 +457,6 @@ baseline below. Full methodology lives on the
 </div>
 <div class="fd-stat-label docutils container">
 <p class="sd-card-text">Self-Forcing speedup</p>
-</div>
-<div class="fd-stat-note docutils container">
-<p class="sd-card-text">GB300, vs FastVideo baseline (362 ms → 171 ms per step).</p>
 </div>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference external" href="models/self_forcing.html#profiling-benchmark"><span>models/self_forcing.html#profiling-benchmark</span></a></div>
@@ -475,9 +470,6 @@ baseline below. Full methodology lives on the
 <div class="fd-stat-label docutils container">
 <p class="sd-card-text">LingBot-World speedup</p>
 </div>
-<div class="fd-stat-note docutils container">
-<p class="sd-card-text">H100 (4×GPU), vs Official baseline (1950 ms → 629 ms per step).</p>
-</div>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference external" href="models/lingbot_world.html#profiling-benchmark"><span>models/lingbot_world.html#profiling-benchmark</span></a></div>
 </div>
@@ -490,9 +482,6 @@ baseline below. Full methodology lives on the
 <div class="fd-stat-label docutils container">
 <p class="sd-card-text">Wan2.1 speedup</p>
 </div>
-<div class="fd-stat-note docutils container">
-<p class="sd-card-text">GB300, vs FastVideo baseline (534 ms → 382 ms per step).</p>
-</div>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference external" href="models/wan21.html#profiling-benchmark"><span>models/wan21.html#profiling-benchmark</span></a></div>
 </div>
@@ -500,16 +489,13 @@ baseline below. Full methodology lives on the
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover fd-stat docutils">
 <div class="sd-card-body docutils">
 <div class="fd-stat-value docutils container">
-<p class="sd-card-text">8</p>
+<p class="sd-card-text">1.42×</p>
 </div>
 <div class="fd-stat-label docutils container">
-<p class="sd-card-text">Integrated models</p>
-</div>
-<div class="fd-stat-note docutils container">
-<p class="sd-card-text">Streaming and bidirectional recipes, one CLI.</p>
+<p class="sd-card-text">FlashVSR speedup</p>
 </div>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference external" href="models/index.html"><span>models/index.html</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference external" href="models/flashvsr.html#profiling-benchmark"><span>models/flashvsr.html#profiling-benchmark</span></a></div>
 </div>
 </div>
 </div>
@@ -518,7 +504,7 @@ baseline below. Full methodology lives on the
 <h2>Try FlashDreams!<a class="headerlink" href="#try-flashdreams" title="Link to this heading">#</a></h2>
 <p>FlashDreams brings best-in-class per-step latency to interactive
 autoregressive video and world models: multiple integrated models across
-streaming and bidirectional recipes, multi-GPU execution, and one CLI
+streaming and bidirectional methods, multi-GPU execution, and one CLI
 to drive them all.</p>
 <p>The <a class="reference internal" href="quickstart/index.html"><span class="doc">Get Started guide</span></a> walks from a fresh
 checkout to running OmniDreams, an interactive driving world-model demo
@@ -529,10 +515,10 @@ built on FlashDreams.</p>
 </section>
 <section id="supported-models">
 <h2>Supported Models<a class="headerlink" href="#supported-models" title="Link to this heading">#</a></h2>
-<p>Streaming and autoregressive recipes emit per-step output with
-sub-second latency once warm; bidirectional recipes are kept as
+<p>Streaming and autoregressive model implementations emit per-step output with
+sub-second latency once warm; bidirectional model implementations are kept as
 full-block parity references. Each model page carries the canonical
-invocation, the checkpoint source, and the per-recipe knobs.</p>
+invocation, the checkpoint source, and the per-implementation knobs.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-2 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -540,9 +526,8 @@ invocation, the checkpoint source, and the per-recipe knobs.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 OmniDreams</div>
-<p class="sd-card-text">Single-view and multi-view streaming recipes against the
-OmniDreams checkpoints, including a diffusion-forcing AR
-variant.</p>
+<p class="sd-card-text">Single-view streaming generation against the OmniDreams
+checkpoints.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a></div>
 </div>
@@ -551,8 +536,7 @@ variant.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Self-Forcing</div>
-<p class="sd-card-text">Streaming Wan 2.1 T2V via the Self-Forcing plugin. Sub-second
-steps after warmup on H100 / GB200.</p>
+<p class="sd-card-text">Autoregressive text-to-video based on Wan 2.1.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/self_forcing.html"><span class="doc">Self-Forcing</span></a></div>
 </div>
@@ -561,8 +545,7 @@ steps after warmup on H100 / GB200.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Causal-Forcing</div>
-<p class="sd-card-text">Causal-forcing framewise T2V and I2V variants of Wan 2.1 via
-the Causal-Forcing plugin.</p>
+<p class="sd-card-text">Autoregressive text/image-to-video based on Wan 2.1.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/causal_forcing.html"><span class="doc">Causal-Forcing</span></a></div>
 </div>
@@ -571,7 +554,7 @@ the Causal-Forcing plugin.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Causal Wan 2.2</div>
-<p class="sd-card-text">FastVideo Wan 2.2 14B causal T2V recipe.</p>
+<p class="sd-card-text">Autoregressive text-to-video based on Wan 2.2 from FastVideo.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/causal_wan22.html"><span class="doc">Causal Wan2.2</span></a></div>
 </div>
@@ -580,8 +563,7 @@ Causal Wan 2.2</div>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 LingBot-World</div>
-<p class="sd-card-text">Camera-controlled I2V with bundled prompt, first-frame, and
-camera arrays.</p>
+<p class="sd-card-text">Camera-controllable image-to-video world model.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/lingbot_world.html"><span class="doc">LingBot-World</span></a></div>
 </div>
@@ -590,8 +572,7 @@ camera arrays.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 FlashVSR</div>
-<p class="sd-card-text">Streaming video super-resolution for the FlashVSR checkpoint
-family.</p>
+<p class="sd-card-text">Streaming video super-resolution.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/flashvsr.html"><span class="doc">FlashVSR</span></a></div>
 </div>
@@ -600,8 +581,8 @@ family.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Wan 2.1 (bidirectional)</div>
-<p class="sd-card-text">Bidirectional reference model used for parity testing — T2V
-1.3B / 480p and I2V 14B / 480p.</p>
+<p class="sd-card-text">Bidirectional video generation model that supports both
+text-to-video and image-to-video.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/wan21.html"><span class="doc">Wan2.1</span></a></div>
 </div>
@@ -610,7 +591,7 @@ Wan 2.1 (bidirectional)</div>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Cosmos-Predict2.5 (bidirectional)</div>
-<p class="sd-card-text">Bidirectional Cosmos-Predict2 reference recipes (T2V / I2V, 2B).</p>
+<p class="sd-card-text">Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="models/cosmos_predict2.html"><span class="doc">Cosmos-Predict2.5</span></a></div>
 </div>

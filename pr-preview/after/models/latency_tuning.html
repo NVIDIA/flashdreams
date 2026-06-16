@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=941c393c" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=13a3600f" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -65,14 +65,14 @@ SPDX-License-Identifier: Apache-2.0
                 gtag('js', new Date());
                 gtag('config', 'G-Q44TKZ8777');
             </script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'developer_guides/latency_tuning';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'models/latency_tuning';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
-    <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Add a new method" href="new_integration.html" />
-    <link rel="prev" title="Config system" href="config_system.html" />
+    <link rel="next" title="Self-Forcing" href="self_forcing.html" />
+    <link rel="prev" title="NVIDIA OmniDreams" href="omnidreams.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="v0.1.0" />
@@ -176,15 +176,15 @@ SPDX-License-Identifier: Apache-2.0
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../documentation.html">
     Documentation
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../models/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     Models
   </a>
 </li>
@@ -279,15 +279,15 @@ SPDX-License-Identifier: Apache-2.0
 </li>
 
 
-<li class="nav-item current active">
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../documentation.html">
     Documentation
   </a>
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../models/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     Models
   </a>
 </li>
@@ -330,43 +330,22 @@ SPDX-License-Identifier: Apache-2.0
   
     <div class="sidebar-primary-items__start sidebar-primary__section">
         <div class="sidebar-primary-item">
-<form class="bd-search d-flex align-items-center"
-      action="../search.html"
-      method="get">
-  <i class="fa-solid fa-magnifying-glass"></i>
-  <input type="search"
-         class="form-control"
-         name="q"
-         placeholder="Search the docs ..."
-         aria-label="Search the docs ..."
-         autocomplete="off"
-         autocorrect="off"
-         autocapitalize="off"
-         spellcheck="false"/>
-  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
-</form></div>
-        <div class="sidebar-primary-item">
 
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="omnidreams.html">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Interactive-drive latency tuning</a></li>
-<li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/cli.html">CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-Forcing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cosmos_predict2.html">Cosmos-Predict2.5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flashvsr.html">FlashVSR</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">LingBot-World</a></li>
+<li class="toctree-l1"><a class="reference internal" href="wan21.html">Wan2.1</a></li>
 </ul>
 </div>
 </nav></div>
@@ -410,10 +389,10 @@ SPDX-License-Identifier: Apache-2.0
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Models</a></li>
     
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Guides</a></li>
+    <li class="breadcrumb-item"><a href="omnidreams.html" class="nav-link">NVIDIA OmniDreams</a></li>
     
     <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Interactive-drive latency tuning</span></li>
   </ul>
@@ -559,7 +538,7 @@ resolution, and native-acceleration knobs first.</p>
 world-model runtime. Use <code class="docutils literal notranslate"><span class="pre">--sync-gpu-timing</span></code> only when you need raster compute
 timings; it synchronizes GPU work and is not a throughput setting.</p>
 <p>The validated published reference for interactive-drive latency is the
-single-view GB300 table from <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>, measured at
+single-view GB300 table from <a class="reference internal" href="omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>, measured at
 <code class="docutils literal notranslate"><span class="pre">1280</span> <span class="pre">x</span> <span class="pre">704</span></code> resolution:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -635,20 +614,20 @@ Blackwell, or GB300 systems.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="config_system.html"
+       href="omnidreams.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Config system</p>
+        <p class="prev-next-title">NVIDIA OmniDreams</p>
       </div>
     </a>
     <a class="right-next"
-       href="new_integration.html"
+       href="self_forcing.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Add a new method</p>
+        <p class="prev-next-title">Self-Forcing</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

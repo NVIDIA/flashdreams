@@ -38,7 +38,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=941c393c" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=13a3600f" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
@@ -68,10 +68,10 @@ SPDX-License-Identifier: Apache-2.0
     <script>DOCUMENTATION_OPTIONS.pagename = 'models/omnidreams';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
-    <script src="../_static/js/supported_models_nav.js?v=8e3938d4"></script>
+    <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Self-Forcing" href="self_forcing.html" />
+    <link rel="next" title="Interactive-drive latency tuning" href="latency_tuning.html" />
     <link rel="prev" title="Models" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -335,7 +335,10 @@ SPDX-License-Identifier: Apache-2.0
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">NVIDIA OmniDreams</a></li>
+<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="latency_tuning.html">Interactive-drive latency tuning</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-Forcing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2</a></li>
@@ -781,6 +784,16 @@ peer connection from completing. Disable the setting and reload:</p>
 <p class="model-footnote">
    KV-cache Update is off the hot path and excluded from Total.
 </p></section>
+<section id="further-reading">
+<h2>Further reading<a class="headerlink" href="#further-reading" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="latency_tuning.html"><span class="doc">Interactive-drive latency tuning</span></a> covers the supported <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> latency
+knobs: model and backend choice, resolution, chunk-size constraints, FP8 and
+native acceleration, transport, and the validated GB300 reference.</p></li>
+</ul>
+<div class="toctree-wrapper compound">
+</div>
+</section>
 <section id="citation">
 <h2>Citation<a class="headerlink" href="#citation" title="Link to this heading">#</a></h2>
 <p>If you use OmniDreams, please cite the original work:</p>
@@ -816,11 +829,11 @@ peer connection from completing. Disable the setting and reload:</p>
       </div>
     </a>
     <a class="right-next"
-       href="self_forcing.html"
+       href="latency_tuning.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Self-Forcing</p>
+        <p class="prev-next-title">Interactive-drive latency tuning</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -853,6 +866,7 @@ peer connection from completing. Disable the setting and reload:</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-webrtc-server">Alternative: WebRTC server</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#performance-table">Performance table</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#further-reading">Further reading</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>
 </ul>
   </nav></div>
