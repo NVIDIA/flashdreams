@@ -22,11 +22,8 @@ by `.github/scripts/sync_version.py`, which runs as a pre-commit hook.
 ## What gets published
 
 Only `flashdreams` is published to PyPI (pure-Python wheel, `py3-none-any`).
-
-**TEMPORARY:** The CI currently publishes to **test.pypi.org**.  When the
-project goes public, switch the CI job to target real PyPI by changing
-`--repository testpypi` to `--repository pypi` and the secret from
-`TEST_PYPI_API_TOKEN` to `PYPI_API_TOKEN` in `.github/workflows/ci.yml`.
+The `publish-pypi` job in `.github/workflows/ci.yml` uploads to production
+PyPI on pushes to `main` after the CPU and GPU jobs pass.
 
 ## Integration packages (git-installable)
 
@@ -47,20 +44,23 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 
 | Package | Published | Version |
 |---------|-----------|---------|
-| flashdreams | Test PyPI | canonical (from `_version.py`) |
-| flashdreams-wan21 | git only | synced |
-| flashdreams-self-forcing | git only | synced |
+| flashdreams | PyPI | canonical (from `_version.py`) |
 | flashdreams-causal-forcing | git only | synced |
+| flashdreams-cosmos-predict2 | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
-| flashdreams-omnidreams | git only | synced |
+| flashdreams-flashvsr | git only | synced |
+| flashdreams-hy-worldplay | git only | synced |
 | flashdreams-lingbot | git only | synced |
+| flashdreams-omnidreams | git only | synced |
+| flashdreams-self-forcing | git only | synced |
+| flashdreams-wan21 | git only | synced |
+| flashdreams-wan22 | git only | synced |
 | ludus-renderer | git only | independent (0.9.0) |
 
 ## CI secrets required
 
 | Secret name | Where to create | Purpose |
 |-------------|-----------------|---------|
-| `TEST_PYPI_API_TOKEN` | https://test.pypi.org/manage/account/token/ | Upload to Test PyPI |
-| `PYPI_API_TOKEN` (future) | https://pypi.org/manage/account/token/ | Upload to real PyPI |
+| `PYPI_API_TOKEN` | https://pypi.org/manage/account/token/ | Upload `flashdreams` to PyPI |
 
 Add secrets in GitHub repo Settings -> Secrets and variables -> Actions.

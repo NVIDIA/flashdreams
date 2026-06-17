@@ -62,7 +62,7 @@ schema used for tracking raw measurements.
 ## Hosting on GitHub Pages
 
 `.github/workflows/doc.yml` builds the docs on every push / PR /
-release and pushes the rendered HTML to the `gh-pages` branch
+merge-queue run / release and pushes the rendered HTML to the `gh-pages` branch
 (layout cribbed from
 [`gsplat`](https://github.com/nerfstudio-project/gsplat/blob/main/.github/workflows/doc.yml)):
 
@@ -71,7 +71,8 @@ release and pushes the rendered HTML to the `gh-pages` branch
 | `push` to `main`       | `gh-pages:/main/`               | `main`       |
 | `release` (tag)        | `gh-pages:/versions/<ver>/`     | `<ver>`      |
 | `pull_request`         | (build only, no deploy)         | n/a          |
-| `workflow_dispatch`    | `gh-pages:/versions/<ver>/`     | `<ver>`      |
+| `merge_group`          | (build only, no deploy)         | n/a          |
+| `workflow_dispatch`    | `gh-pages:/main/`               | `main`       |
 
 One-time GitHub setup after the first run:
 
@@ -85,11 +86,13 @@ One-time GitHub setup after the first run:
 
 ### CI doc build (CPU-only)
 
-The CI workflow uses `uv sync --only-group docs` to install Sphinx
-tooling, then manually installs CPU-only PyTorch and the lightweight
-subset of flashdreams runtime deps. The heavy GPU packages
-(`transformer-engine`, `pynvml`, `boto3`, `mediapy`, `cv2`) are mocked
-via `autodoc_mock_imports` in `docs/source/conf.py` so they never need
+The CI workflow uses
+`uv sync --only-group docs --only-group docs-ci --python 3.12` to install
+Sphinx tooling plus the lightweight CPU-only runtime deps, then runs
+`uv pip install --no-deps ./flashdreams` so autodoc can import the package
+without installing the full workspace. The heavy GPU and optional I/O packages
+(`transformer-engine`, `pynvml`, `boto3`, `botocore`, `mediapy`, `cv2`) are
+mocked via `autodoc_mock_imports` in `docs/source/conf.py` so they never need
 to be present.
 
 ## Adding new content

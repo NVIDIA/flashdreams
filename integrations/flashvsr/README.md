@@ -22,6 +22,7 @@ developer-guide flow.
 | --- | --- |
 | `flashvsr-v1.1-sparse-ratio-2.0` | FlashVSR-v1.1 streaming video super-resolution (2x; `sparse_ratio=2.0` stable preset). |
 | `flashvsr-v1.1-sparse-ratio-1.5` | FlashVSR-v1.1 streaming video super-resolution (2x; `sparse_ratio=1.5` faster preset). |
+| `flashvsr-v1.1-full-attn` | FlashVSR-v1.1 dense full-attention preset with DiT compile, CUDA graph, and multi-GPU CP support. |
 
 ## Install
 
@@ -301,7 +302,6 @@ for i, (start, size) in enumerate(chunks):
 | `flashvsr/decoder/__init__.py`, `flashvsr/decoder/network.py` | TC decoder (TAEHV) + AdaIN color corrector wrapper. |
 | `flashvsr/corrector.py` | `FlashVSRColorCorrector` dispatcher (cuda + torch backends). |
 | `flashvsr/csrc/color_corrector_adain_cuda.cu` | Hand-rolled AdaIN CUDA extension. |
-| `run_flashvsr.py` | Standalone argparse CLI; kept for backward compatibility with the pre-runner workflow. |
 
 ## Tests
 
