@@ -54,11 +54,11 @@ Run existing models from source
 
 Then pick a model page for actual slugs and flags:
 
+- :doc:`/models/omnidreams`
 - :doc:`/models/self_forcing`
 - :doc:`/models/causal_forcing`
 - :doc:`/models/causal_wan22`
 - :doc:`/models/lingbot_world`
-- :doc:`/models/omnidreams`
 - :doc:`/models/wan21`
 - :doc:`/models/flashvsr`
 - :doc:`/models/cosmos_predict2`
@@ -121,4 +121,5 @@ Next links
 
 - :doc:`/models/index` for model commands.
 - :doc:`/developer_guides/new_integration` for integration authoring.
+
 .. - :doc:`/developer_guides/interactive_serving` for serving concepts.

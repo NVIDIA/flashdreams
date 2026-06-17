@@ -49,7 +49,7 @@ https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 ## Quickstart
 
 The complete setup is in
-[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/installation.html).
+[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#install).
 Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installation), the shortest viable path is:
 
 ```bash
@@ -63,7 +63,7 @@ uv run flashdreams-run --help
 Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.
 
 Then launch your first model by following
-[the quickstart guide](https://nvidia.github.io/flashdreams/main/quickstart/first_world_model.html).
+[the Get Started guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
 For example, the offline Self-Forcing T2V quickstart command is:
 
 ```bash

@@ -14,297 +14,261 @@
 .. limitations under the License.
 
 FlashDreams
-===================================
+===========
 
-.. raw:: html
+.. container:: fd-hero fd-hero-band
 
-   <style>
-     #furo-main-content > section > h1 { display: none; }
-   </style>
-   <div class="homepage-logo-wrap">
-     <img class="only-light" src="_static/horizontal-light.svg" alt="FlashDreams">
-     <img class="only-dark" src="_static/horizontal-dark.svg" alt="FlashDreams">
-   </div>
+   .. container:: fd-split fd-split-asymmetric
 
-Overview
---------------------
+      .. container:: fd-split-text
 
-FlashDreams is a *high-performance inference and serving library for
-interactive autoregressive video and world models*. It is a general platform
-for real-time world-model applications across gaming, autonomous vehicles,
-robotics, simulated or virtual environments, and more, and is the
-runtime backbone of the `NVIDIA OmniDreams closed-loop demo at
-GTC 2026 <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
+         .. rubric:: FlashDreams
+            :class: fd-hero-title
 
-.. raw:: html
+         .. container:: fd-hero-lede
 
-   <div class="fd-promo-video-wrap">
-     <video
-       class="fd-promo-video-player"
-       controls
-       playsinline
-       preload="metadata"
-       aria-label="FlashDreams quick intro video">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/promo_video/flashdreams-promo-hq-6-720P.mp4" type="video/mp4">
-     </video>
-     <button class="fd-promo-play" type="button" aria-label="Play FlashDreams quick intro video">
-       <span class="fd-promo-play-icon" aria-hidden="true"></span>
-     </button>
-   </div>
-   <script>
-     (() => {
-       const script = document.currentScript;
-       const container = script ? script.previousElementSibling : null;
-       if (!container) {
-         return;
-       }
-       const video = container.querySelector(".fd-promo-video-player");
-       const playButton = container.querySelector(".fd-promo-play");
-       if (!video || !playButton) {
-         return;
-       }
-       const showOverlay = () => container.classList.remove("is-playing");
-       const hideOverlay = () => container.classList.add("is-playing");
-       playButton.addEventListener("click", () => {
-         video.controls = true;
-         const playPromise = video.play();
-         if (playPromise && typeof playPromise.catch === "function") {
-           playPromise.catch(showOverlay);
-         }
-       });
-       video.addEventListener("play", hideOverlay);
-       video.addEventListener("pause", showOverlay);
-       video.addEventListener("ended", showOverlay);
-     })();
-   </script>
+            FlashDreams is an inference and serving runtime for turning
+            autoregressive video and world models into live, controllable
+            simulations. It runs the model in a continuous loop, carrying
+            state forward and streaming frames while new actions or sensor
+            inputs change what happens next, whether the application is a
+            game world, an autonomous-vehicle simulator, robotic policy
+            testing, or a virtual training environment.
 
-.. raw:: html
+         .. container:: fd-cta-row
 
-   <p class="fd-subtitle">Interactive world models</p>
+            .. button-ref:: quickstart/index
+               :ref-type: doc
+               :color: primary
 
-A world model learns to generate and evolve an environment over time. In
-practice, this often means video, but the same concept can include actions,
-state, audio, sensor input, and control signals.
+               Get Started!
 
-World-model serving is the runtime pattern for putting that model inside a live
-application. Instead of producing one static video, the system keeps a session
-alive while input, model state, GPU inference, and output evolve together. This
-is useful for interactive simulation, robotics, autonomy, healthcare workflows,
-creative tools, virtual worlds, and game-like experiences.
+            .. button-link:: https://github.com/NVIDIA/flashdreams
+               :color: secondary
+               :outline:
 
-.. TODO: Vectorize this figure before final publication.
-.. Figure creation trace: https://chatgpt.com/share/6a124478-4730-83e8-ba21-33628c8f1f3b
-.. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
-   :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
-   :class: zoomable
+               GitHub
 
-In an online world-model application, the key requirement is not only generating
-high-quality videos. The runtime must keep an interactive session responsive
-while the model continues to advance the world.
+            .. button-ref:: community/index
+               :ref-type: doc
+               :color: secondary
+               :outline:
 
-.. raw:: html
+               Contribute
 
-   <div class="fd-highlight-grid">
-     <div class="fd-highlight-card">
-       <div class="fd-highlight-title">Low latency</div>
-       <div class="fd-highlight-body">Keep the interaction responsive when controls, sensors, or user input change.</div>
-     </div>
-     <div class="fd-highlight-card">
-       <div class="fd-highlight-title">High throughput</div>
-       <div class="fd-highlight-body">Keep the GPU busy across autoregressive steps and multi-GPU execution.</div>
-     </div>
-     <div class="fd-highlight-card">
-       <div class="fd-highlight-title">Steady streaming generation</div>
-       <div class="fd-highlight-body">Stream frames or chunks at a steady pace while the session continues.</div>
-     </div>
-     <div class="fd-highlight-card">
-       <div class="fd-highlight-title">World-state evolution</div>
-       <div class="fd-highlight-body">Carry rolling state forward so the generated world evolves across steps.</div>
-     </div>
-   </div>
+      .. container:: fd-split-visual
 
-.. raw:: html
+         .. container:: fd-promo-video-wrap
 
-   <details class="fd-collapsible">
-     <summary>Comparison with offline video generation</summary>
-     <p>
-       Compared with offline video generation, the target is different.
-       One-shot systems prepare a conditioning input, run the model, then return a finished video.
-       Libraries such as
-       <a href="https://github.com/hao-ai-lab/FastVideo">FastVideo</a> and
-       <a href="https://github.com/ModelTC/lightx2v">LightX2V</a>
-       are strong references for high-throughput offline inference, but their
-       core pattern is not a persistent interactive loop with low-latency control
-       and streaming output.
-     </p>
-   </details>
+            .. image:: /_static/promo/flashdreams-promo.avif
+               :alt: FlashDreams quick intro animation
+               :class: fd-promo-video-player zoomable
 
-.. raw:: html
+Why FlashDreams?
+----------------
 
-   <details class="fd-collapsible">
-     <summary>Connection to LLM serving</summary>
-     <p>
-       There is also a useful connection to LLM serving engines such as
-       <a href="https://github.com/vllm-project/vllm">vLLM</a> and
-       <a href="https://github.com/sgl-project/sglang">SGLang</a>: both LLMs and many world
-       models are autoregressive. The difference is the interaction pattern.
-       LLM chat usually runs <code>prefill -&gt; decode -&gt; prefill -&gt; decode</code>
-       across user turns. Interactive video/world-model serving is closer to
-       <code>initialize -&gt; decode -&gt; decode -&gt; decode -&gt; ...</code>:
-       initialize the session once, then advance the world continuously at a fixed pace.
-     </p>
-   </details>
+.. container:: fd-split fd-split-reverse fd-split-asymmetric-reverse
 
-.. raw:: html
+   .. container:: fd-split-text
 
-   <p class="fd-subtitle">Best-in-class inference speed</p>
+      A world model learns to generate and evolve an environment over time. In
+      practice that usually means video, but the same idea extends to actions,
+      state, audio, sensor input, and control signals. Serving one means keeping
+      a session alive while input, model state, GPU inference, and output advance
+      together, rather than producing a single static clip, which is what makes
+      interactive simulation, robotics, autonomy, and game-like experiences
+      possible.
 
-FlashDreams is engineered with efficiency in mind. With a bottom-up system
-design tailored to autoregressive world-model inference patterns, it delivers best-in-class
-speed across many popular open-source models and GPU architectures:
+   .. container:: fd-split-visual
 
-.. raw:: html
+      .. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
+         :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
+         :class: zoomable
 
-   <div class="fd-highlight-grid fd-kpi-grid">
-     <a class="fd-highlight-link" href="models/self_forcing.html#profiling-benchmark">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title fd-kpi-value">2.12x</div>
-         <div class="fd-highlight-body">Self-Forcing speedup</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="models/lingbot_world.html#profiling-benchmark">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title fd-kpi-value">3.10x</div>
-         <div class="fd-highlight-body">LingBot-World speedup</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="models/wan21.html#profiling-benchmark">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title fd-kpi-value">1.40x</div>
-         <div class="fd-highlight-body">Wan2.1 speedup</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="models/index.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title fd-kpi-value">8</div>
-         <div class="fd-highlight-body">Integrated models</div>
-       </div>
-     </a>
-   </div>
+FlashDreams is built for that real-time case: a closed-loop world-model
+demo, a driving simulator, an interactive scene rollout. Generating
+high-quality video is not enough on its own. The runtime has to keep an
+interactive session responsive while the model continues to advance the
+world. That comes down to four things:
 
-Although FlashDreams is designed for autoregressive inference, the same
-optimization stack applies naturally to bidirectional inference (e.g.,
-:doc:`Wan2.1 </models/wan21>`) by treating it as a single-rollout
-autoregressive pass.
+.. grid:: 1 2 2 4
+   :gutter: 3
 
-.. raw:: html
+   .. grid-item-card:: Low latency
+      :class-card: fd-feature
 
-   <p class="fd-subtitle">Production-oriented interactive serving backend</p>
+      Keep the interaction responsive when controls, sensors, or user
+      input change.
 
-FlashDreams also includes a production-oriented serving backend for persistent and
-low-latency world-model sessions, with efficient inference execution, multi-GPU support, and
-streaming input/output. Explore the interactive demos powered by FlashDreams:
+   .. grid-item-card:: High throughput
+      :class-card: fd-feature
 
-.. raw:: html
+      Keep the GPU busy across autoregressive steps and multi-GPU
+      execution.
 
-   <div class="fd-highlight-grid">
-     <a class="fd-highlight-link" href="models/lingbot_world.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">LingBot-World</div>
-         <div class="fd-highlight-body">Camera-control world-model exploration.</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="models/omnidreams.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">OmniDreams</div>
-         <div class="fd-highlight-body">Closed-loop autonomous-vehicle simulator.</div>
-       </div>
-     </a>
-   </div>
+   .. grid-item-card:: Steady streaming generation
+      :class-card: fd-feature
 
-Start here
-----------
+      Stream frames or chunks at a steady pace while the session
+      continues.
 
-.. raw:: html
+   .. grid-item-card:: World-state evolution
+      :class-card: fd-feature
 
-   <div class="fd-highlight-grid">
-     <a class="fd-highlight-link" href="quickstart/index.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">Quickstart</div>
-         <div class="fd-highlight-body">Install FlashDreams, launch your first world-model server, and start exploring quickly.</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="models/index.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">Model cards</div>
-         <div class="fd-highlight-body">See supported models, how to launch each one, and their performance analysis.</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="api/index.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">API</div>
-         <div class="fd-highlight-body">Find CLI and Python API references, with links to lower-level modules.</div>
-       </div>
-     </a>
-     <a class="fd-highlight-link" href="developer_guides/index.html">
-       <div class="fd-highlight-card">
-         <div class="fd-highlight-title">Developer guides</div>
-         <div class="fd-highlight-body">Learn the system design, how to integrate new models, and how to use it in your own projects.</div>
-       </div>
-     </a>
-   </div>
+      Carry rolling state forward so the generated world evolves across
+      steps.
+
+Performance
+-----------
+
+Each tile shows the speedup over a separate existing implementation of
+the same model. Both runs use the same weights on the same GPU, so the
+gain comes from FlashDreams' runtime alone. Each tile links to the
+profiling chart on its model page.
+
+.. grid:: 1 2 2 4
+   :gutter: 3
+
+   .. grid-item-card::
+      :link: models/self_forcing.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
+
+      .. container:: fd-stat-value
+
+         2.12×
+
+      .. container:: fd-stat-label
+
+         Self-Forcing speedup
+
+   .. grid-item-card::
+      :link: models/lingbot_world.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
+
+      .. container:: fd-stat-value
+
+         3.10×
+
+      .. container:: fd-stat-label
+
+         LingBot-World speedup
+
+   .. grid-item-card::
+      :link: models/wan21.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
+
+      .. container:: fd-stat-value
+
+         1.40×
+
+      .. container:: fd-stat-label
+
+         Wan2.1 speedup
+
+   .. grid-item-card::
+      :link: models/flashvsr.html#profiling-benchmark
+      :link-type: url
+      :class-card: fd-stat
+
+      .. container:: fd-stat-value
+
+         1.42×
+
+      .. container:: fd-stat-label
+
+         FlashVSR speedup
+
+Try FlashDreams!
+----------------
+
+FlashDreams brings best-in-class per-step latency to interactive
+autoregressive video and world models: multiple integrated models across
+streaming and bidirectional methods, multi-GPU execution, and one CLI
+to drive them all.
+
+The :doc:`Get Started guide <quickstart/index>` walks from a fresh
+checkout to running OmniDreams, an interactive driving world-model demo
+built on FlashDreams.
+
+Supported Models
+----------------
+
+Streaming and autoregressive model implementations emit per-step output with
+sub-second latency once warm; bidirectional model implementations are kept as
+full-block parity references. Each model page carries the canonical
+invocation, the checkpoint source, and the per-implementation knobs.
+
+.. grid:: 1 2 2 3
+   :gutter: 3
+
+   .. grid-item-card:: OmniDreams
+      :class-card: fd-feature
+      :link: models/omnidreams
+      :link-type: doc
+
+      Interactive world simulator for autonomous vehicles.
+
+   .. grid-item-card:: Self-Forcing
+      :class-card: fd-feature
+      :link: models/self_forcing
+      :link-type: doc
+
+      Autoregressive text-to-video based on Wan 2.1.
+
+   .. grid-item-card:: Causal-Forcing
+      :class-card: fd-feature
+      :link: models/causal_forcing
+      :link-type: doc
+
+      Autoregressive text/image-to-video based on Wan 2.1.
+
+   .. grid-item-card:: Causal Wan 2.2
+      :class-card: fd-feature
+      :link: models/causal_wan22
+      :link-type: doc
+
+      Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+
+   .. grid-item-card:: LingBot-World
+      :class-card: fd-feature
+      :link: models/lingbot_world
+      :link-type: doc
+
+      Camera-controllable image-to-video world model.
+
+   .. grid-item-card:: FlashVSR
+      :class-card: fd-feature
+      :link: models/flashvsr
+      :link-type: doc
+
+      Streaming video super-resolution.
+
+   .. grid-item-card:: Wan 2.1 (bidirectional)
+      :class-card: fd-feature
+      :link: models/wan21
+      :link-type: doc
+
+      Bidirectional video generation model that supports both
+      text-to-video and image-to-video.
+
+   .. grid-item-card:: Cosmos-Predict2.5 (bidirectional)
+      :class-card: fd-feature
+      :link: models/cosmos_predict2
+      :link-type: doc
+
+      Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+
+.. Master toctree: one flat entry per top-level navbar item. Order
+   here = order in the navbar.
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
-   :caption: Quickstart
-   :hidden:
 
-   Installation <quickstart/installation>
-   Launch your first model <quickstart/first_world_model>
-   Troubleshooting <troubleshooting>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Models
-   :hidden:
-
-   Self-Forcing <models/self_forcing>
-   OmniDreams <models/omnidreams>
-   LingBot-World <models/lingbot_world>
-   Causal-Forcing <models/causal_forcing>
-   Causal Wan2.2 <models/causal_wan22>
-   FlashVSR <models/flashvsr>
-   Wan2.1 <models/wan21>
-   Cosmos-Predict2.5 <models/cosmos_predict2>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Developer guides
-   :hidden:
-
-   Inference pipeline overview <developer_guides/inference_pipeline_overview>
-   Config system <developer_guides/config_system>
-   Add a new method <developer_guides/new_integration>
-
-.. Temporarily commented out for internal development:
-..   Interactive serving <developer_guides/interactive_serving>
-..   Developer workflow patterns <developer_guides/usage_patterns>
-
-.. toctree::
-   :maxdepth: 2
-   :caption: API and CLI
-   :hidden:
-
-   CLI reference <api/cli>
-   Core <api/core>
-   Infra <api/infra>
-   Pipelines and runners <api/integrations>
-   Serving <api/serving>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Community
-   :hidden:
-
-   Contributing <community/contribute>
-   Discord <community/discord>
+   Get Started <quickstart/index>
+   Documentation <documentation>
+   models/index
+   Contribute <community/index>

@@ -126,11 +126,16 @@ test = [
     "tomli>=2.0",
     "imageio-ffmpeg>=0.5",
 ]
-lint = ["pre-commit>=4.3.0", "ty>=0.0.39", {include-group = "test"}]
+lint = [
+    "pre-commit>=4.3.0",
+    "sphinx>=7.0",
+    "ty>=0.0.39",
+    {include-group = "test"},
+]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).
 docs = [
-    "furo>=2024.0",
+    "pydata-sphinx-theme>=0.18",
     "sphinx>=7.0",
     "sphinx-autobuild>=2024.0",
     "sphinx-copybutton>=0.5",

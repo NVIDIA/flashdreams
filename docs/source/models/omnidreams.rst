@@ -16,14 +16,27 @@
 NVIDIA OmniDreams
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/" target="_blank" rel="noopener noreferrer">Blog page</a>
-     <a class="model-link-button" href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf" target="_blank" rel="noopener noreferrer">Tech report</a>
-     <a class="model-link-button" href="https://huggingface.co/nvidia/omni-dreams-models/" target="_blank" rel="noopener noreferrer">Model page</a>
-     <a class="model-link-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
+      :color: primary
+
+      Blog page
+
+   .. button-link:: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf
+      :color: primary
+
+      Tech report
+
+   .. button-link:: https://huggingface.co/nvidia/omni-dreams-models/
+      :color: primary
+
+      Model page
+
+   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams
+      :color: primary
+
+      Official code
 
 OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
@@ -59,8 +72,8 @@ Installation
 Running the method
 ------------------
 
-To run OmniDreams, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run OmniDreams, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 
@@ -185,7 +198,14 @@ network and pick a scene from the picker in the bottom-right.
 
 .. note::
 
-   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB.
+   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB:
+
+   .. code-block:: bash
+
+      uv run --package flashdreams-omnidreams interactive-drive \
+          --stream-mjpeg :8080 \
+          --offload-text-encoder
+
    The text and first-frame encoders are run once per scene and freed before the
    diffusion pipeline is built, and the resulting embeddings are cached and
    reused across world-model resets.
@@ -411,6 +431,20 @@ Single-view latency on NVIDIA GB300 at ``704 x 1280`` resolution.
    <p class="model-footnote">
       KV-cache Update is off the hot path and excluded from Total.
    </p>
+
+Further reading
+---------------
+
+- :doc:`/developer_guides/latency_tuning` covers the supported
+  ``interactive-drive`` latency knobs: model and backend choice, resolution,
+  chunk-size constraints, FP8 and native acceleration, transport, and the
+  validated GB300 reference.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   /developer_guides/latency_tuning
 
 Citation
 --------
