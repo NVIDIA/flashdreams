@@ -16,13 +16,22 @@
 FlashVSR
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://zhuang2002.github.io/FlashVSR/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2510.12747" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/OpenImagingLab/FlashVSR" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://zhuang2002.github.io/FlashVSR/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2510.12747
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/OpenImagingLab/FlashVSR
+      :color: primary
+
+      Official code
 
 FlashVSR is a one-diffusion-step streaming diffusion framework for real-time video
 super-resolution (VSR). It combines a train-friendly three-stage distillation pipeline,
@@ -57,8 +66,8 @@ Installation
 Running the method
 ------------------
 
-To run FlashVSR, provide an input video path and launch one of the registered
-runner slugs via ``flashdreams-run``. For example:
+To run FlashVSR, provide an input video path and launch one of the
+registered runner slugs. For example:
 
 .. code-block:: bash
 
@@ -68,8 +77,8 @@ runner slugs via ``flashdreams-run``. For example:
        --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
        --chunk-size 8
 
-For multi-GPU inference, use the dense full-attention preset with ``torchrun``
-on top of ``uv run flashdreams-run`` (taking 4 GPUs as an example):
+For multi-GPU inference, run the dense full-attention preset under
+``torchrun`` (taking 4 GPUs as an example):
 
 .. code-block:: bash
 

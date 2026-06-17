@@ -16,13 +16,22 @@
 Wan2.1
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://wan.video/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2503.20314" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://wan.video/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2503.20314
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/Wan-Video/Wan2.1
+      :color: primary
+
+      Official code
 
 Wan2.1 is a bidirectional video generation model, supporting both
 text-to-video (T2V) and image-to-video (I2V) tasks.
@@ -44,8 +53,7 @@ Installation
 Running the method
 ------------------
 
-To run Wan2.1, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run Wan2.1, launch one of the registered runner slugs. For example:
 
 .. code-block:: bash
 
@@ -55,8 +63,8 @@ To run Wan2.1, launch one of the registered runner slugs via
        --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
        --pixel-height 832 --pixel-width 480
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

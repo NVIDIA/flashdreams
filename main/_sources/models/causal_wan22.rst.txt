@@ -16,12 +16,17 @@
 Causal Wan2.2
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_t2v.py" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://huggingface.co/FastVideo/CausalWan2.2-I2V-A14B-Preview-Diffusers
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://github.com/hao-ai-lab/FastVideo/blob/main/examples/inference/basic/basic_self_forcing_causal_wan2_2_t2v.py
+      :color: primary
+
+      Official code
 
 CausalWan2.2 is a `FastVideo <https://github.com/hao-ai-lab/FastVideo>`_-released
 14B MoE causal-diffusion variant of Wan 2.2 with 8-step inference.
@@ -43,8 +48,7 @@ Installation
 Running the method
 ------------------
 
-To run Causal Wan2.2, launch the registered runner slug via
-``flashdreams-run``. For example:
+To run Causal Wan2.2, launch the registered runner slug. For example:
 
 .. code-block:: bash
 
@@ -62,8 +66,8 @@ To run Causal Wan2.2, launch the registered runner slug via
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

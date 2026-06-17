@@ -13,15 +13,59 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
+CLI and API Reference
+=====================
 
-API reference
-===================================
+Reference pages for the FlashDreams command-line interface and Python APIs.
 
-Reference pages for FlashDreams Python APIs.
+.. grid:: 1 1 2 2
+   :gutter: 3
 
-- :doc:`CLI reference </api/cli>`
-- :doc:`Core </api/core>`
-- :doc:`Infra </api/infra>`
-- :doc:`Pipelines and runners </api/integrations>`
-- :doc:`Serving </api/serving>`
+   .. grid-item-card:: CLI
+      :link: cli
+      :link-type: doc
+
+      The unified ``flashdreams-run`` entry point: listing runner slugs,
+      inspecting a runner's options, and launching single- and multi-GPU
+      inference.
+
+   .. grid-item-card:: Core
+      :link: core
+      :link-type: doc
+
+      The low-level kernels and process-group utilities that
+      integrations share: attention, the block-structured KV cache, and
+      distributed helpers.
+
+   .. grid-item-card:: Infra
+      :link: infra
+      :link-type: doc
+
+      The swappable abstractions every integration plugs into: the
+      config system, the encoder / diffusion-model / decoder triple, and
+      the streaming inference pipeline that drives them.
+
+   .. grid-item-card:: Pipelines and runners
+      :link: integrations
+      :link-type: doc
+
+      The two public layers a model integration is built from: pipelines
+      that define model behavior and runners that define CLI-facing I/O.
+
+   .. grid-item-card:: Serving
+      :link: serving
+      :link-type: doc
+
+      The runner / pipeline building blocks for integration-driven
+      serving, with LingBot-World as the canonical interactive-transport
+      reference.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   cli
+   core
+   infra
+   integrations
+   serving
