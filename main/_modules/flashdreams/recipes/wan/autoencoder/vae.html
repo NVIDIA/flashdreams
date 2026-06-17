@@ -1954,11 +1954,8 @@ SPDX-License-Identifier: Apache-2.0
 
 
 <span class="c1"># Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -&gt; flashdreams ``WanVAE``</span>
-<span class="c1"># key remap. The production configs below use upstream&#39;s</span>
-<span class="c1"># ``Wan2.2_VAE.pth`` whose layout matches our model directly (no remap</span>
-<span class="c1"># needed); this dict + :func:`wan22_ti2v_5b_vae_state_dict_transform`</span>
-<span class="c1"># are kept in tree as an opt-in fallback for callers who&#39;d rather</span>
-<span class="c1"># point at the diffusers safetensors shard.</span>
+<span class="c1"># key remap, applied by :func:`wan22_ti2v_5b_vae_state_dict_transform`</span>
+<span class="c1"># (the production VAE load path).</span>
 <span class="n">_WAN22_TI2V_5B_VAE_KEY_REMAP</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
     <span class="c1"># Top-level quant convs.</span>
     <span class="sa">r</span><span class="s2">&quot;^quant_conv\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;conv1.\1&quot;</span><span class="p">,</span>
@@ -1973,12 +1970,8 @@ SPDX-License-Identifier: Apache-2.0
     <span class="sa">r</span><span class="s2">&quot;^encoder\.conv_out\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;encoder.head.2.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^decoder\.norm_out\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;decoder.head.0.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^decoder\.conv_out\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;decoder.head.2.\1&quot;</span><span class="p">,</span>
-    <span class="c1"># Mid block: diffusers stores ``resnets.{0,1}`` + ``attentions.0``</span>
-    <span class="c1"># while our Sequential is (Residual, Attention, Residual) -&gt;</span>
-    <span class="c1"># indices (0, 1, 2). ``WanMidBlock.forward`` runs resnets[0], then</span>
-    <span class="c1"># (attentions[0], resnets[1]), so the ordering matches our</span>
-    <span class="c1"># (middle.0, middle.2) layout. Per-field remap mirrors the</span>
-    <span class="c1"># down/up-block resnets below.</span>
+    <span class="c1"># Mid block: diffusers ``resnets.{0,1}`` + ``attentions.0`` map to our</span>
+    <span class="c1"># ``middle`` Sequential (Residual, Attention, Residual) at indices 0/1/2.</span>
     <span class="sa">r</span><span class="s2">&quot;^encoder\.mid_block\.resnets\.0\.norm1\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;encoder.middle.0.residual.0.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^encoder\.mid_block\.resnets\.0\.conv1\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;encoder.middle.0.residual.2.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^encoder\.mid_block\.resnets\.0\.norm2\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;encoder.middle.0.residual.3.\1&quot;</span><span class="p">,</span>
@@ -2001,17 +1994,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="sa">r</span><span class="s2">&quot;^decoder\.mid_block\.resnets\.1\.conv2\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;decoder.middle.2.residual.6.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^decoder\.mid_block\.resnets\.1\.conv_shortcut\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;decoder.middle.2.shortcut.\1&quot;</span><span class="p">,</span>
     <span class="sa">r</span><span class="s2">&quot;^decoder\.mid_block\.attentions\.0\.(.*)$&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;decoder.middle.1.\1&quot;</span><span class="p">,</span>
-    <span class="c1"># Per-residual-block field remap: diffusers ``conv1 / conv2 /</span>
-    <span class="c1"># norm1 / norm2 / conv_shortcut`` -&gt; our Sequential entries.</span>
-    <span class="c1"># The Sequential layout in ResidualBlock.__init__ is:</span>
-    <span class="c1">#   0: RMS_norm (norm1)</span>
-    <span class="c1">#   1: SiLU</span>
-    <span class="c1">#   2: CausalConv3d (conv1)</span>
-    <span class="c1">#   3: RMS_norm (norm2)</span>
-    <span class="c1">#   4: SiLU</span>
-    <span class="c1">#   5: Dropout</span>
-    <span class="c1">#   6: CausalConv3d (conv2)</span>
-    <span class="c1"># Plus ``shortcut`` (renamed from diffusers ``conv_shortcut``).</span>
+    <span class="c1"># Per-residual-block field remap. ResidualBlock&#39;s Sequential is:</span>
+    <span class="c1">#   0 norm1, 2 conv1, 3 norm2, 6 conv2 (1/4 SiLU, 5 Dropout).</span>
+    <span class="c1"># diffusers ``conv_shortcut`` -&gt; our ``shortcut``.</span>
     <span class="sa">r</span><span class="s2">&quot;^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$&quot;</span><span class="p">:</span> <span class="p">(</span>
         <span class="sa">r</span><span class="s2">&quot;encoder.downsamples.\1.resnets.\2.residual.0.\3&quot;</span>
     <span class="p">),</span>
@@ -2067,17 +2052,9 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Remap a diffusers ``AutoencoderKLWan`` state-dict to ``WanVAE`` keys.</span>
 
 <span class="sd">    Applied automatically when :class:`Wan22TI2V5BVAEEncoderConfig` /</span>
-<span class="sd">    :class:`Wan22TI2V5BVAEDecoderConfig` load the upstream</span>
-<span class="sd">    ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/vae/diffusion_pytorch_model.safetensors``</span>
-<span class="sd">    checkpoint. The mapping is purely structural -- no tensors are</span>
-<span class="sd">    copied or reshaped.</span>
-
-<span class="sd">    Note:</span>
-<span class="sd">        Patterns are applied in iteration order via</span>
-<span class="sd">        :func:`flashdreams.core.checkpoint.remap.remap_checkpoint_keys`.</span>
-<span class="sd">        Any key without a matching pattern passes through unchanged,</span>
-<span class="sd">        which surfaces as a ``load_state_dict`` ``unexpected_keys``</span>
-<span class="sd">        warning so missing remap entries are easy to spot.</span>
+<span class="sd">    :class:`Wan22TI2V5BVAEDecoderConfig` load the diffusers VAE checkpoint.</span>
+<span class="sd">    Renames keys only -- no tensors are copied or reshaped. Unmatched keys</span>
+<span class="sd">    pass through and surface as ``unexpected_keys`` on load.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.core.checkpoint.remap</span><span class="w"> </span><span class="kn">import</span> <span class="n">remap_checkpoint_keys</span>
 
