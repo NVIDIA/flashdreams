@@ -65,7 +65,6 @@ To run Self-Forcing, launch one of the registered runner slugs via
    uv run --project integrations/self_forcing \
        flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
-       --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
@@ -92,7 +91,6 @@ For multi-GPU inference, use:
    uv run --project integrations/self_forcing \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
-       --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 

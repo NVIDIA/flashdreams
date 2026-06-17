@@ -92,8 +92,6 @@ alive while input, model state, GPU inference, and output evolve together. This
 is useful for interactive simulation, robotics, autonomy, healthcare workflows,
 creative tools, virtual worlds, and game-like experiences.
 
-.. TODO: Vectorize this figure before final publication.
-.. Figure creation trace: https://chatgpt.com/share/6a124478-4730-83e8-ba21-33628c8f1f3b
 .. image:: /_static/diagrams/compare-offline-online-video-model-v2.jpg
    :alt: Offline one-shot video inference compared with online autoregressive world-model serving.
    :class: zoomable

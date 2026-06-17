@@ -20,8 +20,6 @@ This page outlines the major computation flow in the FlashDreams inference pipel
 It outlines the core concepts and APIs for building custom model integrations,
 or modifying existing ones.
 
-.. Figure creation trace: https://chatgpt.com/share/6a14ab0f-90bc-83e8-8145-c1a03b64f43a
-
 .. image:: /_static/diagrams/flashdreams-inference-pipeline-overview.jpg
    :alt: FlashDreams autoregressive inference pipeline overview.
    :class: zoomable

@@ -52,7 +52,6 @@ To run Wan2.1, launch one of the registered runner slugs via
    uv run --project integrations/wan21 \
        flashdreams-run \
        wan21-t2v-1.3b-480p \
-       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
        --pixel-height 832 --pixel-width 480
 
 For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
@@ -63,7 +62,6 @@ For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
    uv run --project integrations/wan21 \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        wan21-t2v-1.3b-480p \
-       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
        --pixel-height 832 --pixel-width 480
 
 For I2V, run with the following command:
@@ -73,7 +71,6 @@ For I2V, run with the following command:
    uv run --project integrations/wan21 \
        flashdreams-run \
        wan21-i2v-14b-480p \
-       --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside." \
        --image-path https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG \
        --pixel-height 832 --pixel-width 480
 
