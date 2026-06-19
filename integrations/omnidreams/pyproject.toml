@@ -85,6 +85,10 @@ dev = [
 # demo.
 omnidreams-prepare = "omnidreams.prepare:main"
 
+# Batch evaluation helper for Hugging Face scene discovery, bounded staging,
+# FlashDreams generation, and DrivingGen adapter setup.
+omnidreams-eval = "omnidreams.eval.cli:main"
+
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the
 # presenter import fails fast with a clear message.
