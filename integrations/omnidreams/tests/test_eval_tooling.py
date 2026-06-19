@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import omnidreams.eval.drivinggen as drivinggen
+import omnidreams.eval.worldlens as worldlens
 from omnidreams.eval.batches import cases_for_batch, parse_byte_size, plan_batches
 from omnidreams.eval.cli import DEFAULT_GENERATION_RECIPE, _build_parser
 from omnidreams.eval.drivinggen import (
@@ -33,6 +34,15 @@ from omnidreams.eval.manifest import (
     write_staged_cases_jsonl,
 )
 from omnidreams.eval.validation import validate_generated_run
+from omnidreams.eval.worldlens import (
+    DEFAULT_WORLDLENS_CONFIG_NAME,
+    collect_worldlens_artifact_results,
+    latest_worldlens_metric_results,
+    run_worldlens_evaluation,
+    stage_worldlens_video_inputs,
+    worldlens_evaluate_command,
+    write_worldlens_consistency_config,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -482,6 +492,237 @@ def test_run_fvd_reference_lite_writes_json_and_log(
     assert "fake reference fvd run" in (tmp_path / "reference.log").read_text(
         encoding="utf-8"
     )
+
+
+def test_write_worldlens_consistency_config(tmp_path: Path) -> None:
+    config_path = write_worldlens_consistency_config(tmp_path / "WorldLens")
+
+    text = config_path.read_text(encoding="utf-8")
+    assert config_path.name == f"{DEFAULT_WORLDLENS_CONFIG_NAME}.yaml"
+    assert "temporal_consistency" in text
+    assert "subject_consistency" in text
+    assert "repo_or_dir: worldbench/third_party/dino" in text
+
+
+def test_stage_worldlens_video_inputs_uses_submission_layout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staged = StagedCase(
+        case=_case("uuid-a", 10),
+        reference_video_path=tmp_path / "reference.mp4",
+        hdmap_video_path=tmp_path / "hdmap.mp4",
+        prompt_path=tmp_path / "prompt.txt",
+        first_frame_path=tmp_path / "first.png",
+        prompt_text="a prompt",
+    )
+    generated_video = tmp_path / "run/generated/uuid-a/generated.mp4"
+    generated_video.parent.mkdir(parents=True)
+    generated_video.write_bytes(b"generated")
+    staged.reference_video_path.write_bytes(b"reference")
+    crop_calls = []
+
+    def fake_frame_count(video_path: Path) -> int:
+        assert video_path == generated_video
+        return 157
+
+    def fake_copy_first_frames(
+        source: Path,
+        target: Path,
+        *,
+        max_frames: int,
+        force: bool = False,
+    ) -> int:
+        crop_calls.append((source, target, max_frames, force))
+        target.write_bytes(b"cropped-reference")
+        return max_frames
+
+    monkeypatch.setattr(worldlens, "video_frame_count", fake_frame_count)
+    monkeypatch.setattr(worldlens, "copy_video_first_frames", fake_copy_first_frames)
+
+    manifest_path = stage_worldlens_video_inputs(
+        [staged],
+        generated_root=tmp_path / "run/generated",
+        worldlens_root=tmp_path / "WorldLens",
+        method_name="omnidreams",
+        generation_index=0,
+        force=True,
+    )
+
+    generated_target = (
+        tmp_path
+        / "WorldLens/generated_results/omnidreams/video_submission/"
+        / "uuid-a_gen0/uuid-a_CAM_FRONT.mp4"
+    )
+    reference_target = (
+        tmp_path
+        / "WorldLens/generated_results/gt/video_submission/"
+        / "uuid-a_gen0/uuid-a_CAM_FRONT.mp4"
+    )
+    assert generated_target.exists()
+    assert reference_target.exists()
+    assert generated_target.is_symlink()
+    assert not reference_target.is_symlink()
+    assert reference_target.read_bytes() == b"cropped-reference"
+    assert not Path(os.readlink(generated_target)).is_absolute()
+    assert crop_calls == [(staged.reference_video_path, reference_target, 157, True)]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["method_name"] == "omnidreams"
+    assert manifest["cases"][0]["scene_dir"] == "uuid-a_gen0"
+    assert manifest["cases"][0]["temporal_policy"] == (
+        "reference_first_n_frames_matching_generated"
+    )
+    assert manifest["cases"][0]["generated_frame_count"] == 157
+    assert manifest["cases"][0]["reference_frame_count"] == 157
+
+
+def test_stage_worldlens_manifest_accumulates_batches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def staged_case(uuid: str) -> StagedCase:
+        case = _case(uuid, 10)
+        staged = StagedCase(
+            case=case,
+            reference_video_path=tmp_path / f"{uuid}-reference.mp4",
+            hdmap_video_path=tmp_path / f"{uuid}-hdmap.mp4",
+            prompt_path=tmp_path / f"{uuid}.txt",
+            first_frame_path=tmp_path / f"{uuid}.png",
+            prompt_text="a prompt",
+        )
+        generated_video = tmp_path / "run/generated" / uuid / "generated.mp4"
+        generated_video.parent.mkdir(parents=True)
+        generated_video.write_bytes(b"generated")
+        staged.reference_video_path.write_bytes(b"reference")
+        return staged
+
+    monkeypatch.setattr(worldlens, "video_frame_count", lambda _path: 5)
+
+    def fake_copy_first_frames(
+        _source: Path,
+        target: Path,
+        *,
+        max_frames: int,
+        force: bool = False,
+    ) -> int:
+        target.write_bytes(b"cropped")
+        return max_frames
+
+    monkeypatch.setattr(worldlens, "copy_video_first_frames", fake_copy_first_frames)
+
+    stage_worldlens_video_inputs(
+        [staged_case("uuid-a")],
+        generated_root=tmp_path / "run/generated",
+        worldlens_root=tmp_path / "WorldLens",
+        force=True,
+    )
+    manifest_path = stage_worldlens_video_inputs(
+        [staged_case("uuid-b")],
+        generated_root=tmp_path / "run/generated",
+        worldlens_root=tmp_path / "WorldLens",
+        force=True,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert [case["uuid"] for case in manifest["cases"]] == ["uuid-a", "uuid-b"]
+
+
+def test_worldlens_evaluate_command_uses_hydra_config_name(tmp_path: Path) -> None:
+    command = worldlens_evaluate_command(
+        worldlens_root=tmp_path,
+        method_name="omnidreams",
+        config_name="custom_config",
+        generated_data_path="generated_results",
+        python="/env/bin/python",
+        hydra_overrides=["foo=bar"],
+    )
+
+    assert command[:4] == [
+        "/env/bin/python",
+        "tools/evaluate.py",
+        "--config-name",
+        "custom_config",
+    ]
+    assert "modality=videogen" in command
+    assert "method_name=omnidreams" in command
+    assert "generated_data_path=generated_results" in command
+    assert command[-1] == "foo=bar"
+
+
+def test_run_worldlens_evaluation_writes_summary_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exp_result = tmp_path / "WorldLens/tools/exp/videogen/omnidreams/2026/metric_results.json"
+    exp_result.parent.mkdir(parents=True)
+    exp_result.write_text('{"top": null}\n', encoding="utf-8")
+    artifact_path = (
+        tmp_path
+        / "WorldLens/generated_results/omnidreams/temporal_consistency/repeat_0.json"
+    )
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text('{"ts_per_frame": 0.9}\n', encoding="utf-8")
+    calls = []
+
+    def fake_run(command, *, cwd, check, env, stdout=None, stderr=None):
+        calls.append(
+            {
+                "command": command,
+                "cwd": cwd,
+                "check": check,
+                "env": env,
+                "stderr": stderr,
+            }
+        )
+        if stdout is not None:
+            stdout.write("worldlens output\n")
+
+    monkeypatch.setattr(worldlens.subprocess, "run", fake_run)
+
+    payload = run_worldlens_evaluation(
+        worldlens_root=tmp_path / "WorldLens",
+        method_name="omnidreams",
+        exp_root=tmp_path / "WorldLens/tools/exp",
+        log_path=tmp_path / "worldlens.log",
+        output_json=tmp_path / "worldlens.json",
+    )
+
+    assert calls[0]["cwd"] == tmp_path / "WorldLens"
+    assert calls[0]["env"]["WORLDBENCH_EXP_ROOT"].endswith("WorldLens/tools/exp")
+    assert calls[0]["stderr"] == worldlens.subprocess.STDOUT
+    assert payload["metric_results"] == {"top": None}
+    assert payload["artifact_results"]["temporal_consistency/repeat_0.json"] == {
+        "ts_per_frame": 0.9
+    }
+    written = json.loads((tmp_path / "worldlens.json").read_text(encoding="utf-8"))
+    assert written["metric_results_path"] == str(exp_result)
+    assert "worldlens output" in (tmp_path / "worldlens.log").read_text(encoding="utf-8")
+
+
+def test_latest_and_artifact_worldlens_results(tmp_path: Path) -> None:
+    old = tmp_path / "exp/videogen/omnidreams/old/metric_results.json"
+    new = tmp_path / "exp/videogen/omnidreams/new/metric_results.json"
+    old.parent.mkdir(parents=True)
+    new.parent.mkdir(parents=True)
+    old.write_text("{}\n", encoding="utf-8")
+    new.write_text("{}\n", encoding="utf-8")
+    os.utime(old, (1, 1))
+    os.utime(new, (2, 2))
+    stage_manifest = tmp_path / "WorldLens/generated_results/omnidreams/stage_manifest.json"
+    metric_json = tmp_path / "WorldLens/generated_results/omnidreams/metric/repeat_0.json"
+    metric_json.parent.mkdir(parents=True)
+    stage_manifest.write_text("{}\n", encoding="utf-8")
+    metric_json.write_text('{"score": 1}\n', encoding="utf-8")
+
+    assert latest_worldlens_metric_results(
+        exp_root=tmp_path / "exp",
+        modality="videogen",
+        method_name="omnidreams",
+    ) == new
+    assert collect_worldlens_artifact_results(
+        worldlens_root=tmp_path / "WorldLens",
+        method_name="omnidreams",
+    ) == {"metric/repeat_0.json": {"score": 1}}
 
 
 def test_fvd_lite_import_check_reports_missing_module(

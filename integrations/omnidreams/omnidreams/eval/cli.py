@@ -41,6 +41,16 @@ from omnidreams.eval.manifest import (
 )
 from omnidreams.eval.staging import stage_cases
 from omnidreams.eval.validation import validate_generated_run, write_validation_json
+from omnidreams.eval.worldlens import (
+    DEFAULT_WORLDLENS_CONFIG_NAME,
+    DEFAULT_WORLDLENS_METHOD,
+    DEFAULT_WORLDLENS_REPO,
+    DEFAULT_WORLDLENS_REVISION,
+    ensure_worldlens_checkout,
+    run_worldlens_evaluation,
+    stage_worldlens_video_inputs,
+    write_worldlens_consistency_config,
+)
 
 
 DEFAULT_GENERATION_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
@@ -117,6 +127,26 @@ def _cmd_setup_evaluator(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_setup_worldlens(args: argparse.Namespace) -> int:
+    checkout = ensure_worldlens_checkout(
+        cache_dir=args.cache_dir,
+        repo_url=args.evaluator_repo,
+        revision=args.evaluator_revision,
+        fetch=not args.no_fetch,
+        install_config=not args.no_config,
+        config_name=args.config_name,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(checkout.to_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"prepared WorldLens {checkout.resolved_commit} -> {checkout.path}")
+    if checkout.config_name is not None:
+        print(f"installed WorldLens config: {checkout.config_name}")
+    return 0
+
+
 def _cmd_generate(args: argparse.Namespace) -> int:
     staged_cases = read_staged_cases_jsonl(args.staged_manifest)
     try:
@@ -157,6 +187,27 @@ def _cmd_prepare_drivinggen(args: argparse.Namespace) -> int:
         force=args.force,
     )
     print(f"prepared DrivingGen layout for {len(staged_cases)} cases")
+    return 0
+
+
+def _cmd_prepare_worldlens(args: argparse.Namespace) -> int:
+    staged_cases = read_staged_cases_jsonl(args.staged_manifest)
+    if args.write_config:
+        config_path = write_worldlens_consistency_config(
+            args.worldlens_root,
+            config_name=args.config_name,
+        )
+        print(f"wrote WorldLens config -> {config_path}")
+    manifest_path = stage_worldlens_video_inputs(
+        staged_cases,
+        generated_root=args.run_root / "generated",
+        worldlens_root=args.worldlens_root,
+        method_name=args.method_name,
+        generation_index=args.generation_index,
+        camera_name=args.camera_name,
+        force=args.force,
+    )
+    print(f"prepared WorldLens layout for {len(staged_cases)} cases -> {manifest_path}")
     return 0
 
 
@@ -336,6 +387,73 @@ def _cmd_drivinggen_fvd_reference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_worldlens_evaluate(args: argparse.Namespace) -> int:
+    log_path = None
+    if not args.stream_logs:
+        log_path = args.log_file or (
+            args.worldlens_root
+            / "cache"
+            / "eval_logs"
+            / args.split
+            / f"{args.method_name}-worldlens.log"
+        )
+    output_json = args.output_json or (
+        args.worldlens_root
+        / "cache"
+        / "eval_logs"
+        / args.split
+        / f"{args.method_name}-worldlens.json"
+    )
+    exp_root = args.exp_root or (args.worldlens_root / "tools" / "exp")
+    generated_data_path: Path | str
+    generated_data_path = args.generated_data_path or "generated_results"
+    command = [
+        args.python,
+        "tools/evaluate.py",
+        "--config-name",
+        args.config_name,
+        f"modality={args.modality}",
+        f"method_name={args.method_name}",
+        f"generated_data_path={generated_data_path}",
+    ]
+    command.extend(args.hydra_override)
+    if args.dry_run:
+        prefix = f"WORLDBENCH_EXP_ROOT={shlex.quote(str(exp_root))} "
+        suffix = f" > {shlex.quote(str(log_path))} 2>&1" if log_path else ""
+        print(prefix + shlex.join(command) + suffix)
+        print(f"json: {output_json}")
+        return 0
+    try:
+        payload = run_worldlens_evaluation(
+            worldlens_root=args.worldlens_root,
+            modality=args.modality,
+            method_name=args.method_name,
+            config_name=args.config_name,
+            generated_data_path=generated_data_path,
+            python=args.python,
+            exp_root=exp_root,
+            log_path=log_path,
+            output_json=output_json,
+            hydra_overrides=args.hydra_override,
+        )
+    except subprocess.CalledProcessError as exc:
+        if log_path is not None:
+            print(f"WorldLens evaluation failed; see log: {log_path}", file=sys.stderr)
+        return int(exc.returncode or 1)
+    except Exception as exc:
+        if log_path is not None:
+            print(f"WorldLens evaluation failed; see log: {log_path}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"WorldLens metrics -> {output_json}")
+    metric_results_path = payload.get("metric_results_path")
+    if metric_results_path is not None:
+        print(f"WorldLens metric_results: {metric_results_path}")
+    if log_path is not None:
+        print(f"wrote WorldLens log -> {log_path}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omnidreams-eval")
     sub = parser.add_subparsers(required=True)
@@ -375,6 +493,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     setup_eval.set_defaults(func=_cmd_setup_evaluator)
 
+    setup_worldlens = sub.add_parser(
+        "setup-worldlens",
+        help="clone/pin WorldLens and install OmniDreams consistency config",
+    )
+    setup_worldlens.add_argument("--cache-dir", type=Path, required=True)
+    setup_worldlens.add_argument("--output", type=Path, required=True)
+    setup_worldlens.add_argument("--evaluator-repo", default=DEFAULT_WORLDLENS_REPO)
+    setup_worldlens.add_argument("--evaluator-revision", default=DEFAULT_WORLDLENS_REVISION)
+    setup_worldlens.add_argument("--config-name", default=DEFAULT_WORLDLENS_CONFIG_NAME)
+    setup_worldlens.add_argument("--no-fetch", action="store_true")
+    setup_worldlens.add_argument(
+        "--no-config",
+        action="store_true",
+        help="do not write the OmniDreams WorldLens consistency Hydra config",
+    )
+    setup_worldlens.set_defaults(func=_cmd_setup_worldlens)
+
     generate = sub.add_parser("generate", help="run FlashDreams for staged cases")
     generate.add_argument("--staged-manifest", type=Path, required=True)
     generate.add_argument("--run-root", type=Path, required=True)
@@ -408,6 +543,28 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_drivinggen_run_args(dg_stage)
     dg_stage.add_argument("--force", action="store_true")
     dg_stage.set_defaults(func=_cmd_prepare_drivinggen)
+
+    wl_stage = sub.add_parser(
+        "prepare-worldlens",
+        help="stage generated/reference videos in WorldLens' video_submission layout",
+    )
+    wl_stage.add_argument("--staged-manifest", type=Path, required=True)
+    wl_stage.add_argument("--run-root", type=Path, required=True)
+    wl_stage.add_argument("--worldlens-root", type=Path, required=True)
+    _add_worldlens_run_args(wl_stage)
+    wl_stage.add_argument("--generation-index", type=int, default=0)
+    wl_stage.add_argument("--camera-name", default="CAM_FRONT")
+    wl_stage.add_argument(
+        "--write-config",
+        action="store_true",
+        help="write the OmniDreams WorldLens consistency Hydra config before staging",
+    )
+    wl_stage.add_argument(
+        "--force",
+        action="store_true",
+        help="replace existing staged video links/files",
+    )
+    wl_stage.set_defaults(func=_cmd_prepare_worldlens)
 
     validate = sub.add_parser(
         "validate-generation",
@@ -503,6 +660,45 @@ def _build_parser() -> argparse.ArgumentParser:
     dg_fvd_reference.add_argument("--dry-run", action="store_true")
     dg_fvd_reference.set_defaults(func=_cmd_drivinggen_fvd_reference)
 
+    wl_eval = sub.add_parser(
+        "worldlens-evaluate",
+        help="run WorldLens as a separate evaluator on staged OmniDreams videos",
+    )
+    wl_eval.add_argument("--worldlens-root", type=Path, required=True)
+    _add_worldlens_run_args(wl_eval)
+    wl_eval.add_argument("--modality", default="videogen")
+    wl_eval.add_argument(
+        "--generated-data-path",
+        type=Path,
+        default=None,
+        help=(
+            "WorldLens generated_data_path override. Defaults to generated_results "
+            "relative to --worldlens-root."
+        ),
+    )
+    wl_eval.add_argument(
+        "--python",
+        default="python",
+        help="Python executable used to run WorldLens; point this at the evaluator environment",
+    )
+    wl_eval.add_argument(
+        "--exp-root",
+        type=Path,
+        default=None,
+        help="WORLDBENCH_EXP_ROOT; defaults to <worldlens-root>/tools/exp",
+    )
+    wl_eval.add_argument("--log-file", type=Path, default=None)
+    wl_eval.add_argument("--output-json", type=Path, default=None)
+    wl_eval.add_argument("--stream-logs", action="store_true")
+    wl_eval.add_argument(
+        "--hydra-override",
+        action="append",
+        default=[],
+        help="extra Hydra override, for example videogen.dimensions=...",
+    )
+    wl_eval.add_argument("--dry-run", action="store_true")
+    wl_eval.set_defaults(func=_cmd_worldlens_evaluate)
+
     return parser
 
 
@@ -518,6 +714,12 @@ def _add_drivinggen_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--split", default="omnidreams_eval")
     parser.add_argument("--model-name", default="omnidreams")
     parser.add_argument("--exp-id", default="default")
+
+
+def _add_worldlens_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--split", default="omnidreams_eval")
+    parser.add_argument("--method-name", default=DEFAULT_WORLDLENS_METHOD)
+    parser.add_argument("--config-name", default=DEFAULT_WORLDLENS_CONFIG_NAME)
 
 
 def _select_batch(batches: list, batch_id: str):
