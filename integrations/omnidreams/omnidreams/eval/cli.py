@@ -39,6 +39,12 @@ from omnidreams.eval.manifest import (
     read_staged_cases_jsonl,
     write_cases_jsonl,
 )
+from omnidreams.eval.report import (
+    build_run_summary,
+    render_run_summary_markdown,
+    write_run_summary_json,
+    write_run_summary_markdown,
+)
 from omnidreams.eval.staging import stage_cases
 from omnidreams.eval.validation import validate_generated_run, write_validation_json
 from omnidreams.eval.worldlens import (
@@ -454,6 +460,20 @@ def _cmd_worldlens_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_summarize_run(args: argparse.Namespace) -> int:
+    summary = build_run_summary(args.run_root)
+    output_json = args.output_json or (args.run_root / "evaluation-summary.json")
+    output_md = args.output_md or (args.run_root / "evaluation-summary.md")
+    write_run_summary_json(summary, output_json)
+    write_run_summary_markdown(summary, output_md)
+    if args.print_markdown:
+        print(render_run_summary_markdown(summary), end="")
+    else:
+        print(f"wrote evaluation summary JSON -> {output_json}")
+        print(f"wrote evaluation summary Markdown -> {output_md}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omnidreams-eval")
     sub = parser.add_subparsers(required=True)
@@ -698,6 +718,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     wl_eval.add_argument("--dry-run", action="store_true")
     wl_eval.set_defaults(func=_cmd_worldlens_evaluate)
+
+    summarize = sub.add_parser(
+        "summarize-run",
+        help="write JSON and Markdown summaries for an evaluation run",
+    )
+    summarize.add_argument("--run-root", type=Path, required=True)
+    summarize.add_argument("--output-json", type=Path, default=None)
+    summarize.add_argument("--output-md", type=Path, default=None)
+    summarize.add_argument(
+        "--print-markdown",
+        action="store_true",
+        help="also print the Markdown report to stdout",
+    )
+    summarize.set_defaults(func=_cmd_summarize_run)
 
     return parser
 

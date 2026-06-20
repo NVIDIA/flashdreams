@@ -33,6 +33,12 @@ from omnidreams.eval.manifest import (
     write_cases_jsonl,
     write_staged_cases_jsonl,
 )
+from omnidreams.eval.report import (
+    build_run_summary,
+    render_run_summary_markdown,
+    write_run_summary_json,
+    write_run_summary_markdown,
+)
 from omnidreams.eval.validation import validate_generated_run
 from omnidreams.eval.worldlens import (
     DEFAULT_WORLDLENS_CONFIG_NAME,
@@ -725,6 +731,93 @@ def test_latest_and_artifact_worldlens_results(tmp_path: Path) -> None:
     ) == {"metric/repeat_0.json": {"score": 1}}
 
 
+def test_build_run_summary_collects_validation_and_metrics(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    _write_valid_generated_case(run_root, "uuid-a")
+    drivinggen_json = (
+        run_root
+        / "evaluators/DrivingGen/cache/eval_logs/split/omnidreams-exp-fvd-lite.json"
+    )
+    drivinggen_json.parent.mkdir(parents=True)
+    drivinggen_json.write_text(
+        json.dumps(
+            {
+                "metric": "fvd2048_100f",
+                "value": 12.5,
+                "split": "split",
+                "model_name": "omnidreams",
+                "exp_id": "exp",
+                "results": {"fvd2048_100f": 12.5},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    wl_root = run_root / "evaluators/WorldLens"
+    wl_stage_manifest = wl_root / "generated_results/omnidreams/stage_manifest.json"
+    wl_stage_manifest.parent.mkdir(parents=True)
+    wl_stage_manifest.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "uuid": "uuid-a",
+                        "generated_frame_count": 13,
+                        "reference_frame_count": 13,
+                        "temporal_policy": "reference_first_n_frames_matching_generated",
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    wl_summary_json = wl_root / "cache/eval_logs/wl-split/omnidreams-worldlens.json"
+    wl_summary_json.parent.mkdir(parents=True)
+    wl_summary_json.write_text(
+        json.dumps(
+            {
+                "method_name": "omnidreams",
+                "config_name": "config",
+                "metric_results_path": "/remote/metric_results.json",
+                "artifact_results": {
+                    "temporal_consistency/repeat_0.json": {
+                        "method_name": "omnidreams",
+                        "repeat": 0,
+                        "temporal_consistency_per_frame": 0.9,
+                        "tji_per_frame": 0.4,
+                        "ts_per_frame": 0.8,
+                        "video_results": [{"ts": 0.7}, {"ts": 0.9}],
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = build_run_summary(run_root)
+
+    assert summary["generated"]["generated_mp4_count"] == 1
+    assert summary["validation"]["failure_count"] == 0
+    assert summary["validation"]["runner_written_frames"] == {"13": 1}
+    assert summary["drivinggen"]["fvd_lite"][0]["value"] == 12.5
+    assert summary["worldlens"]["stage_manifest"]["case_count"] == 1
+    metric = summary["worldlens"]["runs"][0]["artifact_metrics"][0]
+    assert metric["artifact"] == "temporal_consistency/repeat_0.json"
+    assert metric["ts_min"] == 0.7
+    assert metric["ts_max"] == 0.9
+    md = render_run_summary_markdown(summary)
+    assert "OmniDreams Evaluation Summary" in md
+    assert "DrivingGen" in md
+    assert "WorldLens" in md
+    assert "Deepening Options" not in md
+    write_run_summary_json(summary, run_root / "evaluation-summary.json")
+    write_run_summary_markdown(summary, run_root / "evaluation-summary.md")
+    assert (run_root / "evaluation-summary.json").exists()
+    assert (run_root / "evaluation-summary.md").exists()
+
+
 def test_fvd_lite_import_check_reports_missing_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -867,3 +960,33 @@ def _case(uuid: str, size: int) -> EvalCase:
         hdmap_video=AssetRef(f"{uuid}-hdmap.mp4", 0),
         prompt=AssetRef(f"{uuid}.txt", 0),
     )
+
+
+def _write_valid_generated_case(run_root: Path, uuid: str) -> None:
+    case_dir = run_root / "generated" / uuid
+    runner_dir = case_dir / "runner"
+    runner_dir.mkdir(parents=True)
+    (case_dir / "generated.mp4").write_bytes(b"video")
+    (runner_dir / "recipe.mp4").write_bytes(b"stacked")
+    (case_dir / "generation.json").write_text(
+        json.dumps(
+            {
+                "command": ["flashdreams-run", "recipe", "--total-blocks", "2"],
+                "uuid": uuid,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (case_dir / "flashdreams-run.log").write_text(
+        "\n".join(
+            [
+                "loaded hdmap_videos=(1, 1, 594, 3, 704, 1280), num_views=1",
+                "AR step 0/2, num_frames=5, frames=[0, 5)",
+                "AR step 1/2, num_frames=8, frames=[5, 13)",
+                "wrote video (1, 1, 13, 3, 704, 1280) -> out.mp4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (runner_dir / "stats_recipe.json").write_text("[{}, {}]\n", encoding="utf-8")
