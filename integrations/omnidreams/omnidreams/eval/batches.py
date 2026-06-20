@@ -130,6 +130,8 @@ def parse_byte_size(value: str) -> int:
         "ti": 1024**4,
         "tib": 1024**4,
     }
+    if unit not in multipliers:
+        raise ValueError(f"invalid byte size: {value!r}")
     return int(number * multipliers[unit])
 
 

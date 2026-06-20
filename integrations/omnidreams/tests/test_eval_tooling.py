@@ -185,6 +185,8 @@ def test_parse_byte_size() -> None:
     assert parse_byte_size("1GB") == 1000**3
     assert parse_byte_size("1GiB") == 1024**3
     assert parse_byte_size("512") == 512
+    with pytest.raises(ValueError, match="invalid byte size"):
+        parse_byte_size("1ib")
 
 
 def test_generation_command_uses_staged_inputs(tmp_path: Path) -> None:
@@ -365,6 +367,26 @@ def test_stage_drivinggen_fvd_fake_frames_skips_first_frame(tmp_path: Path) -> N
     assert not (output_dir / "00000.png").exists()
     assert (output_dir / "00001.png").exists()
     assert (output_dir / "00100.png").exists()
+
+
+def test_stage_drivinggen_fvd_fake_frames_requires_100_frames_after_skip(
+    tmp_path: Path,
+) -> None:
+    image_dir = tmp_path / "cache/infer_results/split/uuid-a/model/exp/images"
+    image_dir.mkdir(parents=True)
+    for index in range(100):
+        (image_dir / f"{index:05d}.png").write_bytes(b"frame")
+
+    with pytest.raises(RuntimeError, match="100 generated frames after skipping"):
+        stage_drivinggen_fvd_fake_frames(
+            drivinggen_root=tmp_path,
+            split="split",
+            model_name="model",
+            exp_id="exp",
+            force=True,
+        )
+
+    assert not (tmp_path / "cache/infer_results/split+model_fvd/uuid-a+model+exp").exists()
 
 
 def test_stage_drivinggen_fvd_fake_frames_uses_portable_relative_symlinks(
@@ -936,6 +958,11 @@ def test_validate_generated_run_checks_runner_schedule(tmp_path: Path) -> None:
     assert result.runner_written_frames == 13
     assert result.hdmap_frames == 594
     assert result.stats_steps == 2
+
+
+def test_validate_generated_run_requires_generated_root(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="generated output directory"):
+        validate_generated_run(tmp_path / "run")
 
 
 def test_cli_manifest_shape_is_jsonl(tmp_path: Path) -> None:

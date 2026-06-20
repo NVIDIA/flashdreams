@@ -386,10 +386,12 @@ def stage_drivinggen_fvd_fake_frames(
             for path in image_dir.iterdir()
             if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
         )
-        if len(frame_paths) < 100:
+        usable_frame_count = max(len(frame_paths) - 1, 0)
+        if usable_frame_count < 100:
             raise RuntimeError(
-                f"DrivingGen FVD requires at least 100 generated frames, "
-                f"found {len(frame_paths)} in {image_dir}"
+                f"DrivingGen FVD requires at least 100 generated frames after "
+                f"skipping the seed frame, found {usable_frame_count} usable "
+                f"frames from {len(frame_paths)} total in {image_dir}"
             )
         output_dir = fake_root / f"{scene_dir.name}+{model_name}+{exp_id}"
         if output_dir.exists():
@@ -398,9 +400,7 @@ def stage_drivinggen_fvd_fake_frames(
                 continue
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        for index, frame in enumerate(frame_paths):
-            if index == 0:
-                continue
+        for index, frame in enumerate(frame_paths[1:], start=1):
             target = output_dir / f"{index:05d}{frame.suffix.lower()}"
             _copy_or_link(frame, target, force=force)
         staged_count += 1

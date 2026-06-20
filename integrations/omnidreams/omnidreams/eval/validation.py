@@ -52,6 +52,8 @@ def validate_generated_run(run_root: Path, *, uuid: str | None = None) -> list[G
     """Validate generated artifacts under ``run_root/generated``."""
 
     generated_root = run_root / "generated"
+    if not generated_root.exists():
+        raise FileNotFoundError(f"generated output directory does not exist: {generated_root}")
     if uuid is not None:
         case_dirs = [generated_root / uuid]
     else:
