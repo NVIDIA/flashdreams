@@ -11,7 +11,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 _AR_STEP_RE = re.compile(
     r"AR step (?P<index>\d+)/(?P<total>\d+), "
     r"num_frames=(?P<num_frames>\d+), frames=\[(?P<start>\d+), (?P<end>\d+)\)"
@@ -51,12 +50,16 @@ class GenerationValidation:
         return asdict(self)
 
 
-def validate_generated_run(run_root: Path, *, uuid: str | None = None) -> list[GenerationValidation]:
+def validate_generated_run(
+    run_root: Path, *, uuid: str | None = None
+) -> list[GenerationValidation]:
     """Validate generated artifacts under ``run_root/generated``."""
 
     generated_root = run_root / "generated"
     if not generated_root.exists():
-        raise FileNotFoundError(f"generated output directory does not exist: {generated_root}")
+        raise FileNotFoundError(
+            f"generated output directory does not exist: {generated_root}"
+        )
     if uuid is not None:
         case_dirs = [generated_root / uuid]
     else:
@@ -90,7 +93,9 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
     ar_steps = _parse_ar_steps(log_text)
     expected_frames = ar_steps[-1].end if ar_steps else None
     written_shape = _parse_last_written_shape(log_text)
-    runner_written_frames = written_shape[2] if written_shape and len(written_shape) >= 3 else None
+    runner_written_frames = (
+        written_shape[2] if written_shape and len(written_shape) >= 3 else None
+    )
     hdmap_shape = _parse_loaded_hdmap_shape(log_text)
     hdmap_frames = hdmap_shape[2] if hdmap_shape and len(hdmap_shape) >= 3 else None
 
@@ -102,9 +107,13 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
     if ar_steps:
         for expected_index, step in enumerate(ar_steps):
             if step.index != expected_index:
-                issues.append(f"AR step index mismatch: expected {expected_index}, found {step.index}")
+                issues.append(
+                    f"AR step index mismatch: expected {expected_index}, found {step.index}"
+                )
                 break
-        if total_blocks is not None and any(step.total != total_blocks for step in ar_steps):
+        if total_blocks is not None and any(
+            step.total != total_blocks for step in ar_steps
+        ):
             issues.append("AR step log total does not match --total-blocks")
 
     if expected_frames is not None and runner_written_frames is not None:
@@ -123,7 +132,9 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
         stacked_size = None
 
     stats_path = _find_stats_path(case_dir)
-    stats_steps = _read_stats_steps(stats_path, issues) if stats_path is not None else None
+    stats_steps = (
+        _read_stats_steps(stats_path, issues) if stats_path is not None else None
+    )
     if stats_path is None:
         issues.append(f"missing runner stats JSON under: {case_dir / 'runner'}")
     elif total_blocks is not None and stats_steps != total_blocks:
@@ -151,7 +162,8 @@ def validate_generated_case(case_dir: Path) -> GenerationValidation:
 def write_validation_json(results: list[GenerationValidation], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        json.dumps([result.to_dict() for result in results], indent=2, sort_keys=True) + "\n",
+        json.dumps([result.to_dict() for result in results], indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -170,9 +182,14 @@ def _read_generation_json(path: Path, issues: list[str]) -> dict[str, Any]:
 def _command_int_arg(command: object, name: str) -> int | None:
     if not isinstance(command, list):
         return None
+    args: list[str] = []
+    for item in command:
+        if not isinstance(item, str):
+            return None
+        args.append(item)
     try:
-        index = command.index(name)
-        return int(command[index + 1])
+        index = args.index(name)
+        return int(args[index + 1])
     except (ValueError, IndexError, TypeError):
         return None
 

@@ -83,7 +83,9 @@ def extract_first_frame(video_path: Path, output_path: Path) -> None:
     try:
         import cv2  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
-        raise ImportError("first-frame extraction requires opencv-python-headless") from exc
+        raise ImportError(
+            "first-frame extraction requires opencv-python-headless"
+        ) from exc
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cap = cv2.VideoCapture(str(video_path))

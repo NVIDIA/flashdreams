@@ -46,7 +46,11 @@ def plan_batches(
     """Group cases into stable size- and byte-capped batches."""
 
     completed = set(completed_uuids)
-    pending = [case for case in sorted(cases, key=lambda c: c.uuid) if case.uuid not in completed]
+    pending = [
+        case
+        for case in sorted(cases, key=lambda c: c.uuid)
+        if case.uuid not in completed
+    ]
     if batch_size is not None and batch_size <= 0:
         raise ValueError("batch_size must be positive when set")
     if max_batch_bytes is not None and max_batch_bytes <= 0:
@@ -96,7 +100,9 @@ def write_batch_plan(path: Path, batches: Sequence[BatchPlan]) -> None:
         "kind": "omnidreams_eval_batch_plan",
         "batches": [batch.to_dict() for batch in batches],
     }
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def read_batch_plan(path: Path) -> list[BatchPlan]:

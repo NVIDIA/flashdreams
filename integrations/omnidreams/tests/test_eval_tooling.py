@@ -7,10 +7,9 @@ import json
 import os
 from pathlib import Path
 
-import pytest
-
 import omnidreams.eval.drivinggen as drivinggen
 import omnidreams.eval.worldlens as worldlens
+import pytest
 from omnidreams.eval.batches import cases_for_batch, parse_byte_size, plan_batches
 from omnidreams.eval.cli import DEFAULT_GENERATION_RECIPE, _build_parser
 from omnidreams.eval.drivinggen import (
@@ -85,13 +84,25 @@ def test_build_cases_from_repo_files_uses_asset_intersection() -> None:
 
 def test_build_cases_from_raw_pai_nurec_layout() -> None:
     files = [
-        _repo_file("sample_set/26.01_release/scene-a/camera_front_wide_120fov_rgb.mp4", 100),
-        _repo_file("sample_set/26.01_release/scene-a/camera_front_wide_120fov_hdmap.mp4", 10),
-        _repo_file("sample_set/26.01_release/scene-a/camera_front_wide_120fov_prompt.txt", 1),
-        _repo_file("sample_set/26.01_release/scene-a/camera_front_wide_120fov.mp4", 1_000),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/camera_front_wide_120fov_rgb.mp4", 100
+        ),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/camera_front_wide_120fov_hdmap.mp4", 10
+        ),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/camera_front_wide_120fov_prompt.txt", 1
+        ),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/camera_front_wide_120fov.mp4", 1_000
+        ),
         _repo_file("sample_set/26.01_release/scene-a/scene-a.usdz", 1_000),
-        _repo_file("sample_set/26.01_release/scene-b/camera_front_wide_120fov_rgb.mp4", 100),
-        _repo_file("sample_set/26.01_release/scene-b/camera_front_wide_120fov_hdmap.mp4", 10),
+        _repo_file(
+            "sample_set/26.01_release/scene-b/camera_front_wide_120fov_rgb.mp4", 100
+        ),
+        _repo_file(
+            "sample_set/26.01_release/scene-b/camera_front_wide_120fov_hdmap.mp4", 10
+        ),
     ]
 
     cases = build_cases_from_repo_files(
@@ -110,8 +121,14 @@ def test_build_cases_from_raw_pai_nurec_layout() -> None:
 
 def test_build_cases_from_raw_layout_supports_legacy_prefix_and_scene_prompt() -> None:
     files = [
-        _repo_file("sample_set/26.01_release/scene-a/scene-a.camera_front_wide_120fov_rgb.mp4", 100),
-        _repo_file("sample_set/26.01_release/scene-a/scene-a.camera_front_wide_120fov_hdmap.mp4", 10),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/scene-a.camera_front_wide_120fov_rgb.mp4",
+            100,
+        ),
+        _repo_file(
+            "sample_set/26.01_release/scene-a/scene-a.camera_front_wide_120fov_hdmap.mp4",
+            10,
+        ),
         _repo_file("sample_set/26.01_release/scene-a/scene-a.prompt.txt", 1),
     ]
 
@@ -213,9 +230,13 @@ def test_generation_command_uses_staged_inputs(tmp_path: Path) -> None:
     command = list(result.command)
     assert command[:2] == ["flashdreams-run", "recipe"]
     assert command[command.index("--prompt") + 1] == "a prompt"
-    assert command[command.index("--hdmap-video-paths") + 1] == str(tmp_path / "hdmap.mp4")
+    assert command[command.index("--hdmap-video-paths") + 1] == str(
+        tmp_path / "hdmap.mp4"
+    )
     assert command[command.index("--total-blocks") + 1] == "7"
-    assert result.generated_video_path == tmp_path / "run/generated/uuid-a/generated.mp4"
+    assert (
+        result.generated_video_path == tmp_path / "run/generated/uuid-a/generated.mp4"
+    )
     assert result.log_path == tmp_path / "run/generated/uuid-a/flashdreams-run.log"
 
 
@@ -252,14 +273,14 @@ def test_drivinggen_video_command_omits_invalid_track_arg(tmp_path: Path) -> Non
     assert command[command.index("--root_path") + 1] == "./cache/infer_results/split"
 
 
-def test_patch_drivinggen_checkout_makes_checkpoints_configurable(tmp_path: Path) -> None:
+def test_patch_drivinggen_checkout_makes_checkpoints_configurable(
+    tmp_path: Path,
+) -> None:
     fvd_path = (
-        tmp_path
-        / "third_parties/stylegan-v/src/metrics/frechet_video_distance.py"
+        tmp_path / "third_parties/stylegan-v/src/metrics/frechet_video_distance.py"
     )
     fid_path = (
-        tmp_path
-        / "third_parties/stylegan-v/src/metrics/frechet_inception_distance.py"
+        tmp_path / "third_parties/stylegan-v/src/metrics/frechet_inception_distance.py"
     )
     fvd_path.parent.mkdir(parents=True)
     fvd_path.write_text(
@@ -303,8 +324,7 @@ def test_patch_drivinggen_checkout_makes_checkpoints_configurable(tmp_path: Path
     )
     assert "import os" in fid_text
     assert (
-        "os.environ.get('DRIVINGGEN_INCEPTION_CKPT', "
-        "'./ckpt/inception-2015-12-05.pkl')"
+        "os.environ.get('DRIVINGGEN_INCEPTION_CKPT', './ckpt/inception-2015-12-05.pkl')"
     ) in fid_text
 
 
@@ -350,10 +370,7 @@ def test_run_video_metrics_captures_output_to_log(
 
 
 def test_stage_drivinggen_fvd_fake_frames_skips_first_frame(tmp_path: Path) -> None:
-    image_dir = (
-        tmp_path
-        / "cache/infer_results/split/uuid-a/model/exp/images"
-    )
+    image_dir = tmp_path / "cache/infer_results/split/uuid-a/model/exp/images"
     image_dir.mkdir(parents=True)
     for index in range(101):
         (image_dir / f"{index:05d}.png").write_bytes(b"frame")
@@ -389,7 +406,9 @@ def test_stage_drivinggen_fvd_fake_frames_requires_100_frames_after_skip(
             force=True,
         )
 
-    assert not (tmp_path / "cache/infer_results/split+model_fvd/uuid-a+model+exp").exists()
+    assert not (
+        tmp_path / "cache/infer_results/split+model_fvd/uuid-a+model+exp"
+    ).exists()
 
 
 def test_stage_drivinggen_fvd_fake_frames_uses_portable_relative_symlinks(
@@ -684,7 +703,9 @@ def test_run_worldlens_evaluation_writes_summary_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    exp_result = tmp_path / "WorldLens/tools/exp/videogen/omnidreams/2026/metric_results.json"
+    exp_result = (
+        tmp_path / "WorldLens/tools/exp/videogen/omnidreams/2026/metric_results.json"
+    )
     exp_result.parent.mkdir(parents=True)
     exp_result.write_text('{"top": null}\n', encoding="utf-8")
     artifact_path = (
@@ -722,12 +743,19 @@ def test_run_worldlens_evaluation_writes_summary_json(
     assert calls[0]["env"]["WORLDBENCH_EXP_ROOT"].endswith("WorldLens/tools/exp")
     assert calls[0]["stderr"] == worldlens.subprocess.STDOUT
     assert payload["metric_results"] == {"top": None}
-    assert payload["artifact_results"]["temporal_consistency/repeat_0.json"] == {
+    artifact_results = payload["artifact_results"]
+    assert isinstance(artifact_results, dict)
+    artifact_results_by_path = {
+        str(key): value for key, value in artifact_results.items()
+    }
+    assert artifact_results_by_path["temporal_consistency/repeat_0.json"] == {
         "ts_per_frame": 0.9
     }
     written = json.loads((tmp_path / "worldlens.json").read_text(encoding="utf-8"))
     assert written["metric_results_path"] == str(exp_result)
-    assert "worldlens output" in (tmp_path / "worldlens.log").read_text(encoding="utf-8")
+    assert "worldlens output" in (tmp_path / "worldlens.log").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_latest_and_artifact_worldlens_results(tmp_path: Path) -> None:
@@ -739,17 +767,24 @@ def test_latest_and_artifact_worldlens_results(tmp_path: Path) -> None:
     new.write_text("{}\n", encoding="utf-8")
     os.utime(old, (1, 1))
     os.utime(new, (2, 2))
-    stage_manifest = tmp_path / "WorldLens/generated_results/omnidreams/stage_manifest.json"
-    metric_json = tmp_path / "WorldLens/generated_results/omnidreams/metric/repeat_0.json"
+    stage_manifest = (
+        tmp_path / "WorldLens/generated_results/omnidreams/stage_manifest.json"
+    )
+    metric_json = (
+        tmp_path / "WorldLens/generated_results/omnidreams/metric/repeat_0.json"
+    )
     metric_json.parent.mkdir(parents=True)
     stage_manifest.write_text("{}\n", encoding="utf-8")
     metric_json.write_text('{"score": 1}\n', encoding="utf-8")
 
-    assert latest_worldlens_metric_results(
-        exp_root=tmp_path / "exp",
-        modality="videogen",
-        method_name="omnidreams",
-    ) == new
+    assert (
+        latest_worldlens_metric_results(
+            exp_root=tmp_path / "exp",
+            modality="videogen",
+            method_name="omnidreams",
+        )
+        == new
+    )
     assert collect_worldlens_artifact_results(
         worldlens_root=tmp_path / "WorldLens",
         method_name="omnidreams",
@@ -864,7 +899,9 @@ def test_decode_video_to_frames_reuses_matching_existing_frames(tmp_path: Path) 
     (frame_dir / "00001.jpg").write_bytes(b"frame")
     (frame_dir / "notes.txt").write_text("ignored", encoding="utf-8")
 
-    assert decode_video_to_frames(tmp_path / "missing.mp4", frame_dir, max_frames=2) == 2
+    assert (
+        decode_video_to_frames(tmp_path / "missing.mp4", frame_dir, max_frames=2) == 2
+    )
     with pytest.raises(RuntimeError, match="rerun with --force"):
         decode_video_to_frames(tmp_path / "missing.mp4", frame_dir, max_frames=3)
 

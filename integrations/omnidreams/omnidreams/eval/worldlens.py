@@ -129,7 +129,9 @@ def stage_worldlens_video_inputs(
     """Stage generated clips and frame-matched references in WorldLens' layout."""
 
     if generation_index < 0:
-        raise ValueError(f"generation_index must be non-negative, got {generation_index}")
+        raise ValueError(
+            f"generation_index must be non-negative, got {generation_index}"
+        )
     method_slug = _validate_slug(method_name, "method_name")
     camera_slug = _validate_camera_name(camera_name)
 
@@ -148,7 +150,9 @@ def stage_worldlens_video_inputs(
         if not generated_video.exists():
             raise FileNotFoundError(f"missing generated video: {generated_video}")
         if not staged.reference_video_path.exists():
-            raise FileNotFoundError(f"missing reference video: {staged.reference_video_path}")
+            raise FileNotFoundError(
+                f"missing reference video: {staged.reference_video_path}"
+            )
 
         generated_scene_dir = generated_submission / scene_dir_name
         reference_scene_dir = reference_submission / scene_dir_name
@@ -210,7 +214,9 @@ def video_frame_count(video_path: Path) -> int:
     try:
         import cv2  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
-        raise ImportError("video frame counting requires opencv-python-headless") from exc
+        raise ImportError(
+            "video frame counting requires opencv-python-headless"
+        ) from exc
 
     cap = cv2.VideoCapture(str(video_path))
     try:
@@ -275,7 +281,8 @@ def copy_video_first_frames(
                 break
             if writer is None:
                 height, width = frame.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                video_writer_fourcc = getattr(cv2, "VideoWriter_fourcc")
+                fourcc = video_writer_fourcc(*"mp4v")
                 writer = cv2.VideoWriter(str(target), fourcc, fps, (width, height))
                 if not writer.isOpened():
                     raise RuntimeError(f"failed to open video writer: {target}")
@@ -369,7 +376,9 @@ def run_worldlens_evaluation(
         method_name=method_name,
     )
     metric_results = (
-        json.loads(result_path.read_text(encoding="utf-8")) if result_path is not None else {}
+        json.loads(result_path.read_text(encoding="utf-8"))
+        if result_path is not None
+        else {}
     )
     payload = {
         "modality": modality,
@@ -467,7 +476,9 @@ def _copy_or_link(source: Path, target: Path, *, force: bool) -> None:
             return
         target.unlink()
     try:
-        target.symlink_to(os.path.relpath(source.resolve(), start=target.parent.resolve()))
+        target.symlink_to(
+            os.path.relpath(source.resolve(), start=target.parent.resolve())
+        )
     except OSError:
         shutil.copy2(source, target)
 
@@ -482,7 +493,9 @@ def _validate_slug(value: str, label: str) -> str:
 
 def _validate_camera_name(value: str) -> str:
     if not value or not re.fullmatch(r"[A-Z0-9_]+", value):
-        raise ValueError(f"camera_name must contain only uppercase letters, numbers, and underscores")
+        raise ValueError(
+            f"camera_name must contain only uppercase letters, numbers, and underscores"
+        )
     return value
 
 

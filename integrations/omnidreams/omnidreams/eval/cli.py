@@ -61,7 +61,6 @@ from omnidreams.eval.worldlens import (
     write_worldlens_consistency_config,
 )
 
-
 DEFAULT_GENERATION_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
 
 
@@ -92,7 +91,9 @@ def _cmd_discover(args: argparse.Namespace) -> int:
 
 def _cmd_plan_batches(args: argparse.Namespace) -> int:
     cases = read_cases_jsonl(args.manifest)
-    max_batch_bytes = parse_byte_size(args.max_batch_bytes) if args.max_batch_bytes else None
+    max_batch_bytes = (
+        parse_byte_size(args.max_batch_bytes) if args.max_batch_bytes else None
+    )
     batches = plan_batches(
         cases,
         batch_size=args.batch_size,
@@ -180,7 +181,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 f"{result.uuid}: generated={result.generated_video_path} "
                 f"log={result.log_path}"
             )
-    print(f"{'planned' if args.dry_run else 'processed'} {len(results)} generation jobs")
+    print(
+        f"{'planned' if args.dry_run else 'processed'} {len(results)} generation jobs"
+    )
     return 0
 
 
@@ -269,7 +272,8 @@ def _cmd_drivinggen_video_metrics(args: argparse.Namespace) -> int:
         prefix = ""
         if extra_env:
             prefix = " ".join(
-                f"{name}={shlex.quote(value)}" for name, value in sorted(extra_env.items())
+                f"{name}={shlex.quote(value)}"
+                for name, value in sorted(extra_env.items())
             )
             prefix += " "
         suffix = f" > {shlex.quote(str(log_path))} 2>&1" if log_path else ""
@@ -288,7 +292,10 @@ def _cmd_drivinggen_video_metrics(args: argparse.Namespace) -> int:
         )
     except subprocess.CalledProcessError as exc:
         if log_path is not None:
-            print(f"DrivingGen metric command failed; see log: {log_path}", file=sys.stderr)
+            print(
+                f"DrivingGen metric command failed; see log: {log_path}",
+                file=sys.stderr,
+            )
         return int(exc.returncode or 1)
     if log_path is not None:
         print(f"wrote DrivingGen metric log -> {log_path}")
@@ -358,11 +365,7 @@ def _cmd_drivinggen_fvd_reference(args: argparse.Namespace) -> int:
             / "reference-fvd-lite.log"
         )
     output_json = args.output_json or (
-        args.drivinggen_root
-        / "cache"
-        / "eval_logs"
-        / label
-        / "reference-fvd-lite.json"
+        args.drivinggen_root / "cache" / "eval_logs" / label / "reference-fvd-lite.json"
     )
     if args.dry_run:
         print(
@@ -386,7 +389,10 @@ def _cmd_drivinggen_fvd_reference(args: argparse.Namespace) -> int:
         )
     except Exception as exc:
         if log_path is not None:
-            print(f"DrivingGen reference FVD-lite failed; see log: {log_path}", file=sys.stderr)
+            print(
+                f"DrivingGen reference FVD-lite failed; see log: {log_path}",
+                file=sys.stderr,
+            )
         print(str(exc), file=sys.stderr)
         return 1
     value = payload.get("value")
@@ -523,7 +529,9 @@ def _build_parser() -> argparse.ArgumentParser:
     setup_worldlens.add_argument("--cache-dir", type=Path, required=True)
     setup_worldlens.add_argument("--output", type=Path, required=True)
     setup_worldlens.add_argument("--evaluator-repo", default=DEFAULT_WORLDLENS_REPO)
-    setup_worldlens.add_argument("--evaluator-revision", default=DEFAULT_WORLDLENS_REVISION)
+    setup_worldlens.add_argument(
+        "--evaluator-revision", default=DEFAULT_WORLDLENS_REVISION
+    )
     setup_worldlens.add_argument("--config-name", default=DEFAULT_WORLDLENS_CONFIG_NAME)
     setup_worldlens.add_argument("--no-fetch", action="store_true")
     setup_worldlens.add_argument(
@@ -599,7 +607,9 @@ def _build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--output", type=Path, default=None)
     validate.set_defaults(func=_cmd_validate_generation)
 
-    dg_metrics = sub.add_parser("drivinggen-video-metrics", help="run DrivingGen video metrics")
+    dg_metrics = sub.add_parser(
+        "drivinggen-video-metrics", help="run DrivingGen video metrics"
+    )
     dg_metrics.add_argument("--drivinggen-root", type=Path, required=True)
     _add_drivinggen_run_args(dg_metrics)
     dg_metrics.add_argument("--metric", default="fvd")

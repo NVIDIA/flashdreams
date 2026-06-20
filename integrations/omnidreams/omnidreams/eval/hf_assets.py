@@ -50,7 +50,9 @@ def download_asset(
     try:
         from huggingface_hub import hf_hub_download  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
-        raise ImportError("omnidreams-eval stage-batch requires huggingface_hub") from exc
+        raise ImportError(
+            "omnidreams-eval stage-batch requires huggingface_hub"
+        ) from exc
 
     local_path = destination_root / asset.path
     if (

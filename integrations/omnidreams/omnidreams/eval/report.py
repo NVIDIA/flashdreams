@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from omnidreams.eval.validation import validate_generated_run
 
@@ -38,7 +39,9 @@ def build_run_summary(run_root: Path) -> dict[str, Any]:
 
 def write_run_summary_json(summary: dict[str, Any], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def write_run_summary_markdown(summary: dict[str, Any], output: Path) -> None:
@@ -153,8 +156,16 @@ def render_run_summary_markdown(summary: dict[str, Any]) -> str:
 
 def _summarize_generated(run_root: Path) -> dict[str, Any]:
     generated_root = run_root / "generated"
-    case_dirs = sorted(path for path in generated_root.iterdir() if path.is_dir()) if generated_root.exists() else []
-    mp4s = [path / "generated.mp4" for path in case_dirs if (path / "generated.mp4").exists()]
+    case_dirs = (
+        sorted(path for path in generated_root.iterdir() if path.is_dir())
+        if generated_root.exists()
+        else []
+    )
+    mp4s = [
+        path / "generated.mp4"
+        for path in case_dirs
+        if (path / "generated.mp4").exists()
+    ]
     return {
         "root": str(generated_root),
         "case_directories": len(case_dirs),
@@ -186,7 +197,9 @@ def _summarize_validation(run_root: Path) -> dict[str, Any]:
         "ok_count": sum(1 for result in results if result.get("ok", False)),
         "failure_count": len(failed_cases),
         "failed_cases": failed_cases,
-        "runner_written_frames": _counter_dict(result.get("runner_written_frames") for result in results),
+        "runner_written_frames": _counter_dict(
+            result.get("runner_written_frames") for result in results
+        ),
         "expected_frames_from_steps": _counter_dict(
             result.get("expected_frames_from_steps") for result in results
         ),
@@ -220,7 +233,12 @@ def _summarize_drivinggen(run_root: Path) -> dict[str, Any]:
                 )
                 fvd_lite.append(row)
             elif "split_a" in payload and "split_b" in payload:
-                row.update({"split_a": payload.get("split_a"), "split_b": payload.get("split_b")})
+                row.update(
+                    {
+                        "split_a": payload.get("split_a"),
+                        "split_b": payload.get("split_b"),
+                    }
+                )
                 reference_diagnostics.append(row)
     return {
         "fvd_lite": fvd_lite,
@@ -275,10 +293,18 @@ def _summarize_worldlens_stage_manifest(path: Path) -> dict[str, Any] | None:
         "path": str(path),
         "case_count": len(cases),
         "generated_frame_counts": sorted(
-            {case.get("generated_frame_count") for case in cases if isinstance(case, dict)}
+            {
+                case.get("generated_frame_count")
+                for case in cases
+                if isinstance(case, dict)
+            }
         ),
         "reference_frame_counts": sorted(
-            {case.get("reference_frame_count") for case in cases if isinstance(case, dict)}
+            {
+                case.get("reference_frame_count")
+                for case in cases
+                if isinstance(case, dict)
+            }
         ),
         "temporal_policy": sorted(
             {
@@ -293,31 +319,37 @@ def _summarize_worldlens_stage_manifest(path: Path) -> dict[str, Any] | None:
 
 
 def _worldlens_artifact_metrics(artifact_results: object) -> list[dict[str, Any]]:
-    if not isinstance(artifact_results, dict):
+    if not isinstance(artifact_results, Mapping):
         return []
     rows: list[dict[str, Any]] = []
-    for artifact, result in sorted(artifact_results.items()):
-        if not isinstance(result, dict):
+    for artifact, result in sorted(
+        artifact_results.items(), key=lambda item: str(item[0])
+    ):
+        if not isinstance(result, Mapping):
             continue
-        video_results = result.get("video_results", [])
+        result_map = {str(key): value for key, value in result.items()}
+        video_results = result_map.get("video_results", [])
         if not isinstance(video_results, list):
             video_results = []
-        ts_values = [
-            item.get("ts")
-            for item in video_results
-            if isinstance(item, dict) and _is_number(item.get("ts"))
-        ]
+        ts_values: list[int | float] = []
+        for item in video_results:
+            if not isinstance(item, Mapping):
+                continue
+            item_map = {str(key): value for key, value in item.items()}
+            ts = item_map.get("ts")
+            if _is_number(ts):
+                ts_values.append(ts)
         rows.append(
             {
-                "artifact": artifact,
-                "method_name": result.get("method_name"),
-                "repeat": result.get("repeat"),
+                "artifact": str(artifact),
+                "method_name": result_map.get("method_name"),
+                "repeat": result_map.get("repeat"),
                 "video_count": len(video_results),
-                "temporal_consistency_per_frame": result.get(
+                "temporal_consistency_per_frame": result_map.get(
                     "temporal_consistency_per_frame"
                 ),
-                "tji_per_frame": result.get("tji_per_frame"),
-                "ts_per_frame": result.get("ts_per_frame"),
+                "tji_per_frame": result_map.get("tji_per_frame"),
+                "ts_per_frame": result_map.get("ts_per_frame"),
                 "ts_min": min(ts_values) if ts_values else None,
                 "ts_max": max(ts_values) if ts_values else None,
             }
@@ -328,7 +360,9 @@ def _worldlens_artifact_metrics(artifact_results: object) -> list[dict[str, Any]
 def _counter_dict(values) -> dict[str, int]:
     return {
         str(key): count
-        for key, count in sorted(Counter(value for value in values if value is not None).items())
+        for key, count in sorted(
+            Counter(value for value in values if value is not None).items()
+        )
     }
 
 
@@ -344,7 +378,7 @@ def _format_number(value: object) -> str:
     return f"{float(value):.6f}"
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 

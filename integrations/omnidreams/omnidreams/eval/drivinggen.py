@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
-import json
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -14,7 +14,7 @@ import sys
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from omnidreams.eval.manifest import StagedCase
 
@@ -263,12 +263,12 @@ def run_fvd_lite(
             fake_root=fake_root,
             reference_root=reference_root,
         )
-        metrics = result.get("results", result)
+        metrics = _fvd_metrics_from_result(result)
         value = metrics.get("fvd2048_100f")
         payload = {
             "metric": "fvd2048_100f",
             "value": _jsonable(value),
-            "results": _jsonable(dict(metrics)),
+            "results": _jsonable(metrics),
             "split": split,
             "model_name": model_name,
             "exp_id": exp_id,
@@ -328,12 +328,12 @@ def run_fvd_reference_lite(
             reference_root=reference_a_root,
             fake_root=reference_b_root,
         )
-        metrics = result.get("results", result)
+        metrics = _fvd_metrics_from_result(result)
         value = metrics.get("fvd2048_100f")
         payload = {
             "metric": "fvd2048_100f",
             "value": _jsonable(value),
-            "results": _jsonable(dict(metrics)),
+            "results": _jsonable(metrics),
             "split_a": split_a,
             "split_b": split_b,
             "reference_a_root": str(reference_a_root),
@@ -377,7 +377,9 @@ def stage_drivinggen_fvd_fake_frames(
     if not root_path.exists():
         raise FileNotFoundError(f"missing DrivingGen infer results root: {root_path}")
 
-    fake_root = drivinggen_root / "cache" / "infer_results" / f"{split}+{model_name}_fvd"
+    fake_root = (
+        drivinggen_root / "cache" / "infer_results" / f"{split}+{model_name}_fvd"
+    )
     fake_root.mkdir(parents=True, exist_ok=True)
     staged_count = 0
     for scene_dir in sorted(path for path in root_path.iterdir() if path.is_dir()):
@@ -433,20 +435,30 @@ def stage_drivinggen_fvd_reference_frames(
     if not split_path.exists():
         raise FileNotFoundError(f"missing DrivingGen split file: {split_path}")
     scene_ids = json.loads(split_path.read_text(encoding="utf-8"))
-    if not isinstance(scene_ids, list) or not all(isinstance(item, str) for item in scene_ids):
-        raise ValueError(f"DrivingGen split file must contain a JSON string list: {split_path}")
+    if not isinstance(scene_ids, list) or not all(
+        isinstance(item, str) for item in scene_ids
+    ):
+        raise ValueError(
+            f"DrivingGen split file must contain a JSON string list: {split_path}"
+        )
 
     source_root = drivinggen_root / "data" / "videos-fvd"
     if not source_root.exists():
-        raise FileNotFoundError(f"missing DrivingGen reference frame root: {source_root}")
+        raise FileNotFoundError(
+            f"missing DrivingGen reference frame root: {source_root}"
+        )
 
-    reference_root = drivinggen_root / "cache" / "infer_results" / f"{split}+reference_fvd"
+    reference_root = (
+        drivinggen_root / "cache" / "infer_results" / f"{split}+reference_fvd"
+    )
     reference_root.mkdir(parents=True, exist_ok=True)
     staged_count = 0
     for uuid in scene_ids:
         source_dir = source_root / uuid
         if not source_dir.exists():
-            raise FileNotFoundError(f"missing reference frames for {uuid}: {source_dir}")
+            raise FileNotFoundError(
+                f"missing reference frames for {uuid}: {source_dir}"
+            )
         if _count_frame_files(source_dir) < 100:
             raise RuntimeError(
                 f"DrivingGen FVD requires at least 100 reference frames, "
@@ -485,7 +497,9 @@ def decode_video_to_frames(
     try:
         import cv2  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
-        raise ImportError("video frame extraction requires opencv-python-headless") from exc
+        raise ImportError(
+            "video frame extraction requires opencv-python-headless"
+        ) from exc
 
     cap = cv2.VideoCapture(str(video_path))
     index = 0
@@ -497,7 +511,9 @@ def decode_video_to_frames(
             if not ok:
                 break
             if not cv2.imwrite(str(output_dir / f"{index:05d}.png"), frame):
-                raise RuntimeError(f"failed to write decoded frame {index} from {video_path}")
+                raise RuntimeError(
+                    f"failed to write decoded frame {index} from {video_path}"
+                )
             index += 1
     finally:
         cap.release()
@@ -557,7 +573,9 @@ def _copy_or_link(source: Path, target: Path, *, force: bool) -> None:
             return
         target.unlink()
     try:
-        target.symlink_to(os.path.relpath(source.resolve(), start=target.parent.resolve()))
+        target.symlink_to(
+            os.path.relpath(source.resolve(), start=target.parent.resolve())
+        )
     except OSError:
         shutil.copy2(source, target)
 
@@ -595,7 +613,8 @@ def _calculate_styleganv_fvd(
     old_cwd = Path.cwd()
     try:
         os.chdir(drivinggen_root)
-        from src.scripts.calc_metrics_for_dataset import calc_metrics_  # noqa: PLC0415
+        metric_module = importlib.import_module("src.scripts.calc_metrics_for_dataset")
+        calc_metrics_ = getattr(metric_module, "calc_metrics_")
 
         results = calc_metrics_(
             metrics=["fvd2048_100f"],
@@ -622,7 +641,19 @@ def _calculate_styleganv_fvd(
             pass
     if not results:
         raise RuntimeError("StyleGAN-V FVD returned no results")
-    return dict(results[0])
+    first_result = results[0]
+    if not isinstance(first_result, dict):
+        raise RuntimeError(
+            f"StyleGAN-V FVD returned unexpected result: {first_result!r}"
+        )
+    return {str(key): value for key, value in first_result.items()}
+
+
+def _fvd_metrics_from_result(result: dict[str, object]) -> dict[str, object]:
+    metrics = result.get("results")
+    if isinstance(metrics, dict):
+        return {str(key): value for key, value in metrics.items()}
+    return dict(result)
 
 
 def _check_styleganv_fvd_imports() -> None:
@@ -642,8 +673,7 @@ def _check_styleganv_fvd_imports() -> None:
             missing.append(f"{module_name} ({package_name}): {exc}")
     if missing:
         raise ImportError(
-            "DrivingGen FVD-lite missing required Python modules: "
-            + "; ".join(missing)
+            "DrivingGen FVD-lite missing required Python modules: " + "; ".join(missing)
         )
 
 

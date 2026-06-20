@@ -125,9 +125,15 @@ def extract_generated_video(stacked_video_path: Path, output_path: Path) -> None
 
     try:
         import mediapy as media  # noqa: PLC0415
-        from flashdreams.quality.clip_compare import bottom_half, read_video_rgb  # noqa: PLC0415
+
+        from flashdreams.quality.clip_compare import (  # noqa: PLC0415
+            bottom_half,
+            read_video_rgb,
+        )
     except ImportError as exc:  # pragma: no cover
-        raise ImportError("extracting generated video requires mediapy and flashdreams") from exc
+        raise ImportError(
+            "extracting generated video requires mediapy and flashdreams"
+        ) from exc
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     generated = bottom_half(read_video_rgb(stacked_video_path))

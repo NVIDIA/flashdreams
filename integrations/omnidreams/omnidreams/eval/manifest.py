@@ -258,7 +258,9 @@ def _repo_file_path(info: Any) -> str | None:
 
 
 def _repo_file_size(info: Any) -> int | None:
-    value = info.get("size") if isinstance(info, Mapping) else getattr(info, "size", None)
+    value = (
+        info.get("size") if isinstance(info, Mapping) else getattr(info, "size", None)
+    )
     return _optional_int(value)
 
 
@@ -295,7 +297,11 @@ def _source_layout_match(
         return None
     uuid, filename = parts
     legacy_prefix = f"{uuid}."
-    tag = filename[len(legacy_prefix) :] if filename.startswith(legacy_prefix) else filename
+    tag = (
+        filename[len(legacy_prefix) :]
+        if filename.startswith(legacy_prefix)
+        else filename
+    )
     if tag == f"{camera}_rgb.mp4":
         return uuid, "rgb"
     if tag == f"{camera}_hdmap.mp4":
