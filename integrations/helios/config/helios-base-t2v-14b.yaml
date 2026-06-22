@@ -1,0 +1,15 @@
+# Helios-Base 14B T2V — highest quality (pyramid [20,20,20])
+runner: helios-base-t2v-14b
+pipeline:
+  _target_: helios.pipeline.HeliosStreamingPipeline
+checkpoint: BestWishYsh/Helios-Base
+generation:
+  total_blocks: 8
+  width: 640
+  height: 384
+  fps: 24
+  pyramid_steps: [20, 20, 20]
+  guidance_scale: 5.0
+  amplify_first_chunk: true
+  compile: false
+  flash_attention: true

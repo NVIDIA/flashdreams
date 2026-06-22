@@ -232,6 +232,13 @@ invocation, the checkpoint source, and the per-implementation knobs.
 
       Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
+   .. grid-item-card:: Helios
+      :class-card: fd-feature
+      :link: models/helios
+      :link-type: doc
+
+      Real-time 14B streaming text-to-video (33-frame chunks).
+
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
       :link: models/lingbot_world

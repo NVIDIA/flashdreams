@@ -1,0 +1,15 @@
+# Helios-Distilled 14B T2V — fastest inference (pyramid [2,2,2])
+runner: helios-distilled-t2v-14b
+pipeline:
+  _target_: helios.pipeline.HeliosStreamingPipeline
+checkpoint: BestWishYsh/Helios-Distilled
+generation:
+  total_blocks: 8
+  width: 640
+  height: 384
+  fps: 24
+  pyramid_steps: [2, 2, 2]
+  guidance_scale: 1.0
+  amplify_first_chunk: true
+  compile: false
+  flash_attention: true
