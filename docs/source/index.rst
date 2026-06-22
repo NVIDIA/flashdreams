@@ -232,6 +232,13 @@ invocation, the checkpoint source, and the per-implementation knobs.
 
       Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
+   .. grid-item-card:: LTX-Video
+      :class-card: fd-feature
+      :link: models/ltx_video
+      :link-type: doc
+
+      Causal 2B streaming text-to-video with optional KV-cache and compile path.
+
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
       :link: models/lingbot_world

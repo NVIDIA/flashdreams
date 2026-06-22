@@ -99,6 +99,7 @@ runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 | [Causal Wan2.2](https://nvidia.github.io/flashdreams/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
 | [FlashVSR](https://nvidia.github.io/flashdreams/main/models/flashvsr.html) | Streaming video super-resolution |
 | [Cosmos-Predict2.5](https://nvidia.github.io/flashdreams/main/models/cosmos_predict2.html) | Bidirectional T2V / I2V |
+| [LTX-Video](https://nvidia.github.io/flashdreams/main/models/ltx_video.html) | Causal streaming T2V (2B) |
 
 See [the model gallery](https://nvidia.github.io/flashdreams/main/models/index.html) and
 [the new method guide](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)

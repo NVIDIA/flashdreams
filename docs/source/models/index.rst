@@ -27,6 +27,7 @@ Models
    cosmos_predict2
    flashvsr
    lingbot_world
+   ltx_video
    wan21
 
 FlashDreams runs a growing family of world and video models (text-to-video,
@@ -105,6 +106,13 @@ uses, and the settings you can tune.
          </video>
 
       Autoregressive text-to-video based on Wan 2.2 from FastVideo.
+
+   .. grid-item-card:: LTX-Video
+      :class-card: fd-feature
+      :link: /models/ltx_video
+      :link-type: doc
+
+      Causal 2B streaming text-to-video with optional KV-cache and compile path.
 
    .. grid-item-card:: LingBot-World
       :class-card: fd-feature
