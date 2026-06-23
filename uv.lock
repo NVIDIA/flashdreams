@@ -47,6 +47,7 @@ members = [
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
     "flashdreams-omnidreams",
+    "flashdreams-realesrgan",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
     "flashdreams-wan22",
@@ -1627,6 +1628,28 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
 provides-extras = ["interactive-drive", "dev"]
+
+[[package]]
+name = "flashdreams-realesrgan"
+version = "0.1.0"
+source = { editable = "integrations/realesrgan" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "opencv-python-headless" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "opencv-python-headless", specifier = ">=4.8" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"

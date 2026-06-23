@@ -50,6 +50,13 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     Wan-Video team. Model weights are downloaded from upstream at runtime
     and are not redistributed in this repository.
 
+Real-ESRGAN            BSD-3-Clause https://github.com/xinntao/Real-ESRGAN
+BasicSR                Apache-2.0   https://github.com/XPixelGroup/BasicSR
+    The optional Real-ESRGAN integration implements RRDBNet and compact SRVGG
+    architecture definitions compatible with public Real-ESRGAN checkpoints.
+    Model weights are downloaded from upstream at runtime and are not
+    redistributed in this repository.
+
 ================================================================================
 Optional integration: integrations/omnidreams
 ================================================================================
@@ -98,6 +105,12 @@ Optional integration: integrations/lingbot
 
 aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
 aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
+opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
+
+================================================================================
+Optional integration: integrations/realesrgan
+================================================================================
+
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 
 ================================================================================
