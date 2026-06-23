@@ -35,6 +35,81 @@ importing FlashDreams:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 ```
 
+## Run batch evaluation
+
+The `omnidreams-eval` CLI automates a fixed-split evaluation flow for
+OmniDreams scene batches:
+
+1. Discover Hugging Face scene assets and write a JSONL manifest.
+2. Plan byte- or count-capped batches.
+3. Stage one batch into local scratch storage.
+4. Run FlashDreams generation for the staged cases.
+5. Validate generated artifacts and runner logs.
+6. Stage/run DrivingGen FVD-lite and WorldLens consistency evaluators.
+7. Write a JSON and Markdown summary report.
+
+The high-level workflow is:
+
+```bash
+RUN=/trees/$USER/od-runs/od-26.01
+SCRATCH=/local_nvme/$USER/omnidreams-eval-scratch
+
+uv run --package flashdreams-omnidreams omnidreams-eval discover \
+  --output "$RUN/manifest.jsonl"
+
+uv run --package flashdreams-omnidreams omnidreams-eval plan-batches \
+  --manifest "$RUN/manifest.jsonl" \
+  --output "$RUN/batches.json" \
+  --batch-size 20
+
+uv run --package flashdreams-omnidreams omnidreams-eval stage-batch \
+  --manifest "$RUN/manifest.jsonl" \
+  --batch-plan "$RUN/batches.json" \
+  --batch-id batch-00000 \
+  --scratch-root "$SCRATCH" \
+  --output "$RUN/staged/batch-00000.jsonl"
+
+uv run --package flashdreams-omnidreams omnidreams-eval generate \
+  --staged-manifest "$RUN/staged/batch-00000.jsonl" \
+  --run-root "$RUN"
+
+uv run --package flashdreams-omnidreams omnidreams-eval validate-generated \
+  --run-root "$RUN" \
+  --output "$RUN/validation.json"
+
+uv run --package flashdreams-omnidreams omnidreams-eval summarize-run \
+  --run-root "$RUN"
+```
+
+External evaluator setup is intentionally separate from FlashDreams generation,
+because DrivingGen and WorldLens have their own dependencies and checkpoint
+caches. Use `setup-evaluator` for DrivingGen and `setup-worldlens` for
+WorldLens, then run the corresponding `prepare-*` and evaluator commands. The
+adapter modules pin the upstream GitHub URLs and revisions used today; moving
+those pins into shared config or a maintained fork is a reasonable follow-up if
+the evaluator stack becomes long-lived.
+
+Runtime depends mostly on FlashDreams generation and evaluator environment
+setup. On a workstation-class GPU such as an RTX 6000 Pro, 20-scene batches are
+intended to be practical, while the full Hugging Face scene set should be run in
+batches to avoid staging all 1-2 GB scenes at once. Evaluator setup can also
+download model checkpoints and may take several minutes on first use.
+
+Interpret the report as follows:
+
+- Validation checks generation completeness, frame counts, runner schedules,
+  and missing artifacts. Any validation failure should be inspected before
+  trusting evaluator metrics.
+- DrivingGen FVD-lite is a regression metric. Lower is better only when
+  comparing the same fixed scene split across model versions. Do not compare
+  `batch-00000` directly against `batch-00001` as a quality claim.
+- DrivingGen reference-vs-reference FVD is diagnostic only; it measures split
+  diversity, not OmniDreams quality.
+- WorldLens temporal and subject consistency are roughly higher-is-better, with
+  1.0 as an idealized upper bound. They are useful standalone video-consistency
+  signals, but they do not directly measure closed-loop simulator quality,
+  path correctness, off-road behavior, or collisions.
+
 ## Run interactive-drive (desktop demo)
 
 The `omnidreams.interactive_drive` subpackage ships a single-process
