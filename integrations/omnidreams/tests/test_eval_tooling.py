@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import omnidreams.eval.drivinggen as drivinggen
+import omnidreams.eval.generation as generation
 import omnidreams.eval.worldlens as worldlens
 import pytest
 from omnidreams.eval.batches import cases_for_batch, parse_byte_size, plan_batches
@@ -256,6 +257,36 @@ def test_generate_cli_defaults_to_stable_non_perf_recipe(tmp_path: Path) -> None
     assert args.recipe == DEFAULT_GENERATION_RECIPE
     assert not args.recipe.endswith("-perf")
     assert args.stream_logs is False
+
+
+def test_streaming_generation_failure_is_contextual(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = generation_result_for_case(
+        StagedCase(
+            case=_case("uuid-a", 10),
+            reference_video_path=tmp_path / "ref.mp4",
+            hdmap_video_path=tmp_path / "hdmap.mp4",
+            prompt_path=tmp_path / "prompt.txt",
+            first_frame_path=tmp_path / "first.png",
+            prompt_text="a prompt",
+        ),
+        run_root=tmp_path / "run",
+        recipe="recipe",
+        total_blocks=7,
+        flashdreams_run="flashdreams-run",
+    )
+
+    def fake_run(command, *, check):
+        assert command == list(result.command)
+        assert check is False
+        return generation.subprocess.CompletedProcess(command, 17)
+
+    monkeypatch.setattr(generation.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="uuid-a.*exit code 17"):
+        generation._run_generation_command(result, stream_logs=True)
 
 
 def test_drivinggen_video_command_omits_invalid_track_arg(tmp_path: Path) -> None:

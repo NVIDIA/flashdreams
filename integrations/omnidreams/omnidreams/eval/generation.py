@@ -100,7 +100,12 @@ def generation_result_for_case(
 
 def _run_generation_command(result: GenerationResult, *, stream_logs: bool) -> None:
     if stream_logs:
-        subprocess.run(list(result.command), check=True)
+        completed = subprocess.run(list(result.command), check=False)
+        if completed.returncode:
+            raise RuntimeError(
+                f"flashdreams-run failed for {result.uuid} with exit code "
+                f"{completed.returncode}; logs were streamed to the terminal"
+            )
         return
 
     result.log_path.parent.mkdir(parents=True, exist_ok=True)
