@@ -825,7 +825,8 @@ def test_build_run_summary_collects_validation_and_metrics(tmp_path: Path) -> No
                         "generated_frame_count": 13,
                         "reference_frame_count": 13,
                         "temporal_policy": "reference_first_n_frames_matching_generated",
-                    }
+                    },
+                    {"uuid": "uuid-incomplete"},
                 ]
             }
         )
@@ -862,7 +863,9 @@ def test_build_run_summary_collects_validation_and_metrics(tmp_path: Path) -> No
     assert summary["validation"]["failure_count"] == 0
     assert summary["validation"]["runner_written_frames"] == {"13": 1}
     assert summary["drivinggen"]["fvd_lite"][0]["value"] == 12.5
-    assert summary["worldlens"]["stage_manifest"]["case_count"] == 1
+    assert summary["worldlens"]["stage_manifest"]["case_count"] == 2
+    assert summary["worldlens"]["stage_manifest"]["generated_frame_counts"] == [13]
+    assert summary["worldlens"]["stage_manifest"]["reference_frame_counts"] == [13]
     metric = summary["worldlens"]["runs"][0]["artifact_metrics"][0]
     assert metric["artifact"] == "temporal_consistency/repeat_0.json"
     assert metric["ts_min"] == 0.7

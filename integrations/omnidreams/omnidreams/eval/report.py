@@ -297,6 +297,7 @@ def _summarize_worldlens_stage_manifest(path: Path) -> dict[str, Any] | None:
                 case.get("generated_frame_count")
                 for case in cases
                 if isinstance(case, dict)
+                and case.get("generated_frame_count") is not None
             }
         ),
         "reference_frame_counts": sorted(
@@ -304,6 +305,7 @@ def _summarize_worldlens_stage_manifest(path: Path) -> dict[str, Any] | None:
                 case.get("reference_frame_count")
                 for case in cases
                 if isinstance(case, dict)
+                and case.get("reference_frame_count") is not None
             }
         ),
         "temporal_policy": sorted(

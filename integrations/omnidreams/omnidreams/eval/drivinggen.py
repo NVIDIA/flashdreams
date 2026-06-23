@@ -459,10 +459,11 @@ def stage_drivinggen_fvd_reference_frames(
             raise FileNotFoundError(
                 f"missing reference frames for {uuid}: {source_dir}"
             )
-        if _count_frame_files(source_dir) < 100:
+        frame_count = _count_frame_files(source_dir)
+        if frame_count < 100:
             raise RuntimeError(
                 f"DrivingGen FVD requires at least 100 reference frames, "
-                f"found {_count_frame_files(source_dir)} in {source_dir}"
+                f"found {frame_count} in {source_dir}"
             )
         _copy_or_link_directory(source_dir, reference_root / uuid, force=force)
         staged_count += 1
