@@ -4,10 +4,16 @@
 from __future__ import annotations
 
 import logging
+from contextlib import ExitStack
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from omnidreams.webrtc.server import configure_logging, create_app
+from omnidreams.webrtc import server as webrtc_server
+from omnidreams.webrtc.server import (
+    _close_package_resources,
+    configure_logging,
+    create_app,
+)
 
 from flashdreams.serving.webrtc.server import SessionBusyError
 
@@ -54,6 +60,58 @@ async def _build_client(manager: FakeSessionManager) -> TestClient:
     client = TestClient(server)
     await client.start_server()
     return client
+
+
+def test_create_app_keeps_package_web_resource_materialized() -> None:
+    app = create_app(
+        session_manager=FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+    )
+    try:
+        assert isinstance(app["package_resource_stack"], ExitStack)
+        assert _close_package_resources in app.on_cleanup
+
+        static_resources = [
+            resource
+            for resource in app.router.resources()
+            if getattr(resource, "canonical", "") == "/static"
+            or resource.get_info().get("prefix") in {"/static", "/static/"}
+        ]
+        assert len(static_resources) == 1
+        web_dir = static_resources[0].get_info()["directory"]
+        assert web_dir.is_dir()
+        assert "Omnidreams WebRTC Drive" in (
+            web_dir / "request_session.html"
+        ).read_text()
+    finally:
+        app["package_resource_stack"].close()
+
+
+def test_create_app_skips_absent_repo_assets_mount(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        webrtc_server,
+        "REPO_ASSETS_DIR",
+        tmp_path / "missing-assets",
+    )
+    app = create_app(
+        session_manager=FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+    )
+    try:
+        for resource in app.router.resources():
+            info = resource.get_info()
+            candidates = (
+                getattr(resource, "canonical", ""),
+                info.get("prefix", ""),
+                info.get("path", ""),
+            )
+            assert not any(
+                str(candidate) == "/assets"
+                or str(candidate).startswith("/assets/")
+                for candidate in candidates
+            )
+    finally:
+        app["package_resource_stack"].close()
 
 
 @pytest.mark.asyncio

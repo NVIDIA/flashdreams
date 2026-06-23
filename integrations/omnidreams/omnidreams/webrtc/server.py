@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import os
+from contextlib import ExitStack
+from importlib.resources import as_file, files
 from pathlib import Path
 
 import torch
@@ -28,7 +30,8 @@ from flashdreams.serving.webrtc.bootstrap import (
 )
 from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
 
-WEB_DIR = Path(__file__).resolve().parent / "web"
+WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
+# Wheel-installed deployments skip this optional mount when the repo root is absent.
 REPO_ASSETS_DIR = Path(__file__).resolve().parents[4] / "assets"
 
 
@@ -108,18 +111,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def _close_package_resources(app: web.Application) -> None:
+    app["package_resource_stack"].close()
+
+
 def create_app(
     *,
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or OmnidreamsWebRTCSessionManager()
+
+    resource_stack = ExitStack()
+    web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
+
     app = create_webrtc_app(
-        web_dir=WEB_DIR,
+        web_dir=web_dir,
         session_manager=manager,
         preload_name="Omnidreams",
         request_session_url=request_session_url,
     )
+    app["package_resource_stack"] = resource_stack
+    app.on_cleanup.append(_close_package_resources)
     if REPO_ASSETS_DIR.is_dir():
         app.router.add_static("/assets/", REPO_ASSETS_DIR, show_index=False)
     return app
