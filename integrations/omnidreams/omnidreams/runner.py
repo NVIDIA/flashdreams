@@ -413,7 +413,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             del cache
             del hdmap_videos
             del hdmap_videos_t
-            del self.pipeline
+            self.pipeline = None  # type: ignore[assignment]
             torch.cuda.empty_cache()
 
         condition = (
