@@ -50,6 +50,9 @@ def generate_cases(
         )
         results.append(result)
         if result.generated_video_path.exists() and not force:
+            metadata_path = result.generated_video_path.parent / "generation.json"
+            if not metadata_path.exists():
+                _write_generation_metadata(result)
             continue
         if dry_run:
             continue

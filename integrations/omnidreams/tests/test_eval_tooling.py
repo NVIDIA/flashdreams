@@ -25,7 +25,7 @@ from omnidreams.eval.drivinggen import (
     stage_drivinggen_fvd_reference_frames,
     video_metrics_command,
 )
-from omnidreams.eval.generation import generation_result_for_case
+from omnidreams.eval.generation import generate_cases, generation_result_for_case
 from omnidreams.eval.manifest import (
     AssetRef,
     EvalCase,
@@ -257,6 +257,42 @@ def test_generate_cli_defaults_to_stable_non_perf_recipe(tmp_path: Path) -> None
     assert args.recipe == DEFAULT_GENERATION_RECIPE
     assert not args.recipe.endswith("-perf")
     assert args.stream_logs is False
+
+
+def test_generate_resume_writes_missing_metadata_for_existing_video(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staged = StagedCase(
+        case=_case("uuid-a", 10),
+        reference_video_path=tmp_path / "ref.mp4",
+        hdmap_video_path=tmp_path / "hdmap.mp4",
+        prompt_path=tmp_path / "prompt.txt",
+        first_frame_path=tmp_path / "first.png",
+        prompt_text="a prompt",
+    )
+    generated_video = tmp_path / "run/generated/uuid-a/generated.mp4"
+    generated_video.parent.mkdir(parents=True)
+    generated_video.write_bytes(b"video")
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("generation should not rerun for existing generated.mp4")
+
+    monkeypatch.setattr(generation.subprocess, "run", fail_run)
+
+    results = generate_cases(
+        [staged],
+        run_root=tmp_path / "run",
+        recipe="recipe",
+        total_blocks=7,
+        flashdreams_run="flashdreams-run",
+    )
+
+    metadata_path = generated_video.parent / "generation.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert results[0].generated_video_path == generated_video
+    assert metadata["uuid"] == "uuid-a"
+    assert metadata["generated_video_path"] == str(generated_video)
 
 
 def test_streaming_generation_failure_is_contextual(
