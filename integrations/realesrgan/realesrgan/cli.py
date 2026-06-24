@@ -150,17 +150,19 @@ def _upsample_video(
     start = time.perf_counter()
     frame_idx = 0
     process_durations: list[float] = []
-    infer_durations: list[float] = []
+    pipeline_durations: list[float] = []
+    model_durations_ms: list[float | None] = []
     try:
         while True:
+            process_start = time.perf_counter()
             ok, frame = cap.read()
             if not ok:
                 break
-            process_start = time.perf_counter()
-            infer_start = time.perf_counter()
-            output, _mode = upsampler.upsample_bgr_image(frame)
+            pipeline_start = time.perf_counter()
+            output, _mode, profile = upsampler.upsample_bgr_image_profiled(frame)
             _synchronize(upsampler)
-            infer_durations.append(time.perf_counter() - infer_start)
+            pipeline_durations.append(time.perf_counter() - pipeline_start)
+            model_durations_ms.append(profile.model_ms)
             writer.write(output)
             process_durations.append(time.perf_counter() - process_start)
             frame_idx += 1
@@ -174,18 +176,22 @@ def _upsample_video(
     total_note = f"/{total_frames}" if total_frames else ""
     warmup_frames = min(max(profile_warmup_frames, 0), len(process_durations))
     steady_process = process_durations[warmup_frames:]
-    steady_infer = infer_durations[warmup_frames:]
+    steady_pipeline = pipeline_durations[warmup_frames:]
+    steady_model_ms = model_durations_ms[warmup_frames:]
     print(f"wrote {frame_idx}{total_note} frames -> {output_path}")
     print(
-        f"profile total_s={elapsed:.3f} total_fps={_fps(frame_idx, elapsed):.2f} "
-        f"process_fps={_duration_fps(process_durations):.2f} "
-        f"infer_fps={_duration_fps(infer_durations):.2f}"
+        f"profile total_s={elapsed:.3f} "
+        f"end_to_end_fps={_fps(frame_idx, elapsed):.2f} "
+        f"video_loop_fps={_duration_fps(process_durations):.2f} "
+        f"pipeline_fps={_duration_fps(pipeline_durations):.2f} "
+        f"model_fps={_duration_ms_fps(model_durations_ms):.2f}"
     )
     print(
         f"profile_steady warmup_frames={warmup_frames} "
         f"steady_frames={len(steady_process)} "
-        f"steady_process_fps={_duration_fps(steady_process):.2f} "
-        f"steady_infer_fps={_duration_fps(steady_infer):.2f}"
+        f"steady_video_loop_fps={_duration_fps(steady_process):.2f} "
+        f"steady_pipeline_fps={_duration_fps(steady_pipeline):.2f} "
+        f"steady_model_fps={_duration_ms_fps(steady_model_ms):.2f}"
     )
 
 
@@ -196,6 +202,11 @@ def _synchronize(upsampler: RealESRGANUpsampler) -> None:
 
 def _duration_fps(durations: list[float]) -> float:
     return _fps(len(durations), sum(durations))
+
+
+def _duration_ms_fps(durations_ms: list[float | None]) -> float:
+    durations = [duration for duration in durations_ms if duration is not None]
+    return _fps(len(durations), sum(durations) / 1000.0)
 
 
 def _fps(frames: int, elapsed: float) -> float:

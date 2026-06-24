@@ -15,10 +15,14 @@
 
 """Real-ESRGAN upsampling integration for FlashDreams."""
 
-from realesrgan.postprocess import RealESRGANPostProcessorConfig
+from realesrgan.postprocess import (
+    POSTPROCESS_PRESET_REALESRGAN,
+    RealESRGANPostProcessorConfig,
+)
 from realesrgan.upsampler import (
     MODEL_CONFIGS,
     MODEL_URLS,
+    RealESRGANFrameProfile,
     RealESRGANUpsampler,
     create_model,
 )
@@ -26,6 +30,8 @@ from realesrgan.upsampler import (
 __all__ = [
     "MODEL_CONFIGS",
     "MODEL_URLS",
+    "POSTPROCESS_PRESET_REALESRGAN",
+    "RealESRGANFrameProfile",
     "RealESRGANPostProcessorConfig",
     "RealESRGANUpsampler",
     "create_model",

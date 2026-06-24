@@ -82,6 +82,10 @@ class RealESRGANPostProcessor(VideoPostProcessor[RealESRGANPostProcessorConfig])
         return _RealESRGANPostProcessorSession(self.config)
 
 
+POSTPROCESS_PRESET_REALESRGAN = RealESRGANPostProcessorConfig()
+"""Default Real-ESRGAN post-processing preset."""
+
+
 class _RealESRGANPostProcessorSession(VideoPostProcessorSession):
     def __init__(self, config: RealESRGANPostProcessorConfig) -> None:
         self._config = config
