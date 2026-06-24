@@ -122,10 +122,26 @@ def _run_generation_command(result: GenerationResult, *, stream_logs: bool) -> N
             check=False,
         )
     if completed.returncode:
+        _print_log_tail(result.log_path)
         raise RuntimeError(
             f"flashdreams-run failed for {result.uuid} with exit code "
             f"{completed.returncode}; see {result.log_path}"
         )
+
+
+def _print_log_tail(path: Path, *, line_count: int = 80) -> None:
+    """Print the tail of a subprocess log before surfacing a failure."""
+
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    print(f"=== tail {line_count} lines of {path} ===")
+    for line in lines[-line_count:]:
+        print(line)
+    print(f"=== end tail of {path} ===")
 
 
 def extract_generated_video(stacked_video_path: Path, output_path: Path) -> None:
