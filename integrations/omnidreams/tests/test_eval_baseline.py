@@ -80,6 +80,59 @@ def _summary() -> dict[str, object]:
     }
 
 
+def _canary_summary() -> dict[str, object]:
+    return {
+        "generated": {
+            "case_directories": 3,
+            "generated_mp4_count": 3,
+        },
+        "validation": {
+            "case_count": 3,
+            "expected_frames_from_steps": {
+                "29": 3,
+            },
+            "failure_count": 0,
+            "runner_written_frames": {
+                "29": 3,
+            },
+            "total_blocks": {
+                "4": 3,
+            },
+        },
+        "worldlens": {
+            "runs": [
+                {
+                    "split": "od_26_01_canary3_tb4",
+                    "artifact_metrics": [
+                        {
+                            "artifact": "subject_consistency/repeat_0.json",
+                            "temporal_consistency_per_frame": 0.9799064011091277,
+                            "ts_per_frame": 0.9036903977394104,
+                            "video_count": 3,
+                        },
+                        {
+                            "artifact": "temporal_consistency/repeat_0.json",
+                            "temporal_consistency_per_frame": 0.9731416248139881,
+                            "ts_per_frame": 0.8190207282702128,
+                            "video_count": 3,
+                        },
+                    ],
+                },
+            ],
+            "stage_manifest": {
+                "case_count": 3,
+                "frame_count_mismatch_count": 0,
+                "generated_frame_counts": [
+                    29,
+                ],
+                "reference_frame_counts": [
+                    29,
+                ],
+            },
+        },
+    }
+
+
 def _passing_baseline() -> dict[str, object]:
     return {
         "kind": "omnidreams_eval_baseline",
@@ -241,3 +294,17 @@ def test_shipped_od_26_01_baseline_passes_summary_fixture() -> None:
 
     assert report["passed"] is True
     assert report["check_count"] == 16
+
+
+def test_shipped_od_26_01_canary_baseline_passes_summary_fixture() -> None:
+    baseline_path = (
+        Path(__file__).resolve().parents[1]
+        / "eval_baselines"
+        / "od-26.01-canary3-tb4-v1.json"
+    )
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    report = check_summary_against_baseline(_canary_summary(), baseline)
+
+    assert report["passed"] is True
+    assert report["check_count"] == 17
