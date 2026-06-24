@@ -51,8 +51,9 @@ def ensure_worldlens_checkout(
 ) -> WorldLensCheckout:
     """Clone/fetch WorldLens and checkout ``revision``."""
 
-    target = cache_dir / "WorldLens"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = cache_dir.resolve()
+    target = cache_dir / "WorldLens"
     if not (target / ".git").exists():
         _run(["git", "clone", repo_url, str(target)], cwd=cache_dir)
     elif fetch:
@@ -494,7 +495,7 @@ def _validate_slug(value: str, label: str) -> str:
 def _validate_camera_name(value: str) -> str:
     if not value or not re.fullmatch(r"[A-Z0-9_]+", value):
         raise ValueError(
-            f"camera_name must contain only uppercase letters, numbers, and underscores"
+            "camera_name must contain only uppercase letters, numbers, and underscores"
         )
     return value
 

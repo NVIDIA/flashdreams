@@ -395,6 +395,86 @@ def test_patch_drivinggen_checkout_makes_checkpoints_configurable(
     ) in fid_text
 
 
+def test_worldlens_checkout_uses_absolute_clone_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_run(args: list[str], *, cwd: Path) -> None:
+        calls.append((args, cwd))
+        assert cwd.is_absolute()
+        if args[:2] == ["git", "clone"]:
+            target = Path(args[3])
+            assert target.is_absolute()
+            (target / ".git").mkdir(parents=True)
+
+    def fake_run_capture(args: list[str], *, cwd: Path) -> str:
+        calls.append((args, cwd))
+        assert cwd.is_absolute()
+        return "worldlens-commit\n"
+
+    monkeypatch.setattr(worldlens, "_run", fake_run)
+    monkeypatch.setattr(worldlens, "_run_capture", fake_run_capture)
+
+    checkout = worldlens.ensure_worldlens_checkout(
+        cache_dir=Path("relative/cache"),
+        repo_url="https://example.invalid/worldlens.git",
+        revision="test-rev",
+        install_config=False,
+    )
+
+    assert checkout.path == (tmp_path / "relative/cache/WorldLens").resolve()
+    assert calls[0][0] == [
+        "git",
+        "clone",
+        "https://example.invalid/worldlens.git",
+        str(checkout.path),
+    ]
+    assert calls[1] == (["git", "checkout", "test-rev"], checkout.path)
+
+
+def test_drivinggen_checkout_uses_absolute_clone_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_run(args: list[str], *, cwd: Path) -> None:
+        calls.append((args, cwd))
+        assert cwd.is_absolute()
+        if args[:2] == ["git", "clone"]:
+            target = Path(args[3])
+            assert target.is_absolute()
+            (target / ".git").mkdir(parents=True)
+
+    def fake_run_capture(args: list[str], *, cwd: Path) -> str:
+        calls.append((args, cwd))
+        assert cwd.is_absolute()
+        return "drivinggen-commit\n"
+
+    monkeypatch.setattr(drivinggen, "_run", fake_run)
+    monkeypatch.setattr(drivinggen, "_run_capture", fake_run_capture)
+
+    checkout = drivinggen.ensure_drivinggen_checkout(
+        cache_dir=Path("relative/cache"),
+        repo_url="https://example.invalid/drivinggen.git",
+        revision="test-rev",
+        patch_checkout=False,
+    )
+
+    assert checkout.path == (tmp_path / "relative/cache/DrivingGen").resolve()
+    assert calls[0][0] == [
+        "git",
+        "clone",
+        "https://example.invalid/drivinggen.git",
+        str(checkout.path),
+    ]
+    assert calls[1] == (["git", "checkout", "test-rev"], checkout.path)
+
+
 def test_run_video_metrics_captures_output_to_log(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

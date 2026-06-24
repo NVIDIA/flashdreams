@@ -14,7 +14,7 @@ import sys
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 from omnidreams.eval.manifest import StagedCase
 
@@ -53,8 +53,9 @@ def ensure_drivinggen_checkout(
 ) -> DrivingGenCheckout:
     """Clone/fetch DrivingGen and checkout ``revision``."""
 
-    target = cache_dir / "DrivingGen"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = cache_dir.resolve()
+    target = cache_dir / "DrivingGen"
     if not (target / ".git").exists():
         _run(["git", "clone", repo_url, str(target)], cwd=cache_dir)
     elif fetch:
