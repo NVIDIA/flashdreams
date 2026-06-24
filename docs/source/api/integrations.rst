@@ -58,6 +58,7 @@ Reference integration folders
 - `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
+- `helios <https://github.com/NVIDIA/flashdreams/tree/main/integrations/helios>`_
 
 NVIDIA OmniDreams
 -----------------

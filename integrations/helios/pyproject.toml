@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-helios"
+version = "0.1.0"
+description = "Helios 14B real-time streaming FlashDreams integration."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "mediapy>=1.1",
+    "diffusers>=0.33.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "sentencepiece",
+    "regex",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+    "tomli>=2.0",
+]
+
+[project.entry-points."flashdreams.runner_configs"]
+"helios-distilled-t2v-14b" = "helios.config:RUNNER_HELIOS_DISTILLED_T2V_14B"
+"helios-base-t2v-14b" = "helios.config:RUNNER_HELIOS_BASE_T2V_14B"
+"helios-distilled-t2v-14b-2gpu" = "helios.config:RUNNER_HELIOS_DISTILLED_T2V_14B_2GPU"
+
+[tool.setuptools.packages.find]
+include = ["helios*"]
+exclude = ["tests"]
+
+[tool.uv]
+managed = true
