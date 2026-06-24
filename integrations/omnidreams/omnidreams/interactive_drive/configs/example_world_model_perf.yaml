@@ -28,7 +28,14 @@ skip_finalize_kv_cache: true
 sink_size: 0
 denoising_steps: [1000, 100]
 upsampling_enabled: false
+upsampling_server: 127.0.0.1:8090
 upsampling_scale: 4
+upsampling_sparse_ratio: 0.0
+upsampling_input_format: jpeg
+upsampling_input_jpeg_quality: 90
+upsampling_return_frames: false
+upsampling_max_queue_chunks: 4
+upsampling_max_message_mb: 512
 device: cuda:0
 seed_for_every_rollout:
 

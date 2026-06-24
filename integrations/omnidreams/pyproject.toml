@@ -28,6 +28,7 @@ dependencies = [
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
     # demo subpackage).
     "flashdreams[serving]",
+    "flashdreams-flashvsr",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
@@ -55,6 +56,7 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-flashvsr = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]

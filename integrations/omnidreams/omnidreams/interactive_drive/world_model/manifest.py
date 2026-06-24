@@ -157,7 +157,14 @@ class WorldModelManifest:
     sink_size: int = 0
     denoising_steps: list[int] = field(default_factory=lambda: [1000, 500])
     upsampling_enabled: bool = False
+    upsampling_server: str = "127.0.0.1:8090"
     upsampling_scale: int = 4
+    upsampling_sparse_ratio: float = 0.0
+    upsampling_input_format: str = "jpeg"
+    upsampling_input_jpeg_quality: int = 90
+    upsampling_return_frames: bool = False
+    upsampling_max_queue_chunks: int = 4
+    upsampling_max_message_mb: int = 512
     device: str = "cuda:0"
     seed_for_every_rollout: int | None = None
     native_dit_acceleration: str = "disabled"
@@ -207,7 +214,14 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         sink_size=int(data.get("sink_size", 0)),
         denoising_steps=[int(x) for x in data.get("denoising_steps", [1000, 500])],
         upsampling_enabled=bool(data.get("upsampling_enabled", False)),
+        upsampling_server=str(data.get("upsampling_server", "127.0.0.1:8090")),
         upsampling_scale=int(data.get("upsampling_scale", 4)),
+        upsampling_sparse_ratio=float(data.get("upsampling_sparse_ratio", 0.0)),
+        upsampling_input_format=str(data.get("upsampling_input_format", "jpeg")),
+        upsampling_input_jpeg_quality=int(data.get("upsampling_input_jpeg_quality", 90)),
+        upsampling_return_frames=bool(data.get("upsampling_return_frames", False)),
+        upsampling_max_queue_chunks=int(data.get("upsampling_max_queue_chunks", 4)),
+        upsampling_max_message_mb=int(data.get("upsampling_max_message_mb", 512)),
         device=str(data.get("device", "cuda:0")),
         seed_for_every_rollout=(
             int(data["seed_for_every_rollout"])

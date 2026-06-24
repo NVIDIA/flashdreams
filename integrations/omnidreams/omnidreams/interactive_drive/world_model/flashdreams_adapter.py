@@ -31,10 +31,6 @@ def _select_config_name(manifest: WorldModelManifest) -> str:
     Returns a key from ``omnidreams.config.OMNIDREAMS_CONFIGS``
     (i.e. the same slug ``flashdreams-run`` accepts as its first positional arg).
     """
-    if manifest.upsampling_enabled:
-        raise NotImplementedError(
-            "flashdreams interactive-drive path does not support upsampling."
-        )
     if manifest.sink_size != 0:
         raise NotImplementedError(
             "flashdreams interactive-drive path currently supports sink_size=0 only."
