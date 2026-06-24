@@ -18,6 +18,13 @@ from typing import Annotated, Any
 
 import pytest
 import tyro
+from omnidreams.config import RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE
+from omnidreams.encoder.pixel_shuffle import (
+    PixelShuffleVAEEncoder,
+    PixelShuffleVAEEncoderConfig,
+)
+from omnidreams.runner import OmnidreamsRunnerConfig
+
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.taehv import (
@@ -25,12 +32,6 @@ from flashdreams.recipes.taehv import (
     TeahvVAEDecoderConfig,
 )
 from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoderConfig
-from omnidreams.config import RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE
-from omnidreams.encoder.pixel_shuffle import (
-    PixelShuffleVAEEncoder,
-    PixelShuffleVAEEncoderConfig,
-)
-from omnidreams.runner import OmnidreamsRunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 

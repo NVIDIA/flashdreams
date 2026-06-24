@@ -26,12 +26,13 @@ from typing import Annotated, Literal
 
 import tyro
 from einops import rearrange
+from torch import Tensor
+
 from flashdreams.infra.encoder import (
     EncoderConfig,
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
-from torch import Tensor
 
 
 @dataclass(kw_only=True)

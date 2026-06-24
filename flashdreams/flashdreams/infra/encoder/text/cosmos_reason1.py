@@ -22,11 +22,12 @@ from typing import Annotated
 
 import torch
 import tyro
-from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
-from flashdreams.infra.encoder import Encoder, EncoderConfig
 from loguru import logger
 from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+
+from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
+from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 
 @dataclass(kw_only=True)

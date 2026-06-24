@@ -36,6 +36,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tyro
 from einops import rearrange
+from torch import Tensor
+
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
@@ -49,7 +51,6 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
-from torch import Tensor
 
 # Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
 # loader pulls the diffusers safetensors shard and remaps keys via
