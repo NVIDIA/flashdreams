@@ -1559,6 +1559,7 @@ source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams-flashvsr" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "huggingface-hub" },
@@ -1601,6 +1602,7 @@ interactive-drive = [
 requires-dist = [
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
+    { name = "flashdreams-flashvsr", editable = "integrations/flashvsr" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
     { name = "grpcio-tools", specifier = ">=1.50" },

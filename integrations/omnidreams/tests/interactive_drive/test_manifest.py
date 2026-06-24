@@ -30,6 +30,39 @@ class WorldModelManifestTest(unittest.TestCase):
             self.assertEqual(manifest.native_dit_acceleration, "disabled")
             self.assertEqual(manifest.native_vae_encoder, "disabled")
             self.assertIsNone(manifest.native_vae_fp8_state_path)
+            self.assertFalse(manifest.upsampling_enabled)
+            self.assertEqual(manifest.upsampling_server, "127.0.0.1:8090")
+            self.assertEqual(manifest.upsampling_scale, 4)
+
+    def test_loads_upsampling_knobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                textwrap.dedent(
+                    """
+                    upsampling_enabled: true
+                    upsampling_server: uplift.example:8090
+                    upsampling_scale: 2
+                    upsampling_sparse_ratio: 1.5
+                    upsampling_input_format: raw
+                    upsampling_input_jpeg_quality: 85
+                    upsampling_return_frames: true
+                    upsampling_max_queue_chunks: 2
+                    upsampling_max_message_mb: 256
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            manifest = load_world_model_manifest(path)
+            self.assertTrue(manifest.upsampling_enabled)
+            self.assertEqual(manifest.upsampling_server, "uplift.example:8090")
+            self.assertEqual(manifest.upsampling_scale, 2)
+            self.assertEqual(manifest.upsampling_sparse_ratio, 1.5)
+            self.assertEqual(manifest.upsampling_input_format, "raw")
+            self.assertEqual(manifest.upsampling_input_jpeg_quality, 85)
+            self.assertTrue(manifest.upsampling_return_frames)
+            self.assertEqual(manifest.upsampling_max_queue_chunks, 2)
+            self.assertEqual(manifest.upsampling_max_message_mb, 256)
 
     def test_loads_native_dit_knobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

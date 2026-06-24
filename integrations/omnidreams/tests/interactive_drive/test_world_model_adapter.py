@@ -71,6 +71,10 @@ def test_select_config_name_uses_omnidreams_recipe_slugs() -> None:
         == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
     )
     assert (
+        _select_config_name(replace(_manifest(), upsampling_enabled=True))
+        == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+    )
+    assert (
         _select_config_name(replace(_manifest(), light_vae=False))
         == "omnidreams-sv-2steps-chunk2-loc6-vae-vae"
     )
