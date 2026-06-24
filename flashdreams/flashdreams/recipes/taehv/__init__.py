@@ -22,9 +22,7 @@ from dataclasses import dataclass, field
 from typing import Annotated
 
 import torch
-from torch import Tensor
 import tyro
-
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
 from flashdreams.recipes.taehv.checkpoint import (
     StateDictTransform,
@@ -33,6 +31,7 @@ from flashdreams.recipes.taehv.checkpoint import (
     truncate_oversize_tgrow_weights,
 )
 from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
+from torch import Tensor
 
 AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
     "lighttae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth",
@@ -60,7 +59,7 @@ slice the live model expects."""
 class TeahvVAEDecoderConfig(DecoderConfig):
     """Config for the TAEHV decoder."""
 
-    _target: Annotated[type["TeahvVAEDecoder"], tyro.conf.Suppress] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: TeahvVAEDecoder
     )
 

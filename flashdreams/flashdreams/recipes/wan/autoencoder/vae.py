@@ -36,8 +36,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tyro
 from einops import rearrange
-from torch import Tensor
-
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
@@ -51,6 +49,7 @@ from flashdreams.infra.encoder import (
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
+from torch import Tensor
 
 # Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
 # loader pulls the diffusers safetensors shard and remaps keys via
@@ -1280,7 +1279,7 @@ class WanVAEEncoderConfig(EncoderConfig):
     :class:`Wan22TI2V5BVAEEncoderConfig` for the pre-rolled set.
     """
 
-    _target: Annotated[type["WanVAEEncoder"], tyro.conf.Suppress] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: WanVAEEncoder
     )
 
@@ -1415,7 +1414,7 @@ class WanVAEDecoderConfig(DecoderConfig):
     =256`` and the residual up-stage with ``DupUp3D`` shortcut.
     """
 
-    _target: Annotated[type["WanVAEDecoder"], tyro.conf.Suppress] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: WanVAEDecoder
     )
 

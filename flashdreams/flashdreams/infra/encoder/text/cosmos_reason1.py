@@ -22,19 +22,18 @@ from typing import Annotated
 
 import torch
 import tyro
+from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
+from flashdreams.infra.encoder import Encoder, EncoderConfig
 from loguru import logger
 from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
-
-from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
-from flashdreams.infra.encoder import Encoder, EncoderConfig
 
 
 @dataclass(kw_only=True)
 class CosmosReason1TextEncoderConfig(EncoderConfig):
     """Config for the Cosmos-Reason1 text encoder."""
 
-    _target: Annotated[type["CosmosReason1TextEncoder"], tyro.conf.Suppress] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: CosmosReason1TextEncoder
     )
 

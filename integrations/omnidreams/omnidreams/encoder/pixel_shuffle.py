@@ -24,15 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
-from einops import rearrange
-from torch import Tensor
 import tyro
-
+from einops import rearrange
 from flashdreams.infra.encoder import (
     EncoderConfig,
     StreamingEncoderCache,
     StreamingVideoEncoder,
 )
+from torch import Tensor
 
 
 @dataclass(kw_only=True)
@@ -47,7 +46,7 @@ class PixelShuffleVAEEncoderCache(StreamingEncoderCache):
 class PixelShuffleVAEEncoderConfig(EncoderConfig):
     """Config for the pixel-shuffle pseudo-VAE encoder."""
 
-    _target: Annotated[type["PixelShuffleVAEEncoder"], tyro.conf.Suppress] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: PixelShuffleVAEEncoder
     )
 
