@@ -5,6 +5,16 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
+    paths:
+      - ".github/workflows/omnidreams-worldlens-canary.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "flashdreams/pyproject.toml"
+      - "integrations/omnidreams/**"
+      - "flashdreams/flashdreams/core/**"
+      - "flashdreams/flashdreams/infra/**"
+      - "flashdreams/flashdreams/recipes/taehv/**"
+      - "flashdreams/flashdreams/recipes/wan/**"
   merge_group:
     branches: [main]
   workflow_dispatch:
