@@ -1,0 +1,110 @@
+{
+  "kind": "omnidreams_eval_baseline",
+  "schema_version": 1,
+  "baseline_id": "od-26.01-worldlens-40-v1",
+  "description": "Initial metric envelope for the 40-case NuRec 26.01 OmniDreams nightly evaluation.",
+  "dataset": {
+    "repo": "nvidia/PhysicalAI-Autonomous-Vehicles-NuRec",
+    "revision": "26.01",
+    "subpath": "sample_set/26.01_release",
+    "camera": "camera_front_wide_120fov"
+  },
+  "run_shape": {
+    "case_count": 40,
+    "total_blocks": 20,
+    "generated_frames": 157
+  },
+  "checks": [
+    {
+      "name": "generated_clip_count",
+      "source": "generated.generated_mp4_count",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "generated_case_directories",
+      "source": "generated.case_directories",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "validation_case_count",
+      "source": "validation.case_count",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "validation_failures",
+      "source": "validation.failure_count",
+      "op": "==",
+      "expected": 0
+    },
+    {
+      "name": "expected_frames_from_steps",
+      "source": "validation.expected_frames_from_steps[157]",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "runner_written_frames",
+      "source": "validation.runner_written_frames[157]",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "total_blocks",
+      "source": "validation.total_blocks[20]",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "worldlens_stage_case_count",
+      "source": "worldlens.stage_manifest.case_count",
+      "op": "==",
+      "expected": 40
+    },
+    {
+      "name": "worldlens_stage_frame_mismatches",
+      "source": "worldlens.stage_manifest.frame_count_mismatch_count",
+      "op": "==",
+      "expected": 0
+    },
+    {
+      "name": "worldlens_generated_frame_count",
+      "source": "worldlens.stage_manifest.generated_frame_counts[0]",
+      "op": "==",
+      "expected": 157
+    },
+    {
+      "name": "worldlens_reference_frame_count",
+      "source": "worldlens.stage_manifest.reference_frame_counts[0]",
+      "op": "==",
+      "expected": 157
+    },
+    {
+      "name": "worldlens_temporal_consistency_per_frame",
+      "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=temporal_consistency/repeat_0.json].temporal_consistency_per_frame",
+      "min_allowed": 0.94
+    },
+    {
+      "name": "worldlens_temporal_ts_per_frame",
+      "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=temporal_consistency/repeat_0.json].ts_per_frame",
+      "min_allowed": 0.8
+    },
+    {
+      "name": "worldlens_subject_consistency_per_frame",
+      "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=subject_consistency/repeat_0.json].temporal_consistency_per_frame",
+      "min_allowed": 0.93
+    },
+    {
+      "name": "worldlens_subject_ts_per_frame",
+      "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=subject_consistency/repeat_0.json].ts_per_frame",
+      "min_allowed": 0.84
+    },
+    {
+      "name": "drivinggen_fvd_lite_batch_00001",
+      "source": "drivinggen.fvd_lite[split=od_26_01_batch_00001].value",
+      "max_allowed": 450.0
+    }
+  ]
+}

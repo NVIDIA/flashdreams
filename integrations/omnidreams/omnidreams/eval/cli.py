@@ -13,6 +13,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from omnidreams.eval.baseline import (
+    check_summary_against_baseline,
+    format_baseline_check_report,
+    load_json,
+    write_baseline_check_json,
+)
 from omnidreams.eval.batches import (
     cases_for_batch,
     parse_byte_size,
@@ -483,6 +489,34 @@ def _cmd_summarize_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_baseline(args: argparse.Namespace) -> int:
+    summary = load_json(args.summary)
+    baseline = load_json(args.baseline)
+    if not isinstance(summary, dict):
+        print("summary JSON must be an object", file=sys.stderr)
+        return 1
+    if not isinstance(baseline, dict):
+        print("baseline JSON must be an object", file=sys.stderr)
+        return 1
+    try:
+        report = check_summary_against_baseline(
+            summary,
+            baseline,
+            summary_path=args.summary,
+            baseline_path=args.baseline,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if args.output_json is not None:
+        write_baseline_check_json(report, args.output_json)
+        if not args.quiet:
+            print(f"wrote baseline check JSON -> {args.output_json}")
+    if not args.quiet:
+        print(format_baseline_check_report(report), end="")
+    return 0 if report["passed"] else 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omnidreams-eval")
     sub = parser.add_subparsers(required=True)
@@ -745,6 +779,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="also print the Markdown report to stdout",
     )
     summarize.set_defaults(func=_cmd_summarize_run)
+
+    check_baseline = sub.add_parser(
+        "check-baseline",
+        help="compare an evaluation summary against a checked-in baseline JSON",
+    )
+    check_baseline.add_argument("--summary", type=Path, required=True)
+    check_baseline.add_argument("--baseline", type=Path, required=True)
+    check_baseline.add_argument("--output-json", type=Path, default=None)
+    check_baseline.add_argument(
+        "--quiet",
+        action="store_true",
+        help="only write --output-json and exit status; do not print the table",
+    )
+    check_baseline.set_defaults(func=_cmd_check_baseline)
 
     return parser
 

@@ -47,12 +47,14 @@ OmniDreams scene batches:
 5. Validate generated artifacts and runner logs.
 6. Stage/run DrivingGen FVD-lite and WorldLens consistency evaluators.
 7. Write a JSON and Markdown summary report.
+8. Optionally compare the summary against a checked-in metric baseline.
 
 The high-level workflow is:
 
 ```bash
 RUN=/trees/$USER/od-runs/od-26.01
 SCRATCH=/local_nvme/$USER/omnidreams-eval-scratch
+BASELINE=integrations/omnidreams/eval_baselines/od-26.01-worldlens-40-v1.json
 
 uv run --package flashdreams-omnidreams omnidreams-eval discover \
   --output "$RUN/manifest.jsonl"
@@ -73,12 +75,17 @@ uv run --package flashdreams-omnidreams omnidreams-eval generate \
   --staged-manifest "$RUN/staged/batch-00000.jsonl" \
   --run-root "$RUN"
 
-uv run --package flashdreams-omnidreams omnidreams-eval validate-generated \
+uv run --package flashdreams-omnidreams omnidreams-eval validate-generation \
   --run-root "$RUN" \
   --output "$RUN/validation.json"
 
 uv run --package flashdreams-omnidreams omnidreams-eval summarize-run \
   --run-root "$RUN"
+
+uv run --package flashdreams-omnidreams omnidreams-eval check-baseline \
+  --summary "$RUN/evaluation-summary.json" \
+  --baseline "$BASELINE" \
+  --output-json "$RUN/baseline-check.json"
 ```
 
 External evaluator setup is intentionally separate from FlashDreams generation,
@@ -109,6 +116,10 @@ Interpret the report as follows:
   1.0 as an idealized upper bound. They are useful standalone video-consistency
   signals, but they do not directly measure closed-loop simulator quality,
   path correctness, off-road behavior, or collisions.
+- `check-baseline` compares a run summary against a JSON file containing the
+  accepted metric envelope. Keep generated clips as run artifacts, not in the
+  baseline JSON; the baseline should contain only expected metric values and
+  tolerances.
 
 ## Run interactive-drive (desktop demo)
 
