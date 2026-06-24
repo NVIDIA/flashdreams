@@ -25,7 +25,11 @@ import torch
 
 import realesrgan.postprocess as postprocess_mod
 from realesrgan.postprocess import RealESRGANPostProcessorConfig
-from realesrgan.upsampler import RealESRGANUpsampler, create_model
+from realesrgan.upsampler import (
+    RealESRGANFrameProfile,
+    RealESRGANUpsampler,
+    create_model,
+)
 
 from flashdreams.infra.postprocess import VideoChunk
 
@@ -59,6 +63,23 @@ def test_random_weight_upsampler_scales_tensor_without_checkpoint() -> None:
 
     assert output.shape == (3, 16, 16)
     assert output.dtype == torch.float32
+
+
+def test_random_weight_upsampler_profiled_tensor_reports_cpu_profile() -> None:
+    upsampler = RealESRGANUpsampler(
+        scale=2,
+        model_name="RealESRGAN_x2plus",
+        pre_pad=0,
+        half=False,
+        device="cpu",
+        load_checkpoint=False,
+    )
+    frame = torch.zeros(3, 8, 8)
+
+    output, profile = upsampler.upsample_frame_tensor_profiled(frame)
+
+    assert output.shape == (3, 16, 16)
+    assert profile == RealESRGANFrameProfile(model_ms=None)
 
 
 def test_upsampler_can_compile_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,14 +117,20 @@ def test_bgr_image_output_uses_opencv_channel_order(
         load_checkpoint=False,
     )
 
-    def fake_upsample_frame_tensor(frame: torch.Tensor) -> torch.Tensor:
+    def fake_upsample_frame_tensor_profiled(
+        frame: torch.Tensor,
+    ) -> tuple[torch.Tensor, RealESRGANFrameProfile]:
         rgb = torch.empty(3, 2, 2)
         rgb[0].fill_(0.2)
         rgb[1].fill_(0.4)
         rgb[2].fill_(0.6)
-        return rgb * 2.0 - 1.0
+        return rgb * 2.0 - 1.0, RealESRGANFrameProfile(model_ms=None)
 
-    monkeypatch.setattr(upsampler, "upsample_frame_tensor", fake_upsample_frame_tensor)
+    monkeypatch.setattr(
+        upsampler,
+        "upsample_frame_tensor_profiled",
+        fake_upsample_frame_tensor_profiled,
+    )
 
     image = np.zeros((1, 1, 3), dtype=np.uint8)
     output, mode = upsampler.upsample_bgr_image(image)
@@ -124,10 +151,16 @@ def test_bgra_image_output_preserves_alpha(monkeypatch: pytest.MonkeyPatch) -> N
         load_checkpoint=False,
     )
 
-    def fake_upsample_frame_tensor(frame: torch.Tensor) -> torch.Tensor:
-        return torch.zeros(3, 2, 2)
+    def fake_upsample_frame_tensor_profiled(
+        frame: torch.Tensor,
+    ) -> tuple[torch.Tensor, RealESRGANFrameProfile]:
+        return torch.zeros(3, 2, 2), RealESRGANFrameProfile(model_ms=None)
 
-    monkeypatch.setattr(upsampler, "upsample_frame_tensor", fake_upsample_frame_tensor)
+    monkeypatch.setattr(
+        upsampler,
+        "upsample_frame_tensor_profiled",
+        fake_upsample_frame_tensor_profiled,
+    )
 
     image = np.array([[[10, 20, 30, 77]]], dtype=np.uint8)
     output, mode = upsampler.upsample_bgr_image(image)
@@ -178,3 +211,14 @@ def test_postprocess_scales_batched_views(monkeypatch: pytest.MonkeyPatch) -> No
     assert outputs[0].layout == "bvtchw"
     assert outputs[0].metadata["source"] == "realesrgan"
     assert outputs[0].tensor.shape == (1, 2, 4, 3, 4, 6)
+
+
+def test_realesrgan_postprocess_preset_is_registered() -> None:
+    from flashdreams.plugins.registry import resolve_postprocess_preset
+
+    processor = resolve_postprocess_preset("realesrgan")
+
+    assert isinstance(processor, RealESRGANPostProcessorConfig)
+    assert processor.scale == 2
+    assert processor.device == "cuda"
+    assert processor.half is True

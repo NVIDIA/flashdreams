@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -222,6 +223,11 @@ class FlashVSRRunnerConfig(RunnerConfig):
     """Sparse-attention budget multiplier used to re-derive
     ``transformer.topk_ratio`` from each video's post-crop target area."""
 
+    profile_warmup_frames: int = 0
+    """Output frames to exclude from steady-state FPS summaries. Warmup is
+    applied at chunk granularity, so any chunk touched by this threshold is
+    excluded from steady metrics."""
+
 
 def _ensure_mgpu_config_supported(
     config: FlashVSRRunnerConfig, world_size: int
@@ -253,6 +259,27 @@ def _ensure_mgpu_config_supported(
         f"Got runner_name={config.runner_name!r}, "
         f"attention_mode={transformer_cfg.attention_mode!r}."
     )
+
+
+def _fps(frames: int, elapsed_s: float) -> float:
+    return frames / elapsed_s if elapsed_s > 0 else 0.0
+
+
+def _duration_fps(frames: list[int], durations_s: list[float]) -> float:
+    return _fps(sum(frames), sum(durations_s))
+
+
+def _duration_ms_fps(frames: list[int], durations_ms: list[float]) -> float:
+    return _fps(sum(frames), sum(durations_ms) / 1000.0)
+
+
+def _steady_start_index(frames: list[int], warmup_frames: int) -> int:
+    remaining = max(warmup_frames, 0)
+    index = 0
+    while index < len(frames) and remaining > 0:
+        remaining -= frames[index]
+        index += 1
+    return index
 
 
 ## Runner
@@ -429,20 +456,44 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         cache = self._initialize_cache()
 
+        run_started_at = time.perf_counter()
         chunks_out: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
+        profile_frames: list[int] = []
+        video_loop_durations_s: list[float] = []
+        pipeline_durations_s: list[float] = []
+        model_durations_ms: list[float] = []
         for chunk_idx, (start, size) in enumerate(chunks):
+            video_loop_started_at = time.perf_counter()
             clip = video_t[:, :, start : start + size]
+            pipeline_started_at = time.perf_counter()
+            start_event: torch.cuda.Event | None = None
+            end_event: torch.cuda.Event | None = None
+            if self.pipeline.device.type == "cuda":
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record()
             video_chunk = self.pipeline.generate(
                 autoregressive_index=chunk_idx,
                 cache=cache,
                 input=clip,
             )
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
+            if end_event is not None:
+                end_event.record()
+                torch.cuda.synchronize(self.pipeline.device)
+                assert start_event is not None
+                model_ms = float(start_event.elapsed_time(end_event))
+            else:
+                model_ms = (time.perf_counter() - pipeline_started_at) * 1000.0
+            pipeline_elapsed_s = time.perf_counter() - pipeline_started_at
+            chunk_frames = int(video_chunk.shape[2])
+            profile_frames.append(chunk_frames)
+            pipeline_durations_s.append(pipeline_elapsed_s)
+            model_durations_ms.append(model_ms)
             if stats is not None:
                 # Report throughput against the visible output frames for this
                 # chunk. ``fps`` is reserved for the output video's frame rate.
-                chunk_frames = int(video_chunk.shape[2])
                 chunk_total_ms = stats["total_ms"]
                 chunk_fps = (
                     chunk_frames / chunk_total_ms * 1000.0
@@ -458,6 +509,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     }
                 )
             chunks_out.append(video_chunk.cpu())
+            video_loop_durations_s.append(time.perf_counter() - video_loop_started_at)
 
         # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
         generated = torch.cat(chunks_out, dim=2)
@@ -473,6 +525,30 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
             f"-> {video_path.resolve()}"
+        )
+
+        elapsed_s = time.perf_counter() - run_started_at
+        output_frames = int(generated.shape[2])
+        warmup_start = _steady_start_index(profile_frames, config.profile_warmup_frames)
+        steady_frames = profile_frames[warmup_start:]
+        steady_video_loop_s = video_loop_durations_s[warmup_start:]
+        steady_pipeline_s = pipeline_durations_s[warmup_start:]
+        steady_model_ms = model_durations_ms[warmup_start:]
+        logger.info(
+            "profile "
+            f"total_s={elapsed_s:.3f} "
+            f"end_to_end_fps={_fps(output_frames, elapsed_s):.2f} "
+            f"video_loop_fps={_duration_fps(profile_frames, video_loop_durations_s):.2f} "
+            f"pipeline_fps={_duration_fps(profile_frames, pipeline_durations_s):.2f} "
+            f"model_fps={_duration_ms_fps(profile_frames, model_durations_ms):.2f}"
+        )
+        logger.info(
+            "profile_steady "
+            f"warmup_frames={config.profile_warmup_frames} "
+            f"steady_frames={sum(steady_frames)} "
+            f"steady_video_loop_fps={_duration_fps(steady_frames, steady_video_loop_s):.2f} "
+            f"steady_pipeline_fps={_duration_fps(steady_frames, steady_pipeline_s):.2f} "
+            f"steady_model_fps={_duration_ms_fps(steady_frames, steady_model_ms):.2f}"
         )
 
         if stats_history:

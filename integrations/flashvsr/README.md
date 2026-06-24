@@ -288,6 +288,12 @@ for i, (start, size) in enumerate(chunks):
   hand-rolled kernel) or `"torch"` (pure-torch wavelet + AdaIN reference).
 - `enable_sync_and_profile`: per-AR-step CUDA-event profiling. Adds one
   `cuda.synchronize()` per step.
+- Runner `profile_warmup_frames`: output frames excluded from the steady FPS
+  summary. Warmup is applied at chunk granularity. Summary rows use the same
+  names as `realesrgan-upsample`: `model_fps` is CUDA-event timing for
+  `generate`/`finalize`, `pipeline_fps` is the synchronized FlashVSR pipeline
+  chunk path, `video_loop_fps` also includes the chunk CPU copy, and
+  `end_to_end_fps` covers the video pass through output write.
 
 ## Files
 

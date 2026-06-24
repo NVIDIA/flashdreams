@@ -50,6 +50,14 @@ uv run --package flashdreams-realesrgan realesrgan-upsample \
   --compile
 ```
 
+Use Real-ESRGAN as a `flashdreams-run` postprocessor:
+
+```bash
+uv run --package flashdreams-realesrgan flashdreams-run \
+  --postprocess.preset realesrgan \
+  wan21-t2v-1.3b-480p
+```
+
 Useful flags:
 
 | flag | description |
@@ -63,6 +71,18 @@ Useful flags:
 | `--compile-mode` | Override the `torch.compile` mode. |
 | `--profile-warmup-frames` | Frames excluded from steady FPS metrics. Defaults to `10`. |
 | `--max-frames` | Video-only frame cap for quick smoke tests. |
+
+For `flashdreams-run`, Real-ESRGAN is selected with the registered
+`--postprocess.preset realesrgan` preset. The preset uses the default 2x public
+checkpoint on CUDA. Use the standalone `realesrgan-upsample` CLI or configure a
+`RealESRGANPostProcessorConfig` directly when you need custom scale, tiling,
+precision, checkpoint, or compile settings.
+
+Video runs print two profile rows. `model_fps` is CUDA-event timing for the
+Real-ESRGAN model call only. `pipeline_fps` includes image conversion,
+CPU/GPU copies, padding/cropping, the model call, and output conversion.
+`video_loop_fps` adds video frame read/write around the pipeline call.
+`end_to_end_fps` is the whole video pass wall-clock throughput.
 
 ## FlashDreams Postprocess API
 

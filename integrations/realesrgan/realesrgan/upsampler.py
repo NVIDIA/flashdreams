@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -115,6 +116,14 @@ CACHE_DIR = (
     / "realesrgan"
 )
 """User-writable cache directory for Real-ESRGAN checkpoint downloads."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class RealESRGANFrameProfile:
+    """Per-frame timing captured while producing a Real-ESRGAN output."""
+
+    model_ms: float | None
+    """CUDA-event time for the model/tiled-model call, excluding CPU I/O."""
 
 
 def default_model_name(scale: Literal[2, 4]) -> RealESRGANModelName:
@@ -259,17 +268,34 @@ class RealESRGANUpsampler:
     @torch.no_grad()
     def upsample_frame_tensor(self, frame: torch.Tensor) -> torch.Tensor:
         """Upsample one RGB frame shaped ``[3, H, W]`` in ``[-1, 1]``."""
+        output, _profile = self.upsample_frame_tensor_profiled(frame)
+        return output
+
+    @torch.no_grad()
+    def upsample_frame_tensor_profiled(
+        self, frame: torch.Tensor
+    ) -> tuple[torch.Tensor, RealESRGANFrameProfile]:
+        """Upsample one RGB frame and return model-only timing metadata."""
         if frame.ndim != 3 or frame.shape[0] != 3:
             raise ValueError(
                 f"Expected [3, H, W] frame tensor; got {tuple(frame.shape)}"
             )
         image = ((frame.to(self.device, dtype=self.dtype) + 1.0) * 0.5).clamp(0, 1)
-        output = self._process_image(image.unsqueeze(0))
-        return (output.squeeze(0).float().cpu().clamp(0, 1) * 2.0) - 1.0
+        output, profile = self._process_image_profiled(image.unsqueeze(0))
+        output = (output.squeeze(0).float().cpu().clamp(0, 1) * 2.0) - 1.0
+        return output, profile
 
     @torch.no_grad()
     def upsample_bgr_image(self, image: np.ndarray) -> tuple[np.ndarray, str]:
         """Upsample an OpenCV image array and return ``(image, mode)``."""
+        output, mode, _profile = self.upsample_bgr_image_profiled(image)
+        return output, mode
+
+    @torch.no_grad()
+    def upsample_bgr_image_profiled(
+        self, image: np.ndarray
+    ) -> tuple[np.ndarray, str, RealESRGANFrameProfile]:
+        """Upsample an OpenCV image array and return model timing metadata."""
         mode = "RGB"
         alpha: np.ndarray | None = None
         if image.ndim == 2:
@@ -286,9 +312,10 @@ class RealESRGANUpsampler:
         tensor = torch.from_numpy(
             (image_rgb.astype(np.float32) / max_range).transpose(2, 0, 1)
         )
-        output = (self.upsample_frame_tensor(tensor * 2.0 - 1.0) + 1.0) * 0.5
+        output, profile = self.upsample_frame_tensor_profiled(tensor * 2.0 - 1.0)
+        output = (output + 1.0) * 0.5
         if mode == "L":
-            return _rgb_tensor_to_gray_image(output, image.dtype), mode
+            return _rgb_tensor_to_gray_image(output, image.dtype), mode, profile
         output_bgr = _rgb_tensor_to_bgr_image(output, image.dtype)
         if mode == "RGBA" and alpha is not None:
             alpha_out = cv2.resize(
@@ -298,16 +325,37 @@ class RealESRGANUpsampler:
             )
             output_bgr = _bgr_to_bgra(output_bgr, alpha_out)
 
-        return output_bgr, mode
+        return output_bgr, mode, profile
 
     def _process_image(self, image: torch.Tensor) -> torch.Tensor:
+        output, _profile = self._process_image_profiled(image)
+        return output
+
+    def _process_image_profiled(
+        self, image: torch.Tensor
+    ) -> tuple[torch.Tensor, RealESRGANFrameProfile]:
         padded, crop = self._pad_input(image)
+        start: torch.cuda.Event | None = None
+        end: torch.cuda.Event | None = None
+        if self.device.type == "cuda":
+            if self.compile_model:
+                torch.compiler.cudagraph_mark_step_begin()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
         output = (
             self._process_tiled(padded)
             if self.tile > 0
             else self.model(padded.to(dtype=self.dtype))
         )
-        return self._crop_output(output, crop)
+        if end is not None:
+            end.record()
+        output = self._crop_output(output, crop)
+        model_ms: float | None = None
+        if start is not None and end is not None:
+            torch.cuda.synchronize(self.device)
+            model_ms = float(start.elapsed_time(end))
+        return output, RealESRGANFrameProfile(model_ms=model_ms)
 
     def _pad_input(self, image: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
         if self.pre_pad:
