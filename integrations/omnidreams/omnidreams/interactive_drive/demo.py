@@ -975,23 +975,41 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        # Don't auto-load: always wait for the browser to pick the first
-        # scene. There's no Vulkan window to show progress in, so the
-        # presenter publishes an idle overlay frame ("Loading world
-        # model..." while warmup runs in the background, then "Select a
-        # scene to begin") so connected browsers have something to render
-        # while the wait spins.
-        logger.info(
-            "[demo] streaming presenter waiting for first scene selection...",
-        )
-        request = presenter.wait_for_scene_selection()
-        if request is None:
-            return  # presenter closed before any selection (Ctrl-C)
-        scene_path, variant = request
-        presenter.acknowledge_scene_change(scene_path, variant)
-        logger.info(
-            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-        )
+        if args.auto_start:
+            # Headless / scriptable start: skip the browser scene picker and
+            # load the resolved ``--scene`` (or the first discovered scene)
+            # immediately. This lets the demo run with no GUI/browser.
+            # --auto-start + --preload-scenes: let the preloader finish first
+            # so the auto-load hits the cache instead of racing a second parse.
+            if app.preload_in_progress():
+                presenter.wait_while_preloading(app.preload_in_progress)
+            scene_path = config.scene_path
+            variant = _resolve_scene_variant(
+                scene_options, scene_path, config.variant
+            )
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                f"[demo] streaming auto-start scene -> {scene_path.name} "
+                f"variant={variant!r}",
+            )
+        else:
+            # Don't auto-load: always wait for the browser to pick the first
+            # scene. There's no Vulkan window to show progress in, so the
+            # presenter publishes an idle overlay frame ("Loading world
+            # model..." while warmup runs in the background, then "Select a
+            # scene to begin") so connected browsers have something to render
+            # while the wait spins.
+            logger.info(
+                "[demo] streaming presenter waiting for first scene selection...",
+            )
+            request = presenter.wait_for_scene_selection()
+            if request is None:
+                return  # presenter closed before any selection (Ctrl-C)
+            scene_path, variant = request
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
+            )
 
         while True:
             # load_scene parses the USDZ on a background thread while the
