@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from omnidreams.eval.baseline import (
@@ -176,10 +177,13 @@ def test_resolve_summary_path_supports_indices_and_list_filters() -> None:
     assert resolve_summary_path(summary, "worldlens.runs[0].split") == (
         "od_26_01_worldlens_40"
     )
-    assert resolve_summary_path(
-        summary,
-        "validation.expected_frames_from_steps[157]",
-    ) == 40
+    assert (
+        resolve_summary_path(
+            summary,
+            "validation.expected_frames_from_steps[157]",
+        )
+        == 40
+    )
     assert resolve_summary_path(
         summary,
         "worldlens.runs[od_26_01_worldlens_40]"
@@ -203,7 +207,7 @@ def test_check_summary_against_baseline_passes_ranges_and_tolerances() -> None:
 
 def test_check_summary_against_baseline_fails_critical_checks() -> None:
     baseline = _passing_baseline()
-    checks = baseline["checks"]
+    checks = cast(list[dict[str, object]], baseline["checks"])
     assert isinstance(checks, list)
     checks[-1] = {
         "name": "drivinggen_fvd_lite",
@@ -251,7 +255,7 @@ def test_check_baseline_cli_writes_report_and_returns_nonzero_on_failure(
     output_path = tmp_path / "baseline-check.json"
     summary_path.write_text(json.dumps(_summary()) + "\n", encoding="utf-8")
     baseline = _passing_baseline()
-    checks = baseline["checks"]
+    checks = cast(list[dict[str, object]], baseline["checks"])
     assert isinstance(checks, list)
     checks[0] = {
         "name": "generated_clip_count",

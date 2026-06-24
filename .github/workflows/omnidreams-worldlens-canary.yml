@@ -18,6 +18,9 @@ jobs:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     timeout-minutes: 120
     continue-on-error: true
+    defaults:
+      run:
+        shell: bash
     container:
       image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
       options: --gpus all
@@ -90,7 +93,7 @@ jobs:
 
           {
             head -n 1 "${RUN_ROOT}/manifest-full.jsonl"
-            grep -E "${CANARY_UUID_REGEX}" "${RUN_ROOT}/manifest-full.jsonl"
+            grep -E "${CANARY_UUID_REGEX}" "${RUN_ROOT}/manifest-full.jsonl" || true
           } > "${RUN_ROOT}/manifest.jsonl"
 
           line_count=$(wc -l < "${RUN_ROOT}/manifest.jsonl")

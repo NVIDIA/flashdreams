@@ -104,7 +104,7 @@ def format_baseline_check_report(report: Mapping[str, Any]) -> str:
     """Render a compact Markdown report for terminal output and logs."""
 
     status = "PASS" if report.get("passed") else "FAIL"
-    lines = [
+    lines: list[str] = [
         f"Baseline check: {status}",
     ]
     baseline_id = report.get("baseline_id")
@@ -120,8 +120,10 @@ def format_baseline_check_report(report: Mapping[str, Any]) -> str:
     for result in report.get("checks", []):
         check_passed = bool(result.get("passed"))
         severity = str(result.get("severity", "critical"))
-        row_status = "PASS" if check_passed else (
-            "FAIL" if severity.lower() == "critical" else "WARN"
+        row_status = (
+            "PASS"
+            if check_passed
+            else ("FAIL" if severity.lower() == "critical" else "WARN")
         )
         lines.append(
             "| "
@@ -240,9 +242,7 @@ def _compare_operator(actual: Any, expected: Any, op: str) -> tuple[bool, str]:
     return passed, message
 
 
-def _compare_range(
-    actual: Any, min_allowed: Any, max_allowed: Any
-) -> tuple[bool, str]:
+def _compare_range(actual: Any, min_allowed: Any, max_allowed: Any) -> tuple[bool, str]:
     if not _is_number(actual):
         return False, "range check requires numeric actual value"
     if min_allowed is not None:
@@ -278,9 +278,13 @@ def _compare_tolerance(
         allowed = max(allowed, abs(float(expected)) * float(relative_tolerance))
     delta = abs(float(actual) - float(expected))
     passed = delta <= allowed
-    message = "" if passed else (
-        f"actual {actual!r} differs from expected {expected!r} by {delta:g}, "
-        f"allowed {allowed:g}"
+    message = (
+        ""
+        if passed
+        else (
+            f"actual {actual!r} differs from expected {expected!r} by {delta:g}, "
+            f"allowed {allowed:g}"
+        )
     )
     return passed, message
 
@@ -326,7 +330,9 @@ def _parse_segment(segment: str) -> tuple[str, list[str]]:
 
 def _mapping_get(value: Any, key: str) -> Any:
     if not isinstance(value, Mapping):
-        raise TypeError(f"cannot look up key {key!r} on non-object {type(value).__name__}")
+        raise TypeError(
+            f"cannot look up key {key!r} on non-object {type(value).__name__}"
+        )
     if key not in value:
         raise KeyError(f"summary path key not found: {key}")
     return value[key]
@@ -342,9 +348,7 @@ def _apply_selector(value: Any, selector: str) -> Any:
             raise KeyError(f"summary path key not found: {key}")
         return value[key]
     if not _is_sequence(value):
-        raise TypeError(
-            f"cannot apply selector [{selector}] to {type(value).__name__}"
-        )
+        raise TypeError(f"cannot apply selector [{selector}] to {type(value).__name__}")
     if selector.lstrip("-").isdigit():
         return value[int(selector)]
     if "=" in selector:
@@ -376,7 +380,9 @@ def _strip_quotes(value: str) -> str:
 
 
 def _is_sequence(value: Any) -> bool:
-    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+    return isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    )
 
 
 def _is_number(value: Any) -> bool:
