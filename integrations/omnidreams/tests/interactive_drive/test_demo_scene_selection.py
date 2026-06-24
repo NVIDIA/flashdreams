@@ -74,13 +74,20 @@ class _FakePresenter:
     def __init__(self, **_kwargs: object) -> None:
         self.wait_for_scene_selection_calls = 0
         self.acknowledged: list[tuple[Path, str]] = []
+        # Probe callables passed to wait_while_preloading, plus an ordered
+        # call log so a test can assert the preload wait happens *before* the
+        # scene is acknowledged.
+        self.wait_while_preloading_probes: list[object] = []
+        self.calls: list[str] = []
         self.closed = False
 
     def set_model_status(self, **_kwargs: object) -> None: ...
 
     def set_scene_selection_locked(self, *_args: object) -> None: ...
 
-    def wait_while_preloading(self, *_args: object) -> None: ...
+    def wait_while_preloading(self, probe: object) -> None:
+        self.wait_while_preloading_probes.append(probe)
+        self.calls.append("wait_while_preloading")
 
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
         # The whole point of --auto-start is that this never runs; record any
@@ -90,9 +97,10 @@ class _FakePresenter:
 
     def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
         self.acknowledged.append((scene_path, variant))
+        self.calls.append("acknowledge_scene_change")
 
     @property
-    def pending_scene_change(self) -> None:
+    def pending_scene_change(self) -> tuple[Path, str] | None:
         return None  # one rollout, then the loop exits
 
     def close(self) -> None:
@@ -102,14 +110,21 @@ class _FakePresenter:
 class _FakeApp:
     can_prewarm = False
 
-    def __init__(self, **_kwargs: object) -> None:
+    def __init__(
+        self, preload_states: tuple[bool, ...] = (False,), **_kwargs: object
+    ) -> None:
         self.loaded: list[tuple[Path, str]] = []
         self.ran = 0
+        # Successive return values for preload_in_progress(); the auto-start
+        # path checks it once before deciding to wait on the preloader.
+        self._preload_states = list(preload_states)
 
     def model_ready(self) -> bool:
         return True
 
     def preload_in_progress(self) -> bool:
+        if self._preload_states:
+            return self._preload_states.pop(0)
         return False
 
     def load_scene(self, scene_path: Path, variant: str, _prompt: object) -> bool:
@@ -122,15 +137,18 @@ class _FakeApp:
     def shutdown(self) -> None: ...
 
 
+@pytest.mark.parametrize("preloading", [False, True])
 def test_run_streaming_auto_start_skips_scene_picker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preloading: bool
 ) -> None:
     scene = tmp_path / "scene.usdz"
     scene.write_bytes(b"")
     option = SceneOption(label="scene", path=scene, variants=("default",))
 
     presenter = _FakePresenter()
-    app = _FakeApp()
+    # When preloading, preload_in_progress() reports True on the first check so
+    # the auto-start path must wait for the preloader, then False afterwards.
+    app = _FakeApp(preload_states=(True, False) if preloading else (False,))
 
     monkeypatch.setattr(demo_mod, "_apply_cuda_visible_devices_inplace", lambda _v: None)
     monkeypatch.setattr(demo_mod, "_resolve_demo_paths", lambda _a: None)
@@ -171,3 +189,13 @@ def test_run_streaming_auto_start_skips_scene_picker(
     assert app.ran == 1
     assert presenter.acknowledged[0] == (scene, "default")
     assert presenter.closed
+
+    if preloading:
+        # The preload wait fires with the app's own probe, before the scene
+        # is acknowledged/loaded.
+        assert presenter.wait_while_preloading_probes == [app.preload_in_progress]
+        assert presenter.calls.index("wait_while_preloading") < presenter.calls.index(
+            "acknowledge_scene_change"
+        )
+    else:
+        assert presenter.wait_while_preloading_probes == []

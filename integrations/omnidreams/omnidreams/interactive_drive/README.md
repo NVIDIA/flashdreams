@@ -442,8 +442,8 @@ For a richer browser frontend with lower latency, prefer the separate
 By default the streaming mode waits for the browser scene picker before it
 loads anything, so a freshly launched server idles on "Select a scene to
 begin" until someone opens the page. To run with no GUI/browser interaction
-add `--auto-start`. It skips the scene selection and immediately loads `--scene` 
-(or the first scene discovered under `--scene-dir` when `--scene` is unset 
+add `--auto-start`. It skips the scene selection and immediately loads `--scene`
+(or the first scene discovered under `--scene-dir` when `--scene` is unset
 or not yet staged):
 
 ```bash
