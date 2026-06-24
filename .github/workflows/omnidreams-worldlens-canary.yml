@@ -158,6 +158,38 @@ jobs:
             --baseline "${BASELINE}" \
             --output-json "${RUN_ROOT}/baseline-check.json"
 
+      - name: Trim uv cache for upload
+        if: always()
+        run: |
+          cache_dir="${UV_CACHE_DIR:-/github/home/.cache/uv}"
+          echo "=== Cache size before trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+
+          # Remove pre-built wheels; the proxy cache can re-download them
+          # faster than GitHub can upload and restore a multi-GB uv cache.
+          rm -rf "${cache_dir}/wheels-v6"
+
+          # Remove unzipped wheel archives; uv can re-extract these on demand.
+          rm -rf "${cache_dir}/archive-v0"
+
+          # Remove build artifacts from git checkouts that bloat the cache but
+          # are not needed for reuse.
+          find "${cache_dir}/git-v0/checkouts" \
+            \( -name "build" -o -name "*.egg-info" -o -name "__pycache__" \) \
+            -type d -exec rm -rf {} + 2>/dev/null || true
+
+          # Remove editable installs; workspace packages rebuild quickly.
+          rm -rf "${cache_dir}/sdists-v9/editable"
+
+          echo ""
+          echo "=== Cache size after trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+          echo ""
+          echo "=== Cached built wheels (sdists-v9) ==="
+          find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
+
       - name: Upload canary artifacts
         if: always()
         uses: actions/upload-artifact@v4
