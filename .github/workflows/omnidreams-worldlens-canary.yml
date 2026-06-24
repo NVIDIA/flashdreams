@@ -56,7 +56,7 @@ jobs:
             ffmpeg \
             gcc g++ ninja-build \
             libnccl-dev \
-            curl git ca-certificates unzip
+            curl wget git ca-certificates unzip
           rm -rf /var/lib/apt/lists/*
 
       - name: Setup proxy cache
