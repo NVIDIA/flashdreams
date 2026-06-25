@@ -15,6 +15,7 @@
 
 """JIT compilation of the C++/CUDA plugin for Ludus renderer."""
 
+import glob
 import os
 import time
 
@@ -23,6 +24,37 @@ import torch.utils.cpp_extension
 from loguru import logger
 
 _cached_plugin = None
+_dll_directory_handles = []
+_dll_directory_paths: set[str] = set()
+
+
+def _add_windows_dll_directory(path: str) -> None:
+    if not path or not os.path.isdir(path):
+        return
+    normalized = os.path.normcase(os.path.abspath(path))
+    if normalized in _dll_directory_paths:
+        return
+    _dll_directory_handles.append(os.add_dll_directory(path))
+    _dll_directory_paths.add(normalized)
+
+
+def _ensure_windows_dll_directories() -> None:
+    """Keep dependent Torch/CUDA DLL directories visible to extension import."""
+    if not hasattr(os, "add_dll_directory"):
+        return
+
+    _add_windows_dll_directory(os.path.join(os.path.dirname(torch.__file__), "lib"))
+
+    cuda_bins: list[str] = []
+    for env_name in ("CUDA_HOME", "CUDA_PATH"):
+        cuda_home = os.environ.get(env_name)
+        if cuda_home:
+            cuda_bins.append(os.path.join(cuda_home, "bin"))
+    for path in os.environ.get("PATH", "").split(os.pathsep):
+        if glob.glob(os.path.join(path, "cudart64_*.dll")):
+            cuda_bins.append(path)
+    for path in cuda_bins:
+        _add_windows_dll_directory(path)
 
 
 def _get_plugin():
@@ -67,6 +99,7 @@ def _get_plugin():
                     "Could not locate a supported Microsoft Visual C++ installation"
                 )
             os.environ["PATH"] += ";" + cl_path
+        _ensure_windows_dll_directories()
 
     # Compiler options.
     common_defines = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE"]

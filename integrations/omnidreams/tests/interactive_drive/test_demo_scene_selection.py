@@ -11,6 +11,7 @@ import pytest
 from omnidreams.interactive_drive import demo as demo_mod
 from omnidreams.interactive_drive.demo import (
     SceneOption,
+    _materialize_synthetic_scene_for_picker,
     _resolve_scene_variant,
     build_parser,
 )
@@ -181,6 +182,9 @@ def test_run_streaming_auto_start_skips_scene_picker(
         preload_scenes=False,
         prompt=None,
         auto_start=True,
+        synthetic_scene=False,
+        synthetic_initial_rgb=None,
+        synthetic_prompt=None,
     )
 
     demo_mod._run_streaming(args)
@@ -200,3 +204,39 @@ def test_run_streaming_auto_start_skips_scene_picker(
         )
     else:
         assert presenter.wait_while_preloading_probes == []
+
+
+def test_materialize_synthetic_scene_for_picker_consumes_synthetic_args(
+    monkeypatch, tmp_path: Path
+) -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--synthetic-scene",
+            "--synthetic-initial-rgb",
+            "seed.png",
+            "--synthetic-prompt",
+            "drive forward",
+        ]
+    )
+    built_scene = tmp_path / "synthetic.usdz"
+    calls: list[tuple[Path | None, str | None]] = []
+
+    def fake_build_synthetic_scene_to_temp(
+        *, initial_rgb_path: Path | None = None, prompt: str | None = None
+    ) -> Path:
+        calls.append((initial_rgb_path, prompt))
+        return built_scene
+
+    monkeypatch.setattr(
+        "omnidreams.interactive_drive.demo.build_synthetic_scene_to_temp",
+        fake_build_synthetic_scene_to_temp,
+    )
+
+    _materialize_synthetic_scene_for_picker(args)
+
+    assert calls == [(Path("seed.png"), "drive forward")]
+    assert args.scene == built_scene
+    assert args.synthetic_scene is False
+    assert args.synthetic_initial_rgb is None
+    assert args.synthetic_prompt is None
