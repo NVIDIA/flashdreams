@@ -984,9 +984,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
             if app.preload_in_progress():
                 presenter.wait_while_preloading(app.preload_in_progress)
             scene_path = config.scene_path
-            variant = _resolve_scene_variant(
-                scene_options, scene_path, config.variant
-            )
+            variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
             presenter.acknowledge_scene_change(scene_path, variant)
             logger.info(
                 f"[demo] streaming auto-start scene -> {scene_path.name} "

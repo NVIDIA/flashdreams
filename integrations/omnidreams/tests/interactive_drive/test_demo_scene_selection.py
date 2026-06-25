@@ -8,7 +8,6 @@ import types
 from pathlib import Path
 
 import pytest
-
 from omnidreams.interactive_drive import demo as demo_mod
 from omnidreams.interactive_drive.demo import (
     SceneOption,
@@ -150,7 +149,9 @@ def test_run_streaming_auto_start_skips_scene_picker(
     # the auto-start path must wait for the preloader, then False afterwards.
     app = _FakeApp(preload_states=(True, False) if preloading else (False,))
 
-    monkeypatch.setattr(demo_mod, "_apply_cuda_visible_devices_inplace", lambda _v: None)
+    monkeypatch.setattr(
+        demo_mod, "_apply_cuda_visible_devices_inplace", lambda _v: None
+    )
     monkeypatch.setattr(demo_mod, "_resolve_demo_paths", lambda _a: None)
     monkeypatch.setattr(demo_mod, "_discover_scene_options", lambda *_a: (option,))
     monkeypatch.setattr(
