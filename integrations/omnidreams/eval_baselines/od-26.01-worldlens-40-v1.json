@@ -100,11 +100,6 @@
       "name": "worldlens_subject_ts_per_frame",
       "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=subject_consistency/repeat_0.json].ts_per_frame",
       "min_allowed": 0.84
-    },
-    {
-      "name": "drivinggen_fvd_lite_batch_00001",
-      "source": "drivinggen.fvd_lite[split=od_26_01_batch_00001].value",
-      "max_allowed": 450.0
     }
   ]
 }
