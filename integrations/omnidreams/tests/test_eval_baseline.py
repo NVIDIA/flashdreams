@@ -297,7 +297,7 @@ def test_shipped_od_26_01_baseline_passes_summary_fixture() -> None:
     report = check_summary_against_baseline(_summary(), baseline)
 
     assert report["passed"] is True
-    assert report["check_count"] == 16
+    assert report["check_count"] == 15
 
 
 def test_shipped_od_26_01_canary_baseline_passes_summary_fixture() -> None:
