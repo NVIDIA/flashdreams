@@ -157,7 +157,7 @@ def test_flashvsr_postprocess_can_drop_short_tail(
     assert created[0].inputs == []
 
 
-def test_flashvsr_postprocess_does_not_finalize_when_generate_raises(
+def test_flashvsr_postprocess_finalizes_when_generate_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_builder(monkeypatch)
@@ -181,7 +181,7 @@ def test_flashvsr_postprocess_does_not_finalize_when_generate_raises(
         session.process(VideoChunk(tensor=video, layout="tchw"))
 
     pipeline = created[0]
-    assert pipeline.finalized == []
+    assert pipeline.finalized == [0]
     assert len(pipeline.inputs) == 1
 
 
