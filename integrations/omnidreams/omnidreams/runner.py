@@ -409,7 +409,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        if cfg.postprocess.processors:
+        if cfg.postprocess.is_enabled():
             del cache
             del hdmap_videos
             del hdmap_videos_t
@@ -418,7 +418,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
 
         condition = (
             None
-            if cfg.postprocess.processors
+            if cfg.postprocess.is_enabled()
             else hdmap_videos_t[:, :, :generated_num_frames].cpu()
         )
         canvas, output_description = self._prepare_canvas_for_write(
@@ -463,7 +463,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         fps: int,
     ) -> tuple[torch.Tensor, str]:
         """Return the tensor written to MP4 plus a short log description."""
-        if self.config.postprocess.processors:
+        if self.config.postprocess.is_enabled():
             generated = self._postprocess_generated_views(video, fps=fps)
             return (
                 rearrange(generated, "1 v t c h w -> t h (v w) c"),

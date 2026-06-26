@@ -58,6 +58,14 @@ flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
 "flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_SPARSE_1_5"
 "flashvsr-v1.1-full-attn" = "flashvsr.config:RUNNER_FLASHVSR_V1_1_FULL_ATTN"
 
+# Each entry registers one post-processor preset slug selectable via
+# ``--postprocess.preset``. ``flashdreams.plugins.registry.discover_postprocess_presets``
+# scans this group at runtime.
+[project.entry-points."flashdreams.postprocess_presets"]
+"flashvsr-v1.1-sparse-2.0" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_2_0"
+"flashvsr-v1.1-sparse-1.5" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5"
+"flashvsr-v1.1-full-attn" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN"
+
 [tool.setuptools.packages.find]
 include = ["flashvsr*"]
 exclude = ["tests"]

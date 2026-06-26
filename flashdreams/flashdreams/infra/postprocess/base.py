@@ -155,10 +155,32 @@ class VideoPostprocessChainConfig(PrintableConfig):
     processors: tuple[VideoPostProcessorConfig, ...] = ()
     """Post-processors to apply in order. Empty means no post-processing."""
 
+    preset: str = ""
+    """Optional registered post-processor preset appended after
+    :attr:`processors`. Presets are discovered from the
+    ``flashdreams.postprocess_presets`` entry-point group (for example
+    ``flashvsr-v1.1-sparse-2.0`` when the FlashVSR integration is
+    installed). Empty means no preset is appended."""
+
+    def resolved_processors(self) -> tuple[VideoPostProcessorConfig, ...]:
+        """Return :attr:`processors` plus any preset selected by name."""
+        if not self.preset:
+            return self.processors
+        from flashdreams.plugins.registry import resolve_postprocess_preset
+
+        return (*self.processors, resolve_postprocess_preset(self.preset))
+
+    def is_enabled(self) -> bool:
+        """Return whether any post-processing step is configured."""
+        return bool(self.processors or self.preset)
+
     def setup(self, spec: VideoSpec) -> "VideoPostprocessChainSession":
         """Instantiate post-processors and start per-stream sessions."""
         return VideoPostprocessChainSession(
-            sessions=[processor.setup().start(spec) for processor in self.processors]
+            sessions=[
+                processor.setup().start(spec)
+                for processor in self.resolved_processors()
+            ]
         )
 
 

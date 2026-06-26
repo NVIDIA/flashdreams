@@ -32,7 +32,6 @@ from flashdreams.infra.postprocess import (
     to_bvtchw,
     to_minus_one_one,
 )
-from flashvsr.config import build_flashvsr_v1_1
 from flashvsr.corrector import ColorCorrectorImplementation
 from flashvsr.encoder import FlashVSREncoder
 
@@ -67,11 +66,15 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     attention_mode: Literal["sparse", "full"] = "sparse"
     """Attention backend. Use ``"full"`` for multi-GPU context parallelism."""
 
-    compile_network: bool = False
-    """Enable ``torch.compile`` for FlashVSR components."""
+    compile_network: bool = True
+    """Enable ``torch.compile`` for FlashVSR components.
 
-    use_cuda_graph: bool = False
-    """Replay steady-state DiT execution through CUDA graphs."""
+    Defaults to ``True`` to match the shipped FlashVSR runner presets."""
+
+    use_cuda_graph: bool = True
+    """Replay steady-state DiT execution through CUDA graphs.
+
+    Defaults to ``True`` to match the shipped FlashVSR runner presets."""
 
     color_corrector_implementation: ColorCorrectorImplementation = "cuda"
     """FlashVSR decoder color-correction backend."""
@@ -104,7 +107,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def __init__(self, config: FlashVSRPostProcessorConfig, spec: VideoSpec) -> None:
         self._config = config
         self._spec = spec
-        self._first_size, self._subseq_size = _chunk_modes()[config.chunk_size]
+        self._first_size, self._subseq_size = _chunk_mode(config.chunk_size)
         self._pipeline: Any | None = None
         self._cache: Any | None = None
         self._buffer: Tensor | None = None
@@ -165,7 +168,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
                 f"{self._spec.height}x{self._spec.width} to {height}x{width}."
             )
         dtype = _resolve_dtype(self._config.dtype)
-        pipeline_cfg = build_flashvsr_v1_1(
+        pipeline_cfg = _build_flashvsr_pipeline(
             input_H=height,
             input_W=width,
             scale=self._config.scale,
@@ -215,14 +218,24 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def _run_flashvsr_chunk(self, clip: Tensor) -> Tensor:
         assert self._pipeline is not None
         assert self._cache is not None
-        output = self._pipeline.generate(
-            autoregressive_index=self._ar_idx,
-            cache=self._cache,
-            input=clip,
-        )
-        self._pipeline.finalize(autoregressive_index=self._ar_idx, cache=self._cache)
-        self._ar_idx += 1
-        return output
+        try:
+            return self._pipeline.generate(
+                autoregressive_index=self._ar_idx,
+                cache=self._cache,
+                input=clip,
+            )
+        finally:
+            self._pipeline.finalize(
+                autoregressive_index=self._ar_idx, cache=self._cache
+            )
+            self._ar_idx += 1
+
+
+def _build_flashvsr_pipeline(**kwargs: Any) -> Any:
+    """Build a FlashVSR pipeline config (lazy import for preset entry points)."""
+    from flashvsr.config import build_flashvsr_v1_1  # noqa: PLC0415
+
+    return build_flashvsr_v1_1(**kwargs)
 
 
 def _bcthw_chunk(tensor: Tensor, *, source: str) -> VideoChunk:
@@ -240,7 +253,19 @@ def _chunk_modes() -> dict[int, tuple[int, int]]:
     for raw, padded in targets.items():
         if raw != padded:
             cold_for[padded] = raw
-    return {padded: (cold_for[padded], padded) for padded in cold_for}
+    modes = {padded: (cold_for[padded], padded) for padded in cold_for}
+    return modes
+
+
+def _chunk_mode(chunk_size: int) -> tuple[int, int]:
+    try:
+        return _chunk_modes()[chunk_size]
+    except KeyError as exc:
+        supported = ", ".join(str(size) for size in sorted(_chunk_modes()))
+        raise ValueError(
+            f"Unsupported FlashVSR postprocess chunk_size={chunk_size}. "
+            f"Supported steady-state sizes: {supported}."
+        ) from exc
 
 
 def _resolve_dtype(dtype: _DTypeName) -> torch.dtype:
@@ -251,3 +276,21 @@ def _resolve_dtype(dtype: _DTypeName) -> torch.dtype:
     if dtype == "float32":
         return torch.float32
     raise ValueError(f"unsupported FlashVSR dtype: {dtype}")
+
+
+POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_2_0 = FlashVSRPostProcessorConfig(
+    sparse_ratio=2.0,
+    attention_mode="sparse",
+)
+"""Default FlashVSR post-processing preset (stable sparse attention)."""
+
+POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5 = FlashVSRPostProcessorConfig(
+    sparse_ratio=1.5,
+    attention_mode="sparse",
+)
+"""Faster FlashVSR post-processing preset (lower sparse attention budget)."""
+
+POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN = FlashVSRPostProcessorConfig(
+    attention_mode="full",
+)
+"""FlashVSR post-processing preset with dense full attention (multi-GPU)."""
