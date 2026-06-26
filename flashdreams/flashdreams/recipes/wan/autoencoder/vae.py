@@ -29,11 +29,12 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Literal, Optional, TypedDict, get_args
+from typing import Annotated, Callable, Dict, Literal, Optional, TypedDict, get_args
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tyro
 from einops import rearrange
 from torch import Tensor
 
@@ -1279,7 +1280,9 @@ class WanVAEEncoderConfig(EncoderConfig):
     :class:`Wan22TI2V5BVAEEncoderConfig` for the pre-rolled set.
     """
 
-    _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: WanVAEEncoder
+    )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
@@ -1412,7 +1415,9 @@ class WanVAEDecoderConfig(DecoderConfig):
     =256`` and the residual up-stage with ``DupUp3D`` shortcut.
     """
 
-    _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: WanVAEDecoder
+    )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16

@@ -18,8 +18,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import torch
+import tyro
 from loguru import logger
 from torch import Tensor
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
@@ -32,7 +34,7 @@ from flashdreams.infra.encoder import Encoder, EncoderConfig
 class CosmosReason1TextEncoderConfig(EncoderConfig):
     """Config for the Cosmos-Reason1 text encoder."""
 
-    _target: type["CosmosReason1TextEncoder"] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: CosmosReason1TextEncoder
     )
 

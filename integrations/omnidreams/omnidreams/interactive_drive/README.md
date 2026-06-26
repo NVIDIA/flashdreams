@@ -437,6 +437,20 @@ Then open `http://localhost:8080/`.
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
+#### Fully headless: `--stream-mjpeg` with `--auto-start`
+
+By default the streaming mode waits for the browser scene picker before it
+loads anything, so a freshly launched server idles on "Select a scene to
+begin" until someone opens the page. To run with no GUI/browser interaction
+add `--auto-start`. It skips the scene selection and immediately loads `--scene`
+(or the first scene discovered under `--scene-dir` when `--scene` is unset
+or not yet staged):
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive \
+  --stream-mjpeg 8080 --auto-start --scene <clip-id-name-or-path>
+```
+
 The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
 stay CUDA-backed for world-model conditioning, and both Vulkan presenters use
 SlangPy CUDA interop for generated RGB frames when the model output is still on

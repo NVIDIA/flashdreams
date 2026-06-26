@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import torch
+import tyro
 from torch import Tensor
 
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
@@ -58,7 +60,9 @@ slice the live model expects."""
 class TeahvVAEDecoderConfig(DecoderConfig):
     """Config for the TAEHV decoder."""
 
-    _target: type["TeahvVAEDecoder"] = field(default_factory=lambda: TeahvVAEDecoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: TeahvVAEDecoder
+    )
 
     checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
     """Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights."""

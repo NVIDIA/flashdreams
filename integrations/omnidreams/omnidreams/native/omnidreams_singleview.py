@@ -22,6 +22,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -58,6 +60,8 @@ _native_build_module: ModuleType | None = None
 _extension: ModuleType | None = None
 _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
+_dll_directory_handles: list[object] = []
+_dll_directory_paths: set[str] = set()
 
 
 def _native_build() -> ModuleType:
@@ -132,6 +136,217 @@ def _first_library_dir(library_name: str, candidates: tuple[Path, ...]) -> Path 
         if (directory / library_name).is_file():
             return directory
     return None
+
+
+def _first_file(candidates: tuple[Path, ...]) -> Path | None:
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def _add_windows_dll_directory(path: Path) -> None:
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if os.name != "nt" or add_dll_directory is None or not path.is_dir():
+        return
+    normalized = str(path.resolve()).casefold()
+    if normalized in _dll_directory_paths:
+        return
+    _dll_directory_handles.append(add_dll_directory(str(path)))
+    _dll_directory_paths.add(normalized)
+
+
+def _add_windows_cuda_dll_directories(cudnn_package_dir: Path | None) -> None:
+    if os.name != "nt":
+        return
+    torch_package_dir = _python_package_dir("torch")
+    if torch_package_dir is not None:
+        _add_windows_dll_directory(torch_package_dir / "lib")
+    cuda_package_dir = _python_package_dir("nvidia.cu13")
+    if cuda_package_dir is not None:
+        _add_windows_dll_directory(cuda_package_dir / "bin" / "x86_64")
+    if cudnn_package_dir is not None:
+        _add_windows_dll_directory(cudnn_package_dir / "bin")
+
+
+def _dumpbin_export_names(output: str) -> list[str]:
+    names: list[str] = []
+    in_exports = False
+    for line in output.splitlines():
+        if "ordinal hint RVA" in line:
+            in_exports = True
+            continue
+        if not in_exports:
+            continue
+        parts = line.split()
+        if len(parts) < 4 or not parts[0].isdigit():
+            continue
+        names.append(parts[3])
+    return names
+
+
+def _windows_import_library_from_dll(dll_path: Path, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lib_path = output_dir / f"{dll_path.stem}.lib"
+    def_path = output_dir / f"{dll_path.stem}.def"
+    if lib_path.is_file() and lib_path.stat().st_mtime >= dll_path.stat().st_mtime:
+        return lib_path
+
+    dumpbin = shutil.which("dumpbin.exe") or shutil.which("dumpbin")
+    lib_tool = shutil.which("lib.exe") or shutil.which("lib")
+    if dumpbin is None or lib_tool is None:
+        raise RuntimeError(
+            "Cannot build cuDNN import library: dumpbin.exe and lib.exe must be "
+            "available in the active Visual Studio build environment."
+        )
+
+    result = subprocess.run(
+        [dumpbin, "/exports", str(dll_path)],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    exports = _dumpbin_export_names(result.stdout)
+    if not exports:
+        raise RuntimeError(
+            f"Cannot build cuDNN import library: no exports in {dll_path}"
+        )
+
+    def_path.write_text(
+        "LIBRARY " + dll_path.name + "\nEXPORTS\n" + "\n".join(exports) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    subprocess.run(
+        [lib_tool, f"/def:{def_path}", "/machine:x64", f"/out:{lib_path}"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return lib_path
+
+
+def _nvcc_release(output: str) -> tuple[int, int] | None:
+    marker = "release "
+    start = output.find(marker)
+    if start < 0:
+        return None
+    version = output[start + len(marker) :].split(",", 1)[0].strip()
+    parts = version.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
+def _ensure_windows_cuda13_toolkit() -> None:
+    if os.name != "nt":
+        return
+    nvcc = shutil.which("nvcc.exe") or shutil.which("nvcc")
+    if nvcc is None:
+        raise RuntimeError(
+            "OmniDreams native Windows builds require a full CUDA 13 toolkit "
+            "with nvcc.exe available on PATH."
+        )
+
+    result = subprocess.run(
+        [nvcc, "--version"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    output = result.stdout + result.stderr
+    release = _nvcc_release(output)
+    if release is not None and release[0] >= 13:
+        return
+    found = f"{release[0]}.{release[1]}" if release is not None else "unknown"
+    raise RuntimeError(
+        "OmniDreams native Windows builds require CUDA 13 nvcc.exe. "
+        f"Found CUDA {found} at {nvcc}. The CUDA 13 Python wheels are not "
+        "enough for native extension compilation; install the full CUDA 13 "
+        "toolkit and put its bin directory first on PATH."
+    )
+
+
+def _cudnn_include_dir(cudnn_package_dir: Path | None) -> Path | None:
+    if cudnn_package_dir is None:
+        return None
+    include_dir = cudnn_package_dir / "include"
+    return include_dir if (include_dir / "cudnn.h").is_file() else None
+
+
+def _cudnn_link_flags(
+    cudnn_package_dir: Path | None,
+    *,
+    build_dir: Path,
+) -> list[str]:
+    if os.name == "nt":
+        if cudnn_package_dir is None:
+            return ["cudnn.lib"]
+        import_lib = _first_file(
+            (
+                cudnn_package_dir / "lib" / "cudnn.lib",
+                cudnn_package_dir / "lib" / "x64" / "cudnn.lib",
+            )
+        )
+        if import_lib is not None:
+            return [str(import_lib)]
+        dll_path = _first_file((cudnn_package_dir / "bin" / "cudnn64_9.dll",))
+        if dll_path is None:
+            return ["cudnn.lib"]
+        generated_lib = _windows_import_library_from_dll(
+            dll_path,
+            build_dir / "generated_import_libs",
+        )
+        return [str(generated_lib)]
+
+    cudnn_lib = (
+        cudnn_package_dir / "lib"
+        if cudnn_package_dir is not None
+        and (cudnn_package_dir / "lib" / "libcudnn.so.9").is_file()
+        else None
+    )
+    return [
+        *([] if cudnn_lib is None else [f"-L{cudnn_lib}"]),
+        "-lcudnn" if cudnn_lib is None else "-l:libcudnn.so.9",
+    ]
+
+
+def _cuda_link_flags(
+    cudnn_package_dir: Path | None,
+    *,
+    build_dir: Path,
+) -> list[str]:
+    if os.name == "nt":
+        return [
+            "cublas.lib",
+            "cublasLt.lib",
+            *_cudnn_link_flags(cudnn_package_dir, build_dir=build_dir),
+            "cuda.lib",
+            "nvrtc.lib",
+        ]
+
+    cuda_driver_lib = _first_library_dir(
+        "libcuda.so",
+        (
+            Path("/usr/lib/wsl/lib"),
+            Path("/usr/lib/x86_64-linux-gnu"),
+            Path("/usr/local/cuda/lib64"),
+        ),
+    )
+    return [
+        "-lcublas",
+        "-lcublasLt",
+        *_cudnn_link_flags(cudnn_package_dir, build_dir=build_dir),
+        *([] if cuda_driver_lib is None else [f"-L{cuda_driver_lib}"]),
+        "-lcuda",
+        "-lnvrtc",
+    ]
 
 
 def build_info(
@@ -315,6 +530,8 @@ def load_extension(
         _extension_load_error = None
 
         try:
+            _ensure_windows_cuda13_toolkit()
+
             from torch.utils.cpp_extension import load as load_torch_extension
 
             thirdparty_info = validate_thirdparty()
@@ -328,31 +545,13 @@ def load_extension(
                 Path(thirdparty_info["cudnn-frontend"]["path"]) / "include"
             )
             cudnn_package_dir = _python_package_dir("nvidia.cudnn")
-            cudnn_include = (
-                cudnn_package_dir / "include"
-                if cudnn_package_dir is not None
-                and (cudnn_package_dir / "include" / "cudnn.h").is_file()
-                else None
-            )
-            cudnn_lib = (
-                cudnn_package_dir / "lib"
-                if cudnn_package_dir is not None
-                and (cudnn_package_dir / "lib" / "libcudnn.so.9").is_file()
-                else None
-            )
-            cuda_driver_lib = _first_library_dir(
-                "libcuda.so",
-                (
-                    Path("/usr/lib/wsl/lib"),
-                    Path("/usr/lib/x86_64-linux-gnu"),
-                    Path("/usr/local/cuda/lib64"),
-                ),
-            )
+            cudnn_include = _cudnn_include_dir(cudnn_package_dir)
             extension_build_dir = _native_build().torch_extension_build_dir(
                 extension_name,
                 build_root=build_root,
             )
             extension_build_dir.mkdir(parents=True, exist_ok=True)
+            _add_windows_cuda_dll_directories(cudnn_package_dir)
 
             with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
                 _extension = load_torch_extension(
@@ -446,13 +645,10 @@ def load_extension(
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                     ],
                     extra_ldflags=[
-                        "-lcublas",
-                        "-lcublasLt",
-                        *([] if cudnn_lib is None else [f"-L{cudnn_lib}"]),
-                        "-lcudnn" if cudnn_lib is None else "-l:libcudnn.so.9",
-                        *([] if cuda_driver_lib is None else [f"-L{cuda_driver_lib}"]),
-                        "-lcuda",
-                        "-lnvrtc",
+                        *_cuda_link_flags(
+                            cudnn_package_dir,
+                            build_dir=extension_build_dir,
+                        ),
                     ],
                     with_cuda=True,
                     verbose=verbose,

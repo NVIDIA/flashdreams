@@ -224,6 +224,11 @@ autodoc_mock_imports = [
     "mediapy",
     "cv2",
     "triton",
+    # Mocked rather than installed: with no torch source binding active
+    # under the docs-ci sync, uv can't disambiguate between the PyPI,
+    # +cu128, and +cu130 lock candidates.
+    "torch",
+    "torchvision",
 ]
 
 # -- Napoleon ----------------------------------------------------------------

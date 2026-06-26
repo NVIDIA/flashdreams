@@ -144,8 +144,11 @@ docs = [
 ]
 
 # CPU-only runtime deps needed by autodoc to import flashdreams on CI.
-# Heavy GPU packages (transformer-engine, pynvml, boto3, mediapy, cv2) are
-# mocked via `autodoc_mock_imports` in docs/source/conf.py.
+# Heavy GPU packages (transformer-engine, pynvml, boto3, mediapy, cv2,
+# torch, torchvision) are mocked via `autodoc_mock_imports` in
+# docs/source/conf.py rather than installed. torch is mocked rather than
+# installed because the lock has three torch candidates (PyPI / +cu128 /
+# +cu130) that uv can't disambiguate when only docs / docs-ci are active.
 # CI installs: `uv sync --only-group docs --only-group docs-ci`
 # then `uv pip install --no-deps ./flashdreams` to make the package importable.
 docs-ci = [
@@ -155,7 +158,6 @@ docs-ci = [
     "loguru>=0.7",
     "numpy>=1.24",
     "safetensors>=0.4",
-    "torch>=2.9",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
 ]

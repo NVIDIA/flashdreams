@@ -15,7 +15,9 @@
 
 """JIT compilation of the C++/CUDA plugin for Ludus renderer."""
 
+import glob
 import os
+import subprocess
 import time
 
 import torch
@@ -23,6 +25,38 @@ import torch.utils.cpp_extension
 from loguru import logger
 
 _cached_plugin = None
+_dll_directory_handles = []
+_dll_directory_paths: set[str] = set()
+
+
+def _add_windows_dll_directory(path: str) -> None:
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if add_dll_directory is None or not path or not os.path.isdir(path):
+        return
+    normalized = os.path.normcase(os.path.abspath(path))
+    if normalized in _dll_directory_paths:
+        return
+    _dll_directory_handles.append(add_dll_directory(path))
+    _dll_directory_paths.add(normalized)
+
+
+def _ensure_windows_dll_directories() -> None:
+    """Keep dependent Torch/CUDA DLL directories visible to extension import."""
+    if getattr(os, "add_dll_directory", None) is None:
+        return
+
+    _add_windows_dll_directory(os.path.join(os.path.dirname(torch.__file__), "lib"))
+
+    cuda_bins: list[str] = []
+    for env_name in ("CUDA_HOME", "CUDA_PATH"):
+        cuda_home = os.environ.get(env_name)
+        if cuda_home:
+            cuda_bins.append(os.path.join(cuda_home, "bin"))
+    for path in os.environ.get("PATH", "").split(os.pathsep):
+        if glob.glob(os.path.join(path, "cudart64_*.dll")):
+            cuda_bins.append(path)
+    for path in cuda_bins:
+        _add_windows_dll_directory(path)
 
 
 def _get_plugin():
@@ -60,13 +94,22 @@ def _get_plugin():
             if paths:
                 return sorted(paths, key=get_sort_key)[-1]
 
-        if os.system("where cl.exe >nul 2>nul") != 0:
+        if (
+            subprocess.run(
+                ["where.exe", "cl.exe"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
             cl_path = find_cl_path()
             if cl_path is None:
                 raise RuntimeError(
                     "Could not locate a supported Microsoft Visual C++ installation"
                 )
             os.environ["PATH"] += ";" + cl_path
+        _ensure_windows_dll_directories()
 
     # Compiler options.
     common_defines = ["-DNVDR_TORCH", "-DFW_DO_NOT_OVERRIDE_NEW_DELETE"]
@@ -84,14 +127,17 @@ def _get_plugin():
             "-lineinfo",
             # Suppress nvcc warning about __device__ functions redeclared without
             # __device__ in out-of-line template definitions (Math.hpp MatrixBase).
-            "-diag-suppress", "20037",
+            "-diag-suppress",
+            "20037",
         ]
     else:
         cc_opts = common_defines + ["-Wall", "-Werror", "-Wno-psabi"]
         cuda_opts = common_defines + [
             "-lineinfo",
-            "-Xcompiler", "-Wall,-Werror,-Wno-psabi",
-            "-diag-suppress", "20037",
+            "-Xcompiler",
+            "-Wall,-Werror,-Wno-psabi",
+            "-diag-suppress",
+            "20037",
         ]
 
     # Linker options and source files.
@@ -128,7 +174,9 @@ def _get_plugin():
     plugin_name = "ludus_renderer_plugin"
     build_directory = None
     try:
-        build_directory = torch.utils.cpp_extension._get_build_directory(plugin_name, False)
+        build_directory = torch.utils.cpp_extension._get_build_directory(
+            plugin_name, False
+        )
         lock_fn = os.path.join(build_directory, "lock")
         logger.info(
             "Loading Ludus renderer extension {}; build_directory={}.",
@@ -142,7 +190,9 @@ def _get_plugin():
                 lock_fn,
             )
     except Exception as exc:
-        logger.debug("Could not inspect Ludus renderer extension build directory: {}", exc)
+        logger.debug(
+            "Could not inspect Ludus renderer extension build directory: {}", exc
+        )
 
     # Speed up compilation on Windows
     if os.name == "nt":
@@ -151,11 +201,14 @@ def _get_plugin():
             import distutils._msvccompiler
             import functools
 
-            if not hasattr(distutils._msvccompiler._get_vc_env, "__wrapped__"):
-                distutils._msvccompiler._get_vc_env = functools.lru_cache()(
-                    distutils._msvccompiler._get_vc_env
+            get_vc_env = getattr(distutils._msvccompiler, "_get_vc_env", None)
+            if get_vc_env is not None and not hasattr(get_vc_env, "__wrapped__"):
+                setattr(
+                    distutils._msvccompiler,
+                    "_get_vc_env",
+                    functools.lru_cache()(get_vc_env),
                 )
-        except:
+        except Exception:
             pass
 
     # Compile and cache
