@@ -148,7 +148,8 @@ class UpliftStreamClient:
             from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
         except ModuleNotFoundError as exc:
             self._set_error(
-                "flashvsr package is required when upsampling_enabled=true"
+                "flashdreams-flashvsr is required when upsampling_enabled=true; "
+                "install flashdreams-omnidreams with the uplift extra"
             )
             logger.exception("[uplift] unable to import FlashVSR gRPC protos")
             return

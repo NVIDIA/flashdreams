@@ -28,7 +28,6 @@ dependencies = [
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
     # demo subpackage).
     "flashdreams[serving]",
-    "flashdreams-flashvsr",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
@@ -69,6 +68,11 @@ ludus-renderer = { workspace = true }
 # the abstract capability so the install command is self-documenting.
 interactive-drive = [
     "slangpy==0.42.0",
+]
+# FlashVSR gRPC protos/client surface used only when
+# ``upsampling_enabled=true`` in the interactive-drive world-model manifest.
+uplift = [
+    "flashdreams-flashvsr",
 ]
 dev = [
     "pytest>=8.0",

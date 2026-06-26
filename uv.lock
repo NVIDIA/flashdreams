@@ -1559,7 +1559,6 @@ source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
-    { name = "flashdreams-flashvsr" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "huggingface-hub" },
@@ -1597,12 +1596,15 @@ dev = [
 interactive-drive = [
     { name = "slangpy" },
 ]
+uplift = [
+    { name = "flashdreams-flashvsr" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
-    { name = "flashdreams-flashvsr", editable = "integrations/flashvsr" },
+    { name = "flashdreams-flashvsr", marker = "extra == 'uplift'", editable = "integrations/flashvsr" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
     { name = "grpcio-tools", specifier = ">=1.50" },
@@ -1628,7 +1630,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
-provides-extras = ["interactive-drive", "dev"]
+provides-extras = ["interactive-drive", "uplift", "dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"
