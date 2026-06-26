@@ -36,9 +36,9 @@ index 3be30af7..47abafee 100644
 --- a/include/cute/atom/copy_traits_sm90_tma.hpp
 +++ b/include/cute/atom/copy_traits_sm90_tma.hpp
 @@ -44,6 +44,11 @@
-
+ 
  #include <cutlass/cuda_host_adapter.hpp>
-
+ 
 +// OmniDreams patch: host-side TMA descriptor pool used to keep descriptors
 +// in `.global` state space, working around the nvcc 13.x SM120 spill bug.
 +#include <cute/atom/detail/tma_descriptor_pool.hpp>
@@ -46,9 +46,9 @@ index 3be30af7..47abafee 100644
 +
  namespace cute
  {
-
+ 
 @@ -94,6 +98,14 @@ struct SM90_TMA_LOAD_OP : SM90_TMA_LOAD {};
-
+ 
  // The non-executable SM90_TMA_LOAD with tma_desc and no tma_mbar
  // Use .with(tma_mbar) to construct an executable version
 +//
@@ -64,14 +64,14 @@ index 3be30af7..47abafee 100644
  {
 @@ -106,7 +118,8 @@ struct Copy_Traits<SM90_TMA_LOAD, NumBitsPerTMA, AuxParams_>
    using RefLayout = SrcLayout;
-
+ 
    // SM90_TMA_LOAD arguments
 -  TmaDescriptor tma_desc_;
 +  // OmniDreams patch: pointer to descriptor in cudaMalloc'd global memory (was: TmaDescriptor by value).
 +  TmaDescriptor const* tma_desc_;
    using AuxParams = AuxParams_;
    AuxParams aux_params_;
-
+ 
 @@ -114,7 +127,7 @@ struct Copy_Traits<SM90_TMA_LOAD, NumBitsPerTMA, AuxParams_>
    CUTE_HOST_DEVICE constexpr
    TmaDescriptor const*
@@ -79,7 +79,7 @@ index 3be30af7..47abafee 100644
 -    return &tma_desc_;
 +    return tma_desc_;
    }
-
+ 
    // Construct an executable SM90_TMA_LOAD with tma_mbar
 @@ -125,7 +138,7 @@ struct Copy_Traits<SM90_TMA_LOAD, NumBitsPerTMA, AuxParams_>
      [[maybe_unused]] uint16_t const& multicast_mask = 0,
@@ -88,12 +88,12 @@ index 3be30af7..47abafee 100644
 -    return {&tma_desc_, &tma_mbar, static_cast<uint64_t>(cache_hint)};
 +    return {tma_desc_, &tma_mbar, static_cast<uint64_t>(cache_hint)};
    }
-
+ 
    // Construct an executable SM90_TMA_LOAD with tma_mbar (temp. overloaded for grouped gemm/ptr array gemm)
 @@ -157,11 +170,14 @@ struct Copy_Traits<SM90_TMA_LOAD, NumBitsPerTMA, AuxParams_>
                Tensor<TS,SLayout> const& src,
                Tensor<TD,DLayout>      & dst) = delete;
-
+ 
 -  // Construct with updated TMA descriptor only (no barrier change)
 +  // Construct with updated TMA descriptor only (no barrier change).
 +  // OmniDreams patch: with pointer storage, we just store the new pointer directly
@@ -106,9 +106,9 @@ index 3be30af7..47abafee 100644
 +    return {new_tma_desc, aux_params_};
    }
  };
-
+ 
 @@ -252,6 +268,9 @@ struct SM90_TMA_LOAD_MULTICAST_OP : SM90_TMA_LOAD_MULTICAST {};
-
+ 
  // The non-executable SM90_TMA_LOAD_MULTICAST with tma_desc and no tma_mbar
  // Use .with(tma_mbar, multicast_mask) to construct an executable version
 +//
@@ -119,14 +119,14 @@ index 3be30af7..47abafee 100644
  {
 @@ -264,7 +283,8 @@ struct Copy_Traits<SM90_TMA_LOAD_MULTICAST, NumBitsPerTMA, AuxParams_>
    using RefLayout = SrcLayout;
-
+ 
    // SM90_TMA_LOAD_MULTICAST arguments
 -  TmaDescriptor tma_desc_;
 +  // OmniDreams patch: pointer to descriptor in cudaMalloc'd global memory.
 +  TmaDescriptor const* tma_desc_;
    using AuxParams = AuxParams_;
    AuxParams aux_params_;
-
+ 
 @@ -272,7 +292,7 @@ struct Copy_Traits<SM90_TMA_LOAD_MULTICAST, NumBitsPerTMA, AuxParams_>
    CUTE_HOST_DEVICE constexpr
    TmaDescriptor const*
@@ -134,7 +134,7 @@ index 3be30af7..47abafee 100644
 -    return &tma_desc_;
 +    return tma_desc_;
    }
-
+ 
    // Construct an executable SM90_TMA_LOAD_MULTICAST with tma_mbar
 @@ -282,7 +302,7 @@ struct Copy_Traits<SM90_TMA_LOAD_MULTICAST, NumBitsPerTMA, AuxParams_>
      uint64_t& tma_load_mbar,
@@ -143,11 +143,11 @@ index 3be30af7..47abafee 100644
 -    return {&tma_desc_, &tma_load_mbar, multicast_mask, static_cast<uint64_t>(cache_hint)};
 +    return {tma_desc_, &tma_load_mbar, multicast_mask, static_cast<uint64_t>(cache_hint)};
    }
-
+ 
    // Construct an executable SM90_TMA_LOAD_MULTICAST_OP with tma_mbar (temp. overloaded for grouped gemm/ptr array gemm)
 @@ -354,6 +374,9 @@ struct Copy_Traits<SM90_TMA_LOAD_MULTICAST_OP, NumBitsPerTMA>
  struct SM90_TMA_STORE_PTR : SM90_TMA_STORE {};
-
+ 
  // The executable SM90_TMA_STORE with tma_desc
 +//
 +// OmniDreams patch: see comment on Copy_Traits<SM90_TMA_LOAD>. Same
@@ -157,14 +157,14 @@ index 3be30af7..47abafee 100644
  {
 @@ -366,7 +389,8 @@ struct Copy_Traits<SM90_TMA_STORE, NumBitsPerTMA, AuxParams_>
    using RefLayout = SrcLayout;
-
+ 
    // SM90_TMA_STORE arguments
 -  TmaDescriptor tma_desc_;
 +  // OmniDreams patch: pointer to descriptor in cudaMalloc'd global memory.
 +  TmaDescriptor const* tma_desc_;
    using AuxParams = AuxParams_;
    AuxParams aux_params_;
-
+ 
 @@ -374,7 +398,7 @@ struct Copy_Traits<SM90_TMA_STORE, NumBitsPerTMA, AuxParams_>
    CUTE_HOST_DEVICE constexpr
    TmaDescriptor const*
@@ -172,12 +172,12 @@ index 3be30af7..47abafee 100644
 -    return &tma_desc_;
 +    return tma_desc_;
    }
-
+ 
    // Generate the TMA coord tensor
 @@ -403,7 +427,8 @@ struct Copy_Traits<SM90_TMA_STORE, NumBitsPerTMA, AuxParams_>
      static_assert(is_smem<TS>::value, "Expected smem src for SM90_TMA_STORE");
      //static_assert(is_gmem<TD>::value, "Expected gmem dst for SM90_TMA_STORE");  // TMA spoofed src tensor
-
+ 
 -    void const* const desc_ptr = &(traits.tma_desc_);
 +    // OmniDreams patch: tma_desc_ is already a pointer; no address-of needed.
 +    void const* const desc_ptr = traits.tma_desc_;
@@ -186,7 +186,7 @@ index 3be30af7..47abafee 100644
  #if 0
 @@ -465,6 +490,9 @@ struct Copy_Traits<SM90_TMA_STORE_PTR, NumBitsPerTMA>
  //////////////////////////////////////////////////////////////////////////////
-
+ 
  // The executable SM90_TMA_REDUCE_ADD with tma_desc
 +//
 +// OmniDreams patch: see comment on Copy_Traits<SM90_TMA_LOAD>. Same
@@ -196,14 +196,14 @@ index 3be30af7..47abafee 100644
  {
 @@ -479,7 +507,8 @@ struct Copy_Traits<SM90_TMA_REDUCE_ADD, NumBitsPerTMA, AuxParams_>
    using RefLayout = SrcLayout;
-
+ 
    // SM90_TMA_REDUCE_ADD arguments
 -  TmaDescriptor tma_desc_;
 +  // OmniDreams patch: pointer to descriptor in cudaMalloc'd global memory.
 +  TmaDescriptor const* tma_desc_;
    using AuxParams = AuxParams_;
    AuxParams aux_params_;
-
+ 
 @@ -487,7 +516,7 @@ struct Copy_Traits<SM90_TMA_REDUCE_ADD, NumBitsPerTMA, AuxParams_>
    CUTE_HOST_DEVICE constexpr
    TmaDescriptor const*
@@ -211,22 +211,22 @@ index 3be30af7..47abafee 100644
 -    return &tma_desc_;
 +    return tma_desc_;
    }
-
+ 
    // Generate the TMA coord tensor
 @@ -513,7 +542,8 @@ struct Copy_Traits<SM90_TMA_REDUCE_ADD, NumBitsPerTMA, AuxParams_>
             int32_t(c0), int32_t(c1), int32_t(c2), int32_t(c3), int32_t(c4), src_ptr);
  #endif
-
+ 
 -    SM90_TMA_REDUCE_ADD::copy(&tma_desc_,
 +    // OmniDreams patch: tma_desc_ is already a pointer; no address-of needed.
 +    SM90_TMA_REDUCE_ADD::copy(tma_desc_,
                           src_ptr, get<Is>(dst_coord)...);
    }
-
+ 
 @@ -1151,7 +1181,31 @@ make_tma_copy_atom(CopyOp,
    using Traits = Copy_Traits<CopyOp, cute::C<num_bits_per_tma>, decltype(aux_params)>;
    using Atom   = Copy_Atom<Traits, typename GEngine::value_type>;
-
+ 
 -  Traits tma_traits{tma_desc, aux_params};
 +  // OmniDreams patch: pin the host-built TMA descriptor into a cudaMalloc'd
 +  // global-memory slot so that subsequent kernel-side accesses (prefetch /
@@ -253,6 +253,58 @@ index 3be30af7..47abafee 100644
 +                "OmniDreams patch: TMA descriptor pool unavailable under NVRTC. "
 +                "Compile this kernel ahead-of-time instead.");
 +#endif
-
+ 
  #if 0
    print("num_bits_per_tma :  "); print(num_bits_per_tma); print("\n");
+diff --git a/include/cutlass/gemm/kernel/sm100_gemm_array_tma_warpspecialized_mma_transform.hpp b/include/cutlass/gemm/kernel/sm100_gemm_array_tma_warpspecialized_mma_transform.hpp
+index 2ec1049b..3597958c 100644
+--- a/include/cutlass/gemm/kernel/sm100_gemm_array_tma_warpspecialized_mma_transform.hpp
++++ b/include/cutlass/gemm/kernel/sm100_gemm_array_tma_warpspecialized_mma_transform.hpp
+@@ -480,7 +480,7 @@ public:
+     return grid_shape;
+   }
+ 
+-  static constexpr
++  static
+   dim3
+   get_block_shape() {
+     return dim3(MaxThreadsPerBlock, 1, 1);
+diff --git a/include/cutlass/gemm/kernel/sm100_sparse_gemm_tma_warpspecialized.hpp b/include/cutlass/gemm/kernel/sm100_sparse_gemm_tma_warpspecialized.hpp
+index a5f6eb9b..544950de 100644
+--- a/include/cutlass/gemm/kernel/sm100_sparse_gemm_tma_warpspecialized.hpp
++++ b/include/cutlass/gemm/kernel/sm100_sparse_gemm_tma_warpspecialized.hpp
+@@ -443,7 +443,7 @@ public:
+         params.hw_info);
+   }
+ 
+-  static constexpr
++  static
+   dim3
+   get_block_shape() {
+     return dim3(MaxThreadsPerBlock, 1, 1);
+diff --git a/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_array_tma_warpspecialized.hpp b/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_array_tma_warpspecialized.hpp
+index 06fd138d..3e66a305 100644
+--- a/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_array_tma_warpspecialized.hpp
++++ b/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_array_tma_warpspecialized.hpp
+@@ -479,7 +479,7 @@ public:
+     return grid_shape;
+   }
+ 
+-  static constexpr
++  static
+   dim3
+   get_block_shape() {
+     return dim3(MaxThreadsPerBlock, 1, 1);
+diff --git a/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_tma_warpspecialized.hpp b/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_tma_warpspecialized.hpp
+index ae93b2ff..2acf366e 100644
+--- a/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_tma_warpspecialized.hpp
++++ b/include/cutlass/gemm/kernel/sm103_blockscaled_gemm_tma_warpspecialized.hpp
+@@ -393,7 +393,7 @@ public:
+         params.hw_info);
+   }
+ 
+-  static constexpr
++  static
+   dim3
+   get_block_shape() {
+     return dim3(MaxThreadsPerBlock, 1, 1);
