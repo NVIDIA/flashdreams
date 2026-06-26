@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 pytestmark = pytest.mark.ci_cpu
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only DLL search path behavior")
 def test_windows_dll_directory_handles_are_kept_alive(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
