@@ -84,7 +84,7 @@ def _install_fake_builder(
     def fake_builder(**kwargs: Any) -> _FakeFlashVSRPipelineConfig:
         return _FakeFlashVSRPipelineConfig(kwargs, created)
 
-    monkeypatch.setattr(flashvsr_postprocess, "build_flashvsr_v1_1", fake_builder)
+    monkeypatch.setattr(flashvsr_postprocess, "_build_flashvsr_pipeline", fake_builder)
     return created
 
 
@@ -98,8 +98,6 @@ def test_flashvsr_postprocess_coalesces_chunks_and_flushes_tail(
         scale=2,
         sparse_ratio=1.5,
         attention_mode="sparse",
-        compile_network=False,
-        use_cuda_graph=False,
         tail_policy="replicate_pad",
         dtype="float32",
     )
@@ -125,8 +123,8 @@ def test_flashvsr_postprocess_coalesces_chunks_and_flushes_tail(
     assert pipeline.kwargs["input_W"] == 6
     assert pipeline.kwargs["scale"] == 2
     assert pipeline.kwargs["sparse_ratio"] == 1.5
-    assert pipeline.kwargs["compile_network"] is False
-    assert pipeline.kwargs["use_cuda_graph"] is False
+    assert pipeline.kwargs["compile_network"] is True
+    assert pipeline.kwargs["use_cuda_graph"] is True
     assert pipeline.kwargs["attention_mode"] == "sparse"
 
 
@@ -148,6 +146,34 @@ def test_flashvsr_postprocess_can_drop_short_tail(
     assert session.flush() == []
     assert len(created) == 1
     assert created[0].inputs == []
+
+
+def test_flashvsr_postprocess_finalizes_when_generate_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_builder(monkeypatch)
+
+    def failing_generate(
+        self: _FakeFlashVSRPipeline,
+        autoregressive_index: int,
+        cache: SimpleNamespace,
+        input: torch.Tensor,
+    ) -> torch.Tensor:
+        self.inputs.append((autoregressive_index, input.detach().cpu()))
+        raise RuntimeError("simulated FlashVSR failure")
+
+    monkeypatch.setattr(_FakeFlashVSRPipeline, "generate", failing_generate)
+
+    config = FlashVSRPostProcessorConfig(device="cpu", chunk_size=8, dtype="float32")
+    session = config.setup().start(VideoSpec(height=4, width=4, fps=24))
+    video = torch.zeros((8, 3, 4, 4))
+
+    with pytest.raises(RuntimeError, match="simulated FlashVSR failure"):
+        session.process(VideoChunk(tensor=video, layout="tchw"))
+
+    pipeline = created[0]
+    assert pipeline.finalized == [0]
+    assert len(pipeline.inputs) == 1
 
 
 def test_flashvsr_postprocess_rejects_multi_view_inputs(

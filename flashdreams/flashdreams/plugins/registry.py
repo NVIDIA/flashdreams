@@ -25,6 +25,7 @@ from typing import cast
 
 from loguru import logger
 
+from flashdreams.infra.postprocess import VideoPostProcessorConfig
 from flashdreams.infra.runner import RunnerConfig
 
 if sys.version_info < (3, 10):
@@ -36,6 +37,15 @@ ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 """Entry-point group external packages register :class:`RunnerConfig`
 instances under (matches nerfstudio's ``nerfstudio.method_configs``
 naming)."""
+
+POSTPROCESS_PRESET_GROUP = "flashdreams.postprocess_presets"
+"""Setuptools entry-point group for video post-processor presets.
+
+Each entry maps a preset slug (``ep.name``) to a
+:class:`~flashdreams.infra.postprocess.VideoPostProcessorConfig`
+instance (or a zero-arg factory returning one). Slugs are resolved by
+:func:`discover_postprocess_presets` and selected via
+``RunnerConfig.postprocess.preset`` / ``--postprocess.preset``."""
 
 ENV_VAR = "FLASHDREAMS_RUNNER_CONFIGS"
 """Env-var backdoor for in-development runners that aren't installed yet.
@@ -175,3 +185,66 @@ def discover_runners() -> dict[str, RunnerConfig]:
                 )
 
     return runners
+
+
+def discover_postprocess_presets() -> dict[str, VideoPostProcessorConfig]:
+    """Discover named post-processor presets from entry points.
+
+    Returns:
+        Mapping from preset slug to :class:`VideoPostProcessorConfig`.
+    """
+    presets: dict[str, VideoPostProcessorConfig] = {}
+    discovered = sorted(
+        entry_points(group=POSTPROCESS_PRESET_GROUP), key=lambda ep: ep.name
+    )
+    for ep in discovered:
+        origin = f"entry point {ep.name!r} -> {ep.value}"
+        try:
+            value = ep.load()
+        except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
+            logger.warning(
+                f"Failed to load postprocess preset {origin}:\n{traceback.format_exc()}"
+            )
+            continue
+        if callable(value) and not isinstance(value, VideoPostProcessorConfig):
+            try:
+                value = value()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    f"Calling postprocess preset {origin} as a factory raised:"
+                    f"\n{traceback.format_exc()}"
+                )
+                continue
+        if not isinstance(value, VideoPostProcessorConfig):
+            logger.warning(
+                f"Skipping postprocess preset {origin}: expected a "
+                f"VideoPostProcessorConfig, got {type(value).__name__}."
+            )
+            continue
+        if ep.name in presets:
+            logger.warning(
+                f"Skipping duplicate postprocess preset {ep.name!r} from {origin}."
+            )
+            continue
+        presets[ep.name] = value
+    return presets
+
+
+def resolve_postprocess_preset(name: str) -> VideoPostProcessorConfig:
+    """Resolve one registered post-processor preset by slug.
+
+    Args:
+        name: Preset slug registered under
+            :data:`POSTPROCESS_PRESET_GROUP`.
+
+    Raises:
+        ValueError: ``name`` is not registered.
+    """
+    presets = discover_postprocess_presets()
+    try:
+        return presets[name]
+    except KeyError as exc:
+        available = ", ".join(sorted(presets)) or "(none registered)"
+        raise ValueError(
+            f"Unknown postprocess preset {name!r}. Available presets: {available}"
+        ) from exc
