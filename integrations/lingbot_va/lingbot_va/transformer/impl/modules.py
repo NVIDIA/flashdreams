@@ -15,19 +15,15 @@
 # limitations under the License.
 """VA-specific transformer building blocks.
 
-``VASelfAttention`` adds a read-only attention path that attends to
-cached + freshly-computed KV without mutating the cache — replacing
-the upstream's write-then-rollback pattern with a compile-friendly op.
-
-``VABlock`` wires ``VASelfAttention`` into the standard block and
-exposes a ``persist`` flag to control cache writes.
+All block computations take pre-extracted KV tensors as arguments (no cache
+object access), enabling ``torch.compile(fullgraph=True)`` without graph breaks.
+Cache read/write operations happen at the network level, outside the compiled graph.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 import torch.nn as nn
@@ -43,7 +39,7 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     MultiHeadAttention,
 )
 
-from lingbot_va.transformer.impl.kvcache import DualChunkKVCache
+from lingbot_va.transformer.impl.kvcache import VAKVCache
 
 
 # ---------------------------------------------------------------------------
@@ -52,14 +48,9 @@ from lingbot_va.transformer.impl.kvcache import DualChunkKVCache
 
 @dataclass
 class VABlockCache:
-    """Per-block cache for a VA transformer block.
+    """Per-block cache for a VA transformer block."""
 
-    Uses ``DualChunkKVCache`` for self-attention (shared between
-    video and action) and ``CrossAttnCache`` for cross-attention
-    (static text context).
-    """
-
-    self_attn: DualChunkKVCache
+    self_attn: VAKVCache
     cross_attn: CrossAttnCache
 
 
@@ -68,71 +59,29 @@ class VABlockCache:
 # ---------------------------------------------------------------------------
 
 class VASelfAttention(MultiHeadAttention):
-    """Self-attention with read-only and write-commit modes.
+    """Self-attention that takes committed KV as plain tensors.
 
-    Extends ``MultiHeadAttention`` with ``forward_readonly`` for
-    intermediate denoising steps and ``forward_persist`` for the
-    final step that commits KV to the cache.
+    All methods receive pre-sliced committed K/V and cross-attn K/V as
+    tensor arguments — no cache object access inside, fully compile-friendly.
     """
 
-    def forward_readonly(
+    def forward(
         self,
         x: Tensor,
-        kv_cache: DualChunkKVCache,
+        committed_k: Tensor,
+        committed_v: Tensor,
         rope_freqs: Tensor,
-    ) -> Tensor:
-        """Attend to cached + fresh KV without modifying the cache.
-
-        Computes K, V from ``x``, concatenates with all committed
-        cache tokens, runs attention, and returns the projected output.
-        The cache is NOT mutated.
-
-        Args:
-            x: Input hidden states ``[batch, L, dim]``.
-            kv_cache: The ``DualChunkKVCache`` to read from.
-            rope_freqs: RoPE frequencies ``[L, 1, 1, head_dim]``.
-
-        Returns:
-            Attention output ``[batch, L, dim]``.
-        """
-        batch_size = x.shape[0]
-        L = x.shape[1]
-        n, d = self.n_heads, self.head_dim
-
-        k_fresh = self.norm_k(self.k(x)).reshape(batch_size, L, n, d)
-        v_fresh = self.v(x).reshape(batch_size, L, n, d)
-        if self.apply_rope_before_kvcache:
-            k_fresh = apply_rope_freqs(k_fresh, rope_freqs, interleaved=True)
-
-        q = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
-        q = apply_rope_freqs(q, rope_freqs, interleaved=True)
-
-        full_k, full_v = kv_cache.cached_kv_plus_fresh(k_fresh, v_fresh)
-        out = self.attn_op(q, full_k, full_v)
-        out = out.reshape(batch_size, L, n * d)
-        return self.o(out)
-
-    def forward_persist(
-        self,
-        x: Tensor,
-        kv_cache: DualChunkKVCache,
-        rope_freqs: Tensor,
-        write_mode: str,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        """Attend AND return projected K, V for cache write.
-
-        Same attention as ``forward_readonly`` but also returns the
-        projected K, V so the caller can write them to the cache.
+        """Compute self-attention against committed cache + fresh tokens.
 
         Args:
             x: Input hidden states ``[batch, L, dim]``.
-            kv_cache: The ``DualChunkKVCache`` to read from.
+            committed_k: Committed K from prior steps ``[batch, N, heads, head_dim]``.
+            committed_v: Committed V from prior steps ``[batch, N, heads, head_dim]``.
             rope_freqs: RoPE frequencies ``[L, 1, 1, head_dim]``.
-            write_mode: ``"primary"`` or ``"secondary"`` (unused here,
-                passed through for the caller's convenience).
 
         Returns:
-            ``(attn_output, k_to_write, v_to_write)``
+            ``(attn_output, k_fresh, v_fresh)`` — output + fresh KV for optional cache write.
         """
         batch_size = x.shape[0]
         L = x.shape[1]
@@ -146,7 +95,13 @@ class VASelfAttention(MultiHeadAttention):
         q = self.norm_q(self.q(x)).reshape(batch_size, L, n, d)
         q = apply_rope_freqs(q, rope_freqs, interleaved=True)
 
-        full_k, full_v = kv_cache.cached_kv_plus_fresh(k_fresh, v_fresh)
+        if committed_k.shape[1] > 0:
+            full_k = torch.cat([committed_k, k_fresh], dim=1)
+            full_v = torch.cat([committed_v, v_fresh], dim=1)
+        else:
+            full_k = k_fresh
+            full_v = v_fresh
+
         out = self.attn_op(q, full_k, full_v)
         out = out.reshape(batch_size, L, n * d)
         return self.o(out), k_fresh, v_fresh
@@ -159,8 +114,8 @@ class VASelfAttention(MultiHeadAttention):
 class VABlock(nn.Module):
     """Transformer block for video-action models.
 
-    Mirrors the structure of ``Block`` but uses ``VASelfAttention``
-    with ``DualChunkKVCache`` and supports a ``persist`` flag.
+    Takes committed KV and cross-attn KV as tensor arguments.
+    No cache object access inside — fully compile-friendly.
     """
 
     modulation: nn.Parameter
@@ -218,48 +173,47 @@ class VABlock(nn.Module):
         self,
         x: Tensor,
         e: Tensor,
-        cache: VABlockCache,
+        committed_k: Tensor,
+        committed_v: Tensor,
+        cross_k: Tensor,
+        cross_v: Tensor,
         rope_freqs: Tensor,
-        persist: bool = False,
-        write_mode: str = "primary",
-    ) -> Tensor | tuple[Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """Run one transformer block.
 
         Args:
             x: Hidden states ``[batch, L, dim]``.
-            e: Modulation ``[batch, L, 6, dim]`` (per-token timestep).
-            cache: Block cache (self-attn + cross-attn).
+            e: Modulation ``[batch, L, 6, dim]``.
+            committed_k: Prior committed K ``[batch, N, heads, head_dim]``.
+            committed_v: Prior committed V ``[batch, N, heads, head_dim]``.
+            cross_k: Cross-attn text K ``[batch, T, heads, head_dim]``.
+            cross_v: Cross-attn text V ``[batch, T, heads, head_dim]``.
             rope_freqs: RoPE frequencies ``[L, 1, 1, head_dim]``.
-            persist: If True, return ``(x, k, v)`` for cache commit.
-                If False, run read-only attention.
-            write_mode: ``"primary"`` or ``"secondary"`` (passed through).
 
         Returns:
-            If ``persist=False``: updated hidden states ``[batch, L, dim]``.
-            If ``persist=True``: ``(hidden_states, k_to_write, v_to_write)``.
+            ``(x, k_fresh, v_fresh)`` — updated hidden states + fresh KV.
         """
         assert self._parameters_updated_after_loading_checkpoint
         e_chunks = [c.squeeze(-2) for c in (self.modulation + e).chunk(6, dim=-2)]
 
         y = self.norm1(x) * (1 + e_chunks[1]) + e_chunks[0]
-
-        if persist:
-            attn_out, k_fresh, v_fresh = self.self_attn.forward_persist(
-                y, cache.self_attn, rope_freqs, write_mode
-            )
-        else:
-            attn_out = self.self_attn.forward_readonly(
-                y, cache.self_attn, rope_freqs
-            )
-
+        attn_out, k_fresh, v_fresh = self.self_attn(
+            y, committed_k, committed_v, rope_freqs
+        )
         x = x + (attn_out * e_chunks[2])
 
-        x = x + self.cross_attn(self.norm3(x), kv_cache=cache.cross_attn)
+        # Cross-attention with pre-extracted text KV
+        B, L, D = x.shape
+        n, d = self.self_attn.n_heads, self.self_attn.head_dim
+        y2 = self.norm3(x)
+        q2 = self.cross_attn.norm_q(self.cross_attn.q(y2)).reshape(B, L, n, d)
+        out2 = self.cross_attn.attn_op(q2, cross_k, cross_v)
+        out2 = out2.reshape(B, L, n * d)
+        x = x + self.cross_attn.o(out2)
 
-        y = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
-        y = self.ffn(y)
-        x = x + (y * e_chunks[5])
+        # FFN
+        y3 = self.norm2(x) * (1 + e_chunks[4]) + e_chunks[3]
+        y3 = self.ffn(y3)
+        x = x + (y3 * e_chunks[5])
 
-        if persist:
-            return x, k_fresh, v_fresh  # type: ignore[possibly-undefined]
-        return x
+        return x, k_fresh, v_fresh

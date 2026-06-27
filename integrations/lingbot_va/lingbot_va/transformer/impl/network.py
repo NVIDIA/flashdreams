@@ -31,7 +31,7 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     sinusoidal_embedding_1d,
 )
 
-from lingbot_va.transformer.impl.kvcache import DualChunkKVCache
+from lingbot_va.transformer.impl.kvcache import VAKVCache
 from lingbot_va.transformer.impl.modules import VABlock, VABlockCache
 
 
@@ -220,8 +220,8 @@ class WanVADiTNetwork(nn.Module):
         self,
         *,
         text_embeddings: Tensor,
-        primary_chunk: int,
-        secondary_chunk: int,
+        video_chunk: int,
+        action_chunk: int,
         window_slots: int,
         batch_size: int,
     ) -> WanVADiTNetworkCache:
@@ -230,9 +230,9 @@ class WanVADiTNetwork(nn.Module):
         block_caches: list[VABlockCache] = []
         for block in self.blocks:
             assert isinstance(block, VABlock)
-            self_attn_cache = DualChunkKVCache(
-                primary_chunk=primary_chunk,
-                secondary_chunk=secondary_chunk,
+            self_attn_cache = VAKVCache.create(
+                video_chunk=video_chunk,
+                action_chunk=action_chunk,
                 window_slots=window_slots,
                 batch_size=batch_size,
                 num_heads=self.num_heads,
@@ -247,6 +247,114 @@ class WanVADiTNetwork(nn.Module):
             ))
         return WanVADiTNetworkCache(block_caches=block_caches)
 
+    def _extract_cache_tensors(
+        self, cache: WanVADiTNetworkCache
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Extract committed KV and cross-attn text KV as plain tensors.
+
+        Called outside the compiled graph to avoid BlockKVCache graph breaks.
+
+        Returns:
+            (committed_k_stack, committed_v_stack, cross_k_stack, cross_v_stack)
+            All shapes: [num_layers, batch, seq_len, heads, head_dim]
+        """
+        committed_k = torch.stack([
+            bc.self_attn.kv_cache._k[:, :bc.self_attn.n_committed_tokens]
+            for bc in cache.block_caches
+        ])
+        committed_v = torch.stack([
+            bc.self_attn.kv_cache._v[:, :bc.self_attn.n_committed_tokens]
+            for bc in cache.block_caches
+        ])
+        cross_k = torch.stack([
+            bc.cross_attn.text._k[:, :bc.cross_attn.text._n_cached]
+            for bc in cache.block_caches
+        ])
+        cross_v = torch.stack([
+            bc.cross_attn.text._v[:, :bc.cross_attn.text._n_cached]
+            for bc in cache.block_caches
+        ])
+        return committed_k, committed_v, cross_k, cross_v
+
+    def _forward_blocks_video(
+        self,
+        x: Tensor,
+        timesteps: Tensor,
+        committed_k: Tensor,
+        committed_v: Tensor,
+        cross_k: Tensor,
+        cross_v: Tensor,
+        rope_freqs: Tensor,
+    ) -> tuple[Tensor, list[Tensor], list[Tensor]]:
+        """Pure-tensor video forward through all blocks. Compile-friendly.
+
+        Args:
+            committed_k: [num_layers, batch, N, heads, head_dim]
+            committed_v: same
+            cross_k: [num_layers, batch, T, heads, head_dim]
+            cross_v: same
+
+        Returns:
+            (head_output, k_fresh_list, v_fresh_list)
+        """
+        x = self.patch_embedding(x)
+        e = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
+        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
+        block_e = e0
+        head_e = e.unsqueeze(-2)
+
+        k_list: list[Tensor] = []
+        v_list: list[Tensor] = []
+        for block_idx, block in enumerate(self.blocks):
+            x, k_fresh, v_fresh = block(
+                x, block_e,
+                committed_k[block_idx], committed_v[block_idx],
+                cross_k[block_idx], cross_v[block_idx],
+                rope_freqs,
+            )
+            k_list.append(k_fresh)
+            v_list.append(v_fresh)
+
+        return self.head(x, head_e), k_list, v_list
+
+    def _forward_blocks_action(
+        self,
+        x: Tensor,
+        timesteps: Tensor,
+        committed_k: Tensor,
+        committed_v: Tensor,
+        cross_k: Tensor,
+        cross_v: Tensor,
+        rope_freqs: Tensor,
+    ) -> tuple[Tensor, list[Tensor], list[Tensor]]:
+        """Pure-tensor action forward through all blocks. Compile-friendly.
+
+        Returns:
+            (action_output, k_fresh_list, v_fresh_list)
+        """
+        x = self.action_embedder(x)
+        e = self.action_time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
+        e0 = self.action_time_projection(e).unflatten(-1, (6, self.dim))
+        block_e = e0
+        head_e = e.unsqueeze(-2)
+
+        k_list: list[Tensor] = []
+        v_list: list[Tensor] = []
+        for block_idx, block in enumerate(self.blocks):
+            x, k_fresh, v_fresh = block(
+                x, block_e,
+                committed_k[block_idx], committed_v[block_idx],
+                cross_k[block_idx], cross_v[block_idx],
+                rope_freqs,
+            )
+            k_list.append(k_fresh)
+            v_list.append(v_fresh)
+
+        # Action output: shared modulation + separate projection
+        e_chunks = [c.squeeze(-2) for c in (self.head.modulation + head_e).chunk(2, dim=-2)]
+        x = self.head.norm(x) * (1 + e_chunks[1]) + e_chunks[0]
+        return self.action_head(x), k_list, v_list
+
     def forward_video(
         self,
         x: Tensor,
@@ -257,40 +365,28 @@ class WanVADiTNetwork(nn.Module):
     ) -> Tensor:
         """Video-mode forward.
 
-        Args:
-            x: Patchified video tokens ``[batch, L, D_in]``.
-            timesteps: Per-token timesteps ``[batch, L]``.
-            cache: Network cache.
-            rope_freqs: ``[L, 1, 1, head_dim]``.
-            persist: Write KV to cache (last denoising step).
+        Cache extraction and writes happen outside the compiled block loop.
 
         Returns:
             Video flow ``[batch, L, prod(patch_size) * out_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint
-        L = x.shape[1]
 
-        x = self.patch_embedding(x)
-        e = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
-        e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
-        block_e = e0
-        head_e = e.unsqueeze(-2)
+        # Extract cache tensors (outside compile boundary)
+        committed_k, committed_v, cross_k, cross_v = self._extract_cache_tensors(cache)
 
-        kv_per_block: list[tuple[Tensor, Tensor]] = []
-        for block_idx, block in enumerate(self.blocks):
-            assert isinstance(block, VABlock)
-            result = block(x, block_e, cache[block_idx], rope_freqs, persist=persist, write_mode="primary")
-            if persist:
-                x, k, v = result
-                kv_per_block.append((k, v))
-            else:
-                x = result
+        # Compiled block loop (pure tensors, no cache access)
+        output, k_list, v_list = self._forward_blocks_video(
+            x, timesteps, committed_k, committed_v, cross_k, cross_v, rope_freqs,
+        )
 
+        # Cache write (outside compile boundary)
         if persist:
-            for block_idx, (k, v) in enumerate(kv_per_block):
-                cache[block_idx].self_attn.write_primary(k, v)
+            for block_idx, (k, v) in enumerate(zip(k_list, v_list)):
+                cache[block_idx].self_attn.write_video(k, v)
+            self._last_video_kv = list(zip(k_list, v_list))
 
-        return self.head(x, head_e)
+        return output
 
     def forward_action(
         self,
@@ -302,40 +398,25 @@ class WanVADiTNetwork(nn.Module):
     ) -> Tensor:
         """Action-mode forward.
 
-        Args:
-            x: Action tokens ``[batch, L, action_dim]``.
-            timesteps: Per-token timesteps ``[batch, L]``.
-            cache: Network cache (same object as video pass).
-            rope_freqs: ``[L, 1, 1, head_dim]``.
-            persist: Write KV to cache (last denoising step).
+        Cache extraction and writes happen outside the compiled block loop.
 
         Returns:
             Action flow ``[batch, L, action_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint
-        L = x.shape[1]
 
-        x = self.action_embedder(x)
-        e = self.action_time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
-        e0 = self.action_time_projection(e).unflatten(-1, (6, self.dim))
-        block_e = e0
-        head_e = e.unsqueeze(-2)
+        # Extract cache tensors (outside compile boundary)
+        committed_k, committed_v, cross_k, cross_v = self._extract_cache_tensors(cache)
 
-        kv_per_block: list[tuple[Tensor, Tensor]] = []
-        for block_idx, block in enumerate(self.blocks):
-            assert isinstance(block, VABlock)
-            result = block(x, block_e, cache[block_idx], rope_freqs, persist=persist, write_mode="secondary")
-            if persist:
-                x, k, v = result
-                kv_per_block.append((k, v))
-            else:
-                x = result
+        # Compiled block loop (pure tensors, no cache access)
+        output, k_list, v_list = self._forward_blocks_action(
+            x, timesteps, committed_k, committed_v, cross_k, cross_v, rope_freqs,
+        )
 
+        # Cache write (outside compile boundary)
         if persist:
-            for block_idx, (k, v) in enumerate(kv_per_block):
-                cache[block_idx].self_attn.write_secondary(k, v)
+            for block_idx, (k, v) in enumerate(zip(k_list, v_list)):
+                vk, vv = self._last_video_kv[block_idx]
+                cache[block_idx].self_attn.write_action(k, v, vk, vv)
 
-        # Action output: shared modulation + separate projection
-        e_chunks = [c.squeeze(-2) for c in (self.head.modulation + head_e).chunk(2, dim=-2)]
-        x = self.head.norm(x) * (1 + e_chunks[1]) + e_chunks[0]
-        return self.action_head(x)
+        return output

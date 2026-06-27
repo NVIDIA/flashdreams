@@ -33,10 +33,8 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from einops import rearrange
 from loguru import logger
 from PIL import Image
-from tqdm import tqdm
 
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot_va.action import LingbotVAActionProcessor
@@ -54,7 +52,6 @@ from lingbot_va.constants import (
     ROBOTWIN_FRAME_CHUNK_SIZE,
     ROBOTWIN_GUIDANCE_SCALE,
     ROBOTWIN_HEIGHT,
-    ROBOTWIN_LATENT_CHANNELS,
     ROBOTWIN_OBS_CAM_KEYS,
     ROBOTWIN_PATCH_SIZE,
     ROBOTWIN_SNR_SHIFT,
@@ -63,8 +60,7 @@ from lingbot_va.constants import (
     ROBOTWIN_WIDTH,
 )
 from lingbot_va.pipeline import LingbotVAInferencePipeline
-from lingbot_va.transformer import LingbotVATransformerConfig
-from lingbot_va.utils import data_seq_to_patch, get_mesh_id, resolve_prompt
+from lingbot_va.utils import resolve_prompt
 
 
 def _prompt_clean(text: str) -> str:
@@ -167,7 +163,7 @@ class LingbotVARobotwinRunner(
     # ------------------------------------------------------------------
 
     def _load_models(self, device: torch.device, dtype: torch.dtype):
-        """Load transformer, VAE(s), text encoder, tokenizer."""
+        """Load VAE(s), text encoder, tokenizer, and transformer weights."""
         from lingbot_va._loaders import (
             WanVAEStreamingWrapper,
             load_text_encoder,
@@ -191,29 +187,10 @@ class LingbotVARobotwinRunner(
             "cpu" if enable_offload else device,
         )
 
-        lh = (cfg.pixel_height // 16 * 3) // 2
-        lw = cfg.pixel_width // 16
-
-        from lingbot_va.transformer.impl.network import WanVADiTNetworkConfig
-        transformer_cfg = LingbotVATransformerConfig(
-            network=WanVADiTNetworkConfig(
-                action_dim=cfg.action_dim,
-                action_per_frame=cfg.action_per_frame,
-                patch_size=cfg.patch_size,
-            ),
-            checkpoint_root=ckpt,
-            dtype=dtype,
-            compile_network=cfg.compile_network,
-            guidance_scale=cfg.guidance_scale,
-            action_guidance_scale=cfg.action_guidance_scale,
-            latent_height=lh,
-            latent_width=lw,
-            frame_chunk_size=cfg.frame_chunk_size,
-            action_per_frame=cfg.action_per_frame,
-            attn_window=cfg.attn_window,
-        )
-        self._transformer = transformer_cfg.setup()
-        self._transformer.load_model(device)
+        # Propagate runner overrides to the pipeline's transformer config
+        self.pipeline.transformer.config.checkpoint_root = ckpt
+        self.pipeline.transformer.config.compile_network = cfg.compile_network
+        self.pipeline.transformer.load_model(device)
 
     # ------------------------------------------------------------------
     # prompt encoding (from upstream _get_t5_prompt_embeds / encode_prompt)
@@ -284,117 +261,6 @@ class LingbotVARobotwinRunner(
         return ((latents.float() - mean) * std).to(latents)
 
     # ------------------------------------------------------------------
-    # single chunk inference
-    # ------------------------------------------------------------------
-
-    @torch.no_grad()
-    def _infer_chunk(self, init_latent, frame_st_id, device, dtype,
-                     cache, action_mask, scheduler, action_scheduler):
-        cfg = self.config
-        fcs = cfg.frame_chunk_size
-        ps = cfg.patch_size
-
-        lh = (cfg.pixel_height // 16 * 3) // 2
-        lw = cfg.pixel_width // 16
-
-        latents = torch.randn(1, ROBOTWIN_LATENT_CHANNELS, fcs, lh, lw, device=device, dtype=dtype)
-        actions = torch.randn(1, cfg.action_dim, fcs, cfg.action_per_frame, 1, device=device, dtype=dtype)
-
-        scheduler.set_timesteps(cfg.num_inference_steps)
-        action_scheduler.set_timesteps(cfg.action_num_inference_steps)
-        timesteps = F.pad(scheduler.timesteps, (0, 1), value=0)
-        action_timesteps = F.pad(action_scheduler.timesteps, (0, 1), value=0)
-
-        # Precompute grid_ids for RoPE
-        video_grid_id = get_mesh_id(
-            fcs // ps[0], lh // ps[1], lw // ps[2], 0, 1, frame_st_id,
-        ).to(device)
-        action_grid_id = get_mesh_id(
-            fcs, cfg.action_per_frame, 1, 1, 1, frame_st_id, action=True,
-        ).to(device)
-
-        cache.start(frame_st_id)
-
-        # --- video denoise ---
-        for i, t in enumerate(tqdm(timesteps, desc="video denoise")):
-            last_step = i == len(timesteps) - 1
-            latent_cond = init_latent[:, :, 0:1].to(dtype) if frame_st_id == 0 else None
-
-            # Patchify: [B, C, F, H, W] -> [B, L, C*p1*p2*p3]
-            noisy = latents.clone()
-            if latent_cond is not None:
-                noisy[:, :, 0:1] = latent_cond
-            x = rearrange(
-                noisy,
-                'b c (f p1) (h p2) (w p3) -> b (f h w) (c p1 p2 p3)',
-                p1=ps[0], p2=ps[1], p3=ps[2],
-            )
-
-            # Per-token timesteps
-            t_val = float(t)
-            n_tokens = x.shape[1]
-            ts = torch.full((1, n_tokens), t_val, dtype=torch.float32, device=device)
-            if latent_cond is not None and frame_st_id == 0:
-                cond_tokens = (lh // ps[1]) * (lw // ps[2])
-                ts[:, :cond_tokens] = 0.0
-
-            pred = self._transformer.predict_flow(
-                x, ts, cache,
-                input={"grid_id": video_grid_id},
-                persist=last_step,
-            )
-
-            if not last_step:
-                pred = rearrange(
-                    pred,
-                    'b (f h w) (c kt kh kw) -> b c (f kt) (h kh) (w kw)',
-                    f=fcs // ps[0], h=lh // ps[1], w=lw // ps[2],
-                    kt=ps[0], kh=ps[1], kw=ps[2],
-                )
-                latents = scheduler.step(pred, t, latents)
-
-            latents[:, :, 0:1] = latent_cond if frame_st_id == 0 else latents[:, :, 0:1]
-
-        # --- action denoise ---
-        for i, t in enumerate(tqdm(action_timesteps, desc="action denoise")):
-            last_step = i == len(action_timesteps) - 1
-            action_cond = (
-                torch.zeros(1, cfg.action_dim, 1, cfg.action_per_frame, 1, device=device, dtype=dtype)
-                if frame_st_id == 0 else None
-            )
-
-            noisy_a = actions.clone()
-            if action_cond is not None:
-                noisy_a[:, :, 0:1] = action_cond
-            noisy_a[:, ~action_mask] *= 0
-            x_a = rearrange(noisy_a, 'b c f h w -> b (f h w) c')
-
-            t_val = float(t)
-            n_tokens_a = x_a.shape[1]
-            ts_a = torch.full((1, n_tokens_a), t_val, dtype=torch.float32, device=device)
-            if action_cond is not None and frame_st_id == 0:
-                ts_a[:, :cfg.action_per_frame] = 0.0
-
-            pred = self._transformer.predict_action_flow(
-                x_a, ts_a, cache,
-                input={"grid_id": action_grid_id},
-                persist=last_step,
-            )
-
-            if not last_step:
-                pred = rearrange(pred, "b (f n) c -> b c f n 1", f=fcs)
-                actions = action_scheduler.step(pred, t, actions)
-
-            actions[:, :, 0:1] = action_cond if frame_st_id == 0 else actions[:, :, 0:1]
-
-        # Commit both video and action KV to the cache
-        self._transformer.commit_cache_slot(cache)
-        cache.finalize(frame_st_id)
-
-        actions[:, ~action_mask] *= 0
-        return actions, latents
-
-    # ------------------------------------------------------------------
     # main entry
     # ------------------------------------------------------------------
 
@@ -418,11 +284,6 @@ class LingbotVARobotwinRunner(
         # load models
         logger.info("Loading models from {}", cfg.checkpoint_root)
         self._load_models(device, dtype)
-
-        from lingbot_va._loaders import FlowMatchScheduler
-
-        scheduler = FlowMatchScheduler(shift=cfg.snr_shift, sigma_min=0.0, extra_one_step=True)
-        action_scheduler = FlowMatchScheduler(shift=cfg.action_snr_shift, sigma_min=0.0, extra_one_step=True)
 
         # encode prompt
         if cfg.benchmark:
@@ -453,9 +314,9 @@ class LingbotVARobotwinRunner(
             self._vae.cpu()
             torch.cuda.empty_cache()
 
-        # initialize native KV cache
+        # initialize pipeline cache
         logger.info("Initializing AR cache")
-        ar_cache = self._transformer.initialize_autoregressive_cache(
+        pipeline_cache = self.pipeline.initialize_cache(
             text_embeddings=prompt_embeds,
             negative_text_embeddings=neg_embeds if use_cfg else None,
             batch_size=1,
@@ -477,23 +338,27 @@ class LingbotVARobotwinRunner(
             chunk_times = []
 
         for chunk_id in range(cfg.num_chunks):
-            frame_st_id = chunk_id * cfg.frame_chunk_size
-            logger.info("Generating chunk {}/{} (frame_st_id={})", chunk_id + 1, cfg.num_chunks, frame_st_id)
+            logger.info("Generating chunk {}/{}", chunk_id + 1, cfg.num_chunks)
             if cfg.benchmark:
                 torch.cuda.synchronize()
                 t_chunk_start = time.perf_counter()
-            raw_actions, latent_chunk = self._infer_chunk(
-                init_latent, frame_st_id, device, dtype,
-                ar_cache, action_mask,
-                scheduler, action_scheduler,
+            output = self.pipeline.generate(
+                autoregressive_index=chunk_id,
+                cache=pipeline_cache,
+                input={
+                    "init_latent": init_latent,
+                    "action_mask": action_mask,
+                    "device": device,
+                    "dtype": dtype,
+                },
             )
             if cfg.benchmark:
                 torch.cuda.synchronize()
                 chunk_times.append(time.perf_counter() - t_chunk_start)
-            post_actions = action_processor.postprocess(raw_actions)
-            pred_latents.append(latent_chunk.detach().cpu())
+            post_actions = action_processor.postprocess(output.action)
+            pred_latents.append(output.latent.detach().cpu())
             pred_actions.append(post_actions)
-            del raw_actions, latent_chunk
+            del output
             torch.cuda.empty_cache()
 
         if cfg.benchmark:
@@ -534,23 +399,23 @@ class LingbotVARobotwinRunner(
             logger.info("VRAM before cleanup: {:.2f} GiB allocated",
                         torch.cuda.memory_allocated() / 1024**3)
             # Free KV caches (self-attn + cross-attn)
-            for nc in [ar_cache.network_cache, ar_cache.network_cache_uncond]:
+            tc = pipeline_cache.transformer_cache
+            for nc in [tc.network_cache, tc.network_cache_uncond]:
                 if nc is None:
                     continue
                 for bc in nc.block_caches:
                     bc.self_attn.reset()
                     bc.cross_attn.text.k = torch.empty(0)
                     bc.cross_attn.text.v = torch.empty(0)
-            del ar_cache
+            del pipeline_cache
             # Free streaming VAE caches (but keep self._vae on GPU for decode)
             self._streaming_vae.clear_cache()
             if self._streaming_vae_half:
                 self._streaming_vae_half.clear_cache()
             # Move all models except VAE to CPU
-            self._transformer.network.to("cpu")
+            self.pipeline.transformer.network.to("cpu")
             if hasattr(self, '_text_encoder') and self._text_encoder is not None:
                 self._text_encoder.to("cpu")
-            del self._transformer
             del self._streaming_vae
             del self._streaming_vae_half
             del self._text_encoder

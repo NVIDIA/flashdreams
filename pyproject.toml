@@ -1,3 +1,19 @@
+# ============================================================================
+# CUDA 12.8 variant of the root workspace config.
+#
+# Usage:
+#   cp pyproject.cu128.toml pyproject.toml
+#   uv lock --upgrade-package torch --upgrade-package torchvision
+#   uv sync
+#
+# Changes vs pyproject.toml.cu130.bak:
+#   1. Added [[tool.uv.index]] for pytorch-cu128
+#   2. Routed torch to cu128 index on Linux (not just Windows)
+#   3. Pinned torch<2.12 (no cu128 wheel for 2.12)
+#   4. Removed nvidia-cublas>=13.4 override (cu12 torch uses cublas 12.x)
+#   5. Switched transformer-engine from cu13 to cu12
+# ============================================================================
+
 [tool.uv.workspace]
 members = [
     "flashdreams",
@@ -11,20 +27,19 @@ members = [
     "integrations/omnidreams/ludus-renderer",
 ]
 
-# Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
-# compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
-# cuBLAS 13.4 is backwards compatible with 13.1.
 [tool.uv]
 managed = true
 required-version = ">=0.11.8"
 override-dependencies = [
-    "nvidia-cublas>=13.4",
+    # cu128 torch pulls nvidia-cublas 12.x; no need for the 13.4 floor.
     # Keep transitive HTTP clients off urllib3 versions with sensitive-header
     # redirect handling vulnerabilities.
     "urllib3>=2.7.0",
     # Keep protobuf off the 6.33.x line flagged by BDSA for the ParseDict
     # recursion-depth follow-up.
     "protobuf>=7.35.0,<8",
+    # Pin torch to <2.12 because 2.12 has no cu128 wheel.
+    "torch>=2.9,<2.12",
 ]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
@@ -35,6 +50,21 @@ override-dependencies = [
 # https://github.com/NVIDIA/TransformerEngine/issues/1323 — disable isolation
 # so TE builds against the resolved torch from the project venv.
 no-build-isolation-package = ["transformer-engine-torch"]
+
+# ---------- PyTorch CUDA 12.8 index ----------
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+# Route torch and torchvision to cu128 on all platforms.
+torch = [
+    { index = "pytorch-cu128" },
+]
+torchvision = [
+    { index = "pytorch-cu128" },
+]
 
 [tool.pyright]
 extraPaths = [
@@ -152,7 +182,7 @@ docs-ci = [
     "loguru>=0.7",
     "numpy>=1.24",
     "safetensors>=0.4",
-    "torch>=2.9",
+    "torch>=2.9,<2.12",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
 ]

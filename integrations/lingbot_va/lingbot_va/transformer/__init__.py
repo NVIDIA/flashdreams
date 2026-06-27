@@ -31,7 +31,6 @@ import torch.nn as nn
 from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.infra.compile import compile_module
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
@@ -60,9 +59,21 @@ class LingbotVATransformerCache(TransformerAutoregressiveCache):
     autoregressive_index: int = -1
 
     def start(self, autoregressive_index: int) -> None:
+        """Open cache window for the given AR step."""
         self.autoregressive_index = autoregressive_index
+        for bc in self.network_cache.block_caches:
+            bc.self_attn.before_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            for bc in self.network_cache_uncond.block_caches:
+                bc.self_attn.before_update(autoregressive_index)
 
     def finalize(self, autoregressive_index: int) -> None:
+        """Close cache window and commit the AR step."""
+        for bc in self.network_cache.block_caches:
+            bc.self_attn.after_update(autoregressive_index)
+        if self.network_cache_uncond is not None:
+            for bc in self.network_cache_uncond.block_caches:
+                bc.self_attn.after_update(autoregressive_index)
         self.autoregressive_index = autoregressive_index
 
 
@@ -127,7 +138,16 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         net = net.to(dtype=cfg.dtype, device=device)
 
         if cfg.compile_network:
-            net = compile_module(net)
+            net._forward_blocks_video = torch.compile(
+                net._forward_blocks_video,
+                mode="max-autotune-no-cudagraphs",
+                fullgraph=True,
+            )
+            net._forward_blocks_action = torch.compile(
+                net._forward_blocks_action,
+                mode="max-autotune-no-cudagraphs",
+                fullgraph=True,
+            )
 
         object.__setattr__(self, '_network', net)
 
@@ -151,18 +171,18 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
     ) -> LingbotVATransformerCache:
         cfg = self.config
         ps = cfg.network.patch_size
-        primary_chunk = (
+        video_chunk = (
             (cfg.frame_chunk_size // ps[0])
             * (cfg.latent_height // ps[1])
             * (cfg.latent_width // ps[2])
         )
-        secondary_chunk = cfg.frame_chunk_size * cfg.action_per_frame
+        action_chunk = cfg.frame_chunk_size * cfg.action_per_frame
         window_slots = cfg.attn_window // 2
 
         network_cache = self.network.initialize_cache(
             text_embeddings=text_embeddings,
-            primary_chunk=primary_chunk,
-            secondary_chunk=secondary_chunk,
+            video_chunk=video_chunk,
+            action_chunk=action_chunk,
             window_slots=window_slots,
             batch_size=batch_size,
         )
@@ -172,8 +192,8 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             assert negative_text_embeddings is not None
             network_cache_uncond = self.network.initialize_cache(
                 text_embeddings=negative_text_embeddings,
-                primary_chunk=primary_chunk,
-                secondary_chunk=secondary_chunk,
+                video_chunk=video_chunk,
+                action_chunk=action_chunk,
                 window_slots=window_slots,
                 batch_size=batch_size,
             )
@@ -182,14 +202,6 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             network_cache=network_cache,
             network_cache_uncond=network_cache_uncond,
         )
-
-    def commit_cache_slot(self, cache: LingbotVATransformerCache) -> None:
-        """Advance all block caches after both video and action writes."""
-        for bc in cache.network_cache.block_caches:
-            bc.self_attn.commit_slot()
-        if cache.network_cache_uncond is not None:
-            for bc in cache.network_cache_uncond.block_caches:
-                bc.self_attn.commit_slot()
 
     # ------------------------------------------------------------------
     # Flow prediction

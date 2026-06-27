@@ -65,11 +65,20 @@ PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV = LingbotVAInferencePipelineConfig(
             checkpoint_root=DEFAULT_CHECKPOINT_ROOT,
             guidance_scale=5.0,
             action_guidance_scale=1.0,
+            latent_height=ROBOTWIN_LATENT_HEIGHT,
+            latent_width=ROBOTWIN_LATENT_WIDTH,
+            frame_chunk_size=ROBOTWIN_FRAME_CHUNK_SIZE,
+            action_per_frame=ROBOTWIN_ACTION_PER_FRAME,
+            attn_window=ROBOTWIN_ATTENTION_WINDOW,
         ),
         scheduler=LingbotVAFlowMatchSchedulerConfig(
             num_inference_steps=ROBOTWIN_VIDEO_INFERENCE_STEPS,
             shift=ROBOTWIN_SNR_SHIFT,
         ),
+    ),
+    action_scheduler=LingbotVAFlowMatchSchedulerConfig(
+        num_inference_steps=ROBOTWIN_ACTION_INFERENCE_STEPS,
+        shift=ROBOTWIN_ACTION_SNR_SHIFT,
     ),
 )
 """Robotwin I2AV pipeline config shell.
