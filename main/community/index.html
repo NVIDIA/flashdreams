@@ -724,28 +724,61 @@ either fix compatibility or bump the bound in <code class="docutils literal notr
 <h2>Working with a single integration package<a class="headerlink" href="#working-with-a-single-integration-package" title="Link to this heading">#</a></h2>
 <p>The workspace contains many integration packages under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code>.
 A full <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> installs dependencies for <em>all</em> of them. If you only
-need one (e.g. you’re working on <code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>), use <code class="docutils literal notranslate"><span class="pre">--package</span></code> to sync
-only that package’s dependencies:</p>
+need one (e.g. you’re working on <code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>), use the distribution
+package name with <code class="docutils literal notranslate"><span class="pre">--package</span></code> to sync only that package’s dependencies:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Only install omnidreams + its deps (skips unrelated heavy packages)</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>omnidreams<span class="w"> </span>--extra<span class="w"> </span>dev
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>dev
 
 <span class="c1"># Run a script/test from that integration only</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>omnidreams<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-m<span class="w"> </span>ci_gpu
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>pytest<span class="w"> </span>integrations/omnidreams/tests/<span class="w"> </span>-m<span class="w"> </span>ci_gpu
 </pre></div>
 </div>
 <p>This avoids pulling in (and compiling) dependencies that other
 integrations require but yours does not, further reducing setup time.</p>
 <p>Available integration packages:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">integrations</span><span class="o">/</span><span class="n">causal_forcing</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">cosmos_predict2</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">fastvideo_causal_wan22</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">flashvsr</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">lingbot</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">omnidreams</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">self_forcing</span>
-<span class="n">integrations</span><span class="o">/</span><span class="n">wan21</span>
-</pre></div>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Path</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">--package</span></code> name</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/causal_forcing</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-causal-forcing</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/cosmos_predict2</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-cosmos-predict2</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/fastvideo_causal_wan22</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-fastvideo-causal-wan22</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/flashvsr</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-flashvsr</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/hy_worldplay</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-hy-worldplay</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/lingbot</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-lingbot</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/omnidreams</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-omnidreams</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/self_forcing</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-self-forcing</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/wan21</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-wan21</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/wan22</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-wan22</span></code></p></td>
+</tr>
+</tbody>
+</table>
 </div>
+<p>The nested <code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/ludus-renderer</span></code> workspace package is
+named <code class="docutils literal notranslate"><span class="pre">ludus-renderer</span></code> and is installed as part of Omnidreams workflows
+that need it.</p>
 </section>
 <section id="licensing-of-contributions">
 <h2>Licensing of contributions<a class="headerlink" href="#licensing-of-contributions" title="Link to this heading">#</a></h2>
