@@ -276,14 +276,7 @@ def test_dual_branch_attention_short_circuits_empty_memory_cache() -> None:
     here (the fused RoPE kernel is CUDA-only so we can't pin attention
     bit-identity from CPU).
     """
-    from hy_worldplay._camera import (
-        HyWorldPlayMemoryKVCache,
-        HyWorldPlayPRoPESelfAttention,
-    )
-
-    attn = HyWorldPlayPRoPESelfAttention(
-        query_dim=64, n_heads=2, head_dim=32, eps=1e-6, apply_rope_before_kvcache=True
-    )
+    from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
     empty_memory = HyWorldPlayMemoryKVCache()
     assert empty_memory.is_empty
@@ -727,8 +720,6 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
 
     # Stub the parent's forward so we don't have to spin up a VAE --
     # this test only exercises the action / viewmats / Ks attach paths.
-    from hy_worldplay._action import HyWorldPlayCtrl
-
     from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 
     # 16 latent frames total (= 4 chunks of len_t=4) so we can test
