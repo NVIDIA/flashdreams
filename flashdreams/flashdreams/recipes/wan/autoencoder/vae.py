@@ -52,23 +52,18 @@ from flashdreams.infra.encoder import (
     StreamingVideoEncoder,
 )
 
-# Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
-# loader pulls the diffusers safetensors shard and remaps keys via
-# :func:`wan22_ti2v_5b_vae_state_dict_transform` (``encoder.conv_in``
-# / ``quant_conv`` / ``post_quant_conv`` etc. -> our internal layout).
-WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
-
-# Alternative upstream single-file checkpoint. Top-level key prefixes
-# (``encoder.*`` / ``decoder.*`` / ``conv1`` / ``conv2``) line up with
-# our internal :mod:`_residual_vae` model shape, BUT the ``.pth`` does
-# not cover every parameter our ``WanVAE`` wrapper builds (some encoder
-# / decoder slots stay on meta and ``model.to(device)`` raises
-# ``NotImplementedError: Cannot copy out of meta tensor``). Kept as a
-# constant for callers who want to invest in a tighter audit + a
-# tailored loader; the diffusers path above is still the default.
+# Upstream's native single-file checkpoint. Its key names match the
+# ``WanVAE`` module tree one-to-one, so it loads with no key remap and is
+# the production default for the Wan 2.2 TI2V 5B configs below.
 WAN22_TI2V_5B_VAE_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
+
+# The same VAE re-exported in the diffusers ``AutoencoderKLWan`` layout.
+# Loadable via :func:`wan22_ti2v_5b_vae_state_dict_transform`, which
+# renames the diffusers keys onto the ``WanVAE`` tree; kept as an opt-in
+# fallback for callers who prefer the diffusers safetensors shard.
+WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
@@ -596,24 +591,24 @@ class ResidualDownBlock(nn.Module):
             factor_t=2 if temperal_downsample else 1,
             factor_s=2 if down_flag else 1,
         )
-        resnets: list[nn.Module] = []
+        # One flat ``Sequential`` holding the residual blocks followed by
+        # the optional downsampling ``Resample``, matching upstream's
+        # native ``downsamples.{j}`` layout so ``Wan2.2_VAE.pth`` loads
+        # with no key remap.
+        layers: list[nn.Module] = []
         for _ in range(num_res_blocks):
-            resnets.append(ResidualBlock(in_dim, out_dim, dropout))
+            layers.append(ResidualBlock(in_dim, out_dim, dropout))
             in_dim = out_dim
-        self.resnets = nn.ModuleList(resnets)
         if down_flag:
             mode = "downsample3d" if temperal_downsample else "downsample2d"
-            self.downsampler: Resample | None = Resample(out_dim, mode=mode)
-        else:
-            self.downsampler = None
+            layers.append(Resample(out_dim, mode=mode))
+        self.downsamples = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor, state: Dict[int, torch.Tensor]) -> torch.Tensor:
         # Snapshot input for the avg shortcut before mutating ``x``.
         x_shortcut = x
-        for resnet in self.resnets:
-            x = resnet(x, state)
-        if self.downsampler is not None:
-            x = self.downsampler(x, state)
+        for layer in self.downsamples:
+            x = layer(x, state)
         return x + self.avg_shortcut(x_shortcut)
 
 
@@ -651,12 +646,15 @@ class ResidualUpBlock(nn.Module):
         else:
             self.avg_shortcut = None
 
-        resnets: list[nn.Module] = []
+        # One flat ``Sequential`` holding the residual blocks followed by
+        # the optional upsampling ``Resample``, matching upstream's native
+        # ``upsamples.{j}`` layout so ``Wan2.2_VAE.pth`` loads with no key
+        # remap.
+        layers: list[nn.Module] = []
         current_dim = in_dim
         for _ in range(num_res_blocks + 1):
-            resnets.append(ResidualBlock(current_dim, out_dim, dropout))
+            layers.append(ResidualBlock(current_dim, out_dim, dropout))
             current_dim = out_dim
-        self.resnets = nn.ModuleList(resnets)
 
         if up_flag:
             mode = "upsample3d" if temperal_upsample else "upsample2d"
@@ -670,9 +668,8 @@ class ResidualUpBlock(nn.Module):
                 "blindly rewire ResidualUpBlock's keep-channel upsampler."
             )
             up.resample[1] = nn.Conv2d(out_dim, out_dim, 3, padding=1)
-            self.upsampler: Resample | None = up
-        else:
-            self.upsampler = None
+            layers.append(up)
+        self.upsamples = nn.Sequential(*layers)
 
     def forward(
         self,
@@ -681,10 +678,8 @@ class ResidualUpBlock(nn.Module):
         first_chunk: bool = False,
     ) -> torch.Tensor:
         x_shortcut = x
-        for resnet in self.resnets:
-            x = resnet(x, state)
-        if self.upsampler is not None:
-            x = self.upsampler(x, state)
+        for layer in self.upsamples:
+            x = layer(x, state)
         if self.avg_shortcut is not None:
             x = x + self.avg_shortcut(x_shortcut, first_chunk=first_chunk)
         return x
@@ -1588,48 +1583,52 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     #   0 norm1, 2 conv1, 3 norm2, 6 conv2 (1/4 SiLU, 5 Dropout).
     # diffusers ``conv_shortcut`` -> our ``shortcut``.
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.0.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.0.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv1\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.2.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.2.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm2\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.3.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.3.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv2\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.6.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.6.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv_shortcut\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.shortcut.\3"
+        r"encoder.downsamples.\1.downsamples.\2.shortcut.\3"
     ),
-    # Encoder down-block extras: residual stage shortcut + downsampler.
+    # Encoder down-block extras: the per-stage average-pool shortcut and
+    # the downsampling resample, which sits at index 2 of the flat
+    # ``downsamples`` sequential (after the two residual blocks).
     r"^encoder\.down_blocks\.(\d+)\.avg_shortcut\.(.*)$": (
         r"encoder.downsamples.\1.avg_shortcut.\2"
     ),
     r"^encoder\.down_blocks\.(\d+)\.downsampler\.(.*)$": (
-        r"encoder.downsamples.\1.downsampler.\2"
+        r"encoder.downsamples.\1.downsamples.2.\2"
     ),
     # Decoder up-block residual-conv remap (same Sequential layout).
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.0.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.0.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv1\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.2.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.2.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.norm2\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.3.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.3.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv2\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.6.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.6.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv_shortcut\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.shortcut.\3"
+        r"decoder.upsamples.\1.upsamples.\2.shortcut.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.avg_shortcut\.(.*)$": (
         r"decoder.upsamples.\1.avg_shortcut.\2"
     ),
+    # The upsampling resample sits at index 3 of the flat ``upsamples``
+    # sequential (after the three residual blocks).
     r"^decoder\.up_blocks\.(\d+)\.upsampler\.(.*)$": (
-        r"decoder.upsamples.\1.upsampler.\2"
+        r"decoder.upsamples.\1.upsamples.3.\2"
     ),
 }
 
@@ -1639,10 +1638,12 @@ def wan22_ti2v_5b_vae_state_dict_transform(
 ) -> Dict[str, Tensor]:
     """Remap a diffusers ``AutoencoderKLWan`` state-dict to ``WanVAE`` keys.
 
-    Applied automatically when :class:`Wan22TI2V5BVAEEncoderConfig` /
-    :class:`Wan22TI2V5BVAEDecoderConfig` load the diffusers VAE checkpoint.
-    Renames keys only -- no tensors are copied or reshaped. Unmatched keys
-    pass through and surface as ``unexpected_keys`` on load.
+    Opt-in for callers who point :class:`Wan22TI2V5BVAEEncoderConfig` /
+    :class:`Wan22TI2V5BVAEDecoderConfig` at the diffusers safetensors shard
+    (:data:`WAN22_TI2V_5B_VAE_DIFFUSERS_PATH`) instead of the native
+    ``.pth`` default. Renames keys only -- no tensors are copied or
+    reshaped. Unmatched keys pass through and surface as ``unexpected_keys``
+    on load.
     """
     from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 
@@ -1653,22 +1654,22 @@ def wan22_ti2v_5b_vae_state_dict_transform(
 class Wan22TI2V5BVAEEncoderConfig(WanVAEEncoderConfig):
     """Pre-rolled config for the Wan 2.2 TI2V 5B encoder.
 
-    Pins the diffusers upstream checkpoint, the 16x-spatial / 48ch /
-    residual / patchify architecture knobs, and the matching diffusers
-    -> flashdreams key remap. Equivalent to the Wan 2.1 encoder config
-    plus the 5B-specific knobs flipped on.
+    Pins upstream's native ``Wan2.2_VAE.pth`` (loaded with no key remap),
+    the 16x-spatial / 48ch / residual / patchify architecture knobs.
+    Equivalent to the Wan 2.1 encoder config plus the 5B-specific knobs
+    flipped on. To load the diffusers shard instead, override
+    ``checkpoint_path=WAN22_TI2V_5B_VAE_DIFFUSERS_PATH`` and
+    ``state_dict_transform=wan22_ti2v_5b_vae_state_dict_transform``.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     z_dim: int = 48
     patch_size: int = 2
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
-    )
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
 
 
 @dataclass(kw_only=True)
@@ -1679,7 +1680,7 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     ``decoder_base_dim=256``.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     decoder_base_dim: int | None = 256
     z_dim: int = 48
@@ -1687,6 +1688,4 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
-    )
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
