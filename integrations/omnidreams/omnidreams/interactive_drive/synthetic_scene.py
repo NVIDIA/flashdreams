@@ -3,21 +3,12 @@
 
 """Runtime helpers for booting interactive-drive without HD-map content.
 
-The scene loader normally consumes a USDZ pulled from
-``nvidia/omni-dreams-scenes`` (the HF dataset of real driving clips).
-This module produces a fully procedural USDZ with the same on-disk
-layout the loader expects: synthetic trajectory + lane lines +
-intersection geometry + a caller-supplied initial RGB frame. The
-world-model runtime is unchanged and unaware that the scene is
-procedural.
-
-This is a thin runtime wrapper around
-``omnidreams.interactive_drive.scene_fixture.build_synthetic_scene_usdz``: that
-function already builds a fully-featured fake USDZ for tests, but its
-default ``first_image.png`` is a debug colour gradient. We expose an
-``--initial-rgb`` path so demo callers can supply a real driving photo,
-which the world model needs to "wake up" out of plausible RGB rather
-than a synthetic gradient.
+Produces a fully procedural USDZ with the same on-disk layout the scene
+loader expects (synthetic trajectory + lane lines + intersection geometry +
+a caller-supplied initial RGB), so the world-model runtime runs unchanged and
+unaware the scene is procedural. Thin wrapper around
+``scene_fixture.build_synthetic_scene_usdz`` that adds an ``--initial-rgb``
+path so demos can seed a real driving photo instead of the test gradient.
 """
 
 from __future__ import annotations
@@ -39,13 +30,9 @@ from PIL import Image
 _SCENE_FIXTURE_FPS = 30
 _SCENE_FIXTURE_SPEED_MPS = 10.0
 
-# Length of the "golden track" the runtime hands to the scene loader.
-# 20 km at the synthetic 10 m/s travel speed = 2000 s of trajectory time
-# = 60 000 frames. Cost is bounded (~12 MB temp USDZ, ~600 ms to generate
-# at startup) and well past what any demo session uses. The runtime
-# helpers expose ``length_km`` as a kwarg only -- intentionally not on
-# the CLI -- so tests can build smaller scenes for sub-second smoke
-# checks without giving real users a knob to fiddle with.
+# "Golden track" length handed to the scene loader: 20 km at 10 m/s = 60 000
+# frames (~12 MB temp USDZ, ~600 ms at startup), well past any demo session.
+# Exposed as a kwarg only (not on the CLI) so tests can build smaller scenes.
 _DEFAULT_LENGTH_KM = 20.0
 
 
@@ -87,7 +74,7 @@ def build_default_synthetic_scene(
         length_km: How much road to materialise. Lane lines, road
             boundaries, periodic poles, and parked-car obstacles are
             all spec'd along the trajectory, so longer values produce
-            more drivable road. Default 10 km, generous for any demo.
+            more drivable road. Default 20 km, generous for any demo.
     """
     initial_rgb: np.ndarray | None = None
     if initial_rgb_path is not None:

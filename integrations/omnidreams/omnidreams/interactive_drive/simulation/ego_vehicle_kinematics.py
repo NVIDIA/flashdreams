@@ -4,6 +4,7 @@
 import math
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
@@ -45,12 +46,8 @@ def integrate_vehicle(
         speed = 0.0
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
-        # Brake wins over throttle: holding both pedals together must bleed
-        # speed toward a stop, not build it. This matches real-car behaviour
-        # and the HUD / wheel target-speed integrators in ``demo.py`` (which
-        # already gate acceleration on the brake being released), so the
-        # displayed speed and the ego stay consistent when gas + brake are
-        # pressed at once.
+        # Brake wins over throttle: holding both pedals bleeds speed toward a
+        # stop, matching real cars and the demo.py target-speed integrators.
         if command.brake > 0.01:
             decel = 12.0 * command.brake * dt_s
             if speed > 0:
@@ -87,9 +84,7 @@ def integrate_vehicle(
                 speed = max(0.0, speed - 0.5 * dt_s)
             else:
                 speed = min(0.0, speed + 0.5 * dt_s)
-        # Honour the configured forward / reverse caps instead of the
-        # previous hardcoded ``-8.0, 36.0`` values, which silently
-        # ignored ``VehicleConfig.max_reverse_speed_mps``.
+        # Honour the configured forward / reverse speed caps.
         speed = float(
             np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
         )
@@ -182,9 +177,8 @@ def state_from_initial_pose(
 
 def build_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
     if scene.ground_mesh_vertices is None or scene.ground_mesh_faces is None:
-        print(
+        logger.info(
             "[ego_vehicle_kinematics] no ground mesh in scene; z/pitch/roll will not be snapped.",
-            flush=True,
         )
         return None
     return GroundSnapper(scene.ground_mesh_vertices, scene.ground_mesh_faces)
@@ -203,18 +197,16 @@ def build_map_bounds(scene: SceneBundle) -> MapBounds | None:
     """
     bounds = MapBounds.from_scene(scene)
     if bounds is None:
-        print(
+        logger.info(
             "[ego_vehicle_kinematics] scene has no spatial geometry; "
             "OOB respawn will not fire.",
-            flush=True,
         )
         return None
-    print(
+    logger.info(
         f"[ego_vehicle_kinematics] map bounds: "
         f"x=[{bounds.x_min:.1f}, {bounds.x_max:.1f}] ({bounds.width_m:.1f} m), "
         f"y=[{bounds.y_min:.1f}, {bounds.y_max:.1f}] ({bounds.height_m:.1f} m). "
         "Adds 50 m margin + 100 m warning zone for OOB.",
-        flush=True,
     )
     return bounds
 
@@ -246,26 +238,11 @@ class EgoVehicleKinematics:
     def last_proximity(self) -> float:
         """Out-of-bounds proximity of the latest simulated frame.
 
-        Mirrors alpasim's ``oob_proximity`` semantics:
-
-        - ``0.0`` -- ego is more than ``oob_warning_zone_m`` (default
-          100 m) inside the scene-content AABB expanded by
-          ``oob_margin_m`` (default 50 m); solidly in-bounds.
-        - ``(0.0, 1.0]`` -- linear ramp across the warning zone as the
-          ego approaches the AABB+margin edge.
-        - ``2.0`` -- alpasim's "off map" sentinel; the ego has crossed
-          AABB+margin and the runtime loop will fire the auto-respawn.
-
-        The AABB is the union of every spatial layer in the scene
-        (lane markers, drivable triangles, polygons, vehicle tracks,
-        ground mesh) -- not just ``mesh_ground.ply``. This is critical
-        because many scenes ship a ground mesh that covers only the
-        road surface; OOB-checking against that alone would respawn
-        the user the moment they drove onto a sidewalk or shoulder.
-
-        Returns ``0.0`` when the scene has no spatial geometry to
-        compute an AABB from -- the OOB respawn path no-ops in that
-        case.
+        Delegates to :meth:`MapBounds.proximity` (see it for the
+        0.0 / (0,1] / 2.0 semantics) against the union AABB of every spatial
+        layer, not just ``mesh_ground.ply`` -- a road-only ground mesh would
+        respawn the ego the moment it touched a sidewalk. Returns ``0.0`` when
+        the scene has no geometry (the OOB respawn path no-ops).
         """
         if self._map_bounds is None:
             return 0.0

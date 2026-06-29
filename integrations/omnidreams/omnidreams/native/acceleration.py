@@ -29,7 +29,13 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Literal, Protocol, get_args
 
+from loguru import logger
+
 NativeAccelerationMode = Literal["auto", "disabled", "required"]
+NATIVE_EXTENSION_SYNC_COMMAND = (
+    "uv run --package flashdreams-omnidreams python "
+    "integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py sync"
+)
 
 
 class NativeExtensionLoader(Protocol):
@@ -92,7 +98,9 @@ class NativeBackendSelection:
         raise NativeAccelerationUnavailable(self.reason)
 
 
-def require_extension_symbols(*symbols: str) -> NativeAvailabilityCheck:
+def require_extension_symbols(
+    *symbols: str,
+) -> Callable[[ModuleType], tuple[bool, str]]:
     """Return an availability check for extension symbols needed by a component."""
 
     def check(extension: ModuleType) -> tuple[bool, str]:
@@ -104,6 +112,19 @@ def require_extension_symbols(*symbols: str) -> NativeAvailabilityCheck:
     return check
 
 
+def _native_extension_unavailable_reason(
+    component: str,
+    error: BaseException | None = None,
+) -> str:
+    base = f"native extension unavailable for {component}"
+    if error is not None:
+        base = f"{base}: {error}"
+    return (
+        f"{base}. To sync third-party native sources, run:\n"
+        f"  {NATIVE_EXTENSION_SYNC_COMMAND}"
+    )
+
+
 def select_native_extension(
     config: NativeAccelerationConfig,
     *,
@@ -112,7 +133,7 @@ def select_native_extension(
     extension_error: Callable[[], Exception | None],
     availability_check: NativeAvailabilityCheck | None = None,
 ) -> NativeBackendSelection:
-    """Resolve native use for one component without changing caller behavior."""
+    """Resolve native use for one component."""
 
     if config.mode == "disabled":
         return NativeBackendSelection(
@@ -133,11 +154,8 @@ def select_native_extension(
 
     if extension is None:
         error = extension_error()
-        reason = (
-            f"native extension unavailable for {component}"
-            if error is None
-            else f"native extension unavailable for {component}: {error}"
-        )
+        reason = _native_extension_unavailable_reason(component, error)
+        logger.warning("[native] {}", reason)
         return _unavailable_or_raise(config, component, reason, error=error)
 
     check = availability_check or _default_availability_check

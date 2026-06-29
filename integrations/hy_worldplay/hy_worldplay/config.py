@@ -34,6 +34,10 @@ from hy_worldplay._action import (
     HyWorldPlayWanCtrlEncoderConfig,
     HyWorldPlayWanDiTNetworkConfig,
 )
+from hy_worldplay._checkpoint import (
+    HY_WORLDPLAY_DISTILLED_CKPT_PATH,
+    hy_worldplay_distilled_state_dict_transform,
+)
 from hy_worldplay.runner import HyWorldPlayWanI2VRunnerConfig
 
 __all__ = [
@@ -47,19 +51,15 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
     """Deep-copy the Wan 2.2 TI2V-5B recipe and layer the full HY-WorldPlay stack on top.
 
     Swaps in the distilled 4-step Euler scheduler, the action / camera
-    HY encoder, and the HY transformer + DiT network (with PRoPE blocks
-    enabled). Field-by-field copy on the transformer is intentional: a
-    plain :func:`derive_config` can't change the dataclass *type*, and
-    silently dropping a future addition to
-    :class:`Wan21TransformerConfig` on the HY side would be hard to
-    catch.
+    HY encoder, and the HY transformer + DiT network (PRoPE blocks
+    enabled). The transformer is copied field-by-field rather than
+    derived: :func:`derive_config` can't change the dataclass type, and
+    an explicit copy fails loudly if a base field is added.
     """
     pipeline = copy.deepcopy(PIPELINE_WAN22_TI2V_5B)
     pipeline.name = "hy-worldplay-wan-i2v-5b"
 
-    # Distilled WAN-5B fixed-timestep schedule (upstream's ``few_step=True``
-    # branch in ``pipeline_wan_w_mem_relative_rope.py``). The base recipe
-    # stays on UniPC for non-HY callers.
+    # Distilled WAN-5B fixed-timestep schedule (base recipe stays on UniPC).
     pipeline.diffusion_model.scheduler = FlowMatchEulerDiscreteSchedulerConfig(
         num_inference_steps=4,
         fixed_timesteps=(1000.0, 960.0, 888.8889, 727.2728, 0.0),
@@ -71,9 +71,8 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
     )
 
     base_t = pipeline.diffusion_model.transformer
-    # Narrow ``TransformerConfig`` (the slot's static type) to the
-    # Wan-2.2 TI2V-5B's concrete config so ty resolves the subclass-only
-    # attributes copied across below.
+    # Narrow to the concrete config so the subclass-only attributes
+    # copied below resolve.
     assert isinstance(base_t, Wan21TransformerConfig)
     base_n = base_t.network
     assert isinstance(base_n, WanDiTNetworkConfig)
@@ -98,17 +97,16 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
             use_prope_blocks=True,
         ),
         dtype=base_t.dtype,
-        checkpoint_path=base_t.checkpoint_path,
-        state_dict_transform=base_t.state_dict_transform,
+        # Inference loads HY-WorldPlay's distilled WAN-5B weights by default;
+        # ``--ckpt-path`` overrides with a local ``model.pt``.
+        checkpoint_path=HY_WORLDPLAY_DISTILLED_CKPT_PATH,
+        state_dict_transform=hy_worldplay_distilled_state_dict_transform,
         batch_shape=base_t.batch_shape,
-        # HY-WorldPlay autoregressive WAN-5B uses 4-latent chunks
-        # (upstream's ``pred_latent_size=4``); not the base recipe's 21.
-        # Mismatched ``len_t`` gives different total frame counts and
-        # RoPE positions.
+        # 4-latent AR chunks (not the base recipe's 21); sets total
+        # frame counts and RoPE positions.
         len_t=4,
-        # Distilled WAN-5B bakes CFG into the checkpoint and runs a
-        # single conditional forward per step; ``guidance_scale=1.0``
-        # skips the uncond branch + combine.
+        # CFG is baked into the distilled checkpoint; ``1.0`` skips the
+        # uncond branch.
         guidance_scale=1.0,
         # Match the rolling KV window to a single chunk.
         window_size_t=4,
@@ -123,11 +121,8 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
         ti2v_first_frame_per_token_timestep=(
             base_t.ti2v_first_frame_per_token_timestep
         ),
-        # Upstream's HY pipeline runs the first-frame context at the
-        # stabilisation sigma ``stabilization_level - 1 = 14`` (vendor
-        # ``pipeline_wan_w_mem_relative_rope.py`` lines 680, 892); the
-        # distilled checkpoint's AdaLN table at the first frame is
-        # fitted to it.
+        # First-frame context runs at the stabilisation sigma 14, which
+        # the distilled checkpoint's AdaLN table is fitted to.
         first_frame_timestep_value=14.0,
     )
     return pipeline

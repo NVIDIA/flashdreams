@@ -15,19 +15,13 @@ from omnidreams.interactive_drive.types import (
 class KeyboardState:
     """Owns live keyboard state plus the runtime UI affordances the loop reads.
 
-    Implements :class:`~omnidreams.interactive_drive.runtime.runtime_controls.RuntimeControls`:
-    ``view_mode`` is a property and reset is a rising-edge boolean consumed by
-    the single loop reader. Pressed keys are still snapshotted via
-    :meth:`snapshot` because iterating a shared set requires a defensive copy
-    under the lock.
-
-    Also carries a one-slot output channel: :meth:`update_telemetry` /
-    :attr:`vehicle_state`. The runtime loop pushes the latest
-    :class:`VehicleState` here after every chunk so the MJPEG presenter's
-    ``/state`` endpoint and any other read-side observer can publish a live
-    speed / steer / position snapshot to the browser without holding a
-    reference to the simulation object (which is rebuilt per scene reset
-    while ``KeyboardState`` is shared across the whole app session).
+    Implements :class:`~omnidreams.interactive_drive.runtime.runtime_controls.RuntimeControls`
+    (``view_mode`` property, rising-edge reset consumed by the single loop
+    reader). Also carries a one-slot telemetry channel
+    (:meth:`update_telemetry` / :attr:`vehicle_state`): the loop pushes the
+    latest :class:`VehicleState` each chunk so read-side observers (the
+    presenter's ``/state`` endpoint) can publish speed/steer/position without
+    referencing the per-scene simulation object.
     """
 
     def __init__(self) -> None:
@@ -115,12 +109,6 @@ class KeyboardState:
     def view_mode(self) -> str:
         with self._lock:
             return self._view_mode
-
-    def snapshot(self) -> ControlSnapshot:
-        with self._lock:
-            return ControlSnapshot(
-                pressed=set(self._pressed), view_mode=self._view_mode
-            )
 
     def command(self) -> DriverCommand:
         with self._lock:

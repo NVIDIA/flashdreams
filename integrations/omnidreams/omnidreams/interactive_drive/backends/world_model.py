@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import (
     BevConfig,
@@ -22,6 +23,7 @@ from omnidreams.interactive_drive.types import (
     PresentedFrame,
     SceneBundle,
     TrajectoryChunk,
+    VideoModelTimings,
 )
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
@@ -58,6 +60,12 @@ class WorldModelRenderBackend(RenderBackend):
     def can_prewarm(self) -> bool:
         return self._session.can_prewarm
 
+    @property
+    def optimizes_on_first_chunk(self) -> bool:
+        # First chunk triggers compile / CUDA-graph capture / Triton autotune,
+        # which can take minutes on the first launch.
+        return True
+
     def warmup_model(self) -> None:
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(
@@ -79,9 +87,8 @@ class WorldModelRenderBackend(RenderBackend):
             )
         start = time.perf_counter()
         self._session.warmup_model()
-        print(
+        logger.info(
             f"[world-model] model warmup session_ms={(time.perf_counter() - start) * 1000.0:.1f}",
-            flush=True,
         )
 
     def load_scene(self, scene: SceneBundle) -> None:
@@ -101,12 +108,11 @@ class WorldModelRenderBackend(RenderBackend):
             initial_rgb=scene.initial_rgb, prompt=scene.prompt
         )
         prepare_end = time.perf_counter()
-        print(
+        logger.info(
             "[world-model] load_scene "
             f"rasterizer_ms={(rasterizer_end - load_start) * 1000.0:.1f} "
             f"prepare_ms={(prepare_end - rasterizer_end) * 1000.0:.1f} "
             f"total_ms={(prepare_end - load_start) * 1000.0:.1f}",
-            flush=True,
         )
 
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
@@ -139,10 +145,9 @@ class WorldModelRenderBackend(RenderBackend):
                     strict=True,
                 )
             )
-            print(
+            logger.info(
                 "[world-model] first_chunk using official hdmap override "
                 f"dir={self._manifest.debug_condition_frame_dir}",
-                flush=True,
             )
         _log_prompt_handoff("first_chunk.start", scene)
         model_frames = self._session.start(
@@ -155,19 +160,26 @@ class WorldModelRenderBackend(RenderBackend):
             annotate_first_transition=True,
         )
         merge_end = time.perf_counter()
-        print(
+        logger.info(
             "[world-model] first_chunk "
             f"frames={len(trajectory.timestamps_us)} "
             f"raster_ms={(raster_end - chunk_start) * 1000.0:.1f} "
             f"model_ms={(model_end - raster_end) * 1000.0:.1f} "
             f"merge_ms={(merge_end - model_end) * 1000.0:.1f} "
             f"total_ms={(merge_end - chunk_start) * 1000.0:.1f}",
-            flush=True,
         )
         return FrameChunk(
             frames=merged_frames,
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="omnidreams",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
         )
 
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
@@ -190,7 +202,7 @@ class WorldModelRenderBackend(RenderBackend):
             or self._next_chunk_count % 10 == 0
             or total_ms > 500.0
         ):
-            print(
+            logger.info(
                 "[world-model] next_chunk "
                 f"index={self._next_chunk_count} "
                 f"frames={len(trajectory.timestamps_us)} "
@@ -198,12 +210,19 @@ class WorldModelRenderBackend(RenderBackend):
                 f"model_ms={(model_end - raster_end) * 1000.0:.1f} "
                 f"merge_ms={(merge_end - model_end) * 1000.0:.1f} "
                 f"total_ms={total_ms:.1f}",
-                flush=True,
             )
         return FrameChunk(
             frames=merged_frames,
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="omnidreams",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
         )
 
     def reset(self) -> None:
@@ -287,12 +306,11 @@ def _log_prompt_handoff(stage: str, scene: SceneBundle) -> None:
     prompt = scene.prompt
     prompt_text = " ".join(prompt.split())
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
-    print(
+    logger.info(
         "[world-model] prompt_handoff "
         f"stage={stage!r} "
         f"scene={scene.scene_path.name!r} "
         f"prompt_sha256={prompt_hash!r} "
         f"length={len(prompt)} "
         f"text={prompt_text!r}",
-        flush=True,
     )

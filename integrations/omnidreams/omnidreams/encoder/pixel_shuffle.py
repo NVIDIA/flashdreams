@@ -22,8 +22,9 @@ and unshuffle each frame's 8x8 spatial blocks into channels.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Annotated, Literal
 
+import tyro
 from einops import rearrange
 from torch import Tensor
 
@@ -46,7 +47,7 @@ class PixelShuffleVAEEncoderCache(StreamingEncoderCache):
 class PixelShuffleVAEEncoderConfig(EncoderConfig):
     """Config for the pixel-shuffle pseudo-VAE encoder."""
 
-    _target: type["PixelShuffleVAEEncoder"] = field(
+    _target: Annotated[type, tyro.conf.Suppress] = field(
         default_factory=lambda: PixelShuffleVAEEncoder
     )
 

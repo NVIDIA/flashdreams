@@ -8,7 +8,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from omnidreams.interactive_drive.runtime.timing import ChunkTimes
+from loguru import logger
+from omnidreams.interactive_drive.runtime.timing import (
+    ChunkTimes,
+    TraceContext,
+    event_dependencies,
+    trace_time_ns,
+)
 from omnidreams.interactive_drive.types import (
     FrameChunk,
     PresentedFrame,
@@ -49,6 +55,7 @@ class ChunkRequest:
 
     trajectory: TrajectoryChunk
     chunk_times: ChunkTimes
+    trace_dependency_event: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,7 @@ class QueuedFrame:
     # switch bumps the generation; the loop drops frames whose generation
     # no longer matches so stale rollout/scene frames aren't presented.
     generation: int = 0
+    worker_ready_event_id: int | None = None
 
 
 # Worker commands are closures that take the backend and return ``True`` to
@@ -69,13 +77,14 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 
 class ChunkPipeline:
-    def __init__(self, backend: VideoModelBackend) -> None:
+    def __init__(
+        self, backend: VideoModelBackend, trace_context: TraceContext | None = None
+    ) -> None:
         self._backend = backend
-        # TODO: replace the loop's chunk-level ``chunks_outstanding`` gate with
-        # frame-level in-flight tracking (frames requested - frames consumed,
-        # alpasim style) and surface a hook here so callers gate at the
-        # request site instead of the queue boundary. Until then the queue is
-        # unbounded so ``put`` cannot deadlock the worker against shutdown.
+        self._trace_context = trace_context
+        # Unbounded so ``put`` never blocks the worker against shutdown.
+        # TODO: gate in-flight work at the request site (frame-level, alpasim
+        # style) instead of the loop's chunk-level ``chunks_outstanding`` gate.
         self._frame_queue: queue.Queue[QueuedFrame] = queue.Queue()
         self._command_queue: queue.Queue[_WorkerCommand] = queue.Queue()
         # Captures any exception raised on the worker thread (warmup, render,
@@ -87,13 +96,15 @@ class ChunkPipeline:
         # Lets callers overlap the scene-selection wait with the model load
         # and show a "ready" affordance once the model is resident.
         self._model_ready = threading.Event()
+        # Set once the worker queues its first generated chunk -- i.e. the
+        # one-time first-chunk optimization is done. Never cleared; the model
+        # stays optimized across resets and scene switches.
+        self._first_chunk_produced = threading.Event()
         # Monotonic generation bumped on every reset / scene switch. Renders
-        # submitted under an older generation are superseded: their frames
-        # are dropped instead of presented, so a reset or scene load doesn't
-        # first flash stale frames from the rollout it replaced. The worker
-        # can't interrupt an in-flight torch generate(), but its output is
-        # discarded -- the single-process analog of alpasim cancelling the
-        # runtime stream and clearing its frame queues on reload.
+        # submitted under an older generation are superseded: their frames are
+        # dropped rather than presented, so a reload doesn't flash stale frames
+        # from the rollout it replaced. An in-flight torch ``generate()`` can't
+        # be interrupted, but its output is discarded.
         self._generation_lock = threading.Lock()
         self._generation = 0
         self._thread = threading.Thread(
@@ -107,6 +118,11 @@ class ChunkPipeline:
     def model_ready(self) -> threading.Event:
         """Event set when scene-independent model warmup has completed."""
         return self._model_ready
+
+    @property
+    def first_chunk_produced(self) -> threading.Event:
+        """Event set once the worker has queued its first generated chunk."""
+        return self._first_chunk_produced
 
     @property
     def current_generation(self) -> int:
@@ -152,20 +168,18 @@ class ChunkPipeline:
         submit_generation = self._bump_generation()
         cleared = self._clear_frame_queue()
         if cleared:
-            print(
+            logger.info(
                 "[chunk-pipeline] cleared stale frame queue "
                 f"frames={cleared} generation={submit_generation}",
-                flush=True,
             )
 
         def load_scene_command(backend: VideoModelBackend) -> bool:
             if submit_generation != self.current_generation:
-                print(
+                logger.info(
                     "[chunk-pipeline] skip stale scene load "
                     f"scene={scene.scene_path.name!r} "
                     f"submit_generation={submit_generation} "
                     f"current_generation={self.current_generation}",
-                    flush=True,
                 )
                 return True
             backend.load_scene(scene)
@@ -178,26 +192,85 @@ class ChunkPipeline:
 
         chunk_times = request.chunk_times
         trajectory = request.trajectory
+        trace_dependency_event = request.trace_dependency_event
         submit_generation = self.current_generation
 
         def render_command(backend: VideoModelBackend) -> bool:
-            chunk_times.chunk_render_start_time = time.perf_counter()
+            trace_context = (
+                self._trace_context if chunk_times.chunk_index >= 1 else None
+            )
+            render_start = time.perf_counter()
+            chunk_times.chunk_render_start_time = render_start
             if submit_generation != self.current_generation:
                 chunk_times.chunk_ready_time = time.perf_counter()
-                print(
+                logger.info(
                     "[chunk-pipeline] skip stale render "
                     f"submit_generation={submit_generation} "
                     f"current_generation={self.current_generation}",
-                    flush=True,
                 )
                 return True
+            queue_wait_event = None
+            if trace_context is not None:
+                queue_wait_event = trace_context.add_range(
+                    "queue_wait",
+                    thread=trace_context.worker_thread,
+                    begin_ns=trace_time_ns(chunk_times.request_poses_ready_time),
+                    end_ns=trace_time_ns(render_start),
+                    depends_on=event_dependencies(trace_dependency_event),
+                    chunk_index=chunk_times.chunk_index,
+                )
             frame_chunk = backend.render_chunk(trajectory)
-            chunk_times.chunk_ready_time = time.perf_counter()
+            render_end = time.perf_counter()
+            chunk_times.chunk_ready_time = render_end
+            worker_ready_event_id = None
+            if trace_context is not None:
+                chunk_render_event = trace_context.add_range(
+                    "chunk_render",
+                    thread=trace_context.worker_thread,
+                    begin_ns=trace_time_ns(render_start),
+                    end_ns=trace_time_ns(render_end),
+                    depends_on=event_dependencies(queue_wait_event),
+                    chunk_index=chunk_times.chunk_index,
+                    chunk_size=len(trajectory.timestamps_us),
+                    input_sample_time_ns=trace_time_ns(chunk_times.input_sample_time),
+                    source=frame_chunk.source_name,
+                )
+                worker_ready_event_id = chunk_render_event
+                timings = frame_chunk.video_model_timings
+                if timings is not None:
+                    condition_event = trace_context.add_range(
+                        "condition_raster",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.condition_start_time),
+                        end_ns=trace_time_ns(timings.condition_ready_time),
+                        depends_on=event_dependencies(queue_wait_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
+                    model_event = trace_context.add_range(
+                        "model_generate",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.model_start_time),
+                        end_ns=trace_time_ns(timings.model_ready_time),
+                        depends_on=event_dependencies(condition_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
+                    worker_ready_event_id = trace_context.add_range(
+                        "frame_merge",
+                        thread=trace_context.worker_thread,
+                        begin_ns=trace_time_ns(timings.merge_start_time),
+                        end_ns=trace_time_ns(timings.merge_ready_time),
+                        depends_on=event_dependencies(model_event),
+                        chunk_index=chunk_times.chunk_index,
+                    )
             # Drop the output if a reset / scene switch superseded this chunk
             # while it was queued or rendering -- its frames belong to a
             # rollout the user has already moved on from.
             if submit_generation != self.current_generation:
                 return True
+            # Latch before enqueuing so a consumer can't dequeue and present
+            # the first frame while first_chunk_produced() still reads False.
+            if frame_chunk.frames:
+                self._first_chunk_produced.set()
             for frame_index, frame in enumerate(frame_chunk.frames):
                 frame_times = chunk_times.frames[frame_index]
                 frame_times.image_ready_time = time.perf_counter()
@@ -207,6 +280,7 @@ class ChunkPipeline:
                         chunk_times=chunk_times,
                         frame_index=frame_index,
                         generation=submit_generation,
+                        worker_ready_event_id=worker_ready_event_id,
                     )
                 )
             return True
@@ -216,22 +290,17 @@ class ChunkPipeline:
     def reset(self) -> None:
         """Signal the worker to start a new rollout. Non-blocking.
 
-        Bumps the generation so any in-flight / queued render is superseded:
-        its frames are dropped rather than presented, so the reset doesn't
-        first replay a stretch of old-rollout frames (the single-process
-        analog of alpasim cancelling the runtime stream and clearing its
-        frame queues). The in-flight torch generate() can't be interrupted,
-        but its output is discarded; the worker still handles the reset
+        Bumps the generation (see ``__init__``) so in-flight / queued frames
+        are dropped rather than replayed; the worker still handles the reset
         FIFO so the next rollout starts from a clean cache.
         """
         self._raise_worker_error_if_any()
         generation = self._bump_generation()
         cleared = self._clear_frame_queue()
         if cleared:
-            print(
+            logger.info(
                 "[chunk-pipeline] cleared stale frame queue "
                 f"frames={cleared} generation={generation}",
-                flush=True,
             )
 
         def reset_command(backend: VideoModelBackend) -> bool:
@@ -248,12 +317,19 @@ class ChunkPipeline:
     def _worker(self) -> None:
         try:
             warmup_start = time.perf_counter()
-            print("[chunk-pipeline] warmup start", flush=True)
+            logger.info("[chunk-pipeline] warmup start")
             self._backend.warmup_model()
-            warmup_elapsed_ms = (time.perf_counter() - warmup_start) * 1000.0
-            print(
+            warmup_end = time.perf_counter()
+            if self._trace_context is not None:
+                self._trace_context.add_range(
+                    "worker_warmup",
+                    thread=self._trace_context.worker_thread,
+                    begin_ns=trace_time_ns(warmup_start),
+                    end_ns=trace_time_ns(warmup_end),
+                )
+            warmup_elapsed_ms = (warmup_end - warmup_start) * 1000.0
+            logger.info(
                 f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
-                flush=True,
             )
             self._model_ready.set()
             while True:

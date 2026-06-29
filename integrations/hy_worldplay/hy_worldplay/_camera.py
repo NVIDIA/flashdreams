@@ -40,11 +40,8 @@ from hy_worldplay._prope import prope_qkv
 def _fp32_layer_norm(x: Tensor, norm: nn.LayerNorm) -> Tensor:
     """Run ``norm`` in float32 regardless of input / weight dtype, returning fp32.
 
-    Vendor performs AdaLN in FP32; mirror that here by casting both the
-    input and any affine parameters to fp32 for the norm call. Returns
-    the fp32 normalised tensor so callers can keep the subsequent AdaLN
-    ``scale_shift`` blend in fp32 too; the final ``.type_as(x)`` cast
-    happens at the AdaLN output boundary.
+    Casts both the input and any affine parameters to fp32 so callers can
+    keep the subsequent AdaLN ``scale_shift`` blend in fp32 too.
     """
     weight = norm.weight.float() if norm.weight is not None else None
     bias = norm.bias.float() if norm.bias is not None else None
@@ -73,17 +70,16 @@ class HyWorldPlayMemoryKVCache:
     """Per-block flat KV cache for HY-WorldPlay's reconstituted-context memory.
 
     Stores K / V at RoPE-collapsed positions ``[0, len(selected) *
-    tokens_per_frame)`` -- no rolling window and no chunk indexing. The
-    prefill executor wipes and repopulates it at the start of every
-    chunk past the first; within a chunk's denoising loop the contents
-    are frozen.
+    tokens_per_frame)`` -- no rolling window and no chunk indexing. Frozen
+    within a chunk's denoising loop; the prefill executor wipes and
+    repopulates it at the start of every chunk past the first.
 
     The standard-RoPE and PRoPE branches are stored independently so the
     dual-branch attention can address each without slicing a packed
-    tensor. Tensor layout is ``[batch, S, n_heads, head_dim]`` where
-    ``S == len(selected_frame_indices) * tokens_per_frame`` -- matches
-    :meth:`BlockKVCache.cached_k` so both caches can be concatenated
-    along ``seq_dim=-3`` without a reshape.
+    tensor. Layout ``[batch, S, n_heads, head_dim]`` with
+    ``S == len(selected_frame_indices) * tokens_per_frame`` matches
+    :meth:`BlockKVCache.cached_k`, so both caches concatenate along
+    ``seq_dim=-3`` without a reshape.
     """
 
     k_rope: Tensor | None = None
@@ -138,19 +134,15 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
     """Self-attention with a parallel PRoPE-projected branch.
 
     Owns a second output projection :attr:`o_prope` (zero-initialised so
-    the PRoPE branch is a strict no-op at random init) on top of the
-    inherited Q / K / V / o projections from :class:`MultiHeadAttention`.
-    The PRoPE branch reuses the same Q / K / V tensors (HY-WorldPlay
-    weights load once into ``q`` / ``k`` / ``v`` / ``norm_q`` /
-    ``norm_k``) and only differs in how those tensors are pre- and
+    the PRoPE branch is a no-op until trained weights load) on top of the
+    inherited Q / K / V / o projections. The PRoPE branch reuses the same
+    Q / K / V tensors and only differs in how they are pre- and
     post-processed for attention.
 
-    A second :class:`BlockKVCache` (created alongside the stock cache by
-    :meth:`HyWorldPlayPRoPEBlock.initialize_cache`) stores the
-    *already-PRoPE-transformed* K / V from previous AR steps so each AR
-    step only transforms its current chunk's K / V. The query side is
-    transformed fresh every call because it uses the current chunk's
-    extrinsics + intrinsics.
+    A second :class:`BlockKVCache` stores the *already-PRoPE-transformed*
+    K / V from previous AR steps, so each step only transforms its current
+    chunk's K / V. The query side is transformed fresh every call since it
+    uses the current chunk's extrinsics + intrinsics.
     """
 
     def __init__(
@@ -168,16 +160,15 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             eps=eps,
             apply_rope_before_kvcache=apply_rope_before_kvcache,
         )
-        # Zero-init the PRoPE-branch output projection so the camera
-        # path adds zero residual until a distilled checkpoint loads
-        # non-zero weights for it.
+        # Zero-init so the PRoPE branch adds zero residual until trained
+        # weights load.
         self.o_prope = nn.Linear(self.inner_dim, self.query_dim)
         nn.init.zeros_(self.o_prope.weight)
         if self.o_prope.bias is not None:
             nn.init.zeros_(self.o_prope.bias)
 
-        # Independent attention op for the PRoPE branch keeps CP routing
-        # symmetric across branches without sharing internal state.
+        # Independent attention op so CP routing stays symmetric across
+        # branches without sharing internal state.
         self.attn_op_prope = ContextParallelAttention(
             qkv_format="bshd", backend="cudnn"
         )
@@ -233,9 +224,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
                 per-AR-step latent-frame count (``len_t``).
             Ks: Optional per-frame intrinsics ``[batch, cameras, 3, 3]``.
             memory_kv_cache: Optional reconstituted-context memory cache.
-                When populated, the prefilled K / V are prepended to
-                ``kv_cache`` / ``prope_kv_cache`` along ``seq_dim=-3``
-                before the attention call so the sequence becomes
+                When populated, the prefilled K / V are prepended along
+                ``seq_dim=-3`` so the sequence becomes
                 ``[memory K/V, current K/V]``. ``None`` or empty leaves
                 the dual-branch path unchanged.
 
@@ -283,10 +273,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             )
         kv_cache.update(k_for_rope_cache, v_raw)
 
-        # PRoPE expects ``[batch, num_heads, seqlen, head_dim]``; the
-        # cache stores ``[batch, seqlen, num_heads, head_dim]``. Transpose
-        # in for the PRoPE math and back out before the cache write so the
-        # cache layout matches the standard branch.
+        # PRoPE math runs in bhsd; transpose in, then back to the bshd
+        # cache layout before the write.
         q_prope, k_prope_bhsd, v_prope_bhsd, apply_fn_o = prope_qkv(
             q_raw.transpose(1, 2),
             k_raw.transpose(1, 2),
@@ -311,15 +299,13 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         else:
             cached_k = kv_cache.cached_k()
         cached_v = kv_cache.cached_v()
-        # Prepend the prefilled memory K / V (if any) so the attention
-        # sees ``[memory_K, current_K]`` along the sequence dim.
+        # Prepend prefilled memory K / V (if any) -> ``[memory, current]``.
         if _debug_dump.enabled():
             _debug_dump.dump("attn.q_rope_post", q_rope)
             _debug_dump.dump("attn.cached_k_pre_mem_concat", cached_k)
             _debug_dump.dump("attn.cached_v_pre_mem_concat", cached_v)
         if memory_kv_cache is not None and memory_kv_cache.has_rope_kv:
-            # ``has_rope_kv`` guarantees both branches are populated; the
-            # asserts narrow ``Tensor | None`` for ``torch.cat``.
+            # Asserts narrow ``Tensor | None`` for ``torch.cat``.
             assert memory_kv_cache.k_rope is not None
             assert memory_kv_cache.v_rope is not None
             if _debug_dump.enabled():
@@ -351,10 +337,7 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             prope_cached_k,
             prope_cached_v,
         )
-        # ``apply_fn_o`` expects ``[batch, num_heads, seqlen, head_dim]``;
-        # the cudnn-backed attn op returns ``[batch, seqlen, num_heads,
-        # head_dim]``. Transpose for the matmul and back for the final
-        # flatten + projection.
+        # ``apply_fn_o`` consumes bhsd; the cudnn attn op returns bshd.
         out_prope = apply_fn_o(out_prope.transpose(1, 2)).transpose(1, 2)
         out_prope = out_prope.reshape(batch_shape + (L, n * d))
         out_prope = self.o_prope(out_prope)
@@ -371,35 +354,26 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
     ) -> Tensor:
         """Run the dual-branch self-attention at collapsed memory positions.
 
-        Drives the full attention pipeline (project, apply RoPE / PRoPE,
-        write K / V into ``memory_kv_cache``, then attend over those
-        memory positions themselves) so the returned hidden state can
-        feed the next block's prefill input. The K / V written here are
-        what chunk-1+ ``forward_dual_branch`` calls will prepend.
+        Projects, applies RoPE / PRoPE, writes both branches' K / V into
+        ``memory_kv_cache``, then attends over the memory positions
+        themselves. The K / V written here are what chunk-1+
+        ``forward_dual_branch`` calls prepend.
 
         Args:
             x: Pre-norm-modulated input for the selected memory frames,
                 shape ``[..., L_mem, query_dim]`` where
                 ``L_mem == K * tokens_per_frame``.
             rope_freqs: RoPE frequencies remapped to the collapsed
-                positions, shape ``[L_mem, 1, 1, head_dim]``. The
-                executor builds this from the per-rollout RoPE adapter
-                using ``current_start=0`` /
-                ``current_end=K * tokens_per_frame``.
-            viewmats: Per-memory-frame W2C matrices, shape
-                ``[batch, K, 4, 4]``. Already sliced to
-                ``selected_frame_indices`` by the executor.
-            Ks: Optional per-memory-frame intrinsics
-                ``[batch, K, 3, 3]``.
-            memory_kv_cache: Cache to populate. Both branches are
-                written.
+                positions, shape ``[L_mem, 1, 1, head_dim]``.
+            viewmats: Per-memory-frame W2C matrices ``[batch, K, 4, 4]``,
+                already sliced to ``selected_frame_indices``.
+            Ks: Optional per-memory-frame intrinsics ``[batch, K, 3, 3]``.
+            memory_kv_cache: Cache to populate; both branches are written.
 
         Returns:
             Attention output at the memory positions, summed over the
             standard-RoPE and PRoPE branches, shape
-            ``[..., L_mem, query_dim]``. The block caller chains this
-            into the post-attention residual + cross-attn + FFN to
-            evolve the hidden state for the next block's prefill.
+            ``[..., L_mem, query_dim]``.
         """
         if self.is_context_parallel_enabled():
             raise NotImplementedError(
@@ -434,9 +408,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             k_for_rope = apply_rope_freqs(k_for_rope, rope_freqs, interleaved=True)
         memory_kv_cache.write_rope(k_for_rope, v_raw)
 
-        # PRoPE branch: transpose to ``[batch, num_heads, seqlen,
-        # head_dim]`` for the math, store post-transform K / V back in
-        # the cache layout (``[batch, seqlen, num_heads, head_dim]``).
+        # PRoPE math runs in bhsd; store post-transform K / V back in the
+        # bshd cache layout.
         q_prope, k_prope_bhsd, v_prope_bhsd, apply_fn_o = prope_qkv(
             q_raw.transpose(1, 2),
             k_raw.transpose(1, 2),
@@ -455,10 +428,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             _debug_dump.dump("prefill.block.k_prope_written", memory_kv_cache.k_prope)
             _debug_dump.dump("prefill.block.v_prope_written", memory_kv_cache.v_prope)
 
-        # Standard RoPE-branch attention over the memory positions
-        # themselves -- the memory tokens are the only sequence at the
-        # collapsed positions, so K / V are the just-computed tensors
-        # (no cross-chunk concatenation).
+        # Memory tokens are the only sequence at the collapsed positions,
+        # so K / V are the just-computed tensors (no cross-chunk concat).
         q_rope = q_raw
         if rope_freqs is not None:
             q_rope = apply_rope_freqs(q_rope, rope_freqs, interleaved=True)
@@ -466,11 +437,8 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         out_rope = out_rope.reshape(batch_shape + (L, n * d))
         out_rope = self.o(out_rope)
 
-        # PRoPE-branch attention. ``prope_qkv`` returns Q / K / V as
-        # ``[batch, num_heads, seqlen, head_dim]``; attn_op_prope
-        # consumes bshd, so the K / V are transposed back. ``apply_fn_o``
-        # needs bhsd again, then we transpose for the final
-        # ``[..., L, n*d]`` flatten + projection.
+        # ``prope_qkv`` returns bhsd; attn_op_prope consumes bshd and
+        # ``apply_fn_o`` consumes bhsd, hence the transposes.
         out_prope = self.attn_op_prope(
             q_prope.transpose(1, 2),
             k_prope_bhsd.transpose(1, 2),
@@ -492,21 +460,15 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
 
     Three caches per block:
 
-    * ``self_attn`` -- inherited from :class:`BlockCache`, stores the
-      standard RoPE-branch K / V for the *current chunk's* tokens.
-      Reused across denoising steps within a chunk; reset at chunk
-      start by the HY transformer's predict_flow.
-    * ``prope_self_attn`` -- mirrors the layout of ``self_attn`` but
-      stores the *already-PRoPE-transformed* K / V for the current
-      chunk so each AR step pays the per-frame projection cost once.
-    * ``memory`` -- separate, flat per-block cache that stores the
-      prefilled K / V from the selected memory frames at RoPE-collapsed
-      positions ``[0, K)``. Wiped at chunk start by the prefill
-      executor and repopulated from
-      :class:`HyWorldPlayCtrl.memory_frame_indices`. The dual-branch
-      attention prepends these K / V to ``self_attn`` /
-      ``prope_self_attn`` for the actual attention call, so the total
-      context is ``[memory K/V, current chunk K/V]`` along ``seq_dim=-3``.
+    * ``self_attn`` -- inherited; standard RoPE-branch K / V for the
+      current chunk's tokens.
+    * ``prope_self_attn`` -- mirrors ``self_attn``'s layout but stores the
+      *already-PRoPE-transformed* K / V for the current chunk.
+    * ``memory`` -- flat per-block cache holding the prefilled K / V from
+      the selected memory frames at RoPE-collapsed positions ``[0, K)``.
+      The dual-branch attention prepends these to ``self_attn`` /
+      ``prope_self_attn`` so the context is
+      ``[memory K/V, current chunk K/V]`` along ``seq_dim=-3``.
     """
 
     prope_self_attn: BlockKVCache = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -514,7 +476,7 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
 
     memory: HyWorldPlayMemoryKVCache = field(default_factory=HyWorldPlayMemoryKVCache)
     """Reconstituted-context memory cache. Empty on chunk 0; repopulated
-    at the start of every chunk past the first by the prefill executor."""
+    by the prefill executor at the start of every later chunk."""
 
     def __post_init__(self) -> None:
         if self.prope_self_attn is None:
@@ -534,10 +496,9 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
     def reset_current_chunk(self) -> None:
         """Reset both per-chunk K / V caches to empty (filling) state.
 
-        The memory cache is *not* touched here -- it has its own
-        :meth:`HyWorldPlayMemoryKVCache.reset` that the prefill executor
-        calls before repopulating, so the two lifecycles stay
-        independent.
+        The memory cache is not touched here; it has its own
+        :meth:`HyWorldPlayMemoryKVCache.reset` with an independent
+        lifecycle driven by the prefill executor.
         """
         self.self_attn.reset()
         self.prope_self_attn.reset()
@@ -548,14 +509,13 @@ class HyWorldPlayPRoPEBlock(Block):
 
     Replaces the stock :class:`SelfAttention` with
     :class:`HyWorldPlayPRoPESelfAttention` and overrides
-    :meth:`initialize_cache` / :meth:`forward` so the PRoPE branch's
-    independent KV cache is created and threaded alongside the standard
-    one. Cross-attention + FFN are inherited unchanged.
+    :meth:`initialize_cache` / :meth:`forward` to create and thread the
+    PRoPE branch's independent KV cache. Cross-attention + FFN are
+    inherited unchanged.
 
-    The block accepts ``viewmats`` and ``Ks`` as forward kwargs (passed
-    via :attr:`WanDiTNetwork.forward`'s ``block_extra_kwargs``); with
-    ``o_prope`` zero-initialised the block is observationally a no-op
-    versus the standard one until HY-WorldPlay weights are loaded.
+    Accepts ``viewmats`` and ``Ks`` as forward kwargs. With ``o_prope``
+    zero-initialised the block is a no-op versus the standard one until
+    HY-WorldPlay weights are loaded.
     """
 
     self_attn: HyWorldPlayPRoPESelfAttention
@@ -579,9 +539,8 @@ class HyWorldPlayPRoPEBlock(Block):
             i2v=i2v,
             apply_rope_before_kvcache=apply_rope_before_kvcache,
         )
-        # Replace the stock self-attn with the dual-branch variant after
-        # super().__init__ so any checkpoint loader addressing weights by
-        # name (e.g. ``blocks.{i}.self_attn.q.weight``) still resolves
+        # Replace after super().__init__ so checkpoint weights addressed
+        # by name (e.g. ``blocks.{i}.self_attn.q.weight``) still resolve
         # the inherited Q / K / V / o projections.
         self.self_attn = HyWorldPlayPRoPESelfAttention(
             query_dim=dim,
@@ -648,8 +607,8 @@ class HyWorldPlayPRoPEBlock(Block):
             "We expect to have called update_parameters_after_loading_checkpoint() "
             "before running the forward pass"
         )
-        # Report missing camera data first; otherwise the cache-type
-        # assertion below would mask the real misconfiguration.
+        # Check camera data before the cache-type assert so a missing
+        # ``viewmats`` reports the real misconfiguration.
         if viewmats is None:
             raise ValueError(
                 "HyWorldPlayPRoPEBlock.forward requires viewmats. "
@@ -662,17 +621,12 @@ class HyWorldPlayPRoPEBlock(Block):
             "Did HyWorldPlayWanDiTNetwork.initialize_cache run?"
         )
 
-        # Vendor performs AdaLN in FP32; mirror that here by computing
-        # the modulation table, norm + scale + shift, residual gates, and
-        # FFN residual in float32 before casting back at each boundary.
+        # AdaLN runs in fp32: modulation table, norm + scale + shift,
+        # residual gates, and FFN residual, cast back at each boundary.
         e_chunks = [
             c.squeeze(-2) for c in (self.modulation + e).float().chunk(6, dim=-2)
         ]
 
-        # norm1 has no affine params (elementwise_affine=False) so a
-        # direct ``norm1(x.float())`` would also work; route through the
-        # helper for symmetry with the norm3 / norm2 call sites that
-        # *do* need the weight cast.
         y = (_fp32_layer_norm(x, self.norm1) * (1 + e_chunks[1]) + e_chunks[0]).type_as(
             x
         )
@@ -687,12 +641,9 @@ class HyWorldPlayPRoPEBlock(Block):
         )
         x = (x.float() + y.float() * e_chunks[2]).type_as(x)
 
-        # Cross-attn residual stays in bf16 (matches vendor); only the
-        # norm before attn2 runs in fp32 because the affine weights on
-        # ``norm3`` are loaded in bf16.
-        # ``norm3`` is typed ``LayerNorm | Identity`` on the parent
-        # ``Block`` (depending on ``cross_attn_norm``); the PRoPE block
-        # is always built with ``cross_attn_norm=True`` so narrow here.
+        # Cross-attn residual stays in bf16; only the norm before attn2
+        # runs in fp32. The PRoPE block is always built with
+        # ``cross_attn_norm=True``, so ``norm3`` is a ``LayerNorm`` here.
         assert isinstance(self.norm3, nn.LayerNorm)
         x = x + self.cross_attn(
             _fp32_layer_norm(x, self.norm3).type_as(x),
@@ -716,32 +667,27 @@ class HyWorldPlayPRoPEBlock(Block):
     ) -> Tensor:
         """Run the full block forward at the collapsed memory positions.
 
-        Mirrors :meth:`forward` exactly so each successive block's K / V
+        Mirrors :meth:`forward` so each successive block's K / V
         projections see an already-attended hidden state. The dual-branch
         self-attn writes both branches' K / V into ``cache.memory`` as a
-        side effect; ``cache.cross_attn`` is read for the cross-attention
-        text (and I2V image) K / V; ``cache.self_attn`` /
-        ``cache.prope_self_attn`` are intentionally untouched -- the
-        prefill operates at collapsed positions that don't belong in the
+        side effect; ``cache.self_attn`` / ``cache.prope_self_attn`` are
+        left untouched, since collapsed positions don't belong in the
         rolling current-chunk cache.
 
         Args:
             x: Pre-AdaLN input for the K selected memory frames,
                 shape ``[..., L_mem, D]``.
-            e: AdaLN modulation tensor for those frames (same contract
-                as :meth:`forward`).
+            e: AdaLN modulation tensor for those frames.
             rope_freqs: RoPE frequencies pre-sliced to the collapsed
                 memory positions.
-            viewmats: Per-memory-frame W2C extrinsics (already sliced
-                to the selected indices).
+            viewmats: Per-memory-frame W2C extrinsics, already sliced to
+                the selected indices.
             Ks: Optional per-memory-frame intrinsics.
             cache: The block's per-rollout cache.
 
         Returns:
             Hidden state ``[..., L_mem, D]`` evolved through the full
-            block. Caller threads this into the next block's prefill
-            call; the network's prefill driver discards the final-block
-            output.
+            block, for the next block's prefill call.
         """
         if viewmats is None:
             raise ValueError(
@@ -749,9 +695,8 @@ class HyWorldPlayPRoPEBlock(Block):
                 "the prefill executor must slice the per-rollout viewmats "
                 "by selected_frame_indices before calling."
             )
-        # FP32 AdaLN; same rationale as :meth:`forward`. Without this
-        # match, the memory K / V cache would carry per-block bf16
-        # rounding drift that the next chunk's forward attends over.
+        # FP32 AdaLN, matching :meth:`forward` so the memory K / V cache
+        # carries no per-block bf16 rounding drift.
         e_chunks = [
             c.squeeze(-2) for c in (self.modulation + e).float().chunk(6, dim=-2)
         ]
@@ -768,8 +713,8 @@ class HyWorldPlayPRoPEBlock(Block):
         )
         x = (x.float() + y.float() * e_chunks[2]).type_as(x)
 
-        # See note in ``forward``: ``cross_attn_norm=True`` for the PRoPE
-        # block, so ``norm3`` is always ``LayerNorm`` here.
+        # ``cross_attn_norm=True`` for the PRoPE block, so ``norm3`` is a
+        # ``LayerNorm`` here.
         assert isinstance(self.norm3, nn.LayerNorm)
         x = x + self.cross_attn(
             _fp32_layer_norm(x, self.norm3).type_as(x),

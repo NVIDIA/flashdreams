@@ -81,10 +81,13 @@ dev = [
     # ``Item.get_marker`` API).
     "pytest-manual-marker>=2.0",
     "tomli>=2.0",
-    # Transformer Engine is the parity / perf reference for the
-    # in-house RoPE Triton kernel (see ``tests/test_rope_kernel.py``
-    # and ``tests/perf_rope.py``). No runtime code imports it; gate
-    # on Linux because there are no Windows wheels.
+    # Transformer Engine is the parity / perf reference for the in-house
+    # RoPE Triton kernel (see `tests/test_rope_kernel.py` and
+    # `tests/perf_rope.py`). No runtime code imports it; gated on Linux
+    # because there are no Windows wheels. The `core-cu13` extra ships a
+    # pre-built CUDA 13 binary; combining it with `--group cuda12` (cu128
+    # torch) produces an unrunnable environment, so `dev` is declared as
+    # a `conflicts` peer of `cuda12` in `tool.uv.conflicts` below.
     "transformer-engine[pytorch,core-cu13]>=2.12; sys_platform != 'win32'",
 ]
 # Legacy alias kept around so the lock file resolves identically to
@@ -118,21 +121,68 @@ version = {attr = "flashdreams._version.__version__"}
 include = ["flashdreams*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
 
-# PyPI's default ``torch`` is the CPU build on Windows. CUDA extensions need a
-# CUDA-enabled PyTorch so PyTorch's ``cpp_extension`` resolves ``CUDA_HOME``
-# from the env (the gate is ``torch.version.cuda is not None``). On Linux the
-# default wheel is already CUDA-enabled; on Windows we have to point at
-# NVIDIA's PyTorch index. Constrain by marker so the override only fires on
-# Windows -- Linux / NGC users keep the upstream wheel.
+[dependency-groups]
+# Default CUDA 13 profile. No source binding -- Linux falls through to
+# PyPI's CUDA-13 manylinux wheel, Windows is captured by the unconditional
+# cu130 binding below. The group exists primarily as a `conflicts` peer of
+# `cuda12`: without that partition uv rejects the mixed cu128 + cu130
+# sources as "conflicting indexes in all marker environments", even when
+# their `sys_platform` markers are disjoint.
+cuda13 = [
+    "torch>=2.9",
+    "torchvision>=0.24",
+]
+# CUDA 12.8 opt-in (Linux only -- on Windows the cu130 binding wins). The
+# `sys_platform != 'win32'` marker on the cu128 binding below is what
+# physically partitions the two source domains.
+cuda12 = [
+    "torch>=2.9",
+    "torchvision>=0.24",
+]
+
+# Per-CUDA-flavor PyTorch indexes. `explicit=true` means they're only
+# consulted for packages whose `tool.uv.sources` entry binds to them.
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
+# The cu130 binding is intentionally group-free: uv's `default-groups`
+# does not propagate per-group source bindings, so a group-gated cu130
+# binding would not fire on plain `uv sync` on Windows.
 torch = [
+    { index = "pytorch-cu128", group = "cuda12", marker = "sys_platform != 'win32'" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", group = "cuda12", marker = "sys_platform != 'win32'" },
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
 
 [tool.uv]
 managed = true
+# `cuda13` is the default; `cuda12` is mutually exclusive and uv
+# auto-deactivates `cuda13` when `--group cuda12` is passed.
+default-groups = ["cuda13"]
+# `cuda13` ⊥ `cuda12` partitions the torch source bindings. The `dev`
+# extra is also declared incompatible with `cuda12` because it pulls
+# `transformer-engine[core-cu13]`, whose pre-built cu13 binary cannot be
+# paired with the cu12 torch wheels (transformer-engine-torch itself
+# depends on transformer-engine-cu13 unconditionally on Linux, so a
+# cu12-only TE install is not expressible via PyPI extras).
+conflicts = [
+    [
+        { package = "flashdreams", group = "cuda13" },
+        { package = "flashdreams", group = "cuda12" },
+    ],
+    [
+        { package = "flashdreams", extra = "dev" },
+        { package = "flashdreams", group = "cuda12" },
+    ],
+]

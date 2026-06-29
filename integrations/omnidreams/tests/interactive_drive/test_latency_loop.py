@@ -3,7 +3,8 @@
 
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import SimpleNamespace
 
 import numpy as np
 import omnidreams.interactive_drive.runtime.loop as loop_module
@@ -19,7 +20,12 @@ from omnidreams.interactive_drive.runtime.loop import (
     present_queued_frame,
     run_main_loop,
 )
-from omnidreams.interactive_drive.runtime.timing import ChunkPrediction, ChunkTimes
+from omnidreams.interactive_drive.runtime.timing import (
+    ChunkPrediction,
+    ChunkTimes,
+    TraceComponentValue,
+    TraceContext,
+)
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     PresentedFrame,
@@ -58,7 +64,6 @@ def _chunk_times() -> ChunkTimes:
         input_sample_time=now,
         request_time=now,
         request_poses_ready_time=now + 0.001,
-        prediction=ChunkPrediction.create(request_time=now, frame_interval_s=0.1),
         intended_present_times=[now + 0.1],
     )
 
@@ -84,6 +89,66 @@ def _loop_config(*, frame_interval_s: float) -> LoopConfig:
 class _PresentRecord:
     frame: PresentedFrame
     view_mode: str
+
+
+@dataclass(frozen=True)
+class _TraceEvent:
+    name: str
+    depends_on: list[int]
+    components: dict[str, TraceComponentValue]
+
+
+class _RecordingTraceSink:
+    def __init__(self) -> None:
+        self.threads: list[str] = []
+        self.events: list[_TraceEvent] = []
+
+    def add_thread(self, name: str) -> int:
+        self.threads.append(name)
+        return len(self.threads) - 1
+
+    def add_instant(
+        self,
+        name: str,
+        *,
+        thread: int,
+        time_ns: int,
+        depends_on: list[int] | None = None,
+        **components: TraceComponentValue,
+    ) -> int:
+        del thread, time_ns
+        return self._append_event(name, depends_on, components)
+
+    def add_range(
+        self,
+        name: str,
+        *,
+        thread: int,
+        begin_ns: int,
+        end_ns: int,
+        depends_on: list[int] | None = None,
+        **components: TraceComponentValue,
+    ) -> int:
+        del thread
+        event_components = dict(components)
+        event_components["begin_ns"] = begin_ns
+        event_components["end_ns"] = end_ns
+        return self._append_event(name, depends_on, event_components)
+
+    def _append_event(
+        self,
+        name: str,
+        depends_on: list[int] | None,
+        components: dict[str, TraceComponentValue],
+    ) -> int:
+        self.events.append(
+            _TraceEvent(
+                name=name,
+                depends_on=[] if depends_on is None else depends_on,
+                components=components,
+            )
+        )
+        return len(self.events) - 1
 
 
 class _CountingPresenter:
@@ -202,8 +267,10 @@ def _drive_loop(
     simulation: _FakeSimulation,
     initial: PresentedFrame,
     frame_interval_s: float,
+    trace_context: TraceContext | None = None,
+    stop_after_consumed_chunks: int | None = None,
 ) -> bool:
-    pipeline = ChunkPipeline(backend)
+    pipeline = ChunkPipeline(backend, trace_context=trace_context)
     pipeline.request_scene(minimal_scene())
     try:
         return run_main_loop(
@@ -213,7 +280,11 @@ def _drive_loop(
             input_backend=_FakeInputBackend(),
             simulation=simulation,
             pipeline=pipeline,
-            config=_loop_config(frame_interval_s=frame_interval_s),
+            config=replace(
+                _loop_config(frame_interval_s=frame_interval_s),
+                stop_after_consumed_chunks=stop_after_consumed_chunks,
+            ),
+            trace_context=trace_context,
         )
     finally:
         pipeline.shutdown()
@@ -259,7 +330,18 @@ def test_input_to_present_profile_prints_window_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    del capsys
+    messages: list[str] = []
     monkeypatch.setenv("INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S", "0.25")
+    monkeypatch.setattr(
+        loop_module,
+        "logger",
+        SimpleNamespace(
+            info=lambda message, *args, **kwargs: messages.append(
+                str(message).format(*args, **kwargs)
+            )
+        ),
+    )
     loop_module.reset_input_to_present_profile_window()
 
     loop_module._record_input_to_present_for_profile(
@@ -275,7 +357,7 @@ def test_input_to_present_profile_prints_window_summary(
         frame_interval_s=0.1,
     )
 
-    output = capsys.readouterr().out
+    output = "\n".join(messages)
     assert "[profile] e2e" in output
     assert "wall_present_fps=" in output
     assert "avg_adj_control_to_present_ms=" in output
@@ -433,16 +515,16 @@ def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(
         input_sample_time: float,
         request_time: float,
         request_poses_ready_time: float,
-        prediction: ChunkPrediction,
         intended_present_times: list[float],
+        prediction: ChunkPrediction | None = None,
     ) -> ChunkTimes:
         instance = original_create(
             chunk_index=chunk_index,
             input_sample_time=input_sample_time,
             request_time=request_time,
             request_poses_ready_time=request_poses_ready_time,
-            prediction=prediction,
             intended_present_times=intended_present_times,
+            prediction=prediction,
         )
         captured.append(instance)
         return instance
@@ -493,3 +575,43 @@ def test_loop_stamps_full_timing_chain_on_same_chunktimes_instance(
     assert chunk_ready <= image_ready
     assert image_ready <= sample_display
     assert sample_display <= present
+
+
+def test_loop_traces_present_wait_as_sleep_range_dependency() -> None:
+    sink = _RecordingTraceSink()
+    trace_context = TraceContext.create(sink)
+    initial = _make_frame()
+    presenter = _CountingPresenter(present_budget=_backend_frame_wait_budget())
+    controls = _FakeRuntimeControls()
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1, rgb_value=11),
+        simulation=_FakeSimulation(),
+        initial=initial,
+        frame_interval_s=0.001,
+        trace_context=trace_context,
+        stop_after_consumed_chunks=2,
+    )
+
+    assert result is False
+    names = [event.name for event in sink.events]
+    assert "present_wait" in names
+    assert "present_frame" in names
+    wait_indices = {
+        event_index
+        for event_index, event in enumerate(sink.events)
+        if event.name == "present_wait"
+    }
+    wait = sink.events[min(wait_indices)]
+    present = next(
+        event
+        for event in sink.events
+        if event.name == "present_frame" and wait_indices.intersection(event.depends_on)
+    )
+    assert wait.components["end_ns"] >= wait.components["begin_ns"]
+    assert present.components["chunk_index"] >= 1
+    # The present_frame event carries the chunk's image-ready timestamp so the
+    # chunk-ready -> present latency is recoverable from the trace.
+    assert present.components["image_ready_time_ns"] > 0

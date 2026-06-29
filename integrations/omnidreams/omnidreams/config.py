@@ -134,12 +134,10 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsPipelineConfig(
         ),
     ),
 )
-"""Base: single-view, chunk2, light Wan VAE HDMap encoder + LightTAE decoder.
+"""Base single-view chunk2 chassis: light Wan VAE HDMap encoder + LightTAE.
 
-The reference Self-Forcing distilled chassis: 2-step flow-match
-scheduler, ``len_t=2``, ``window_size_t=6``, CFG off, no
-``skip_finalize_kv_cache``. Every chunk2 variant derives from this
-one and flips a small set of fields.
+Self-Forcing distilled: 2-step flow-match, ``len_t=2``, ``window_size_t=6``,
+CFG off. Every chunk2 variant derives from this and flips a few fields.
 """
 
 SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = cast(
@@ -240,13 +238,11 @@ SV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
         ),
     ),
 )  # ty:ignore[redundant-cast]
-"""Single-view, chunk4, PixelShuffle HDMap encoder + LightTAE decoder.
+"""Single-view chunk4: PixelShuffle HDMap encoder + LightTAE decoder.
 
-Diverges from the chunk2 base on (a) ``additional_concat_ch=192`` for
-the PixelShuffle branch, (b) ``len_t=4``, (c) ``window_size_t=8``,
-(d) the chunk4 checkpoint, and (e) the per-AR-step encoder is the
-:class:`PixelShuffleVAEEncoderConfig` instead of a Wan VAE encoder.
-``image_encoder`` reverts to the standard "vae" checkpoint.
+Diverges from the chunk2 base: ``additional_concat_ch=192``, ``len_t=4``,
+``window_size_t=8``, the chunk4 checkpoint, the PixelShuffle per-AR-step
+encoder, and ``image_encoder`` on the standard "vae" checkpoint.
 """
 
 MV_2STEPS_CHUNK4_LOC8_PSHUFFLE_LIGHTTAE = cast(
@@ -313,9 +309,8 @@ SV_35STEPS_CHUNK2_LOC24_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = OmnidreamsPi
 )
 """Teacher: omnidreams diffusion-forcing causal AR (2B / 720p / chunk2 UniPC).
 
-``state_t=24``: 12 chunk2 latent blocks, or 93 decoded frames with
-the Wan decoder. CFG on (``guidance_scale=3.0``); 35-step UniPC
-scheduler (``shift=5.0``).
+``state_t=24`` = 12 chunk2 latent blocks (93 decoded Wan frames). CFG on
+(``guidance_scale=3.0``); 35-step UniPC (``shift=5.0``).
 """
 
 SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
@@ -339,20 +334,14 @@ SV_35STEPS_CHUNK48_LOC48_COSMOS2_2B_RES720P_30FPS_HDMAP_VAE_MADS1M = cast(
 )  # ty:ignore[redundant-cast]
 """Teacher: omnidreams bidirectional (single-view / 2B / 720p / chunk48 UniPC).
 
-``len_t == window_size_t == 48`` -> single-AR-step rollout for the
-whole 48-chunk video. ``skip_finalize_kv_cache=True`` because the
-bidirectional teacher doesn't need to advance the KV cache after the
-one rollout it ever does.
+``len_t == window_size_t == 48`` -> one AR step for the whole video;
+``skip_finalize_kv_cache=True`` (no KV cache to advance after one rollout).
 """
 
 
-## Experiments: ablations on top of the chunk2 perf chassis
-#
-# ``experiment1_baseline`` re-publishes the perf config under a stable
-# experiment slug (same fields). The ``noise*`` variants vary the
-# terminal denoising timestep (``[1000, T2]``) to study the
-# skip-KV-cache-finalize ablation; the field name reflects the second
-# timestep (``noise350`` -> ``[1000, 350]``).
+# Experiments: ablations on the chunk2 perf chassis. ``noise*`` variants vary
+# the terminal denoising timestep (``noise350`` -> ``[1000, 350]``) to study
+# the skip-finalize-kv-cache ablation.
 
 EXPERIMENT1_BASELINE = cast(
     OmnidreamsPipelineConfig,

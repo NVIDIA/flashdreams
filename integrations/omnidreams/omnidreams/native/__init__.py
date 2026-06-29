@@ -36,12 +36,7 @@ from .primitives import (
     NativeTensorDescriptor,
     NativeTensorLayout,
     NativeTensorSpec,
-    NativeWorkspace,
-    NativeWorkspaceRequest,
-    allocate_native_workspaces,
-    describe_tensor,
     prepare_tensor_for_native,
-    validate_tensor,
 )
 
 __all__ = [
@@ -54,17 +49,12 @@ __all__ = [
     "NativeTensorDescriptor",
     "NativeTensorLayout",
     "NativeTensorSpec",
-    "NativeWorkspace",
-    "NativeWorkspaceRequest",
-    "allocate_native_workspaces",
     "build_info",
-    "describe_tensor",
     "load_extension",
     "prepare_tensor_for_native",
     "require_extension_symbols",
     "select_backend",
     "select_native_extension",
     "sync_thirdparty",
-    "validate_tensor",
     "validate_thirdparty",
 ]

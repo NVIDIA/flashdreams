@@ -4,3 +4,63 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 {% extends "!layout.html" %}
+
+{#
+   Render-mode switch: reference docs scaffold vs. marketing layout.
+
+   Reference pages keep pydata's default `docs_main` scaffold (bd-content
+   > bd-article-container > bd-article, the page-TOC sidebar, and the
+   content footer). Marketing pages bypass it and render the body
+   full-bleed into `fd-landing-main`, where the `fd-*` components supply
+   their own widths via `--fd-max-content`.
+
+   `pagename` is the source path without extension. Everything matched
+   below is reference; anything else (currently just the homepage) is
+   marketing.
+#}
+{% set _fd_is_reference = pagename == 'documentation'
+                          or pagename.startswith('developer_guides/')
+                          or pagename.startswith('api/')
+                          or pagename == 'troubleshooting'
+                          or pagename.startswith('models/')
+                          or pagename.startswith('community/')
+                          or pagename.startswith('quickstart/')
+                          or pagename.startswith('_modules/')
+                          or pagename in ('search', 'genindex', 'py-modindex') %}
+
+{% block docs_main %}
+  {% if _fd_is_reference %}
+    {{ super() }}
+  {% else %}
+    <div class="fd-landing-main">
+      {{ body }}
+    </div>
+    {# Homepage only: the right-hand "Supported Models" rail, floated in the
+       right gutter on wide screens and populated by
+       js/supported_models_nav.js from the on-page model grid. #}
+    {% if pagename == master_doc %}
+      {% include "components/supported-models-nav.html" %}
+    {% endif %}
+    {# Skip pydata's bd-footer-content <footer> here (it would render as an
+       empty band); site-wide copyright still shows in the outer bd-footer
+       below <main>. #}
+  {% endif %}
+{% endblock docs_main %}
+
+{#
+   Tag <body> so CSS can target marketing pages without `:has()` (reference
+   pages get no class). Non-reference pages get `fd-page-landing`; of those,
+   pages with no authored hero get `fd-page-plain` (their H1 shows as the
+   page title, whereas hero pages hide it in favor of `fd-hero-title`). The
+   homepage (`master_doc`) is the only hero page.
+#}
+{% block body_tag %}
+  {% set _fd_is_plain = (not _fd_is_reference)
+                        and pagename != master_doc %}
+  {% set _fd_body_classes = [] %}
+  {% if not _fd_is_reference %}
+    {% set _ = _fd_body_classes.append('fd-page-landing') %}
+    {% if _fd_is_plain %}{% set _ = _fd_body_classes.append('fd-page-plain') %}{% endif %}
+  {% endif %}
+  <body data-default-mode="{{ default_mode }}"{% if _fd_body_classes %} class="{{ _fd_body_classes | join(' ') }}"{% endif %}>
+{% endblock body_tag %}

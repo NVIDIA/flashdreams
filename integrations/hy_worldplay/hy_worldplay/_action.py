@@ -47,27 +47,18 @@ from flashdreams.recipes.wan.transformer.wan21 import (
 )
 
 _HY_STABILIZATION_TIMESTEP: int = 14
-"""Near-clean AdaLN timestep applied to memory K/V during the
-reconstituted-context KV prefill; vendor's ``t_ctx = stabilization_level - 1``.
-Modulating memory tokens at this near-zero noise level keeps the model in its
-trained distribution; using the noisy denoising timestep instead would scale
-memory K/V as if those frames were still being denoised."""
+"""Near-clean AdaLN timestep applied to memory K/V during the memory KV
+prefill, keeping memory tokens in the model's trained distribution."""
 
 
 def _fp32_sequential(seq: nn.Sequential, x: Tensor) -> Tensor:
     """Run ``seq`` (chained ``nn.Linear`` + dtype-stable activations) in fp32.
 
-    Vendor lists ``time_embedder`` in ``_keep_in_fp32_modules`` so its
-    Linear weights stay in fp32; flashdreams coerces every parameter to
-    the model dtype (bf16) at load, so we upcast input and weights here
-    to match vendor's accumulation precision. The output is fp32;
-    callers ``.type_as(x)`` at the boundary.
-
-    Only supports ``Linear -> Activation -> Linear`` /
-    ``Activation -> Linear`` layouts (Wan 2.1 ``time_embedding`` /
-    ``time_projection`` and HY ``action_embedding``). Layers with
-    dtype-coupled state (e.g. layer norms) need the broader treatment
-    in :func:`hy_worldplay._camera._fp32_layer_norm`.
+    Upcasts input and Linear weights to fp32 and returns an fp32 output;
+    callers ``.type_as(x)`` at the boundary. Only supports
+    ``Linear -> Activation -> Linear`` / ``Activation -> Linear`` layouts;
+    layers with dtype-coupled state (e.g. layer norms) need
+    :func:`hy_worldplay._camera._fp32_layer_norm`.
     """
     out = x.to(torch.float32)
     for module in seq:
@@ -146,9 +137,7 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         self._action_labels: Tensor | None = None
         self._viewmats: Tensor | None = None
         self._intrinsics: Tensor | None = None
-        # Knobs + Monte-Carlo point cloud are bound externally via
-        # ``set_memory_config``; ``None`` disables selection so the
-        # encoder emits ``memory_frame_indices=None`` on every AR step.
+        # Bound via ``set_memory_config``; ``None`` disables selection.
         self._memory_config: _MemoryConfig | None = None
 
     def set_action_labels(self, labels: Tensor) -> None:
@@ -267,8 +256,8 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
         self._memory_config = None
 
     def initialize_autoregressive_cache(self) -> I2VCtrlEncoderCache:
-        # Bound action / camera / memory state is owned by the runner
-        # across rollouts; we deliberately do not clear it here.
+        # Bound action / camera / memory state is owned by the runner across
+        # rollouts and is intentionally not cleared here.
         return super().initialize_autoregressive_cache()
 
     @torch.no_grad()
@@ -316,10 +305,8 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
             autoregressive_index=autoregressive_index, current_frame_idx=start
         )
 
-        # Expose the bound full-trajectory tensors so the prefill driver
-        # can index them at ``memory_frame_indices`` (which live in
-        # *rollout* coordinates). Moving them to the latent's device once
-        # per AR step amortises the transfer over all prefill calls.
+        # Expose the full-trajectory tensors (in rollout coordinates) so the
+        # prefill driver can index them at ``memory_frame_indices``.
         rollout_viewmats: Tensor | None = (
             self._viewmats.to(device=device) if self._viewmats is not None else None
         )
@@ -349,47 +336,34 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
     ) -> list[int] | None:
         """Pick the historical frame indices for this AR step's KV prefill.
 
-        Three branches, mirroring vendor's gating:
-
-        * AR step 0 (no history): return ``None``.
-        * Memory configured *and* past the warm-up window
-          (``current_frame_idx >= context_window_length``): run the
-          FOV-overlap selector against the bound camera history.
-        * Otherwise return ``list(range(0, current_frame_idx))`` --
-          the all-history fall-back, required on the HY path because
-          :meth:`HyWorldPlayWan21Transformer.finalize_kv_cache` skips
-          the base rolling-KV update and
-          :meth:`HyWorldPlayWan21TransformerCache.start` wipes each
-          block's rolling self-attention cache at chunk boundaries.
-
-        Returns ``None`` when camera data is not bound: the prefill
-        executor indexes the per-rollout buffers, so without them there
-        is no prefill to run (the dual-branch and action paths are
-        themselves no-ops in that configuration).
+        Returns:
+            ``None`` on AR step 0 or when camera data is not bound (no
+            prefill to run). When memory selection is armed and past the
+            warm-up window (``current_frame_idx >= context_window_length``),
+            the FOV-overlap selector's choice. Otherwise the all-history
+            fall-back ``list(range(0, current_frame_idx))``, required
+            because the HY path wipes each block's rolling self-attention
+            cache at chunk boundaries.
         """
         if autoregressive_index == 0 or current_frame_idx == 0:
             return None
         if self._viewmats is None:
             return None
-        # FOV-based selection branch.
         if (
             self._memory_config is not None
             and current_frame_idx >= self._memory_config.context_window_length
         ):
             cfg = self._memory_config
-            # Vendor's FOV selector takes a flat ``[n_latents, 4, 4]``
-            # history; collapse leading batch axes by selecting slot 0
-            # (vendor also ignores per-batch trajectories).
+            # The FOV selector takes a flat ``[n_latents, 4, 4]`` history;
+            # collapse leading batch axes by selecting slot 0.
             viewmats_history = self._viewmats
             while viewmats_history.ndim > 3:
                 viewmats_history = viewmats_history[0]
-            # Lazy-imported so numpy + FOV math stay out of the import
-            # graph when memory selection is disabled.
+            # Lazy import so numpy + FOV math stay out of the import graph
+            # when memory selection is disabled.
             from hy_worldplay._memory import select_memory_frame_indices
 
-            # ``.numpy()`` rejects bf16; cast to fp32 here. Selection
-            # precision is not the bottleneck relative to the bf16 dtype
-            # used downstream by attention.
+            # ``.numpy()`` rejects bf16; cast to fp32.
             return select_memory_frame_indices(
                 viewmats_history.detach().to(dtype=torch.float32).cpu().numpy(),
                 current_frame_idx=current_frame_idx,
@@ -402,15 +376,13 @@ class HyWorldPlayWanCtrlEncoder(I2VCtrlEncoder):
                 device=cfg.device,
             )
 
-        # All-history fall-back; critical for cross-chunk attention on
-        # the HY path (see docstring).
+        # All-history fall-back; see docstring.
         return list(range(0, current_frame_idx))
 
 
 @dataclass(frozen=True)
 class _MemoryConfig:
-    """Memory-selection knobs bound on the encoder. Frozen: the selection policy is
-    deterministic given the camera history and these knobs."""
+    """Memory-selection knobs bound on the encoder."""
 
     points_local: Tensor
     context_window_length: int
@@ -456,9 +428,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
     """
 
     def __init__(self, config: HyWorldPlayWanDiTNetworkConfig) -> None:
-        # Stash ``use_prope_blocks`` before ``super().__init__()`` because
-        # the base constructor calls ``self._build_block`` while wiring up
-        # the block stack.
+        # Stash ``use_prope_blocks`` before ``super().__init__()`` because the
+        # base constructor calls ``self._build_block`` while wiring the stack.
         nn.Module.__init__(self)
         self._hy_use_prope_blocks = config.use_prope_blocks
         super().__init__(config)
@@ -467,9 +438,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
             nn.SiLU(),
             nn.Linear(self.dim, self.dim),
         )
-        # Zero-init the residual head so the action branch is an identity
-        # at construction time (matches vendor's
-        # ``add_discrete_action_parameters``).
+        # Zero-init the residual head so the action branch is an identity at
+        # construction time.
         zero_linear = self.action_embedding[-1]
         assert isinstance(zero_linear, nn.Linear)
         nn.init.zeros_(zero_linear.weight)
@@ -478,8 +448,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
 
     def _build_block(self, layer_idx: int) -> Block:
         if self._hy_use_prope_blocks:
-            # Lazy-imported so action-only configurations don't pay the
-            # PRoPE block module's import cost.
+            # Lazy import so action-only configs don't pay the PRoPE block's
+            # import cost.
             from hy_worldplay._camera import HyWorldPlayPRoPEBlock
 
             return HyWorldPlayPRoPEBlock(
@@ -539,9 +509,7 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         per_token_timestep = (
             timesteps.ndim > len(batch_shape) and timesteps.shape[-1] == L
         )
-        # Vendor's ``_keep_in_fp32_modules`` keeps ``time_embedder`` in
-        # fp32. Mirror that here; ``time_projection`` (vendor's
-        # ``time_proj``) is not on vendor's fp32 list and stays in bf16.
+        # ``time_embedding`` runs in fp32; ``time_projection`` stays in bf16.
         e_fp32 = _fp32_sequential(
             self.time_embedding,
             sinusoidal_embedding_1d(self.freq_dim, timesteps).to(torch.float32),
@@ -550,9 +518,7 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
 
         if action is not None:
             action_e = self._compute_action_embedding(action=action, x=x, L=L)
-            # Vendor performs this add in bf16; mirror that by casting
-            # ``e`` to ``x.dtype`` before the add (done by ``type_as``
-            # above).
+            # Add in bf16 (``e`` was cast to ``x.dtype`` by ``type_as`` above).
             e = e + action_e
             per_token_timestep = True
 
@@ -566,8 +532,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
             head_e = torch.broadcast_to(e, batch_shape + (self.dim,)).unsqueeze(-2)
         block_e = torch.broadcast_to(e0, block_e_shape)
 
-        # Thread camera data per-block when PRoPE blocks are active.
-        # Copy ``block_extra_kwargs`` rather than mutate the caller's dict.
+        # Thread camera data per-block when PRoPE blocks are active; copy
+        # ``block_extra_kwargs`` rather than mutate the caller's dict.
         block_kwargs = dict(block_extra_kwargs)
         if self._hy_use_prope_blocks:
             if viewmats is None:
@@ -611,38 +577,34 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
         viewmats: Tensor | None = None,
         Ks: Tensor | None = None,
     ) -> None:
-        """Populate each block's reconstituted-context memory cache.
+        """Populate each block's memory KV cache.
 
-        Mirrors :meth:`forward`'s patchify + time / action embedding + AdaLN
-        modulation preamble, then loops over blocks calling
-        :meth:`HyWorldPlayPRoPEBlock.prefill_memory_kv` so each block's
-        self-attention K/V land in its memory slot at the collapsed RoPE
-        positions ``[0, K * tokens_per_frame)``. Cross-attention, FFN, and
-        the head are unobservable in the cache and are skipped on this path.
+        Runs :meth:`forward`'s patchify + time / action embedding + AdaLN
+        preamble, then calls :meth:`HyWorldPlayPRoPEBlock.prefill_memory_kv`
+        per block so each block's self-attention K/V land in its memory slot
+        at the collapsed RoPE positions ``[0, K * tokens_per_frame)``.
+        Cross-attention, FFN, and the head are skipped (not cached).
 
-        The caller is responsible for slicing the per-rollout history at
-        ``HyWorldPlayCtrl.memory_frame_indices`` and for building
-        ``rope_freqs`` against the same collapsed positions (*not* the
-        standard chunk positions ``[i*len_t, (i+1)*len_t)``).
+        The caller slices the per-rollout history at
+        ``HyWorldPlayCtrl.memory_frame_indices`` and builds ``rope_freqs``
+        against the same collapsed positions.
 
         Args:
-            x: Patchified memory latents with shape ``[..., L_mem, in_dim]``.
-            timesteps: Scalar broadcast or per-token clean-context timestep
-                (vendor's ``stabilization_level``); applied to memory tokens
-                so the AdaLN modulation stays in the trained distribution.
+            x: Patchified memory latents, shape ``[..., L_mem, in_dim]``.
+            timesteps: Scalar broadcast or per-token clean-context timestep,
+                applied so the AdaLN modulation stays in the trained
+                distribution.
             cache: Per-block cache; only the ``memory`` slots are written.
-            rope_freqs: RoPE frequencies remapped to the collapsed memory
-                positions ``[0, L_mem)``.
-            block_extra_kwargs: Optional extras forwarded to the per-block
-                prefill (unused; kept for symmetry with :meth:`forward`).
+            rope_freqs: RoPE frequencies for the collapsed memory positions
+                ``[0, L_mem)``.
+            block_extra_kwargs: Unused; kept for symmetry with :meth:`forward`.
             action: Optional action labels for the memory frames.
             viewmats: W2C extrinsics for the memory frames. Required when
                 ``use_prope_blocks=True``.
             Ks: Per-frame intrinsics for the memory frames.
 
         Raises:
-            RuntimeError: ``use_prope_blocks`` is not set (memory caches are
-                only owned by PRoPE blocks).
+            RuntimeError: ``use_prope_blocks`` is not set.
             ValueError: ``viewmats`` is ``None``.
         """
         assert self._parameters_updated_after_loading_checkpoint, (
@@ -695,9 +657,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 "by selected_frame_indices before calling."
             )
 
-        # No before_update / after_update on the per-block rolling caches
-        # here -- the prefill writes only into cache[block_idx].memory,
-        # which has its own reset/write cycle owned by the executor.
+        # No before_update / after_update here: the prefill writes only into
+        # cache[block_idx].memory, which the executor resets/writes separately.
         from hy_worldplay import _debug_dump
 
         for block_idx, block in enumerate(self.blocks):
@@ -715,11 +676,8 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
                 f"{type(block_cache).__name__}"
             )
             _debug_dump.set_context(phase="prefill", block_idx=block_idx)
-            # ``prefill_memory_kv`` runs the full block so the evolving
-            # hidden state propagates block-to-block like vendor's
-            # ``is_cache=True`` forward. The final-block return value is
-            # discarded; only the per-block ``cache.memory`` side effects
-            # matter for the subsequent chunk's forward.
+            # Run the full block so the hidden state propagates block-to-block;
+            # only the per-block ``cache.memory`` side effects are kept.
             x = block.prefill_memory_kv(
                 x=x,
                 e=block_e,
@@ -739,10 +697,9 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
     ) -> Tensor:
         """Lift per-latent-frame action labels to a per-token additive term.
 
-        Sinusoidally encodes the integer labels, runs them through the
-        zero-residual MLP, then ``repeat_interleave``s across the
-        ``tokens_per_frame`` slots of each latent frame on the post-patchify
-        token axis.
+        Sinusoidally encodes the integer labels, runs them through the action
+        MLP, then ``repeat_interleave``s across the ``tokens_per_frame`` slots
+        of each latent frame on the post-patchify token axis.
 
         Raises:
             NotImplementedError: ``cp_size > 1``; multi-rank action
@@ -773,15 +730,11 @@ class HyWorldPlayWanDiTNetwork(WanDiTNetwork):
 class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
     """Per-rollout cache for the HY-WorldPlay transformer.
 
-    Adds three reconstituted-context state slots
-    (``clean_latent_history`` / ``finished_chunks`` / ``hy_chunk_size_t`` /
-    ``hy_tokens_per_frame``) and a prefill latch
-    (``prefill_completed_for_chunk``) on top of the base
-    :class:`Wan21TransformerCache`. Also overrides :meth:`start` to wipe
-    each block's rolling self-attention cache at every chunk boundary
-    past the first -- cross-chunk context arrives via the dedicated
-    memory cache, so the rolling window only ever holds the current
-    chunk's tokens.
+    Adds clean-latent-history state and a prefill latch on top of the base
+    :class:`Wan21TransformerCache`. :meth:`start` wipes each block's rolling
+    self-attention cache at every chunk boundary past the first, so the
+    rolling window only ever holds the current chunk's tokens; cross-chunk
+    context arrives via the dedicated memory cache.
     """
 
     clean_latent_history: Tensor | None = None
@@ -794,26 +747,19 @@ class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
     :attr:`clean_latent_history`."""
 
     hy_chunk_size_t: int = 0
-    """Pre-patchify temporal chunk size (``len_t``) for the current rollout.
-    Cached so the prefill executor can map per-frame indices to per-token
-    offsets without re-reading the transformer config."""
+    """Pre-patchify temporal chunk size (``len_t``) for the current rollout."""
 
     hy_tokens_per_frame: int = 0
-    """Post-patchify tokens per latent frame,
-    ``(height // kh) * (width // kw)``. Cached for the same reason as
-    :attr:`hy_chunk_size_t`."""
+    """Post-patchify tokens per latent frame, ``(height // kh) * (width // kw)``."""
 
     prefill_completed_for_chunk: int = -1
-    """``autoregressive_index`` of the chunk whose memory KV prefill has
-    already run; ``-1`` before the first prefill of the rollout. Used by
-    :meth:`HyWorldPlayWan21Transformer.predict_flow` to skip redundant
-    prefill calls on the 2nd/3rd/... denoising step of a chunk (memory K/V
-    are stable across scheduler steps so one call per chunk suffices)."""
+    """``autoregressive_index`` of the chunk whose memory KV prefill has already
+    run; ``-1`` before the first prefill. One prefill per chunk suffices since
+    memory K/V are stable across scheduler steps."""
 
     def start(self, autoregressive_index: int) -> None:
-        # Reset per-block rolling self-attention caches at every chunk
-        # boundary past the first; the dedicated memory cache supplies
-        # the cross-chunk context.
+        # Reset per-block rolling self-attention caches at every chunk boundary
+        # past the first; the dedicated memory cache supplies cross-chunk context.
         if autoregressive_index > 0:
             self._reset_per_block_rolling_caches(autoregressive_index)
         self.prefill_completed_for_chunk = -1
@@ -822,13 +768,10 @@ class HyWorldPlayWan21TransformerCache(Wan21TransformerCache):
     def _reset_per_block_rolling_caches(self, autoregressive_index: int) -> None:
         """Wipe each block's ``self_attn`` / ``prope_self_attn`` for the new chunk.
 
-        Also pokes ``_prev_chunk_idx`` to ``autoregressive_index - 1`` so
-        the subsequent ``before_update(autoregressive_index)`` in
-        :meth:`Wan21TransformerCache.start` accepts the transition (the
-        cache's monotonic-chunk-index assertion would otherwise fire
-        against the ``-1`` value left by ``reset()``).
+        Sets ``_prev_chunk_idx`` to ``autoregressive_index - 1`` so the
+        subsequent ``before_update`` in :meth:`Wan21TransformerCache.start`
+        passes its monotonic-chunk-index assertion.
         """
-        # Local import to avoid a top-level circular dep.
         from hy_worldplay._camera import HyWorldPlayPRoPEBlockCache
 
         for net_cache in (self.network_cache, self.network_cache_uncond):
@@ -856,16 +799,12 @@ class HyWorldPlayWan21TransformerConfig(Wan21TransformerConfig):
 class HyWorldPlayWan21Transformer(Wan21Transformer):
     """Wan 2.1 transformer that threads action, camera, and memory through the network.
 
-    Extends :class:`Wan21Transformer` with the reconstituted-context KV
-    prefill executor and the plumbing needed to keep
-    :class:`HyWorldPlayCtrl`'s extra fields alive across the patchify
-    pass. The per-rollout cache (:class:`HyWorldPlayWan21TransformerCache`)
-    accumulates patchified clean latents from past chunks; before the
-    first denoising step of each chunk past the first, the prefill driver
-    slices that history at ``memory_frame_indices`` and seeds each
-    PRoPE block's memory KV cache so the rolling window (which the HY
-    cache wipes at every chunk boundary) is the only thing the
-    forward needs to refill.
+    Extends :class:`Wan21Transformer` with the memory KV prefill executor and
+    the plumbing to keep :class:`HyWorldPlayCtrl`'s extra fields alive across
+    the patchify pass. The per-rollout cache accumulates patchified clean
+    latents from past chunks; before the first denoising step of each chunk
+    past the first, the prefill driver slices that history at
+    ``memory_frame_indices`` and seeds each PRoPE block's memory KV cache.
     """
 
     def initialize_autoregressive_cache(
@@ -881,9 +820,8 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         """Build a :class:`HyWorldPlayWan21TransformerCache` for a new rollout.
 
         Stamps the per-rollout spatial layout into ``hy_chunk_size_t`` /
-        ``hy_tokens_per_frame`` so the prefill executor can map memory
-        frame indices to post-patchify token ranges without re-reading
-        the transformer config.
+        ``hy_tokens_per_frame`` so the prefill executor can map memory frame
+        indices to post-patchify token ranges.
         """
         base = super().initialize_autoregressive_cache(
             height=height,
@@ -926,7 +864,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             isinstance(cache, HyWorldPlayWan21TransformerCache)
             and cache.prefill_completed_for_chunk != ar_idx
         )
-        # Bind chunk + step context so per-block dumps below carry it.
+        # Bind chunk + step context so per-block dumps carry it.
         _debug_dump.set_context(
             ar_idx=ar_idx,
             is_first_step_of_chunk=is_first_step,
@@ -953,10 +891,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             _debug_dump.dump("predict_flow.noisy_latent", noisy_latent)
             _debug_dump.dump("predict_flow.timestep", timestep)
         network_extra_kwargs = dict(network_extra_kwargs or {})
-        # Run the reconstituted-context prefill once at the first
-        # denoising step of each chunk past the first; the
-        # ``prefill_completed_for_chunk`` latch suppresses re-runs on
-        # subsequent scheduler steps within the chunk.
+        # Run the memory prefill once per chunk (latch suppresses re-runs).
         if (
             isinstance(cache, HyWorldPlayWan21TransformerCache)
             and isinstance(input, HyWorldPlayCtrl)
@@ -992,12 +927,9 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
     ) -> None:
         """Append the chunk's clean latent to the history and skip the rolling-cache update.
 
-        Base ``Wan21Transformer.finalize_kv_cache`` re-runs the network at
-        the context-noise timestep to stamp clean K/V into the rolling
-        window. The HY path wipes that rolling window at every chunk start
-        (see :meth:`HyWorldPlayWan21TransformerCache.start`) and provides
-        cross-chunk context through the dedicated memory cache, so the
-        re-run is wasted work.
+        The base implementation's rolling-window re-run is skipped: the HY
+        path wipes that window at every chunk start and provides cross-chunk
+        context through the dedicated memory cache.
         """
         if isinstance(cache, HyWorldPlayWan21TransformerCache):
             cache.clean_latent_history = self._append_clean_latent_to_history(
@@ -1006,8 +938,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             )
             cache.finished_chunks += 1
             return
-        # Defensive fall-through for any non-HY cache; the runner always
-        # builds an HY cache when this transformer is in use.
+        # Defensive fall-through for any non-HY cache.
         super().finalize_kv_cache(
             noisy_latent=noisy_latent,
             timestep=timestep,
@@ -1021,11 +952,9 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 return x
             patched_latent = self.patchify_and_maybe_split_cp(x.latent)
             patched_mask = self.patchify_and_maybe_split_cp(x.mask)
-            # action / viewmats / Ks / memory_frame_indices and the
-            # rollout_* siblings are per-latent-frame metadata and do not
-            # participate in the patchify reshape; pass them through
-            # unchanged so the PRoPE and memory-prefill consumers see the
-            # same layouts they would on a fresh ctrl.
+            # action / viewmats / Ks / memory_frame_indices and the rollout_*
+            # siblings are per-latent-frame metadata and don't participate in
+            # the patchify reshape; pass them through unchanged.
             return HyWorldPlayCtrl(
                 latent=patched_latent,
                 mask=patched_mask,
@@ -1048,7 +977,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         input: HyWorldPlayCtrl,
         timestep: Tensor,
     ) -> None:
-        """Drive the reconstituted-context KV prefill for the current chunk.
+        """Drive the memory KV prefill for the current chunk.
 
         Slices the clean-latent history at ``input.memory_frame_indices``,
         builds collapsed-position RoPE freqs, slices ``viewmats`` / ``Ks`` /
@@ -1059,13 +988,12 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
 
         Args:
             cache: Active per-rollout cache; ``clean_latent_history`` must
-                already contain at least the memory frames being indexed.
+                already contain the memory frames being indexed.
             input: Patchified per-AR-step ctrl payload with non-empty
                 ``memory_frame_indices``.
             timestep: Current denoising-step tensor. Used only for its
                 ``dtype`` / ``device`` / batch shape; memory positions are
-                modulated at :data:`_HY_STABILIZATION_TIMESTEP` instead
-                (vendor's ``t_ctx = stabilization_level - 1``).
+                modulated at :data:`_HY_STABILIZATION_TIMESTEP` instead.
         """
         assert input.memory_frame_indices is not None, (
             "prefill_memory_kv_cache requires non-None memory_frame_indices"
@@ -1082,8 +1010,7 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         history = cache.clean_latent_history  # [..., total_L, in_dim]
         total_L = history.shape[-2]
         max_frame = total_L // tokens_per_frame
-        # Defensive bounds check; the encoder's selector should already
-        # only emit in-range indices.
+        # Defensive bounds check; the selector should only emit in-range indices.
         for idx in selected:
             assert 0 <= idx < max_frame, (
                 f"memory frame index {idx} out of range for history of "
@@ -1091,21 +1018,16 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 f"tokens-per-frame)."
             )
 
-        # Slice the history at each selected frame's token range. The
-        # history is laid out frame-major along the token axis so frame
-        # ``idx`` occupies ``[idx*tokens_per_frame, (idx+1)*tokens_per_frame)``.
+        # Slice each selected frame's token range; the history is frame-major
+        # along the token axis.
         token_ranges = [
             history[..., idx * tokens_per_frame : (idx + 1) * tokens_per_frame, :]
             for idx in selected
         ]
         memory_x = torch.cat(token_ranges, dim=-2)  # [..., K*TPF, in_dim]
 
-        # Slice the per-rollout camera + action tensors (frame-granular)
-        # at the same indices. ``_index_rollout_buffer`` prefers the
-        # rollout-scoped buffer and falls back to the per-AR-step slice
-        # when the encoder didn't bind the corresponding conditioner --
-        # in that case the downstream consumer treats the slice as a
-        # no-op so the (parity-incorrect) fallback values don't matter.
+        # Slice the per-rollout camera + action tensors (frame-granular) at the
+        # same indices.
         selected_idx_t = torch.as_tensor(
             selected, dtype=torch.long, device=memory_x.device
         )
@@ -1128,23 +1050,20 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             kind="action",
         )
 
-        # Build RoPE freqs for the collapsed memory positions ``[0, K)``
-        # on the temporal axis; the spatial axes use a fresh-zeroed
-        # grid inside ``_build_collapsed_rope_freqs``.
+        # RoPE freqs for the collapsed memory positions ``[0, K)`` on the
+        # temporal axis.
         rope_freqs = self._build_collapsed_rope_freqs(
             cache=cache,
             t_positions=torch.arange(K, dtype=torch.float32, device=memory_x.device),
         )
 
-        # Clean-context timestep applied to memory positions; matches
-        # ``timestep``'s dtype / device / batch so the network's
-        # ``sinusoidal_embedding_1d(...).type_as(x)`` path stays on the
-        # same compute graph.
+        # Clean-context timestep for memory positions; matches ``timestep``'s
+        # dtype / device / batch.
         context_timestep = torch.full_like(
             timestep, fill_value=_HY_STABILIZATION_TIMESTEP
         )
 
-        # Env-var-gated debug dump for prefill inputs; see _debug_dump.py.
+        # Env-var-gated debug dump for prefill inputs.
         from hy_worldplay import _debug_dump
 
         if _debug_dump.enabled():
@@ -1167,8 +1086,8 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
             if memory_action is not None:
                 _debug_dump.dump("prefill.memory_action", memory_action)
 
-        # Reset each branch's per-block memory cache before the prefill
-        # so a previous chunk's leftover content can't leak in.
+        # Reset each branch's per-block memory cache so a previous chunk's
+        # content can't leak in.
         from hy_worldplay._camera import HyWorldPlayPRoPEBlockCache
 
         for net_cache in (cache.network_cache, cache.network_cache_uncond):
@@ -1178,9 +1097,8 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
                 if isinstance(block_cache, HyWorldPlayPRoPEBlockCache):
                     block_cache.memory.reset()
 
-        # Narrow the parent's ``self.network`` (typed as ``Tensor | Module``
-        # by ``nn.Module``'s ``__getattr__`` overload) to the HY-DiT network
-        # so the memory-prefill entry point resolves.
+        # Narrow ``self.network`` to the HY-DiT type so the prefill entry
+        # point resolves.
         network = self.network
         assert isinstance(network, HyWorldPlayWanDiTNetwork)
 
@@ -1213,9 +1131,8 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
     ) -> Tensor:
         """Append the finalized chunk's patchified clean latent to the history.
 
-        Detaches before concatenating so the history outlives the
-        chunk's autograd graph; concatenation is along the post-patchify
-        token axis (``dim=-2``).
+        Detaches before concatenating (along the post-patchify token axis,
+        ``dim=-2``) so the history outlives the chunk's autograd graph.
         """
         if history is None:
             return clean_latent.detach().clone()
@@ -1231,23 +1148,20 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
     ) -> Tensor | None:
         """Slice a per-rollout metadata buffer at the selected memory-frame indices.
 
-        Prefers the rollout-scoped buffer; falls back to the per-AR-step
-        slice when the rollout buffer is ``None``. The fallback is
-        parity-incorrect (it indexes the current chunk's slice rather
-        than the full rollout) but only runs when the corresponding
-        conditioner is disabled, in which case the downstream consumer
-        treats the slice as a no-op.
+        Prefers the rollout-scoped buffer; falls back to the per-AR-step slice
+        (unindexed) when ``rollout`` is ``None``, which only happens when the
+        corresponding conditioner is disabled and the consumer treats the
+        slice as a no-op.
 
         Args:
             rollout: Full-trajectory buffer (e.g.
-                ``[*batch_shape, F_total, 4, 4]`` for viewmats). Indexed
-                at ``selected`` along the frame axis when present.
-            per_step: Per-AR-step slice used as fallback when ``rollout``
-                is ``None``.
+                ``[*batch_shape, F_total, 4, 4]`` for viewmats), indexed at
+                ``selected`` along the frame axis when present.
+            per_step: Per-AR-step slice used as fallback when ``rollout`` is
+                ``None``.
             selected: ``LongTensor`` of memory frame indices in rollout
                 coordinates, shape ``[K]``.
-            kind: Tensor kind name (``"viewmats"`` / ``"Ks"`` /
-                ``"action"``) for error messages.
+            kind: Tensor kind name for error messages.
 
         Returns:
             Indexed tensor with shape ``[*batch_shape, K, ...]`` (matrices)
@@ -1261,9 +1175,6 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         if rollout is None and per_step is None:
             return None
         if rollout is None:
-            # Conditioner disabled but the prefill is still running on
-            # behalf of another conditioner; the per-step slice flows
-            # through unindexed and the consumer treats it as a no-op.
             return per_step
 
         # Action is integer-typed with the frame on the trailing axis;
@@ -1287,16 +1198,14 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
     ) -> Tensor:
         """Compute RoPE frequencies for arbitrary temporal positions.
 
-        The base :class:`RotaryPositionEmbedding3D` only exposes
-        ``shift_t(autoregressive_index)``, which produces freqs at
-        chunk-aligned positions. We reach into the
-        ``_freq_components(seq_t)`` primitive to build freqs at the
-        prefill's collapsed memory positions ``[0, K)``.
+        Uses the ``_freq_components(seq_t)`` primitive to build freqs at the
+        prefill's collapsed memory positions ``[0, K)``, which the base
+        ``shift_t(autoregressive_index)`` (chunk-aligned only) can't express.
 
         Raises:
             NotImplementedError: ``rope_adapter`` is not
-                :class:`RotaryPositionEmbedding3D` or has context
-                parallel enabled.
+                :class:`RotaryPositionEmbedding3D` or has context parallel
+                enabled.
         """
         rope = cache.rope_adapter
         from flashdreams.core.attention.rope import RotaryPositionEmbedding3D
@@ -1321,12 +1230,5 @@ class HyWorldPlayWan21Transformer(Wan21Transformer):
         self,
         cache: HyWorldPlayWan21TransformerCache,
     ) -> bool:
-        """Return ``True`` on the first denoising step of the current chunk.
-
-        Reads the
-        :attr:`HyWorldPlayWan21TransformerCache.prefill_completed_for_chunk`
-        latch, which ``cache.start`` resets to ``-1`` at every chunk
-        boundary and which the prefill driver bumps to the current
-        ``autoregressive_index`` after running once.
-        """
+        """Return ``True`` on the first denoising step of the current chunk."""
         return cache.prefill_completed_for_chunk != cache.autoregressive_index

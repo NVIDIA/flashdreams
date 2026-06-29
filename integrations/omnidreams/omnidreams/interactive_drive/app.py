@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.input.keyboard import (
@@ -20,6 +21,7 @@ from omnidreams.interactive_drive.runtime.loop import (
     PresenterBackend,
     run_main_loop,
 )
+from omnidreams.interactive_drive.runtime.timing import TraceContext, TraceSink
 from omnidreams.interactive_drive.scene_loader import (
     load_scene_bundle,
     reseed_scene_bundle,
@@ -64,6 +66,7 @@ class InteractiveDriveApp:
         backend: RenderBackend,
         presenter: PresenterBackend | None = None,
         *,
+        trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
     ) -> None:
         """Construct the engine and begin model warmup.
@@ -106,7 +109,10 @@ class InteractiveDriveApp:
         # Scenes are bound later via load_scene; the model is never rebuilt
         # on a scene change.
         self._adapter = LocalVideoModelAdapter(backend)
-        self._pipeline = ChunkPipeline(self._adapter)
+        self._trace_context = (
+            None if trace_sink is None else TraceContext.create(trace_sink)
+        )
+        self._pipeline = ChunkPipeline(self._adapter, trace_context=self._trace_context)
         self._scene: SceneBundle | None = None
         self._map_bounds: MapBounds | None = None
         # Ground snapper for the current scene. Built once per scene (its
@@ -156,6 +162,10 @@ class InteractiveDriveApp:
     def model_ready(self) -> bool:
         """``True`` once the scene-independent model warmup has completed."""
         return self._pipeline.model_ready.is_set()
+
+    def first_chunk_produced(self) -> bool:
+        """``True`` once the model has produced its first generated chunk."""
+        return self._pipeline.first_chunk_produced.is_set()
 
     def load_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
@@ -281,18 +291,16 @@ class InteractiveDriveApp:
                     scene_path, variant, prompt_override
                 )
             except BaseException as exc:  # noqa: BLE001 - log & skip one scene
-                print(
+                logger.info(
                     f"[interactive-drive] scene preload failed for "
                     f"{Path(str(scene_path)).name} variant={variant!r}: {exc}",
-                    flush=True,
                 )
                 continue
             with self._scene_cache_lock:
                 self._scene_cache[key] = (scene, bounds, snapper)
-            print(
+            logger.info(
                 f"[interactive-drive] preloaded scene "
                 f"{Path(str(scene_path)).name} variant={variant!r}",
-                flush=True,
             )
 
     def _resolve_scene_assets(
@@ -478,8 +486,12 @@ class InteractiveDriveApp:
                     oob_respawn_debounce_chunks=(
                         self._config.oob_respawn_debounce_chunks
                     ),
+                    stop_after_consumed_chunks=(
+                        self._config.stop_after_consumed_chunks
+                    ),
                 ),
                 loading_status=loading_status,
+                trace_context=self._trace_context,
             )
             if not reset_requested:
                 break
@@ -508,12 +520,15 @@ class InteractiveDriveApp:
     def _loading_status_message(self) -> str:
         """Phase text shown over the loading frame until the first chunk.
 
-        World-model warmup takes priority; once the model is resident a
-        scene (re)load only uploads geometry and renders the first chunk,
-        so the lighter "Loading scene..." message is shown instead.
+        ``"Loading world model..."`` during warmup, then ``"Optimizing world
+        model..."`` while the first generated chunk pays its one-time
+        compile / CUDA-graph / autotune cost (only for backends that flag it),
+        then the cheaper ``"Loading scene..."`` for every load after that.
         """
         if not self.model_ready():
             return "Loading world model..."
+        if self._backend.optimizes_on_first_chunk and not self.first_chunk_produced():
+            return "Optimizing world model..."
         return "Loading scene..."
 
     def _resetting_status_message(self) -> str:
@@ -553,6 +568,7 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
     it works on compute-only SKUs (e.g. GB300) where SlangPy can't
     create a Vulkan swapchain. Otherwise returns the default
     :class:`SlangPyPresenter` -- a local Vulkan window.
+
 
     For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
     (a separate entry point) is the preferred path; this MJPEG fallback

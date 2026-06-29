@@ -69,12 +69,10 @@ class ClipGTLoader(SceneDataLoader):
 
     @property
     def name(self) -> str:
-        """Get the loader name."""
         return "clipgt"
 
     @property
     def description(self) -> str:
-        """Get loader description."""
         return "Loader for ClipGT parquet-based scene data format"
 
     def _detect_clip_id(self, path: Path) -> Optional[str]:
@@ -191,17 +189,14 @@ class ClipGTLoader(SceneDataLoader):
                 else None,
             )
 
-        # Load camera calibrations
         if files["calibration"].exists():
             self._load_camera_calibrations(
                 scene_data, files["calibration"], camera_names, resize_resolution_hw
             )
 
-        # Load dynamic objects
         if files["obstacle"].exists():
             self._load_dynamic_objects(scene_data, files["obstacle"])
 
-        # Load map elements
         self._load_map_elements(scene_data, files)
 
         return scene_data
@@ -705,48 +700,36 @@ class ClipGTLoader(SceneDataLoader):
 
     def _load_map_elements(self, scene_data: SceneData, files: Dict[str, Path]) -> None:
         """Load all map elements."""
-
-        # Load lane boundaries
         if files["lane"].exists():
             self._load_lane_boundaries(scene_data, files["lane"])
 
-        # Load lane lines
         if files["lane_line"].exists():
             self._load_lane_lines(scene_data, files["lane_line"])
 
-        # Load road boundaries
         if files["road_boundary"].exists():
             self._load_road_boundaries(scene_data, files["road_boundary"])
 
-        # Load crosswalks
         if files["crosswalk"].exists():
             self._load_crosswalks(scene_data, files["crosswalk"])
 
-        # Load poles
         if files["pole"].exists():
             self._load_poles(scene_data, files["pole"])
 
-        # Load road markings
         if files["road_marking"].exists():
             self._load_road_markings(scene_data, files["road_marking"])
 
-        # Load wait lines
         if files["wait_line"].exists():
             self._load_wait_lines(scene_data, files["wait_line"])
 
-        # Load traffic lights
         if files["traffic_light"].exists():
             self._load_traffic_lights(scene_data, files["traffic_light"])
 
-        # Load traffic signs
         if files["traffic_sign"].exists():
             self._load_traffic_signs(scene_data, files["traffic_sign"])
 
-        # Load intersection areas
         if files["intersection_area"].exists():
             self._load_intersection_areas(scene_data, files["intersection_area"])
 
-        # Load road islands
         if files["road_island"].exists():
             self._load_road_islands(scene_data, files["road_island"])
 

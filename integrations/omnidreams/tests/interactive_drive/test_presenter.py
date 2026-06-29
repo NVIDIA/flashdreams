@@ -543,3 +543,115 @@ def test_hud_model_rgb_falls_back_to_host_when_cuda_path_raises() -> None:
     assert presented == [lazy]
     assert presenter._cuda_hud_interop is None
     assert close_calls == 1
+
+
+class _ExitSceneKeyboard:
+    def __init__(self) -> None:
+        self.cleared = 0
+
+    def clear_telemetry(self) -> None:
+        self.cleared += 1
+
+
+def _hud_presenter_for_exit(selected_variant: str) -> SlangPyHudPresenter:
+    """Window-less HUD presenter wired with just the state exit-to-selector touches."""
+    from pathlib import Path
+
+    from omnidreams.interactive_drive.demo import SceneOption
+
+    presenter = _hud_presenter_without_window()
+    scene_path = Path("clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz")
+    option = SceneOption(
+        label="Quiet Suburban Boulevard",
+        path=scene_path,
+        variants=("default", "rain", "snow"),
+        variant_paths={"default": scene_path},
+    )
+    presenter._scene_options = (option,)
+    presenter._current_scene = scene_path
+    presenter._selected_variant = selected_variant
+    presenter._pending_exit_scene = True
+    presenter._should_close_flag = True
+    presenter._keyboard = _ExitSceneKeyboard()
+    # State cleared by _reset_scene_view_state.
+    presenter._scene_dropdown_open = True
+    presenter._variant_dropdown_open = True
+    presenter._camera_resize_cache_key = object()
+    presenter._camera_resize_cache = object()
+    presenter._latest_camera_pil = object()
+    presenter._latest_bev_pil = object()
+    presenter._bev_panel_cache_key = object()
+    presenter._bev_panel_cache = object()
+    presenter._panel_chrome_cache_key = object()
+    presenter._panel_chrome_cache = object()
+    presenter._has_camera_frame = True
+    presenter._speed_mph = 42.0
+    presenter._pending_drive_releases = {"w": 1.0}
+    return presenter
+
+
+def test_acknowledge_exit_scene_resets_variant_to_scene_default() -> None:
+    # Exiting a rain/snow rollout must not leave the selector header stuck on
+    # the exited variant.
+    presenter = _hud_presenter_for_exit(selected_variant="rain")
+
+    presenter.acknowledge_exit_scene()
+
+    assert presenter._selected_variant == "default"
+    assert presenter._pending_exit_scene is False
+    assert presenter._should_close_flag is False
+    assert presenter._has_camera_frame is False
+
+
+def test_acknowledge_exit_scene_falls_back_to_default_when_scene_unknown() -> None:
+    presenter = _hud_presenter_for_exit(selected_variant="snow")
+    # Current scene no longer matches any discovered option.
+    presenter._scene_options = ()
+
+    presenter.acknowledge_exit_scene()
+
+    assert presenter._selected_variant == "default"
+
+
+def _hud_presenter_for_preload() -> SlangPyHudPresenter:
+    presenter = _hud_presenter_without_window()
+    presenter._engine_active = True
+    presenter._should_close_flag = False
+    presenter._window = SimpleNamespace(should_close=lambda: False)
+    presenter.process_events = lambda: None
+    presenter._present_canvas = lambda *a, **k: None
+    return presenter
+
+
+def test_wait_while_preloading_pumps_until_in_progress_clears() -> None:
+    presenter = _hud_presenter_for_preload()
+    renders = 0
+
+    def render(_status: object) -> None:
+        nonlocal renders
+        renders += 1
+
+    presenter._render_canvas = render
+
+    states = iter([True, True, False])
+    presenter.wait_while_preloading(lambda: next(states))
+
+    assert renders == 2
+    assert presenter._engine_active is True  # restored to its prior value
+
+
+def test_wait_while_preloading_stops_when_window_closes() -> None:
+    presenter = _hud_presenter_for_preload()
+    presenter._should_close_flag = True
+    renders = 0
+
+    def render(_status: object) -> None:
+        nonlocal renders
+        renders += 1
+
+    presenter._render_canvas = render
+
+    # Still "in progress", but a closed window must short-circuit the wait.
+    presenter.wait_while_preloading(lambda: True)
+
+    assert renders == 0

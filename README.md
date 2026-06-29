@@ -29,8 +29,8 @@ https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 ## System Requirements
 
 - NVIDIA GPU with **80 GB VRAM or more** (e.g. H100 80GB), see notes below.
-- NVIDIA driver from the **R580 series or newer** (compatible with CUDA 13.x)
-- **CUDA 13.x** (PyTorch `2.11.0+cu130` and the `nvidia-*-cu13` libraries are
+- NVIDIA driver from the **R580 series or newer** (default compatible with CUDA 13.x)
+- **CUDA 13.x by default** (PyTorch `2.11.0+cu130` and the `nvidia-*-cu13` libraries are
   resolved by `uv sync`. A system CUDA toolkit is needed only for the
   developer extras and is included in `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`)
 - **Python >= 3.10**
@@ -49,7 +49,7 @@ https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
 ## Quickstart
 
 The complete setup is in
-[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/installation.html).
+[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#install).
 Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installation), the shortest viable path is:
 
 ```bash
@@ -62,8 +62,30 @@ uv run flashdreams-run --help
 
 Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.
 
-Then launch your first model by following
-[the quickstart guide](https://nvidia.github.io/flashdreams/main/quickstart/first_world_model.html).
+### Select CUDA Version
+
+FlashDreams defaults to the CUDA 13 PyTorch stack (the `cuda13` dependency
+group is activated automatically via `default-groups`):
+
+- **Linux:** `uv sync` pulls `torch>=2.9` from PyPI, whose Linux wheels are
+  the CUDA 13 build (the `+cu130` local-version tag is just stripped on
+  PyPI).
+- **Windows:** `uv sync` pulls torch from NVIDIA's `cu130` index
+  (`https://download.pytorch.org/whl/cu130`) — PyPI's Windows torch wheel
+  is CPU-only.
+
+CUDA 12.8 is available as an opt-in side profile (Linux only) via the
+`cuda12` dependency group:
+
+```bash
+uv sync --group cuda12 --extra runners
+```
+
+The two groups are declared mutually exclusive in `pyproject.toml`, so uv
+deactivates the default `cuda13` group automatically when `--group cuda12`
+is passed.
+
+Then launch your first model by following [the Get Started guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
 For example, the offline Self-Forcing T2V quickstart command is:
 
 ```bash
@@ -129,7 +151,7 @@ documentation edits are all welcome.
 Use [GitHub Issues](https://github.com/NVIDIA/flashdreams/issues) to report defects or request improvements.
 
 Join us on the [NVIDIA Omniverse Discord](https://discord.com/invite/nvidiaomniverse)
-to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/yTdHDqFP)
+to share your results and take part in technical discussion! Channel: [`#flashdreams`](https://discord.gg/cMt2mHm4aN)
 
 ## Security
 

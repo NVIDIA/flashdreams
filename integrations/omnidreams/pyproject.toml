@@ -34,6 +34,7 @@ dependencies = [
     "grpcio-tools>=1.50",
     "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
+    "nvidia-cudnn-cu13==9.23.2.1; sys_platform == 'win32'",
     "opencv-python-headless>=4.5",
     "shapely>=2.0",
     # Runtime deps for the ``omnidreams.interactive_drive`` desktop demo
@@ -85,6 +86,10 @@ dev = [
 # demo.
 omnidreams-prepare = "omnidreams.prepare:main"
 
+# Batch evaluation helper for Hugging Face scene discovery, bounded staging,
+# FlashDreams generation, and DrivingGen adapter setup.
+omnidreams-eval = "omnidreams.eval.cli:main"
+
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the
 # presenter import fails fast with a clear message.
@@ -114,6 +119,7 @@ exclude = ["tests"]
 # workspace editable. Editable installs pick these up from the source
 # tree automatically.
 [tool.setuptools.package-data]
+"omnidreams.webrtc.web" = ["*.html", "*.css", "*.js"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",

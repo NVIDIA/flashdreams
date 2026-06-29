@@ -15,14 +15,8 @@
 
 r"""PRoPE-style projective positional encoding for multi-view attention.
 
-Ports the bit pattern of ``hyvideo/prope/camera_rope.py::prope_qkv`` from
-`PRoPE: Projective Positional Encoding for Multiview Transformers
-<https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/main/hyvideo/prope/camera_rope.py>`_
-(MIT-licensed) so the native HY-WorldPlay path can apply per-camera
-projective transforms to Q/K/V before attention without importing the
-upstream HY-WorldPlay tree at runtime.
-
-The transform is a block-diagonal matrix multiply on the per-head feature
+Applies per-camera projective transforms to Q/K/V before attention. The
+transform is a block-diagonal matrix multiply on the per-head feature
 axis: each camera's tokens get multiplied by a 4×4 matrix derived from
 that camera's world-to-camera extrinsic and (optional) intrinsic. The
 matrices are
@@ -32,16 +26,10 @@ matrices are
 * ``P_T = P.transpose(-1, -2)`` (applied to query)
 
 so the attention score :math:`Q P_q \cdot K^T P_{k}^{-T}` evaluates to the
-upstream pair-wise projective positional encoding. The post-attention
-output is multiplied by ``P`` of the query's camera to undo the input
-basis change.
-
-Numeric semantics mirror upstream exactly: same einsum order, same
-single-precision cast points, same block-diagonal partitioning on the
-``head_dim`` axis (which must be divisible by 4 because the projection
-matrices are 4×4). Tests under
-``integrations/hy_worldplay/tests/test_prope.py`` cross-check this port
-against a numpy reference.
+pair-wise projective positional encoding. The post-attention output is
+multiplied by ``P`` of the query's camera to undo the input basis change.
+``head_dim`` must be divisible by 4 because the projection matrices are
+4×4.
 """
 
 from __future__ import annotations
@@ -75,14 +63,12 @@ def prope_qkv(
         viewmats: Per-camera world-to-camera ``SE(3)`` matrices, shape
             ``[batch, cameras, 4, 4]``. The token axis must satisfy
             ``seqlen % cameras == 0`` so each camera owns a contiguous
-            block of ``seqlen // cameras`` tokens. ``cameras`` here is the
-            number of latent frames covered by ``q`` (typically the
-            per-AR-step frame count); cached K/V from earlier AR steps
-            must already be PRoPE-transformed and is concatenated by the
-            caller *after* this function returns.
+            block of ``seqlen // cameras`` tokens. ``cameras`` is the
+            number of latent frames covered by ``q``; cached K/V from
+            earlier AR steps must already be PRoPE-transformed and is
+            concatenated by the caller *after* this function returns.
         Ks: Optional camera intrinsics ``[batch, cameras, 3, 3]``. When
-            ``None`` the formula degenerates to the GTA / no-intrinsic
-            variant (matching upstream's ``Ks=None`` branch).
+            ``None`` the formula degenerates to the no-intrinsic variant.
 
     Returns:
         ``(q_prope, k_prope, v_prope, apply_fn_o)`` where the first three
@@ -129,10 +115,9 @@ def build_prope_apply_fns(
 
     Returns three callables (``apply_fn_q``, ``apply_fn_kv``,
     ``apply_fn_o``) that each take a ``[batch, num_heads, seqlen, head_dim]``
-    tensor and apply the corresponding tiled 4×4 matrix per camera. Pulled
-    out as a public entry point so callers that cache transforms across
-    multiple attention layers (e.g. PRoPE multi-block transformers) can
-    pay the matrix-prep cost once.
+    tensor and apply the corresponding tiled 4×4 matrix per camera. Use
+    this directly to pay the matrix-prep cost once when reusing transforms
+    across multiple attention layers.
     """
     batch, cameras, _, _ = viewmats.shape
     assert head_dim % 4 == 0, (
@@ -141,21 +126,17 @@ def build_prope_apply_fns(
     )
 
     if Ks is not None:
-        # Drop the principal point so PRoPE only encodes the focal-length /
-        # rotation / translation parts of the camera; the principal point
-        # is intentionally renormalised to (0, 0) in the lifted matrix --
-        # upstream's pose preprocessor already shifts (cx, cy) to (0.5, 0.5)
-        # so the per-frame K passed in here carries focal info only.
+        # Keep only the focal lengths so PRoPE encodes focal / rotation /
+        # translation; the principal point is dropped (callers pass K with
+        # cx/cy already renormalised).
         Ks_norm = torch.zeros_like(Ks)
         Ks_norm[..., 0, 0] = Ks[..., 0, 0]
         Ks_norm[..., 1, 1] = Ks[..., 1, 1]
         Ks_norm[..., 2, 2] = 1.0
         Ks_norm = Ks_norm.to(dtype=Ks.dtype)
 
-        # P = lift(K) @ viewmats is the image<-world transform; we keep
-        # both P (for the output projection / query) and P_inv (for K/V)
-        # so the einsum at attention time evaluates the upstream
-        # PRoPE formula bit-for-bit.
+        # P = lift(K) @ viewmats is the image<-world transform; keep both
+        # P (for the output projection / query) and P_inv (for K/V).
         P = torch.einsum("...ij,...jk->...ik", _lift_K(Ks_norm), viewmats)
         P_T = P.transpose(-1, -2).to(dtype=viewmats.dtype)
         P_inv = torch.einsum(
@@ -164,8 +145,7 @@ def build_prope_apply_fns(
             _lift_K(_invert_K(Ks_norm)),
         ).to(dtype=viewmats.dtype)
     else:
-        # Intrinsic-free variant -- matches upstream's GTA formula
-        # (``Ks=None`` branch in ``hyvideo/prope/camera_rope.py``).
+        # Intrinsic-free variant.
         P = viewmats
         P_T = P.transpose(-1, -2)
         P_inv = _invert_SE3(viewmats)
@@ -177,9 +157,7 @@ def build_prope_apply_fns(
     return apply_fn_q, apply_fn_kv, apply_fn_o
 
 
-## ---------------------------------------------------------------------------
 ## Internal helpers
-## ---------------------------------------------------------------------------
 
 
 def _apply_tiled_projmat(
@@ -230,11 +208,8 @@ def _invert_SE3(transforms: Tensor) -> Tensor:
 def _lift_K(Ks: Tensor) -> Tensor:
     """Embed 3x3 camera intrinsics into 4x4 homogeneous form.
 
-    Uses ``Ks.dtype`` for the allocation (upstream's
-    ``torch.zeros`` would default to float32 and silently downcast a
-    float64 input on the ``out[..., :3, :3] = Ks`` write; we want
-    numerically-correct behaviour at any precision while staying
-    bit-identical to upstream at fp32 / bf16).
+    Allocates in ``Ks.dtype`` so a float64 input is not silently
+    downcast.
     """
     assert Ks.shape[-2:] == (3, 3)
     out = torch.zeros(Ks.shape[:-2] + (4, 4), device=Ks.device, dtype=Ks.dtype)

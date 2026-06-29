@@ -15,22 +15,14 @@
 
 """Pre-rolled Wan pipeline configs.
 
-Phase 2a deliverable: the Wan 2.2 TI2V 5B recipe. The pipeline reuses
-the existing :class:`WanInferencePipeline` (no new module needed): the
-TI2V mode is expressed as a configuration of the I2V control encoder
-(now driven by the 5B 16x / 48ch / residual / patchify VAE) plus the
-existing transformer's ``stamp_image_latent`` mask-inject path, with a
-new ``ti2v_first_frame_per_token_timestep`` flag that flips the AR-0
-scheduler timestep into a per-token tensor (``t=0`` at the first-frame
-conditioning tokens, scheduler ``t`` elsewhere). The diffusers
-checkpoints under
-``Wan-AI/Wan2.2-TI2V-5B-Diffusers/{vae,transformer}`` load directly via
-the :func:`wan22_ti2v_5b_dit_state_dict_transform` (DiT) and
-:func:`wan22_ti2v_5b_vae_state_dict_transform` (VAE) remaps.
-
-The recipe ships as importable config constants only; downstream
-runners (``flashdreams-run`` slugs, plugin integrations such as
-``hy_worldplay`` phase 2b) layer the I/O wrapper on top.
+The Wan 2.2 TI2V-5B recipe, shipped as importable config constants.
+TI2V mode reuses :class:`WanInferencePipeline`: the I2V control encoder
+(over the 5B VAE) seeds the first frame, and the transformer conditions
+on it via ``stamp_image_latent`` and ``ti2v_first_frame_per_token_timestep``
+(frame-0 tokens see ``t=0``, the rest denoise at the scheduler step). The
+``Wan-AI/Wan2.2-TI2V-5B-Diffusers`` checkpoints load through the DiT and
+VAE remap transforms. Downstream runners (e.g. ``hy_worldplay``) layer the
+I/O wrapper on top.
 """
 
 from __future__ import annotations
@@ -57,19 +49,12 @@ WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/"
     "transformer/diffusion_pytorch_model.safetensors"
 )
-"""HF diffusers safetensors shard for the Wan 2.2 TI2V 5B DiT.
-
-The 5B variant ships as a single safetensors file (no sharded index)
-under the ``transformer/`` subfolder of the ``Wan-AI`` diffusers repo."""
+"""HF diffusers checkpoint for the Wan 2.2 TI2V-5B DiT (``transformer/`` subfolder)."""
 
 
-# Diffusers ``WanTransformer3DModel`` -> bare ``WanDiTNetwork`` state-
-# dict remap. The diffusers checkpoint stores the same submodules as
-# ours under different paths: condition embedders, scale/shift table,
-# attention projections (``attn1``/``attn2``), and FFN. The mapping is
-# identical to FastVideo's Wan 2.2 14B remap because both 5B and 14B
-# checkpoints inherit the same diffusers ``WanTransformer3DModel``
-# layout -- only the layer counts and channel counts differ.
+# Diffusers ``WanTransformer3DModel`` -> ``WanDiTNetwork`` key remap:
+# condition embedders, scale/shift table, attention projections
+# (``attn1``/``attn2``), and FFN.
 _WAN22_TI2V_5B_DIT_KEY_REMAP: dict[str, str] = {
     r"^condition_embedder\.text_embedder\.linear_1\.(.*)$": r"text_embedding.0.\1",
     r"^condition_embedder\.text_embedder\.linear_2\.(.*)$": r"text_embedding.2.\1",
@@ -102,13 +87,9 @@ _WAN22_TI2V_5B_DIT_KEY_REMAP: dict[str, str] = {
 def wan22_ti2v_5b_dit_state_dict_transform(
     state_dict: dict[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
-    """Remap a diffusers Wan 2.2 TI2V 5B DiT state-dict to ``WanDiTNetwork`` keys.
+    """Remap a diffusers Wan 2.2 TI2V-5B DiT state-dict to ``WanDiTNetwork`` keys.
 
-    Wan 2.2 5B and 14B share the upstream diffusers DiT layout, so this
-    is structurally the same remap FastVideo's 14B MoE config uses --
-    only the layer / channel counts of the downstream config differ.
-    The remap is applied automatically when
-    :data:`PIPELINE_WAN22_TI2V_5B` loads the upstream
+    Applied automatically when :data:`PIPELINE_WAN22_TI2V_5B` loads the
     ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/transformer`` checkpoint.
     """
     return remap_checkpoint_keys(state_dict, _WAN22_TI2V_5B_DIT_KEY_REMAP)
@@ -117,23 +98,15 @@ def wan22_ti2v_5b_dit_state_dict_transform(
 PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
     name="wan22-ti2v-5b",
     enable_sync_and_profile=True,
-    # The streaming I2V control encoder reuses the standard Wan
-    # ``I2VCtrlEncoder``: AR step 0 encodes the first frame into latent
-    # index 0 and stamps a one-hot mask, AR step >= 1 emits an all-
-    # zero mask so the in-network ``stamp_image_latent`` blend
-    # collapses to identity. Wrapped around the 5B 16x VAE encoder
-    # (``Wan22TI2V5BVAEEncoderConfig``), this is the TI2V first-frame
-    # seed pipeline -- no CLIP image branch required.
+    # Streaming I2V control encoder over the 5B VAE: AR step 0 encodes the
+    # first frame into latent 0 with a one-hot stamp mask; later steps emit
+    # a zero mask so the in-network ``stamp_image_latent`` blend is identity.
     encoder=WanI2VCtrlEncoderConfig(
         encoder=Wan22TI2V5BVAEEncoderConfig(),
     ),
     decoder=Wan22TI2V5BVAEDecoderConfig(),
-    # Wan 2.2 TI2V 5B has no CLIP cross-attention branch; the first
-    # frame is conditioned via the VAE latent seed + per-token t=0,
-    # not via CLIP image features. Leaving ``image_encoder=None``
-    # disables both the CLIP one-shot encoder and the matching DiT
-    # cross-attention branch (see
-    # ``WanDiTNetworkTI2V5BConfig.cross_attn_enable_img=False``).
+    # No CLIP image branch: ``image_encoder=None`` also disables the matching
+    # DiT cross-attention branch (``cross_attn_enable_img=False``).
     image_encoder=None,
     diffusion_model=DiffusionModelConfig(
         seed=42,
@@ -145,17 +118,12 @@ PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
             len_t=21,
             window_size_t=21,
             guidance_scale=5.0,
-            # The TI2V 5B recipe combines the existing mask-inject
-            # stamp (clean image latent re-injected every denoising
-            # step) with the new per-token timestep override (frame-0
-            # tokens see ``t=0`` while the rest of the chunk denoises
-            # at the scheduler step). Together they implement Wan 2.2
-            # 5B's "VAE-seeded first-frame + per-token t=0" recipe.
+            # First-frame conditioning: re-inject the clean image latent each
+            # step (stamp) and give frame-0 tokens ``t=0`` while the rest
+            # denoise at the scheduler step.
             stamp_image_latent=True,
             ti2v_first_frame_per_token_timestep=True,
-            # No channel-concat I2V layout: 5B's first frame is
-            # injected via the stamp path, not by appending mask +
-            # image-latent channels to the network input.
+            # 5B injects the first frame via the stamp path, not channel-concat.
             concat_image_mask_to_latent=False,
         ),
         scheduler=FlowMatchUniPCSchedulerConfig(
@@ -164,14 +132,11 @@ PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
         ),
     ),
 )
-"""Wan 2.2 TI2V 5B inference pipeline (HF Wan-AI diffusers checkpoint).
+"""Wan 2.2 TI2V-5B inference pipeline (Wan-AI diffusers checkpoint).
 
-A single AR step is sufficient for the standard 81-frame /
-640x1280 TI2V rollout (``len_t == window_size_t == 21``), matching
-upstream's defaults. The recipe is the prerequisite for
-``integrations/hy_worldplay`` phase 2b, which layers HY-WorldPlay's
-action + camera-trajectory + reconstituted-context-memory deltas on
-top of this pipeline.
+One AR step covers the standard 81-frame / 640x1280 rollout
+(``len_t == window_size_t == 21``). Base recipe for
+``integrations/hy_worldplay``.
 """
 
 WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {
