@@ -429,8 +429,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_video(canvas, video_path, fps=cfg.output_fps)
         logger.info(
-            f"[{cfg.runner_name}] wrote {output_description} "
-            f"{tuple(canvas.shape)} from generated={tuple(video.shape)} "
+            f"[{cfg.runner_name}] wrote {output_description} {tuple(canvas.shape)} "
+            f"from generated={tuple(video.shape)}; wrote video {tuple(video.shape)} "
             f"-> {video_path.resolve()}"
         )
 
