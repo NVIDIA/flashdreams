@@ -17,7 +17,7 @@ with a plugin architecture for model backends.
 - **Multi-GPU** -- Context parallelism via torchrun with automatic sharding
   across ranks
 - **Performance** -- torch.compile support with CUDA graph capture and replay
-- **Serving** -- WebRTC and gRPC integrations for real-time interactive
+- **Serving** -- WebRTC integration for real-time interactive
   applications
 
 ## Supported Models

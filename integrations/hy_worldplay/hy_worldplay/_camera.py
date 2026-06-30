@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any
 
 import torch
 import torch.nn as nn
@@ -69,10 +68,11 @@ __all__ = [
 class HyWorldPlayMemoryKVCache:
     """Per-block flat KV cache for HY-WorldPlay's reconstituted-context memory.
 
-    Stores K / V at RoPE-collapsed positions ``[0, len(selected) *
-    tokens_per_frame)`` -- no rolling window and no chunk indexing. Frozen
-    within a chunk's denoising loop; the prefill executor wipes and
-    repopulates it at the start of every chunk past the first.
+    Stores the selected memory frames' K / V (RoPE-modulated at the frames'
+    true temporal positions) as a flat ``len(selected) * tokens_per_frame``
+    sequence -- no rolling window. The prefill executor wipes and
+    repopulates it at the start of every chunk past the first; within a
+    chunk's denoising loop the contents are frozen.
 
     The standard-RoPE and PRoPE branches are stored independently so the
     dual-branch attention can address each without slicing a packed
@@ -352,7 +352,7 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
         Ks: Tensor | None,
         memory_kv_cache: HyWorldPlayMemoryKVCache,
     ) -> Tensor:
-        """Run the dual-branch self-attention at collapsed memory positions.
+        """Run the dual-branch self-attention over the selected memory frames.
 
         Projects, applies RoPE / PRoPE, writes both branches' K / V into
         ``memory_kv_cache``, then attends over the memory positions
@@ -363,12 +363,17 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             x: Pre-norm-modulated input for the selected memory frames,
                 shape ``[..., L_mem, query_dim]`` where
                 ``L_mem == K * tokens_per_frame``.
-            rope_freqs: RoPE frequencies remapped to the collapsed
-                positions, shape ``[L_mem, 1, 1, head_dim]``.
-            viewmats: Per-memory-frame W2C matrices ``[batch, K, 4, 4]``,
-                already sliced to ``selected_frame_indices``.
-            Ks: Optional per-memory-frame intrinsics ``[batch, K, 3, 3]``.
-            memory_kv_cache: Cache to populate; both branches are written.
+            rope_freqs: RoPE frequencies at the memory frames' true temporal
+                positions, shape ``[L_mem, 1, 1, head_dim]``. The executor
+                builds this from the per-rollout RoPE adapter at the
+                selected frames' history indices.
+            viewmats: Per-memory-frame W2C matrices, shape
+                ``[batch, K, 4, 4]``. Already sliced to
+                ``selected_frame_indices`` by the executor.
+            Ks: Optional per-memory-frame intrinsics
+                ``[batch, K, 3, 3]``.
+            memory_kv_cache: Cache to populate. Both branches are
+                written.
 
         Returns:
             Attention output at the memory positions, summed over the
@@ -428,8 +433,9 @@ class HyWorldPlayPRoPESelfAttention(SelfAttention):
             _debug_dump.dump("prefill.block.k_prope_written", memory_kv_cache.k_prope)
             _debug_dump.dump("prefill.block.v_prope_written", memory_kv_cache.v_prope)
 
-        # Memory tokens are the only sequence at the collapsed positions,
-        # so K / V are the just-computed tensors (no cross-chunk concat).
+        # Standard RoPE-branch attention over the memory tokens themselves
+        # -- they are the only sequence in this prefill, so K / V are the
+        # just-computed tensors (no cross-chunk concatenation).
         q_rope = q_raw
         if rope_freqs is not None:
             q_rope = apply_rope_freqs(q_rope, rope_freqs, interleaved=True)
@@ -460,15 +466,21 @@ class HyWorldPlayPRoPEBlockCache(BlockCache):
 
     Three caches per block:
 
-    * ``self_attn`` -- inherited; standard RoPE-branch K / V for the
-      current chunk's tokens.
-    * ``prope_self_attn`` -- mirrors ``self_attn``'s layout but stores the
-      *already-PRoPE-transformed* K / V for the current chunk.
-    * ``memory`` -- flat per-block cache holding the prefilled K / V from
-      the selected memory frames at RoPE-collapsed positions ``[0, K)``.
-      The dual-branch attention prepends these to ``self_attn`` /
-      ``prope_self_attn`` so the context is
-      ``[memory K/V, current chunk K/V]`` along ``seq_dim=-3``.
+    * ``self_attn`` -- inherited from :class:`BlockCache`, stores the
+      standard RoPE-branch K / V for the *current chunk's* tokens.
+      Reused across denoising steps within a chunk; reset at chunk
+      start by the HY transformer's predict_flow.
+    * ``prope_self_attn`` -- mirrors the layout of ``self_attn`` but
+      stores the *already-PRoPE-transformed* K / V for the current
+      chunk so each AR step pays the per-frame projection cost once.
+    * ``memory`` -- separate, flat per-block cache that stores the
+      prefilled K / V from the selected memory frames, RoPE-modulated at
+      the frames' true temporal positions. Wiped at chunk start by the
+      prefill executor and repopulated from
+      :class:`HyWorldPlayCtrl.memory_frame_indices`. The dual-branch
+      attention prepends these K / V to ``self_attn`` /
+      ``prope_self_attn`` for the actual attention call, so the total
+      context is ``[memory K/V, current chunk K/V]`` along ``seq_dim=-3``.
     """
 
     prope_self_attn: BlockKVCache = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -665,23 +677,26 @@ class HyWorldPlayPRoPEBlock(Block):
         Ks: Tensor | None,
         cache: "HyWorldPlayPRoPEBlockCache",
     ) -> Tensor:
-        """Run the full block forward at the collapsed memory positions.
+        """Run the full block forward over the selected memory frames.
 
         Mirrors :meth:`forward` so each successive block's K / V
         projections see an already-attended hidden state. The dual-branch
         self-attn writes both branches' K / V into ``cache.memory`` as a
-        side effect; ``cache.self_attn`` / ``cache.prope_self_attn`` are
-        left untouched, since collapsed positions don't belong in the
-        rolling current-chunk cache.
+        side effect; ``cache.cross_attn`` is read for the cross-attention
+        text (and I2V image) K / V; ``cache.self_attn`` /
+        ``cache.prope_self_attn`` are intentionally untouched -- the
+        prefilled memory K / V don't belong in the rolling current-chunk
+        cache.
 
         Args:
             x: Pre-AdaLN input for the K selected memory frames,
                 shape ``[..., L_mem, D]``.
-            e: AdaLN modulation tensor for those frames.
-            rope_freqs: RoPE frequencies pre-sliced to the collapsed
-                memory positions.
-            viewmats: Per-memory-frame W2C extrinsics, already sliced to
-                the selected indices.
+            e: AdaLN modulation tensor for those frames (same contract
+                as :meth:`forward`).
+            rope_freqs: RoPE frequencies at the memory frames' true temporal
+                positions.
+            viewmats: Per-memory-frame W2C extrinsics (already sliced
+                to the selected indices).
             Ks: Optional per-memory-frame intrinsics.
             cache: The block's per-rollout cache.
 

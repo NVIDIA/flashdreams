@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
@@ -18,6 +19,9 @@ from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
+from omnidreams.interactive_drive.world_model.synthetic_fixture import (
+    SyntheticWorldModelAssets,
+)
 
 
 class _FakePipeline:
@@ -61,8 +65,46 @@ class _FakePipeline:
         self.finalize_calls.append((autoregressive_index, cache))
 
 
+class _FakeSyntheticPipeline(_FakePipeline):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(synthetic_text_max_length=7)
+        self.decoder = SimpleNamespace(spatial_compression_ratio=8)
+        network = SimpleNamespace(
+            use_crossattn_projection=True,
+            crossattn_proj_in_channels=11,
+            crossattn_emb_channels=13,
+            in_channels=5,
+        )
+        transformer_config = SimpleNamespace(
+            network=network,
+            batch_shape=(1,),
+            num_views=1,
+            dtype=torch.float32,
+            requires_negative_text_embeddings=False,
+        )
+        transformer = SimpleNamespace(config=transformer_config)
+        self.diffusion_model = SimpleNamespace(transformer=transformer)
+        self.V_size = 1
+
+
 def _manifest() -> WorldModelManifest:
     return WorldModelManifest()
+
+
+def _contains_hf_url(value: object) -> bool:
+    if isinstance(value, str):
+        return "huggingface.co" in value
+    if isinstance(value, (list, tuple, set)):
+        return any(_contains_hf_url(item) for item in value)
+    if isinstance(value, dict):
+        return any(
+            _contains_hf_url(key) or _contains_hf_url(item)
+            for key, item in value.items()
+        )
+    if hasattr(value, "__dict__"):
+        return any(_contains_hf_url(item) for item in vars(value).values())
+    return False
 
 
 def test_select_config_name_uses_omnidreams_recipe_slugs() -> None:
@@ -136,6 +178,66 @@ def test_build_pipeline_config_can_select_native_vae_encoder() -> None:
     assert config.encoder.native_vae_backend == "fp8"
 
 
+def test_build_pipeline_config_synthetic_swaps_only_weight_sources(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    assets = SyntheticWorldModelAssets(
+        encoder_checkpoint_path=tmp_path / "synthetic_lightvae_encoder.safetensors",
+        decoder_checkpoint_path=tmp_path / "synthetic_lighttae_decoder.safetensors",
+    )
+    assets.encoder_checkpoint_path.touch()
+    assets.decoder_checkpoint_path.touch()
+
+    def fake_assets(*_args: object, **_kwargs: object) -> SyntheticWorldModelAssets:
+        return assets
+
+    monkeypatch.setattr(
+        adapter_module,
+        "build_synthetic_world_model_assets",
+        fake_assets,
+    )
+
+    manifest = replace(
+        _manifest(),
+        synthetic_model=True,
+        skip_finalize_kv_cache=True,
+        native_dit_acceleration="required",
+        native_dit_backend="bf16",
+        native_dit_attention_backend="cudnn",
+    )
+    real = _build_pipeline_config(
+        replace(manifest, synthetic_model=False),
+        profile=WorldModelProfileConfig(),
+    )
+    synthetic = _build_pipeline_config(manifest, profile=WorldModelProfileConfig())
+
+    real_transformer = real.diffusion_model.transformer
+    synthetic_transformer = synthetic.diffusion_model.transformer
+    assert synthetic_transformer.checkpoint_path is None
+    assert synthetic.text_encoder is None
+    assert synthetic.image_encoder is None
+    assert synthetic.encoder.checkpoint_path == str(assets.encoder_checkpoint_path)
+    assert synthetic.decoder.checkpoint_path == str(assets.decoder_checkpoint_path)
+    assert synthetic.decoder.state_dict_transform is None
+    assert synthetic.synthetic_text_max_length == real.text_encoder.max_length
+
+    for field in (
+        "compile_network",
+        "use_cuda_graph",
+        "skip_finalize_kv_cache",
+        "native_dit_acceleration",
+        "native_dit_backend",
+        "native_dit_attention_backend",
+    ):
+        assert getattr(synthetic_transformer, field) == getattr(real_transformer, field)
+    assert synthetic.encoder.use_compile == real.encoder.use_compile
+    assert synthetic.encoder.use_cuda_graph == real.encoder.use_cuda_graph
+    assert synthetic.decoder.use_compile == real.decoder.use_compile
+    assert synthetic.decoder.use_cuda_graph == real.decoder.use_cuda_graph
+    assert not _contains_hf_url(synthetic)
+
+
 def test_native_vae_encoder_requires_light_vae_recipe() -> None:
     with pytest.raises(ValueError, match="native_vae_encoder=fp8 requires light_vae"):
         _build_pipeline_config(
@@ -172,6 +274,32 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
 
     session.close()
     assert fake_pipeline.finalize_calls == [(0, "cache"), (1, "cache")]
+
+
+def test_session_synthetic_model_initializes_cache_from_synthetic_embeddings() -> None:
+    fake_pipeline = _FakeSyntheticPipeline()
+    manifest = replace(_manifest(), synthetic_model=True, resolution_wh=(64, 32))
+    session = FlashdreamsWorldModelSession(
+        manifest,
+        offload_text_encoder=True,
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    assert session.can_prewarm is True
+    session.warmup_model()
+
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_condition_frames = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+
+    session.start(initial_rgb, first_condition_frames, "demo prompt")
+
+    assert fake_pipeline.initialize_calls == []
+    assert fake_pipeline.precompute_calls == []
+    assert len(fake_pipeline.initialize_from_embeddings_calls) == 1
+    call = fake_pipeline.initialize_from_embeddings_calls[0]
+    assert tuple(call["text_embeddings"].shape) == (1, 1, 7, 11)
+    assert tuple(call["image_embeddings"].shape) == (1, 1, 1, 5, 4, 8)
+    assert call["negative_text_embeddings"] is None
+    assert call["view_names"] == ["camera_front_wide_120fov"]
 
 
 def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) -> None:

@@ -1,6 +1,6 @@
 # flashdreams-cosmos-predict2
 
-Cosmos-Predict2 bidirectional T2V inference,
+Cosmos-Predict2 bidirectional T2V and I2V inference,
 packaged as a [`flashdreams`](../..) plugin, in a standalone repo.
 
 This is a worked example of the
@@ -14,6 +14,7 @@ developer-guide flow.
 | slug | description |
 | --- | --- |
 | `cosmos2-t2v-2b-720p` | Cosmos-Predict2 2B T2V at 720p (single AR step, prompt-only). |
+| `cosmos2-i2v-2b-720p` | Cosmos-Predict2 2B I2V at 720p (single AR step, prompt + first-frame image). |
 
 ## Install
 
@@ -60,6 +61,11 @@ uv run flashdreams-run cosmos2-t2v-2b-720p
 # Inline prompt override.
 uv run flashdreams-run cosmos2-t2v-2b-720p --prompt "A cat surfing."
 
+# I2V run with a local first-frame image.
+uv run flashdreams-run cosmos2-i2v-2b-720p \
+    --image-path /path/to/first_frame.png \
+    --prompt "A cat surfing."
+
 # Path override (any .txt; first non-empty line is used as the prompt).
 uv run flashdreams-run cosmos2-t2v-2b-720p --prompt /path/to/my_prompt.txt
 ```
@@ -77,10 +83,14 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
 Access via runner.
 ```python
 from flashdreams.infra.config import derive_config
-from cosmos_predict2.config import RUNNER_COSMOS2_T2V_2B_720P as runner_config
+from cosmos_predict2.config import RUNNER_COSMOS2_I2V_2B_720P as runner_config
 
-# set a new prompt
-cfg = derive_config(runner_config, prompt="This is a new prompt")
+# set a new prompt and first-frame image
+cfg = derive_config(
+    runner_config,
+    prompt="This is a new prompt",
+    image_path="/path/to/first_frame.png",
+)
 runner = cfg.setup()
 runner.run()
 ```

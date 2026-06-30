@@ -60,6 +60,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 HY_REPO_DIR="${HY_REPO_DIR:-${SCRIPT_DIR}/HY-WorldPlay}"
 HF_MODELS_DIR="${HF_MODELS_DIR:-${HY_REPO_DIR}/hf_models}"
 CKPT_PATH="${CKPT_PATH:-${HF_MODELS_DIR}/wan_distilled_model/model.pt}"
+# Keep the HF cache local so the bench is self-contained and never needs
+# write access to ~/.cache/huggingface (which may be permission-denied on
+# shared machines).
+export HF_HOME="${HF_HOME:-${SCRIPT_DIR}/hf_cache}"
 
 IMAGE_PATH="${IMAGE_PATH:-${REPO_ROOT}/data_local/cat_surf.jpg}"
 # ``num_chunk=2`` is the largest setting that fits both legs in 44

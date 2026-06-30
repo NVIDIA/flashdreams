@@ -114,7 +114,19 @@ def _build_hy_worldplay_pipeline() -> WanInferencePipelineConfig:
         h_extrapolation_ratio=base_t.h_extrapolation_ratio,
         w_extrapolation_ratio=base_t.w_extrapolation_ratio,
         compile_network=base_t.compile_network,
-        use_cuda_graph=base_t.use_cuda_graph,
+        # CUDA-graph capture is unsafe on the HY-WorldPlay memory-prefill
+        # path. The ``CUDAGraphWrapper`` captures pointers into the KV
+        # cache, but HY re-runs ``prefill_memory_kv_cache`` every chunk: it
+        # resets+repopulates each PRoPE block's memory KV from a *different*
+        # FOV-selected frame set (``select_mem_frames_wan``), reallocating
+        # the underlying storage. A graph captured on one chunk then replays
+        # against another chunk's stale/freed memory-KV slots, decoding to a
+        # "shatter" of speckle corruption (deterministic across seeds and
+        # prompts; only the captured/replayed chunks are hit, so it presents
+        # as one or two garbled chunks mid-rollout). Disabling capture keeps
+        # ``compile_network`` (Inductor) -- still ~4x faster diffuse than
+        # vendor -- without the unsafe replay. See ``HY_DEBUG_DISABLE_CUDA_GRAPH``.
+        use_cuda_graph=False,
         cuda_graph_warmup_iters=base_t.cuda_graph_warmup_iters,
         stamp_image_latent=base_t.stamp_image_latent,
         concat_image_mask_to_latent=base_t.concat_image_mask_to_latent,
