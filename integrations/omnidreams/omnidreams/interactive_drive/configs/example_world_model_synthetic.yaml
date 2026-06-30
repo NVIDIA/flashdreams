@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+# Mirror of example_world_model_perf.yaml with synthetic_model enabled, so the
+# interactive-drive latency path runs on local random-initialized weights with
+# no checkpoint downloads. synthetic_model swaps only weight sources, not perf
+# knobs. To avoid drift, prefer running the real manifest with the flag:
+#   interactive-drive --manifest example_world_model_perf.yaml --synthetic-model
+synthetic_model: true
+resolution_wh: [1168, 640]
+fps: 30
+num_frames_per_block: 8
+compile_net: true
+light_vae: true
+encode_with_pixel_shuffle: false
+local_attn_size: 6
+skip_finalize_kv_cache: true
+sink_size: 0
+denoising_steps: [1000, 100]
+upsampling_enabled: false
+upsampling_scale: 4
+device: cuda:0
+seed_for_every_rollout:
+
+native_dit_acceleration: required
+native_dit_backend: fp8_kvcache_cudnn
+native_dit_attention_backend: cudnn
+
+native_vae_encoder: disabled

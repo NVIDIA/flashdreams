@@ -618,5 +618,9 @@ automatically — the subpackage's `tests/conftest.py` auto-stamps each test
 with the right workspace CI-tier marker based on its existing
 `gpu` / `xvfb` markers.
 
+Pass `--synthetic-model` (or `synthetic_model: true` in the manifest) to run
+the world model on local random-initialized weights, so latency/code-path
+tests run with no checkpoint downloads.
+
 The hook does not auto-fix. Use `./scripts/check.sh --fix` to clean up lint and
 format issues explicitly.

@@ -146,6 +146,7 @@ def _parse_native_vae_encoder(raw: object) -> str:
 @dataclass(frozen=True)
 class WorldModelManifest:
     debug_condition_frame_dir: Path | None = None
+    synthetic_model: bool = False
     resolution_wh: tuple[int, int] = _DEFAULT_RESOLUTION_WH
     fps: int = 30
     num_frames_per_block: int = 8
@@ -196,6 +197,7 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
             data.get("debug_condition_frame_dir"),
             manifest_dir=manifest_dir,
         ),
+        synthetic_model=bool(data.get("synthetic_model", False)),
         resolution_wh=resolution,
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
