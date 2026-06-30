@@ -218,6 +218,9 @@ add_module_names = False
 autodoc_mock_imports = [
     "transformer_engine",
     "transformer_engine_torch",
+    "transformers",
+    "tokenizers",
+    "huggingface_hub",
     "pynvml",
     "boto3",
     "botocore",

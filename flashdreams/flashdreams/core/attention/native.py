@@ -15,6 +15,8 @@
 
 """SDPA-backed attention with selectable QKV layout and kernel backend."""
 
+from __future__ import annotations
+
 from typing import Literal
 
 import torch

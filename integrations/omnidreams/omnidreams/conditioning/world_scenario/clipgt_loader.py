@@ -63,6 +63,17 @@ from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation, Slerp
 
 
+def _compose_rotations(lhs: Rotation, rhs: Rotation) -> Rotation:
+    """Compose two scipy rotations with an explicit type guard."""
+    result = lhs * rhs
+    if not isinstance(result, Rotation):
+        raise TypeError(
+            "Rotation composition returned a non-Rotation result; "
+            f"got {type(result).__name__}."
+        )
+    return result
+
+
 @auto_register(priority=10)  # High priority for ClipGT format
 class ClipGTLoader(SceneDataLoader):
     """Loader for ClipGT format data."""
@@ -409,7 +420,7 @@ class ClipGTLoader(SceneDataLoader):
             r1 = Rotation.from_quat(keyframe_quaternions[1])
             dt = keyframe_timestamps[1] - keyframe_timestamps[0]  # microseconds
             # Relative rotation from r0 to r1
-            delta_r = r0.inv() * r1
+            delta_r = _compose_rotations(r0.inv(), r1)
             # Angular velocity as rotation vector (radians per microsecond)
             omega = delta_r.as_rotvec() / dt
 
@@ -417,7 +428,7 @@ class ClipGTLoader(SceneDataLoader):
             for i in np.where(before_mask)[0]:
                 dt_extrap = target_timestamps[i] - t_start  # negative value
                 delta_extrap = Rotation.from_rotvec(omega * dt_extrap)
-                result[i] = (r0 * delta_extrap).as_quat()
+                result[i] = _compose_rotations(r0, delta_extrap).as_quat()
 
         # Handle extrapolation after the last keyframe
         if np.any(after_mask):
@@ -426,7 +437,7 @@ class ClipGTLoader(SceneDataLoader):
             r_m0 = Rotation.from_quat(keyframe_quaternions[-1])
             dt = keyframe_timestamps[-1] - keyframe_timestamps[-2]  # microseconds
             # Relative rotation from r_m1 to r_m0
-            delta_r = r_m1.inv() * r_m0
+            delta_r = _compose_rotations(r_m1.inv(), r_m0)
             # Angular velocity as rotation vector (radians per microsecond)
             omega = delta_r.as_rotvec() / dt
 
@@ -434,7 +445,7 @@ class ClipGTLoader(SceneDataLoader):
             for i in np.where(after_mask)[0]:
                 dt_extrap = target_timestamps[i] - t_end  # positive value
                 delta_extrap = Rotation.from_rotvec(omega * dt_extrap)
-                result[i] = (r_m0 * delta_extrap).as_quat()
+                result[i] = _compose_rotations(r_m0, delta_extrap).as_quat()
 
         return result
 

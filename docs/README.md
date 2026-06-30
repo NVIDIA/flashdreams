@@ -28,7 +28,7 @@ command:
 
 ```bash
 # from the repo root
-uv run --group docs sphinx-build -b html docs/source docs/_build/html
+uv run --group docs python -m sphinx-build -b html docs/source docs/_build/html
 ```
 
 The rendered site lands in `docs/_build/html/index.html`. Open it with
@@ -40,7 +40,7 @@ Use Sphinx live-reload to avoid rerunning build + HTTP server commands on every 
 
 ```bash
 # from the repo root
-uv run --group docs sphinx-autobuild -E docs/source docs/_build/html --port 8000
+uv run --group docs python -m sphinx_autobuild -E docs/source docs/_build/html --port 8000
 ```
 
 Then keep this process running and open:

@@ -59,15 +59,9 @@ image (or ``--example-data``) and the distilled checkpoint:
    uv run --project integrations/hy_worldplay \
        flashdreams-run \
        hy-worldplay-wan-i2v-5b \
-       --example-data \
-       --ckpt-path /path/to/models/wan_distilled_model/model.pt \
+       --example-data True \
        --num-chunk 8 \
        --pose "w-31"
-
-``--ckpt-path`` is the distilled ``model.pt`` from the gated
-`tencent/HY-WorldPlay <https://huggingface.co/tencent/HY-WorldPlay>`_ repo (set ``HF_TOKEN`` first); omit it
-to run the zero-init base Wan 2.2 identity. ``--pose`` is a camera-trajectory string (``num_chunk * 4 - 1``
-motion steps) or an upstream trajectory JSON.
 
 We provide the following variants:
 

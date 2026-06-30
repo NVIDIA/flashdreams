@@ -99,10 +99,32 @@ def discover_runners() -> dict[str, RunnerConfig]:
     discovered = sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda ep: ep.name)
     for ep in discovered:
         origin = f"entry point {ep.name!r} -> {ep.value}"
+        module_name = ep.value.split(":", 1)[0]
+        top_level_module = module_name.split(".", 1)[0]
         try:
             value = ep.load()
+        except ModuleNotFoundError as exc:
+            # Common/expected on partial installs (e.g. `uv run --project ...`):
+            # metadata can still expose runner entry points for integrations not
+            # present in the active env. If the missing module is the entry point's
+            # own package namespace, silently skip this plugin at debug level.
+            missing_name = exc.name or ""
+            if (
+                missing_name == top_level_module
+                or missing_name == module_name
+                or missing_name.startswith(f"{top_level_module}.")
+            ):
+                logger.debug(
+                    f"Skipping unavailable flashdreams runner {origin}: "
+                    f"module {missing_name!r} is not installed in this environment."
+                )
+                continue
+            logger.debug(
+                f"Failed to load flashdreams runner {origin}:\n{traceback.format_exc()}"
+            )
+            continue
         except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
-            logger.warning(
+            logger.debug(
                 f"Failed to load flashdreams runner {origin}:\n{traceback.format_exc()}"
             )
             continue
