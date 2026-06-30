@@ -358,12 +358,14 @@ SPDX-License-Identifier: Apache-2.0
 
 <div class="genindex-jumpbox">
  <a href="#A"><strong>A</strong></a>
+ | <a href="#B"><strong>B</strong></a>
  | <a href="#C"><strong>C</strong></a>
  | <a href="#D"><strong>D</strong></a>
  | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
  | <a href="#I"><strong>I</strong></a>
+ | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#N"><strong>N</strong></a>
  | <a href="#P"><strong>P</strong></a>
@@ -371,6 +373,7 @@ SPDX-License-Identifier: Apache-2.0
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
+ | <a href="#V"><strong>V</strong></a>
  | <a href="#W"><strong>W</strong></a>
  
 </div>
@@ -387,6 +390,8 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.after_update">after_update() (BlockKVCache method)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index">autoregressive_index (DiffusionModel.FinalState attribute)</a>
 
       <ul>
@@ -396,16 +401,38 @@ SPDX-License-Identifier: Apache-2.0
   </ul></td>
 </tr></table>
 
+<h2 id="B">B</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.before_update">before_update() (BlockKVCache method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache">BlockKVCache (class in flashdreams.core.attention)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache">cache (DiffusionModel.FinalState attribute)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.cached_k">cached_k() (BlockKVCache method)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.cached_v">cached_v() (BlockKVCache method)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.chunk_size">chunk_size (BlockKVCache attribute)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent">clean_latent (DiffusionModel.FinalState attribute)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise">context_noise (DiffusionModelConfig attribute)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.context_parallel_size">context_parallel_size() (NativeAttention method)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.ContextParallelAttention">ContextParallelAttention (class in flashdreams.core.attention)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -421,6 +448,8 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.config.derive_config">derive_config() (in module flashdreams.infra.config)</a>
 </li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.device">device (BlockKVCache attribute)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/core.html#flashdreams.core.distributed.Device">Device (class in flashdreams.core.distributed)</a>
@@ -432,6 +461,8 @@ SPDX-License-Identifier: Apache-2.0
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">DiffusionModel.FinalState (class in flashdreams.infra.diffusion.model)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig">DiffusionModelConfig (class in flashdreams.infra.diffusion.model)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.dtype">dtype (BlockKVCache attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -477,10 +508,10 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.finalize_kv_cache">finalize_kv_cache() (Transformer method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchScheduler">FlowMatchScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig">FlowMatchSchedulerConfig (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler">FlowMatchUniPCScheduler (class in flashdreams.infra.diffusion.scheduler)</a>
@@ -489,7 +520,13 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowPredictor">FlowPredictor (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder.forward">forward() (NullEncoder method)</a>
+      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.forward">forward() (NativeAttention method)</a>
+
+      <ul>
+        <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder.forward">(NullEncoder method)</a>
+</li>
+      </ul></li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.from_tensor">from_tensor() (BlockKVCache class method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -545,6 +582,18 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.config.InstantiateConfig">InstantiateConfig (class in flashdreams.infra.config)</a>
 </li>
+      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled">is_context_parallel_enabled() (NativeAttention method)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.is_steady_state">is_steady_state() (BlockKVCache method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="K">K</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.k_shape">k_shape (BlockKVCache attribute)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -561,14 +610,16 @@ SPDX-License-Identifier: Apache-2.0
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.name">name (StreamInferencePipelineConfig attribute)</a>
 </li>
+      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention">NativeAttention (class in flashdreams.core.attention)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape">noise_in_unpatchified_shape (DiffusionModelConfig attribute)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder">NullEncoder (class in flashdreams.infra.encoder)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoderConfig">NullEncoderConfig (class in flashdreams.infra.encoder)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoderConfig">NullEncoderConfig (class in flashdreams.infra.encoder)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps">num_inference_steps (FlowMatchSchedulerConfig attribute)</a>
 
       <ul>
@@ -603,6 +654,10 @@ SPDX-License-Identifier: Apache-2.0
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.reset">reset() (BlockKVCache method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.rng">rng (DiffusionModel property)</a>
 </li>
   </ul></td>
@@ -625,6 +680,10 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.seed">seed (DiffusionModelConfig attribute)</a>
 </li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.seq_dim">seq_dim (BlockKVCache attribute)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.set_context_parallel_group">set_context_parallel_group() (NativeAttention method)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.config.InstantiateConfig.setup">setup() (InstantiateConfig method)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift">shift (FlowMatchSchedulerConfig attribute)</a>
@@ -637,10 +696,14 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min">sigma_min (FlowMatchSchedulerConfig attribute)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">solver_order (FlowMatchUniPCSchedulerConfig attribute)</a>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.sink_size">sink_size (BlockKVCache attribute)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.size">size (BlockKVCache property)</a>
+</li>
+      <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">solver_order (FlowMatchUniPCSchedulerConfig attribute)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">spatial_compression_ratio (StreamingVideoDecoder property)</a>
 
       <ul>
@@ -701,7 +764,17 @@ SPDX-License-Identifier: Apache-2.0
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.update">update() (BlockKVCache method)</a>
+</li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma">use_kerras_sigma (FlowMatchUniPCSchedulerConfig attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="V">V</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.v_shape">v_shape (BlockKVCache attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -710,6 +783,12 @@ SPDX-License-Identifier: Apache-2.0
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step">warp_denoising_step (FlowMatchSchedulerConfig attribute)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.window_size">window_size (BlockKVCache attribute)</a>
+</li>
+      <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.write_end">write_end (BlockKVCache property)</a>
 </li>
   </ul></td>
 </tr></table>

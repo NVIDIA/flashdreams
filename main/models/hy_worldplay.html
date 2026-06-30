@@ -440,16 +440,11 @@ image (or <code class="docutils literal notranslate"><span class="pre">--example
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/hy_worldplay<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hy-worldplay-wan-i2v-5b<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--ckpt-path<span class="w"> </span>/path/to/models/wan_distilled_model/model.pt<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--num-chunk<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pose<span class="w"> </span><span class="s2">&quot;w-31&quot;</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--ckpt-path</span></code> is the distilled <code class="docutils literal notranslate"><span class="pre">model.pt</span></code> from the gated
-<a class="reference external" href="https://huggingface.co/tencent/HY-WorldPlay">tencent/HY-WorldPlay</a> repo (set <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> first); omit it
-to run the zero-init base Wan 2.2 identity. <code class="docutils literal notranslate"><span class="pre">--pose</span></code> is a camera-trajectory string (<code class="docutils literal notranslate"><span class="pre">num_chunk</span> <span class="pre">*</span> <span class="pre">4</span> <span class="pre">-</span> <span class="pre">1</span></code>
-motion steps) or an upstream trajectory JSON.</p>
 <p>We provide the following variants:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
