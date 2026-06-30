@@ -60,6 +60,15 @@ def test_session_manager_hooks_are_wired() -> None:
     assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
 
 
+def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
+    image_url = (
+        "https://github.com/Robbyant/lingbot-world/blob/main/examples/03/image.jpg"
+    )
+    assert session._validate_remote_url(image_url, field_name="image") == (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/03/image.jpg"
+    )
+
+
 @pytest.mark.asyncio
 async def test_session_manager_preload_runs_loopback_warmup_once(
     monkeypatch: pytest.MonkeyPatch,

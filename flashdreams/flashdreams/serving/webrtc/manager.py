@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
+import torch
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from loguru import logger
 
@@ -47,7 +48,7 @@ class WebRTCStepResult:
 
     chunk_index: int
     num_frames: int
-    video_chunk: Any
+    video_chunk: torch.Tensor
     stats: dict[str, float] | None
 
 
