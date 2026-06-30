@@ -23,9 +23,10 @@ import torch
 from lingbot.webrtc import session
 from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
-    LingbotStepResult,
     LingbotWebRTCSessionManager,
 )
+
+from flashdreams.serving.webrtc.manager import WebRTCStepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -43,13 +44,20 @@ def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     return object()
 
 
-def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
-    image_url = (
-        "https://github.com/Robbyant/lingbot-world/blob/main/examples/03/image.jpg"
+def test_session_manager_hooks_are_wired() -> None:
+    # Guards against the shared base-class attribute overrides being dropped
+    # (e.g. losing their leading underscore), which silently reverts behaviour
+    # to the base defaults.
+    assert (
+        LingbotWebRTCSessionManager._busy_message
+        == "A Lingbot session is already active."
     )
-    assert session._validate_remote_url(image_url, field_name="image") == (
-        "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/03/image.jpg"
+    assert LingbotWebRTCSessionManager._warmup_label == "Lingbot WebRTC"
+    assert LingbotWebRTCSessionManager._runtime_error_types == (
+        session.LingbotRuntimeError,
     )
+    # Lingbot keeps streaming after a per-chunk failure rather than tearing down.
+    assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
 
 
 @pytest.mark.asyncio
@@ -135,11 +143,11 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> LingbotStepResult:
+        ) -> WebRTCStepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return LingbotStepResult(
+            return WebRTCStepResult(
                 chunk_index=chunk_index,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),

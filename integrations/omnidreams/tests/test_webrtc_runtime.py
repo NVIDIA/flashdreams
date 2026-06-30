@@ -20,11 +20,14 @@ from omnidreams.webrtc import session
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
-    OmnidreamsStepResult,
     OmnidreamsWebRTCSessionManager,
 )
 
-from flashdreams.serving.webrtc.controls import CameraPoseIntegrator
+from flashdreams.serving.webrtc.controls import (
+    WSAD_SUPPORTED_KEYS,
+    CameraPoseIntegrator,
+)
+from flashdreams.serving.webrtc.manager import WebRTCStepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -40,6 +43,26 @@ class _FakeCloseable:
 def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
     del config
     return object()
+
+
+def test_session_manager_hooks_are_wired() -> None:
+    # Guards against the shared base-class attribute overrides being dropped
+    # (e.g. losing their leading underscore), which silently reverts behaviour
+    # to the base defaults.
+    assert (
+        OmnidreamsWebRTCSessionManager._busy_message
+        == "An Omnidreams session is already active."
+    )
+    assert OmnidreamsWebRTCSessionManager._warmup_label == "Omnidreams WebRTC"
+    assert OmnidreamsWebRTCSessionManager._runtime_error_types == (
+        session.OmnidreamsRuntimeError,
+    )
+    # A fatal chunk-generation error tears the omnidreams session down.
+    assert OmnidreamsWebRTCSessionManager._close_session_on_generation_error is True
+    # Only the WSAD driving keys are accepted by the resampler.
+    assert (
+        OmnidreamsWebRTCSessionManager._resampler_supported_keys == WSAD_SUPPORTED_KEYS
+    )
 
 
 @dataclass
@@ -565,11 +588,11 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> OmnidreamsStepResult:
+        ) -> WebRTCStepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return OmnidreamsStepResult(
+            return WebRTCStepResult(
                 chunk_index=chunk_index,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
@@ -707,7 +730,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> OmnidreamsStepResult:
+        ) -> WebRTCStepResult:
             del segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")
