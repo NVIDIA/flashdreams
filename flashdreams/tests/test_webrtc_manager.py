@@ -111,7 +111,6 @@ def _managed_session(
 
 @pytest.mark.asyncio
 async def test_generation_worker_closes_session_when_flag_set() -> None:
-
     class _ClosingRuntime:
         def __init__(self) -> None:
             self.generate_calls = 0
@@ -148,7 +147,6 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
 
 @pytest.mark.asyncio
 async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
-
     class _RetryRuntime:
         def __init__(self) -> None:
             self.generate_calls = 0
@@ -187,7 +185,6 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
 
 @pytest.mark.asyncio
 async def test_chunk_done_payload_includes_model_and_extra() -> None:
-
     class _OneChunkRuntime:
         def __init__(self) -> None:
             self.managed_session: ManagedWebRTCSession | None = None
@@ -236,7 +233,6 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
 
 @pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
-
     class _BusyManager(_BaseTestManager):
         _busy_message = "custom busy message"
 
@@ -251,7 +247,6 @@ async def test_create_answer_raises_busy_with_subclass_message() -> None:
 
 
 def test_make_resampler_honors_supported_keys() -> None:
-
     class _WsadManager(_BaseTestManager):
         _resampler_supported_keys = WSAD_SUPPORTED_KEYS
 
