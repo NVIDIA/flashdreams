@@ -278,7 +278,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
         runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -308,7 +308,7 @@ async def test_client_liveness_timeout_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -339,7 +339,7 @@ async def test_disconnect_message_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]

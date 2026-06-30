@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import torch
 
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.manager import (
@@ -201,7 +202,10 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
             if self.managed_session is not None:
                 self.managed_session.closed = True
             return WebRTCStepResult(
-                chunk_index=0, num_frames=1, video_chunk=object(), stats=None
+                chunk_index=0,
+                num_frames=1,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats=None,
             )
 
     class _ExtraManager(_BaseTestManager):

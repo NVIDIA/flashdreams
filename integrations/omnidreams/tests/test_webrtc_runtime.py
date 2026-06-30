@@ -636,7 +636,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     managed_session = session._ManagedOmnidreamsSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -666,7 +666,7 @@ async def test_client_liveness_timeout_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedOmnidreamsSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -697,7 +697,7 @@ async def test_disconnect_message_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedOmnidreamsSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -781,7 +781,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     first_action_received = asyncio.Event()
     first_action_received.set()
     managed_session = session._ManagedOmnidreamsSession(
-        runtime=runtime,  # ty:ignore[invalid-argument-type]
+        runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
