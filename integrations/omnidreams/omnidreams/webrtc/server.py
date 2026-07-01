@@ -113,11 +113,13 @@ def parse_args() -> argparse.Namespace:
         default="camera_front_wide_120fov",
     )
     parser.add_argument(
-        "--no_nvenc",
+        "--prefer_sw_encoder",
         action="store_true",
         help=(
-            "Disable NVENC H.264 encoding; use aiortc VP8 software encoder "
-            "instead.  Useful for A/B profiling comparisons."
+            "Prefer the FFmpeg software encoder (aiortc) over the "
+            "hardware encoder (PyNvVideoCodec/NVENC H.264). Useful on "
+            "environments without NVENC hardware, and for A/B profiling "
+            "comparisons against the hardware path."
         ),
     )
     parser.add_argument(
@@ -183,7 +185,7 @@ def build_runtime_config(
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
-        use_nvenc=not args.no_nvenc,
+        use_nvenc=not args.prefer_sw_encoder,
         video_encoder_bitrate=args.video_encoder_bitrate,
         video_encoder_gpu_id=args.video_encoder_gpu_id,
         video_queue_max_size=args.video_queue_max_size,

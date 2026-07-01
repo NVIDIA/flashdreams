@@ -16,7 +16,7 @@ import torch
 from flashdreams.serving.webrtc.encode import (
     ChunkEncodingResult,
     EncodedVideoPacket,
-    PyNvVideoCodecH264ChunkEncoder,
+    PyNvHardwareEncoder,
     tensor_chunk_to_abgr_cuda_frames,
 )
 
@@ -155,13 +155,13 @@ class TestAbgrConversionErrors:
 
 
 # ---------------------------------------------------------------------------
-# PyNvVideoCodecH264ChunkEncoder
+# PyNvHardwareEncoder
 # ---------------------------------------------------------------------------
 
 
 class TestPyNvVideoCodecEncoder:
     def test_encoder_produces_packets(self) -> None:
-        encoder = PyNvVideoCodecH264ChunkEncoder(
+        encoder = PyNvHardwareEncoder(
             width=512, height=288, fps=30, bitrate=4_000_000, gpu_id=0,
         )
         try:
@@ -189,7 +189,7 @@ class TestPyNvVideoCodecEncoder:
             encoder.close()
 
     def test_encoder_accepts_uint8_input(self) -> None:
-        encoder = PyNvVideoCodecH264ChunkEncoder(
+        encoder = PyNvHardwareEncoder(
             width=512, height=288, fps=30, bitrate=4_000_000, gpu_id=0,
         )
         try:
@@ -208,7 +208,7 @@ class TestPyNvVideoCodecEncoder:
 
     def test_keyframe_detected_in_output(self) -> None:
         """When force_keyframe=True, at least one emitted packet contains an IDR NAL."""
-        encoder = PyNvVideoCodecH264ChunkEncoder(
+        encoder = PyNvHardwareEncoder(
             width=512, height=288, fps=30, bitrate=4_000_000, gpu_id=0,
         )
         try:
@@ -232,14 +232,14 @@ class TestPyNvVideoCodecEncoder:
 
     def test_encoder_invalid_params(self) -> None:
         with pytest.raises(ValueError, match="width and height"):
-            PyNvVideoCodecH264ChunkEncoder(
+            PyNvHardwareEncoder(
                 width=0, height=288, fps=30, bitrate=4_000_000, gpu_id=0,
             )
         with pytest.raises(ValueError, match="fps"):
-            PyNvVideoCodecH264ChunkEncoder(
+            PyNvHardwareEncoder(
                 width=512, height=288, fps=0, bitrate=4_000_000, gpu_id=0,
             )
         with pytest.raises(ValueError, match="bitrate"):
-            PyNvVideoCodecH264ChunkEncoder(
+            PyNvHardwareEncoder(
                 width=512, height=288, fps=30, bitrate=-1, gpu_id=0,
             )

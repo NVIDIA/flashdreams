@@ -105,9 +105,18 @@ class _FakeWrapper:
 
 
 class _FakeVideoEncoder:
-    """Fake encoder that returns a single dummy packet per chunk."""
+    """Fake video encoder implementing the ``VideoEncoder`` Protocol.
+
+    Exposes both the legacy per-chunk ``encode_chunk`` (used by the
+    ``generate_chunk`` / ``_encode_raw_output_sync`` test paths) and the
+    new async ``deliver_chunk`` / ``create_track`` surface required by
+    ``_create_answer_with_runtime_ready_locked`` and the generation
+    worker.
+    """
 
     backend = "fake"
+    fps: int = 30
+    prefers_codec: str | None = None
 
     def encode_chunk(
         self, video_chunk: torch.Tensor, *, force_keyframe: bool = False
@@ -119,6 +128,35 @@ class _FakeVideoEncoder:
             encode_ms=0.1,
             num_input_frames=num_frames,
             num_keyframes=1 if force_keyframe else 0,
+        )
+
+    def create_track(self, *, maxsize: int):
+        # Return a real ``BufferedVideoTrack`` so aiortc's peer connection
+        # accepts it as a MediaStreamTrack. Non-zero maxsize required by
+        # the constructor.
+        from flashdreams.serving.webrtc.media import BufferedVideoTrack
+        return BufferedVideoTrack(fps=self.fps, maxsize=max(1, maxsize))
+
+    async def deliver_chunk(
+        self,
+        chunk: torch.Tensor,
+        track,
+        *,
+        force_keyframe: bool = False,
+    ):
+        from flashdreams.serving.webrtc.encode import ChunkDeliveryResult
+        from flashdreams.serving.webrtc.media import BufferedVideoTrack
+        # If a real BufferedVideoTrack was created via ``create_track``,
+        # go through its enqueue path so downstream consumers see frames.
+        if isinstance(track, BufferedVideoTrack):
+            enqueued = await track.enqueue_chunk(chunk)
+        else:
+            enqueued = chunk.shape[2] if chunk.ndim == 6 else chunk.shape[0]
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=enqueued,
+            num_keyframes=1 if force_keyframe else 0,
+            encode_ms=0.1,
         )
 
     def close(self) -> None:
@@ -404,7 +442,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         video_encoder_gpu_id=0,
         video_queue_max_size=512,
         keyframe_interval_chunks=30,
-        no_nvenc=False,
+        prefer_sw_encoder=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
@@ -513,7 +551,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
         video_encoder_gpu_id=0,
         video_queue_max_size=512,
         keyframe_interval_chunks=30,
-        no_nvenc=False,
+        prefer_sw_encoder=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args)
@@ -585,6 +623,10 @@ async def test_loopback_warmup_drives_session_generation(
             self.generated_segments: list[
                 list[tuple[float, float, frozenset[str]]]
             ] = []
+            # The post-refactor ``_create_answer_with_runtime_ready_locked``
+            # and generation worker read ``runtime._video_encoder`` directly
+            # (used to obtain the encoder-owned track + delivery method).
+            self._video_encoder = _FakeVideoEncoder()
 
         async def initialize(self) -> None:
             self.initialize_calls += 1
@@ -760,6 +802,10 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     class _FailingRuntime:
         def __init__(self) -> None:
             self.generate_calls = 0
+            # The generation worker reads ``runtime._video_encoder`` at
+            # entry (guard check) before invoking inference; failure
+            # scenarios still need this attribute to exist.
+            self._video_encoder = _FakeVideoEncoder()
 
         def peek_next_chunk_num_frames(self) -> int:
             return 1

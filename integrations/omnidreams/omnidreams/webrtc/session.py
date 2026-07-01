@@ -23,6 +23,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from aiortc import (
+    MediaStreamTrack,
     RTCConfiguration,
     RTCPeerConnection,
     RTCRtpSender,
@@ -67,9 +68,10 @@ from flashdreams.serving.webrtc.controls import (
 )
 from flashdreams.serving.webrtc.encode import (
     EncodedVideoPacket,
-    PyNvVideoCodecH264ChunkEncoder,
+    DefaultRTCVideoEncoder,
+    PyNvHardwareEncoder,
+    VideoEncoder,
 )
-from flashdreams.serving.webrtc.media import BufferedVideoTrack, EncodedPacketVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
@@ -501,7 +503,10 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
-        self._video_encoder: PyNvVideoCodecH264ChunkEncoder | None = None
+        # Selected by ``_initialize_video_encoder_sync`` at runtime warmup.
+        # None only before initialization; a concrete backend is always
+        # chosen thereafter (never used as a "software path" sentinel).
+        self._video_encoder: VideoEncoder | None = None
         # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
         # graph capture/replay state is thread-local, so spreading calls across
         # workers (e.g. asyncio.to_thread) crashes capture after a few chunks.
@@ -577,7 +582,10 @@ class OmnidreamsInferenceRuntime:
                 frame_times,
             )
 
-    async def _run_chunk_encode(self, raw: _RawChunkOutput) -> OmnidreamsStepResult:
+    async def _run_chunk_encode(
+        self,
+        raw: _RawChunkOutput,
+    ) -> OmnidreamsStepResult:
         return await asyncio.to_thread(self._encode_raw_output_sync, raw)
 
     async def _run_on_runtime_thread(
@@ -791,18 +799,52 @@ class OmnidreamsInferenceRuntime:
             self._video_encoder.close()
             self._video_encoder = None
 
-        if not self.config.use_nvenc:
-            logger.info("NVENC encoder disabled (use_nvenc=False); using aiortc VP8.")
-            return
-
         cfg = self.config
-        self._video_encoder = PyNvVideoCodecH264ChunkEncoder(
-            width=cfg.video_width,
-            height=cfg.video_height,
-            fps=cfg.fps,
-            bitrate=cfg.video_encoder_bitrate,
-            gpu_id=cfg.video_encoder_gpu_id,
-        )
+        if cfg.use_nvenc:
+            # NVENC selection has two possible outcomes on end-user
+            # environments that may or may not have NVENC hardware:
+            #
+            # 1. Capability probe (GetEncoderCaps) reports "not supported"
+            #    -- expected outcome on machines without NVENC hardware;
+            #    log at INFO and fall through to the software encoder so
+            #    the server still comes up.
+            # 2. Capability probe reports "supported" but the actual
+            #    encoder construction fails anyway -- this is *not* an
+            #    expected environmental mismatch; it means something
+            #    concrete is wrong (driver bug, session-pool exhaustion,
+            #    misconfiguration, hardware fault). Silently substituting
+            #    the software encoder here would hide the failure. Log
+            #    with traceback and re-raise so the operator sees it at
+            #    startup.
+            supported, reason = PyNvHardwareEncoder.is_supported(
+                gpu_id=cfg.video_encoder_gpu_id,
+                width=cfg.video_width,
+                height=cfg.video_height,
+            )
+            if supported:
+                try:
+                    self._video_encoder = PyNvHardwareEncoder(
+                        width=cfg.video_width,
+                        height=cfg.video_height,
+                        fps=cfg.fps,
+                        bitrate=cfg.video_encoder_bitrate,
+                        gpu_id=cfg.video_encoder_gpu_id,
+                    )
+                    return
+                except Exception:
+                    logger.exception(
+                        "NVENC capability probe reported support but encoder "
+                        "construction failed; aborting encoder initialization "
+                        "instead of masking the failure with a silent software "
+                        "encoder fallback."
+                    )
+                    raise
+            logger.info(
+                "NVENC H.264 not supported on this system ({}); "
+                "using FFmpeg software encoder.",
+                reason,
+            )
+        self._video_encoder = DefaultRTCVideoEncoder(fps=cfg.fps)
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
         def _has_prefixed_parquets(path: Path) -> bool:
@@ -976,11 +1018,15 @@ class OmnidreamsInferenceRuntime:
             force_keyframe=force_keyframe,
         )
 
-    def _encode_raw_output_sync(self, raw: _RawChunkOutput) -> OmnidreamsStepResult:
+    def _encode_raw_output_sync(
+        self,
+        raw: _RawChunkOutput,
+    ) -> OmnidreamsStepResult:
         if self._video_encoder is None:
             raise OmnidreamsRuntimeError("Video encoder is not initialized.")
         encoding_result = self._video_encoder.encode_chunk(
-            raw.video_chunk, force_keyframe=raw.force_keyframe,
+            raw.video_chunk,
+            force_keyframe=raw.force_keyframe,
         )
         if not encoding_result.packets:
             raise OmnidreamsRuntimeError(
@@ -1006,7 +1052,7 @@ class OmnidreamsInferenceRuntime:
 @dataclass(slots=True)
 class _ManagedOmnidreamsSession:
     runtime: OmnidreamsInferenceRuntime
-    video_track: EncodedPacketVideoTrack | BufferedVideoTrack
+    video_track: MediaStreamTrack
     peer_connection: Any
     resampler: KeyboardResampler
     control_channel: Any | None = None
@@ -1152,23 +1198,18 @@ class OmnidreamsWebRTCSessionManager:
         await self._runtime.reset_for_new_session()
 
         peer_connection = RTCPeerConnection(rtc_configuration)
-        use_nvenc = self.runtime_config.use_nvenc
-        if use_nvenc:
-            video_track: EncodedPacketVideoTrack | BufferedVideoTrack = (
-                EncodedPacketVideoTrack(
-                    fps=self.fps,
-                    maxsize=self.runtime_config.video_queue_max_size,
-                )
+        encoder = self._runtime._video_encoder
+        if encoder is None:
+            raise OmnidreamsRuntimeError(
+                "Video encoder not initialized; call runtime.initialize() first."
             )
-        else:
-            video_track = BufferedVideoTrack(
-                fps=self.fps,
-                maxsize=self.runtime_config.video_queue_max_size,
-            )
+        video_track = encoder.create_track(
+            maxsize=self.runtime_config.video_queue_max_size,
+        )
         video_transceiver = peer_connection.addTransceiver(
             video_track, direction="sendonly",
         )
-        if use_nvenc:
+        if encoder.prefers_codec == "h264":
             self._prefer_h264_video_codec(
                 transceiver=video_transceiver,
                 rtp_sender_cls=RTCRtpSender,
@@ -1254,7 +1295,7 @@ class OmnidreamsWebRTCSessionManager:
             await peer_connection.setLocalDescription(answer)
 
             negotiated_codecs = video_transceiver._codecs
-            if use_nvenc:
+            if encoder.prefers_codec == "h264":
                 if (
                     not negotiated_codecs
                     or negotiated_codecs[0].mimeType.lower() != "video/h264"
@@ -1265,7 +1306,7 @@ class OmnidreamsWebRTCSessionManager:
                     raise RuntimeError(
                         f"H.264 codec required but not negotiated (got {negotiated_name}). "
                         "The browser may not support H.264. "
-                        "NVENC pre-encoded packets cannot be sent over a non-H.264 codec."
+                        "Pre-encoded H.264 packets cannot be sent over a non-H.264 codec."
                     )
             logger.info(
                 "Video codec negotiated: {}.",
@@ -1443,7 +1484,7 @@ class OmnidreamsWebRTCSessionManager:
         *,
         runtime: OmnidreamsInferenceRuntime,
         raw: _RawChunkOutput,
-        video_track: EncodedPacketVideoTrack | BufferedVideoTrack,
+        video_track: MediaStreamTrack,
         managed_session: _ManagedOmnidreamsSession,
         t_before_gen: float,
         t_after_inference: float,
@@ -1451,47 +1492,47 @@ class OmnidreamsWebRTCSessionManager:
         consumed_action_arrivals: list[float],
         num_segments: int,
     ) -> None:
-        """Encode a raw chunk, enqueue packets, and send timing telemetry.
+        """Deliver one raw chunk through the runtime's video encoder.
 
-        Runs as a fire-and-forget ``asyncio.Task`` so that NVENC encoding
-        (via ``asyncio.to_thread``) overlaps with the next chunk's trigger
-        sleep and model inference on the runtime executor thread.
-
-        When ``use_nvenc`` is False, skips NVENC encoding and enqueues raw
-        frames to a :class:`BufferedVideoTrack` (VP8 software encoding path).
+        Runs as a fire-and-forget ``asyncio.Task`` so the encoder's async
+        ``deliver_chunk`` (which offloads NVENC work to a worker thread on
+        the HW path) overlaps with the next chunk's trigger sleep and model
+        inference on the runtime executor thread. The concrete encoder --
+        hardware or software -- is chosen once at runtime initialization;
+        this method is agnostic to which one is in use.
         """
         if managed_session.closed:
             return
         loop = asyncio.get_running_loop()
 
-        use_nvenc = self.runtime_config.use_nvenc
-        if use_nvenc:
-            try:
-                result = await runtime._run_chunk_encode(raw)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                if not managed_session.closed:
-                    logger.exception("Chunk encoding failed; closing session.")
-                    await self.close_active_session()
-                return
-            if managed_session.closed:
-                return
-            assert isinstance(video_track, EncodedPacketVideoTrack)
-            enqueued = await video_track.enqueue_encoded_packets(result.encoded_packets)
-            encode_ms = result.encode_ms
-            encoder_backend = result.encoder_backend
-            keyframes = result.keyframes
-            num_frames = result.num_frames
-            chunk_index = result.chunk_index
-        else:
-            assert isinstance(video_track, BufferedVideoTrack)
-            enqueued = await video_track.enqueue_chunk(raw.video_chunk)
-            encode_ms = 0.0
-            encoder_backend = "vp8-aiortc"
-            keyframes = 0
-            num_frames = raw.num_frames
-            chunk_index = raw.chunk_index
+        encoder = runtime._video_encoder
+        if encoder is None:
+            raise OmnidreamsRuntimeError("Video encoder is not initialized.")
+        try:
+            result = await encoder.deliver_chunk(
+                raw.video_chunk,
+                video_track,
+                force_keyframe=raw.force_keyframe,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if not managed_session.closed:
+                logger.exception("Chunk delivery failed; closing session.")
+                await self.close_active_session()
+            return
+        if managed_session.closed:
+            return
+        enqueued = result.num_frames
+        encode_ms = result.encode_ms
+        encoder_backend = result.backend
+        keyframes = result.num_keyframes
+        # ``num_frames`` from the encoder is authoritative for the NVENC path
+        # (equal to the input frame count), and for the SW path it reflects
+        # what actually got put on the queue. Fall back to raw.num_frames only
+        # if the encoder reported zero (defensive; shouldn't normally happen).
+        num_frames = result.num_frames or raw.num_frames
+        chunk_index = raw.chunk_index
 
         t_after_enqueue = loop.time()
         inference_ms = (t_after_inference - t_before_gen) * 1e3

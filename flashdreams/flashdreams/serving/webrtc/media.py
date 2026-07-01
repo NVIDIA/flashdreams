@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -16,7 +17,8 @@ from av import VideoFrame
 from av.packet import Packet
 from loguru import logger
 
-from flashdreams.serving.webrtc.encode import EncodedVideoPacket
+if TYPE_CHECKING:
+    from flashdreams.serving.webrtc.encode import EncodedVideoPacket
 
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
@@ -232,6 +234,27 @@ class EncodedPacketVideoTrack(MediaStreamTrack):
             await self._packets.put(packet)
             enqueued += 1
         return enqueued
+
+    def enqueue_encoded_packet_nowait(self, packet: EncodedVideoPacket) -> bool:
+        """Synchronously enqueue a single pre-encoded packet on the loop thread.
+
+        Intended for the streaming-encode callback path: the encode worker
+        thread schedules this via ``loop.call_soon_threadsafe`` so each packet
+        becomes visible to ``recv`` as soon as it is produced, rather than
+        waiting for the whole chunk to finish encoding. Applies the same
+        drop-oldest overflow policy as :meth:`enqueue_encoded_packets`.
+
+        Returns:
+            True if the packet was enqueued, False if the track is closed.
+        """
+        if self._closed:
+            return False
+        if self._maxsize > 0 and self._packets.full():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self._packets.get_nowait()
+                self._dropped_packets += 1
+        self._packets.put_nowait(packet)
+        return True
 
     async def recv(self) -> Packet:
         """Return the next pre-encoded H.264 packet for RTP transmission.
