@@ -1318,6 +1318,10 @@ runners = [
 serving = [
     { name = "aiohttp" },
     { name = "aiortc" },
+    { name = "grpcio" },
+    { name = "mediapy" },
+    { name = "pillow" },
+    { name = "protobuf" },
 ]
 
 [package.dev-dependencies]
@@ -1343,15 +1347,19 @@ requires-dist = [
     { name = "einops", specifier = ">=0.7" },
     { name = "filelock", specifier = ">=3" },
     { name = "ftfy", specifier = ">=6.0" },
+    { name = "grpcio", marker = "extra == 'serving'", specifier = ">=1.80" },
     { name = "huggingface-hub", specifier = ">=0.33" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "mediapy", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'examples'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'runners'", specifier = ">=1.1" },
+    { name = "mediapy", marker = "extra == 'serving'", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "nvidia-ml-py", specifier = ">=12.0" },
     { name = "opencv-python-headless", marker = "extra == 'examples'", specifier = ">=4.5" },
     { name = "opencv-python-headless", marker = "extra == 'runners'", specifier = ">=4.5" },
+    { name = "pillow", marker = "extra == 'serving'", specifier = ">=10" },
+    { name = "protobuf", marker = "extra == 'serving'", specifier = ">=7.35.0,<8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "safetensors", specifier = ">=0.4" },
@@ -1456,12 +1464,9 @@ name = "flashdreams-flashvsr"
 version = "0.1.0"
 source = { editable = "integrations/flashvsr" }
 dependencies = [
-    { name = "flashdreams" },
-    { name = "grpcio" },
+    { name = "flashdreams", extra = ["serving"] },
     { name = "mediapy" },
     { name = "opencv-python" },
-    { name = "pillow" },
-    { name = "protobuf" },
 ]
 
 [package.optional-dependencies]
@@ -1472,13 +1477,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "grpcio", specifier = ">=1.80" },
+    { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.80" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python", specifier = ">=4.8" },
-    { name = "pillow", specifier = ">=10" },
-    { name = "protobuf", specifier = ">=6.31.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
@@ -1634,7 +1636,7 @@ name = "flashdreams-realesrgan"
 version = "0.1.0"
 source = { editable = "integrations/realesrgan" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
     { name = "opencv-python-headless" },
 ]
 
@@ -1645,7 +1647,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "opencv-python-headless", specifier = ">=4.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]

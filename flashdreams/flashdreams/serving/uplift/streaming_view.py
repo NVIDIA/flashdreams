@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""HTTP MJPEG viewer support for the FlashVSR gRPC server."""
+"""HTTP MJPEG viewer support for video uplift servers."""
 
 import io
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -31,6 +31,7 @@ DEFAULT_VIEWER_CHUNK_QUEUE_DEPTH = 8
 DEFAULT_VIEWER_JPEG_QUALITY = 90
 DEFAULT_VIEWER_JPEG_BACKEND = "auto"
 DEFAULT_VIEWER_MAX_FPS = 60.0
+DEFAULT_VIEWER_PLAYBACK_FPS = 30.0
 DEFAULT_VIEWER_FRAME_STRIDE = 1
 
 _VIEWER_STOP = object()
@@ -40,6 +41,7 @@ _TORCHVISION_ENCODE_JPEG = None
 @dataclass
 class _ViewerPlaybackChunk:
     elapsed_ms: float
+    ready_at: float = field(default_factory=time.perf_counter)
     frames: np.ndarray | None = None
     jpegs: list[bytes] | None = None
 
@@ -154,6 +156,7 @@ class StreamingViewer:
         jpeg_backend: str,
         chunk_queue_depth: int,
         max_fps: float,
+        playback_fps: float,
         frame_stride: int,
     ) -> None:
         self.host = host
@@ -162,6 +165,7 @@ class StreamingViewer:
         self.jpeg_backend = jpeg_backend
         self.chunk_queue_depth = max(1, int(chunk_queue_depth))
         self.max_fps = float(max_fps)
+        self.playback_fps = float(playback_fps)
         self.frame_stride = max(1, int(frame_stride))
         self.original_hub = _MjpegFrameHub()
         self.upscaled_hub = _MjpegFrameHub()
@@ -207,7 +211,7 @@ class StreamingViewer:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FlashVSR Stream</title>
+  <title>FlashDreams Uplift Stream</title>
   <style>
     html, body { margin: 0; min-height: 100%; background: #111; color: #eee; font-family: system-ui, sans-serif; }
     body { display: grid; place-items: stretch; }
@@ -231,7 +235,7 @@ class StreamingViewer:
 <body>
   <main>
     <header>
-      <h1>FlashVSR stream viewer</h1>
+      <h1>FlashDreams uplift stream viewer</h1>
       <button id="screenshot" type="button">Screenshot</button>
     </header>
     <section id="viewer" class="grid">
@@ -379,10 +383,11 @@ class StreamingViewer:
             if frame_count == 0:
                 continue
 
-            elapsed_s = max(item.elapsed_ms / 1000.0, 1e-3)
-            frame_interval_s = elapsed_s / max(1, frame_count)
-            if self.max_fps > 0:
-                frame_interval_s = max(frame_interval_s, 1.0 / self.max_fps)
+            frame_interval_s = self._frame_interval_s(
+                item,
+                frame_count,
+                queued_chunks=playback_queue.qsize(),
+            )
 
             now = time.perf_counter()
             if next_frame_at < now:
@@ -399,6 +404,32 @@ class StreamingViewer:
                     time.sleep(delay)
                 hub.publish(jpeg)
                 next_frame_at += frame_interval_s
+
+    def _frame_interval_s(
+        self,
+        item: _ViewerPlaybackChunk,
+        frame_count: int,
+        *,
+        queued_chunks: int,
+    ) -> float:
+        if frame_count <= 0:
+            raise ValueError("frame_count must be positive")
+
+        if self.playback_fps > 0:
+            fps = self.playback_fps
+            if self.max_fps > fps and queued_chunks > 1:
+                ramp = min(
+                    1.0,
+                    (queued_chunks - 1) / max(1, self.chunk_queue_depth - 2),
+                )
+                fps += (self.max_fps - fps) * ramp
+            interval_s = 1.0 / fps
+        else:
+            interval_s = max(item.elapsed_ms / 1000.0, 1e-3) / frame_count
+
+        if self.max_fps > 0:
+            interval_s = max(interval_s, 1.0 / self.max_fps)
+        return interval_s
 
     def enqueue_original_chunk(self, frames: np.ndarray, elapsed_ms: float) -> None:
         item = _ViewerPlaybackChunk(
