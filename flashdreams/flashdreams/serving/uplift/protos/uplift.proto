@@ -15,12 +15,13 @@
 
 syntax = "proto3";
 
-package flashvsr;
+package flashdreams.uplift;
 
 // ---------------------------------------------------------------------------
-// FlashVSR gRPC Service
+// FlashDreams video uplift gRPC service
 //
-// Streaming video super-resolution (2× or 4×) using a diffusion-based model.
+// Streaming video super-resolution (2× or 4×) using any server-side model
+// implementation that speaks this protocol.
 // Two usage patterns:
 //
 //   Unary chunk-by-chunk flow (best for integration into existing pipelines):
@@ -36,7 +37,7 @@ package flashvsr;
 //     get_status        — liveness/readiness check
 // ---------------------------------------------------------------------------
 
-service FlashVSR {
+service VideoUplift {
   rpc get_status    (StatusRequest)         returns (StatusResponse);
   rpc start_session (StartSessionRequest)   returns (StartSessionResponse);
   rpc end_session   (EndSessionRequest)     returns (EndSessionResponse);
@@ -53,7 +54,7 @@ message StatusRequest {}
 message StatusResponse {
   bool            ready           = 1;  // true once the model is loaded
   string          device          = 2;  // e.g. "cuda:0"
-  string          model_name      = 3;  // e.g. "FlashVSR-v1.1"
+  string          model_name      = 3;  // e.g. "FlashVSR-v1.1" or "RealESRGAN/x2plus"
   repeated string active_sessions = 4;  // currently open session IDs
 }
 

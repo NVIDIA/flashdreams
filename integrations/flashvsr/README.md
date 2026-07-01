@@ -114,11 +114,12 @@ sparse presets. Use smaller inputs, `--chunk-size 8`, fewer GPUs, or override
 `--pipeline.diffusion-model.transformer.use-cuda-graph False` if the dense run
 OOMs.
 
-## gRPC server and browser viewer
+## Uplift server and browser viewer
 
-The FlashVSR integration also ships a gRPC upsampler service that keeps the
-pipeline warm, accepts incoming frame chunks, and can publish an MJPEG browser
-viewer. The service supports unary chunks (`start_session` / `upscale_chunk` /
+The FlashVSR integration also ships an uplift upsampler service that keeps the
+pipeline warm and serves the shared `flashdreams.serving.uplift` gRPC protocol.
+It accepts incoming frame chunks and can publish an MJPEG browser viewer. The
+service supports unary chunks (`start_session` / `upscale_chunk` /
 `end_session`) and bidirectional streaming (`upscale_video`). Streaming clients
 may send 8-frame chunks at live-ingest cadence; the server coalesces those into
 FlashVSR-compatible 13-frame cold-start and 16-frame steady-state model calls.
@@ -145,16 +146,12 @@ full attention otherwise. To force the dense path, pass `--attention_mode full`.
 Use the live-ingest client to loop a video into the server at 30 fps:
 
 ```bash
-PYTHONPATH=integrations/flashvsr:flashdreams \
-uv run --no-sync python -m flashvsr.grpc.uplift_client \
-    --continuous \
+uv run --package flashdreams-flashvsr flashdreams-feed-frames \
     --server localhost:50051 \
     --input /path/to/clip.mp4
 
 # finite smoke test:
-PYTHONPATH=integrations/flashvsr:flashdreams \
-uv run --no-sync python -m flashvsr.grpc.uplift_client \
-    --continuous \
+uv run --package flashdreams-flashvsr flashdreams-feed-frames \
     --server localhost:50051 \
     --input /path/to/clip.mp4 \
     --max_chunks 4
@@ -163,8 +160,7 @@ uv run --no-sync python -m flashvsr.grpc.uplift_client \
 For a save-to-disk test client, use:
 
 ```bash
-PYTHONPATH=integrations/flashvsr:flashdreams \
-uv run --no-sync python -m flashvsr.grpc.uplift_client \
+uv run --package flashdreams-flashvsr flashdreams-uplift-client \
     --server localhost:50051 \
     --input /path/to/clip.mp4 \
     --output /tmp/clip_2x.mp4

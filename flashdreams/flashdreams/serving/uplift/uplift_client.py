@@ -14,22 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Uplift client for the FlashVSR gRPC service.
+"""Uplift client for the FlashDreams video uplift gRPC service.
 
 Usage (from repo root):
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --input clip.mp4 --output out.mp4
+    uv run --no-sync python -m flashdreams.serving.uplift.uplift_client --input clip.mp4 --output out.mp4
 
     # Use unary chunk flow instead of streaming:
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --input clip.mp4 --output out.mp4 --unary
+    uv run --no-sync python -m flashdreams.serving.uplift.uplift_client --input clip.mp4 --output out.mp4 --unary
 
     # Connect to a remote server:
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --server my-host:50051 --input ...
+    uv run --no-sync python -m flashdreams.serving.uplift.uplift_client --server my-host:50051 --input ...
 
     # Send JPEG inputs and rely on the server browser viewer for output:
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --input clip.mp4 --input_format jpeg --display_only
+    uv run --no-sync python -m flashdreams.serving.uplift.uplift_client --input clip.mp4 --input_format jpeg --display_only
 
     # Live-ingest stress mode: loop one video as 8-frame chunks at 30 fps:
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --continuous --input clip.mp4
+    uv run --no-sync python -m flashdreams.serving.uplift.uplift_client --continuous --input clip.mp4
 """
 
 import argparse
@@ -44,8 +44,8 @@ import grpc
 import mediapy as media
 import numpy as np
 
-from flashvsr.grpc.protos import flashvsr_pb2 as pb2
-from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
+from flashdreams.serving.uplift.protos import uplift_pb2 as pb2
+from flashdreams.serving.uplift.protos import uplift_pb2_grpc as pb2_grpc
 
 DEFAULT_SERVER = "localhost:50051"
 DEFAULT_MAX_MESSAGE_MB = 512
@@ -179,13 +179,31 @@ def circular_chunk(frames: np.ndarray, start: int, size: int) -> np.ndarray:
     return np.ascontiguousarray(frames[indexes])
 
 
+def continuous_loop_frame_count(
+    total_frames: int,
+    *,
+    chunk_frames: int,
+    loop_mode: str,
+) -> int:
+    if total_frames <= 0:
+        raise ValueError("total_frames must be positive")
+    if chunk_frames <= 0:
+        raise ValueError("chunk_frames must be positive")
+    if loop_mode == "frame" or total_frames <= chunk_frames:
+        return total_frames
+    if loop_mode != "chunk":
+        raise ValueError(f"unsupported loop_mode: {loop_mode}")
+    aligned_frames = total_frames - (total_frames % chunk_frames)
+    return aligned_frames if aligned_frames >= chunk_frames else total_frames
+
+
 # ---------------------------------------------------------------------------
 # Streaming flow: upscale_video
 # ---------------------------------------------------------------------------
 
 
 def upsample_stream(
-    stub: pb2_grpc.FlashVSRStub,
+    stub: pb2_grpc.VideoUpliftStub,
     video_np: np.ndarray,
     scale: int,
     sparse_ratio: float,
@@ -260,7 +278,7 @@ def upsample_stream(
 
 
 def upsample_unary(
-    stub: pb2_grpc.FlashVSRStub,
+    stub: pb2_grpc.VideoUpliftStub,
     video_np: np.ndarray,
     scale: int,
     sparse_ratio: float,
@@ -349,7 +367,7 @@ def upsample_unary(
 
 
 def run_file_client(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="FlashVSR gRPC test client")
+    parser = argparse.ArgumentParser(description="FlashDreams video uplift client")
     parser.add_argument(
         "--server",
         default=DEFAULT_SERVER,
@@ -417,7 +435,7 @@ def run_file_client(argv: list[str] | None = None) -> None:
         ("grpc.max_receive_message_length", max_bytes),
     ]
     channel = grpc.insecure_channel(args.server, options=channel_options)
-    stub = pb2_grpc.FlashVSRStub(channel)
+    stub = pb2_grpc.VideoUpliftStub(channel)
 
     # Health check
     print(f"Checking server at {args.server} ...")
@@ -488,7 +506,7 @@ def run_file_client(argv: list[str] | None = None) -> None:
 
 def run_continuous_client(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Loop one video to FlashVSR as 8-frame live-ingest chunks"
+        description="Loop one video to an uplift server as live-ingest chunks"
     )
     parser.add_argument(
         "--server",
@@ -516,8 +534,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
         type=float,
         default=30.0,
         help=(
-            "Ingress rate to simulate. Default 30 fps models production; "
-            "local FlashVSR may only consume around 7 fps."
+            "Ingress rate to simulate. Default 30 fps models production."
         ),
     )
     parser.add_argument(
@@ -529,7 +546,27 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
         "--max_chunks",
         type=int,
         default=0,
-        help="Stop after this many 8-frame chunks. Default 0 means endless.",
+        help="Stop after this many chunks. Default 0 means endless.",
+    )
+    parser.add_argument(
+        "--continuous_chunk_frames",
+        type=int,
+        default=CONTINUOUS_CHUNK_FRAMES,
+        help=(
+            "Frames per continuous live-ingest request. FlashVSR servers commonly "
+            "use 8; frame-local upsamplers such as RealESRGAN can use 1 for "
+            "smoother viewer pacing."
+        ),
+    )
+    parser.add_argument(
+        "--loop_mode",
+        choices=["frame", "chunk"],
+        default="frame",
+        help=(
+            "How endless input looping wraps the source video. frame preserves all "
+            "frames and may wrap inside a request; chunk drops a tail "
+            "remainder so the loop restart lands on a request boundary."
+        ),
     )
     parser.add_argument(
         "--input_format",
@@ -571,6 +608,8 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
         parser.error("--target_fps must be positive")
     if args.max_chunks < 0:
         parser.error("--max_chunks must be non-negative")
+    if args.continuous_chunk_frames <= 0:
+        parser.error("--continuous_chunk_frames must be positive")
     if args.report_every <= 0:
         parser.error("--report_every must be positive")
     if args.ingress_window_chunks < 2:
@@ -581,12 +620,24 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
     frames = read_rgb_video(args.input)
     total_frames, height, width, _ = frames.shape
     source_fps = video_fps(args.input)
+    loop_frames = continuous_loop_frame_count(
+        total_frames,
+        chunk_frames=args.continuous_chunk_frames,
+        loop_mode=args.loop_mode,
+    )
+    loop_source = frames[:loop_frames]
     print(
         f"Loaded {args.input}: {total_frames} frames, {width}x{height}, "
         f"source_fps={source_fps:.2f}"
     )
+    if loop_frames != total_frames:
+        print(
+            f"Looping first {loop_frames} frames so the restart aligns with "
+            f"{args.continuous_chunk_frames}-frame request boundaries "
+            f"(dropped tail={total_frames - loop_frames})."
+        )
     print(
-        f"Streaming {CONTINUOUS_CHUNK_FRAMES}-frame chunks to {args.server}; "
+        f"Streaming {args.continuous_chunk_frames}-frame chunks to {args.server}; "
         f"target_ingress={args.target_fps:.2f} fps; "
         f"mode={'return_frames' if args.return_frames else 'display_only'}"
     )
@@ -599,7 +650,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
             ("grpc.max_receive_message_length", max_bytes),
         ],
     )
-    stub = pb2_grpc.FlashVSRStub(channel)
+    stub = pb2_grpc.VideoUpliftStub(channel)
 
     try:
         status = stub.get_status(pb2.StatusRequest(), timeout=10)
@@ -615,7 +666,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
     state = {"sent": 0, "received": 0}
     send_times: deque[float] = deque(maxlen=args.ingress_window_chunks)
     receive_times: deque[float] = deque(maxlen=args.ingress_window_chunks)
-    frame_interval = CONTINUOUS_CHUNK_FRAMES / args.target_fps
+    frame_interval = args.continuous_chunk_frames / args.target_fps
 
     def requests() -> Iterator[pb2.UpscaleChunkRequest]:
         next_send_at = time.perf_counter()
@@ -630,7 +681,11 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
                     next_send_at = now
                 next_send_at += frame_interval
 
-            chunk = circular_chunk(frames, source_pos, CONTINUOUS_CHUNK_FRAMES)
+            chunk = circular_chunk(
+                loop_source,
+                source_pos,
+                args.continuous_chunk_frames,
+            )
             req = build_chunk_request(
                 chunk_idx=chunk_idx,
                 frame_data=chunk,
@@ -644,14 +699,16 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
 
             send_times.append(time.perf_counter())
             state["sent"] += 1
-            source_pos = (source_pos + CONTINUOUS_CHUNK_FRAMES) % total_frames
+            source_pos = (source_pos + args.continuous_chunk_frames) % loop_frames
             chunk_idx += 1
             if state["sent"] % args.report_every == 0:
                 elapsed = max(send_times[-1] - send_times[0], 1e-6)
-                ingress_fps = (len(send_times) - 1) * CONTINUOUS_CHUNK_FRAMES / elapsed
+                ingress_fps = (
+                    (len(send_times) - 1) * args.continuous_chunk_frames / elapsed
+                )
                 print(
                     f"sent_chunks={state['sent']} "
-                    f"sent_frames={state['sent'] * CONTINUOUS_CHUNK_FRAMES} "
+                    f"sent_frames={state['sent'] * args.continuous_chunk_frames} "
                     f"{ANSI_GREEN}observed_ingress={ingress_fps:.2f} fps"
                     f"{ANSI_RESET} window_chunks={len(send_times)}"
                 )
@@ -673,7 +730,7 @@ def run_continuous_client(argv: list[str] | None = None) -> None:
             if state["received"] % args.report_every == 0:
                 elapsed = max(receive_times[-1] - receive_times[0], 1e-6)
                 receive_fps = (
-                    (len(receive_times) - 1) * CONTINUOUS_CHUNK_FRAMES / elapsed
+                    (len(receive_times) - 1) * args.continuous_chunk_frames / elapsed
                 )
                 print(
                     f"received_chunks={state['received']} "

@@ -18,8 +18,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from flashvsr.grpc import uplift_server as grpc_server
-from flashvsr.grpc.protos import flashvsr_pb2 as pb2
-from flashvsr.grpc.uplift_client import build_chunk_request, build_chunks
+from flashdreams.serving.uplift.protos import uplift_pb2 as pb2
+from flashdreams.serving.uplift.uplift_client import (
+    build_chunk_request,
+    build_chunks,
+    continuous_loop_frame_count,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -30,6 +34,30 @@ def test_build_chunks_drops_trailing_partial_chunk() -> None:
         (13, 16),
         (29, 16),
     ]
+
+
+def test_continuous_chunk_loop_drops_tail_remainder() -> None:
+    assert continuous_loop_frame_count(
+        157,
+        chunk_frames=8,
+        loop_mode="chunk",
+    ) == 152
+
+
+def test_continuous_frame_loop_keeps_tail_remainder() -> None:
+    assert continuous_loop_frame_count(
+        157,
+        chunk_frames=8,
+        loop_mode="frame",
+    ) == 157
+
+
+def test_continuous_one_frame_chunk_loop_keeps_all_frames() -> None:
+    assert continuous_loop_frame_count(
+        157,
+        chunk_frames=1,
+        loop_mode="chunk",
+    ) == 157
 
 
 def test_build_chunk_request_raw_display_only() -> None:

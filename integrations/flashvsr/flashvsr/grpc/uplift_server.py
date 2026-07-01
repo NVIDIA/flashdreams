@@ -51,14 +51,15 @@ import torch
 from loguru import logger
 
 from flashvsr.config import build_flashvsr_v1_1
-from flashvsr.grpc.protos import flashvsr_pb2 as pb2
-from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
-from flashvsr.grpc.streaming_view import (
+from flashdreams.serving.uplift.protos import uplift_pb2 as pb2
+from flashdreams.serving.uplift.protos import uplift_pb2_grpc as pb2_grpc
+from flashdreams.serving.uplift.streaming_view import (
     DEFAULT_VIEWER_CHUNK_QUEUE_DEPTH,
     DEFAULT_VIEWER_FRAME_STRIDE,
     DEFAULT_VIEWER_JPEG_BACKEND,
     DEFAULT_VIEWER_JPEG_QUALITY,
     DEFAULT_VIEWER_MAX_FPS,
+    DEFAULT_VIEWER_PLAYBACK_FPS,
     StreamingViewer,
     decode_jpeg_rgb,
     encode_jpeg_cuda_tensor,
@@ -155,7 +156,7 @@ class _DecodedStreamRequest:
     decode_ms: float
 
 
-class FlashVSR(pb2_grpc.FlashVSRServicer):
+class FlashVSR(pb2_grpc.VideoUpliftServicer):
     def __init__(
         self,
         model_path: str,
@@ -1124,7 +1125,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
 
 
 def _add_flash_vsr_servicer_to_server(servicer: FlashVSR, server: grpc.Server) -> None:
-    pb2_grpc.add_FlashVSRServicer_to_server(servicer, server)
+    pb2_grpc.add_VideoUpliftServicer_to_server(servicer, server)
 
 
 # ---------------------------------------------------------------------------
@@ -1269,8 +1270,19 @@ def main():
         type=float,
         default=DEFAULT_VIEWER_MAX_FPS,
         help=(
-            "Upper FPS cap for HTTP viewer playback. The viewer otherwise uses "
-            "the measured FlashVSR generation speed (default: %(default)s)."
+            "Upper FPS cap for HTTP viewer catch-up playback when completed "
+            "chunks are queued (default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--viewer_playback_fps",
+        type=float,
+        default=DEFAULT_VIEWER_PLAYBACK_FPS,
+        help=(
+            "Steady HTTP viewer playback FPS. If completed chunks back up, "
+            "the viewer gradually catches up, capped by --viewer_max_fps. "
+            "Set to 0 to pace from model elapsed time "
+            "(default: %(default)s)."
         ),
     )
     parser.add_argument(
@@ -1296,6 +1308,8 @@ def main():
         parser.error("--viewer_jpeg_quality must be between 1 and 100")
     if args.viewer_frame_stride < 1:
         parser.error("--viewer_frame_stride must be at least 1")
+    if args.viewer_playback_fps < 0:
+        parser.error("--viewer_playback_fps must be non-negative")
     attention_mode = _resolve_attention_mode(args.attention_mode)
 
     compile_network = bool(args.compile or args.cuda_graph)
@@ -1339,6 +1353,7 @@ def main():
             jpeg_backend=args.viewer_jpeg_backend,
             chunk_queue_depth=args.viewer_chunk_queue_depth,
             max_fps=args.viewer_max_fps,
+            playback_fps=args.viewer_playback_fps,
             frame_stride=args.viewer_frame_stride,
         )
         viewer.start()

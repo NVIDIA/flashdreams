@@ -24,7 +24,7 @@ description = "Real-ESRGAN frame and video upsampler integration for flashdreams
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flashdreams",
+    "flashdreams[serving]",
     "opencv-python-headless>=4.8",
 ]
 
@@ -41,6 +41,7 @@ dev = [
 
 [project.scripts]
 realesrgan-upsample = "realesrgan.cli:main"
+uplift-server = "realesrgan.grpc.uplift_server:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]
 realesrgan = "realesrgan.postprocess:POSTPROCESS_PRESET_REALESRGAN"
