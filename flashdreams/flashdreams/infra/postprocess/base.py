@@ -88,6 +88,10 @@ class VideoPostProcessorConfig(InstantiateConfig):
         default_factory=lambda: VideoPostProcessor
     )
 
+    def uses_context_parallelism(self) -> bool:
+        """Return whether this processor uses context parallelism when distributed."""
+        return False
+
 
 VideoPostProcessorConfigT = TypeVar(
     "VideoPostProcessorConfigT", bound=VideoPostProcessorConfig
@@ -173,6 +177,13 @@ class VideoPostprocessChainConfig(PrintableConfig):
     def is_enabled(self) -> bool:
         """Return whether any post-processing step is configured."""
         return bool(self.processors or self.preset)
+
+    def uses_context_parallelism(self) -> bool:
+        """Return whether any configured processor uses context parallelism."""
+        return any(
+            processor.uses_context_parallelism()
+            for processor in self.resolved_processors()
+        )
 
     def setup(self, spec: VideoSpec) -> "VideoPostprocessChainSession":
         """Instantiate post-processors and start per-stream sessions."""

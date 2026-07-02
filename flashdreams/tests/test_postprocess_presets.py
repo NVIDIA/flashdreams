@@ -71,3 +71,15 @@ def test_chain_config_is_enabled_for_preset_only() -> None:
     chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-sparse-2.0")
 
     assert chain.is_enabled()
+
+
+def test_chain_config_uses_context_parallelism_for_full_attn_preset() -> None:
+    chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-full-attn")
+
+    assert chain.uses_context_parallelism()
+
+
+def test_chain_config_does_not_use_context_parallelism_for_sparse_preset() -> None:
+    chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-sparse-2.0")
+
+    assert not chain.uses_context_parallelism()

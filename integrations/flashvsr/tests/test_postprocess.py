@@ -186,3 +186,11 @@ def test_flashvsr_postprocess_rejects_multi_view_inputs(
 
     with pytest.raises(ValueError, match="one stream at a time"):
         session.process(VideoChunk(tensor=multi_view, layout="bvtchw"))
+
+
+def test_flashvsr_postprocessor_uses_context_parallelism_for_full_attention() -> None:
+    sparse = FlashVSRPostProcessorConfig(attention_mode="sparse")
+    full = FlashVSRPostProcessorConfig(attention_mode="full")
+
+    assert not sparse.uses_context_parallelism()
+    assert full.uses_context_parallelism()

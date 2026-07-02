@@ -139,14 +139,14 @@ class FastvideoCausalWan22T2VRunner(
         # Concatenate the autoregressive chunks along the time axis.
         # The result is a tensor of shape [T, C, H, W], value in [-1, 1].
         generated = torch.cat(chunks, dim=0)
-        if not self.is_rank_zero:
-            return
-        generated = self.postprocess_video_tensor(
+        generated = self.apply_output_postprocess(
             generated,
             layout="tchw",
             value_range="minus_one_one",
             fps=config.fps,
-        ).cpu()
+        )
+        if not self.is_rank_zero:
+            return
 
         # Write the video.
         config.output_dir.mkdir(parents=True, exist_ok=True)

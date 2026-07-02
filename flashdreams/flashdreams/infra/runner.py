@@ -107,7 +107,9 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         isn't already) before pipeline construction so context-parallel
         transformers shard tokens across ``WORLD``. Subclasses gate
         per-rollout I/O on :attr:`is_rank_zero`; compute (``generate`` /
-        ``finalize``) runs on every rank.
+        ``finalize``) runs on every rank. Call :meth:`apply_output_postprocess`
+        before the rank-zero write guard when post-processing is enabled so
+        full-attention backends can participate in context parallelism.
     """
 
     config: RunnerConfigT
@@ -176,6 +178,60 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
             postprocess=self.config.postprocess,
             fps=fps,
         )
+
+    def postprocess_requires_all_ranks(self) -> bool:
+        """Return whether post-processing must run on every distributed rank."""
+        return (
+            self.world_size > 1
+            and self.config.postprocess.uses_context_parallelism()
+        )
+
+    def _validate_postprocess_for_world_size(self) -> None:
+        if self.world_size <= 1 or not self.config.postprocess.is_enabled():
+            return
+        if self.config.postprocess.uses_context_parallelism():
+            return
+        for processor in self.config.postprocess.resolved_processors():
+            attention_mode = getattr(processor, "attention_mode", None)
+            if attention_mode == "sparse":
+                raise ValueError(
+                    "FlashVSR sparse post-processing does not support multi-GPU "
+                    "execution. Use --postprocess.preset flashvsr-v1.1-full-attn "
+                    "for context parallelism, or run without torchrun."
+                )
+
+    def apply_output_postprocess(
+        self,
+        tensor: torch.Tensor,
+        *,
+        layout: VideoTensorLayout,
+        value_range: VideoValueRange = "minus_one_one",
+        fps: float | None = None,
+    ) -> torch.Tensor | None:
+        """Apply configured post-processing with correct distributed rank gating."""
+        if not self.config.postprocess.is_enabled():
+            return tensor
+
+        self._validate_postprocess_for_world_size()
+
+        if self.postprocess_requires_all_ranks():
+            output = self.postprocess_video_tensor(
+                tensor,
+                layout=layout,
+                value_range=value_range,
+                fps=fps,
+            )
+            return output.cpu() if self.is_rank_zero else None
+
+        if self.is_rank_zero:
+            return self.postprocess_video_tensor(
+                tensor,
+                layout=layout,
+                value_range=value_range,
+                fps=fps,
+            ).cpu()
+
+        return None
 
     @abstractmethod
     def run(self) -> None:

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -91,6 +92,10 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     tail_policy: _TailPolicy = "replicate_pad"
     """How to handle final partial chunks. ``replicate_pad`` preserves all
     frames; ``drop`` favors speed and fixed-size chunks."""
+
+    def uses_context_parallelism(self) -> bool:
+        """Full attention uses the CP-aware Wan dense self-attention path."""
+        return self.attention_mode == "full"
 
 
 class FlashVSRPostProcessor(VideoPostProcessor[FlashVSRPostProcessorConfig]):
@@ -183,7 +188,8 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             attention_mode=self._config.attention_mode,
             name="flashvsr-postprocess-v1.1",
         )
-        self._pipeline = pipeline_cfg.setup().to(device=self._config.device).eval()
+        device = _resolve_postprocess_device(self._config.device)
+        self._pipeline = pipeline_cfg.setup().to(device=device).eval()
         self._cache = self._pipeline.initialize_cache()
 
     def _append_to_buffer(self, bcthw: Tensor) -> None:
@@ -191,7 +197,11 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         dtype = getattr(
             getattr(self._pipeline, "diffusion_model", None), "dtype", bcthw.dtype
         )
-        device = getattr(self._pipeline, "device", torch.device(self._config.device))
+        device = getattr(
+            self._pipeline,
+            "device",
+            torch.device(_resolve_postprocess_device(self._config.device)),
+        )
         bcthw = bcthw.to(device=device, dtype=dtype)
         if self._buffer is None:
             self._buffer = bcthw
@@ -266,6 +276,13 @@ def _chunk_mode(chunk_size: int) -> tuple[int, int]:
             f"Unsupported FlashVSR postprocess chunk_size={chunk_size}. "
             f"Supported steady-state sizes: {supported}."
         ) from exc
+
+
+def _resolve_postprocess_device(configured: str) -> str:
+    """Pin FlashVSR post-processing to ``cuda:LOCAL_RANK`` under torchrun."""
+    if torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1:
+        return f"cuda:{os.environ.get('LOCAL_RANK', '0')}"
+    return configured
 
 
 def _resolve_dtype(dtype: _DTypeName) -> torch.dtype:

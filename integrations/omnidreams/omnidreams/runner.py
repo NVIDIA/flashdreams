@@ -405,27 +405,34 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
 
         video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
         generated_num_frames = video.shape[2]
+
+        if cfg.postprocess.is_enabled():
+            if self.postprocess_requires_all_ranks() or self.is_rank_zero:
+                del cache
+                del hdmap_videos
+                del hdmap_videos_t
+                del self.pipeline
+                torch.cuda.empty_cache()
+
+            canvas, output_description = self._prepare_canvas_for_write(
+                condition=None,
+                video=video,
+                fps=cfg.output_fps,
+            )
+        else:
+            if not self.is_rank_zero:
+                return
+            condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
+            canvas, output_description = self._prepare_canvas_for_write(
+                condition=condition,
+                video=video,
+                fps=cfg.output_fps,
+            )
+
         if not self.is_rank_zero:
             return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        if cfg.postprocess.is_enabled():
-            del cache
-            del hdmap_videos
-            del hdmap_videos_t
-            del self.pipeline
-            torch.cuda.empty_cache()
-
-        condition = (
-            None
-            if cfg.postprocess.is_enabled()
-            else hdmap_videos_t[:, :, :generated_num_frames].cpu()
-        )
-        canvas, output_description = self._prepare_canvas_for_write(
-            condition=condition,
-            video=video,
-            fps=cfg.output_fps,
-        )
         video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_video(canvas, video_path, fps=cfg.output_fps)
         logger.info(
@@ -465,6 +472,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         """Return the tensor written to MP4 plus a short log description."""
         if self.config.postprocess.is_enabled():
             generated = self._postprocess_generated_views(video, fps=fps)
+            if generated is None:
+                return None, ""
             return (
                 rearrange(generated, "1 v t c h w -> t h (v w) c"),
                 "postprocessed RGB video",
@@ -491,14 +500,16 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         views: list[torch.Tensor] = []
         for view_idx in range(video.shape[1]):
             view = video[:, view_idx : view_idx + 1]
-            views.append(
-                self.postprocess_video_tensor(
-                    view,
-                    layout="bvtchw",
-                    value_range="minus_one_one",
-                    fps=fps,
-                ).cpu()
+            processed = self.apply_output_postprocess(
+                view,
+                layout="bvtchw",
+                value_range="minus_one_one",
+                fps=fps,
             )
+            if processed is not None:
+                views.append(processed)
+        if not views:
+            return None
         return torch.cat(views, dim=1)
 
     def _load_first_frames(
