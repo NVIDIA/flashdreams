@@ -236,6 +236,8 @@ def postprocess_video_tensor(
     fps: float | None = None,
 ) -> Tensor:
     """Run a complete post-processing chain over one in-memory video tensor."""
+    if not postprocess.is_enabled():
+        return tensor
     spec = infer_video_spec(tensor, layout=layout, fps=fps)
     session = postprocess.setup(spec)
     chunks = session.process(

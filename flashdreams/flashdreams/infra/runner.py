@@ -167,6 +167,8 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         fps: float | None = None,
     ) -> torch.Tensor:
         """Apply the configured post-processing chain to a generated video."""
+        if not self.config.postprocess.is_enabled():
+            return tensor
         return postprocess_video_tensor(
             tensor,
             layout=layout,

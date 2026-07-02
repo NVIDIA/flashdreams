@@ -31,7 +31,7 @@ from flashdreams.infra.postprocess import (
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_noop_chain_returns_same_tchw_tensor() -> None:
+def test_disabled_chain_returns_input_unchanged() -> None:
     video = torch.linspace(-1.0, 1.0, steps=3 * 3 * 4 * 5).reshape(3, 3, 4, 5)
 
     result = postprocess_video_tensor(
@@ -42,7 +42,7 @@ def test_noop_chain_returns_same_tchw_tensor() -> None:
         fps=24,
     )
 
-    assert torch.equal(result, video)
+    assert result is video
 
 
 def test_layout_and_uint8_round_trip() -> None:
