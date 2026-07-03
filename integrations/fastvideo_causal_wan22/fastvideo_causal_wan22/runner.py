@@ -27,6 +27,7 @@ from einops import rearrange
 from loguru import logger
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
@@ -76,6 +77,9 @@ class FastvideoCausalWan22T2VRunnerConfig(RunnerConfig):
 
     fps: int = 16
     """Output video frame rate."""
+
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
 
 
 class FastvideoCausalWan22T2VRunner(
@@ -134,17 +138,20 @@ class FastvideoCausalWan22T2VRunner(
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            if video_chunk.shape[0] > 0:
+                chunks.append(video_chunk.cpu())
+
+        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        if postprocess_tail is not None and postprocess_tail.shape[0] > 0:
+            chunks.append(postprocess_tail.cpu())
 
         # Concatenate the autoregressive chunks along the time axis.
         # The result is a tensor of shape [T, C, H, W], value in [-1, 1].
-        generated = torch.cat(chunks, dim=0)
-        generated = self.apply_output_postprocess(
-            generated,
-            layout="tchw",
-            value_range="minus_one_one",
-            fps=config.fps,
-        )
+        if chunks:
+            generated = torch.cat(chunks, dim=0)
+        else:
+            assert cache.last_output is not None
+            generated = cache.last_output.cpu()
         if not self.is_rank_zero:
             return
 

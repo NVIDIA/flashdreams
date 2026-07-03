@@ -30,6 +30,7 @@ from loguru import logger
 
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.cosmos.pipeline import (
     CosmosInferencePipeline,
@@ -108,6 +109,9 @@ class Cosmos2T2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
+
 
 class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
     """Cosmos-Predict2 non-streaming T2V driver."""
@@ -155,14 +159,16 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
 
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        generated = self.apply_output_postprocess(
-            generated,
-            layout="tchw",
-            value_range="minus_one_one",
-            fps=config.fps,
-        )
+        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        if postprocess_tail is not None:
+            generated = (
+                postprocess_tail
+                if generated.shape[0] == 0
+                else torch.cat([generated, postprocess_tail], dim=0)
+            )
         if not self.is_rank_zero:
             return
+        generated = generated.cpu()
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = config.output_dir / f"{config.runner_name}.mp4"

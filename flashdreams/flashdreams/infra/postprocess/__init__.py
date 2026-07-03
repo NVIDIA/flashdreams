@@ -36,10 +36,22 @@ from flashdreams.infra.postprocess.base import (
     to_bvtchw,
     to_minus_one_one,
 )
+from flashdreams.infra.postprocess.runner import (
+    apply_runner_output_postprocess,
+    configure_runner_pipeline_postprocess,
+    postprocess_requires_all_ranks,
+    validate_runner_postprocess_for_world_size,
+)
+from flashdreams.infra.postprocess.stream import (
+    PipelinePostprocessState,
+    apply_pipeline_postprocess,
+    flush_pipeline_postprocess,
+)
 
 __all__ = [
     "NoOpVideoPostProcessor",
     "NoOpVideoPostProcessorConfig",
+    "PipelinePostprocessState",
     "VideoChunk",
     "VideoPostProcessor",
     "VideoPostProcessorConfig",
@@ -49,12 +61,18 @@ __all__ = [
     "VideoSpec",
     "VideoTensorLayout",
     "VideoValueRange",
+    "apply_pipeline_postprocess",
+    "apply_runner_output_postprocess",
     "concatenate_video_chunks",
+    "configure_runner_pipeline_postprocess",
     "from_bvtchw",
     "from_minus_one_one",
+    "flush_pipeline_postprocess",
     "infer_video_spec",
+    "postprocess_requires_all_ranks",
     "postprocess_video_tensor",
     "resize_bvtchw",
     "to_bvtchw",
     "to_minus_one_one",
+    "validate_runner_postprocess_for_world_size",
 ]

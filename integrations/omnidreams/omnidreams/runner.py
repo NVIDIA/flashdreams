@@ -41,6 +41,7 @@ from omnidreams.pipeline import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 
 DEFAULT_VIDEO_HEIGHT = 704
@@ -183,6 +184,12 @@ class OmnidreamsRunnerConfig(RunnerConfig):
 
     output_fps: int = 30
     """Output video frame rate. Omnidreams was trained at 30fps."""
+
+    postprocess_output_layout: VideoTensorLayout | None = "bvtchw"
+    """Pipeline output layout for streaming post-processing."""
+
+    postprocess_per_view: bool = True
+    """Process each generated camera view with its own post-processing session."""
 
     save_embeddings_path: Path | None = None
     """When set, run only the one-shot encoders, ``torch.save`` text +
@@ -400,25 +407,26 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            if video_chunk.shape[2] > 0:
+                chunks.append(video_chunk.cpu())
             start = end
 
-        video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
+        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
+            chunks.append(postprocess_tail.cpu())
+
+        if chunks:
+            video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
+        else:
+            assert cache.last_output is not None
+            video = cache.last_output.cpu()
         generated_num_frames = video.shape[2]
 
         if cfg.postprocess.is_enabled():
-            if self.postprocess_requires_all_ranks() or self.is_rank_zero:
-                del cache
-                del hdmap_videos
-                del hdmap_videos_t
-                del self.pipeline
-                torch.cuda.empty_cache()
-
-            canvas, output_description = self._prepare_canvas_for_write(
-                condition=None,
-                video=video,
-                fps=cfg.output_fps,
-            )
+            if not self.is_rank_zero:
+                return
+            canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
+            output_description = "postprocessed RGB video"
         else:
             if not self.is_rank_zero:
                 return
@@ -426,7 +434,6 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             canvas, output_description = self._prepare_canvas_for_write(
                 condition=condition,
                 video=video,
-                fps=cfg.output_fps,
             )
 
         if not self.is_rank_zero:
@@ -467,18 +474,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         *,
         condition: torch.Tensor | None,
         video: torch.Tensor,
-        fps: int,
     ) -> tuple[torch.Tensor, str]:
         """Return the tensor written to MP4 plus a short log description."""
-        if self.config.postprocess.is_enabled():
-            generated = self._postprocess_generated_views(video, fps=fps)
-            if generated is None:
-                return None, ""
-            return (
-                rearrange(generated, "1 v t c h w -> t h (v w) c"),
-                "postprocessed RGB video",
-            )
-
         # HDMap + generated stacked vertically per camera, cameras laid
         # out horizontally: ``[T, 2*H, V*W, C]``.
         assert condition is not None
@@ -489,28 +486,6 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             ),
             "HDMap/RGB canvas",
         )
-
-    def _postprocess_generated_views(
-        self,
-        video: torch.Tensor,
-        *,
-        fps: int,
-    ) -> torch.Tensor:
-        """Apply the configured post-process chain to generated RGB views."""
-        views: list[torch.Tensor] = []
-        for view_idx in range(video.shape[1]):
-            view = video[:, view_idx : view_idx + 1]
-            processed = self.apply_output_postprocess(
-                view,
-                layout="bvtchw",
-                value_range="minus_one_one",
-                fps=fps,
-            )
-            if processed is not None:
-                views.append(processed)
-        if not views:
-            return None
-        return torch.cat(views, dim=1)
 
     def _load_first_frames(
         self,

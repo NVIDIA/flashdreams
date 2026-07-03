@@ -29,6 +29,7 @@ from torch import Tensor
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -208,6 +209,9 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "btchw"
+    """Pipeline output layout for streaming post-processing."""
+
     context_window_length: int = 16
     """Frame-count threshold below which the FOV-overlap memory selector
     is bypassed (AR steps with fewer accumulated frames emit
@@ -382,19 +386,27 @@ class HyWorldPlayWanI2VRunner(
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
-                chunks.append(chunk)
+                if chunk.shape[-4] > 0:
+                    chunks.append(chunk)
                 # ``finalize`` records the chunk's CUDA events and
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
                 if stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
+            postprocess_tail = self.pipeline.flush_postprocess(cache)
+            if postprocess_tail is not None and postprocess_tail.shape[-4] > 0:
+                chunks.append(postprocess_tail)
         elapsed = time.time() - start_time
 
         if not self.is_rank_zero:
             return
 
-        video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
+        if chunks:
+            video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
+        else:
+            assert cache.last_output is not None
+            video = cache.last_output
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_mp4(video, out_path, fps=cfg.fps)

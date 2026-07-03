@@ -32,6 +32,10 @@ from loguru import logger
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
+from flashdreams.infra.postprocess import (
+    VideoTensorLayout,
+    configure_runner_pipeline_postprocess,
+)
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
@@ -214,6 +218,9 @@ class FlashVSRRunnerConfig(RunnerConfig):
     output_fps: float | None = None
     """Output frame rate; ``None`` uses the input fps, falling back to ``30.0``."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "bcthw"
+    """Pipeline output layout for streaming post-processing."""
+
     crop_region: Literal["none", "bottom_half", "top_half"] = "none"
     """Input crop before upsampling. ``bottom_half`` keeps RGB
     frames below the HDMap visualization."""
@@ -301,7 +308,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     diffusion_model=dict(seed=base_seed + self.global_rank),
                 ),
             )
-        self.config = effective_config
+        self.config = configure_runner_pipeline_postprocess(effective_config)
         _ensure_mgpu_config_supported(self.config, self.world_size)
         # ``self.pipeline`` intentionally unset until :meth:`run` reads
         # the input video and derives the per-video pipeline config.
@@ -410,6 +417,8 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 transformer=dict(topk_ratio=topk_ratio),
             ),
         )
+        if config.postprocess.is_enabled() and pipeline_config.postprocess_fps is None:
+            pipeline_config = derive_config(pipeline_config, postprocess_fps=fps)
         self.pipeline = pipeline_config.setup().to(device=self._device).eval()
 
         dtype = self.pipeline.diffusion_model.dtype
@@ -457,10 +466,19 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                         "fps": chunk_fps,
                     }
                 )
-            chunks_out.append(video_chunk.cpu())
+            if video_chunk.shape[2] > 0:
+                chunks_out.append(video_chunk.cpu())
+
+        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
+            chunks_out.append(postprocess_tail.cpu())
 
         # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
-        generated = torch.cat(chunks_out, dim=2)
+        if chunks_out:
+            generated = torch.cat(chunks_out, dim=2)
+        else:
+            assert cache.last_output is not None
+            generated = cache.last_output.cpu()
         if not self.is_rank_zero:
             return
 

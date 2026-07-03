@@ -37,7 +37,11 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoTensorLayout,
     VideoValueRange,
+    apply_runner_output_postprocess,
+    configure_runner_pipeline_postprocess,
+    postprocess_requires_all_ranks as runner_postprocess_requires_all_ranks,
     postprocess_video_tensor,
+    validate_runner_postprocess_for_world_size,
 )
 
 
@@ -68,8 +72,20 @@ class RunnerConfig(InstantiateConfig):
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
-    """Optional video post-processing chain applied before runner outputs are
-    persisted. Empty means the generated frames are written unchanged."""
+    """Optional video post-processing chain attached to the wrapped pipeline."""
+
+    postprocess_output_layout: VideoTensorLayout | None = None
+    """Generated output layout forwarded to the pipeline when
+    :attr:`postprocess` is enabled."""
+
+    postprocess_output_value_range: VideoValueRange = "minus_one_one"
+    """Generated output value range forwarded to the pipeline."""
+
+    postprocess_fps: float | None = None
+    """Optional frame rate override forwarded to post-processors."""
+
+    postprocess_per_view: bool = False
+    """Attach one post-processing session per view for multi-view outputs."""
 
     output_dir: Path = Path("outputs")
     """Directory the runner writes outputs into. Created on demand."""
@@ -107,9 +123,10 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         isn't already) before pipeline construction so context-parallel
         transformers shard tokens across ``WORLD``. Subclasses gate
         per-rollout I/O on :attr:`is_rank_zero`; compute (``generate`` /
-        ``finalize``) runs on every rank. Call :meth:`apply_output_postprocess`
-        before the rank-zero write guard when post-processing is enabled so
-        full-attention backends can participate in context parallelism.
+        ``finalize``) runs on every rank. Runner-level post-processing config
+        is attached to the wrapped pipeline before construction so
+        full-attention backends can participate in context parallelism during
+        ``generate``.
     """
 
     config: RunnerConfigT
@@ -155,6 +172,7 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
                     ),
                 ),
             )  # ty:ignore[redundant-cast]
+        effective_config = configure_runner_pipeline_postprocess(effective_config)
         self.config = effective_config
 
         pipeline = self.config.pipeline.setup()
@@ -181,24 +199,16 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
 
     def postprocess_requires_all_ranks(self) -> bool:
         """Return whether post-processing must run on every distributed rank."""
-        return (
-            self.world_size > 1
-            and self.config.postprocess.uses_context_parallelism()
+        return runner_postprocess_requires_all_ranks(
+            world_size=self.world_size,
+            postprocess=self.config.postprocess,
         )
 
     def _validate_postprocess_for_world_size(self) -> None:
-        if self.world_size <= 1 or not self.config.postprocess.is_enabled():
-            return
-        if self.config.postprocess.uses_context_parallelism():
-            return
-        for processor in self.config.postprocess.resolved_processors():
-            attention_mode = getattr(processor, "attention_mode", None)
-            if attention_mode == "sparse":
-                raise ValueError(
-                    "FlashVSR sparse post-processing does not support multi-GPU "
-                    "execution. Use --postprocess.preset flashvsr-v1.1-full-attn "
-                    "for context parallelism, or run without torchrun."
-                )
+        validate_runner_postprocess_for_world_size(
+            world_size=self.world_size,
+            postprocess=self.config.postprocess,
+        )
 
     def apply_output_postprocess(
         self,
@@ -209,29 +219,16 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         fps: float | None = None,
     ) -> torch.Tensor | None:
         """Apply configured post-processing with correct distributed rank gating."""
-        if not self.config.postprocess.is_enabled():
-            return tensor
-
-        self._validate_postprocess_for_world_size()
-
-        if self.postprocess_requires_all_ranks():
-            output = self.postprocess_video_tensor(
-                tensor,
-                layout=layout,
-                value_range=value_range,
-                fps=fps,
-            )
-            return output.cpu() if self.is_rank_zero else None
-
-        if self.is_rank_zero:
-            return self.postprocess_video_tensor(
-                tensor,
-                layout=layout,
-                value_range=value_range,
-                fps=fps,
-            ).cpu()
-
-        return None
+        return apply_runner_output_postprocess(
+            tensor,
+            layout=layout,
+            value_range=value_range,
+            fps=fps,
+            postprocess=self.config.postprocess,
+            world_size=self.world_size,
+            is_rank_zero=self.is_rank_zero,
+            postprocess_video=self.postprocess_video_tensor,
+        )
 
     @abstractmethod
     def run(self) -> None:

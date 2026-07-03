@@ -29,6 +29,7 @@ from loguru import logger
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
@@ -240,6 +241,9 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate. Lingbot was trained at 16fps."""
 
+    postprocess_output_layout: VideoTensorLayout | None = "tchw"
+    """Pipeline output layout for streaming post-processing."""
+
     example_data: bool = False
     """When ``True``, lazy-download bundled GitHub example assets into
     a version-specific cache and fill ``image_path`` / ``pose_path`` /
@@ -389,16 +393,19 @@ class LingbotWorldRunner(
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            chunks.append(video_chunk.cpu())
+            if video_chunk.shape[0] > 0:
+                chunks.append(video_chunk.cpu())
             start = end
 
-        video = torch.cat(chunks, dim=0)  # [T, C, H, W]
-        video = self.apply_output_postprocess(
-            video,
-            layout="tchw",
-            value_range="minus_one_one",
-            fps=cfg.fps,
-        )
+        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        if postprocess_tail is not None and postprocess_tail.shape[0] > 0:
+            chunks.append(postprocess_tail.cpu())
+
+        if chunks:
+            video = torch.cat(chunks, dim=0)  # [T, C, H, W]
+        else:
+            assert cache.last_output is not None
+            video = cache.last_output.cpu()
         if not self.is_rank_zero:
             return
 

@@ -43,6 +43,14 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
+from flashdreams.infra.postprocess import (
+    PipelinePostprocessState,
+    VideoPostprocessChainConfig,
+    VideoTensorLayout,
+    VideoValueRange,
+    apply_pipeline_postprocess,
+    flush_pipeline_postprocess,
+)
 from flashdreams.infra.profiler import EventProfiler
 
 
@@ -81,6 +89,24 @@ class StreamInferencePipelineConfig(InstantiateConfig):
     """Record per-stage CUDA events and log timing per AR step. Calls
     ``torch.cuda.synchronize()`` once per step, which hurts throughput."""
 
+    postprocess: VideoPostprocessChainConfig = field(
+        default_factory=VideoPostprocessChainConfig
+    )
+    """Optional streaming post-processing chain applied to decoded outputs."""
+
+    postprocess_output_layout: VideoTensorLayout | None = None
+    """Layout of tensors returned by ``generate`` before post-processing.
+    Required when :attr:`postprocess` is enabled."""
+
+    postprocess_output_value_range: VideoValueRange = "minus_one_one"
+    """Numeric range of decoded outputs passed to post-processors."""
+
+    postprocess_fps: float | None = None
+    """Optional stream frame rate passed to post-processors."""
+
+    postprocess_per_view: bool = False
+    """Process each view with an independent session for multi-view outputs."""
+
 
 @dataclass(kw_only=True)
 class StreamInferencePipelineCache(
@@ -106,6 +132,29 @@ class StreamInferencePipelineCache(
 
     event_profiler: EventProfiler | None = None
     """Per-step profiler, populated only when profiling is on."""
+
+    postprocess_state: PipelinePostprocessState = field(
+        default_factory=PipelinePostprocessState
+    )
+    """Streaming post-processing sessions and last-output side channels."""
+
+    @property
+    def last_raw_output(self) -> Tensor | None:
+        """Return decoded output from the most recent pre-postprocess step."""
+        return self.postprocess_state.last_raw_output
+
+    @last_raw_output.setter
+    def last_raw_output(self, value: Tensor | None) -> None:
+        self.postprocess_state.last_raw_output = value
+
+    @property
+    def last_output(self) -> Tensor | None:
+        """Return the most recent post-processed output."""
+        return self.postprocess_state.last_output
+
+    @last_output.setter
+    def last_output(self, value: Tensor | None) -> None:
+        self.postprocess_state.last_output = value
 
 
 class StreamInferencePipeline(
@@ -213,6 +262,9 @@ class StreamInferencePipeline(
         Returns:
             Decoded tensor (e.g. RGB video) when a decoder is configured;
             otherwise the unpatchified clean latent from the diffusion model.
+            When post-processing is enabled, returns the post-processed
+            stream chunk and stores the decoded pre-postprocess tensor on
+            ``cache.last_raw_output``.
         """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
@@ -266,7 +318,37 @@ class StreamInferencePipeline(
         if events is not None:
             events.record("decode")
 
+        output = apply_pipeline_postprocess(
+            postprocess=self.config.postprocess,
+            output_layout=self.config.postprocess_output_layout,
+            output_value_range=self.config.postprocess_output_value_range,
+            fps=self.config.postprocess_fps,
+            per_view=self.config.postprocess_per_view,
+            state=cache.postprocess_state,
+            autoregressive_index=autoregressive_index,
+            output=output,
+        )
+
+        if events is not None and self.config.postprocess.is_enabled():
+            events.record("postprocess")
+
         return output
+
+    @torch.no_grad()
+    def flush_postprocess(
+        self,
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
+    ) -> Tensor | None:
+        """Flush buffered post-processing output for the current rollout."""
+        return flush_pipeline_postprocess(
+            postprocess=self.config.postprocess,
+            output_layout=self.config.postprocess_output_layout,
+            output_value_range=self.config.postprocess_output_value_range,
+            per_view=self.config.postprocess_per_view,
+            state=cache.postprocess_state,
+        )
 
     @torch.no_grad()
     def finalize(
