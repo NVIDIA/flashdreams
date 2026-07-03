@@ -131,17 +131,21 @@ class FastvideoCausalWan22T2VRunner(
         cache = self._initialize_cache()
 
         # Generate the autoregressive chunks.
+        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
         chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
+            video_chunk = self.process_output_chunk(
+                postprocess_stream, video_chunk, autoregressive_index=i
+            )
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
             if video_chunk.shape[0] > 0:
                 chunks.append(video_chunk.cpu())
 
-        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        postprocess_tail = self.finish_output_stream(postprocess_stream)
         if postprocess_tail is not None and postprocess_tail.shape[0] > 0:
             chunks.append(postprocess_tail.cpu())
 
@@ -150,8 +154,7 @@ class FastvideoCausalWan22T2VRunner(
         if chunks:
             generated = torch.cat(chunks, dim=0)
         else:
-            assert cache.last_output is not None
-            generated = cache.last_output.cpu()
+            raise ValueError("post-processing emitted no video frames")
         if not self.is_rank_zero:
             return
 

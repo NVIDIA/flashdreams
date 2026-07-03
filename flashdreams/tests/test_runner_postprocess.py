@@ -1,161 +1,108 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""CPU tests for distributed post-processing orchestration on :class:`Runner`."""
+"""CPU tests for runner-owned streaming post-processing."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Literal
-from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
 
-from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import (
-    VideoPostprocessChainConfig,
     VideoPostProcessorConfig,
+    VideoPostprocessChainConfig,
+    create_runner_postprocess_stream,
 )
-from flashdreams.infra.runner import Runner, RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
 
 @dataclass(kw_only=True)
-class _FlashVSRLikePostProcessorConfig(VideoPostProcessorConfig):
+class _DistributedProcessorConfig(VideoPostProcessorConfig):
     attention_mode: Literal["sparse", "full"] = "sparse"
     _target: type[object] = field(default_factory=lambda: object)
 
-    def uses_context_parallelism(self) -> bool:
-        return self.attention_mode == "full"
+    def requires_all_ranks(self, *, world_size: int) -> bool:
+        return world_size > 1 and self.attention_mode == "full"
+
+    def validate_execution(self, *, world_size: int) -> None:
+        if world_size > 1 and self.attention_mode == "sparse":
+            raise ValueError("sparse processor does not support multi-GPU")
 
 
 @dataclass(kw_only=True)
-class _MinimalRunnerConfig(RunnerConfig):
-    runner_name: str = "test-runner"
-    pipeline: StreamInferencePipelineConfig = field(
-        default_factory=lambda: MagicMock(spec=StreamInferencePipelineConfig)
+class _RankZeroProcessorConfig(VideoPostProcessorConfig):
+    _target: type[object] = field(default_factory=lambda: object)
+
+
+def _config(postprocess: VideoPostprocessChainConfig, *, layout: str | None = "tchw"):
+    return SimpleNamespace(
+        postprocess=postprocess,
+        postprocess_output_layout=layout,
+        postprocess_output_value_range="minus_one_one",
+        postprocess_fps=None,
+        postprocess_per_view=False,
+        fps=16,
     )
 
 
-class _MinimalRunner(Runner[_MinimalRunnerConfig, MagicMock]):
-    def run(self) -> None:
-        raise NotImplementedError
-
-
-def _runner(
-    *,
-    is_rank_zero: bool,
-    world_size: int,
-    postprocess: VideoPostprocessChainConfig,
-) -> _MinimalRunner:
-    config = _MinimalRunnerConfig(postprocess=postprocess)
-    runner = _MinimalRunner.__new__(_MinimalRunner)
-    runner.config = config
-    runner.local_rank = 0 if is_rank_zero else 1
-    runner.world_size = world_size
-    runner.global_rank = 0 if is_rank_zero else 1
-    runner.is_rank_zero = is_rank_zero
-    runner.pipeline = MagicMock()
-    return runner
-
-
-def test_apply_output_postprocess_disabled_returns_input() -> None:
-    runner = _runner(
-        is_rank_zero=True,
-        world_size=1,
-        postprocess=VideoPostprocessChainConfig(),
+def test_disabled_runner_postprocess_does_not_require_layout() -> None:
+    stream = create_runner_postprocess_stream(
+        _config(VideoPostprocessChainConfig(), layout=None), world_size=1
     )
-    video = torch.zeros(3, 3, 4, 5)
 
-    result = runner.apply_output_postprocess(video, layout="tchw")
-
-    assert result is video
+    assert stream is None
 
 
-@patch.object(
-    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
-)
-def test_apply_output_postprocess_rank_zero_only(mock_postprocess: MagicMock) -> None:
-    runner = _runner(
-        is_rank_zero=True,
-        world_size=1,
-        postprocess=VideoPostprocessChainConfig(
-            processors=(_FlashVSRLikePostProcessorConfig(attention_mode="sparse"),)
+def test_enabled_runner_postprocess_requires_layout() -> None:
+    config = _config(
+        VideoPostprocessChainConfig(
+            processors=(_DistributedProcessorConfig(attention_mode="full"),)
         ),
-    )
-    video = torch.zeros(3, 3, 4, 5)
-
-    result = runner.apply_output_postprocess(video, layout="tchw")
-
-    mock_postprocess.assert_called_once()
-    assert result is not None
-    assert torch.equal(result, torch.ones(2, 3, 4, 5))
-
-
-@patch.object(
-    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
-)
-def test_apply_output_postprocess_non_zero_skips_rank_zero_only(
-    mock_postprocess: MagicMock,
-) -> None:
-    runner = _runner(
-        is_rank_zero=False,
-        world_size=1,
-        postprocess=VideoPostprocessChainConfig(
-            processors=(_FlashVSRLikePostProcessorConfig(attention_mode="sparse"),)
-        ),
+        layout=None,
     )
 
-    result = runner.apply_output_postprocess(torch.zeros(3, 3, 4, 5), layout="tchw")
-
-    mock_postprocess.assert_not_called()
-    assert result is None
+    with pytest.raises(ValueError, match="postprocess_output_layout"):
+        create_runner_postprocess_stream(config, world_size=1)
 
 
-@patch.object(
-    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
-)
-def test_apply_output_postprocess_full_attn_runs_on_all_ranks(
-    mock_postprocess: MagicMock,
-) -> None:
-    postprocess = VideoPostprocessChainConfig(
-        processors=(_FlashVSRLikePostProcessorConfig(attention_mode="full"),)
+def test_mixed_chain_validates_every_processor_under_multi_gpu() -> None:
+    config = _config(
+        VideoPostprocessChainConfig(
+            processors=(
+                _DistributedProcessorConfig(attention_mode="full"),
+                _DistributedProcessorConfig(attention_mode="sparse"),
+            )
+        )
     )
 
-    rank_zero = _runner(is_rank_zero=True, world_size=2, postprocess=postprocess)
-    rank_one = _runner(is_rank_zero=False, world_size=2, postprocess=postprocess)
-    video = torch.zeros(3, 3, 4, 5)
-
-    rank_zero_result = rank_zero.apply_output_postprocess(video, layout="tchw")
-    rank_one_result = rank_one.apply_output_postprocess(video, layout="tchw")
-
-    assert mock_postprocess.call_count == 2
-    assert rank_zero_result is not None
-    assert rank_one_result is None
+    with pytest.raises(ValueError, match="sparse processor"):
+        create_runner_postprocess_stream(config, world_size=2)
 
 
-def test_apply_output_postprocess_rejects_sparse_under_multi_gpu() -> None:
-    runner = _runner(
-        is_rank_zero=True,
+def test_full_attention_chain_requires_all_ranks() -> None:
+    chain = VideoPostprocessChainConfig(
+        processors=(_DistributedProcessorConfig(attention_mode="full"),)
+    )
+
+    assert chain.requires_all_ranks(world_size=2)
+    assert not chain.requires_all_ranks(world_size=1)
+
+
+def test_rank_zero_processor_is_skipped_on_nonzero_rank() -> None:
+    config = _config(
+        VideoPostprocessChainConfig(
+            processors=(_RankZeroProcessorConfig(),)
+        )
+    )
+
+    stream = create_runner_postprocess_stream(
+        config,
         world_size=2,
-        postprocess=VideoPostprocessChainConfig(
-            processors=(_FlashVSRLikePostProcessorConfig(attention_mode="sparse"),)
-        ),
+        is_rank_zero=False,
     )
 
-    with pytest.raises(ValueError, match="flashvsr-v1.1-full-attn"):
-        runner.apply_output_postprocess(torch.zeros(3, 3, 4, 5), layout="tchw")
+    assert stream is None

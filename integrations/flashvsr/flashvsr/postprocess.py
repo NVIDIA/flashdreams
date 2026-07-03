@@ -93,9 +93,34 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     """How to handle final partial chunks. ``replicate_pad`` preserves all
     frames; ``drop`` favors speed and fixed-size chunks."""
 
-    def uses_context_parallelism(self) -> bool:
-        """Full attention uses the CP-aware Wan dense self-attention path."""
-        return self.attention_mode == "full"
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Return FlashVSR's 128-aligned spatial output specification."""
+        height = ((input_spec.height * self.scale) // 128) * 128
+        width = ((input_spec.width * self.scale) // 128) * 128
+        if height <= 0 or width <= 0:
+            raise ValueError(
+                f"FlashVSR input {input_spec.height}x{input_spec.width} at "
+                f"scale={self.scale} is too small for a 128-aligned output."
+            )
+        return VideoSpec(
+            height=height,
+            width=width,
+            fps=input_spec.fps,
+            channels=3,
+        )
+
+    def requires_all_ranks(self, *, world_size: int) -> bool:
+        """Full attention uses the context-parallel dense-attention path."""
+        return world_size > 1 and self.attention_mode == "full"
+
+    def validate_execution(self, *, world_size: int) -> None:
+        """Reject sparse attention when more than one rank is active."""
+        if world_size > 1 and self.attention_mode == "sparse":
+            raise ValueError(
+                "FlashVSR sparse post-processing does not support multi-GPU "
+                "execution. Use the flashvsr-v1.1-full-attn preset for context "
+                "parallelism, or run without torchrun."
+            )
 
 
 class FlashVSRPostProcessor(VideoPostProcessor[FlashVSRPostProcessorConfig]):
@@ -116,6 +141,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._pipeline: Any | None = None
         self._cache: Any | None = None
         self._buffer: Tensor | None = None
+        self._metadata_spans: list[tuple[int, dict[str, Any]]] = []
         self._ar_idx = 0
 
     @torch.no_grad()
@@ -123,7 +149,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         """Buffer input frames and emit complete FlashVSR chunks."""
         bcthw = self._chunk_to_bcthw(chunk)
         self._ensure_pipeline(bcthw)
-        self._append_to_buffer(bcthw)
+        self._append_to_buffer(bcthw, metadata=chunk.metadata)
         return self._drain_ready_chunks()
 
     @torch.no_grad()
@@ -133,6 +159,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             return []
         if self._config.tail_policy == "drop":
             self._buffer = None
+            self._metadata_spans.clear()
             return []
 
         target = self._next_target_size()
@@ -143,7 +170,8 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             clip = torch.cat([clip, repeat], dim=2)
         self._buffer = None
         output = self._run_flashvsr_chunk(clip)[:, :, :tail_frames]
-        return [_bcthw_chunk(output, source="flashvsr_tail")]
+        metadata = self._consume_metadata(tail_frames, source="flashvsr_tail")
+        return [_bcthw_chunk(output, metadata=metadata)]
 
     def _chunk_to_bcthw(self, chunk: VideoChunk) -> Tensor:
         canonical = to_bvtchw(
@@ -192,7 +220,9 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._pipeline = pipeline_cfg.setup().to(device=device).eval()
         self._cache = self._pipeline.initialize_cache()
 
-    def _append_to_buffer(self, bcthw: Tensor) -> None:
+    def _append_to_buffer(
+        self, bcthw: Tensor, *, metadata: dict[str, Any]
+    ) -> None:
         assert self._pipeline is not None
         dtype = getattr(
             getattr(self._pipeline, "diffusion_model", None), "dtype", bcthw.dtype
@@ -207,6 +237,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             self._buffer = bcthw
         else:
             self._buffer = torch.cat([self._buffer, bcthw], dim=2)
+        self._metadata_spans.append((bcthw.shape[2], dict(metadata)))
 
     def _drain_ready_chunks(self) -> list[VideoChunk]:
         outputs: list[VideoChunk] = []
@@ -217,8 +248,9 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             target = self._next_target_size()
             clip = self._buffer[:, :, :target]
             self._buffer = self._buffer[:, :, target:]
+            metadata = self._consume_metadata(target, source="flashvsr")
             outputs.append(
-                _bcthw_chunk(self._run_flashvsr_chunk(clip), source="flashvsr")
+                _bcthw_chunk(self._run_flashvsr_chunk(clip), metadata=metadata)
             )
         return outputs
 
@@ -228,17 +260,33 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def _run_flashvsr_chunk(self, clip: Tensor) -> Tensor:
         assert self._pipeline is not None
         assert self._cache is not None
-        try:
-            return self._pipeline.generate(
-                autoregressive_index=self._ar_idx,
-                cache=self._cache,
-                input=clip,
+        output = self._pipeline.generate(
+            autoregressive_index=self._ar_idx,
+            cache=self._cache,
+            input=clip,
+        )
+        self._pipeline.finalize(
+            autoregressive_index=self._ar_idx, cache=self._cache
+        )
+        self._ar_idx += 1
+        return output
+
+    def _consume_metadata(self, frames: int, *, source: str) -> dict[str, Any]:
+        """Consume metadata spans covering ``frames`` buffered frames."""
+        remaining = frames
+        inputs: list[dict[str, Any]] = []
+        while remaining > 0 and self._metadata_spans:
+            span_frames, metadata = self._metadata_spans.pop(0)
+            inputs.append(metadata)
+            consumed = min(remaining, span_frames)
+            remaining -= consumed
+            if consumed < span_frames:
+                self._metadata_spans.insert(0, (span_frames - consumed, metadata))
+        if remaining:
+            raise RuntimeError(
+                f"missing metadata for {remaining} of {frames} buffered frames"
             )
-        finally:
-            self._pipeline.finalize(
-                autoregressive_index=self._ar_idx, cache=self._cache
-            )
-            self._ar_idx += 1
+        return {"source": source, "input_chunks": tuple(inputs)}
 
 
 def _build_flashvsr_pipeline(**kwargs: Any) -> Any:
@@ -248,12 +296,12 @@ def _build_flashvsr_pipeline(**kwargs: Any) -> Any:
     return build_flashvsr_v1_1(**kwargs)
 
 
-def _bcthw_chunk(tensor: Tensor, *, source: str) -> VideoChunk:
+def _bcthw_chunk(tensor: Tensor, *, metadata: dict[str, Any]) -> VideoChunk:
     return VideoChunk(
         tensor=tensor,
         layout="bcthw",
         value_range="minus_one_one",
-        metadata={"source": source},
+        metadata=metadata,
     )
 
 

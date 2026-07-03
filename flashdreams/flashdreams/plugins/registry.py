@@ -21,6 +21,7 @@ import importlib
 import os
 import sys
 import traceback
+from functools import lru_cache
 from typing import cast
 
 from loguru import logger
@@ -230,6 +231,7 @@ def discover_postprocess_presets() -> dict[str, VideoPostProcessorConfig]:
     return presets
 
 
+@lru_cache(maxsize=None)
 def resolve_postprocess_preset(name: str) -> VideoPostProcessorConfig:
     """Resolve one registered post-processor preset by slug.
 

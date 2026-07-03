@@ -32,10 +32,7 @@ from loguru import logger
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
-from flashdreams.infra.postprocess import (
-    VideoTensorLayout,
-    configure_runner_pipeline_postprocess,
-)
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
@@ -308,7 +305,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     diffusion_model=dict(seed=base_seed + self.global_rank),
                 ),
             )
-        self.config = configure_runner_pipeline_postprocess(effective_config)
+        self.config = effective_config
         _ensure_mgpu_config_supported(self.config, self.world_size)
         # ``self.pipeline`` intentionally unset until :meth:`run` reads
         # the input video and derives the per-video pipeline config.
@@ -417,8 +414,6 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 transformer=dict(topk_ratio=topk_ratio),
             ),
         )
-        if config.postprocess.is_enabled() and pipeline_config.postprocess_fps is None:
-            pipeline_config = derive_config(pipeline_config, postprocess_fps=fps)
         self.pipeline = pipeline_config.setup().to(device=self._device).eval()
 
         dtype = self.pipeline.diffusion_model.dtype
@@ -438,6 +433,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         cache = self._initialize_cache()
 
+        postprocess_stream = self.create_postprocess_stream(fps=fps)
         chunks_out: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         for chunk_idx, (start, size) in enumerate(chunks):
@@ -448,6 +444,11 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 input=clip,
             )
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
+            video_chunk = self.process_output_chunk(
+                postprocess_stream,
+                video_chunk,
+                autoregressive_index=chunk_idx,
+            )
             if stats is not None:
                 # Report throughput against the visible output frames for this
                 # chunk. ``fps`` is reserved for the output video's frame rate.
@@ -469,7 +470,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             if video_chunk.shape[2] > 0:
                 chunks_out.append(video_chunk.cpu())
 
-        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        postprocess_tail = self.finish_output_stream(postprocess_stream)
         if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
             chunks_out.append(postprocess_tail.cpu())
 
@@ -477,8 +478,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         if chunks_out:
             generated = torch.cat(chunks_out, dim=2)
         else:
-            assert cache.last_output is not None
-            generated = cache.last_output.cpu()
+            raise ValueError("post-processing emitted no video frames")
         if not self.is_rank_zero:
             return
 

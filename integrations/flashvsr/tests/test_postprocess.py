@@ -148,7 +148,7 @@ def test_flashvsr_postprocess_can_drop_short_tail(
     assert created[0].inputs == []
 
 
-def test_flashvsr_postprocess_finalizes_when_generate_raises(
+def test_flashvsr_postprocess_does_not_finalize_when_generate_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_builder(monkeypatch)
@@ -172,7 +172,7 @@ def test_flashvsr_postprocess_finalizes_when_generate_raises(
         session.process(VideoChunk(tensor=video, layout="tchw"))
 
     pipeline = created[0]
-    assert pipeline.finalized == [0]
+    assert pipeline.finalized == []
     assert len(pipeline.inputs) == 1
 
 
@@ -188,9 +188,40 @@ def test_flashvsr_postprocess_rejects_multi_view_inputs(
         session.process(VideoChunk(tensor=multi_view, layout="bvtchw"))
 
 
-def test_flashvsr_postprocessor_uses_context_parallelism_for_full_attention() -> None:
+def test_flashvsr_postprocessor_declares_distributed_execution() -> None:
     sparse = FlashVSRPostProcessorConfig(attention_mode="sparse")
     full = FlashVSRPostProcessorConfig(attention_mode="full")
 
-    assert not sparse.uses_context_parallelism()
-    assert full.uses_context_parallelism()
+    assert not sparse.requires_all_ranks(world_size=1)
+    assert full.requires_all_ranks(world_size=2)
+    with pytest.raises(ValueError, match="does not support multi-GPU"):
+        sparse.validate_execution(world_size=2)
+
+
+def test_flashvsr_postprocessor_reports_aligned_output_spec() -> None:
+    config = FlashVSRPostProcessorConfig(scale=2)
+
+    output = config.output_spec(VideoSpec(height=416, width=640, fps=24))
+
+    assert output == VideoSpec(height=768, width=1280, fps=24)
+
+
+def test_flashvsr_postprocess_preserves_input_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_builder(monkeypatch)
+    config = FlashVSRPostProcessorConfig(device="cpu", chunk_size=8, dtype="float32")
+    session = config.setup().start(VideoSpec(height=4, width=4, fps=24))
+
+    output = session.process(
+        VideoChunk(
+            tensor=torch.zeros((5, 3, 4, 4)),
+            layout="tchw",
+            metadata={"autoregressive_index": 7},
+        )
+    )
+
+    assert output[0].metadata == {
+        "source": "flashvsr",
+        "input_chunks": ({"autoregressive_index": 7},),
+    }

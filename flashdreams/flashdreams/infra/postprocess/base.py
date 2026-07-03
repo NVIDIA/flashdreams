@@ -88,9 +88,22 @@ class VideoPostProcessorConfig(InstantiateConfig):
         default_factory=lambda: VideoPostProcessor
     )
 
-    def uses_context_parallelism(self) -> bool:
-        """Return whether this processor uses context parallelism when distributed."""
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Return the stream specification produced from ``input_spec``.
+
+        Processors that resize video, change channels, or retime output must
+        override this method so downstream sessions receive accurate metadata.
+        """
+        return input_spec
+
+    def requires_all_ranks(self, *, world_size: int) -> bool:
+        """Return whether this processor must execute on every rank."""
+        del world_size
         return False
+
+    def validate_execution(self, *, world_size: int) -> None:
+        """Validate this processor for the requested distributed world."""
+        del world_size
 
 
 VideoPostProcessorConfigT = TypeVar(
@@ -178,21 +191,26 @@ class VideoPostprocessChainConfig(PrintableConfig):
         """Return whether any post-processing step is configured."""
         return bool(self.processors or self.preset)
 
-    def uses_context_parallelism(self) -> bool:
-        """Return whether any configured processor uses context parallelism."""
+    def requires_all_ranks(self, *, world_size: int) -> bool:
+        """Return whether any processor must execute on every rank."""
         return any(
-            processor.uses_context_parallelism()
+            processor.requires_all_ranks(world_size=world_size)
             for processor in self.resolved_processors()
         )
 
+    def validate_execution(self, *, world_size: int) -> None:
+        """Validate every processor for the requested distributed world."""
+        for processor in self.resolved_processors():
+            processor.validate_execution(world_size=world_size)
+
     def setup(self, spec: VideoSpec) -> "VideoPostprocessChainSession":
         """Instantiate post-processors and start per-stream sessions."""
-        return VideoPostprocessChainSession(
-            sessions=[
-                processor.setup().start(spec)
-                for processor in self.resolved_processors()
-            ]
-        )
+        sessions: list[VideoPostProcessorSession] = []
+        current_spec = spec
+        for processor_config in self.resolved_processors():
+            sessions.append(processor_config.setup().start(current_spec))
+            current_spec = processor_config.output_spec(current_spec)
+        return VideoPostprocessChainSession(sessions=sessions)
 
 
 class VideoPostprocessChainSession:
@@ -200,13 +218,24 @@ class VideoPostprocessChainSession:
 
     def __init__(self, sessions: list[VideoPostProcessorSession]) -> None:
         self._sessions = sessions
+        self._closed = False
 
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Process one chunk through every configured session."""
+        if self._closed:
+            raise RuntimeError("cannot process a post-processing chain after flush()")
         return self._process_from(0, [chunk])
 
     def flush(self) -> list[VideoChunk]:
-        """Flush each session and feed its tail output downstream."""
+        """Flush each session once and feed its tail output downstream.
+
+        Repeated calls are idempotent and return no additional output.
+        """
+        if self._closed:
+            return []
+        # A failed flush is terminal: retrying could emit duplicate tails from
+        # sessions that already completed before a later session raised.
+        self._closed = True
         outputs: list[VideoChunk] = []
         for index, session in enumerate(self._sessions):
             flushed = session.flush()

@@ -32,7 +32,9 @@ dependencies = [
     "ftfy>=6.0",
     "huggingface-hub>=0.33",
     "loguru>=0.7",
-    "numpy>=1.24",
+    # MediaPy 1.2.6 subclasses numpy.typing.NDArray, which became a
+    # non-subclassable TypeAliasType in NumPy 2.5 (notably on Python 3.13).
+    "numpy>=1.24,<2.5",
     "nvidia-ml-py>=12.0",
     "safetensors>=0.4",
     "tqdm>=4.60",

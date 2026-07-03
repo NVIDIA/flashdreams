@@ -1287,7 +1287,7 @@ requires-dist = [
     { name = "mediapy", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'examples'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'runners'", specifier = ">=1.1" },
-    { name = "numpy", specifier = ">=1.24" },
+    { name = "numpy", specifier = ">=1.24,<2.5" },
     { name = "nvidia-ml-py", specifier = ">=12.0" },
     { name = "opencv-python-headless", marker = "extra == 'examples'", specifier = ">=4.5" },
     { name = "opencv-python-headless", marker = "extra == 'runners'", specifier = ">=4.5" },
@@ -3200,10 +3200,26 @@ name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz", hash = "sha256:f3a3570c4a2a16746ac2c31a7c7c7b0c186b95ce902e33db6f28094ed7387dda", size = 20735807, upload-time = "2026-05-18T23:37:14.07Z" }
 wheels = [

@@ -192,9 +192,13 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
         cache = self._initialize_cache()
 
         # Generate the output in one AR step.
+        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        generated = self.process_output_chunk(
+            postprocess_stream, generated, autoregressive_index=0
+        )
+        postprocess_tail = self.finish_output_stream(postprocess_stream)
         if postprocess_tail is not None:
             generated = (
                 postprocess_tail

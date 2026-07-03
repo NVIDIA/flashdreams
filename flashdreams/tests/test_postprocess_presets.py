@@ -73,13 +73,20 @@ def test_chain_config_is_enabled_for_preset_only() -> None:
     assert chain.is_enabled()
 
 
-def test_chain_config_uses_context_parallelism_for_full_attn_preset() -> None:
+def test_chain_config_requires_all_ranks_for_full_attn_preset() -> None:
     chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-full-attn")
 
-    assert chain.uses_context_parallelism()
+    assert chain.requires_all_ranks(world_size=2)
 
 
-def test_chain_config_does_not_use_context_parallelism_for_sparse_preset() -> None:
+def test_chain_config_rejects_sparse_preset_under_multi_gpu() -> None:
     chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-sparse-2.0")
 
-    assert not chain.uses_context_parallelism()
+    with pytest.raises(ValueError, match="does not support multi-GPU"):
+        chain.validate_execution(world_size=2)
+
+
+def test_chain_config_caches_preset_resolution() -> None:
+    chain = VideoPostprocessChainConfig(preset="flashvsr-v1.1-sparse-2.0")
+
+    assert chain.resolved_processors()[0] is chain.resolved_processors()[0]

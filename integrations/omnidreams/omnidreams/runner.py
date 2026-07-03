@@ -386,6 +386,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
+        postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
         chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         start = 0
@@ -405,21 +406,23 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 hdmap=hdmap_videos_t[:, :, start:end],
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
+            video_chunk = self.process_output_chunk(
+                postprocess_stream, video_chunk, autoregressive_index=i
+            )
             if stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
             if video_chunk.shape[2] > 0:
                 chunks.append(video_chunk.cpu())
             start = end
 
-        postprocess_tail = self.pipeline.flush_postprocess(cache)
+        postprocess_tail = self.finish_output_stream(postprocess_stream)
         if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
             chunks.append(postprocess_tail.cpu())
 
         if chunks:
             video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
         else:
-            assert cache.last_output is not None
-            video = cache.last_output.cpu()
+            raise ValueError("post-processing emitted no video frames")
         generated_num_frames = video.shape[2]
 
         if cfg.postprocess.is_enabled():

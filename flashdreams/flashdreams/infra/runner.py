@@ -34,16 +34,11 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.infra.postprocess import (
+    VideoPostprocessStream,
     VideoPostprocessChainConfig,
     VideoTensorLayout,
     VideoValueRange,
-    apply_runner_output_postprocess,
-    configure_runner_pipeline_postprocess,
-    postprocess_video_tensor,
-    validate_runner_postprocess_for_world_size,
-)
-from flashdreams.infra.postprocess import (
-    postprocess_requires_all_ranks as runner_postprocess_requires_all_ranks,
+    create_runner_postprocess_stream,
 )
 
 
@@ -74,14 +69,13 @@ class RunnerConfig(InstantiateConfig):
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
-    """Optional video post-processing chain attached to the wrapped pipeline."""
+    """Optional video post-processing chain for decoded output chunks."""
 
     postprocess_output_layout: VideoTensorLayout | None = None
-    """Generated output layout forwarded to the pipeline when
-    :attr:`postprocess` is enabled."""
+    """Decoded output layout; required when :attr:`postprocess` is enabled."""
 
     postprocess_output_value_range: VideoValueRange = "minus_one_one"
-    """Generated output value range forwarded to the pipeline."""
+    """Numeric range of decoded chunks entering the output stream."""
 
     postprocess_fps: float | None = None
     """Optional frame rate override forwarded to post-processors."""
@@ -125,10 +119,9 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         isn't already) before pipeline construction so context-parallel
         transformers shard tokens across ``WORLD``. Subclasses gate
         per-rollout I/O on :attr:`is_rank_zero`; compute (``generate`` /
-        ``finalize``) runs on every rank. Runner-level post-processing config
-        is attached to the wrapped pipeline before construction so
-        full-attention backends can participate in context parallelism during
-        ``generate``.
+        ``finalize``) runs on every rank. Runner-level post-processing operates
+        on decoded output chunks, and context-parallel processors execute on
+        every rank before rank-zero persistence.
     """
 
     config: RunnerConfigT
@@ -174,63 +167,40 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
                     ),
                 ),
             )  # ty:ignore[redundant-cast]
-        effective_config = configure_runner_pipeline_postprocess(effective_config)
         self.config = effective_config
 
         pipeline = self.config.pipeline.setup()
         self.pipeline = pipeline.to(device=device).eval()
 
-    def postprocess_video_tensor(
-        self,
-        tensor: torch.Tensor,
-        *,
-        layout: VideoTensorLayout,
-        value_range: VideoValueRange = "minus_one_one",
-        fps: float | None = None,
-    ) -> torch.Tensor:
-        """Apply the configured post-processing chain to a generated video."""
-        if not self.config.postprocess.is_enabled():
-            return tensor
-        return postprocess_video_tensor(
-            tensor,
-            layout=layout,
-            value_range=value_range,
-            postprocess=self.config.postprocess,
-            fps=fps,
-        )
-
-    def postprocess_requires_all_ranks(self) -> bool:
-        """Return whether post-processing must run on every distributed rank."""
-        return runner_postprocess_requires_all_ranks(
-            world_size=self.world_size,
-            postprocess=self.config.postprocess,
-        )
-
-    def _validate_postprocess_for_world_size(self) -> None:
-        validate_runner_postprocess_for_world_size(
-            world_size=self.world_size,
-            postprocess=self.config.postprocess,
-        )
-
-    def apply_output_postprocess(
-        self,
-        tensor: torch.Tensor,
-        *,
-        layout: VideoTensorLayout,
-        value_range: VideoValueRange = "minus_one_one",
-        fps: float | None = None,
-    ) -> torch.Tensor | None:
-        """Apply configured post-processing with correct distributed rank gating."""
-        return apply_runner_output_postprocess(
-            tensor,
-            layout=layout,
-            value_range=value_range,
-            fps=fps,
-            postprocess=self.config.postprocess,
+    def create_postprocess_stream(
+        self, *, fps: float | None = None
+    ) -> VideoPostprocessStream | None:
+        """Create one stateful post-processing stream for a rollout."""
+        return create_runner_postprocess_stream(
+            self.config,
             world_size=self.world_size,
             is_rank_zero=self.is_rank_zero,
-            postprocess_video=self.postprocess_video_tensor,
+            fps=fps,
         )
+
+    @staticmethod
+    def process_output_chunk(
+        stream: VideoPostprocessStream | None,
+        tensor: torch.Tensor,
+        *,
+        autoregressive_index: int,
+    ) -> torch.Tensor:
+        """Process one decoded chunk, or return it unchanged when disabled."""
+        if stream is None:
+            return tensor
+        return stream.process(tensor, autoregressive_index=autoregressive_index)
+
+    @staticmethod
+    def finish_output_stream(
+        stream: VideoPostprocessStream | None,
+    ) -> torch.Tensor | None:
+        """Flush a configured stream, or return ``None`` when disabled."""
+        return None if stream is None else stream.finish()
 
     @abstractmethod
     def run(self) -> None:

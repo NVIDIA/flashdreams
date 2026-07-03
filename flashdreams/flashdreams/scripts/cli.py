@@ -27,7 +27,7 @@ Usage::
     flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
     flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
     flashdreams-run --no-instantiate template-offline # resolve config only
-    flashdreams-run --postprocess.preset flashvsr-v1.1-sparse-2.0 wan21-t2v-1.3b-480p
+    flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells

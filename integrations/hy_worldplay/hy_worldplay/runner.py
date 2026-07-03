@@ -376,6 +376,7 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
+        postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
         chunks: list[Tensor] = []
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
@@ -386,15 +387,18 @@ class HyWorldPlayWanI2VRunner(
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
-                if chunk.shape[-4] > 0:
-                    chunks.append(chunk)
                 # ``finalize`` records the chunk's CUDA events and
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
+                chunk = self.process_output_chunk(
+                    postprocess_stream, chunk, autoregressive_index=ar_idx
+                )
+                if chunk.shape[-4] > 0:
+                    chunks.append(chunk)
                 if stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
-            postprocess_tail = self.pipeline.flush_postprocess(cache)
+            postprocess_tail = self.finish_output_stream(postprocess_stream)
             if postprocess_tail is not None and postprocess_tail.shape[-4] > 0:
                 chunks.append(postprocess_tail)
         elapsed = time.time() - start_time
@@ -405,8 +409,7 @@ class HyWorldPlayWanI2VRunner(
         if chunks:
             video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
         else:
-            assert cache.last_output is not None
-            video = cache.last_output
+            raise ValueError("post-processing emitted no video frames")
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_mp4(video, out_path, fps=cfg.fps)
