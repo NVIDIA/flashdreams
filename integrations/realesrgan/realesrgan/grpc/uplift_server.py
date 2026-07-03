@@ -18,6 +18,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+# On Windows, PyTorch/BLAS worker pools can spin several CPU cores while this
+# GPU-bound server is mostly waiting on CUDA. Keep the default lean unless the
+# caller explicitly asks for more CPU parallelism.
+if os.name == "nt":
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import grpc
 import numpy as np
 import torch
@@ -44,6 +52,26 @@ DEFAULT_STREAM_QUEUE_DEPTH = 16
 Scale = Literal[2, 4]
 
 
+def _positive_int_env(*names: str) -> int | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        try:
+            parsed = int(value)
+        except ValueError:
+            continue
+        if parsed > 0:
+            return parsed
+    return None
+
+
+if os.name == "nt":
+    torch.set_num_threads(
+        _positive_int_env("TORCH_NUM_THREADS", "OMP_NUM_THREADS") or 1
+    )
+
+
 @dataclass
 class _Session:
     scale: Scale
@@ -68,21 +96,28 @@ class _FrameRunResult:
 
 
 class _StaticShapeExecutor:
-    """Run Real-ESRGAN with stable CUDA input storage for one input shape."""
+    """Run Real-ESRGAN with stable CUDA input storage for one chunk shape."""
 
-    def __init__(self, upsampler: RealESRGANUpsampler, height: int, width: int) -> None:
+    def __init__(
+        self,
+        upsampler: RealESRGANUpsampler,
+        num_frames: int,
+        height: int,
+        width: int,
+    ) -> None:
         if upsampler.device.type != "cuda":
             raise ValueError("Static Real-ESRGAN executor requires a CUDA device")
         if upsampler.tile > 0:
             raise ValueError("Static Real-ESRGAN executor does not support tiling")
         self.upsampler = upsampler
+        self.num_frames = int(num_frames)
         self.height = int(height)
         self.width = int(width)
         self.scale = int(upsampler.scale)
         self.device = upsampler.device
         self.dtype = upsampler.dtype
         self._input = torch.empty(
-            (1, 3, self.height, self.width),
+            (self.num_frames, 3, self.height, self.width),
             device=self.device,
             dtype=self.dtype,
         )
@@ -93,7 +128,12 @@ class _StaticShapeExecutor:
         )
         self._model_input = (
             torch.empty(
-                (1, 3, self.height + total_pad_h, self.width + total_pad_w),
+                (
+                    self.num_frames,
+                    3,
+                    self.height + total_pad_h,
+                    self.width + total_pad_w,
+                ),
                 device=self.device,
                 dtype=self.dtype,
             )
@@ -112,19 +152,23 @@ class _StaticShapeExecutor:
         return self.width * self.scale
 
     @torch.no_grad()
-    def run_frame(self, frame_rgb: np.ndarray) -> _FrameRunResult:
-        self._copy_frame(frame_rgb)
+    def run_frames(
+        self, frames_rgb: np.ndarray, *, profile_model_timing: bool = False
+    ) -> _FrameRunResult:
+        self._copy_frames(frames_rgb)
         self._fill_model_input()
 
         start: torch.cuda.Event | None = None
         end: torch.cuda.Event | None = None
         if self.upsampler.compile_model:
             torch.compiler.cudagraph_mark_step_begin()
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
+        if profile_model_timing:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
         output = self.upsampler.model(self._model_input)
-        end.record()
+        if end is not None:
+            end.record()
         output = self.upsampler._crop_output(output, self._crop)
         return _FrameRunResult(output=output, model_ms=_elapsed_ms(start, end))
 
@@ -136,14 +180,15 @@ class _StaticShapeExecutor:
             pad_w += (2 - (self.width + pad_w) % 2) % 2
         return pad_h, pad_w
 
-    def _copy_frame(self, frame_rgb: np.ndarray) -> None:
-        if frame_rgb.shape[:2] != (self.height, self.width):
+    def _copy_frames(self, frames_rgb: np.ndarray) -> None:
+        expected = (self.num_frames, self.height, self.width, 3)
+        if frames_rgb.shape != expected:
             raise ValueError(
-                f"Static executor expected {self.height}×{self.width}, "
-                f"got {frame_rgb.shape[0]}×{frame_rgb.shape[1]}"
+                f"Static executor expected {expected}, "
+                f"got {frames_rgb.shape}"
             )
-        cpu = torch.from_numpy(np.ascontiguousarray(frame_rgb))
-        self._input[0].copy_(cpu.permute(2, 0, 1), non_blocking=False)
+        cpu = torch.from_numpy(np.ascontiguousarray(frames_rgb))
+        self._input.copy_(cpu.permute(0, 3, 1, 2), non_blocking=False)
         self._input.div_(255.0)
 
     def _fill_model_input(self) -> None:
@@ -196,6 +241,22 @@ def _output_tensor_to_rgb(output: torch.Tensor) -> np.ndarray:
     )
 
 
+def _output_tensor_batch_to_rgb(output: torch.Tensor) -> np.ndarray:
+    """Convert direct Real-ESRGAN model output [T, 3, H, W] in [0, 1] to RGB."""
+    return np.ascontiguousarray(
+        output.detach()
+        .float()
+        .clamp(0, 1)
+        .mul(255.0)
+        .round()
+        .to(torch.uint8)
+        .permute(0, 2, 3, 1)
+        .contiguous()
+        .cpu()
+        .numpy()
+    )
+
+
 def _resolve_scale(scale: int) -> Scale:
     if scale == 2:
         return 2
@@ -234,12 +295,15 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
         compile_mode: str = "reduce-overhead",
         device: str | torch.device | None = None,
         stream_queue_depth: int = DEFAULT_STREAM_QUEUE_DEPTH,
+        static_batch_frames: int = 1,
+        defer_static_sync: bool = False,
         viewer: StreamingViewer | None = None,
         omit_grpc_frames_when_viewing: bool = False,
         warmup_height: int = 64,
         warmup_width: int = 64,
         warmup_frames: int = 3,
         warmup: bool = True,
+        profile_model_timing: bool = True,
         load_checkpoint: bool = True,
     ) -> None:
         self._default_scale = _resolve_scale(default_scale)
@@ -257,7 +321,10 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
         self._stream_queue_depth = max(1, int(stream_queue_depth))
+        self._static_batch_frames = max(1, int(static_batch_frames))
+        self._defer_static_sync = bool(defer_static_sync)
         self._viewer = viewer
+        self._profile_model_timing = bool(profile_model_timing)
         self._omit_grpc_frames_when_viewing = bool(
             omit_grpc_frames_when_viewing and viewer is not None
         )
@@ -265,7 +332,7 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
 
         self._upsampler_pool: dict[tuple[Scale, str], RealESRGANUpsampler] = {}
         self._executor_pool: dict[
-            tuple[Scale, str, int, int], _StaticShapeExecutor
+            tuple[Scale, str, int, int, int], _StaticShapeExecutor
         ] = {}
         self._pool_lock = threading.Lock()
         self._sessions: dict[str, _Session] = {}
@@ -276,13 +343,19 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
 
         logger.info(
             "Loading Real-ESRGAN model scale={} model={} device={} half={} "
-            "compile={} tile={} ...",
+            "compile={} tile={} static_batch_frames={} defer_static_sync={} "
+            "profile_model_timing={} torch_threads={} omp_threads={} ...",
             self._default_scale,
             self._model_name_for_scale(self._default_scale),
             self._device,
             self._half,
             self._compile_model,
             self._tile,
+            self._static_batch_frames,
+            self._defer_static_sync,
+            self._profile_model_timing,
+            torch.get_num_threads(),
+            os.environ.get("OMP_NUM_THREADS"),
         )
         default_upsampler = self._get_upsampler(self._default_scale)
         if warmup:
@@ -329,6 +402,7 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
         self,
         upsampler: RealESRGANUpsampler,
         scale: int,
+        num_frames: int,
         height: int,
         width: int,
     ) -> _StaticShapeExecutor | None:
@@ -338,12 +412,13 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
             return None
         resolved_scale = _resolve_scale(scale)
         model_name = self._model_name_for_scale(resolved_scale)
-        key = (resolved_scale, model_name, int(height), int(width))
+        key = (resolved_scale, model_name, int(num_frames), int(height), int(width))
         with self._pool_lock:
             if key not in self._executor_pool:
                 logger.info(
-                    "Creating static Real-ESRGAN executor for {}×{} scale={} "
-                    "model={} compile_mode={}",
+                    "Creating static Real-ESRGAN executor for T={} {}x{} "
+                    "scale={} model={} compile_mode={}",
+                    num_frames,
                     height,
                     width,
                     resolved_scale,
@@ -352,6 +427,7 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
                 )
                 self._executor_pool[key] = _StaticShapeExecutor(
                     upsampler=upsampler,
+                    num_frames=num_frames,
                     height=height,
                     width=width,
                 )
@@ -374,14 +450,28 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
             height,
             width,
         )
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        warmup_chunk = np.zeros((frames, height, width, 3), dtype=np.uint8)
         start = time.perf_counter()
         with self._gpu_lock:
-            executor = self._get_executor(upsampler, scale, height, width)
-            for _ in range(frames):
-                if executor is not None:
-                    executor.run_frame(frame)
-                else:
+            batch_frames = min(self._static_batch_frames, frames)
+            executor = self._get_executor(
+                upsampler, scale, batch_frames, height, width
+            )
+            if executor is not None:
+                for offset in range(0, frames, batch_frames):
+                    batch = warmup_chunk[offset : offset + batch_frames]
+                    batch_executor = self._get_executor(
+                        upsampler,
+                        scale,
+                        int(batch.shape[0]),
+                        height,
+                        width,
+                    )
+                    if batch_executor is None:
+                        raise RuntimeError("Static executor disappeared during warmup")
+                    batch_executor.run_frames(batch)
+            else:
+                for frame in warmup_chunk:
                     self._upsample_frame_rgb(upsampler, frame)
         _synchronize_device(self._device)
         logger.info(
@@ -455,15 +545,19 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
         frames = self._request_to_frames_rgb(request)
         decode_ms = (time.perf_counter() - decode_t0) * 1000.0
 
+        scale = request.scale or self._default_scale
+        batch_frames = min(self._static_batch_frames, int(frames.shape[0]))
         executor = self._get_executor(
             upsampler,
-            request.scale or self._default_scale,
+            scale,
+            batch_frames,
             int(frames.shape[1]),
             int(frames.shape[2]),
         )
         if executor is not None:
             return self._run_chunk_static(
-                executor,
+                upsampler,
+                scale,
                 request,
                 frames,
                 decode_ms=decode_ms,
@@ -525,7 +619,8 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
 
     def _run_chunk_static(
         self,
-        executor: _StaticShapeExecutor,
+        upsampler: RealESRGANUpsampler,
+        scale: int,
         request: pb2.UpscaleChunkRequest,
         frames: np.ndarray,
         *,
@@ -534,21 +629,37 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
     ) -> _RunChunkResult:
         viewer = self._viewer
         wants_viewer = viewer is not None
+        device = torch.device(upsampler.device)
         wants_cuda_jpegs = (
             wants_viewer
             and viewer.jpeg_backend in ("auto", "cuda")
-            and executor.device.type == "cuda"
+            and device.type == "cuda"
         )
-        output_frames: list[np.ndarray] = []
         upscaled_jpegs: list[bytes] = []
+        output_chunks: list[np.ndarray] = []
+        frames_out: np.ndarray | None = None
+        need_cpu = return_frames or (wants_viewer and not wants_cuda_jpegs)
         model_ms_total = 0.0
+        batch_frames = min(self._static_batch_frames, int(frames.shape[0]))
         infer_t0 = time.perf_counter()
         with self._gpu_lock:
-            for index, frame in enumerate(frames):
-                result = executor.run_frame(frame)
+            for offset in range(0, int(frames.shape[0]), batch_frames):
+                batch = frames[offset : offset + batch_frames]
+                executor = self._get_executor(
+                    upsampler,
+                    scale,
+                    int(batch.shape[0]),
+                    int(batch.shape[1]),
+                    int(batch.shape[2]),
+                )
+                if executor is None:
+                    raise RuntimeError("Static executor disappeared during inference")
+                result = executor.run_frames(
+                    batch,
+                    profile_model_timing=self._profile_model_timing,
+                )
                 if result.model_ms is not None:
                     model_ms_total += result.model_ms
-                need_cpu = return_frames or (wants_viewer and not wants_cuda_jpegs)
                 if wants_cuda_jpegs:
                     try:
                         upscaled_jpegs.extend(
@@ -566,18 +677,22 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
                         wants_cuda_jpegs = False
                         need_cpu = True
                 if need_cpu:
-                    output_frames.append(_output_tensor_to_rgb(result.output))
-                elif index == len(frames) - 1:
-                    # Keep the last model op ordered before the response when
-                    # neither gRPC nor viewer consumes the output tensor.
-                    _synchronize_device(executor.device)
+                    output_chunks.append(_output_tensor_batch_to_rgb(result.output))
+                elif not wants_cuda_jpegs and not self._defer_static_sync:
+                    _synchronize_device(device)
+            if not need_cpu and not upscaled_jpegs and self._defer_static_sync:
+                # Keep the model op ordered before the response when neither
+                # gRPC nor viewer consumes the output tensor.
+                _synchronize_device(device)
         infer_ms = (time.perf_counter() - infer_t0) * 1000.0
-        if model_ms_total > 0:
+        if model_ms_total > 0.0:
             infer_ms = model_ms_total
-
-        frames_out: np.ndarray | None = None
-        if output_frames:
-            frames_out = np.ascontiguousarray(np.stack(output_frames, axis=0))
+        if output_chunks:
+            frames_out = (
+                output_chunks[0]
+                if len(output_chunks) == 1
+                else np.ascontiguousarray(np.concatenate(output_chunks, axis=0))
+            )
         if viewer is not None:
             viewer.enqueue_original_chunk(frames, elapsed_ms=infer_ms)
             if upscaled_jpegs:
@@ -591,6 +706,8 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
         encode_t0 = time.perf_counter()
         frames_rgb = frames_out.tobytes() if return_frames and frames_out is not None else b""
         encode_ms = (time.perf_counter() - encode_t0) * 1000.0
+        output_height = int(frames.shape[1]) * int(scale)
+        output_width = int(frames.shape[2]) * int(scale)
         logger.info(
             "  chunk {} timing: decode_in={:.0f} ms infer={:.0f} ms "
             "encode_out={:.0f} ms total={:.0f} ms (out {}×{} static)",
@@ -599,21 +716,21 @@ class RealESRGANUplift(pb2_grpc.VideoUpliftServicer):
             infer_ms,
             encode_ms,
             decode_ms + infer_ms + encode_ms,
-            executor.output_width,
-            executor.output_height,
+            output_width,
+            output_height,
         )
         return _RunChunkResult(
             frames_rgb=frames_rgb,
             frames_out=frames_out if return_frames else None,
             num_frames=int(frames.shape[0]),
-            height=executor.output_height,
-            width=executor.output_width,
+            height=output_height,
+            width=output_width,
             elapsed_ms=infer_ms,
         )
 
     def _encode_viewer_cuda_jpeg(self, output: torch.Tensor) -> list[bytes]:
         # encode_jpeg_cuda_tensor expects [1, 3, T, H, W] in [-1, 1].
-        video = output.mul(2.0).sub(1.0).unsqueeze(2)
+        video = output.mul(2.0).sub(1.0).permute(1, 0, 2, 3).unsqueeze(0)
         return encode_jpeg_cuda_tensor(
             video,
             quality=self._viewer.jpeg_quality if self._viewer is not None else 90,
@@ -766,12 +883,49 @@ def main() -> None:
     parser.add_argument("--fp32", action="store_true", help="Disable fp16 on CUDA.")
     parser.add_argument("--compile", action="store_true", help="Use torch.compile().")
     parser.add_argument("--compile_mode", default="reduce-overhead")
+    parser.add_argument(
+        "--profile_model_timing",
+        dest="profile_model_timing",
+        action="store_true",
+        default=True,
+        help=(
+            "Use CUDA events for model-only timing. This synchronizes each chunk "
+            "and is enabled by default because it avoids excess CPU spin on "
+            "Windows for this workload."
+        ),
+    )
+    parser.add_argument(
+        "--no_profile_model_timing",
+        dest="profile_model_timing",
+        action="store_false",
+        help=(
+            "Disable CUDA event timing. This reduces explicit synchronization "
+            "but can increase CPU usage on Windows."
+        ),
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument(
         "--stream_queue_depth",
         type=int,
         default=DEFAULT_STREAM_QUEUE_DEPTH,
         help="Reported per-stream queue depth; GPU work is serialized by a device lock.",
+    )
+    parser.add_argument(
+        "--static_batch_frames",
+        type=int,
+        default=1,
+        help=(
+            "Number of same-size frames per static CUDA model call. Default 1 "
+            "keeps Real-ESRGAN's fastest observed path on Windows."
+        ),
+    )
+    parser.add_argument(
+        "--defer_static_sync",
+        action="store_true",
+        help=(
+            "Synchronize once after all static microbatches instead of after "
+            "each microbatch. This can raise CPU usage on Windows."
+        ),
     )
     parser.add_argument("--no_warmup", action="store_true")
     parser.add_argument("--warmup_height", type=int, default=64)
@@ -831,6 +985,8 @@ def main() -> None:
         parser.error("--viewer_playback_fps must be non-negative")
     if args.warmup_frames < 1:
         parser.error("--warmup_frames must be at least 1")
+    if args.static_batch_frames < 1:
+        parser.error("--static_batch_frames must be at least 1")
 
     max_bytes = args.max_message_mb * 1024 * 1024
     server = grpc.server(
@@ -874,12 +1030,15 @@ def main() -> None:
         compile_mode=args.compile_mode,
         device=args.device,
         stream_queue_depth=args.stream_queue_depth,
+        static_batch_frames=args.static_batch_frames,
+        defer_static_sync=args.defer_static_sync,
         viewer=viewer,
         omit_grpc_frames_when_viewing=not args.viewer_return_grpc_frames,
         warmup_height=args.warmup_height,
         warmup_width=args.warmup_width,
         warmup_frames=args.warmup_frames,
         warmup=not args.no_warmup,
+        profile_model_timing=args.profile_model_timing,
     )
     pb2_grpc.add_VideoUpliftServicer_to_server(servicer, server)
     server.start()
