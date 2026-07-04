@@ -138,6 +138,8 @@ flags, or use the documented multi-GPU ``torchrun --nproc_per_node=<N>``
 launch. For LingBot-World, also try the documented efficient streaming preset
 ``lingbot-world-fast-taehv-window15-sink3``.
 
+.. _webrtc-troubleshooting:
+
 WebRTC connection or video does not appear
 ------------------------------------------
 
@@ -151,21 +153,54 @@ WebRTC connection or video does not appear
 
 The WebRTC servers open their HTTP port only after model load and warmup. On a
 remote or cloud GPU instance, the server port may not be reachable directly at
-the host IP. If ``/request_session`` loads but video does not appear, the
-browser may be hiding local IPs in WebRTC ICE candidates with mDNS hostnames.
+the host IP.
+
+Reaching ``http://<server>:8089/request_session`` proves that the HTTP page and
+signaling path are reachable, but it does not prove that the WebRTC media path
+is reachable. After signaling, WebRTC still needs a working media path
+negotiated by ICE. Video uses SRTP, the control data channel uses SCTP over
+DTLS, and both typically depend on UDP connectivity. Plain SSH ``-L``
+forwarding, or any other TCP-only forward of the HTTP port, does not forward
+that WebRTC media path.
+
+If ``/request_session`` loads but video does not appear, ICE may be unable to
+find a working media path, or the browser may be hiding local IPs in ICE
+candidates with mDNS hostnames.
 
 **Fix or next step:**
 
 Wait until the server prints ``Connect via http://<server-ip>:8089/request_session``.
-For remote machines, forward the documented port and open the local URL:
+For remote machines, forward the documented HTTP port and open the local URL:
 
 .. code-block:: bash
 
    ssh -L 8089:localhost:8089 <user>@<host>
 
-Then open ``http://localhost:8089/request_session``. If the page loads but the
-video still does not appear, follow the browser-specific WebRTC setting in
-:doc:`/models/omnidreams` or :doc:`/models/lingbot_world`.
+Then open ``http://localhost:8089/request_session``.
+
+If the page loads but the video still does not appear, use a setup that carries
+both the HTTP path and the WebRTC media path:
+
+- Direct browser access to the server network, with the firewall or security
+  group allowing the WebRTC media traffic advertised during ICE negotiation in
+  addition to the HTTP port.
+- A VPN or UDP-capable forwarding solution between the browser and the server.
+- A TURN relay that you provide and configure when direct peer-to-peer
+  connectivity is blocked. STUN can help ICE discover reachable addresses, but
+  STUN is not a relay. Do not assume a WebRTC demo deploys TURN unless its
+  model page or launch command documents it.
+
+If the media path is available and the connection still fails, check the
+browser's ICE policy. Some browsers can hide local IP addresses behind mDNS
+``.local`` hostnames. Disable that behavior and reload:
+
+- **Chrome / Edge:**
+  ``chrome://flags/#enable-webrtc-hide-local-ips-with-mdns`` set to
+  **Disabled**, then restart the browser.
+- **Brave:** ``brave://settings/privacy/security``, set *WebRTC IP handling
+  policy* to **Default public and private interfaces**.
+- **Firefox:** ``about:config``, set
+  ``media.peerconnection.ice.obfuscate_host_addresses`` to **false**.
 
 Triton autotuning or warmup looks stuck
 ---------------------------------------
