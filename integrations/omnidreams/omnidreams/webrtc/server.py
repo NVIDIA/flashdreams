@@ -123,18 +123,22 @@ def create_app(
     manager = session_manager or OmnidreamsWebRTCSessionManager()
 
     resource_stack = ExitStack()
-    web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
+    try:
+        web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
 
-    app = create_webrtc_app(
-        web_dir=web_dir,
-        session_manager=manager,
-        preload_name="Omnidreams",
-        request_session_url=request_session_url,
-    )
-    app["package_resource_stack"] = resource_stack
-    app.on_cleanup.append(_close_package_resources)
-    if REPO_ASSETS_DIR.is_dir():
-        app.router.add_static("/assets/", REPO_ASSETS_DIR, show_index=False)
+        app = create_webrtc_app(
+            web_dir=web_dir,
+            session_manager=manager,
+            preload_name="Omnidreams",
+            request_session_url=request_session_url,
+        )
+        if REPO_ASSETS_DIR.is_dir():
+            app.router.add_static("/assets/", REPO_ASSETS_DIR, show_index=False)
+        app["package_resource_stack"] = resource_stack
+        app.on_cleanup.append(_close_package_resources)
+    except Exception:
+        resource_stack.close()
+        raise
     return app
 
 

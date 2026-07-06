@@ -80,11 +80,44 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         assert len(static_resources) == 1
         web_dir = static_resources[0].get_info()["directory"]
         assert web_dir.is_dir()
-        assert "Omnidreams WebRTC Drive" in (
-            web_dir / "request_session.html"
-        ).read_text()
+        assert (
+            "Omnidreams WebRTC Drive" in (web_dir / "request_session.html").read_text()
+        )
     finally:
         app["package_resource_stack"].close()
+
+
+def test_create_app_closes_package_resource_when_app_creation_fails(
+    monkeypatch, tmp_path
+) -> None:
+    class TrackedResource:
+        closed = False
+
+        def __enter__(self):
+            return tmp_path
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.closed = True
+
+    tracked_resource = TrackedResource()
+
+    def raise_app_creation_failure(**_kwargs):
+        raise RuntimeError("app creation failed")
+
+    monkeypatch.setattr(webrtc_server, "as_file", lambda _resource: tracked_resource)
+    monkeypatch.setattr(
+        webrtc_server,
+        "create_webrtc_app",
+        raise_app_creation_failure,
+    )
+
+    with pytest.raises(RuntimeError, match="app creation failed"):
+        create_app(
+            session_manager=FakeSessionManager(),
+            request_session_url="http://127.0.0.1:8080/request_session",
+        )
+
+    assert tracked_resource.closed
 
 
 def test_create_app_skips_absent_repo_assets_mount(monkeypatch, tmp_path) -> None:
@@ -106,8 +139,7 @@ def test_create_app_skips_absent_repo_assets_mount(monkeypatch, tmp_path) -> Non
                 info.get("path", ""),
             )
             assert not any(
-                str(candidate) == "/assets"
-                or str(candidate).startswith("/assets/")
+                str(candidate) == "/assets" or str(candidate).startswith("/assets/")
                 for candidate in candidates
             )
     finally:
