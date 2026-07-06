@@ -19,6 +19,10 @@ managed = true
 required-version = ">=0.11.8"
 override-dependencies = [
     "nvidia-cublas>=13.4",
+    # Temporary cap for mediapy 1.2.6: numpy 2.5 makes npt.NDArray a PEP 695
+    # TypeAliasType that mediapy subclasses during import.
+    # https://github.com/NVIDIA/flashdreams/issues/355
+    "numpy>=1.24,<2.5",
     # Keep transitive HTTP clients off urllib3 versions with sensitive-header
     # redirect handling vulnerabilities.
     "urllib3>=2.7.0",
