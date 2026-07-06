@@ -387,6 +387,9 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             torch.distributed.barrier()
 
         postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
+        # Distributed ranks still participate in generate/finalize/postprocess;
+        # only rank zero owns host-side collection and persistence.
+        collect_output = self.is_rank_zero
         chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         start = 0
@@ -409,15 +412,22 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             video_chunk = self.process_output_chunk(
                 postprocess_stream, video_chunk, autoregressive_index=i
             )
-            if stats is not None:
+            if collect_output and stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            if video_chunk.shape[2] > 0:
+            if collect_output and video_chunk.shape[2] > 0:
                 chunks.append(video_chunk.cpu())
             start = end
 
         postprocess_tail = self.finish_output_stream(postprocess_stream)
-        if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
+        if (
+            collect_output
+            and postprocess_tail is not None
+            and postprocess_tail.shape[2] > 0
+        ):
             chunks.append(postprocess_tail.cpu())
+
+        if not collect_output:
+            return
 
         if chunks:
             video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
@@ -426,21 +436,14 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         generated_num_frames = video.shape[2]
 
         if cfg.postprocess.is_enabled():
-            if not self.is_rank_zero:
-                return
             canvas = rearrange(video, "1 v t c h w -> t h (v w) c")
             output_description = "postprocessed RGB video"
         else:
-            if not self.is_rank_zero:
-                return
             condition = hdmap_videos_t[:, :, :generated_num_frames].cpu()
             canvas, output_description = self._prepare_canvas_for_write(
                 condition=condition,
                 video=video,
             )
-
-        if not self.is_rank_zero:
-            return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"

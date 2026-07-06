@@ -368,6 +368,9 @@ class LingbotWorldRunner(
             torch.distributed.barrier()
 
         postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
+        # Distributed ranks still participate in generate/finalize/postprocess;
+        # only rank zero owns host-side collection and persistence.
+        collect_output = self.is_rank_zero
         chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         start = 0
@@ -395,22 +398,27 @@ class LingbotWorldRunner(
             video_chunk = self.process_output_chunk(
                 postprocess_stream, video_chunk, autoregressive_index=i
             )
-            if stats is not None:
+            if collect_output and stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            if video_chunk.shape[0] > 0:
+            if collect_output and video_chunk.shape[0] > 0:
                 chunks.append(video_chunk.cpu())
             start = end
 
         postprocess_tail = self.finish_output_stream(postprocess_stream)
-        if postprocess_tail is not None and postprocess_tail.shape[0] > 0:
+        if (
+            collect_output
+            and postprocess_tail is not None
+            and postprocess_tail.shape[0] > 0
+        ):
             chunks.append(postprocess_tail.cpu())
+
+        if not collect_output:
+            return
 
         if chunks:
             video = torch.cat(chunks, dim=0)  # [T, C, H, W]
         else:
             raise ValueError("post-processing emitted no video frames")
-        if not self.is_rank_zero:
-            return
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         canvas = rearrange(video, "t c h w -> t h w c")

@@ -158,6 +158,9 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
         cache = self._initialize_cache()
 
         postprocess_stream = self.create_postprocess_stream(fps=config.fps)
+        # Distributed ranks still participate in generate/finalize/postprocess;
+        # only rank zero owns host-side collection and persistence.
+        collect_output = self.is_rank_zero
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
         generated = self.process_output_chunk(
@@ -170,7 +173,7 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
                 if generated.shape[0] == 0
                 else torch.cat([generated, postprocess_tail], dim=0)
             )
-        if not self.is_rank_zero:
+        if not collect_output:
             return
         generated = generated.cpu()
 

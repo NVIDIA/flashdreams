@@ -377,6 +377,9 @@ class HyWorldPlayWanI2VRunner(
         )
 
         postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
+        # Distributed ranks still participate in generate/finalize/postprocess;
+        # only rank zero owns host-side collection and persistence.
+        collect_output = self.is_rank_zero
         chunks: list[Tensor] = []
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
@@ -394,16 +397,20 @@ class HyWorldPlayWanI2VRunner(
                 chunk = self.process_output_chunk(
                     postprocess_stream, chunk, autoregressive_index=ar_idx
                 )
-                if chunk.shape[-4] > 0:
+                if collect_output and chunk.shape[-4] > 0:
                     chunks.append(chunk)
-                if stats is not None:
+                if collect_output and stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
             postprocess_tail = self.finish_output_stream(postprocess_stream)
-            if postprocess_tail is not None and postprocess_tail.shape[-4] > 0:
+            if (
+                collect_output
+                and postprocess_tail is not None
+                and postprocess_tail.shape[-4] > 0
+            ):
                 chunks.append(postprocess_tail)
         elapsed = time.time() - start_time
 
-        if not self.is_rank_zero:
+        if not collect_output:
             return
 
         if chunks:

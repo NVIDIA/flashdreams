@@ -434,6 +434,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         cache = self._initialize_cache()
 
         postprocess_stream = self.create_postprocess_stream(fps=fps)
+        # Distributed ranks still participate in generate/finalize/postprocess;
+        # only rank zero owns host-side collection and persistence.
+        collect_output = self.is_rank_zero
         chunks_out: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         for chunk_idx, (start, size) in enumerate(chunks):
@@ -449,7 +452,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 video_chunk,
                 autoregressive_index=chunk_idx,
             )
-            if stats is not None:
+            if collect_output and stats is not None:
                 # Report throughput against the visible output frames for this
                 # chunk. ``fps`` is reserved for the output video's frame rate.
                 chunk_frames = int(video_chunk.shape[2])
@@ -467,20 +470,25 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                         "fps": chunk_fps,
                     }
                 )
-            if video_chunk.shape[2] > 0:
+            if collect_output and video_chunk.shape[2] > 0:
                 chunks_out.append(video_chunk.cpu())
 
         postprocess_tail = self.finish_output_stream(postprocess_stream)
-        if postprocess_tail is not None and postprocess_tail.shape[2] > 0:
+        if (
+            collect_output
+            and postprocess_tail is not None
+            and postprocess_tail.shape[2] > 0
+        ):
             chunks_out.append(postprocess_tail.cpu())
+
+        if not collect_output:
+            return
 
         # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
         if chunks_out:
             generated = torch.cat(chunks_out, dim=2)
         else:
             raise ValueError("post-processing emitted no video frames")
-        if not self.is_rank_zero:
-            return
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
         video_path = config.output_dir / f"{config.runner_name}.mp4"
