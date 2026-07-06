@@ -207,6 +207,7 @@ VkContext createVkContext(int cudaDeviceIdx)
     VkPhysicalDeviceFeatures2 features2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features2.features.multiDrawIndirect = VK_TRUE;
     features2.features.fillModeNonSolid = VK_TRUE;
+    features2.features.shaderInt64 = VK_TRUE;
     features2.pNext = &meshFeatures;
 
     VkDeviceCreateInfo devCI = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
