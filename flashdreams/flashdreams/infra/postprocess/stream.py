@@ -20,8 +20,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import torch
+from loguru import logger
 from torch import Tensor
 
+from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.postprocess.base import (
     VideoChunk,
     VideoPostprocessChainConfig,
@@ -74,6 +76,7 @@ class VideoPostprocessStream:
         fps: float | None = None,
         per_view: bool = False,
         world_size: int = 1,
+        profile: bool = False,
     ) -> None:
         postprocess.validate_execution(world_size=world_size)
         self.postprocess = postprocess
@@ -82,6 +85,7 @@ class VideoPostprocessStream:
         self.fps = fps
         self.per_view = per_view
         self.world_size = world_size
+        self.profile = profile
         self.state = VideoPostprocessStreamState()
         self._closed = False
 
@@ -89,7 +93,20 @@ class VideoPostprocessStream:
         """Process one decoded chunk, possibly returning an empty time axis."""
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
-        return apply_video_postprocess(
+        if not self.profile:
+            return apply_video_postprocess(
+                postprocess=self.postprocess,
+                output_layout=self.output_layout,
+                output_value_range=self.output_value_range,
+                fps=self.fps,
+                per_view=self.per_view,
+                state=self.state,
+                autoregressive_index=autoregressive_index,
+                output=output,
+            )
+
+        profiler = self._create_event_profiler()
+        result = apply_video_postprocess(
             postprocess=self.postprocess,
             output_layout=self.output_layout,
             output_value_range=self.output_value_range,
@@ -99,18 +116,47 @@ class VideoPostprocessStream:
             autoregressive_index=autoregressive_index,
             output=output,
         )
+        profiler.record("postprocess")
+        elapsed_ms = profiler.sync_and_summarize()["postprocess"]
+        logger.info(
+            f"postprocess AR {autoregressive_index} {elapsed_ms:.3f} ms | "
+            f"input {tuple(output.shape)} output {tuple(result.shape)}"
+        )
+        return result
 
     def finish(self) -> Tensor | None:
         """Flush buffered output once; repeated calls return ``None``."""
         if self._closed:
             return None
         self._closed = True
-        return flush_video_postprocess(
+        if not self.profile:
+            return flush_video_postprocess(
+                postprocess=self.postprocess,
+                output_layout=self.output_layout,
+                output_value_range=self.output_value_range,
+                per_view=self.per_view,
+                state=self.state,
+            )
+
+        profiler = self._create_event_profiler()
+        result = flush_video_postprocess(
             postprocess=self.postprocess,
             output_layout=self.output_layout,
             output_value_range=self.output_value_range,
             per_view=self.per_view,
             state=self.state,
+        )
+        profiler.record("postprocess_flush")
+        elapsed_ms = profiler.sync_and_summarize()["postprocess_flush"]
+        output_shape = None if result is None else tuple(result.shape)
+        logger.info(f"postprocess flush {elapsed_ms:.3f} ms | output {output_shape}")
+        return result
+
+    def _create_event_profiler(self) -> EventProfiler:
+        return EventProfiler(
+            synchronize_distributed=self.postprocess.requires_all_ranks(
+                world_size=self.world_size
+            )
         )
 
 
