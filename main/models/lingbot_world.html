@@ -568,15 +568,19 @@ first launch, much faster afterwards. When ready the server prints
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>On a remote or cloud GPU instance (e.g. <a class="reference external" href="https://www.brev.dev/">Brev</a>),
-the server port is usually not reachable at the host IP directly.
-Forward it to your local machine first, then open
-<code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>:</p>
+the HTTP server port is usually not reachable at the host IP directly.
+Forward or expose the HTTP port for the viewer page and signaling, and open
+<code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code> when using a local forward:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Brev</span>
 brev<span class="w"> </span>port-forward<span class="w"> </span>&lt;instance&gt;<span class="w"> </span>-p<span class="w"> </span><span class="m">8089</span>:8089
 <span class="c1"># or plain SSH</span>
 ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
 </pre></div>
 </div>
+<p>These commands expose only the HTTP/signaling path; they do not carry the
+WebRTC media path. LingBot-World does not deploy TURN by default, so remote
+deployments that need relay or UDP media connectivity must provide it
+separately. See <a class="reference internal" href="../troubleshooting.html#webrtc-troubleshooting"><span class="std std-ref">WebRTC connection or video does not appear</span></a>.</p>
 </div>
 <p>When successfully connected, the browser-based UI looks like this:</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">

@@ -513,7 +513,7 @@ launch. For LingBot-World, also try the documented efficient streaming preset
 <code class="docutils literal notranslate"><span class="pre">lingbot-world-fast-taehv-window15-sink3</span></code>.</p>
 </section>
 <section id="webrtc-connection-or-video-does-not-appear">
-<h2>WebRTC connection or video does not appear<a class="headerlink" href="#webrtc-connection-or-video-does-not-appear" title="Link to this heading">#</a></h2>
+<span id="webrtc-troubleshooting"></span><h2>WebRTC connection or video does not appear<a class="headerlink" href="#webrtc-connection-or-video-does-not-appear" title="Link to this heading">#</a></h2>
 <p><strong>Symptoms:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">/request_session</span></code> is not reachable from the browser.</p></li>
@@ -523,17 +523,48 @@ launch. For LingBot-World, also try the documented efficient streaming preset
 <p><strong>Likely cause:</strong></p>
 <p>The WebRTC servers open their HTTP port only after model load and warmup. On a
 remote or cloud GPU instance, the server port may not be reachable directly at
-the host IP. If <code class="docutils literal notranslate"><span class="pre">/request_session</span></code> loads but video does not appear, the
-browser may be hiding local IPs in WebRTC ICE candidates with mDNS hostnames.</p>
+the host IP.</p>
+<p>Reaching <code class="docutils literal notranslate"><span class="pre">http://&lt;server&gt;:8089/request_session</span></code> proves that the HTTP page and
+signaling path are reachable, but it does not prove that the WebRTC media path
+is reachable. After signaling, WebRTC still needs a working media path
+negotiated by ICE. Video uses SRTP, the control data channel uses SCTP over
+DTLS, and both typically depend on UDP connectivity. Plain SSH <code class="docutils literal notranslate"><span class="pre">-L</span></code>
+forwarding, or any other TCP-only forward of the HTTP port, does not forward
+that WebRTC media path.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">/request_session</span></code> loads but video does not appear, ICE may be unable to
+find a working media path, or the browser may be hiding local IPs in ICE
+candidates with mDNS hostnames.</p>
 <p><strong>Fix or next step:</strong></p>
 <p>Wait until the server prints <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
-For remote machines, forward the documented port and open the local URL:</p>
+For remote machines, forward the documented HTTP port and open the local URL:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
 </pre></div>
 </div>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>. If the page loads but the
-video still does not appear, follow the browser-specific WebRTC setting in
-<a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> or <a class="reference internal" href="models/lingbot_world.html"><span class="doc">LingBot-World</span></a>.</p>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code>.</p>
+<p>If the page loads but the video still does not appear, use a setup that carries
+both the HTTP path and the WebRTC media path:</p>
+<ul class="simple">
+<li><p>Direct browser access to the server network, with the firewall or security
+group allowing the WebRTC media traffic advertised during ICE negotiation in
+addition to the HTTP port.</p></li>
+<li><p>A VPN or UDP-capable forwarding solution between the browser and the server.</p></li>
+<li><p>A TURN relay that you provide and configure when direct peer-to-peer
+connectivity is blocked. STUN can help ICE discover reachable addresses, but
+STUN is not a relay. Do not assume a WebRTC demo deploys TURN unless its
+model page or launch command documents it.</p></li>
+</ul>
+<p>If the media path is available and the connection still fails, check the
+browser’s ICE policy. Some browsers can hide local IP addresses behind mDNS
+<code class="docutils literal notranslate"><span class="pre">.local</span></code> hostnames. Disable that behavior and reload:</p>
+<ul class="simple">
+<li><p><strong>Chrome / Edge:</strong>
+<code class="docutils literal notranslate"><span class="pre">chrome://flags/#enable-webrtc-hide-local-ips-with-mdns</span></code> set to
+<strong>Disabled</strong>, then restart the browser.</p></li>
+<li><p><strong>Brave:</strong> <code class="docutils literal notranslate"><span class="pre">brave://settings/privacy/security</span></code>, set <em>WebRTC IP handling
+policy</em> to <strong>Default public and private interfaces</strong>.</p></li>
+<li><p><strong>Firefox:</strong> <code class="docutils literal notranslate"><span class="pre">about:config</span></code>, set
+<code class="docutils literal notranslate"><span class="pre">media.peerconnection.ice.obfuscate_host_addresses</span></code> to <strong>false</strong>.</p></li>
+</ul>
 </section>
 <section id="triton-autotuning-or-warmup-looks-stuck">
 <h2>Triton autotuning or warmup looks stuck<a class="headerlink" href="#triton-autotuning-or-warmup-looks-stuck" title="Link to this heading">#</a></h2>
