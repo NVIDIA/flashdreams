@@ -29,11 +29,12 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Literal, Optional, TypedDict, get_args
+from typing import Annotated, Callable, Dict, Literal, Optional, TypedDict, get_args
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tyro
 from einops import rearrange
 from torch import Tensor
 
@@ -51,23 +52,18 @@ from flashdreams.infra.encoder import (
     StreamingVideoEncoder,
 )
 
-# Wan 2.2 TI2V 5B's VAE ships in the diffusers Wan-AI repo. The
-# loader pulls the diffusers safetensors shard and remaps keys via
-# :func:`wan22_ti2v_5b_vae_state_dict_transform` (``encoder.conv_in``
-# / ``quant_conv`` / ``post_quant_conv`` etc. -> our internal layout).
-WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
-
-# Alternative upstream single-file checkpoint. Top-level key prefixes
-# (``encoder.*`` / ``decoder.*`` / ``conv1`` / ``conv2``) line up with
-# our internal :mod:`_residual_vae` model shape, BUT the ``.pth`` does
-# not cover every parameter our ``WanVAE`` wrapper builds (some encoder
-# / decoder slots stay on meta and ``model.to(device)`` raises
-# ``NotImplementedError: Cannot copy out of meta tensor``). Kept as a
-# constant for callers who want to invest in a tighter audit + a
-# tailored loader; the diffusers path above is still the default.
+# Upstream's native single-file checkpoint. Its key names match the
+# ``WanVAE`` module tree one-to-one, so it loads with no key remap and is
+# the production default for the Wan 2.2 TI2V 5B configs below.
 WAN22_TI2V_5B_VAE_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/resolve/main/Wan2.2_VAE.pth"
 )
+
+# The same VAE re-exported in the diffusers ``AutoencoderKLWan`` layout.
+# Loadable via :func:`wan22_ti2v_5b_vae_state_dict_transform`, which
+# renames the diffusers keys onto the ``WanVAE`` tree; kept as an opt-in
+# fallback for callers who prefer the diffusers safetensors shard.
+WAN22_TI2V_5B_VAE_DIFFUSERS_PATH = "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/vae/diffusion_pytorch_model.safetensors"
 
 AVAILABLE_WAN_VAE_CHECKPOINT_PATHS = {
     "lightvae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
@@ -595,24 +591,24 @@ class ResidualDownBlock(nn.Module):
             factor_t=2 if temperal_downsample else 1,
             factor_s=2 if down_flag else 1,
         )
-        resnets: list[nn.Module] = []
+        # One flat ``Sequential`` holding the residual blocks followed by
+        # the optional downsampling ``Resample``, matching upstream's
+        # native ``downsamples.{j}`` layout so ``Wan2.2_VAE.pth`` loads
+        # with no key remap.
+        layers: list[nn.Module] = []
         for _ in range(num_res_blocks):
-            resnets.append(ResidualBlock(in_dim, out_dim, dropout))
+            layers.append(ResidualBlock(in_dim, out_dim, dropout))
             in_dim = out_dim
-        self.resnets = nn.ModuleList(resnets)
         if down_flag:
             mode = "downsample3d" if temperal_downsample else "downsample2d"
-            self.downsampler: Resample | None = Resample(out_dim, mode=mode)
-        else:
-            self.downsampler = None
+            layers.append(Resample(out_dim, mode=mode))
+        self.downsamples = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor, state: Dict[int, torch.Tensor]) -> torch.Tensor:
         # Snapshot input for the avg shortcut before mutating ``x``.
         x_shortcut = x
-        for resnet in self.resnets:
-            x = resnet(x, state)
-        if self.downsampler is not None:
-            x = self.downsampler(x, state)
+        for layer in self.downsamples:
+            x = layer(x, state)
         return x + self.avg_shortcut(x_shortcut)
 
 
@@ -650,12 +646,15 @@ class ResidualUpBlock(nn.Module):
         else:
             self.avg_shortcut = None
 
-        resnets: list[nn.Module] = []
+        # One flat ``Sequential`` holding the residual blocks followed by
+        # the optional upsampling ``Resample``, matching upstream's native
+        # ``upsamples.{j}`` layout so ``Wan2.2_VAE.pth`` loads with no key
+        # remap.
+        layers: list[nn.Module] = []
         current_dim = in_dim
         for _ in range(num_res_blocks + 1):
-            resnets.append(ResidualBlock(current_dim, out_dim, dropout))
+            layers.append(ResidualBlock(current_dim, out_dim, dropout))
             current_dim = out_dim
-        self.resnets = nn.ModuleList(resnets)
 
         if up_flag:
             mode = "upsample3d" if temperal_upsample else "upsample2d"
@@ -669,9 +668,8 @@ class ResidualUpBlock(nn.Module):
                 "blindly rewire ResidualUpBlock's keep-channel upsampler."
             )
             up.resample[1] = nn.Conv2d(out_dim, out_dim, 3, padding=1)
-            self.upsampler: Resample | None = up
-        else:
-            self.upsampler = None
+            layers.append(up)
+        self.upsamples = nn.Sequential(*layers)
 
     def forward(
         self,
@@ -680,10 +678,8 @@ class ResidualUpBlock(nn.Module):
         first_chunk: bool = False,
     ) -> torch.Tensor:
         x_shortcut = x
-        for resnet in self.resnets:
-            x = resnet(x, state)
-        if self.upsampler is not None:
-            x = self.upsampler(x, state)
+        for layer in self.upsamples:
+            x = layer(x, state)
         if self.avg_shortcut is not None:
             x = x + self.avg_shortcut(x_shortcut, first_chunk=first_chunk)
         return x
@@ -701,9 +697,14 @@ def _patchify(x: Tensor, patch_size: int) -> Tensor:
     if patch_size == 1:
         return x
     assert x.ndim == 5, f"_patchify expects [B, C, T, H, W]; got {tuple(x.shape)}"
+    # Channel order must be ``(c pw ph)`` to match the Wan 2.2 VAE checkpoint /
+    # diffusers ``AutoencoderKLWan`` convention (``patchify`` permute
+    # ``(0,1,6,4,2,3,5)``). Using ``(c ph pw)`` transposes each ``patch_size``-
+    # square sub-pixel block relative to the trained conv weights, which decodes
+    # to a fixed ~2px checkerboard on every frame.
     return rearrange(
         x,
-        "b c t (h ph) (w pw) -> b (c ph pw) t h w",
+        "b c t (h ph) (w pw) -> b (c pw ph) t h w",
         ph=patch_size,
         pw=patch_size,
     )
@@ -714,9 +715,11 @@ def _unpatchify(x: Tensor, patch_size: int) -> Tensor:
     if patch_size == 1:
         return x
     assert x.ndim == 5, f"_unpatchify expects [B, C, T, H, W]; got {tuple(x.shape)}"
+    # Inverse of :func:`_patchify`; channel order ``(c pw ph)`` matches the
+    # Wan 2.2 VAE checkpoint / diffusers convention (see :func:`_patchify`).
     return rearrange(
         x,
-        "b (c ph pw) t h w -> b c t (h ph) (w pw)",
+        "b (c pw ph) t h w -> b c t (h ph) (w pw)",
         ph=patch_size,
         pw=patch_size,
     )
@@ -1272,7 +1275,9 @@ class WanVAEEncoderConfig(EncoderConfig):
     :class:`Wan22TI2V5BVAEEncoderConfig` for the pre-rolled set.
     """
 
-    _target: type["WanVAEEncoder"] = field(default_factory=lambda: WanVAEEncoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: WanVAEEncoder
+    )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
@@ -1405,7 +1410,9 @@ class WanVAEDecoderConfig(DecoderConfig):
     =256`` and the residual up-stage with ``DupUp3D`` shortcut.
     """
 
-    _target: type["WanVAEDecoder"] = field(default_factory=lambda: WanVAEDecoder)
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: WanVAEDecoder
+    )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
     dtype: torch.dtype = torch.bfloat16
@@ -1532,11 +1539,8 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
 
 # Diffusers ``AutoencoderKLWan`` (Wan 2.2 5B) -> flashdreams ``WanVAE``
-# key remap. The production configs below use upstream's
-# ``Wan2.2_VAE.pth`` whose layout matches our model directly (no remap
-# needed); this dict + :func:`wan22_ti2v_5b_vae_state_dict_transform`
-# are kept in tree as an opt-in fallback for callers who'd rather
-# point at the diffusers safetensors shard.
+# key remap, applied by :func:`wan22_ti2v_5b_vae_state_dict_transform`
+# (the production VAE load path).
 _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     # Top-level quant convs.
     r"^quant_conv\.(.*)$": r"conv1.\1",
@@ -1551,12 +1555,8 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     r"^encoder\.conv_out\.(.*)$": r"encoder.head.2.\1",
     r"^decoder\.norm_out\.(.*)$": r"decoder.head.0.\1",
     r"^decoder\.conv_out\.(.*)$": r"decoder.head.2.\1",
-    # Mid block: diffusers stores ``resnets.{0,1}`` + ``attentions.0``
-    # while our Sequential is (Residual, Attention, Residual) ->
-    # indices (0, 1, 2). ``WanMidBlock.forward`` runs resnets[0], then
-    # (attentions[0], resnets[1]), so the ordering matches our
-    # (middle.0, middle.2) layout. Per-field remap mirrors the
-    # down/up-block resnets below.
+    # Mid block: diffusers ``resnets.{0,1}`` + ``attentions.0`` map to our
+    # ``middle`` Sequential (Residual, Attention, Residual) at indices 0/1/2.
     r"^encoder\.mid_block\.resnets\.0\.norm1\.(.*)$": r"encoder.middle.0.residual.0.\1",
     r"^encoder\.mid_block\.resnets\.0\.conv1\.(.*)$": r"encoder.middle.0.residual.2.\1",
     r"^encoder\.mid_block\.resnets\.0\.norm2\.(.*)$": r"encoder.middle.0.residual.3.\1",
@@ -1579,60 +1579,56 @@ _WAN22_TI2V_5B_VAE_KEY_REMAP: dict[str, str] = {
     r"^decoder\.mid_block\.resnets\.1\.conv2\.(.*)$": r"decoder.middle.2.residual.6.\1",
     r"^decoder\.mid_block\.resnets\.1\.conv_shortcut\.(.*)$": r"decoder.middle.2.shortcut.\1",
     r"^decoder\.mid_block\.attentions\.0\.(.*)$": r"decoder.middle.1.\1",
-    # Per-residual-block field remap: diffusers ``conv1 / conv2 /
-    # norm1 / norm2 / conv_shortcut`` -> our Sequential entries.
-    # The Sequential layout in ResidualBlock.__init__ is:
-    #   0: RMS_norm (norm1)
-    #   1: SiLU
-    #   2: CausalConv3d (conv1)
-    #   3: RMS_norm (norm2)
-    #   4: SiLU
-    #   5: Dropout
-    #   6: CausalConv3d (conv2)
-    # Plus ``shortcut`` (renamed from diffusers ``conv_shortcut``).
+    # Per-residual-block field remap. ResidualBlock's Sequential is:
+    #   0 norm1, 2 conv1, 3 norm2, 6 conv2 (1/4 SiLU, 5 Dropout).
+    # diffusers ``conv_shortcut`` -> our ``shortcut``.
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.0.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.0.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv1\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.2.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.2.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.norm2\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.3.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.3.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv2\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.residual.6.\3"
+        r"encoder.downsamples.\1.downsamples.\2.residual.6.\3"
     ),
     r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.conv_shortcut\.(.*)$": (
-        r"encoder.downsamples.\1.resnets.\2.shortcut.\3"
+        r"encoder.downsamples.\1.downsamples.\2.shortcut.\3"
     ),
-    # Encoder down-block extras: residual stage shortcut + downsampler.
+    # Encoder down-block extras: the per-stage average-pool shortcut and
+    # the downsampling resample, which sits at index 2 of the flat
+    # ``downsamples`` sequential (after the two residual blocks).
     r"^encoder\.down_blocks\.(\d+)\.avg_shortcut\.(.*)$": (
         r"encoder.downsamples.\1.avg_shortcut.\2"
     ),
     r"^encoder\.down_blocks\.(\d+)\.downsampler\.(.*)$": (
-        r"encoder.downsamples.\1.downsampler.\2"
+        r"encoder.downsamples.\1.downsamples.2.\2"
     ),
     # Decoder up-block residual-conv remap (same Sequential layout).
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.norm1\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.0.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.0.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv1\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.2.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.2.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.norm2\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.3.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.3.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv2\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.residual.6.\3"
+        r"decoder.upsamples.\1.upsamples.\2.residual.6.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.conv_shortcut\.(.*)$": (
-        r"decoder.upsamples.\1.resnets.\2.shortcut.\3"
+        r"decoder.upsamples.\1.upsamples.\2.shortcut.\3"
     ),
     r"^decoder\.up_blocks\.(\d+)\.avg_shortcut\.(.*)$": (
         r"decoder.upsamples.\1.avg_shortcut.\2"
     ),
+    # The upsampling resample sits at index 3 of the flat ``upsamples``
+    # sequential (after the three residual blocks).
     r"^decoder\.up_blocks\.(\d+)\.upsampler\.(.*)$": (
-        r"decoder.upsamples.\1.upsampler.\2"
+        r"decoder.upsamples.\1.upsamples.3.\2"
     ),
 }
 
@@ -1642,18 +1638,12 @@ def wan22_ti2v_5b_vae_state_dict_transform(
 ) -> Dict[str, Tensor]:
     """Remap a diffusers ``AutoencoderKLWan`` state-dict to ``WanVAE`` keys.
 
-    Applied automatically when :class:`Wan22TI2V5BVAEEncoderConfig` /
-    :class:`Wan22TI2V5BVAEDecoderConfig` load the upstream
-    ``Wan-AI/Wan2.2-TI2V-5B-Diffusers/vae/diffusion_pytorch_model.safetensors``
-    checkpoint. The mapping is purely structural -- no tensors are
-    copied or reshaped.
-
-    Note:
-        Patterns are applied in iteration order via
-        :func:`flashdreams.core.checkpoint.remap.remap_checkpoint_keys`.
-        Any key without a matching pattern passes through unchanged,
-        which surfaces as a ``load_state_dict`` ``unexpected_keys``
-        warning so missing remap entries are easy to spot.
+    Opt-in for callers who point :class:`Wan22TI2V5BVAEEncoderConfig` /
+    :class:`Wan22TI2V5BVAEDecoderConfig` at the diffusers safetensors shard
+    (:data:`WAN22_TI2V_5B_VAE_DIFFUSERS_PATH`) instead of the native
+    ``.pth`` default. Renames keys only -- no tensors are copied or
+    reshaped. Unmatched keys pass through and surface as ``unexpected_keys``
+    on load.
     """
     from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 
@@ -1664,22 +1654,22 @@ def wan22_ti2v_5b_vae_state_dict_transform(
 class Wan22TI2V5BVAEEncoderConfig(WanVAEEncoderConfig):
     """Pre-rolled config for the Wan 2.2 TI2V 5B encoder.
 
-    Pins the diffusers upstream checkpoint, the 16x-spatial / 48ch /
-    residual / patchify architecture knobs, and the matching diffusers
-    -> flashdreams key remap. Equivalent to the Wan 2.1 encoder config
-    plus the 5B-specific knobs flipped on.
+    Pins upstream's native ``Wan2.2_VAE.pth`` (loaded with no key remap),
+    the 16x-spatial / 48ch / residual / patchify architecture knobs.
+    Equivalent to the Wan 2.1 encoder config plus the 5B-specific knobs
+    flipped on. To load the diffusers shard instead, override
+    ``checkpoint_path=WAN22_TI2V_5B_VAE_DIFFUSERS_PATH`` and
+    ``state_dict_transform=wan22_ti2v_5b_vae_state_dict_transform``.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     z_dim: int = 48
     patch_size: int = 2
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
-    )
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
 
 
 @dataclass(kw_only=True)
@@ -1690,7 +1680,7 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     ``decoder_base_dim=256``.
     """
 
-    checkpoint_path: str = WAN22_TI2V_5B_VAE_DIFFUSERS_PATH
+    checkpoint_path: str = WAN22_TI2V_5B_VAE_PATH
     base_dim: int = 160
     decoder_base_dim: int | None = 256
     z_dim: int = 48
@@ -1698,6 +1688,4 @@ class Wan22TI2V5BVAEDecoderConfig(WanVAEDecoderConfig):
     is_residual: bool = True
     latent_mean: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_MEAN
     latent_std: tuple[float, ...] = _WAN22_TI2V_5B_LATENT_STD
-    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = (
-        wan22_ti2v_5b_vae_state_dict_transform
-    )
+    state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None

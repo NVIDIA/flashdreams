@@ -17,15 +17,15 @@ Config system
 ===================================
 
 FlashDreams configuration is built around simple, strongly-typed Python ``dataclass`` objects.
-This configuration system is similar to the one employed in `nerfstudio <https://github.com/nerfstudio-project/nerfstudio>`_,
-allowing to easily compose different model components variants and nest configurations to define the complete
+This configuration system is similar to the one employed in `nerfstudio <https://github.com/nerfstudio-project/nerfstudio>`_.
+It allows you to easily plug in different permutations of model components and nest configurations to define the complete
 inference pipeline.
 
 Base components
 ---------------
 
-All configurable components in FlashDreams - such as the encoder, transformer, scheduler, and decoder -
-have a corresponding configuration dataclass in ``flashdreams.infra``.
+All configurable components in FlashDreams (such as the encoder, transformer, scheduler, and decoder)
+have a corresponding configuration dataclass and can be found under ``flashdreams.infra``.
 As outlined in the :doc:`/developer_guides/inference_pipeline_overview`, the main entry point for defining an integration
 is the :class:`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`.
 
@@ -57,10 +57,9 @@ A typical pipeline config defines the architecture by composing other config dat
 Creating new configs
 --------------------
 
-To create a brand new model component, a corresponding config with the associated parameters to be exposed has to be created.
+If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.
 
-To create a new encoder called ``MyEncoder``, a new ``Encoder`` class that extends the base class has to be defined.
-Before the model definition, the actual ``MyEncoderConfig``, which points to the ``MyEncoder`` class, has to be defined using the ``_target`` field.
+Let's say you want to create a new encoder called ``MyEncoder``. You can create a new ``Encoder`` class that extends the base class. Before the model definition, you define the actual ``MyEncoderConfig`` which points to the ``MyEncoder`` class using the ``_target`` field.
 
 .. code-block:: python
 
@@ -97,9 +96,7 @@ Before the model definition, the actual ``MyEncoderConfig``, which points to the
        def forward(self, input):
            ...
 
-Alternatively, it's not always required to define a complete configuration from scratch.
-One can use :func:`flashdreams.infra.config.derive_config` to create concise variants from existing configs,
-allowing to inherit the base settings and to only override specific fields:
+Alternatively, you do not always have to write a complete configuration from scratch. You can use :func:`flashdreams.infra.config.derive_config` to create concise variants from existing configs. This allows you to inherit the base settings and only override the specific fields you want to change:
 
 .. code-block:: python
 
@@ -116,10 +113,9 @@ allowing to inherit the base settings and to only override specific fields:
 Modifying from CLI
 ------------------
 
-To simply play with the parameters of an existing model without having to specify a new one, one can employ CLI arguments, which are powered by `tyro <https://github.com/brentyi/tyro>`_.
+Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface, powered by `tyro <https://github.com/brentyi/tyro>`_, exposes every nested dataclass field as a flag.
 
-Because the FlashDreams configurations are strongly typed dataclasses, ``tyro`` automatically generates a comprehensive command-line interface.
-The ``flashdreams-run`` cli command can be used to dynamically override any nested dataclass field.
+Because configurations are strongly typed dataclasses, ``tyro`` generates the CLI automatically. Each shipped model is a named runner slug; pass any nested field as a flag to override it.
 
 For example, to list all existing configurable parameters for a model:
 

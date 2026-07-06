@@ -15,6 +15,8 @@
 
 """Context-parallel attention (ring / ulysses) built on native SDPA primitives."""
 
+from __future__ import annotations
+
 from contextlib import nullcontext
 from typing import Any, Callable, ContextManager, Literal, cast
 

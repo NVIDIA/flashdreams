@@ -43,6 +43,7 @@ from omnidreams.interactive_drive.input.wheel_profiles import (
     user_wheel_profiles_dir,
 )
 from omnidreams.interactive_drive.log import configure_logging
+from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
@@ -736,6 +737,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
+    _materialize_synthetic_scene_for_picker(args)
     scene_options = _discover_scene_options(args.scene_dir, args.scene)
     if not args.scene.exists() and scene_options:
         args.scene = scene_options[0].path
@@ -892,6 +894,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
+    _materialize_synthetic_scene_for_picker(args)
     scene_options = _discover_scene_options(args.scene_dir, args.scene)
     if not args.scene.exists() and scene_options:
         args.scene = scene_options[0].path
@@ -975,23 +978,39 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        # Don't auto-load: always wait for the browser to pick the first
-        # scene. There's no Vulkan window to show progress in, so the
-        # presenter publishes an idle overlay frame ("Loading world
-        # model..." while warmup runs in the background, then "Select a
-        # scene to begin") so connected browsers have something to render
-        # while the wait spins.
-        logger.info(
-            "[demo] streaming presenter waiting for first scene selection...",
-        )
-        request = presenter.wait_for_scene_selection()
-        if request is None:
-            return  # presenter closed before any selection (Ctrl-C)
-        scene_path, variant = request
-        presenter.acknowledge_scene_change(scene_path, variant)
-        logger.info(
-            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-        )
+        if args.auto_start:
+            # Headless / scriptable start: skip the browser scene picker and
+            # load the resolved ``--scene`` (or the first discovered scene)
+            # immediately. This lets the demo run with no GUI/browser.
+            # --auto-start + --preload-scenes: let the preloader finish first
+            # so the auto-load hits the cache instead of racing a second parse.
+            if app.preload_in_progress():
+                presenter.wait_while_preloading(app.preload_in_progress)
+            scene_path = config.scene_path
+            variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                f"[demo] streaming auto-start scene -> {scene_path.name} "
+                f"variant={variant!r}",
+            )
+        else:
+            # Don't auto-load: always wait for the browser to pick the first
+            # scene. There's no Vulkan window to show progress in, so the
+            # presenter publishes an idle overlay frame ("Loading world
+            # model..." while warmup runs in the background, then "Select a
+            # scene to begin") so connected browsers have something to render
+            # while the wait spins.
+            logger.info(
+                "[demo] streaming presenter waiting for first scene selection...",
+            )
+            request = presenter.wait_for_scene_selection()
+            if request is None:
+                return  # presenter closed before any selection (Ctrl-C)
+            scene_path, variant = request
+            presenter.acknowledge_scene_change(scene_path, variant)
+            logger.info(
+                f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
+            )
 
         while True:
             # load_scene parses the USDZ on a background thread while the
@@ -1042,6 +1061,32 @@ def _resolve_demo_paths(args: argparse.Namespace) -> None:
         args.manifest = _cli.resolve_manifest_path(args.manifest)
     if args.control_assets_dir is not None:
         args.control_assets_dir = _project_path(args.control_assets_dir)
+
+
+def _materialize_synthetic_scene_for_picker(args: argparse.Namespace) -> None:
+    """Build ``--synthetic-scene`` before scene-picker discovery.
+
+    The single-scene ``--no-hud`` path lets ``cli.prepare_config_and_backend``
+    materialize the synthetic USDZ. HUD and MJPEG modes discover scenes first
+    so the picker can show options before a scene is loaded; those modes need
+    the temporary USDZ to exist before discovery runs.
+    """
+    if not args.synthetic_scene:
+        return
+    scene_path = build_synthetic_scene_to_temp(
+        initial_rgb_path=args.synthetic_initial_rgb,
+        prompt=args.synthetic_prompt,
+    )
+    logger.info(
+        "[interactive-drive] synthetic scene materialised at {}",
+        scene_path,
+    )
+    args.scene = scene_path
+    # The synthetic inputs have been consumed into the temp USDZ. Clear them so
+    # the later shared backend builder treats the scene as a normal archive.
+    args.synthetic_scene = False
+    args.synthetic_initial_rgb = None
+    args.synthetic_prompt = None
 
 
 def _project_path(path: Path) -> Path:

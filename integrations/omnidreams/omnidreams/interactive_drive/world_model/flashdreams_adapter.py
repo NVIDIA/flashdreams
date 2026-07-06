@@ -15,6 +15,10 @@ from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
+from omnidreams.interactive_drive.world_model.synthetic_fixture import (
+    build_synthetic_world_model_assets,
+    default_synthetic_asset_dir,
+)
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -79,6 +83,9 @@ def _pipeline_config_log_line(
     scheduler = config.diffusion_model.scheduler
     encoder = config.encoder
     image_encoder = config.image_encoder
+    encoder_native = getattr(encoder, "native_vae_acceleration", None)
+    image_encoder_native = getattr(image_encoder, "native_vae_acceleration", None)
+    native_backend = getattr(encoder, "native_vae_backend", None)
     return (
         "[flashdreams-session] resolved pipeline config "
         f"selected_recipe={config_name} "
@@ -90,9 +97,9 @@ def _pipeline_config_log_line(
         f"compile_network={transformer.compile_network} "
         f"use_cuda_graph={transformer.use_cuda_graph} "
         f"denoising_steps={list(scheduler.denoising_timesteps)} "
-        f"encoder_native_vae={encoder.native_vae_acceleration} "
-        f"image_encoder_native_vae={image_encoder.native_vae_acceleration} "
-        f"native_vae_backend={encoder.native_vae_backend}"
+        f"encoder_native_vae={encoder_native} "
+        f"image_encoder_native_vae={image_encoder_native} "
+        f"native_vae_backend={native_backend}"
     )
 
 
@@ -158,12 +165,75 @@ def _build_pipeline_config(
             f"{config_name} uses flashdreams default denoising steps [1000, 450]; "
             f"got {manifest.denoising_steps}."
         )
+    if manifest.synthetic_model:
+        config = _apply_synthetic_model_overrides(
+            config,
+            manifest=manifest,
+            config_name=base_config_name,
+            derive_config=derive_config,
+        )
     logger.info(
         _pipeline_config_log_line(
             config,
             config_name=config_name,
             base_config_name=base_config_name,
         ),
+    )
+    return config
+
+
+def _apply_synthetic_model_overrides(
+    config: Any,
+    *,
+    manifest: WorldModelManifest,
+    config_name: str,
+    derive_config: Callable[..., Any],
+) -> Any:
+    # Raise rather than ``assert`` so the guard survives ``python -O``.
+    if config.encoder is None:
+        raise ValueError("synthetic Omnidreams config requires an encoder")
+    if config.decoder is None:
+        raise ValueError("synthetic Omnidreams config requires a decoder")
+
+    width, height = manifest.resolution_wh
+    assets = build_synthetic_world_model_assets(
+        default_synthetic_asset_dir(config_name=config_name),
+        encoder_cfg=config.encoder,
+        decoder_cfg=config.decoder,
+        native_vae_fp8=manifest.native_vae_encoder == "fp8",
+        pixel_height=height,
+        pixel_width=width,
+        device=manifest.device,
+    )
+    text_encoder = getattr(config, "text_encoder", None)
+    text_max_length = int(getattr(text_encoder, "max_length", 512))
+
+    encoder_patch: dict[str, object] = {}
+    if assets.encoder_checkpoint_path is not None:
+        encoder_patch["checkpoint_path"] = str(assets.encoder_checkpoint_path)
+    if assets.native_vae_fp8_state_path is not None:
+        encoder_patch["native_vae_fp8_state_path"] = str(
+            assets.native_vae_fp8_state_path
+        )
+
+    decoder_patch: dict[str, object] = {
+        "checkpoint_path": str(assets.decoder_checkpoint_path),
+        "state_dict_transform": None,
+    }
+
+    # ``synthetic_text_max_length`` is a real OmnidreamsPipelineConfig field, so
+    # thread it through derive_config alongside the encoder swap rather than
+    # mutating the config afterwards. The text encoder is dropped here, so this
+    # is the only surviving record of the production sequence length that
+    # ``_synthetic_embeddings_for_pipeline`` needs to size the zero embeddings.
+    config = derive_config(
+        config,
+        text_encoder=None,
+        image_encoder=None,
+        encoder=encoder_patch,
+        decoder=decoder_patch,
+        diffusion_model=dict(transformer=dict(checkpoint_path=None)),
+        synthetic_text_max_length=text_max_length,
     )
     return config
 
@@ -320,6 +390,67 @@ def _to_model_range(tensor: torch.Tensor, *, device: torch.device) -> torch.Tens
     return tensor / 127.5 - 1.0
 
 
+def _synthetic_embeddings_for_pipeline(
+    pipeline: Any,
+    manifest: WorldModelManifest,
+) -> dict[str, torch.Tensor | None]:
+    transformer = pipeline.diffusion_model.transformer
+    transformer_cfg = transformer.config
+    network_cfg = transformer_cfg.network
+    text_dim = (
+        int(network_cfg.crossattn_proj_in_channels)
+        if network_cfg.use_crossattn_projection
+        else int(network_cfg.crossattn_emb_channels)
+    )
+    # Set by _apply_synthetic_model_overrides; read strictly (no silent default)
+    # so a missing value fails loudly instead of mis-sizing the embeddings.
+    text_max_length = pipeline.config.synthetic_text_max_length
+    if text_max_length is None:
+        raise RuntimeError(
+            "synthetic_text_max_length is unset; _apply_synthetic_model_overrides "
+            "must run before synthetic cache initialization"
+        )
+    text_tokens = int(text_max_length)
+    batch_size = int(np.prod(transformer_cfg.batch_shape))
+    num_views = int(transformer_cfg.num_views) * int(getattr(pipeline, "V_size", 1))
+    latent_channels = int(network_cfg.in_channels)
+    decoder = pipeline.decoder
+    if decoder is None:
+        raise RuntimeError("synthetic_model requires a video decoder")
+    compression = int(decoder.spatial_compression_ratio)
+    width, height = manifest.resolution_wh
+    if height % compression or width % compression:
+        raise ValueError(
+            "synthetic_model resolution_wh must be divisible by decoder "
+            f"spatial compression {compression}, got {(width, height)}"
+        )
+    latent_height = height // compression
+    latent_width = width // compression
+    dtype = transformer_cfg.dtype
+    device = pipeline.device
+
+    text_embeddings = torch.zeros(
+        (batch_size, num_views, text_tokens, text_dim),
+        device=device,
+        dtype=dtype,
+    )
+    image_embeddings = torch.zeros(
+        (batch_size, num_views, 1, latent_channels, latent_height, latent_width),
+        device=device,
+        dtype=dtype,
+    )
+    negative_text_embeddings = (
+        torch.zeros_like(text_embeddings)
+        if transformer_cfg.requires_negative_text_embeddings
+        else None
+    )
+    return {
+        "text_embeddings": text_embeddings,
+        "image_embeddings": image_embeddings,
+        "negative_text_embeddings": negative_text_embeddings,
+    }
+
+
 class FlashdreamsWorldModelSession:
     """Thin adapter from interactive-drive chunking to flashdreams AlpadreamsPipeline."""
 
@@ -355,7 +486,11 @@ class FlashdreamsWorldModelSession:
         # prepare_for_scene so the one-shot encoders are freed before the
         # AR pipeline is allocated (peak-VRAM ordering); every other path
         # builds the pipeline eagerly with no scene needed.
-        return self._pipeline_factory is not None or not self._offload_text_encoder
+        return (
+            self.manifest.synthetic_model
+            or self._pipeline_factory is not None
+            or not self._offload_text_encoder
+        )
 
     def warmup_model(self) -> None:
         """Build the scene-independent diffusion pipeline (weights + compile).
@@ -368,7 +503,7 @@ class FlashdreamsWorldModelSession:
         start = time.perf_counter()
         if self._pipeline_factory is not None:
             self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
-        elif self._offload_text_encoder:
+        elif self._offload_text_encoder and not self.manifest.synthetic_model:
             return
         else:
             config = _build_pipeline_config(self.manifest, self._profile_config)
@@ -390,6 +525,8 @@ class FlashdreamsWorldModelSession:
         (precompute embeddings -> free encoders -> build pipeline) to keep
         peak VRAM low; the factory test path recomputes lazily in ``start``.
         """
+        if self.manifest.synthetic_model:
+            return
         if not self._offload_text_encoder:
             return
         self._precomputed_embeddings = None
@@ -517,6 +654,8 @@ class FlashdreamsWorldModelSession:
         self._pipeline = None
 
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
+        if self.manifest.synthetic_model:
+            return self._initialize_synthetic_cache()
         if self._offload_text_encoder:
             embeddings = self._ensure_precomputed_embeddings(initial_rgb, prompt)
             initialize_cache_from_embeddings = getattr(
@@ -536,6 +675,25 @@ class FlashdreamsWorldModelSession:
         return self.pipeline.initialize_cache(
             text=[[prompt]],
             image=self._initial_rgb_tensor(initial_rgb),
+            view_names=_VIEW_NAMES,
+        )
+
+    def _initialize_synthetic_cache(self) -> Any:
+        initialize_cache_from_embeddings = getattr(
+            self.pipeline, "initialize_cache_from_embeddings", None
+        )
+        if not callable(initialize_cache_from_embeddings):
+            raise RuntimeError(
+                "synthetic_model requires flashdreams initialize_cache_from_embeddings()."
+            )
+        embeddings = _synthetic_embeddings_for_pipeline(
+            self.pipeline,
+            self.manifest,
+        )
+        return initialize_cache_from_embeddings(
+            text_embeddings=embeddings["text_embeddings"],
+            image_embeddings=embeddings["image_embeddings"],
+            negative_text_embeddings=embeddings["negative_text_embeddings"],
             view_names=_VIEW_NAMES,
         )
 

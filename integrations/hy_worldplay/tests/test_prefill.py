@@ -276,14 +276,7 @@ def test_dual_branch_attention_short_circuits_empty_memory_cache() -> None:
     here (the fused RoPE kernel is CUDA-only so we can't pin attention
     bit-identity from CPU).
     """
-    from hy_worldplay._camera import (
-        HyWorldPlayMemoryKVCache,
-        HyWorldPlayPRoPESelfAttention,
-    )
-
-    attn = HyWorldPlayPRoPESelfAttention(
-        query_dim=64, n_heads=2, head_dim=32, eps=1e-6, apply_rope_before_kvcache=True
-    )
+    from hy_worldplay._camera import HyWorldPlayMemoryKVCache
 
     empty_memory = HyWorldPlayMemoryKVCache()
     assert empty_memory.is_empty
@@ -380,6 +373,67 @@ def test_index_rollout_buffer_slices_action_at_rollout_indices() -> None:
     # Indices must match the requested rollout positions, not a
     # contiguous chunk slice.
     assert torch.equal(sliced, torch.tensor([[0, 3, 5]]))
+
+
+def test_prefill_rope_positions_track_frame_identity_not_slot() -> None:
+    """Memory prefill must RoPE-modulate each frame at its TRUE temporal position.
+
+    The position must be the frame's clean-latent-history index, not the
+    buffer slot it lands in. Slot-based positions (the old ``arange(K)``)
+    gave a frame a different encoding whenever the selected set was
+    re-chosen, which made the native rollout choppy at chunk boundaries.
+    Here we capture the ``t_positions`` the driver hands to
+    ``_build_memory_rope_freqs`` and assert it equals the selected frame
+    indices -- and that a frame keeps its position regardless of slot.
+    """
+    import types
+
+    from hy_worldplay._action import HyWorldPlayWan21Transformer
+
+    transformer = HyWorldPlayWan21Transformer.__new__(HyWorldPlayWan21Transformer)
+
+    tokens_per_frame = 4
+    history = torch.randn(1, 6 * tokens_per_frame, 16)  # 6 frames
+    cache = types.SimpleNamespace(
+        clean_latent_history=history,
+        hy_tokens_per_frame=tokens_per_frame,
+    )
+
+    captured: dict[str, torch.Tensor] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _capture(*, cache, t_positions):  # noqa: ANN001 (test stub)
+        captured["t"] = t_positions.detach().clone()
+        raise _Stop()
+
+    transformer._build_memory_rope_freqs = _capture  # type: ignore[assignment]
+
+    def positions_for(selected: list[int]) -> list[float]:
+        inp = types.SimpleNamespace(
+            memory_frame_indices=selected,
+            rollout_viewmats=None,
+            viewmats=None,
+            rollout_Ks=None,
+            Ks=None,
+            rollout_action=None,
+            action=None,
+        )
+        with pytest.raises(_Stop):
+            transformer.prefill_memory_kv_cache(
+                cache=cache,  # type: ignore[arg-type]
+                input=inp,  # type: ignore[arg-type]
+                timestep=torch.zeros(1),
+            )
+        return captured["t"].tolist()
+
+    # Positions are the selected frame indices themselves, not arange(K).
+    assert positions_for([1, 3]) == [1.0, 3.0]
+    assert positions_for([0, 2, 5]) == [0.0, 2.0, 5.0]
+    # Identity-stability: frame 3 keeps position 3 whether it's in slot 1
+    # (set [1, 3]) or slot 0 (set [3, 5]) -- the property the fix restores.
+    assert positions_for([1, 3])[1] == positions_for([3, 5])[0] == 3.0
 
 
 def test_index_rollout_buffer_slices_matrices_at_frame_axis() -> None:
@@ -666,8 +720,6 @@ def test_encoder_attaches_rollout_buffers_to_ctrl() -> None:
 
     # Stub the parent's forward so we don't have to spin up a VAE --
     # this test only exercises the action / viewmats / Ks attach paths.
-    from hy_worldplay._action import HyWorldPlayCtrl
-
     from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 
     # 16 latent frames total (= 4 chunks of len_t=4) so we can test

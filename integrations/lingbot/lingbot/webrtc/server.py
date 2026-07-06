@@ -16,8 +16,6 @@
 from __future__ import annotations
 
 import argparse
-import gc
-import logging
 import os
 from pathlib import Path
 from typing import Protocol, cast
@@ -29,12 +27,13 @@ from aiohttp.multipart import BodyPartReader
 from loguru import logger
 
 from flashdreams.core.distributed import (
-    configure_loguru_for_distributed,
-)
-from flashdreams.core.distributed import (
     init as distributed_init,
 )
 from flashdreams.serving.network import get_external_ip
+from flashdreams.serving.webrtc.bootstrap import (
+    configure_logging,
+    run_webrtc_server,
+)
 from flashdreams.serving.webrtc.server import (
     SESSION_MANAGER_KEY,
     SessionBusyError,
@@ -68,12 +67,6 @@ class LingbotSessionManager(WebRTCSessionManager, Protocol):
 
 def _get_lingbot_manager(app: web.Application) -> LingbotSessionManager:
     return cast(LingbotSessionManager, app[SESSION_MANAGER_KEY])
-
-
-def configure_logging(*, world_rank: int | None = None) -> None:
-    configure_loguru_for_distributed(world_rank=world_rank)
-    for logger_name in ("aioice", "aioice.ice", "aiortc"):
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def parse_args() -> argparse.Namespace:
@@ -363,6 +356,7 @@ def main() -> None:
         runtime_config=runtime_config,
         fps=args.fps,
     )
+    app = None
     if world_rank == 0:
         external_ip = get_external_ip()
         app = create_app(
@@ -370,25 +364,13 @@ def main() -> None:
             request_session_url=f"http://{external_ip}:{args.port}/request_session",
         )
         logger.info("Starting on external IP: {}", external_ip)
-        try:
-            web.run_app(app, host=args.host, port=args.port)
-        finally:
-            session_manager.send_exit_signal()
-    else:
-        try:
-            session_manager.wait_for_termination()
-        except KeyboardInterrupt:
-            logger.warning("Worker rank interrupted, shutting down.")
-
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-    if dist.is_initialized():
-        dist.barrier()
-        logger.info("[Rank {}] Destroying process group", world_rank)
-        dist.destroy_process_group()
+    run_webrtc_server(
+        world_rank=world_rank,
+        session_manager=session_manager,
+        app=app,
+        host=args.host,
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":

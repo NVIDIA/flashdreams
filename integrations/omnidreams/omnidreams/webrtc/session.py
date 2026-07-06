@@ -4,17 +4,13 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
 import os
 import shutil
 import tempfile
 import time
 import zipfile
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-from enum import IntEnum
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import AbstractSet, Any, Callable, TypeVar
 
@@ -22,7 +18,6 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
-from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from filelock import FileLock
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
@@ -57,19 +52,17 @@ from flashdreams.core.distributed.rank_orchestration import (
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
-    KeyboardResampler,
     PoseSegment,
 )
-from flashdreams.serving.webrtc.media import BufferedVideoTrack
-from flashdreams.serving.webrtc.server import SessionBusyError
-from flashdreams.serving.webrtc.warmup import (
-    run_loopback_warmup_session,
-    wait_for_ice_gathering_complete,
+from flashdreams.serving.webrtc.manager import (
+    DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
+    WebRTCControlSignal,
+    WebRTCStepResult,
 )
 
 _T = TypeVar("_T")
-DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
-_CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 # Default scene (clear-weather base archive). Weather siblings are selected
 # via OmnidreamsRuntimeConfig.scene_variant / the server's --scene-variant.
 DEFAULT_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
@@ -407,14 +400,6 @@ class OmnidreamsRuntimeError(RuntimeError):
     """Raised when the Omnidreams WebRTC runtime is used incorrectly."""
 
 
-class OmnidreamsControlSignal(IntEnum):
-    INITIALIZE = 0
-    RESET_SESSION = 1
-    ACTION_STEP = 2
-    CLOSE = 3
-    EXIT = 4
-
-
 @dataclass(slots=True)
 class OmnidreamsRuntimeConfig:
     pipeline_config_name: str = (
@@ -437,14 +422,6 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
-
-
-@dataclass(slots=True)
-class OmnidreamsStepResult:
-    chunk_index: int
-    num_frames: int
-    video_chunk: torch.Tensor
-    stats: dict[str, float] | None
 
 
 class OmnidreamsInferenceRuntime:
@@ -487,7 +464,7 @@ class OmnidreamsInferenceRuntime:
         self._step_lock = asyncio.Lock()
         self.rank_coordinator = RankCoordinator(
             device=control_device,
-            signal_type=OmnidreamsControlSignal,
+            signal_type=WebRTCControlSignal,
             is_master=self.is_master,
             master_rank=self.MASTER_RANK,
         )
@@ -498,11 +475,11 @@ class OmnidreamsInferenceRuntime:
         return self.rank == self.MASTER_RANK
 
     def wait_for_termination(self) -> None:
-        self.rank_coordinator.worker_loop(exit_signal=OmnidreamsControlSignal.EXIT)
+        self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
 
     def send_exit_signal(self) -> None:
         if self.is_master:
-            self.rank_coordinator.send_exit(exit_signal=OmnidreamsControlSignal.EXIT)
+            self.rank_coordinator.send_exit(exit_signal=WebRTCControlSignal.EXIT)
 
     async def initialize(self) -> None:
         if self._wrapper is not None:
@@ -528,7 +505,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> OmnidreamsStepResult:
+    ) -> WebRTCStepResult:
         if self._closed:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
@@ -580,23 +557,23 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         return int(self._wrapper.frame_chunk_size)
 
-    @distributed_op(OmnidreamsControlSignal.INITIALIZE)
+    @distributed_op(WebRTCControlSignal.INITIALIZE)
     def _initialize_sync_all_ranks(self) -> None:
         self._initialize_sync()
 
-    @distributed_op(OmnidreamsControlSignal.RESET_SESSION)
+    @distributed_op(WebRTCControlSignal.RESET_SESSION)
     def _reset_rollout_sync_all_ranks(self) -> None:
         self._reset_rollout_sync()
 
-    @distributed_op(OmnidreamsControlSignal.ACTION_STEP)
+    @distributed_op(WebRTCControlSignal.ACTION_STEP)
     def _generate_chunk_sync_all_ranks(
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> OmnidreamsStepResult:
+    ) -> WebRTCStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
-    @distributed_op(OmnidreamsControlSignal.CLOSE)
+    @distributed_op(WebRTCControlSignal.CLOSE)
     def _close_sync_all_ranks(self) -> None:
         self._close_sync()
 
@@ -833,7 +810,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> OmnidreamsStepResult:
+    ) -> WebRTCStepResult:
         if (
             self._wrapper is None
             or self._renderer is None
@@ -902,7 +879,7 @@ class OmnidreamsInferenceRuntime:
         else:
             video_chunk = output.rgb_frames
 
-        result = OmnidreamsStepResult(
+        result = WebRTCStepResult(
             chunk_index=self.autoregressive_index,
             num_frames=int(video_chunk.shape[2]),
             video_chunk=video_chunk.detach().cpu(),
@@ -918,52 +895,19 @@ class OmnidreamsInferenceRuntime:
         return timestamps
 
 
-@dataclass(slots=True)
-class _ManagedOmnidreamsSession:
-    runtime: OmnidreamsInferenceRuntime
-    video_track: BufferedVideoTrack
-    peer_connection: Any
-    resampler: KeyboardResampler
-    control_channel: Any | None = None
-    generation_task: asyncio.Task[Any] | None = None
-    first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
-    pending_action_arrivals: deque[float] = field(default_factory=deque)
-    last_client_message_at: float = 0.0
-    liveness_task: asyncio.Task[Any] | None = None
-    closed: bool = False
-
-    async def close(self) -> None:
-        if self.closed:
-            return
-        self.closed = True
-
-        current_task = asyncio.current_task()
-        if (
-            self.liveness_task is not None
-            and self.liveness_task is not current_task
-            and not self.liveness_task.done()
-        ):
-            self.liveness_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.liveness_task
-        self.liveness_task = None
-
-        if (
-            self.generation_task is not None
-            and self.generation_task is not current_task
-            and not self.generation_task.done()
-        ):
-            self.generation_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.generation_task
-        self.generation_task = None
-
-        await self.video_track.close()
-        await self.peer_connection.close()
+_ManagedOmnidreamsSession = ManagedWebRTCSession
 
 
-class OmnidreamsWebRTCSessionManager:
+class OmnidreamsWebRTCSessionManager(BaseWebRTCSessionManager):
     """Owns one active WebRTC session and forwards WSAD actions."""
+
+    _busy_message = "An Omnidreams session is already active."
+    _warmup_label = "Omnidreams WebRTC"
+    _runtime_error_types = (OmnidreamsRuntimeError,)
+    # A chunk-generation failure here is fatal to the rollout, so tear the
+    # session down instead of retrying on the next tick.
+    _close_session_on_generation_error = True
+    _resampler_supported_keys = WSAD_SUPPORTED_KEYS
 
     def __init__(
         self,
@@ -971,139 +915,21 @@ class OmnidreamsWebRTCSessionManager:
         runtime_config: OmnidreamsRuntimeConfig | None = None,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
-        if client_liveness_timeout_s <= 0:
-            raise ValueError("client_liveness_timeout_s must be > 0")
-        self.runtime_config = runtime_config or OmnidreamsRuntimeConfig()
-        self.fps = self.runtime_config.fps
-        self.client_liveness_timeout_s = client_liveness_timeout_s
-        self._runtime = OmnidreamsInferenceRuntime(config=self.runtime_config)
-        self._runtime_ready = False
-        self._warmup_complete = False
-        self._active_session: _ManagedOmnidreamsSession | None = None
-        self._preload_lock = asyncio.Lock()
-        self._session_lock = asyncio.Lock()
-
-    def has_active_session(self) -> bool:
-        return self._active_session is not None and not self._active_session.closed
-
-    def is_runtime_ready(self) -> bool:
-        return self._runtime_ready
-
-    async def preload_runtime(self) -> None:
-        async with self._preload_lock:
-            if not self._runtime_ready:
-                logger.info("Omnidreams runtime preload: initializing model runtime.")
-                preload_t0 = time.perf_counter()
-                await self._runtime.initialize()
-                self._runtime_ready = True
-                logger.info(
-                    "Omnidreams runtime preload: model runtime ready in {:.1f}s.",
-                    time.perf_counter() - preload_t0,
-                )
-            if not self._warmup_complete:
-                logger.info(
-                    "Omnidreams runtime preload: starting loopback warmup with {} "
-                    "chunk(s).",
-                    self.runtime_config.warmup_chunks,
-                )
-                warmup_t0 = time.perf_counter()
-                await self._run_loopback_warmup_session(
-                    num_chunks=self.runtime_config.warmup_chunks
-                )
-                self._warmup_complete = True
-                logger.info(
-                    "Omnidreams runtime preload: warmup complete in {:.1f}s.",
-                    time.perf_counter() - warmup_t0,
-                )
-
-    async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
-        if not self._runtime_ready or not self._warmup_complete:
-            await self.preload_runtime()
-
-        async with self._session_lock:
-            if self._active_session is not None and not self._active_session.closed:
-                raise SessionBusyError("An Omnidreams session is already active.")
-
-            return await self._create_answer_with_runtime_ready_locked(
-                offer_sdp=offer_sdp,
-                offer_type=offer_type,
-            )
-
-    async def _create_answer_with_runtime_ready_locked(
-        self,
-        *,
-        offer_sdp: str,
-        offer_type: str,
-        rtc_configuration: RTCConfiguration | None = None,
-        enable_liveness_watchdog: bool = True,
-    ) -> dict[str, str]:
-        if self._active_session is not None and not self._active_session.closed:
-            raise SessionBusyError("An Omnidreams session is already active.")
-        if not self._runtime_ready:
-            raise OmnidreamsRuntimeError("Runtime is not initialized.")
-
-        await self._runtime.reset_for_new_session()
-
-        peer_connection = RTCPeerConnection(rtc_configuration)
-        num_frames = self._runtime.peek_steady_chunk_num_frames()
-        video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
-        peer_connection.addTrack(video_track)
-        resampler = KeyboardResampler(
-            fps=self.fps,
-            start_v=0.0,
-            supported_keys=WSAD_SUPPORTED_KEYS,
+        runtime_config = runtime_config or OmnidreamsRuntimeConfig()
+        super().__init__(
+            runtime=OmnidreamsInferenceRuntime(config=runtime_config),
+            runtime_config=runtime_config,
+            fps=runtime_config.fps,
+            client_liveness_timeout_s=client_liveness_timeout_s,
         )
-        loop = asyncio.get_running_loop()
-        managed_session = _ManagedOmnidreamsSession(
-            runtime=self._runtime,
-            video_track=video_track,
-            peer_connection=peer_connection,
-            resampler=resampler,
-            last_client_message_at=loop.time(),
-        )
-        self._active_session = managed_session
-        if enable_liveness_watchdog:
-            managed_session.liveness_task = asyncio.create_task(
-                self._client_liveness_watchdog(managed_session=managed_session)
-            )
 
-        @peer_connection.on("datachannel")
-        def on_datachannel(channel: Any) -> None:
-            managed_session.control_channel = channel
-            channel_open_v = asyncio.get_running_loop().time()
-            managed_session.resampler.reset(start_v=channel_open_v)
+    def _model_name(self) -> str:
+        return self.runtime_config.pipeline_config_name
 
-            @channel.on("message")
-            def on_message(message: Any) -> None:
-                asyncio.create_task(
-                    self._handle_datachannel_message(
-                        managed_session=managed_session,
-                        raw_message=message,
-                    )
-                )
+    def _chunk_done_extra(self) -> dict[str, Any]:
+        return {"stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"}
 
-            managed_session.generation_task = asyncio.create_task(
-                self._generation_worker(managed_session=managed_session)
-            )
-
-            @channel.on("close")
-            def on_close() -> None:
-                logger.info("Control data channel closed; closing active session.")
-                asyncio.create_task(self.close_active_session())
-
-        @peer_connection.on("connectionstatechange")
-        async def on_connectionstatechange() -> None:
-            logger.info(
-                "Peer connection state changed: {}",
-                peer_connection.connectionState,
-            )
-            if peer_connection.connectionState in {
-                "failed",
-                "disconnected",
-                "closed",
-            }:
-                await self.close_active_session()
-
+    def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         @peer_connection.on("iceconnectionstatechange")
         def on_iceconnectionstatechange() -> None:
             logger.info(
@@ -1118,303 +944,12 @@ class OmnidreamsWebRTCSessionManager:
                 peer_connection.iceGatheringState,
             )
 
-        try:
-            offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
-            logger.info(
-                "Received WebRTC offer with {}.",
-                _summarize_sdp_candidates(offer_sdp),
-            )
-            await peer_connection.setRemoteDescription(offer)
-            answer = await peer_connection.createAnswer()
-            await peer_connection.setLocalDescription(answer)
-            await wait_for_ice_gathering_complete(peer_connection)
-            local_description = peer_connection.localDescription
-            if local_description is None:
-                raise RuntimeError("Peer connection did not produce local description.")
-            logger.info(
-                "Created WebRTC answer with {}.",
-                _summarize_sdp_candidates(local_description.sdp),
-            )
-            return {"sdp": local_description.sdp, "type": local_description.type}
-        except Exception:
-            logger.exception("WebRTC negotiation failed while creating an answer.")
-            await managed_session.close()
-            self._active_session = None
-            raise
-
-    async def _run_loopback_warmup_session(self, *, num_chunks: int) -> None:
-        if not self._runtime_ready:
-            raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        await run_loopback_warmup_session(
-            num_chunks=num_chunks,
-            warmup_timeout_s=self.runtime_config.warmup_timeout_s,
-            create_answer=self._create_loopback_warmup_answer,
-            close_active_session=self.close_active_session,
-            label="Omnidreams WebRTC",
-            logger=logger,
+    def _on_offer_received(self, offer_sdp: str) -> None:
+        logger.info(
+            "Received WebRTC offer with {}.", _summarize_sdp_candidates(offer_sdp)
         )
 
-    async def _create_loopback_warmup_answer(
-        self, *, offer_sdp: str, offer_type: str
-    ) -> dict[str, str]:
-        async with self._session_lock:
-            return await self._create_answer_with_runtime_ready_locked(
-                offer_sdp=offer_sdp,
-                offer_type=offer_type,
-                rtc_configuration=RTCConfiguration(iceServers=[]),
-                enable_liveness_watchdog=False,
-            )
-
-    async def close_active_session(self) -> None:
-        async with self._session_lock:
-            if self._active_session is None:
-                return
-            active_session = self._active_session
-            self._active_session = None
-            await active_session.close()
-
-    async def _client_liveness_watchdog(
-        self, *, managed_session: _ManagedOmnidreamsSession
-    ) -> None:
-        loop = asyncio.get_running_loop()
-        try:
-            while not managed_session.closed:
-                elapsed_s = loop.time() - managed_session.last_client_message_at
-                if elapsed_s >= self.client_liveness_timeout_s:
-                    logger.warning(
-                        "No client heartbeat/control message for {:.1f}s; "
-                        "closing active session.",
-                        elapsed_s,
-                    )
-                    await self.close_active_session()
-                    return
-                await asyncio.sleep(
-                    min(
-                        _CLIENT_LIVENESS_CHECK_INTERVAL_S,
-                        self.client_liveness_timeout_s - elapsed_s,
-                    )
-                )
-        except asyncio.CancelledError:
-            raise
-
-    async def shutdown(self) -> None:
-        await self.close_active_session()
-        await self._runtime.close()
-        self._runtime_ready = False
-        self._warmup_complete = False
-
-    def wait_for_termination(self) -> None:
-        self._runtime.wait_for_termination()
-
-    def send_exit_signal(self) -> None:
-        self._runtime.send_exit_signal()
-
-    async def _handle_datachannel_message(
-        self,
-        *,
-        managed_session: _ManagedOmnidreamsSession,
-        raw_message: Any,
-    ) -> None:
-        channel = managed_session.control_channel
-        if channel is None or managed_session.closed:
-            return
-        managed_session.last_client_message_at = asyncio.get_running_loop().time()
-
-        if not isinstance(raw_message, str):
-            self._send_json(
-                channel, {"type": "error", "message": "Expected text payload."}
-            )
-            return
-
-        try:
-            payload = json.loads(raw_message)
-        except json.JSONDecodeError:
-            self._send_json(
-                channel, {"type": "error", "message": "Invalid JSON payload."}
-            )
-            return
-
-        if not isinstance(payload, dict):
-            self._send_json(
-                channel, {"type": "error", "message": "Payload must be a JSON object."}
-            )
-            return
-        message_type = str(payload.get("type", "")).strip().lower()
-        if message_type == "heartbeat":
-            return
-        if message_type == "disconnect":
-            logger.info("Client requested disconnect; closing active session.")
-            await self.close_active_session()
-            return
-        if message_type != "action":
-            self._send_json(
-                channel,
-                {
-                    "type": "error",
-                    "message": "Unsupported message type, expected "
-                    "'action', 'heartbeat', or 'disconnect'.",
-                },
-            )
-            return
-
-        action_payload = payload.get("action", payload)
-        if not isinstance(action_payload, dict):
-            self._send_json(
-                channel, {"type": "error", "message": "'action' must be an object."}
-            )
-            return
-
-        event = str(action_payload.get("event", "")).strip().lower()
-        if event == "step":
-            return
-        if event not in ("keydown", "keyup"):
-            self._send_json(
-                channel,
-                {
-                    "type": "error",
-                    "message": f"Unsupported event={event!r}; "
-                    "expected 'keydown' or 'keyup'.",
-                },
-            )
-            return
-        key = str(action_payload.get("key", "")).strip()
-        if not key:
-            self._send_json(
-                channel,
-                {
-                    "type": "error",
-                    "message": "Action payload must include non-empty 'key'.",
-                },
-            )
-            return
-
-        arrival_t = asyncio.get_running_loop().time()
-        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
-        managed_session.pending_action_arrivals.append(arrival_t)
-        managed_session.first_action_received.set()
-
-    async def _generation_worker(
-        self, *, managed_session: _ManagedOmnidreamsSession
-    ) -> None:
-        loop = asyncio.get_running_loop()
-        runtime = managed_session.runtime
-        resampler = managed_session.resampler
-        video_track = managed_session.video_track
-
-        logger.info("Generation worker idle; waiting for first WSAD action.")
-        try:
-            await managed_session.first_action_received.wait()
-        except asyncio.CancelledError:
-            logger.info("Generation worker cancelled before first action.")
-            raise
-        if managed_session.closed:
-            return
-        resampler.next_chunk_start_v = loop.time()
-
-        try:
-            while not managed_session.closed:
-                try:
-                    num_frames = runtime.peek_next_chunk_num_frames()
-                except OmnidreamsRuntimeError:
-                    logger.exception("Runtime not ready; stopping generation worker.")
-                    return
-                chunk_duration = num_frames * resampler.dt
-                trigger_wall = resampler.next_chunk_start_v + chunk_duration
-                delay = trigger_wall - loop.time()
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                if managed_session.closed:
-                    break
-
-                now = loop.time()
-                lag = now - (resampler.next_chunk_start_v + chunk_duration)
-                if lag > chunk_duration:
-                    resampler.next_chunk_start_v = now - chunk_duration
-
-                t_before_gen = loop.time()
-                segments, frame_times = resampler.sample_chunk(num_frames)
-                chunk_end_v = resampler.next_chunk_start_v
-                consumed_action_arrivals: list[float] = []
-                while (
-                    managed_session.pending_action_arrivals
-                    and managed_session.pending_action_arrivals[0] <= chunk_end_v
-                ):
-                    consumed_action_arrivals.append(
-                        managed_session.pending_action_arrivals.popleft()
-                    )
-                try:
-                    result = await runtime.generate_chunk(
-                        segments=segments, frame_times=frame_times
-                    )
-                except Exception as exc:
-                    logger.exception("Chunk generation failed; closing session.")
-                    channel = managed_session.control_channel
-                    if channel is not None:
-                        self._send_json(channel, {"type": "error", "message": str(exc)})
-                    await self.close_active_session()
-                    return
-                t_after_gen = loop.time()
-                enqueued = await video_track.enqueue_chunk(result.video_chunk)
-                t_after_enqueue = loop.time()
-
-                gen_ms = (t_after_gen - t_before_gen) * 1e3
-                enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3
-                play_ms = result.num_frames * 1000.0 / video_track.fps
-                lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
-                control_latency_ms = (
-                    (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
-                    if consumed_action_arrivals
-                    else None
-                )
-                logger.info(
-                    "Chunk done chunk={} num_frames={} segments={} "
-                    "enqueued={} gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} "
-                    "queue_depth={} lag_ms={:.1f}",
-                    result.chunk_index,
-                    result.num_frames,
-                    len(segments),
-                    enqueued,
-                    gen_ms,
-                    enqueue_ms,
-                    play_ms,
-                    video_track.qsize(),
-                    lag_ms,
-                )
-
-                channel = managed_session.control_channel
-                if channel is not None:
-                    payload: dict[str, Any] = {
-                        "type": "chunk_done",
-                        "chunk_index": result.chunk_index,
-                        "num_frames": result.num_frames,
-                        "enqueued_frames": enqueued,
-                        "fps": video_track.fps,
-                        "resolution": {
-                            "width": self.runtime_config.video_width,
-                            "height": self.runtime_config.video_height,
-                        },
-                        "model": self.runtime_config.pipeline_config_name,
-                        "stream": (
-                            "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"
-                        ),
-                        "gen_ms": round(gen_ms, 1),
-                        "enqueue_ms": round(enqueue_ms, 1),
-                        "play_ms": round(play_ms, 1),
-                        "queue_depth": video_track.qsize(),
-                        "lag_ms": round(lag_ms, 1),
-                    }
-                    if control_latency_ms is not None:
-                        payload["latency_ms"] = round(control_latency_ms, 1)
-                        payload["control_latency_ms"] = round(control_latency_ms, 1)
-                        payload["consumed_actions"] = len(consumed_action_arrivals)
-                    self._send_json(channel, payload)
-        except asyncio.CancelledError:
-            logger.info("Generation worker cancelled.")
-            raise
-
-    @staticmethod
-    def _send_json(channel: Any, payload: dict[str, Any]) -> None:
-        try:
-            channel.send(json.dumps(payload))
-        except Exception:
-            return
+    def _on_answer_created(self, answer_sdp: str) -> None:
+        logger.info(
+            "Created WebRTC answer with {}.", _summarize_sdp_candidates(answer_sdp)
+        )

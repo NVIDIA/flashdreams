@@ -21,7 +21,8 @@ hours, and take part in technical discussion with the FlashDreams team and
 community.
 
 If you are new, start with the
-`server invite <https://discord.com/invite/nvidiaomniverse>`_ to on-board.
+`server invite <https://discord.com/invite/nvidiaomniverse>`__ to on-board,
+then drop into the project channels below.
 
 Channels
 --------
@@ -29,3 +30,9 @@ Channels
 - `#flashdreams <https://discord.gg/cMt2mHm4aN>`_
 - `#omnidreams <https://discord.gg/cruUPk9tuS>`_
 - `#world-models-chit-chat <https://discord.gg/AkcK7NVGQD>`_
+
+Discord is best for real-time, open-ended conversation. For bug
+reports and feature requests, the
+`GitHub issue tracker <https://github.com/NVIDIA/flashdreams/issues>`__
+is the fastest path. See :doc:`support` for how to pick the right
+channel.

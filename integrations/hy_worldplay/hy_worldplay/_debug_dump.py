@@ -13,19 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Env-var-gated, CUDA-graph-safe tensor-dump harness for HY-WorldPlay parity diagnosis.
+"""Env-var-gated, CUDA-graph-safe tensor-dump harness for HY-WorldPlay diagnostics.
 
 Set ``HY_DEBUG_DUMP=/path/to/file.jsonl`` (or any truthy value to dump
 to ``hy_debug_dump.jsonl`` in CWD) to enable. Every :func:`dump` call
 appends a single JSON line with tensor stats (shape, dtype, abs_mean,
-mean, std, min, max, first-32 flat values). Disabled by default so
-production and parity runs pay zero overhead, and silently no-ops
-during CUDA graph capture so dump calls embedded in the graph-captured
-forward don't invalidate the capture.
-
-The vendor side gets parallel dumps via
-``tests/parity_check/dump_patch.py``, which monkey-patches the same
-call sites in the vendor source tree.
+mean, std, min, max, first-32 flat values). Disabled by default so runs
+pay zero overhead, and silently no-ops during CUDA graph capture so
+dump calls embedded in the graph-captured forward don't invalidate it.
 """
 
 from __future__ import annotations

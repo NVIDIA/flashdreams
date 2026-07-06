@@ -29,6 +29,18 @@ from numpy.typing import NDArray
 from omnidreams.conditioning.world_scenario.camera_base import CameraBase
 from scipy.spatial.transform import Rotation, Slerp
 
+
+def _compose_rotations(lhs: Rotation, rhs: Rotation) -> Rotation:
+    """Compose two scipy rotations with an explicit type guard."""
+    result = lhs * rhs
+    if not isinstance(result, Rotation):
+        raise TypeError(
+            "Rotation composition returned a non-Rotation result; "
+            f"got {type(result).__name__}."
+        )
+    return result
+
+
 # ============================================================================
 # Enums for type safety
 # ============================================================================
@@ -417,11 +429,11 @@ class DynamicObject:
         # Angular velocity for orientation
         r0 = Rotation.from_quat(self.orientations[0])
         r1 = Rotation.from_quat(self.orientations[1])
-        delta_r = r0.inv() * r1
+        delta_r = _compose_rotations(r0.inv(), r1)
         omega = delta_r.as_rotvec() / dt_keyframes  # radians per microsecond
 
         delta_extrap = Rotation.from_rotvec(omega * dt_extrap)
-        orientation = (r0 * delta_extrap).as_quat()
+        orientation = _compose_rotations(r0, delta_extrap).as_quat()
 
         # Dimensions stay constant
         dims = self.dimensions[0].copy()
@@ -451,11 +463,11 @@ class DynamicObject:
         # Angular velocity for orientation
         r_m1 = Rotation.from_quat(self.orientations[-2])
         r_m0 = Rotation.from_quat(self.orientations[-1])
-        delta_r = r_m1.inv() * r_m0
+        delta_r = _compose_rotations(r_m1.inv(), r_m0)
         omega = delta_r.as_rotvec() / dt_keyframes  # radians per microsecond
 
         delta_extrap = Rotation.from_rotvec(omega * dt_extrap)
-        orientation = (r_m0 * delta_extrap).as_quat()
+        orientation = _compose_rotations(r_m0, delta_extrap).as_quat()
 
         # Dimensions stay constant
         dims = self.dimensions[-1].copy()

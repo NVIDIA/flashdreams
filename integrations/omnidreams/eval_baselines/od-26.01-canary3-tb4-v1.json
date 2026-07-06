@@ -1,0 +1,122 @@
+{
+  "kind": "omnidreams_eval_baseline",
+  "schema_version": 1,
+  "baseline_id": "od-26.01-canary3-tb4-v1",
+  "description": "Initial metric envelope for the 3-scene NuRec 26.01 OmniDreams per-commit canary.",
+  "dataset": {
+    "repo": "nvidia/PhysicalAI-Autonomous-Vehicles-NuRec",
+    "revision": "26.01",
+    "subpath": "sample_set/26.01_release",
+    "camera": "camera_front_wide_120fov"
+  },
+  "run_shape": {
+    "case_count": 3,
+    "total_blocks": 4,
+    "generated_frames": 29
+  },
+  "scene_uuids": [
+    "01d503d4-449b-46fc-8d78-9085e70d3554",
+    "02e075b9-fd24-426b-971b-7cfcb2074cc9",
+    "0499fb41-122d-4180-83af-f954a9974d3b"
+  ],
+  "checks": [
+    {
+      "name": "generated_clip_count",
+      "source": "generated.generated_mp4_count",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "generated_case_directories",
+      "source": "generated.case_directories",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "validation_case_count",
+      "source": "validation.case_count",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "validation_failures",
+      "source": "validation.failure_count",
+      "op": "==",
+      "expected": 0
+    },
+    {
+      "name": "expected_frames_from_steps",
+      "source": "validation.expected_frames_from_steps[29]",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "runner_written_frames",
+      "source": "validation.runner_written_frames[29]",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "total_blocks",
+      "source": "validation.total_blocks[4]",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "worldlens_stage_case_count",
+      "source": "worldlens.stage_manifest.case_count",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "worldlens_stage_frame_mismatches",
+      "source": "worldlens.stage_manifest.frame_count_mismatch_count",
+      "op": "==",
+      "expected": 0
+    },
+    {
+      "name": "worldlens_generated_frame_count",
+      "source": "worldlens.stage_manifest.generated_frame_counts[0]",
+      "op": "==",
+      "expected": 29
+    },
+    {
+      "name": "worldlens_reference_frame_count",
+      "source": "worldlens.stage_manifest.reference_frame_counts[0]",
+      "op": "==",
+      "expected": 29
+    },
+    {
+      "name": "worldlens_temporal_video_count",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=temporal_consistency/repeat_0.json].video_count",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "worldlens_subject_video_count",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=subject_consistency/repeat_0.json].video_count",
+      "op": "==",
+      "expected": 3
+    },
+    {
+      "name": "worldlens_temporal_consistency_per_frame",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=temporal_consistency/repeat_0.json].temporal_consistency_per_frame",
+      "min_allowed": 0.95
+    },
+    {
+      "name": "worldlens_temporal_ts_per_frame",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=temporal_consistency/repeat_0.json].ts_per_frame",
+      "min_allowed": 0.75
+    },
+    {
+      "name": "worldlens_subject_consistency_per_frame",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=subject_consistency/repeat_0.json].temporal_consistency_per_frame",
+      "min_allowed": 0.95
+    },
+    {
+      "name": "worldlens_subject_ts_per_frame",
+      "source": "worldlens.runs[split=od_26_01_canary3_tb4].artifact_metrics[artifact=subject_consistency/repeat_0.json].ts_per_frame",
+      "min_allowed": 0.85
+    }
+  ]
+}

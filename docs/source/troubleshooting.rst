@@ -127,8 +127,8 @@ GPU out of memory
 **Likely cause:**
 
 The selected model, resolution, rollout length, or GPU count does not fit the
-available VRAM. The model pages list minimum VRAM expectations: Self-Forcing is
-about 24 GB, OmniDreams is about 48 GB, and LingBot-World is about 120 GB.
+available VRAM. The model pages list minimum VRAM expectations: OmniDreams is
+about 48 GB, Self-Forcing is about 24 GB, and LingBot-World is about 120 GB.
 
 **Fix or next step:**
 
@@ -190,7 +190,7 @@ as ``--total-blocks 7`` for Self-Forcing or inspect a runner without loading the
 model by using ``--no-instantiate`` as described below.
 
 ``--no-instantiate`` prints a config but does not run
-----------------------------------------------------
+-----------------------------------------------------
 
 **Symptoms:**
 

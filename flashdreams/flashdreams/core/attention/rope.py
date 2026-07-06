@@ -18,6 +18,8 @@
 Used by DiTs (e.g. Wan, Omnidreams) that patchify into a (T, H, W) sequence.
 """
 
+from __future__ import annotations
+
 from typing import TypeVar
 
 import torch

@@ -16,13 +16,22 @@
 Causal-Forcing
 ===================================
 
-.. raw:: html
+.. container:: fd-cta-row
 
-   <div class="model-link-row">
-     <a class="model-link-button" href="https://thu-ml.github.io/CausalForcing.github.io/" target="_blank" rel="noopener noreferrer">Project page</a>
-     <a class="model-link-button" href="https://arxiv.org/abs/2602.02214" target="_blank" rel="noopener noreferrer">arXiv paper</a>
-     <a class="model-link-button" href="https://github.com/thu-ml/Causal-Forcing" target="_blank" rel="noopener noreferrer">Official code</a>
-   </div>
+   .. button-link:: https://thu-ml.github.io/CausalForcing.github.io/
+      :color: primary
+
+      Project page
+
+   .. button-link:: https://arxiv.org/abs/2602.02214
+      :color: primary
+
+      arXiv paper
+
+   .. button-link:: https://github.com/thu-ml/Causal-Forcing
+      :color: primary
+
+      Official code
 
 Causal-Forcing uses Causal ODE or Causal Consistency Distillation to drive
 asymmetric DMD as a theoretically correct initialization for real-time
@@ -56,8 +65,8 @@ Installation
 Running the method
 ------------------
 
-To run Causal-Forcing, launch one of the registered runner slugs via
-``flashdreams-run``. For example:
+To run Causal-Forcing, launch one of the registered runner slugs. For
+example:
 
 .. code-block:: bash
 
@@ -68,8 +77,8 @@ To run Causal-Forcing, launch one of the registered runner slugs via
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 21
 
-For multi-GPU inference, use ``torchrun`` on top of ``uv run flashdreams-run``
-(taking 4 GPUs as an example):
+For multi-GPU inference, run the same command under ``torchrun`` (taking
+4 GPUs as an example):
 
 .. code-block:: bash
 

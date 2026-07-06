@@ -322,15 +322,15 @@ the declared minimums. This means:
 
 The workspace contains many integration packages under `integrations/`.
 A full `uv sync` installs dependencies for *all* of them. If you only
-need one (e.g. you're working on `omnidreams`), use `--package` to sync
-only that package's dependencies:
+need one (e.g. you're working on `omnidreams`), use the distribution
+package name with `--package` to sync only that package's dependencies:
 
 ```bash
 # Only install omnidreams + its deps (skips unrelated heavy packages)
-uv sync --package omnidreams --extra dev
+uv sync --package flashdreams-omnidreams --extra dev
 
 # Run a script/test from that integration only
-uv run --package omnidreams pytest tests/ -m ci_gpu
+uv run --package flashdreams-omnidreams pytest integrations/omnidreams/tests/ -m ci_gpu
 ```
 
 This avoids pulling in (and compiling) dependencies that other
@@ -338,16 +338,22 @@ integrations require but yours does not, further reducing setup time.
 
 Available integration packages:
 
-```
-integrations/causal_forcing
-integrations/cosmos_predict2
-integrations/fastvideo_causal_wan22
-integrations/flashvsr
-integrations/lingbot
-integrations/omnidreams
-integrations/self_forcing
-integrations/wan21
-```
+| Path | `uv --package` name |
+|------|---------------------|
+| `integrations/causal_forcing` | `flashdreams-causal-forcing` |
+| `integrations/cosmos_predict2` | `flashdreams-cosmos-predict2` |
+| `integrations/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
+| `integrations/flashvsr` | `flashdreams-flashvsr` |
+| `integrations/hy_worldplay` | `flashdreams-hy-worldplay` |
+| `integrations/lingbot` | `flashdreams-lingbot` |
+| `integrations/omnidreams` | `flashdreams-omnidreams` |
+| `integrations/self_forcing` | `flashdreams-self-forcing` |
+| `integrations/wan21` | `flashdreams-wan21` |
+| `integrations/wan22` | `flashdreams-wan22` |
+
+The nested `integrations/omnidreams/ludus-renderer` workspace package is
+named `ludus-renderer` and is installed as part of Omnidreams workflows
+that need it.
 
 ## Licensing of contributions
 

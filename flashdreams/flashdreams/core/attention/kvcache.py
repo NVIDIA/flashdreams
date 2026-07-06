@@ -15,6 +15,8 @@
 
 """Block KV cache for causal attention with a fixed-size local window."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 import torch

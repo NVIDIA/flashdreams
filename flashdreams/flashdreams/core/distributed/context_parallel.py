@@ -15,6 +15,8 @@
 
 """Tensor and object splitting/gathering primitives for context parallelism."""
 
+from __future__ import annotations
+
 from typing import TypeVar
 
 import torch

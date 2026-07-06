@@ -13,14 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import field, make_dataclass
+from typing import Annotated, Any
+
 import pytest
 import tyro
+from omnidreams.config import RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE
 from omnidreams.encoder.pixel_shuffle import (
     PixelShuffleVAEEncoder,
     PixelShuffleVAEEncoderConfig,
 )
+from omnidreams.runner import OmnidreamsRunnerConfig
 
 from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.taehv import (
     TeahvVAEDecoder,
     TeahvVAEDecoderConfig,
@@ -56,3 +62,27 @@ def test_pixelshuffle_cli_accepts_frame_selection_override() -> None:
         args=["--frame-selection-mode", "first_frame"],
     )
     assert config.frame_selection_mode == "first_frame"
+
+
+def test_omnidreams_lighttae_runner_cli_defaults_parse() -> None:
+    runner = RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE
+    subcommand_union: Any = tyro.extras.subcommand_type_from_defaults(
+        defaults={runner.runner_name: runner},
+        descriptions={runner.runner_name: runner.description},
+        prefix_names=False,
+        sort_subcommands=True,
+    )
+    union: Any = tyro.conf.SuppressFixed[tyro.conf.FlagConversionOff[subcommand_union]]
+    args_cls = make_dataclass(
+        "FlashdreamsRunArgsForTest",
+        [
+            ("runner", Annotated[union, tyro.conf.arg(name="")]),
+            ("no_instantiate", bool, field(default=False)),
+        ],
+    )
+
+    args = tyro.cli(args_cls, args=[runner.runner_name])
+    config: RunnerConfig = getattr(args, "runner")
+
+    assert isinstance(config, OmnidreamsRunnerConfig)
+    assert config.runner_name == runner.runner_name

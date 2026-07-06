@@ -129,6 +129,104 @@ def test_env_var_backdoor_skips_bad_entries(
     assert isinstance(runners, dict)
 
 
+def test_entry_point_missing_top_level_package_is_skipped_without_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing plugin package (partial env) should be debug-skipped, not warned."""
+
+    class _FakeEntryPoint:
+        name = "missing-plugin"
+        value = "missing_pkg.config:RUNNER"
+
+        @staticmethod
+        def load() -> RunnerConfig:
+            raise ModuleNotFoundError(
+                "No module named 'missing_pkg'", name="missing_pkg"
+            )
+
+    warning_messages: list[str] = []
+
+    def _capture_warning(message: str) -> None:
+        warning_messages.append(message)
+
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.entry_points",
+        lambda *, group: [_FakeEntryPoint()]
+        if group == "flashdreams.runner_configs"
+        else [],
+    )
+    monkeypatch.setattr("flashdreams.plugins.registry.logger.warning", _capture_warning)
+    runners = discover_runners()
+    assert runners == {}
+    assert warning_messages == []
+
+
+def test_entry_point_missing_submodule_is_skipped_without_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing plugin submodule should be debug-skipped, not warned."""
+
+    class _FakeEntryPoint:
+        name = "missing-plugin-submodule"
+        value = "installed_pkg.config:RUNNER"
+
+        @staticmethod
+        def load() -> RunnerConfig:
+            raise ModuleNotFoundError(
+                "No module named 'installed_pkg.config'",
+                name="installed_pkg.config",
+            )
+
+    warning_messages: list[str] = []
+
+    def _capture_warning(message: str) -> None:
+        warning_messages.append(message)
+
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.entry_points",
+        lambda *, group: [_FakeEntryPoint()]
+        if group == "flashdreams.runner_configs"
+        else [],
+    )
+    monkeypatch.setattr("flashdreams.plugins.registry.logger.warning", _capture_warning)
+    runners = discover_runners()
+    assert runners == {}
+    assert warning_messages == []
+
+
+def test_entry_point_transitive_import_error_is_debug_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Import failures inside an installed plugin should be debug-skipped."""
+
+    class _FakeEntryPoint:
+        name = "broken-plugin"
+        value = "installed_pkg.config:RUNNER"
+
+        @staticmethod
+        def load() -> RunnerConfig:
+            # `installed_pkg` exists; a nested import is missing.
+            raise ModuleNotFoundError(
+                "No module named 'missing_dep'", name="missing_dep"
+            )
+
+    debug_messages: list[str] = []
+
+    def _capture_debug(message: str) -> None:
+        debug_messages.append(message)
+
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.entry_points",
+        lambda *, group: [_FakeEntryPoint()]
+        if group == "flashdreams.runner_configs"
+        else [],
+    )
+    monkeypatch.setattr("flashdreams.plugins.registry.logger.debug", _capture_debug)
+    runners = discover_runners()
+    assert runners == {}
+    assert any("broken-plugin" in msg for msg in debug_messages)
+
+
 def test_discover_runners_skips_runner_name_collision(
     monkeypatch: pytest.MonkeyPatch, fake_plugin_module: str
 ) -> None:

@@ -23,9 +23,10 @@ import torch
 from lingbot.webrtc import session
 from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
-    LingbotStepResult,
     LingbotWebRTCSessionManager,
 )
+
+from flashdreams.serving.webrtc.manager import WebRTCStepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -41,6 +42,22 @@ class _FakeCloseable:
 def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     del config
     return object()
+
+
+def test_session_manager_hooks_are_wired() -> None:
+    # Guards against the shared base-class attribute overrides being dropped
+    # (e.g. losing their leading underscore), which silently reverts behaviour
+    # to the base defaults.
+    assert (
+        LingbotWebRTCSessionManager._busy_message
+        == "A Lingbot session is already active."
+    )
+    assert LingbotWebRTCSessionManager._warmup_label == "Lingbot WebRTC"
+    assert LingbotWebRTCSessionManager._runtime_error_types == (
+        session.LingbotRuntimeError,
+    )
+    # Lingbot keeps streaming after a per-chunk failure rather than tearing down.
+    assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
 
 
 def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
@@ -135,11 +152,11 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> LingbotStepResult:
+        ) -> WebRTCStepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return LingbotStepResult(
+            return WebRTCStepResult(
                 chunk_index=chunk_index,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
@@ -261,7 +278,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
         runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -291,7 +308,7 @@ async def test_client_liveness_timeout_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
@@ -322,7 +339,7 @@ async def test_disconnect_message_closes_active_session(
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
     managed_session = session._ManagedLingbotSession(
-        runtime=object(),  # ty:ignore[invalid-argument-type]
+        runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]

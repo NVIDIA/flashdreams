@@ -13,23 +13,52 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-:orphan:
+Developer Guides
+================
 
-Developer guides
-===================================
+.. grid:: 1 1 2 2
+   :gutter: 3
 
-Use these guides after the quick start to understand the runtime, choose a
-developer workflow, configure runs, build serving applications, or add a new
-model integration.
+   .. grid-item-card:: Inference pipeline overview
+      :link: inference_pipeline_overview
+      :link-type: doc
 
-Guides
-------
+      The end-to-end computation flow: warmup, CUDA-graph capture,
+      the autoregressive-step body, the ring-attention shard group,
+      and finalize. The mental model the rest of the project assumes.
 
-- :doc:`Inference pipeline overview </developer_guides/inference_pipeline_overview>`
-- :doc:`Config system </developer_guides/config_system>`
-- :doc:`Interactive-drive latency tuning </developer_guides/latency_tuning>`
-- :doc:`Add a new method </developer_guides/new_integration>`
+   .. grid-item-card:: Config system
+      :link: config_system
+      :link-type: doc
 
-.. Temporarily commented out for internal development:
-.. - :doc:`How to use FlashDreams as a developer </developer_guides/usage_patterns>`
-.. - :doc:`Interactive serving </developer_guides/interactive_serving>`
+      How every overridable field is surfaced as a CLI flag, how
+      method defaults compose, and how to layer overrides on top.
+
+   .. grid-item-card:: Add a new method
+      :link: new_integration
+      :link-type: doc
+
+      The entry-point surface a new method ships against: what to
+      subclass, what to register, and where the parity tests live.
+
+Where these guides fit
+----------------------
+
+These guides are conceptual. For a specific method, see its per-model
+page under :doc:`/models/index`; for the per-symbol reference, see
+:doc:`/api/index`; and for the two-command path from install to a
+generated clip, see :doc:`/quickstart/index`.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   inference_pipeline_overview
+   config_system
+   new_integration
+
+..
+   Temporarily commented out for internal development:
+
+   usage_patterns
+   interactive_serving

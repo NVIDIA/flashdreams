@@ -124,13 +124,14 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
 if [[ "${SKIP_HEAVY_DEPS:-0}" != "1" ]]; then
-    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate, transformers==4.57.6)"
+    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate, transformers==4.57.6, torchvision==0.26.0)"
     echo "        set SKIP_HEAVY_DEPS=1 to skip if you only need the native plugin"
     ( cd "${SCRIPT_DIR}" && uv pip install \
         sageattention \
         cloudpickle \
         "accelerate>=0.30" \
-        "transformers==4.57.6" )
+        "transformers==4.57.6" \
+        "torchvision==0.26.0" --no-deps )
 else
     echo "[setup] SKIP_HEAVY_DEPS=1 -> assuming vendor heavy deps already installed (or running native plugin only)"
 fi
