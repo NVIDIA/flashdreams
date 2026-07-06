@@ -250,9 +250,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Sync versions
-        run: uv run .github/scripts/sync_version.py || true
-
       - name: Build wheel
         run: uv build --wheel --package flashdreams
 

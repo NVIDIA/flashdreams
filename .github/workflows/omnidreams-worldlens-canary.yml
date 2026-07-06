@@ -146,7 +146,7 @@ jobs:
             --write-config \
             --force
 
-          uv run \
+          uv run --locked \
             --package flashdreams-omnidreams \
             --with hydra-core \
             --with omegaconf \

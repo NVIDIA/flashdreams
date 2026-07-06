@@ -61,7 +61,7 @@ repos:
         pass_filenames: false
       - id: ty
         name: ty type check
-        entry: uv run --group lint ty check
+        entry: uv run --locked --group lint ty check
         language: system
         types: [python]
         pass_filenames: false
