@@ -38,7 +38,7 @@ jobs:
           UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
           UV_INDEX_STRATEGY: unsafe-best-match
         run: |
-          uv sync --only-group docs --only-group docs-ci --python 3.12
+          uv sync --locked --only-group docs --only-group docs-ci --python 3.12
           uv pip install --no-deps ./flashdreams
 
       # Read version from `flashdreams/flashdreams/_version.py` (the single

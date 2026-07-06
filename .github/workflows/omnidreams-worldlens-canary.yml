@@ -84,7 +84,7 @@ jobs:
           NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
         run: |
           uv venv --clear
-          uv sync --extra dev
+          uv sync --locked --extra dev
 
       - name: Run OmniDreams WorldLens canary
         env:
