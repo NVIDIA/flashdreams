@@ -195,9 +195,9 @@ first launch, much faster afterwards. When ready the server prints
 .. note::
 
    On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
-   the server port is usually not reachable at the host IP directly.
-   Forward it to your local machine first, then open
-   ``http://localhost:8089/request_session``:
+   the HTTP server port is usually not reachable at the host IP directly.
+   Forward or expose the HTTP port for the viewer page and signaling, and open
+   ``http://localhost:8089/request_session`` when using a local forward:
 
    .. code-block:: bash
 
@@ -205,6 +205,11 @@ first launch, much faster afterwards. When ready the server prints
       brev port-forward <instance> -p 8089:8089
       # or plain SSH
       ssh -L 8089:localhost:8089 <user>@<host>
+
+   These commands expose only the HTTP/signaling path; they do not carry the
+   WebRTC media path. LingBot-World does not deploy TURN by default, so remote
+   deployments that need relay or UDP media connectivity must provide it
+   separately. See :ref:`webrtc-troubleshooting`.
 
 When successfully connected, the browser-based UI looks like this:
 
