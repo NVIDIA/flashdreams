@@ -149,6 +149,9 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         bcthw = self._chunk_to_bcthw(chunk)
         self._ensure_pipeline(bcthw)
         self._append_to_buffer(bcthw, metadata=chunk.metadata)
+        # Generation AR chunks can be smaller than FlashVSR's required window.
+        # This synchronous call may therefore return [] after buffering; the
+        # later AR chunk or flush provides the remaining frames.
         return self._drain_ready_chunks()
 
     @torch.no_grad()

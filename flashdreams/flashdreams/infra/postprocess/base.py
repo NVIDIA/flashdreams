@@ -102,7 +102,12 @@ class VideoPostProcessorSession(ABC):
 
     @abstractmethod
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
-        """Process one input chunk and return zero or more output chunks."""
+        """Process one input chunk and return zero or more output chunks.
+
+        Returning an empty list means the session synchronously consumed the
+        chunk but is buffering frames until a later chunk or ``flush()`` can
+        complete its own output window.
+        """
 
     @abstractmethod
     def flush(self) -> list[VideoChunk]:
@@ -181,7 +186,10 @@ class _VideoPostprocessChainSession(VideoPostProcessorSession):
         """Process one chunk through every configured session."""
         if self._closed:
             raise RuntimeError("cannot process a post-processing chain after flush()")
-        return self._process_from(0, [chunk])
+        return self._process_chunks_through_sessions(
+            first_session_index=0,
+            chunks=[chunk],
+        )
 
     def flush(self) -> list[VideoChunk]:
         """Flush each session once and feed its tail output downstream.
@@ -195,21 +203,29 @@ class _VideoPostprocessChainSession(VideoPostProcessorSession):
         self._closed = True
         outputs: list[VideoChunk] = []
         for index, session in enumerate(self._sessions):
-            flushed = session.flush()
-            if flushed:
-                outputs.extend(self._process_from(index + 1, flushed))
+            tail_chunks = session.flush()
+            if tail_chunks:
+                # Tail output from this session has already passed earlier
+                # sessions, so continue only through downstream sessions.
+                outputs.extend(
+                    self._process_chunks_through_sessions(
+                        first_session_index=index + 1,
+                        chunks=tail_chunks,
+                    )
+                )
         return outputs
 
-    def _process_from(
-        self, start_index: int, chunks: Iterable[VideoChunk]
+    def _process_chunks_through_sessions(
+        self, *, first_session_index: int, chunks: Iterable[VideoChunk]
     ) -> list[VideoChunk]:
-        current = list(chunks)
-        for session in self._sessions[start_index:]:
-            next_chunks: list[VideoChunk] = []
-            for chunk in current:
-                next_chunks.extend(session.process(chunk))
-            current = next_chunks
-        return current
+        """Run chunks through the chain starting at ``first_session_index``."""
+        pending_chunks = list(chunks)
+        for session in self._sessions[first_session_index:]:
+            emitted_chunks: list[VideoChunk] = []
+            for chunk in pending_chunks:
+                emitted_chunks.extend(session.process(chunk))
+            pending_chunks = emitted_chunks
+        return pending_chunks
 
 
 def infer_video_spec_from_tensor_shape(

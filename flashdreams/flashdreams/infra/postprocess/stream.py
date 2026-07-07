@@ -376,6 +376,9 @@ def _postprocess_chunks_to_tensor(
             chunks,
             layout=layout,
         )
+    # A streaming post-processor may consume this AR chunk without emitting
+    # frames yet. Return a zero-frame tensor with the same non-time dimensions
+    # so runner collection can stay tensor-only and simply skip empty chunks.
     canonical = to_bvtchw(reference, layout=layout)[:, :, :0]
     return from_bvtchw(canonical, layout=layout)
 
