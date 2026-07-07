@@ -187,6 +187,10 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             raise ValueError(
                 f"FlashVSR expects RGB chunks with 3 channels; got {channels}."
             )
+        # FlashVSR kernels consume contiguous [B, C, T, H, W]. This may copy
+        # when the runner layout is time-major or view-major, but doing it once
+        # at the boundary keeps the buffered frames in FlashVSR's native layout
+        # for all later concatenation and model calls.
         return canonical[:, 0].permute(0, 2, 1, 3, 4).contiguous()
 
     def _ensure_pipeline(self, bcthw: Tensor) -> None:

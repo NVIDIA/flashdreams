@@ -26,6 +26,7 @@ Start here, then use the narrower docs for the task in front of you:
 - `skills/profile-model-performance`: read before starting performance work on an existing model integration, demo, runner, or serving path; use it to map execution, add stage timings, and identify decode/model/cache/transfer/presentation bottlenecks.
 - `skills/apply-inference-optimizations`: read before porting runtime speedups such as bounded K/V caches, overlap, compile, CUDA graphs, decoder layout changes, or presentation queue tuning into an integration.
 - `skills/validate-performance-quality`: read before adding benchmark sweeps, quality comparisons, profiler probes, performance summaries, or docs for a performance change.
+- `skills/flashdreams-postprocessing`: read before adding or modifying video post-processors, postprocess presets, `VideoPostprocessStream`, buffering/layout behavior, or runner postprocess wiring.
 - `skills/python-docstring-style`: read before adding or polishing Python docstrings, field docstrings, module comments, or SPDX headers.
 - `skills/maintaining-oss-state`: read before dependency, license, NOTICE, REUSE, or OSS-release collateral changes.
 - When adding a new `skills/<skill-name>/SKILL.md`, update this section so agents can discover when to use it.
