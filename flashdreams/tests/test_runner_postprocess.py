@@ -42,8 +42,6 @@ def _config(postprocess: VideoPostprocessChainConfig, *, layout: str | None = "t
     return SimpleNamespace(
         postprocess=postprocess,
         postprocess_output_layout=layout,
-        postprocess_output_value_range="minus_one_one",
-        postprocess_fps=None,
         postprocess_per_view=False,
         fps=16,
     )

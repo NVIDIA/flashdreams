@@ -37,7 +37,6 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessStream,
     VideoPostprocessChainConfig,
     VideoTensorLayout,
-    VideoValueRange,
     create_runner_postprocess_stream,
 )
 
@@ -73,12 +72,6 @@ class RunnerConfig(InstantiateConfig):
 
     postprocess_output_layout: VideoTensorLayout | None = None
     """Decoded output layout; required when :attr:`postprocess` is enabled."""
-
-    postprocess_output_value_range: VideoValueRange = "minus_one_one"
-    """Numeric range of decoded chunks entering the output stream."""
-
-    postprocess_fps: float | None = None
-    """Optional frame rate override forwarded to post-processors."""
 
     postprocess_per_view: bool = False
     """Attach one post-processing session per view for multi-view outputs."""

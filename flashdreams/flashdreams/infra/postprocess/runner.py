@@ -38,16 +38,13 @@ def create_runner_postprocess_stream(
             "is not set."
         )
 
-    configured_fps = getattr(config, "postprocess_fps")
-    if configured_fps is None:
-        configured_fps = fps
+    configured_fps = fps
     if configured_fps is None:
         configured_fps = getattr(config, "fps", getattr(config, "output_fps", None))
 
     return VideoPostprocessStream(
         postprocess=postprocess,
         output_layout=output_layout,
-        output_value_range=getattr(config, "postprocess_output_value_range"),
         fps=configured_fps,
         per_view=getattr(config, "postprocess_per_view"),
         world_size=world_size,
