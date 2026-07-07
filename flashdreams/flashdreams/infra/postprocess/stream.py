@@ -249,7 +249,7 @@ def _postprocess_output_per_view(
     output: Tensor,
     layout: VideoTensorLayout,
 ) -> Tensor:
-    if layout not in ("bvtchw", "bvcthw"):
+    if layout != "bvtchw":
         raise ValueError(
             "postprocess_per_view requires a layout with an explicit view "
             f"axis; got {layout!r}."

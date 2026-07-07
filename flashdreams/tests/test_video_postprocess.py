@@ -21,9 +21,7 @@ import pytest
 import torch
 
 from flashdreams.infra.postprocess import (
-    VideoPostprocessChainConfig,
     from_bvtchw,
-    postprocess_video_tensor,
     to_bvtchw,
     to_minus_one_one,
 )
@@ -31,24 +29,10 @@ from flashdreams.infra.postprocess import (
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_disabled_chain_returns_input_unchanged() -> None:
-    video = torch.linspace(-1.0, 1.0, steps=3 * 3 * 4 * 5).reshape(3, 3, 4, 5)
-
-    result = postprocess_video_tensor(
-        video,
-        layout="tchw",
-        value_range="minus_one_one",
-        postprocess=VideoPostprocessChainConfig(),
-        fps=24,
-    )
-
-    assert result is video
-
-
 def test_layout_and_uint8_round_trip() -> None:
-    video = torch.randint(0, 256, (2, 4, 5, 3), dtype=torch.uint8)
-    canonical = to_bvtchw(video, layout="thwc")
-    restored = from_bvtchw(canonical, layout="thwc")
+    video = torch.randint(0, 256, (2, 3, 4, 5, 6), dtype=torch.uint8)
+    canonical = to_bvtchw(video, layout="bcthw")
+    restored = from_bvtchw(canonical, layout="bcthw")
 
     assert torch.equal(restored, video)
     normalized = to_minus_one_one(video, value_range="uint8")

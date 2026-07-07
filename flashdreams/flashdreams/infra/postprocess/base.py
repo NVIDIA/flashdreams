@@ -23,19 +23,15 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from flashdreams.infra.config import InstantiateConfig, PrintableConfig
 
 VideoTensorLayout = Literal[
     "tchw",
-    "thwc",
     "btchw",
     "bcthw",
-    "bthwc",
     "bvtchw",
-    "bvcthw",
 ]
 """Supported RGB video tensor layouts at the post-processing boundary."""
 
@@ -72,9 +68,6 @@ class VideoChunk:
 
     value_range: VideoValueRange = "minus_one_one"
     """Numeric encoding of :attr:`tensor`."""
-
-    is_final: bool = False
-    """Whether this is the caller's final chunk before flushing."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Optional per-chunk metadata carried through the post-processing chain."""
@@ -134,35 +127,6 @@ class VideoPostProcessor(ABC, Generic[VideoPostProcessorConfigT]):
     @abstractmethod
     def start(self, spec: VideoSpec) -> VideoPostProcessorSession:
         """Start processing one video stream."""
-
-
-@dataclass(kw_only=True)
-class NoOpVideoPostProcessorConfig(VideoPostProcessorConfig):
-    """No-op post-processor used as the zero-cost default."""
-
-    _target: type["NoOpVideoPostProcessor"] = field(
-        default_factory=lambda: NoOpVideoPostProcessor
-    )
-
-
-class NoOpVideoPostProcessor(VideoPostProcessor[NoOpVideoPostProcessorConfig]):
-    """Pass-through post-processor."""
-
-    def start(self, spec: VideoSpec) -> VideoPostProcessorSession:
-        """Return a stateless pass-through session."""
-        return _NoOpVideoPostProcessorSession()
-
-
-class _NoOpVideoPostProcessorSession(VideoPostProcessorSession):
-    """No-op session implementation."""
-
-    def process(self, chunk: VideoChunk) -> list[VideoChunk]:
-        """Return the input chunk unchanged."""
-        return [chunk]
-
-    def flush(self) -> list[VideoChunk]:
-        """No buffered chunks are held by the no-op session."""
-        return []
 
 
 @dataclass(kw_only=True)
@@ -267,33 +231,6 @@ def infer_video_spec(
     return VideoSpec(height=height, width=width, fps=fps, channels=channels)
 
 
-def postprocess_video_tensor(
-    tensor: Tensor,
-    *,
-    layout: VideoTensorLayout,
-    value_range: VideoValueRange,
-    postprocess: VideoPostprocessChainConfig,
-    fps: float | None = None,
-) -> Tensor:
-    """Run a complete post-processing chain over one in-memory video tensor."""
-    if not postprocess.is_enabled():
-        return tensor
-    spec = infer_video_spec(tensor, layout=layout, fps=fps)
-    session = postprocess.setup(spec)
-    chunks = session.process(
-        VideoChunk(tensor=tensor, layout=layout, value_range=value_range, is_final=True)
-    )
-    chunks.extend(session.flush())
-    if not chunks:
-        empty = to_bvtchw(tensor, layout=layout)[:, :, :0]
-        return from_bvtchw(empty, layout=layout)
-    return concatenate_video_chunks(
-        chunks,
-        layout=layout,
-        value_range=value_range,
-    )
-
-
 def concatenate_video_chunks(
     chunks: Iterable[VideoChunk],
     *,
@@ -344,24 +281,15 @@ def to_bvtchw(tensor: Tensor, *, layout: VideoTensorLayout) -> Tensor:
     if layout == "tchw":
         _assert_ndim(tensor, 4, layout)
         return tensor.unsqueeze(0).unsqueeze(0)
-    if layout == "thwc":
-        _assert_ndim(tensor, 4, layout)
-        return tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
     if layout == "btchw":
         _assert_ndim(tensor, 5, layout)
         return tensor.unsqueeze(1)
     if layout == "bcthw":
         _assert_ndim(tensor, 5, layout)
         return tensor.permute(0, 2, 1, 3, 4).unsqueeze(1)
-    if layout == "bthwc":
-        _assert_ndim(tensor, 5, layout)
-        return tensor.permute(0, 1, 4, 2, 3).unsqueeze(1)
     if layout == "bvtchw":
         _assert_ndim(tensor, 6, layout)
         return tensor
-    if layout == "bvcthw":
-        _assert_ndim(tensor, 6, layout)
-        return tensor.permute(0, 1, 3, 2, 4, 5)
     raise ValueError(f"unsupported video layout: {layout}")
 
 
@@ -371,52 +299,15 @@ def from_bvtchw(tensor: Tensor, *, layout: VideoTensorLayout) -> Tensor:
     if layout == "tchw":
         _assert_singleton_batch_and_view(tensor, layout)
         return tensor[0, 0]
-    if layout == "thwc":
-        _assert_singleton_batch_and_view(tensor, layout)
-        return tensor[0, 0].permute(0, 2, 3, 1)
     if layout == "btchw":
         _assert_singleton_view(tensor, layout)
         return tensor[:, 0]
     if layout == "bcthw":
         _assert_singleton_view(tensor, layout)
         return tensor[:, 0].permute(0, 2, 1, 3, 4)
-    if layout == "bthwc":
-        _assert_singleton_view(tensor, layout)
-        return tensor[:, 0].permute(0, 1, 3, 4, 2)
     if layout == "bvtchw":
         return tensor
-    if layout == "bvcthw":
-        return tensor.permute(0, 1, 3, 2, 4, 5)
     raise ValueError(f"unsupported video layout: {layout}")
-
-
-def resize_bvtchw(
-    tensor: Tensor,
-    *,
-    height: int,
-    width: int,
-    mode: str = "bicubic",
-) -> Tensor:
-    """Resize canonical ``[B, V, T, C, H, W]`` video spatially."""
-    batch, views, frames, channels, _, _ = tensor.shape
-    flat = tensor.reshape(
-        batch * views * frames,
-        channels,
-        tensor.shape[-2],
-        tensor.shape[-1],
-    )
-    if mode in {"linear", "bilinear", "bicubic", "trilinear"}:
-        resized = F.interpolate(
-            flat.float(),
-            size=(height, width),
-            mode=mode,
-            align_corners=False,
-        )
-    else:
-        resized = F.interpolate(flat.float(), size=(height, width), mode=mode)
-    return resized.reshape(batch, views, frames, channels, height, width).to(
-        dtype=tensor.dtype
-    )
 
 
 def _assert_ndim(tensor: Tensor, expected: int, layout: str) -> None:
