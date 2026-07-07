@@ -27,7 +27,7 @@ from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.postprocess.base import (
     VideoChunk,
     VideoPostprocessChainConfig,
-    VideoPostprocessChainSession,
+    VideoPostProcessorSession,
     VideoSpec,
     VideoTensorLayout,
     VideoValueRange,
@@ -39,18 +39,12 @@ from flashdreams.infra.postprocess.base import (
 
 
 @dataclass(kw_only=True)
-class VideoPostprocessStreamState:
+class _VideoPostprocessStreamState:
     """Mutable state owned by one :class:`VideoPostprocessStream`."""
 
-    sessions: dict[int, VideoPostprocessChainSession] = field(default_factory=dict)
+    sessions: dict[int, VideoPostProcessorSession] = field(default_factory=dict)
     """Post-processing sessions keyed by view index, or ``-1`` for the
     whole output stream."""
-
-    last_raw_output: Tensor | None = None
-    """Decoded output from the most recent ``generate`` before post-processing."""
-
-    last_output: Tensor | None = None
-    """Tensor returned by the most recent ``generate`` after post-processing."""
 
     input_spec: VideoSpec | None = None
     """Specification inferred from the first input chunk."""
@@ -86,7 +80,7 @@ class VideoPostprocessStream:
         self.per_view = per_view
         self.world_size = world_size
         self.profile = profile
-        self.state = VideoPostprocessStreamState()
+        self.state = _VideoPostprocessStreamState()
         self._closed = False
 
     def process(self, output: Tensor, *, autoregressive_index: int) -> Tensor:
@@ -167,14 +161,12 @@ def apply_video_postprocess(
     output_value_range: VideoValueRange,
     fps: float | None,
     per_view: bool,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
     autoregressive_index: int,
     output: Tensor,
 ) -> Tensor:
     """Process one decoded AR chunk and update post-processing state."""
-    state.last_raw_output = output
     if not postprocess.is_enabled():
-        state.last_output = output
         return output
 
     layout = output_layout
@@ -201,7 +193,6 @@ def apply_video_postprocess(
             layout=layout,
         )
 
-    state.last_output = result
     return result
 
 
@@ -211,7 +202,7 @@ def flush_video_postprocess(
     output_layout: VideoTensorLayout,
     output_value_range: VideoValueRange,
     per_view: bool,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
 ) -> Tensor | None:
     """Flush buffered post-processing output for the current rollout."""
     if not postprocess.is_enabled() or not state.sessions:
@@ -234,8 +225,6 @@ def flush_video_postprocess(
             output_value_range=output_value_range,
         )
 
-    if flushed is not None:
-        state.last_output = flushed
     return flushed
 
 
@@ -244,7 +233,7 @@ def _postprocess_output_per_view(
     postprocess: VideoPostprocessChainConfig,
     output_value_range: VideoValueRange,
     fps: float | None,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
     autoregressive_index: int,
     output: Tensor,
     layout: VideoTensorLayout,
@@ -295,7 +284,7 @@ def _process_postprocess_chunk(
     postprocess: VideoPostprocessChainConfig,
     output_value_range: VideoValueRange,
     fps: float | None,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
     autoregressive_index: int,
     session_key: int,
     output: Tensor,
@@ -326,7 +315,7 @@ def _process_postprocess_chunk(
 def _flush_postprocess_per_view(
     *,
     output_value_range: VideoValueRange,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
     layout: VideoTensorLayout,
 ) -> Tensor | None:
     view_outputs: list[Tensor | None] = []
@@ -392,7 +381,7 @@ def _postprocess_chunks_to_tensor_or_none(
 
 def _validate_input_spec(
     *,
-    state: VideoPostprocessStreamState,
+    state: _VideoPostprocessStreamState,
     output: Tensor,
     layout: VideoTensorLayout,
     fps: float | None,

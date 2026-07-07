@@ -28,8 +28,8 @@ from flashvsr.postprocess import FlashVSRPostProcessorConfig
 from flashdreams.infra.postprocess import (
     VideoChunk,
     VideoSpec,
-    concatenate_video_chunks,
 )
+from flashdreams.infra.postprocess.base import concatenate_video_chunks
 
 pytestmark = pytest.mark.ci_cpu
 

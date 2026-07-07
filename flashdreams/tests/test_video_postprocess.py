@@ -21,9 +21,11 @@ import pytest
 import torch
 
 from flashdreams.infra.postprocess import (
-    from_bvtchw,
     to_bvtchw,
     to_minus_one_one,
+)
+from flashdreams.infra.postprocess.base import (
+    from_bvtchw,
 )
 
 pytestmark = pytest.mark.ci_cpu

@@ -167,17 +167,17 @@ class VideoPostprocessChainConfig(PrintableConfig):
         for processor in self.resolved_processors():
             processor.validate_execution(world_size=world_size)
 
-    def setup(self, spec: VideoSpec) -> "VideoPostprocessChainSession":
+    def setup(self, spec: VideoSpec) -> VideoPostProcessorSession:
         """Instantiate post-processors and start per-stream sessions."""
         sessions: list[VideoPostProcessorSession] = []
         current_spec = spec
         for processor_config in self.resolved_processors():
             sessions.append(processor_config.setup().start(current_spec))
             current_spec = processor_config.output_spec(current_spec)
-        return VideoPostprocessChainSession(sessions=sessions)
+        return _VideoPostprocessChainSession(sessions=sessions)
 
 
-class VideoPostprocessChainSession:
+class _VideoPostprocessChainSession(VideoPostProcessorSession):
     """Sequential execution of a configured post-processing chain."""
 
     def __init__(self, sessions: list[VideoPostProcessorSession]) -> None:
