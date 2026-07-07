@@ -14,8 +14,8 @@ import pytest
 from flashdreams.infra.postprocess import (
     VideoPostProcessorConfig,
     VideoPostprocessChainConfig,
+    create_runner_postprocess_stream,
 )
-from flashdreams.infra.postprocess.runner import create_runner_postprocess_stream
 
 pytestmark = pytest.mark.ci_cpu
 

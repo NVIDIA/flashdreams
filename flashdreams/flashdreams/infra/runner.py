@@ -37,8 +37,8 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessStream,
     VideoPostprocessChainConfig,
     VideoTensorLayout,
+    create_runner_postprocess_stream,
 )
-from flashdreams.infra.postprocess.runner import create_runner_postprocess_stream
 
 
 def _is_torchrun_env() -> bool:

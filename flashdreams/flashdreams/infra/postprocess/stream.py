@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 import torch
 from loguru import logger
@@ -35,6 +36,9 @@ from flashdreams.infra.postprocess.base import (
     infer_video_spec_from_tensor_shape,
     to_bvtchw,
 )
+
+
+RunnerConfigT = TypeVar("RunnerConfigT")
 
 
 @dataclass(kw_only=True)
@@ -173,6 +177,49 @@ class VideoPostprocessStream:
         if not self._chunks:
             raise ValueError(self.empty_message)
         return torch.cat(self._chunks, dim=self._time_dim)
+
+
+def create_runner_postprocess_stream(
+    config: RunnerConfigT,
+    *,
+    world_size: int,
+    is_rank_zero: bool = True,
+    fps: float | None = None,
+) -> VideoPostprocessStream | None:
+    """Create a runner post-processing stream, or ``None`` when skipped."""
+    postprocess = getattr(config, "postprocess")
+    if not postprocess.is_enabled():
+        return None
+    postprocess.validate_execution(world_size=world_size)
+    if (
+        world_size > 1
+        and not is_rank_zero
+        and not postprocess.requires_all_ranks(world_size=world_size)
+    ):
+        return None
+
+    output_layout = getattr(config, "postprocess_output_layout")
+    if output_layout is None:
+        raise ValueError(
+            "RunnerConfig.postprocess is enabled but postprocess_output_layout "
+            "is not set."
+        )
+
+    configured_fps = fps
+    if configured_fps is None:
+        configured_fps = getattr(config, "fps", getattr(config, "output_fps", None))
+
+    return VideoPostprocessStream(
+        postprocess=postprocess,
+        output_layout=output_layout,
+        fps=configured_fps,
+        per_view=getattr(config, "postprocess_per_view"),
+        world_size=world_size,
+        collect_output=is_rank_zero,
+        profile=bool(
+            getattr(getattr(config, "pipeline", None), "enable_sync_and_profile", False)
+        ),
+    )
 
 
 def _video_layout_time_dim(layout: VideoTensorLayout) -> int:
@@ -377,8 +424,9 @@ def _postprocess_chunks_to_tensor(
             layout=layout,
         )
     # A streaming post-processor may consume this AR chunk without emitting
-    # frames yet. Return a zero-frame tensor with the same non-time dimensions
-    # so runner collection can stay tensor-only and simply skip empty chunks.
+    # frames yet. Keep ``process()`` tensor-only by returning an empty tensor
+    # in the caller's layout instead of ``None``; ``_append_if_nonempty`` skips
+    # collection later by checking that the time dimension is zero.
     canonical = to_bvtchw(reference, layout=layout)[:, :, :0]
     return from_bvtchw(canonical, layout=layout)
 
