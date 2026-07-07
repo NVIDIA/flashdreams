@@ -376,11 +376,9 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
-        postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
-        # Distributed ranks still participate in generate/finalize/postprocess;
-        # only rank zero owns host-side collection and persistence.
-        collect_output = self.is_rank_zero
-        chunks: list[Tensor] = []
+        postprocess_stream = self.create_postprocess_stream(
+            fps=cfg.fps, move_to_cpu=False
+        )
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
         stats_history: list[dict[str, float]] = []
@@ -394,29 +392,15 @@ class HyWorldPlayWanI2VRunner(
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
-                chunk = self.process_output_chunk(
-                    postprocess_stream, chunk, autoregressive_index=ar_idx
-                )
-                if collect_output and chunk.shape[-4] > 0:
-                    chunks.append(chunk)
-                if collect_output and stats is not None:
+                postprocess_stream.process(chunk, autoregressive_index=ar_idx)
+                if postprocess_stream.collect_output and stats is not None:
                     stats_history.append({"autoregressive_index": ar_idx, **stats})
-            postprocess_tail = self.finish_output_stream(postprocess_stream)
-            if (
-                collect_output
-                and postprocess_tail is not None
-                and postprocess_tail.shape[-4] > 0
-            ):
-                chunks.append(postprocess_tail)
+            video = postprocess_stream.finish()
         elapsed = time.time() - start_time
 
-        if not collect_output:
+        if video is None:
             return
 
-        if chunks:
-            video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
-        else:
-            raise ValueError("post-processing emitted no video frames")
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_mp4(video, out_path, fps=cfg.fps)

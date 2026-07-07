@@ -48,6 +48,7 @@ def create_runner_postprocess_stream(
         fps=configured_fps,
         per_view=getattr(config, "postprocess_per_view"),
         world_size=world_size,
+        collect_output=is_rank_zero,
         profile=bool(
             getattr(getattr(config, "pipeline", None), "enable_sync_and_profile", False)
         ),

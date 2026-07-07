@@ -166,34 +166,33 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self.pipeline = pipeline.to(device=device).eval()
 
     def create_postprocess_stream(
-        self, *, fps: float | None = None
-    ) -> VideoPostprocessStream | None:
+        self,
+        *,
+        fps: float | None = None,
+        move_to_cpu: bool = True,
+    ) -> VideoPostprocessStream:
         """Create one stateful post-processing stream for a rollout."""
-        return create_runner_postprocess_stream(
+        stream = create_runner_postprocess_stream(
             self.config,
             world_size=self.world_size,
             is_rank_zero=self.is_rank_zero,
             fps=fps,
         )
+        if stream is not None:
+            stream.collect_output = self.is_rank_zero
+            stream.move_to_cpu = move_to_cpu
+            return stream
 
-    @staticmethod
-    def process_output_chunk(
-        stream: VideoPostprocessStream | None,
-        tensor: torch.Tensor,
-        *,
-        autoregressive_index: int,
-    ) -> torch.Tensor:
-        """Process one decoded chunk, or return it unchanged when disabled."""
-        if stream is None:
-            return tensor
-        return stream.process(tensor, autoregressive_index=autoregressive_index)
-
-    @staticmethod
-    def finish_output_stream(
-        stream: VideoPostprocessStream | None,
-    ) -> torch.Tensor | None:
-        """Flush a configured stream, or return ``None`` when disabled."""
-        return None if stream is None else stream.finish()
+        layout = self.config.postprocess_output_layout
+        if layout is None:
+            raise ValueError("Runner output collection requires an output layout.")
+        return VideoPostprocessStream(
+            postprocess=VideoPostprocessChainConfig(),
+            output_layout=layout,
+            fps=fps,
+            collect_output=self.is_rank_zero,
+            move_to_cpu=move_to_cpu,
+        )
 
     @abstractmethod
     def run(self) -> None:

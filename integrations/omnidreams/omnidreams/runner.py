@@ -387,10 +387,6 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             torch.distributed.barrier()
 
         postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
-        # Distributed ranks still participate in generate/finalize/postprocess;
-        # only rank zero owns host-side collection and persistence.
-        collect_output = self.is_rank_zero
-        chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         start = 0
         for i in range(cfg.total_blocks):
@@ -409,30 +405,16 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 hdmap=hdmap_videos_t[:, :, start:end],
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = self.process_output_chunk(
-                postprocess_stream, video_chunk, autoregressive_index=i
+            video_chunk = postprocess_stream.process(
+                video_chunk, autoregressive_index=i
             )
-            if collect_output and stats is not None:
+            if postprocess_stream.collect_output and stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            if collect_output and video_chunk.shape[2] > 0:
-                chunks.append(video_chunk.cpu())
             start = end
 
-        postprocess_tail = self.finish_output_stream(postprocess_stream)
-        if (
-            collect_output
-            and postprocess_tail is not None
-            and postprocess_tail.shape[2] > 0
-        ):
-            chunks.append(postprocess_tail.cpu())
-
-        if not collect_output:
+        video = postprocess_stream.finish()
+        if video is None:
             return
-
-        if chunks:
-            video = torch.cat(chunks, dim=2)  # [B, V, T, C, H, W]
-        else:
-            raise ValueError("post-processing emitted no video frames")
         generated_num_frames = video.shape[2]
 
         if cfg.postprocess.is_enabled():

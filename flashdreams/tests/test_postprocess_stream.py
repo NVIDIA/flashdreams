@@ -84,6 +84,26 @@ def test_stream_buffers_then_flushes_once_and_closes() -> None:
         stream.process(video, autoregressive_index=1)
 
 
+def test_stream_collects_generated_chunks_without_postprocess() -> None:
+    stream = VideoPostprocessStream(
+        postprocess=VideoPostprocessChainConfig(),
+        output_layout="bcthw",
+    )
+    first = torch.ones((1, 3, 2, 4, 5))
+    empty = torch.empty((1, 3, 0, 4, 5))
+    second = torch.full((1, 3, 1, 4, 5), 2.0)
+
+    assert stream.process(first, autoregressive_index=0) is first
+    stream.process(empty, autoregressive_index=1)
+    stream.process(second, autoregressive_index=2)
+    output = stream.finish()
+
+    assert output is not None
+    assert output.shape == (1, 3, 3, 4, 5)
+    assert torch.equal(output[:, :, :2], first)
+    assert torch.equal(output[:, :, 2:], second)
+
+
 def test_chain_propagates_output_spec_to_downstream_session() -> None:
     chain = VideoPostprocessChainConfig(
         processors=(_ScaleSpecConfig(scale=2), _BufferConfig())

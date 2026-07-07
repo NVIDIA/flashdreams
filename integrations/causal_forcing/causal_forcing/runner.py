@@ -188,39 +188,19 @@ class CausalForcingT2VRunner(
 
         # Generate the autoregressive chunks.
         postprocess_stream = self.create_postprocess_stream(fps=config.fps)
-        # Distributed ranks still participate in generate/finalize/postprocess;
-        # only rank zero owns host-side collection and persistence.
-        collect_output = self.is_rank_zero
-        chunks: list[torch.Tensor] = []
         stats_history: list[dict[str, float]] = []
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = self.process_output_chunk(
-                postprocess_stream, video_chunk, autoregressive_index=i
+            video_chunk = postprocess_stream.process(
+                video_chunk, autoregressive_index=i
             )
-            if collect_output and stats is not None:
+            if postprocess_stream.collect_output and stats is not None:
                 stats_history.append({"autoregressive_index": i, **stats})
-            if collect_output and video_chunk.shape[0] > 0:
-                chunks.append(video_chunk.cpu())
 
-        postprocess_tail = self.finish_output_stream(postprocess_stream)
-        if (
-            collect_output
-            and postprocess_tail is not None
-            and postprocess_tail.shape[0] > 0
-        ):
-            chunks.append(postprocess_tail.cpu())
-
-        if not collect_output:
+        generated = postprocess_stream.finish()
+        if generated is None:
             return
-
-        # Concatenate the autoregressive chunks along the time axis.
-        # The result is a tensor of shape [T, C, H, W], value in [-1, 1].
-        if chunks:
-            generated = torch.cat(chunks, dim=0)
-        else:
-            raise ValueError("post-processing emitted no video frames")
 
         # Write the video.
         config.output_dir.mkdir(parents=True, exist_ok=True)
