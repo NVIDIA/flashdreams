@@ -20,10 +20,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from flashdreams.infra.postprocess import (
-    to_bvtchw,
-    to_minus_one_one,
-)
+from flashdreams.infra.postprocess import to_bvtchw
 from flashdreams.infra.postprocess.base import (
     from_bvtchw,
 )
@@ -31,13 +28,9 @@ from flashdreams.infra.postprocess.base import (
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_layout_and_uint8_round_trip() -> None:
+def test_layout_round_trip() -> None:
     video = torch.randint(0, 256, (2, 3, 4, 5, 6), dtype=torch.uint8)
     canonical = to_bvtchw(video, layout="bcthw")
     restored = from_bvtchw(canonical, layout="bcthw")
 
     assert torch.equal(restored, video)
-    normalized = to_minus_one_one(video, value_range="uint8")
-    assert normalized.dtype == torch.float32
-    assert normalized.min() >= -1.0
-    assert normalized.max() <= 1.0

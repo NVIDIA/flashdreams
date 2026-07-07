@@ -30,10 +30,9 @@ from flashdreams.infra.postprocess.base import (
     VideoPostProcessorSession,
     VideoSpec,
     VideoTensorLayout,
-    VideoValueRange,
     concatenate_video_chunks,
     from_bvtchw,
-    infer_video_spec,
+    infer_video_spec_from_tensor_shape,
     to_bvtchw,
 )
 
@@ -66,7 +65,6 @@ class VideoPostprocessStream:
         *,
         postprocess: VideoPostprocessChainConfig,
         output_layout: VideoTensorLayout,
-        output_value_range: VideoValueRange = "minus_one_one",
         fps: float | None = None,
         per_view: bool = False,
         world_size: int = 1,
@@ -75,7 +73,6 @@ class VideoPostprocessStream:
         postprocess.validate_execution(world_size=world_size)
         self.postprocess = postprocess
         self.output_layout = output_layout
-        self.output_value_range = output_value_range
         self.fps = fps
         self.per_view = per_view
         self.world_size = world_size
@@ -91,7 +88,6 @@ class VideoPostprocessStream:
             return apply_video_postprocess(
                 postprocess=self.postprocess,
                 output_layout=self.output_layout,
-                output_value_range=self.output_value_range,
                 fps=self.fps,
                 per_view=self.per_view,
                 state=self.state,
@@ -103,7 +99,6 @@ class VideoPostprocessStream:
         result = apply_video_postprocess(
             postprocess=self.postprocess,
             output_layout=self.output_layout,
-            output_value_range=self.output_value_range,
             fps=self.fps,
             per_view=self.per_view,
             state=self.state,
@@ -127,7 +122,6 @@ class VideoPostprocessStream:
             return flush_video_postprocess(
                 postprocess=self.postprocess,
                 output_layout=self.output_layout,
-                output_value_range=self.output_value_range,
                 per_view=self.per_view,
                 state=self.state,
             )
@@ -136,7 +130,6 @@ class VideoPostprocessStream:
         result = flush_video_postprocess(
             postprocess=self.postprocess,
             output_layout=self.output_layout,
-            output_value_range=self.output_value_range,
             per_view=self.per_view,
             state=self.state,
         )
@@ -158,7 +151,6 @@ def apply_video_postprocess(
     *,
     postprocess: VideoPostprocessChainConfig,
     output_layout: VideoTensorLayout,
-    output_value_range: VideoValueRange,
     fps: float | None,
     per_view: bool,
     state: _VideoPostprocessStreamState,
@@ -174,7 +166,6 @@ def apply_video_postprocess(
     if per_view:
         result = _postprocess_output_per_view(
             postprocess=postprocess,
-            output_value_range=output_value_range,
             fps=fps,
             state=state,
             autoregressive_index=autoregressive_index,
@@ -184,7 +175,6 @@ def apply_video_postprocess(
     else:
         result = _process_postprocess_chunk(
             postprocess=postprocess,
-            output_value_range=output_value_range,
             fps=fps,
             state=state,
             autoregressive_index=autoregressive_index,
@@ -200,7 +190,6 @@ def flush_video_postprocess(
     *,
     postprocess: VideoPostprocessChainConfig,
     output_layout: VideoTensorLayout,
-    output_value_range: VideoValueRange,
     per_view: bool,
     state: _VideoPostprocessStreamState,
 ) -> Tensor | None:
@@ -211,7 +200,6 @@ def flush_video_postprocess(
     layout = output_layout
     if per_view:
         flushed = _flush_postprocess_per_view(
-            output_value_range=output_value_range,
             state=state,
             layout=layout,
         )
@@ -222,7 +210,6 @@ def flush_video_postprocess(
         flushed = _postprocess_chunks_to_tensor_or_none(
             session.flush(),
             layout=layout,
-            output_value_range=output_value_range,
         )
 
     return flushed
@@ -231,7 +218,6 @@ def flush_video_postprocess(
 def _postprocess_output_per_view(
     *,
     postprocess: VideoPostprocessChainConfig,
-    output_value_range: VideoValueRange,
     fps: float | None,
     state: _VideoPostprocessStreamState,
     autoregressive_index: int,
@@ -258,7 +244,6 @@ def _postprocess_output_per_view(
         view = canonical[:, view_idx : view_idx + 1]
         view_output = _process_postprocess_chunk(
             postprocess=postprocess,
-            output_value_range=output_value_range,
             fps=fps,
             state=state,
             autoregressive_index=autoregressive_index,
@@ -282,7 +267,6 @@ def _postprocess_output_per_view(
 def _process_postprocess_chunk(
     *,
     postprocess: VideoPostprocessChainConfig,
-    output_value_range: VideoValueRange,
     fps: float | None,
     state: _VideoPostprocessStreamState,
     autoregressive_index: int,
@@ -292,7 +276,7 @@ def _process_postprocess_chunk(
 ) -> Tensor:
     session = state.sessions.get(session_key)
     if session is None:
-        spec = infer_video_spec(output, layout=layout, fps=fps)
+        spec = infer_video_spec_from_tensor_shape(output, layout=layout, fps=fps)
         session = postprocess.setup(spec)
         state.sessions[session_key] = session
 
@@ -300,7 +284,6 @@ def _process_postprocess_chunk(
         VideoChunk(
             tensor=output,
             layout=layout,
-            value_range=output_value_range,
             metadata={"autoregressive_index": autoregressive_index},
         )
     )
@@ -308,13 +291,11 @@ def _process_postprocess_chunk(
         chunks,
         reference=output,
         layout=layout,
-        output_value_range=output_value_range,
     )
 
 
 def _flush_postprocess_per_view(
     *,
-    output_value_range: VideoValueRange,
     state: _VideoPostprocessStreamState,
     layout: VideoTensorLayout,
 ) -> Tensor | None:
@@ -323,7 +304,6 @@ def _flush_postprocess_per_view(
         output = _postprocess_chunks_to_tensor_or_none(
             state.sessions[view_idx].flush(),
             layout="bvtchw",
-            output_value_range=output_value_range,
         )
         view_outputs.append(
             None if output is None else to_bvtchw(output, layout="bvtchw")
@@ -352,13 +332,11 @@ def _postprocess_chunks_to_tensor(
     *,
     reference: Tensor,
     layout: VideoTensorLayout,
-    output_value_range: VideoValueRange,
 ) -> Tensor:
     if chunks:
         return concatenate_video_chunks(
             chunks,
             layout=layout,
-            value_range=output_value_range,
         )
     canonical = to_bvtchw(reference, layout=layout)[:, :, :0]
     return from_bvtchw(canonical, layout=layout)
@@ -368,14 +346,12 @@ def _postprocess_chunks_to_tensor_or_none(
     chunks: list[VideoChunk],
     *,
     layout: VideoTensorLayout,
-    output_value_range: VideoValueRange,
 ) -> Tensor | None:
     if not chunks:
         return None
     return concatenate_video_chunks(
         chunks,
         layout=layout,
-        value_range=output_value_range,
     )
 
 
@@ -386,7 +362,7 @@ def _validate_input_spec(
     layout: VideoTensorLayout,
     fps: float | None,
 ) -> None:
-    spec = infer_video_spec(output, layout=layout, fps=fps)
+    spec = infer_video_spec_from_tensor_shape(output, layout=layout, fps=fps)
     if state.input_spec is None:
         state.input_spec = spec
         return

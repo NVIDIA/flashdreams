@@ -110,7 +110,6 @@ def test_flashvsr_postprocess_coalesces_chunks_and_flushes_tail(
     result = concatenate_video_chunks(
         [*ready, *tail],
         layout="tchw",
-        value_range="minus_one_one",
     )
 
     assert result.shape == (7, 3, 8, 12)

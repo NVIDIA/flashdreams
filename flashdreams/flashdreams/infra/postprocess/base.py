@@ -35,10 +35,6 @@ VideoTensorLayout = Literal[
 ]
 """Supported RGB video tensor layouts at the post-processing boundary."""
 
-VideoValueRange = Literal["minus_one_one", "zero_one", "uint8"]
-"""Supported numeric encodings for RGB video tensors."""
-
-
 @dataclass(frozen=True, kw_only=True)
 class VideoSpec:
     """Static stream metadata passed to post-processors before first use."""
@@ -61,13 +57,10 @@ class VideoChunk:
     """One video segment exchanged between generators, post-processors, and sinks."""
 
     tensor: Tensor
-    """Frames in the layout and value range described by sibling fields."""
+    """RGB frames in ``[-1, 1]`` using the layout described by :attr:`layout`."""
 
     layout: VideoTensorLayout = "tchw"
     """Layout of :attr:`tensor`."""
-
-    value_range: VideoValueRange = "minus_one_one"
-    """Numeric encoding of :attr:`tensor`."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Optional per-chunk metadata carried through the post-processing chain."""
@@ -219,15 +212,29 @@ class _VideoPostprocessChainSession(VideoPostProcessorSession):
         return current
 
 
-def infer_video_spec(
+def infer_video_spec_from_tensor_shape(
     tensor: Tensor,
     *,
     layout: VideoTensorLayout,
     fps: float | None = None,
 ) -> VideoSpec:
-    """Infer :class:`VideoSpec` from a video tensor and layout."""
-    canonical = to_bvtchw(tensor, layout=layout)
-    _, _, _, channels, height, width = canonical.shape
+    """Infer :class:`VideoSpec` from a tensor shape and declared layout."""
+    # Shape inference is metadata-only. Keep it explicit here so this does not
+    # look like a tensor conversion or video-frame copy.
+    if layout == "tchw":
+        _assert_ndim(tensor, 4, layout)
+        channels, height, width = tensor.shape[1], tensor.shape[2], tensor.shape[3]
+    elif layout == "btchw":
+        _assert_ndim(tensor, 5, layout)
+        channels, height, width = tensor.shape[2], tensor.shape[3], tensor.shape[4]
+    elif layout == "bcthw":
+        _assert_ndim(tensor, 5, layout)
+        channels, height, width = tensor.shape[1], tensor.shape[3], tensor.shape[4]
+    elif layout == "bvtchw":
+        _assert_ndim(tensor, 6, layout)
+        channels, height, width = tensor.shape[3], tensor.shape[4], tensor.shape[5]
+    else:
+        raise ValueError(f"unsupported video layout: {layout}")
     return VideoSpec(height=height, width=width, fps=fps, channels=channels)
 
 
@@ -235,45 +242,13 @@ def concatenate_video_chunks(
     chunks: Iterable[VideoChunk],
     *,
     layout: VideoTensorLayout,
-    value_range: VideoValueRange,
 ) -> Tensor:
-    """Concatenate chunks along time and convert to the requested representation."""
-    canonical_chunks = [
-        to_bvtchw(
-            to_minus_one_one(chunk.tensor, value_range=chunk.value_range),
-            layout=chunk.layout,
-        )
-        for chunk in chunks
-    ]
+    """Concatenate ``[-1, 1]`` chunks along time in the requested layout."""
+    canonical_chunks = [to_bvtchw(chunk.tensor, layout=chunk.layout) for chunk in chunks]
     if not canonical_chunks:
         raise ValueError("cannot concatenate an empty video chunk sequence")
     canonical = torch.cat(canonical_chunks, dim=2)
-    return from_minus_one_one(
-        from_bvtchw(canonical, layout=layout),
-        value_range=value_range,
-    )
-
-
-def to_minus_one_one(tensor: Tensor, *, value_range: VideoValueRange) -> Tensor:
-    """Convert RGB video values to floating point ``[-1, 1]``."""
-    if value_range == "minus_one_one":
-        return tensor.float() if not tensor.is_floating_point() else tensor
-    if value_range == "zero_one":
-        return tensor.float() * 2.0 - 1.0
-    if value_range == "uint8":
-        return tensor.float() / 127.5 - 1.0
-    raise ValueError(f"unsupported video value range: {value_range}")
-
-
-def from_minus_one_one(tensor: Tensor, *, value_range: VideoValueRange) -> Tensor:
-    """Convert floating point ``[-1, 1]`` RGB values to another encoding."""
-    if value_range == "minus_one_one":
-        return tensor
-    if value_range == "zero_one":
-        return ((tensor.float() + 1.0) / 2.0).clamp(0.0, 1.0)
-    if value_range == "uint8":
-        return (((tensor.float() + 1.0) / 2.0) * 255.0).clamp(0, 255).to(torch.uint8)
-    raise ValueError(f"unsupported video value range: {value_range}")
+    return from_bvtchw(canonical, layout=layout)
 
 
 def to_bvtchw(tensor: Tensor, *, layout: VideoTensorLayout) -> Tensor:

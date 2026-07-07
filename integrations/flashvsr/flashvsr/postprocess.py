@@ -31,7 +31,6 @@ from flashdreams.infra.postprocess import (
     VideoPostProcessorSession,
     VideoSpec,
     to_bvtchw,
-    to_minus_one_one,
 )
 from flashvsr.corrector import ColorCorrectorImplementation
 from flashvsr.encoder import FlashVSREncoder
@@ -174,10 +173,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         return [_bcthw_chunk(output, metadata=metadata)]
 
     def _chunk_to_bcthw(self, chunk: VideoChunk) -> Tensor:
-        canonical = to_bvtchw(
-            to_minus_one_one(chunk.tensor, value_range=chunk.value_range),
-            layout=chunk.layout,
-        )
+        canonical = to_bvtchw(chunk.tensor, layout=chunk.layout)
         batch, views, _, channels, _, _ = canonical.shape
         if batch != 1 or views != 1:
             raise ValueError(
@@ -300,7 +296,6 @@ def _bcthw_chunk(tensor: Tensor, *, metadata: dict[str, Any]) -> VideoChunk:
     return VideoChunk(
         tensor=tensor,
         layout="bcthw",
-        value_range="minus_one_one",
         metadata=metadata,
     )
 
