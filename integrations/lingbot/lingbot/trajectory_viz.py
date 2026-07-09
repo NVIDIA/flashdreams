@@ -62,9 +62,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_EXAMPLE_DATA_ROOT = REPO_ROOT / "assets/example_data/lingbot_world"
-DEFAULT_OUTPUT_PATH = REPO_ROOT / "outputs/lingbot_camera_trajectory.mp4"
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
+
+DEFAULT_EXAMPLE_DATA_ROOT = (
+    default_flashdreams_cache_dir() / "example_data/lingbot_world"
+)
+DEFAULT_OUTPUT_PATH = Path("outputs/lingbot_camera_trajectory.mp4")
 AVAILABLE_EXAMPLE_IDXS = (0, 1, 2, 5)
 DEFAULT_OUTPUT_FPS = 16
 """Default trajectory video FPS, aligned with ``LingbotWorldRunnerConfig.fps``."""
@@ -85,7 +88,7 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         choices=AVAILABLE_EXAMPLE_IDXS,
-        help="Example folder index under assets/example_data/lingbot_world.",
+        help="Example folder index under the LingBot example-data cache.",
     )
     parser.add_argument(
         "--example_data_root",

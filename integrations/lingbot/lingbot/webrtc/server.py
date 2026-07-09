@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
+from contextlib import ExitStack
+from importlib.resources import as_file, files
 from typing import Protocol, cast
 
 import torch
@@ -54,7 +55,7 @@ from lingbot.webrtc.session import (
     normalize_prompt_text,
 )
 
-WEB_DIR = Path(__file__).resolve().parent / "web"
+WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
 MAX_UPLOAD_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PROMPT_CHARS = 2_000
 
@@ -119,9 +120,13 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         choices=EXAMPLE_DATA_AVAILABLE_IDXS,
-        help="Example folder index under assets/example_data/lingbot_world (allowed: 0, 1, 2, 5).",
+        help="Example folder index under the LingBot example-data cache (allowed: 0, 1, 2, 5).",
     )
     return parser.parse_args()
+
+
+async def _close_package_resources(app: web.Application) -> None:
+    app["package_resource_stack"].close()
 
 
 def create_app(
@@ -130,15 +135,25 @@ def create_app(
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or LingbotWebRTCSessionManager()
-    app = create_webrtc_app(
-        web_dir=WEB_DIR,
-        session_manager=manager,
-        preload_name="Lingbot",
-        request_session_url=request_session_url,
-    )
-    app.router.add_get("/api/session/initial_scene", _initial_scene)
-    app.router.add_get("/api/session/first_frame", _first_frame)
-    app.router.add_post("/api/session/input", _session_input)
+
+    resource_stack = ExitStack()
+    try:
+        web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
+
+        app = create_webrtc_app(
+            web_dir=web_dir,
+            session_manager=manager,
+            preload_name="Lingbot",
+            request_session_url=request_session_url,
+        )
+        app.router.add_get("/api/session/initial_scene", _initial_scene)
+        app.router.add_get("/api/session/first_frame", _first_frame)
+        app.router.add_post("/api/session/input", _session_input)
+        app["package_resource_stack"] = resource_stack
+        app.on_cleanup.append(_close_package_resources)
+    except Exception:
+        resource_stack.close()
+        raise
     return app
 
 

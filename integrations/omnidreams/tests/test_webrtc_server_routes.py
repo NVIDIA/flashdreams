@@ -120,32 +120,6 @@ def test_create_app_closes_package_resource_when_app_creation_fails(
     assert tracked_resource.closed
 
 
-def test_create_app_skips_absent_repo_assets_mount(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(
-        webrtc_server,
-        "REPO_ASSETS_DIR",
-        tmp_path / "missing-assets",
-    )
-    app = create_app(
-        session_manager=FakeSessionManager(),
-        request_session_url="http://127.0.0.1:8080/request_session",
-    )
-    try:
-        for resource in app.router.resources():
-            info = resource.get_info()
-            candidates = (
-                getattr(resource, "canonical", ""),
-                info.get("prefix", ""),
-                info.get("path", ""),
-            )
-            assert not any(
-                str(candidate) == "/assets" or str(candidate).startswith("/assets/")
-                for candidate in candidates
-            )
-    finally:
-        app["package_resource_stack"].close()
-
-
 @pytest.mark.asyncio
 async def test_request_session_serves_html() -> None:
     manager = FakeSessionManager()
@@ -170,7 +144,7 @@ async def test_request_session_uses_lingbot_aligned_viewer_shell() -> None:
         assert response.status == 200
         assert 'class="brandOverlay"' in body
         assert "FlashDreams" in body
-        assert "/assets/logo/horizontal-dark.svg" in body
+        assert "/static/assets/horizontal-dark.svg" in body
         assert 'class="statusCard overlayPanel"' in body
         assert 'class="controlCard overlayPanel"' in body
         assert 'class="logCard overlayPanel"' in body
@@ -206,7 +180,7 @@ async def test_shared_flashdreams_brand_asset_is_served() -> None:
     manager = FakeSessionManager()
     client = await _build_client(manager)
     try:
-        response = await client.get("/assets/logo/horizontal-dark.svg")
+        response = await client.get("/static/assets/horizontal-dark.svg")
         assert response.status == 200
         assert response.content_type == "image/svg+xml"
     finally:

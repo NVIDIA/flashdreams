@@ -27,6 +27,7 @@ from einops import rearrange
 from loguru import logger
 
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
@@ -51,16 +52,12 @@ land on the right pixel centers at the runner's actual frame size."""
 _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
-# ``lingbot/runner.py`` -> ``lingbot/`` -> ``integrations/lingbot/`` ->
-# ``integrations/`` -> repo root. Keep this in sync with the file's nesting
-# depth (``parents[3]``).
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE_DATA_BASE_URL = (
     "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples"
 )
 """HTTP base URL where bundled example folders are downloaded from."""
 
-EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "assets/example_data/lingbot_world"
+EXAMPLE_DATA_DIR_LOCAL = default_flashdreams_cache_dir() / "example_data/lingbot_world"
 """Local cache root where downloaded example folders are stored."""
 
 EXAMPLE_DATA_FILENAMES = (
@@ -151,7 +148,7 @@ class LingbotWorldRunnerConfig(RunnerConfig):
 
     example_data: bool = False
     """When ``True``, lazy-download bundled GitHub example assets into
-    ``assets/example_data/lingbot_world/`` and fill ``image_path`` /
+    ``$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world/`` and fill ``image_path`` /
     ``pose_path`` / ``intrinsic_path`` / ``prompt_path`` from the
     bundled defaults. Use for the README demo; pass explicit paths
     for production runs."""

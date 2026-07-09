@@ -28,6 +28,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -54,14 +55,12 @@ frame = 16 latents, matching the default ``num_chunk=4`` rollout. With
 ``--example-data`` this is swapped for the sample pose JSON."""
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-
 EXAMPLE_DATA_BASE_URL = (
     "https://raw.githubusercontent.com/Tencent-Hunyuan/HY-WorldPlay/main/assets"
 )
 """HTTP base URL where upstream's sample first-frame image / pose JSON live."""
 
-EXAMPLE_DATA_DIR_LOCAL = _REPO_ROOT / "data_local/hy_worldplay"
+EXAMPLE_DATA_DIR_LOCAL = default_flashdreams_cache_dir() / "example_data/hy_worldplay"
 """Local cache root for the downloaded sample inputs (gitignored)."""
 
 _EXAMPLE_IMAGE_FILENAME = "test.png"
@@ -179,7 +178,8 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
     example_data: bool = False
     """When ``True``, lazy-download the bundled sample first-frame image
-    into ``data_local/hy_worldplay/`` (rank-0 only, gitignored) and fill
+    into ``$FLASHDREAMS_CACHE_DIR/example_data/hy_worldplay/`` (rank-0 only)
+    and fill
     :attr:`image_path` from it when unset."""
 
     pose: str = DEFAULT_POSE

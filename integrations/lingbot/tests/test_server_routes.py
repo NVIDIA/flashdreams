@@ -16,11 +16,13 @@
 from __future__ import annotations
 
 import base64
+from contextlib import ExitStack
 
 import pytest
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
-from lingbot.webrtc.server import create_app
+from lingbot.webrtc import server as webrtc_server
+from lingbot.webrtc.server import _close_package_resources, create_app
 from lingbot.webrtc.session import (
     LingbotImagePayload,
     LingbotSessionInput,
@@ -100,6 +102,64 @@ async def _build_client(manager: FakeSessionManager) -> TestClient:
     client = TestClient(server)
     await client.start_server()
     return client
+
+
+def test_create_app_keeps_package_web_resource_materialized() -> None:
+    app = create_app(
+        session_manager=FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+    )
+    try:
+        assert isinstance(app["package_resource_stack"], ExitStack)
+        assert _close_package_resources in app.on_cleanup
+
+        static_resources = [
+            resource
+            for resource in app.router.resources()
+            if getattr(resource, "canonical", "") == "/static"
+            or resource.get_info().get("prefix") in {"/static", "/static/"}
+        ]
+        assert len(static_resources) == 1
+        web_dir = static_resources[0].get_info()["directory"]
+        assert web_dir.is_dir()
+        assert "Lingbot WebRTC Viewer" in (
+            web_dir / "request_session.html"
+        ).read_text()
+    finally:
+        app["package_resource_stack"].close()
+
+
+def test_create_app_closes_package_resource_when_app_creation_fails(
+    monkeypatch, tmp_path
+) -> None:
+    class TrackedResource:
+        closed = False
+
+        def __enter__(self):
+            return tmp_path
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.closed = True
+
+    tracked_resource = TrackedResource()
+
+    def raise_app_creation_failure(**_kwargs):
+        raise RuntimeError("app creation failed")
+
+    monkeypatch.setattr(webrtc_server, "as_file", lambda _resource: tracked_resource)
+    monkeypatch.setattr(
+        webrtc_server,
+        "create_webrtc_app",
+        raise_app_creation_failure,
+    )
+
+    with pytest.raises(RuntimeError, match="app creation failed"):
+        create_app(
+            session_manager=FakeSessionManager(),
+            request_session_url="http://127.0.0.1:8080/request_session",
+        )
+
+    assert tracked_resource.closed
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,7 @@ import io
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
@@ -48,7 +49,6 @@ from flashdreams.serving.webrtc.manager import (
 from flashdreams.serving.webrtc.server import SessionBusyError
 from lingbot.encoder.utils import preprocess_example_poses
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
 _INTRINSICS_REFERENCE_HEIGHT = 480
 _INTRINSICS_REFERENCE_WIDTH = 832
 _DEFAULT_INTRINSICS = (
@@ -200,7 +200,10 @@ class LingbotRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
 
-    example_data_dir: Path = REPO_ROOT / "assets/example_data/lingbot_world"
+    example_data_dir: Path = field(
+        default_factory=lambda: default_flashdreams_cache_dir()
+        / "example_data/lingbot_world"
+    )
     first_frame_filename: str = "image.jpg"
     intrinsics_filename: str = "intrinsics.npy"
     poses_filename: str = "poses.npy"

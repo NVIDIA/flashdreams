@@ -30,7 +30,7 @@ of the two implementations from the ``implementation`` knob (default
 """
 
 import hashlib
-from pathlib import Path
+from importlib.resources import as_file, files
 from typing import Literal, Optional, Tuple
 
 import torch
@@ -49,6 +49,10 @@ _DISABLE_TORCH_COMPILE = getattr(
 _ADAIN_CUDA_EXTENSION = None
 _ADAIN_CUDA_EXTENSION_LOAD_ERROR: Optional[Exception] = None
 ColorCorrectorImplementation = Literal["torch", "cuda"]
+_ADAIN_CUDA_SOURCE_RESOURCE = files("flashvsr").joinpath(
+    "csrc",
+    "color_corrector_adain_cuda.cu",
+)
 
 
 def _load_adain_cuda_extension():
@@ -58,21 +62,21 @@ def _load_adain_cuda_extension():
     if _ADAIN_CUDA_EXTENSION_LOAD_ERROR is not None:
         return None
 
-    source_path = Path(__file__).parent / "csrc" / "color_corrector_adain_cuda.cu"
-    # Hash the source bytes into the extension name so any edit to
-    # ``color_corrector_adain_cuda.cu`` invalidates the cached ``.so``
-    # under ``~/.cache/torch_extensions``. Without this suffix
-    # ``torch.utils.cpp_extension.load`` would silently reuse a stale build
-    # whenever the source contents change but the file timestamp doesn't
-    # advance enough to trigger its content-only check.
-    csrc_checksum = hashlib.sha256(source_path.read_bytes()).hexdigest()[:8]
     try:
-        _ADAIN_CUDA_EXTENSION = _load_cuda_extension(
-            name=f"flashvsr_adain_cuda_{csrc_checksum}",
-            sources=[str(source_path)],
-            extra_cuda_cflags=["-O3"],
-            verbose=False,
-        )
+        with as_file(_ADAIN_CUDA_SOURCE_RESOURCE) as source_path:
+            # Hash the source bytes into the extension name so any edit to
+            # ``color_corrector_adain_cuda.cu`` invalidates the cached ``.so``
+            # under ``~/.cache/torch_extensions``. Without this suffix
+            # ``torch.utils.cpp_extension.load`` would silently reuse a stale build
+            # whenever the source contents change but the file timestamp doesn't
+            # advance enough to trigger its content-only check.
+            csrc_checksum = hashlib.sha256(source_path.read_bytes()).hexdigest()[:8]
+            _ADAIN_CUDA_EXTENSION = _load_cuda_extension(
+                name=f"flashvsr_adain_cuda_{csrc_checksum}",
+                sources=[str(source_path)],
+                extra_cuda_cflags=["-O3"],
+                verbose=False,
+            )
     except Exception as exc:
         _ADAIN_CUDA_EXTENSION_LOAD_ERROR = exc
         return None

@@ -18,10 +18,10 @@ from __future__ import annotations
 import argparse
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from importlib.resources import as_file, files
 from urllib.parse import urlsplit
 
-WEB_DIR = Path(__file__).resolve().parent
+WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
 
 
 class MockUIRequestHandler(SimpleHTTPRequestHandler):
@@ -60,15 +60,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    handler = partial(MockUIRequestHandler, directory=str(WEB_DIR))
-    server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"Serving mock UI at http://{args.host}:{args.port}/request_session?mock=1")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopping mock UI server.")
-    finally:
-        server.server_close()
+    with as_file(WEB_DIR_RESOURCE) as web_dir:
+        handler = partial(MockUIRequestHandler, directory=str(web_dir))
+        server = ThreadingHTTPServer((args.host, args.port), handler)
+        print(f"Serving mock UI at http://{args.host}:{args.port}/request_session?mock=1")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopping mock UI server.")
+        finally:
+            server.server_close()
 
 
 if __name__ == "__main__":
