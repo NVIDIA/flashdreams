@@ -122,9 +122,7 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         assert len(static_resources) == 1
         web_dir = static_resources[0].get_info()["directory"]
         assert web_dir.is_dir()
-        assert "Lingbot WebRTC Viewer" in (
-            web_dir / "request_session.html"
-        ).read_text()
+        assert "Lingbot WebRTC Viewer" in (web_dir / "request_session.html").read_text()
     finally:
         app["package_resource_stack"].close()
 

@@ -26,8 +26,8 @@ import torch
 from einops import rearrange
 from loguru import logger
 
-from flashdreams.core.io.download import download_to_cache
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.runner import Runner, RunnerConfig
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (

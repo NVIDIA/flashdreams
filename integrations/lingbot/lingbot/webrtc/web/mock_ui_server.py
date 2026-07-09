@@ -63,7 +63,9 @@ def main() -> None:
     with as_file(WEB_DIR_RESOURCE) as web_dir:
         handler = partial(MockUIRequestHandler, directory=str(web_dir))
         server = ThreadingHTTPServer((args.host, args.port), handler)
-        print(f"Serving mock UI at http://{args.host}:{args.port}/request_session?mock=1")
+        print(
+            f"Serving mock UI at http://{args.host}:{args.port}/request_session?mock=1"
+        )
         try:
             server.serve_forever()
         except KeyboardInterrupt:

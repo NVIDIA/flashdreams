@@ -67,7 +67,9 @@ from flashdreams.core.io.disk import default_flashdreams_cache_dir
 DEFAULT_EXAMPLE_DATA_ROOT = (
     default_flashdreams_cache_dir() / "example_data/lingbot_world"
 )
-DEFAULT_OUTPUT_PATH = Path("outputs/lingbot_camera_trajectory.mp4")
+DEFAULT_OUTPUT_PATH = (
+    default_flashdreams_cache_dir() / "outputs/lingbot_camera_trajectory.mp4"
+)
 AVAILABLE_EXAMPLE_IDXS = (0, 1, 2, 5)
 DEFAULT_OUTPUT_FPS = 16
 """Default trajectory video FPS, aligned with ``LingbotWorldRunnerConfig.fps``."""

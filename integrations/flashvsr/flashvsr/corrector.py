@@ -49,9 +49,8 @@ _DISABLE_TORCH_COMPILE = getattr(
 _ADAIN_CUDA_EXTENSION = None
 _ADAIN_CUDA_EXTENSION_LOAD_ERROR: Optional[Exception] = None
 ColorCorrectorImplementation = Literal["torch", "cuda"]
-_ADAIN_CUDA_SOURCE_RESOURCE = files("flashvsr").joinpath(
-    "csrc",
-    "color_corrector_adain_cuda.cu",
+_ADAIN_CUDA_SOURCE_RESOURCE = (
+    files("flashvsr").joinpath("csrc").joinpath("color_corrector_adain_cuda.cu")
 )
 
 

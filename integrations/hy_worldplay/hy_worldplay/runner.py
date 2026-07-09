@@ -27,8 +27,8 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from flashdreams.core.io.download import download_to_cache
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
+from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
