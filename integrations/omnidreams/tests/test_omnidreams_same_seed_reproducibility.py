@@ -73,6 +73,7 @@ Tunable via env vars (all optional, sensible defaults):
 * ``OMNIDREAMS_REPRO_TOTAL_BLOCKS`` -- AR chunks; bigger catches accumulation
                                         drift but costs wall time (default 4)
 * ``OMNIDREAMS_REPRO_CLIP_UUID``    -- example-data clip uuid (default: runner's)
+* ``OMNIDREAMS_REPRO_RUN_TIMEOUT_SECONDS`` -- per-run timeout (default 2700)
 """
 
 from __future__ import annotations
@@ -92,6 +93,9 @@ pytestmark = pytest.mark.ci_gpu
 _RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
 _DEFAULT_SEED = int(os.environ.get("OMNIDREAMS_REPRO_SEED", "1"))
 _DEFAULT_TOTAL_BLOCKS = int(os.environ.get("OMNIDREAMS_REPRO_TOTAL_BLOCKS", "4"))
+_DEFAULT_RUN_TIMEOUT_SECONDS = int(
+    os.environ.get("OMNIDREAMS_REPRO_RUN_TIMEOUT_SECONDS", "2700")
+)
 
 # Inline bootstrap run by the subprocess *before* importing the CLI, so the
 # deterministic-algorithms flag is in force before the first CUDA context.
@@ -144,7 +148,12 @@ def _run_once(*, seed: int, total_blocks: int, output_dir: Path) -> _RunResult:
         cmd += ["--example-data-uuid", clip_uuid]
 
     completed = subprocess.run(
-        cmd, env=env, capture_output=True, text=True, check=False
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=_DEFAULT_RUN_TIMEOUT_SECONDS,
     )
     return _RunResult(
         mp4_path=output_dir / f"{_RECIPE}.mp4",
