@@ -16,10 +16,12 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 
 import pytest
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
+from lingbot2.webrtc import server as lingbot2_server
 from lingbot2.webrtc.server import create_app
 from lingbot2.webrtc.session import (
     Lingbot2ImagePayload,
@@ -170,6 +172,37 @@ async def test_first_frame_route_serves_manager_image() -> None:
         assert response.status == 200
         assert response.headers["Content-Type"] == "image/jpeg"
         assert body == b"fake-first-frame"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_blocking_session_routes_use_worker_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _FakeAsyncio:
+        @staticmethod
+        async def to_thread(
+            func: Callable[..., object], *args: object, **kwargs: object
+        ) -> object:
+            calls.append(getattr(func, "__name__", "unknown"))
+            return func(*args, **kwargs)
+
+    monkeypatch.setattr(lingbot2_server, "asyncio", _FakeAsyncio)
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        first_frame_response = await client.get("/api/session/first_frame")
+        assert first_frame_response.status == 200
+
+        form = FormData()
+        form.add_field("prompt", "follow the river")
+        input_response = await client.post("/api/session/input", data=form)
+        assert input_response.status == 200
+
+        assert calls == ["get_first_frame", "set_pending_session_input"]
     finally:
         await client.close()
 

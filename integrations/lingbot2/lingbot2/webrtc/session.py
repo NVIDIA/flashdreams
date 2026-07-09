@@ -16,7 +16,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import io
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -74,6 +76,7 @@ _DEFAULT_POSES_URL = f"{_DEFAULT_DEMO_BASE_URL}/poses.npy"
 _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
 _MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
 _REMOTE_READ_TIMEOUT_S = 20.0
+_BLOCKED_REMOTE_HOSTNAMES = {"localhost", "localhost.localdomain"}
 
 
 class Lingbot2RuntimeError(RuntimeError):
@@ -152,12 +155,86 @@ def _normalize_github_blob_url(url: str, parsed: urllib.parse.ParseResult) -> st
     )
 
 
+def _resolve_remote_host(
+    hostname: str,
+) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
+    try:
+        return (ipaddress.ip_address(hostname),)
+    except ValueError:
+        pass
+
+    try:
+        address_infos = socket.getaddrinfo(
+            hostname,
+            None,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise ValueError(
+            f"Remote URL host {hostname!r} could not be resolved."
+        ) from exc
+
+    addresses: dict[str, ipaddress.IPv4Address | ipaddress.IPv6Address] = {}
+    for address_info in address_infos:
+        socket_address = address_info[4]
+        if not socket_address:
+            continue
+        try:
+            address = ipaddress.ip_address(socket_address[0])
+        except ValueError:
+            continue
+        addresses[str(address)] = address
+    if not addresses:
+        raise ValueError(
+            f"Remote URL host {hostname!r} did not resolve to an IP address."
+        )
+    return tuple(addresses.values())
+
+
+def _validate_remote_hostname(hostname: str | None, *, field_name: str) -> None:
+    if not hostname:
+        raise ValueError(f"{field_name} must include a host.")
+    normalized_hostname = hostname.rstrip(".").lower()
+    if (
+        normalized_hostname in _BLOCKED_REMOTE_HOSTNAMES
+        or normalized_hostname.endswith(".localhost")
+    ):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+    addresses = _resolve_remote_host(normalized_hostname)
+    if any(not address.is_global for address in addresses):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+
 def _validate_remote_url(url: str, *, field_name: str) -> str:
     normalized = url.strip()
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{field_name} must be an http(s) URL.")
-    return _normalize_github_blob_url(normalized, parsed)
+    normalized = _normalize_github_blob_url(normalized, parsed)
+    parsed = urllib.parse.urlparse(normalized)
+    _validate_remote_hostname(parsed.hostname, field_name=field_name)
+    return normalized
+
+
+class _ValidatingRemoteRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, field_name: str) -> None:
+        super().__init__()
+        self._field_name = field_name
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        normalized = _validate_remote_url(
+            newurl, field_name=f"{self._field_name} redirect"
+        )
+        return super().redirect_request(req, fp, code, msg, headers, normalized)
 
 
 def _read_remote_bytes(
@@ -168,14 +245,14 @@ def _read_remote_bytes(
         normalized,
         headers={"User-Agent": "flashdreams-lingbot2-webrtc/1.0"},
     )
+    opener = urllib.request.build_opener(_ValidatingRemoteRedirectHandler(field_name))
     try:
-        with urllib.request.urlopen(
-            request, timeout=_REMOTE_READ_TIMEOUT_S
-        ) as response:
+        with opener.open(request, timeout=_REMOTE_READ_TIMEOUT_S) as response:
             data = response.read(max_bytes + 1)
             content_type = response.headers.get_content_type()
     except urllib.error.URLError as exc:
-        raise ValueError(f"Failed to fetch {field_name}: {exc.reason}") from exc
+        reason = getattr(exc, "reason", exc)
+        raise ValueError(f"Failed to fetch {field_name}: {reason}") from exc
     if len(data) > max_bytes:
         raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
     if not data:

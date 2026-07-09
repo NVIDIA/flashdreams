@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 from pathlib import Path
 from typing import Protocol, cast
@@ -149,7 +150,7 @@ async def _initial_scene(request: web.Request) -> web.StreamResponse:
 
 async def _first_frame(request: web.Request) -> web.StreamResponse:
     manager = _get_lingbot2_manager(request.app)
-    payload = manager.get_first_frame()
+    payload = await asyncio.to_thread(manager.get_first_frame)
     if not isinstance(payload, Lingbot2ImagePayload):
         raise web.HTTPInternalServerError(reason="Invalid Lingbot2 first-frame payload.")
     return web.Response(body=payload.data, content_type=payload.content_type)
@@ -235,15 +236,14 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         )
 
     manager = _get_lingbot2_manager(request.app)
+    session_input = Lingbot2SessionInput(
+        prompt=prompt or None,
+        first_frame_image_bytes=image_bytes,
+        first_frame_image_url=image_url,
+        first_frame_content_type=image_content_type,
+    )
     try:
-        manager.set_pending_session_input(
-            Lingbot2SessionInput(
-                prompt=prompt or None,
-                first_frame_image_bytes=image_bytes,
-                first_frame_image_url=image_url,
-                first_frame_content_type=image_content_type,
-            )
-        )
+        await asyncio.to_thread(manager.set_pending_session_input, session_input)
     except SessionBusyError as exc:
         raise web.HTTPConflict(reason=str(exc)) from exc
     except ValueError as exc:

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 from typing import cast
 
@@ -71,13 +72,51 @@ def test_session_manager_hooks_are_wired() -> None:
     assert Lingbot2WebRTCSessionManager._close_session_on_generation_error is False
 
 
-def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
+def test_validate_remote_url_normalizes_github_blob_image_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        session,
+        "_resolve_remote_host",
+        lambda hostname: (ipaddress.ip_address("140.82.112.4"),),
+    )
     image_url = (
         "https://github.com/Robbyant/lingbot-world-v2/blob/main/examples/03/image.jpg"
     )
     assert session._validate_remote_url(image_url, field_name="image") == (
         "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/03/image.jpg"
     )
+
+
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "http://127.0.0.1/image.jpg",
+        "http://10.0.0.5/image.jpg",
+        "http://172.16.0.5/image.jpg",
+        "http://192.168.1.10/image.jpg",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/image.jpg",
+        "http://localhost/image.jpg",
+    ],
+)
+def test_validate_remote_url_rejects_non_public_hosts(image_url: str) -> None:
+    with pytest.raises(ValueError, match="publicly routable"):
+        session._validate_remote_url(image_url, field_name="image")
+
+
+def test_remote_redirect_handler_rejects_non_public_targets() -> None:
+    handler = session._ValidatingRemoteRedirectHandler("image")
+
+    with pytest.raises(ValueError, match="publicly routable"):
+        handler.redirect_request(
+            object(),  # ty:ignore[invalid-argument-type]
+            fp=None,
+            code=302,
+            msg="Found",
+            headers={},
+            newurl="http://127.0.0.1/image.jpg",
+        )
 
 
 def test_initial_scene_advertises_text_event_catalog(

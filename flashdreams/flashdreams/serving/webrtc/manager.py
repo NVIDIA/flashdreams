@@ -469,6 +469,8 @@ class BaseWebRTCSessionManager:
                 payload=payload,
             )
             if handled:
+                # Text events intentionally count as first interaction: a client may
+                # want the model to generate an idle-camera chunk with updated text.
                 managed_session.first_action_received.set()
             return
         if message_type != "action":
