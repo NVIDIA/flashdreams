@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Callable
 
 import pytest
@@ -67,9 +68,15 @@ class FakeSessionManager:
 
     def set_pending_session_input(self, session_input: Lingbot2SessionInput) -> None:
         self.pending_inputs.append(session_input)
+        event_catalog = (
+            [event.as_public_dict() for event in session_input.text_events]
+            if session_input.text_events is not None
+            else self.initial_scene.get("event_catalog", [])
+        )
         self.initial_scene = {
             **self.initial_scene,
             "prompt": session_input.prompt or self.initial_scene["prompt"],
+            "event_catalog": event_catalog,
             "input_source": "uploaded",
         }
 
@@ -264,6 +271,44 @@ async def test_session_input_accepts_image_url() -> None:
         session_input = manager.pending_inputs[0]
         assert session_input.first_frame_image_url == "https://example.test/scene.jpg"
         assert session_input.first_frame_image_bytes is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_accepts_text_events() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field(
+            "text_events",
+            json.dumps(
+                [
+                    {
+                        "event_id": "rain",
+                        "label": "Rain",
+                        "prompt": "Rain begins falling across the street.",
+                    }
+                ]
+            ),
+        )
+
+        response = await client.post("/api/session/input", data=form)
+        payload = await response.json()
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        assert manager.pending_inputs[0].text_events is not None
+        assert manager.pending_inputs[0].text_events[0].event_id == "rain"
+        assert payload["event_catalog"] == [
+            {
+                "event_id": "rain",
+                "label": "Rain",
+                "prompt": "Rain begins falling across the street.",
+                "category": "custom",
+            }
+        ]
     finally:
         await client.close()
 

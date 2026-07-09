@@ -145,6 +145,40 @@ def test_initial_scene_advertises_text_event_catalog(
     ]
 
 
+def test_pending_session_input_overrides_text_event_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: Lingbot2RuntimeConfig) -> None:
+            self.config = config
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+    monkeypatch.setattr(session, "Lingbot2InferenceRuntime", _FakeRuntime)
+    manager = Lingbot2WebRTCSessionManager(
+        runtime_config=Lingbot2RuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    custom_events = (
+        session.TextEventSpec(
+            event_id="rain",
+            label="Rain",
+            prompt="Rain begins falling across the street.",
+            category="custom",
+        ),
+    )
+
+    manager.set_pending_session_input(
+        session.Lingbot2SessionInput(text_events=custom_events)
+    )
+    scene = manager.get_initial_scene()
+
+    assert scene["capabilities"] == {"text_events": True}
+    assert scene["event_catalog"] == [custom_events[0].as_public_dict()]
+
+
 @pytest.mark.asyncio
 async def test_event_message_dispatches_to_runtime_and_acknowledges(
     monkeypatch: pytest.MonkeyPatch,
@@ -333,6 +367,64 @@ def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     assert result == {"active_event_id": None}
     assert runtime._active_event_id is None
     assert transformer.calls[-1] == (transformer_cache, base_text)
+
+
+def test_reset_rollout_precomputes_session_text_events() -> None:
+    class _FakePipeline:
+        def __init__(self) -> None:
+            self.encoded_texts: list[tuple[str, ...]] = []
+
+        def _ensure_oneshot_encoders_loaded(self) -> None:
+            return
+
+        def text_encoder(self, texts: list[str]) -> torch.Tensor:
+            self.encoded_texts.append(tuple(texts))
+            return torch.arange(len(texts) * 2, dtype=torch.float32).reshape(
+                len(texts), 1, 2
+            )
+
+        def initialize_cache(self, *, text: list[str], image: torch.Tensor) -> object:
+            del text, image
+            return object()
+
+    runtime = session.Lingbot2InferenceRuntime(
+        config=Lingbot2RuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    pipeline = _FakePipeline()
+    runtime._device = torch.device("cpu")
+    runtime._pipeline = pipeline  # ty:ignore[invalid-assignment]
+
+    def _fake_prepare_session_input_state(
+        session_input: session.Lingbot2SessionInput | None,
+    ) -> None:
+        del session_input
+        runtime._first_frames = torch.zeros((1, 3, 2, 2))
+        runtime._prompt = "base prompt"
+        runtime._base_text_embeddings = torch.zeros((1, 1, 2))
+
+    setattr(
+        runtime,
+        "_prepare_session_input_state",
+        _fake_prepare_session_input_state,
+    )
+    custom_events = (
+        session.TextEventSpec(
+            event_id="rain",
+            label="Rain",
+            prompt="Rain begins falling across the street.",
+        ),
+    )
+
+    runtime._reset_rollout_sync(
+        session.Lingbot2SessionInput(text_events=custom_events)
+    )
+
+    assert pipeline.encoded_texts == [("Rain begins falling across the street.",)]
+    assert set(runtime._event_embeddings) == {"rain"}
 
 
 @pytest.mark.asyncio

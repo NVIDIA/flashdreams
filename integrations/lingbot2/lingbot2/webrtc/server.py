@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Protocol, cast
@@ -53,6 +54,7 @@ from lingbot2.webrtc.session import (
     Lingbot2SessionInput,
     Lingbot2WebRTCSessionManager,
     normalize_prompt_text,
+    normalize_text_events,
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -176,6 +178,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
     image_bytes: bytes | None = None
     image_url: str | None = None
     image_content_type = "image/jpeg"
+    text_events: object | None = None
 
     if request.content_type.startswith("multipart/"):
         try:
@@ -201,6 +204,16 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             if field.name == "image_url":
                 image_url = (await field.text()).strip() or None
                 continue
+            if field.name in {"text_events", "events"}:
+                events_raw = (await field.text()).strip()
+                if events_raw:
+                    try:
+                        text_events = json.loads(events_raw)
+                    except json.JSONDecodeError as exc:
+                        raise web.HTTPBadRequest(
+                            reason="Text events must be valid JSON."
+                        ) from exc
+                continue
             if field.name == "image" and field.filename:
                 image_content_type = field.headers.get(
                     "Content-Type", "application/octet-stream"
@@ -218,6 +231,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         form = await request.post()
         prompt_raw = form.get("prompt")
         image_url_raw = form.get("image_url")
+        text_events_raw = form.get("text_events", form.get("events"))
         if isinstance(prompt_raw, str):
             prompt = normalize_prompt_text(prompt_raw)
             if len(prompt) > MAX_PROMPT_CHARS:
@@ -226,13 +240,35 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
                 )
         if isinstance(image_url_raw, str):
             image_url = image_url_raw.strip() or None
+        if isinstance(text_events_raw, str) and text_events_raw.strip():
+            try:
+                text_events = json.loads(text_events_raw)
+            except json.JSONDecodeError as exc:
+                raise web.HTTPBadRequest(
+                    reason="Text events must be valid JSON."
+                ) from exc
 
     if image_bytes is not None:
         image_url = None
 
-    if not prompt and image_bytes is None and image_url is None:
+    try:
+        normalized_text_events = (
+            normalize_text_events(text_events) if text_events is not None else None
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
+
+    if (
+        not prompt
+        and image_bytes is None
+        and image_url is None
+        and normalized_text_events is None
+    ):
         raise web.HTTPBadRequest(
-            reason="Upload a prompt, an image file, an image URL, or a combination."
+            reason=(
+                "Upload a prompt, an image file, an image URL, text events, "
+                "or a combination."
+            )
         )
 
     manager = _get_lingbot2_manager(request.app)
@@ -241,6 +277,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         first_frame_image_bytes=image_bytes,
         first_frame_image_url=image_url,
         first_frame_content_type=image_content_type,
+        text_events=normalized_text_events,
     )
     try:
         await asyncio.to_thread(manager.set_pending_session_input, session_input)

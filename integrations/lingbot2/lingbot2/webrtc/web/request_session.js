@@ -31,6 +31,8 @@ const firstFrameUrlUpdateButton = document.getElementById("firstFrameUrlUpdateBu
 const firstFrameUrlStatus = document.getElementById("firstFrameUrlStatus")
 const firstFrameName = document.getElementById("firstFrameName")
 const promptInput = document.getElementById("promptInput")
+const textEventList = document.getElementById("textEventList")
+const addTextEventButton = document.getElementById("addTextEventButton")
 const fpsValue = document.getElementById("fpsValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
@@ -66,6 +68,7 @@ let mockChunkTimer = null
 let actionStarted = false
 let initialSceneLocked = false
 let promptEdited = false
+let textEventsEdited = false
 let firstFrameUrlEdited = false
 let firstFrameInputMode = "url"
 let initialScene = null
@@ -74,6 +77,8 @@ let selectedFirstFrameFile = null
 let firstFrameSelectionCommitted = false
 let firstFramePreviewRefreshToken = 0
 let activeEventId = null
+let textEventDrafts = []
+let textEventSequence = 0
 
 const metrics = {
   fps: null,
@@ -87,6 +92,16 @@ const metrics = {
 
 function normalizeKey(rawKey) {
   return String(rawKey || "").toLowerCase()
+}
+
+function makeTextEventId(label = "") {
+  const slug = String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+  textEventSequence += 1
+  return `${slug || "event"}-${textEventSequence}`
 }
 
 function isEditableControlTarget(target) {
@@ -177,6 +192,10 @@ function setInitialSceneLocked(locked) {
   firstFrameUrlInput.disabled = locked
   firstFrameUrlUpdateButton.disabled = locked
   promptInput.disabled = locked
+  addTextEventButton.disabled = locked
+  for (const input of textEventList.querySelectorAll("input, textarea, button")) {
+    input.disabled = locked
+  }
 }
 
 function setFirstFrameInputMode(mode) {
@@ -285,9 +304,118 @@ function applyInitialScene(scene) {
     }
   }
   activeEventId = scene.active_event_id || null
+  if (!textEventsEdited) {
+    setTextEventDraftsFromCatalog(scene.event_catalog)
+  }
   renderEventControls()
   renderMetrics()
   updateReadyPreview()
+}
+
+function makeTextEventDraft(item = {}) {
+  const label = String(item.label || "").trim()
+  return {
+    event_id: String(item.event_id || item.id || "").trim() || makeTextEventId(label),
+    label,
+    prompt: String(item.prompt || "").trim(),
+  }
+}
+
+function setTextEventDraftsFromCatalog(catalog) {
+  textEventDrafts = Array.isArray(catalog)
+    ? catalog.map((item) => makeTextEventDraft(item))
+    : []
+  renderTextEventEditor()
+}
+
+function markTextEventsEdited() {
+  textEventsEdited = true
+}
+
+function renderTextEventEditor() {
+  textEventList.replaceChildren()
+  for (const [index, draft] of textEventDrafts.entries()) {
+    const row = document.createElement("div")
+    row.className = "textEventRow"
+
+    const fields = document.createElement("div")
+    fields.className = "textEventFields"
+
+    const labelInput = document.createElement("input")
+    labelInput.className = "textEventLabel"
+    labelInput.type = "text"
+    labelInput.maxLength = 64
+    labelInput.placeholder = "Label"
+    labelInput.value = draft.label
+    labelInput.disabled = initialSceneLocked
+    labelInput.addEventListener("input", () => {
+      draft.label = labelInput.value
+      markTextEventsEdited()
+    })
+    labelInput.addEventListener("focus", releaseAllKeys)
+
+    const promptTextarea = document.createElement("textarea")
+    promptTextarea.className = "textEventPrompt"
+    promptTextarea.rows = 2
+    promptTextarea.maxLength = 1000
+    promptTextarea.placeholder = "Event Prompt"
+    promptTextarea.value = draft.prompt
+    promptTextarea.disabled = initialSceneLocked
+    promptTextarea.addEventListener("input", () => {
+      draft.prompt = promptTextarea.value
+      markTextEventsEdited()
+    })
+    promptTextarea.addEventListener("focus", releaseAllKeys)
+
+    const removeButton = document.createElement("button")
+    removeButton.className = "textEventRemoveButton"
+    removeButton.type = "button"
+    removeButton.textContent = "X"
+    removeButton.setAttribute("aria-label", `Remove text event ${index + 1}`)
+    removeButton.disabled = initialSceneLocked
+    removeButton.addEventListener("click", () => {
+      textEventDrafts.splice(index, 1)
+      markTextEventsEdited()
+      renderTextEventEditor()
+      renderEventControls()
+    })
+
+    fields.append(labelInput, promptTextarea)
+    row.append(fields, removeButton)
+    textEventList.append(row)
+  }
+}
+
+function collectTextEvents() {
+  const events = []
+  const usedIds = new Set()
+  for (const draft of textEventDrafts) {
+    const label = draft.label.trim()
+    const prompt = draft.prompt.trim()
+    if (!label && !prompt) {
+      continue
+    }
+    if (!prompt) {
+      throw new Error("Each text event needs a prompt.")
+    }
+    let eventId = String(draft.event_id || "").trim()
+    if (!eventId) {
+      eventId = makeTextEventId(label)
+      draft.event_id = eventId
+    }
+    while (usedIds.has(eventId)) {
+      eventId = makeTextEventId(label)
+      draft.event_id = eventId
+    }
+    usedIds.add(eventId)
+    events.push({
+      event_id: eventId,
+      label: label || eventId,
+      prompt,
+      category: "custom",
+    })
+  }
+  return events
 }
 
 function renderEventControls() {
@@ -326,9 +454,24 @@ async function loadInitialScene() {
       model: metrics.model,
       resolution: { width: 832, height: 464 },
       event_catalog: [
-        { event_id: "portal", label: "Portal", category: "environment" },
-        { event_id: "storm", label: "Storm", category: "environment" },
-        { event_id: "fireworks", label: "Fireworks", category: "environment" },
+        {
+          event_id: "portal",
+          label: "Portal",
+          prompt: "A luminous magical portal opens in the scene.",
+          category: "environment",
+        },
+        {
+          event_id: "storm",
+          label: "Storm",
+          prompt: "A dramatic storm rolls in with rain and lightning.",
+          category: "environment",
+        },
+        {
+          event_id: "fireworks",
+          label: "Fireworks",
+          prompt: "Bright fireworks burst overhead.",
+          category: "environment",
+        },
       ],
       input_source: selectedFirstFrameFile ? "uploaded" : "default",
     })
@@ -353,7 +496,12 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
     includeFirstFrame && firstFrameInputMode === "upload" && selectedFirstFrameFile !== null
   const hasImageUrl =
     includeFirstFrame && firstFrameInputMode === "url" && imageUrl.length > 0
-  if (!hasPrompt && !hasImage && !hasImageUrl) {
+  let textEvents = null
+  if (textEventsEdited) {
+    textEvents = collectTextEvents()
+  }
+  const hasTextEvents = textEvents !== null
+  if (!hasPrompt && !hasImage && !hasImageUrl && !hasTextEvents) {
     return
   }
   if (hasImageUrl) {
@@ -374,11 +522,14 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
       image_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
-      event_catalog: initialScene ? initialScene.event_catalog : [],
+      event_catalog: hasTextEvents
+        ? textEvents
+        : (initialScene ? initialScene.event_catalog : []),
       active_event_id: activeEventId,
       input_source: "uploaded",
     })
     promptEdited = false
+    textEventsEdited = false
     firstFrameUrlEdited = false
     if (hasImage || hasImageUrl) {
       setFirstFrameUrlStatus("Updated", "success")
@@ -395,6 +546,9 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
   } else if (hasImageUrl) {
     form.append("image_url", imageUrl)
   }
+  if (hasTextEvents) {
+    form.append("text_events", JSON.stringify(textEvents))
+  }
 
   const response = await fetch("/api/session/input", {
     method: "POST",
@@ -404,9 +558,10 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
     const text = (await response.text()).trim().replace(/^\d+:\s*/, "")
     throw new Error(text || `input upload failed (${response.status})`)
   }
-  applyInitialScene(await response.json())
   promptEdited = false
+  textEventsEdited = false
   firstFrameUrlEdited = false
+  applyInitialScene(await response.json())
   if (hasImage || hasImageUrl) {
     setFirstFrameUrlStatus("Updated", "success")
   }
@@ -1323,8 +1478,18 @@ promptInput.addEventListener("input", () => {
   }
   promptEdited = true
 })
+addTextEventButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  textEventDrafts.push(makeTextEventDraft({ label: "", prompt: "" }))
+  markTextEventsEdited()
+  renderTextEventEditor()
+  releaseAllKeys()
+})
 firstFrameUrlInput.addEventListener("focus", releaseAllKeys)
 promptInput.addEventListener("focus", releaseAllKeys)
+addTextEventButton.addEventListener("focus", releaseAllKeys)
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)

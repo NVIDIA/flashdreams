@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import io
+import re
 import socket
 import urllib.error
 import urllib.parse
@@ -77,6 +78,10 @@ _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
 _MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
 _REMOTE_READ_TIMEOUT_S = 20.0
 _BLOCKED_REMOTE_HOSTNAMES = {"localhost", "localhost.localdomain"}
+_MAX_TEXT_EVENTS = 12
+_MAX_TEXT_EVENT_LABEL_CHARS = 64
+_MAX_TEXT_EVENT_PROMPT_CHARS = 1_000
+_TEXT_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
 
 class Lingbot2RuntimeError(RuntimeError):
@@ -96,6 +101,7 @@ class TextEventSpec:
         return {
             "event_id": self.event_id,
             "label": self.label,
+            "prompt": self.prompt,
             "category": self.category,
         }
 
@@ -338,6 +344,7 @@ class Lingbot2SessionInput:
     first_frame_image_bytes: bytes | None = None
     first_frame_image_url: str | None = None
     first_frame_content_type: str = "image/jpeg"
+    text_events: tuple[TextEventSpec, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +355,75 @@ class Lingbot2ImagePayload:
 
 def normalize_prompt_text(prompt: str) -> str:
     return " ".join(prompt.split())
+
+
+def _slugify_event_id(label: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return (slug or f"event-{index + 1}")[:64]
+
+
+def _normalize_text_event_field(value: object) -> str:
+    return normalize_prompt_text(str(value)) if value is not None else ""
+
+
+def normalize_text_events(raw_events: object) -> tuple[TextEventSpec, ...]:
+    if not isinstance(raw_events, (list, tuple)):
+        raise ValueError("Text events must be a list.")
+
+    text_events: list[TextEventSpec] = []
+    seen_ids: set[str] = set()
+    for index, raw_event in enumerate(raw_events):
+        if isinstance(raw_event, TextEventSpec):
+            event_id = raw_event.event_id.strip()
+            label = normalize_prompt_text(raw_event.label)
+            prompt = normalize_prompt_text(raw_event.prompt)
+            category = normalize_prompt_text(raw_event.category) or "custom"
+        elif isinstance(raw_event, dict):
+            label = _normalize_text_event_field(raw_event.get("label"))
+            prompt = _normalize_text_event_field(raw_event.get("prompt"))
+            raw_event_id = _normalize_text_event_field(
+                raw_event.get("event_id", raw_event.get("id"))
+            )
+            event_id = raw_event_id or _slugify_event_id(label, index)
+            category = _normalize_text_event_field(raw_event.get("category"))
+        else:
+            raise ValueError("Each text event must be an object.")
+
+        if not event_id and not label and not prompt:
+            continue
+        if not prompt:
+            raise ValueError("Text event prompt is required.")
+        if not label:
+            label = event_id
+        if len(label) > _MAX_TEXT_EVENT_LABEL_CHARS:
+            raise ValueError(
+                f"Text event labels must be <= {_MAX_TEXT_EVENT_LABEL_CHARS} characters."
+            )
+        if len(prompt) > _MAX_TEXT_EVENT_PROMPT_CHARS:
+            raise ValueError(
+                "Text event prompts must be "
+                f"<= {_MAX_TEXT_EVENT_PROMPT_CHARS} characters."
+            )
+        if not _TEXT_EVENT_ID_RE.fullmatch(event_id):
+            raise ValueError(
+                "Text event ids must be 1-64 characters using only letters, "
+                "numbers, '_', '.', ':', or '-'."
+            )
+        if event_id in seen_ids:
+            raise ValueError(f"Duplicate text event id={event_id!r}.")
+        seen_ids.add(event_id)
+        text_events.append(
+            TextEventSpec(
+                event_id=event_id,
+                label=label,
+                prompt=prompt,
+                category=category or "custom",
+            )
+        )
+
+    if len(text_events) > _MAX_TEXT_EVENTS:
+        raise ValueError(f"At most {_MAX_TEXT_EVENTS} text events are supported.")
+    return tuple(text_events)
 
 
 class Lingbot2InferenceRuntime:
@@ -575,7 +651,6 @@ class Lingbot2InferenceRuntime:
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
-        self._precompute_event_embeddings_sync()
         self._reset_rollout_sync()
 
     def _encode_text_embeddings_sync(self, texts: list[str]) -> torch.Tensor:
@@ -585,14 +660,16 @@ class Lingbot2InferenceRuntime:
         assert self._pipeline.text_encoder is not None
         return self._pipeline.text_encoder(texts).to(device=self._device)
 
-    def _precompute_event_embeddings_sync(self) -> None:
-        if not self.config.text_events:
+    def _precompute_event_embeddings_sync(
+        self, text_events: tuple[TextEventSpec, ...]
+    ) -> None:
+        if not text_events:
             self._event_embeddings = {}
             return
-        event_ids = [event.event_id for event in self.config.text_events]
+        event_ids = [event.event_id for event in text_events]
         if len(event_ids) != len(set(event_ids)):
             raise ValueError("text event ids must be unique.")
-        prompts = [event.prompt for event in self.config.text_events]
+        prompts = [event.prompt for event in text_events]
         embeddings = self._encode_text_embeddings_sync(prompts)
         self._event_embeddings = {
             event_id: embeddings[index : index + 1].contiguous()
@@ -767,6 +844,12 @@ class Lingbot2InferenceRuntime:
             self._cache = None
 
         self._prepare_session_input_state(session_input)
+        text_events = (
+            session_input.text_events
+            if session_input is not None and session_input.text_events is not None
+            else self.config.text_events
+        )
+        self._precompute_event_embeddings_sync(text_events)
         if self._first_frames is None or self._prompt is None:
             raise Lingbot2RuntimeError("Runtime input state is not initialized.")
 
@@ -944,8 +1027,17 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
     ) -> None:
         await self._runtime.reset_for_new_session(session_input=session_input)
 
+    def _effective_text_events(self) -> tuple[TextEventSpec, ...]:
+        if (
+            self._pending_session_input is not None
+            and self._pending_session_input.text_events is not None
+        ):
+            return self._pending_session_input.text_events
+        return self.runtime_config.text_events
+
     def get_initial_scene(self) -> dict[str, object]:
         pending_input = self._pending_session_input
+        text_events = self._effective_text_events()
         prompt = (
             normalize_prompt_text(pending_input.prompt)
             if pending_input is not None and pending_input.prompt is not None
@@ -979,10 +1071,8 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
             "prompt": prompt,
             "input_source": input_source,
             "model": self.runtime_config.config_name,
-            "capabilities": {"text_events": bool(self.runtime_config.text_events)},
-            "event_catalog": [
-                event.as_public_dict() for event in self.runtime_config.text_events
-            ],
+            "capabilities": {"text_events": bool(text_events)},
+            "event_catalog": [event.as_public_dict() for event in text_events],
             "active_event_id": getattr(self._runtime, "_active_event_id", None),
             "resolution": {
                 "width": self.runtime_config.video_width,
@@ -1042,6 +1132,11 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
             self._runtime._load_remote_first_frame_rgb(image_url)
 
         current = self._pending_session_input
+        text_events = (
+            normalize_text_events(session_input.text_events)
+            if session_input.text_events is not None
+            else (current.text_events if current is not None else None)
+        )
         self._pending_session_input = Lingbot2SessionInput(
             prompt=(
                 normalize_prompt_text(session_input.prompt)
@@ -1073,4 +1168,5 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
                     else session_input.first_frame_content_type
                 )
             ),
+            text_events=text_events,
         )
