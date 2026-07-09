@@ -151,6 +151,103 @@ async def test_event_message_dispatches_to_runtime_and_acknowledges(
     assert managed_session.first_action_received.is_set()
 
 
+@pytest.mark.asyncio
+async def test_clear_event_message_does_not_require_event_id_and_preserves_ack_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {
+                "type": "not_event_ack",
+                "event_id": "overwritten",
+                "state": "overwritten",
+                "active_event_id": None,
+            }
+
+    monkeypatch.setattr(session, "Lingbot2InferenceRuntime", _fake_runtime_factory)
+    manager = Lingbot2WebRTCSessionManager(
+        runtime_config=Lingbot2RuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = session._ManagedLingbot2Session(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+    )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"clear"}',
+    )
+
+    assert runtime.calls == [("", "clear")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": None,
+            "state": "clear",
+            "active_event_id": None,
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_event_message_without_id_is_rejected_for_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            del event_id, state
+            self.calls += 1
+            return {}
+
+    monkeypatch.setattr(session, "Lingbot2InferenceRuntime", _fake_runtime_factory)
+    manager = Lingbot2WebRTCSessionManager(
+        runtime_config=Lingbot2RuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = session._ManagedLingbot2Session(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+    )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"trigger"}',
+    )
+
+    assert runtime.calls == 0
+    assert channel.messages == [
+        {
+            "type": "error",
+            "message": (
+                "Event payload must include non-empty 'event_id' "
+                "unless state clears the active event."
+            ),
+        }
+    ]
+    assert not managed_session.first_action_received.is_set()
+
+
 def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     class _FakeTransformer:
         def __init__(self) -> None:
@@ -197,6 +294,67 @@ def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     assert result == {"active_event_id": None}
     assert runtime._active_event_id is None
     assert transformer.calls[-1] == (transformer_cache, base_text)
+
+
+@pytest.mark.asyncio
+async def test_trigger_event_prevalidates_before_distributed_broadcast() -> None:
+    runtime = session.Lingbot2InferenceRuntime(
+        config=Lingbot2RuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    runtime._pipeline = object()
+    runtime._cache = object()
+    runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
+    calls = 0
+
+    def _fail_if_called(event_id: str, state: str) -> dict[str, str | None]:
+        nonlocal calls
+        del event_id, state
+        calls += 1
+        raise AssertionError("distributed event op should not be invoked")
+
+    runtime._trigger_event_sync_all_ranks = _fail_if_called  # ty:ignore[method-assign]
+
+    with pytest.raises(ValueError, match="Unknown event_id='unknown'"):
+        await runtime.trigger_event(event_id="unknown", state="trigger")
+
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_trigger_event_waits_for_generation_lock() -> None:
+    runtime = session.Lingbot2InferenceRuntime(
+        config=Lingbot2RuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    runtime._pipeline = object()
+    runtime._cache = object()
+    runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
+    calls: list[tuple[str, str]] = []
+
+    def _fake_event_op(event_id: str, state: str) -> dict[str, str | None]:
+        calls.append((event_id, state))
+        return {"active_event_id": event_id}
+
+    runtime._trigger_event_sync_all_ranks = _fake_event_op  # ty:ignore[method-assign]
+
+    await runtime._step_lock.acquire()
+    task = asyncio.create_task(runtime.trigger_event(event_id="portal", state="trigger"))
+    await asyncio.sleep(0)
+    assert not task.done()
+    assert calls == []
+
+    runtime._step_lock.release()
+    result = await asyncio.wait_for(task, timeout=1.0)
+
+    assert result == {"active_event_id": "portal"}
+    assert calls == [("portal", "trigger")]
 
 
 @pytest.mark.asyncio

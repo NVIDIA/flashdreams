@@ -41,7 +41,7 @@ class WebRTCControlSignal(IntEnum):
     ACTION_STEP = 2
     CLOSE = 3
     EVENT = 4
-    EXIT = 5
+    EXIT = 99
 
 
 @dataclass(slots=True)
@@ -176,13 +176,17 @@ class BaseWebRTCSessionManager:
         channel = managed_session.control_channel
         event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
         state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
-        if not event_id:
+        clear_states = {"clear", "release", "off", "none"}
+        if not event_id and state not in clear_states:
             if channel is not None:
                 self._send_json(
                     channel,
                     {
                         "type": "error",
-                        "message": "Event payload must include non-empty 'event_id'.",
+                        "message": (
+                            "Event payload must include non-empty 'event_id' "
+                            "unless state clears the active event."
+                        ),
                     },
                 )
             return False
@@ -211,11 +215,13 @@ class BaseWebRTCSessionManager:
         if channel is not None:
             ack: dict[str, Any] = {
                 "type": "event_ack",
-                "event_id": event_id,
+                "event_id": event_id or None,
                 "state": state,
             }
             if isinstance(result, dict):
-                ack.update(result)
+                for key, value in result.items():
+                    if key not in ack:
+                        ack[key] = value
             self._send_json(channel, ack)
         return True
 

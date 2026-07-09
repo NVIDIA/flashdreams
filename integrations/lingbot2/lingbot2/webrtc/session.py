@@ -350,11 +350,17 @@ class Lingbot2InferenceRuntime:
             raise Lingbot2RuntimeError("Runtime is closed.")
         if self._pipeline is None or self._cache is None:
             raise Lingbot2RuntimeError("Runtime is not initialized.")
-        return await asyncio.to_thread(
-            self._trigger_event_sync_all_ranks,
-            event_id,
-            state,
-        )
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        async with self._step_lock:
+            if self._closed:
+                raise Lingbot2RuntimeError("Runtime is closed.")
+            if self._pipeline is None or self._cache is None:
+                raise Lingbot2RuntimeError("Runtime is not initialized.")
+            return await asyncio.to_thread(
+                self._trigger_event_sync_all_ranks,
+                event_id,
+                state,
+            )
 
     async def generate_chunk(
         self,
@@ -706,26 +712,33 @@ class Lingbot2InferenceRuntime:
             )
         replace_text_embeddings(self._cache.transformer_cache, text_embeddings)
 
+    def _validate_event_request(self, *, event_id: str, state: str) -> tuple[str, str]:
+        state = state.strip().lower() or "trigger"
+        if state in {"clear", "release", "off", "none"}:
+            return event_id.strip(), state
+        if state not in {"trigger", "hold", "on"}:
+            raise ValueError(
+                "Event state must be one of trigger, hold, on, clear, release, off."
+            )
+        event_id = event_id.strip()
+        if event_id not in self._event_embeddings:
+            supported = ", ".join(sorted(self._event_embeddings))
+            raise ValueError(f"Unknown event_id={event_id!r}. Supported: {supported}")
+        return event_id, state
+
     def _trigger_event_sync(
         self,
         *,
         event_id: str,
         state: str = "trigger",
     ) -> dict[str, str | None]:
-        state = state.strip().lower() or "trigger"
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
         if state in {"clear", "release", "off", "none"}:
             if self._base_text_embeddings is None:
                 raise Lingbot2RuntimeError("Base prompt embeddings are not ready.")
             self._replace_rollout_text_embeddings(self._base_text_embeddings)
             self._active_event_id = None
             return {"active_event_id": None}
-        if state not in {"trigger", "hold", "on"}:
-            raise ValueError(
-                "Event state must be one of trigger, hold, on, clear, release, off."
-            )
-        if event_id not in self._event_embeddings:
-            supported = ", ".join(sorted(self._event_embeddings))
-            raise ValueError(f"Unknown event_id={event_id!r}. Supported: {supported}")
         self._replace_rollout_text_embeddings(self._event_embeddings[event_id])
         self._active_event_id = event_id
         return {"active_event_id": event_id}
