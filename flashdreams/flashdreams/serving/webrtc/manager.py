@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 from collections import deque
 from collections.abc import Set as AbstractSet
@@ -39,7 +40,8 @@ class WebRTCControlSignal(IntEnum):
     RESET_SESSION = 1
     ACTION_STEP = 2
     CLOSE = 3
-    EXIT = 4
+    EVENT = 4
+    EXIT = 5
 
 
 @dataclass(slots=True)
@@ -163,6 +165,59 @@ class BaseWebRTCSessionManager:
     def _chunk_done_extra(self) -> dict[str, Any]:
         """Extra fields merged into every ``chunk_done`` payload."""
         return {}
+
+    async def _handle_event_message(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        payload: dict[str, Any],
+    ) -> bool:
+        """Dispatch an optional model event message to runtimes that support it."""
+        channel = managed_session.control_channel
+        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        if not event_id:
+            if channel is not None:
+                self._send_json(
+                    channel,
+                    {
+                        "type": "error",
+                        "message": "Event payload must include non-empty 'event_id'.",
+                    },
+                )
+            return False
+
+        trigger_event = getattr(managed_session.runtime, "trigger_event", None)
+        if not callable(trigger_event):
+            if channel is not None:
+                self._send_json(
+                    channel,
+                    {
+                        "type": "error",
+                        "message": "This runtime does not support event messages.",
+                    },
+                )
+            return False
+
+        try:
+            result = trigger_event(event_id=event_id, state=state)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            if channel is not None:
+                self._send_json(channel, {"type": "error", "message": str(exc)})
+            return False
+
+        if channel is not None:
+            ack: dict[str, Any] = {
+                "type": "event_ack",
+                "event_id": event_id,
+                "state": state,
+            }
+            if isinstance(result, dict):
+                ack.update(result)
+            self._send_json(channel, ack)
+        return True
 
     def has_active_session(self) -> bool:
         return self._active_session is not None and not self._active_session.closed
@@ -402,13 +457,21 @@ class BaseWebRTCSessionManager:
             logger.info("Client requested disconnect; closing active session.")
             await self.close_active_session()
             return
+        if message_type == "event":
+            handled = await self._handle_event_message(
+                managed_session=managed_session,
+                payload=payload,
+            )
+            if handled:
+                managed_session.first_action_received.set()
+            return
         if message_type != "action":
             self._send_json(
                 channel,
                 {
                     "type": "error",
                     "message": "Unsupported message type, expected "
-                    "'action', 'heartbeat', or 'disconnect'.",
+                    "'action', 'event', 'heartbeat', or 'disconnect'.",
                 },
             )
             return

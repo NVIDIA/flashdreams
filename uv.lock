@@ -46,6 +46,7 @@ members = [
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
+    "flashdreams-lingbot2",
     "flashdreams-omnidreams",
     "flashdreams-self-forcing",
     "flashdreams-wan21",
@@ -806,8 +807,7 @@ resolution-markers = [
     "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/58/01/1253e6698a07380cd31a736d248a3f2a50a7c88779a1813da27503cadc2a/contourpy-1.3.3.tar.gz", hash = "sha256:083e12155b210502d0bca491432bb04d56dc3432f95a979b429f2848c3dbe880", size = 13466174, upload-time = "2025-07-26T12:03:12.549Z" }
 wheels = [
@@ -1145,8 +1145,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "importlib-metadata" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow" },
     { name = "regex" },
     { name = "requests" },
@@ -1279,8 +1278,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "loguru" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-ml-py" },
     { name = "safetensors" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1554,6 +1552,40 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-lingbot2"
+version = "0.1.0"
+source = { editable = "integrations/lingbot2" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiortc" },
+    { name = "flashdreams" },
+    { name = "mediapy" },
+    { name = "opencv-python-headless" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9" },
+    { name = "aiortc", specifier = ">=1.9" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "opencv-python-headless", specifier = ">=4.5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "scipy", specifier = ">=1.11" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "flashdreams-omnidreams"
 version = "0.1.0"
 source = { editable = "integrations/omnidreams" }
@@ -1567,8 +1599,7 @@ dependencies = [
     { name = "ludus-renderer" },
     { name = "mediapy" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-cudnn-cu13", version = "9.23.2.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-cudnn-frontend" },
     { name = "opencv-python-headless" },
@@ -2212,8 +2243,7 @@ version = "2.37.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b1/84/93bcd1300216ea50811cee96873b84a1bebf8d0489ffaf7f2a3756bab866/imageio-2.37.3.tar.gz", hash = "sha256:bbb37efbfc4c400fcd534b367b91fcd66d5da639aaa138034431a1c5e0a41451", size = 389673, upload-time = "2026-03-09T11:31:12.573Z" }
@@ -2530,8 +2560,7 @@ source = { editable = "integrations/omnidreams/ludus-renderer" }
 dependencies = [
     { name = "ninja" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-nvcomp-cu12" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -2817,8 +2846,7 @@ dependencies = [
     { name = "cycler", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "fonttools", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "kiwisolver", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "packaging", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pyparsing", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -2917,8 +2945,7 @@ dependencies = [
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b3/eb/8a0499fb1a2f373f97e2b4df91797507c3971c42c59f1610bed090c57ddc/mediapy-1.2.6.tar.gz", hash = "sha256:2c866cfa0a170213f771b1dd5584a2e82d8d0dc0fa94982f83e29aae27e49c83", size = 28143, upload-time = "2026-02-03T10:29:31.104Z" }
@@ -2932,8 +2959,7 @@ version = "0.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.12' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0e/4a/c27b42ed9b1c7d13d9ba8b6905dece787d6259152f2309338aed29b2447b/ml_dtypes-0.5.4.tar.gz", hash = "sha256:8ab06a50fb9bf9666dd0fe5dfb4676fa2b0ac0f31ecff72a6c3af8e22c063453", size = 692314, upload-time = "2025-11-17T22:32:31.031Z" }
 wheels = [
@@ -2982,8 +3008,7 @@ dependencies = [
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "proglog" },
     { name = "requests" },
     { name = "tqdm" },
@@ -3348,22 +3373,26 @@ name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version == '3.11.*' and sys_platform == 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
     "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
     "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version >= '3.14' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version == '3.13.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
     "python_full_version == '3.12.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
+    "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz", hash = "sha256:f3a3570c4a2a16746ac2c31a7c7c7b0c186b95ce902e33db6f28094ed7387dda", size = 20735807, upload-time = "2026-05-18T23:37:14.07Z" }
 wheels = [
@@ -3888,8 +3917,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes", marker = "sys_platform != 'win32'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.12' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "protobuf", marker = "sys_platform != 'win32'" },
     { name = "typing-extensions", marker = "sys_platform != 'win32'" },
 ]
@@ -3927,8 +3955,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes", marker = "sys_platform != 'win32'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.12' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "onnx", marker = "sys_platform != 'win32'" },
     { name = "sympy", marker = "sys_platform != 'win32'" },
     { name = "typing-extensions", marker = "sys_platform != 'win32'" },
@@ -3945,8 +3972,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes", marker = "sys_platform != 'win32'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.12' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "onnx", marker = "sys_platform != 'win32'" },
     { name = "onnx-ir", marker = "sys_platform != 'win32'" },
     { name = "packaging", marker = "sys_platform != 'win32'" },
@@ -3963,8 +3989,7 @@ version = "4.13.0.92"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/6f/5a28fef4c4a382be06afe3938c64cc168223016fa520c5abaf37e8862aa5/opencv_python-4.13.0.92-cp37-abi3-macosx_13_0_arm64.whl", hash = "sha256:caf60c071ec391ba51ed00a4a920f996d0b64e3e46068aac1f646b5de0326a19", size = 46247052, upload-time = "2026-02-05T07:01:25.046Z" },
@@ -3983,8 +4008,7 @@ version = "4.13.0.92"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/42/2310883be3b8826ac58c3f2787b9358a2d46923d61f88fedf930bc59c60c/opencv_python_headless-4.13.0.92-cp37-abi3-macosx_13_0_arm64.whl", hash = "sha256:1a7d040ac656c11b8c38677cc8cccdc149f98535089dbe5b081e80a4e5903209", size = 46247192, upload-time = "2026-02-05T07:01:35.187Z" },
@@ -4098,8 +4122,7 @@ resolution-markers = [
     "python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12' and extra != 'group-11-flashdreams-cuda13'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "python-dateutil", marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "tzdata", marker = "(python_full_version >= '3.11' and sys_platform == 'emscripten') or (python_full_version >= '3.11' and sys_platform == 'win32') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'emscripten' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'emscripten' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
@@ -5396,8 +5419,7 @@ version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4d/bc/0989043118a27cccb4e906a46b7565ce36ca7b57f5a18b78f4f1b0f72d9d/shapely-2.1.2.tar.gz", hash = "sha256:2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9", size = 315489, upload-time = "2025-09-24T13:51:41.432Z" }
 wheels = [
@@ -5483,8 +5505,7 @@ version = "0.42.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -6096,8 +6117,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow", marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
@@ -6138,8 +6158,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version == '3.11.*' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.12' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow", marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
@@ -6182,8 +6201,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform == 'win32') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and sys_platform == 'win32') or (python_full_version != '3.11.*' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version != '3.11.*' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.12' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform == 'win32') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow", marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
@@ -6282,8 +6300,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "regex" },
