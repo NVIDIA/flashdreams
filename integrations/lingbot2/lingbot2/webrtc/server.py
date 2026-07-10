@@ -65,7 +65,9 @@ MAX_PROMPT_CHARS = 2_000
 class Lingbot2SessionManager(WebRTCSessionManager, Protocol):
     def get_initial_scene(self) -> dict[str, object]: ...
     def get_first_frame(self) -> Lingbot2ImagePayload: ...
-    def set_pending_session_input(self, session_input: Lingbot2SessionInput) -> None: ...
+    def set_pending_session_input(
+        self, session_input: Lingbot2SessionInput
+    ) -> None: ...
 
 
 def _get_lingbot2_manager(app: web.Application) -> Lingbot2SessionManager:
@@ -168,7 +170,9 @@ async def _first_frame(request: web.Request) -> web.StreamResponse:
     manager = _get_lingbot2_manager(request.app)
     payload = await asyncio.to_thread(manager.get_first_frame)
     if not isinstance(payload, Lingbot2ImagePayload):
-        raise web.HTTPInternalServerError(reason="Invalid Lingbot2 first-frame payload.")
+        raise web.HTTPInternalServerError(
+            reason="Invalid Lingbot2 first-frame payload."
+        )
     return web.Response(body=payload.data, content_type=payload.content_type)
 
 

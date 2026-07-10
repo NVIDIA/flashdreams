@@ -16,8 +16,8 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import io
+import ipaddress
 import re
 import socket
 import urllib.error
@@ -201,9 +201,8 @@ def _validate_remote_hostname(hostname: str | None, *, field_name: str) -> None:
     if not hostname:
         raise ValueError(f"{field_name} must include a host.")
     normalized_hostname = hostname.rstrip(".").lower()
-    if (
-        normalized_hostname in _BLOCKED_REMOTE_HOSTNAMES
-        or normalized_hostname.endswith(".localhost")
+    if normalized_hostname in _BLOCKED_REMOTE_HOSTNAMES or normalized_hostname.endswith(
+        ".localhost"
     ):
         raise ValueError(f"{field_name} host must be publicly routable.")
 

@@ -350,7 +350,7 @@ def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     cache = type("_FakeCache", (), {"transformer_cache": transformer_cache})()
     base_text = torch.zeros((1, 2, 3))
     event_text = torch.ones((1, 2, 3))
-    runtime._pipeline = _FakePipeline()  # ty:ignore[invalid-assignment]
+    runtime._pipeline = _FakePipeline()
     runtime._cache = cache
     runtime._base_text_embeddings = base_text
     runtime._event_embeddings = {"portal": event_text}
@@ -396,7 +396,7 @@ def test_reset_rollout_precomputes_session_text_events() -> None:
     )
     pipeline = _FakePipeline()
     runtime._device = torch.device("cpu")
-    runtime._pipeline = pipeline  # ty:ignore[invalid-assignment]
+    runtime._pipeline = pipeline
 
     def _fake_prepare_session_input_state(
         session_input: session.Lingbot2SessionInput | None,
@@ -419,9 +419,7 @@ def test_reset_rollout_precomputes_session_text_events() -> None:
         ),
     )
 
-    runtime._reset_rollout_sync(
-        session.Lingbot2SessionInput(text_events=custom_events)
-    )
+    runtime._reset_rollout_sync(session.Lingbot2SessionInput(text_events=custom_events))
 
     assert pipeline.encoded_texts == [("Rain begins falling across the street.",)]
     assert set(runtime._event_embeddings) == {"rain"}
@@ -447,7 +445,7 @@ async def test_trigger_event_prevalidates_before_distributed_broadcast() -> None
         calls += 1
         raise AssertionError("distributed event op should not be invoked")
 
-    runtime._trigger_event_sync_all_ranks = _fail_if_called  # ty:ignore[method-assign]
+    runtime._trigger_event_sync_all_ranks = _fail_if_called
 
     with pytest.raises(ValueError, match="Unknown event_id='unknown'"):
         await runtime.trigger_event(event_id="unknown", state="trigger")
@@ -473,10 +471,12 @@ async def test_trigger_event_waits_for_generation_lock() -> None:
         calls.append((event_id, state))
         return {"active_event_id": event_id}
 
-    runtime._trigger_event_sync_all_ranks = _fake_event_op  # ty:ignore[method-assign]
+    runtime._trigger_event_sync_all_ranks = _fake_event_op
 
     await runtime._step_lock.acquire()
-    task = asyncio.create_task(runtime.trigger_event(event_id="portal", state="trigger"))
+    task = asyncio.create_task(
+        runtime.trigger_event(event_id="portal", state="trigger")
+    )
     await asyncio.sleep(0)
     assert not task.done()
     assert calls == []
