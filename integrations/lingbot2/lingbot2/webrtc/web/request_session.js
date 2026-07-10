@@ -1386,6 +1386,116 @@ async function startMockSession() {
   ensureMockChunks()
 }
 
+let panelZIndex = 10
+
+function bringPanelToFront(panel) {
+  panelZIndex += 1
+  panel.style.zIndex = String(panelZIndex)
+}
+
+function makePanelMovable(panel, handle) {
+  handle.classList.add("panelDragHandle")
+
+  const collapseButton = document.createElement("button")
+  collapseButton.type = "button"
+  collapseButton.className = "panelCollapseButton"
+  collapseButton.textContent = "\u2013"
+  collapseButton.setAttribute("aria-expanded", "true")
+  collapseButton.setAttribute("aria-label", "Collapse panel")
+  collapseButton.addEventListener("pointerdown", (event) => {
+    event.stopPropagation()
+  })
+  collapseButton.addEventListener("click", (event) => {
+    event.stopPropagation()
+    const collapsed = panel.classList.toggle("is-collapsed")
+    collapseButton.textContent = collapsed ? "+" : "\u2013"
+    collapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    collapseButton.setAttribute("aria-label", collapsed ? "Expand panel" : "Collapse panel")
+  })
+  handle.appendChild(collapseButton)
+
+  let dragging = false
+  let pointerId = null
+  let startX = 0
+  let startY = 0
+  let startLeft = 0
+  let startTop = 0
+
+  const stageOf = () => panel.offsetParent || document.body
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return
+    }
+    bringPanelToFront(panel)
+    const stageRect = stageOf().getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    startLeft = panelRect.left - stageRect.left
+    startTop = panelRect.top - stageRect.top
+    panel.classList.add("is-floating")
+    panel.style.left = `${startLeft}px`
+    panel.style.top = `${startTop}px`
+    startX = event.clientX
+    startY = event.clientY
+    dragging = true
+    pointerId = event.pointerId
+    handle.setPointerCapture(pointerId)
+    event.preventDefault()
+  })
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!dragging || event.pointerId !== pointerId) {
+      return
+    }
+    const stageRect = stageOf().getBoundingClientRect()
+    const maxLeft = Math.max(0, stageRect.width - panel.offsetWidth)
+    const maxTop = Math.max(0, stageRect.height - panel.offsetHeight)
+    const nextLeft = Math.min(Math.max(0, startLeft + (event.clientX - startX)), maxLeft)
+    const nextTop = Math.min(Math.max(0, startTop + (event.clientY - startY)), maxTop)
+    panel.style.left = `${nextLeft}px`
+    panel.style.top = `${nextTop}px`
+    event.preventDefault()
+  })
+
+  const endDrag = () => {
+    if (!dragging) {
+      return
+    }
+    if (pointerId !== null && handle.hasPointerCapture(pointerId)) {
+      handle.releasePointerCapture(pointerId)
+    }
+    dragging = false
+    pointerId = null
+  }
+  handle.addEventListener("pointerup", endDrag)
+  handle.addEventListener("pointercancel", endDrag)
+  handle.addEventListener("lostpointercapture", endDrag)
+
+  panel.addEventListener("pointerdown", () => {
+    bringPanelToFront(panel)
+  })
+}
+
+function setupPanelChrome() {
+  const panels = [
+    { selector: ".statusCard", handle: ".panelLabel" },
+    { selector: "#sceneCard", handle: ".panelLabel" },
+    { selector: ".controlCard", handle: "h2" },
+    { selector: ".logCard", handle: "h2" },
+  ]
+  for (const entry of panels) {
+    const panel = document.querySelector(entry.selector)
+    if (!panel) {
+      continue
+    }
+    const handle = panel.querySelector(entry.handle)
+    if (!handle) {
+      continue
+    }
+    makePanelMovable(panel, handle)
+  }
+}
+
 function initialize() {
   document.body.dataset.status = "idle"
   setFirstFrameInputMode("url")
@@ -1399,6 +1509,7 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  setupPanelChrome()
   void loadInitialScene()
   window.requestAnimationFrame(drawMockScene)
   startVideoFrameMonitor()
