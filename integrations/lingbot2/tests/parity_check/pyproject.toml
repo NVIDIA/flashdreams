@@ -1,0 +1,26 @@
+[project]
+name = "lingbot-world-v2-parity-check"
+version = "0.1.0a1"
+description = "Isolated venv for the LingBot-World v2 official inference parity check."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
+    "accelerate>=1.1.1",
+    "diffusers",
+    "easydict",
+    "ftfy",
+    "huggingface-hub[cli]",
+    "imageio[ffmpeg]",
+    "numpy>=1.23.5,<2",
+    "opencv-python-headless",
+    "pillow",
+    "scipy",
+    "tokenizers>=0.20.3",
+    "tqdm",
+    "transformers>=4.49.0,<5",
+]
+
+[tool.uv]
+managed = true
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

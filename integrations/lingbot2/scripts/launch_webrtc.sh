@@ -11,6 +11,8 @@ CONFIG_NAME="${CONFIG_NAME:-lingbot-world-v2-14b-causal-fast-taehv-window15-sink
 WARMUP_CHUNKS="${WARMUP_CHUNKS:-0}"
 FPS="${FPS:-16}"
 EXAMPLE_IDX="${EXAMPLE_IDX:-0}"
+VIDEO_HEIGHT="${VIDEO_HEIGHT:-352}"
+VIDEO_WIDTH="${VIDEO_WIDTH:-640}"
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 
@@ -21,4 +23,6 @@ exec uv run --no-sync python -m lingbot2.webrtc.server \
   --device "${DEVICE}" \
   --warmup_chunks "${WARMUP_CHUNKS}" \
   --fps "${FPS}" \
+  --video-height "${VIDEO_HEIGHT}" \
+  --video-width "${VIDEO_WIDTH}" \
   --example-idx "${EXAMPLE_IDX}"

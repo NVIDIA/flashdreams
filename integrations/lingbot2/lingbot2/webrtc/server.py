@@ -117,6 +117,20 @@ def parse_args() -> argparse.Namespace:
         help="Output video framerate for WebRTC playback.",
     )
     parser.add_argument(
+        "--video-height",
+        "--video_height",
+        type=int,
+        default=464,
+        help="Output video pixel height. Must be divisible by 16.",
+    )
+    parser.add_argument(
+        "--video-width",
+        "--video_width",
+        type=int,
+        default=832,
+        help="Output video pixel width. Must be divisible by 16.",
+    )
+    parser.add_argument(
         "--example-idx",
         "--example_idx",
         type=int,
@@ -294,6 +308,10 @@ def build_runtime_config(
     device_override: str | None = None,
     context_parallel_size: int = 1,
 ) -> Lingbot2RuntimeConfig:
+    if args.video_height <= 0 or args.video_width <= 0:
+        raise ValueError("--video-height and --video-width must be > 0")
+    if args.video_height % 16 != 0 or args.video_width % 16 != 0:
+        raise ValueError("--video-height and --video-width must be divisible by 16")
     example_idx = getattr(args, "example_idx", 0)
     example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
     if (
@@ -309,6 +327,8 @@ def build_runtime_config(
         device=device_override or args.device,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
+        video_height=args.video_height,
+        video_width=args.video_width,
         example_data_dir=example_dir,
     )
 

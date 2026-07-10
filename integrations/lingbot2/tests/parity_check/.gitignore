@@ -1,0 +1,4 @@
+/lingbot-world-v2/
+/.venv/
+__pycache__/
+*.pyc

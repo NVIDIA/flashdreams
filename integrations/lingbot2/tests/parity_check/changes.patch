@@ -1,0 +1,70 @@
+diff --git a/pyproject.toml b/pyproject.toml
+deleted file mode 100644
+index 1d84227..0000000
+--- a/pyproject.toml
++++ /dev/null
+@@ -1,64 +0,0 @@
+-[build-system]
+-requires = ["setuptools>=61.0"]
+-build-backend = "setuptools.build_meta"
+-
+-[project]
+-name = "lingbot-world-v2"
+-version = "1.0.0"
+-description = "lingbot-world-v2: Infinite Worlds with Versatile Interactions"
+-authors = [
+-    { name = "Robbyant Team" }
+-]
+-license = { file = "LICENSE.txt" }
+-readme = "README.md"
+-requires-python = ">=3.10,<4.0"
+-dependencies = [
+-    "torch>=2.4.0",
+-    "torchvision>=0.19.0",
+-    "opencv-python>=4.9.0.80",
+-    "diffusers>=0.31.0",
+-    "transformers>=4.49.0",
+-    "tokenizers>=0.20.3",
+-    "accelerate>=1.1.1",
+-    "tqdm",
+-    "imageio",
+-    "easydict",
+-    "ftfy",
+-    "imageio-ffmpeg",
+-    "flash_attn",
+-    "numpy>=1.23.5,<2",
+-    "scipy"
+-]
+-
+-[project.optional-dependencies]
+-dev = [
+-    "pytest",
+-    "black",
+-    "flake8",
+-    "isort",
+-    "mypy",
+-    "huggingface-hub[cli]"
+-]
+-
+-[project.urls]
+-homepage = "https://technology.robbyant.com/lingbot-world-v2"
+-documentation = "https://github.com/robbyant/lingbot-world-v2"
+-repository = "https://github.com/robbyant/lingbot-world-v2"
+-huggingface = "https://huggingface.co/robbyant/lingbot-world-v2-base-cam"
+-
+-[tool.setuptools]
+-packages = ["wan"]
+-
+-[tool.setuptools.package-data]
+-"wan" = ["**/*.py"]
+-
+-[tool.black]
+-line-length = 88
+-
+-[tool.isort]
+-profile = "black"
+-
+-[tool.mypy]
+-strict = true
+-
+-
