@@ -494,6 +494,9 @@ class BaseWebRTCSessionManager:
         event = str(action_payload.get("event", "")).strip().lower()
 
         if event == "step":
+            arrival_t = asyncio.get_running_loop().time()
+            managed_session.pending_action_arrivals.append(arrival_t)
+            managed_session.first_action_received.set()
             return
         if event not in ("keydown", "keyup"):
             self._send_json(

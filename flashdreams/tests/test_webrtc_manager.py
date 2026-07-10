@@ -265,3 +265,29 @@ def test_make_resampler_honors_supported_keys() -> None:
     default_segments, _ = default.sample_chunk(num_frames=1)
     # The default key set (used by Lingbot) accepts 'q'.
     assert default_segments[0][2] == frozenset({"q"})
+
+
+@pytest.mark.asyncio
+async def test_step_action_starts_generation_without_key_edge() -> None:
+    class _RecordingResampler(_FakeResampler):
+        def __init__(self) -> None:
+            self.edges: list[tuple[float, str, str]] = []
+
+        def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
+            self.edges.append((arrival_t, event, key))
+
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    resampler = _RecordingResampler()
+    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps({"type": "action", "action": {"event": "step"}}),
+    )
+
+    assert managed.first_action_received.is_set()
+    assert len(managed.pending_action_arrivals) == 1
+    assert resampler.edges == []
