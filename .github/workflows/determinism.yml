@@ -1,0 +1,82 @@
+name: Determinism (periodic)
+
+# Periodic bitwise-reproducibility guard for the omnidreams runner.
+#
+# The same-seed reproducibility test carries the `ci_gpu` marker but skips
+# unless OMNIDREAMS_REPRO_RUN is set, so the per-PR `pytest -m ci_gpu` run
+# collects it and skips it in milliseconds. This job sets that env var so the
+# test actually executes. Scheduled runs target the default branch only.
+on:
+  schedule:
+    # 07:00 UTC nightly (~midnight US Pacific).
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  reproducibility:
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    timeout-minutes: 120
+    container:
+      image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+      options: --gpus all
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
+      UV_LINK_MODE: copy
+      UV_PYTHON: "3.10"
+      # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job uses
+      # ~9GB peak memory).
+      MAX_JOBS: 8
+      # Opt in to the otherwise-skipped same-seed reproducibility test.
+      OMNIDREAMS_REPRO_RUN: "1"
+      # Tunables for the same-seed reproducibility test. A larger
+      # total_blocks costs wall time but catches accumulation drift; keep it
+      # small enough to stay well inside the job timeout.
+      OMNIDREAMS_REPRO_SEED: "1"
+      OMNIDREAMS_REPRO_TOTAL_BLOCKS: "4"
+    steps:
+      - name: Detect GPU architecture
+        id: gpu-arch
+        run: |
+          nvidia-smi
+          compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+          arch=$(echo "${compute_cap}" | tr -d '.')
+          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+          echo "Detected GPU compute capability: ${compute_cap} -> sm_${arch}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            python3 python3-dev python3-venv \
+            ffmpeg \
+            gcc g++ ninja-build \
+            libnccl-dev \
+            curl git ca-certificates unzip
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "gpu-sm${{ steps.gpu-arch.outputs.arch }}"
+          prune-cache: false
+
+      - name: Install dependencies
+        env:
+          NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
+        run: |
+          uv venv --clear
+          uv sync --extra dev
+
+      - name: Run same-seed reproducibility test
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          uv run --no-sync pytest -v -s \
+            integrations/omnidreams/tests/test_omnidreams_same_seed_reproducibility.py

@@ -23,7 +23,9 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
-      UV_PYTHON: "3.10"
+      # Exercise the dependency branch used by current Python releases.
+      # GPU CI below remains on 3.10, the minimum supported version.
+      UV_PYTHON: "3.12"
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -55,7 +57,7 @@ jobs:
           # that cannot be installed on CPU-only runners:
           # - transformer-engine-torch: source-only, requires GPU arch to compile
           uv venv --clear
-          uv sync --extra dev --group lint \
+          uv sync --locked --extra dev --group lint \
             --no-install-package transformer-engine-torch
 
       - name: Run linter checks
@@ -150,7 +152,7 @@ jobs:
           NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
         run: |
           uv venv --clear
-          uv sync --extra dev
+          uv sync --locked --extra dev
 
       - name: Verify GPU availability
         run: |
@@ -247,9 +249,6 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
-      - name: Sync versions
-        run: uv run .github/scripts/sync_version.py || true
 
       - name: Build wheel
         run: uv build --wheel --package flashdreams

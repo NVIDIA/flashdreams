@@ -47,6 +47,12 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
+      - id: uv-lock-check
+        name: validate uv lockfile
+        entry: uv lock --check
+        language: system
+        files: '(^|/)pyproject\.toml$|^uv\.lock$'
+        pass_filenames: false
       - id: sync-version
         name: sync package versions
         entry: uv run --no-sync .github/scripts/sync_version.py
@@ -55,7 +61,7 @@ repos:
         pass_filenames: false
       - id: ty
         name: ty type check
-        entry: uv run --group lint ty check
+        entry: uv run --locked --group lint ty check
         language: system
         types: [python]
         pass_filenames: false

@@ -58,7 +58,7 @@ jobs:
       - name: Install CPU dependencies
         run: |
           uv venv --clear
-          uv sync --extra dev --no-install-package transformer-engine-torch
+          uv sync --locked --extra dev --no-install-package transformer-engine-torch
 
       - name: Run video-quality regression
         env:
