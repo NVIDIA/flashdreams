@@ -54,9 +54,9 @@ def test_rank0_download_failure_is_broadcast_to_all_ranks(
 
     monkeypatch.setattr(s3_sync.dist, "broadcast_object_list", _broadcast_object_list)
 
-    for rank in (0, 1):
+    for rank, expected_error in ((0, OSError), (1, RuntimeError)):
         current_rank[0] = rank
-        with pytest.raises(RuntimeError, match="OSError: S3 download failed"):
+        with pytest.raises(expected_error, match="S3 download failed"):
             s3_sync.sync_s3_dir_to_local(
                 s3_dir="s3://bucket/assets",
                 s3_credential_path="credentials/s3.json",

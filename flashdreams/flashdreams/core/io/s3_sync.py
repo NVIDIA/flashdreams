@@ -215,7 +215,7 @@ def sync_s3_dir_to_local(
 
     error = payload[0]["error"]
     if error is not None:
-        if rank0_error is not None and not is_distributed:
+        if rank0_error is not None:
             raise rank0_error
         raise RuntimeError(error)
 
