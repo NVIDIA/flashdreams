@@ -16,13 +16,12 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import io
 import ipaddress
 import re
 import socket
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -77,6 +76,7 @@ _DEFAULT_POSES_URL = f"{_DEFAULT_DEMO_BASE_URL}/poses.npy"
 _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
 _MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
 _REMOTE_READ_TIMEOUT_S = 20.0
+_MAX_REMOTE_REDIRECTS = 5
 _BLOCKED_REMOTE_HOSTNAMES = {"localhost", "localhost.localdomain"}
 _MAX_TEXT_EVENTS = 12
 _MAX_TEXT_EVENT_LABEL_CHARS = 64
@@ -216,53 +216,155 @@ def _validate_remote_url(url: str, *, field_name: str) -> str:
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{field_name} must be an http(s) URL.")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{field_name} has an invalid port.") from exc
     normalized = _normalize_github_blob_url(normalized, parsed)
     parsed = urllib.parse.urlparse(normalized)
     _validate_remote_hostname(parsed.hostname, field_name=field_name)
     return normalized
 
 
-class _ValidatingRemoteRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def __init__(self, field_name: str) -> None:
-        super().__init__()
-        self._field_name = field_name
+def _connect_to_resolved_address(
+    connection: http.client.HTTPConnection,
+    resolved_address: str,
+) -> None:
+    connection.sock = connection._create_connection(
+        (resolved_address, connection.port),
+        connection.timeout,
+        connection.source_address,
+    )
+    try:
+        connection.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        pass
+    if connection._tunnel_host:
+        connection._tunnel()
 
-    def redirect_request(
+
+class _ResolvedHTTPConnection(http.client.HTTPConnection):
+    def __init__(
         self,
-        req: urllib.request.Request,
-        fp: Any,
-        code: int,
-        msg: str,
-        headers: Any,
-        newurl: str,
-    ) -> urllib.request.Request | None:
-        normalized = _validate_remote_url(
-            newurl, field_name=f"{self._field_name} redirect"
+        host: str,
+        *,
+        port: int | None,
+        timeout: float,
+        resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> None:
+        super().__init__(host=host, port=port, timeout=timeout)
+        self._resolved_address = str(resolved_address)
+
+    def connect(self) -> None:
+        _connect_to_resolved_address(self, self._resolved_address)
+
+
+class _ResolvedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        host: str,
+        *,
+        port: int | None,
+        timeout: float,
+        resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> None:
+        super().__init__(host=host, port=port, timeout=timeout)
+        self._resolved_address = str(resolved_address)
+
+    def connect(self) -> None:
+        _connect_to_resolved_address(self, self._resolved_address)
+        server_hostname = self._tunnel_host if self._tunnel_host else self.host
+        self.sock = self._context.wrap_socket(
+            self.sock,
+            server_hostname=server_hostname,
         )
-        return super().redirect_request(req, fp, code, msg, headers, normalized)
+
+
+def _remote_request_target(parsed: urllib.parse.ParseResult) -> str:
+    return urllib.parse.urlunparse(
+        ("", "", parsed.path or "/", parsed.params, parsed.query, "")
+    )
+
+
+def _read_remote_bytes_once(
+    url: str, *, max_bytes: int, field_name: str
+) -> tuple[bytes, str, str | None]:
+    normalized = _validate_remote_url(url, field_name=field_name)
+    parsed = urllib.parse.urlparse(normalized)
+    hostname = parsed.hostname
+    if hostname is None:
+        raise ValueError(f"{field_name} must include a host.")
+    addresses = _resolve_remote_host(hostname.rstrip(".").lower())
+    if any(not address.is_global for address in addresses):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+    connection_cls: type[http.client.HTTPConnection] = (
+        _ResolvedHTTPSConnection if parsed.scheme == "https" else _ResolvedHTTPConnection
+    )
+    last_error: Exception | None = None
+    for address in addresses:
+        connection = connection_cls(
+            hostname,
+            port=parsed.port,
+            timeout=_REMOTE_READ_TIMEOUT_S,
+            resolved_address=address,
+        )
+        try:
+            connection.request(
+                "GET",
+                _remote_request_target(parsed),
+                headers={"User-Agent": "flashdreams-lingbot2-webrtc/1.0"},
+            )
+            response = connection.getresponse()
+            try:
+                location = response.getheader("Location")
+                if response.status in {301, 302, 303, 307, 308}:
+                    response.read()
+                    if not location:
+                        raise ValueError(f"{field_name} redirect missing Location.")
+                    return b"", "", urllib.parse.urljoin(normalized, location)
+                if response.status >= 400:
+                    response.read()
+                    raise ValueError(
+                        f"{field_name} returned HTTP status {response.status}."
+                    )
+                data = response.read(max_bytes + 1)
+                content_type = response.headers.get_content_type()
+                return data, content_type, None
+            finally:
+                response.close()
+        except ValueError:
+            raise
+        except (OSError, TimeoutError, http.client.HTTPException) as exc:
+            last_error = exc
+        finally:
+            connection.close()
+
+    if last_error is None:
+        raise ValueError(f"Failed to fetch {field_name}.")
+    raise ValueError(f"Failed to fetch {field_name}: {last_error}") from last_error
 
 
 def _read_remote_bytes(
     url: str, *, max_bytes: int, field_name: str
 ) -> tuple[bytes, str]:
-    normalized = _validate_remote_url(url, field_name=field_name)
-    request = urllib.request.Request(
-        normalized,
-        headers={"User-Agent": "flashdreams-lingbot2-webrtc/1.0"},
-    )
-    opener = urllib.request.build_opener(_ValidatingRemoteRedirectHandler(field_name))
-    try:
-        with opener.open(request, timeout=_REMOTE_READ_TIMEOUT_S) as response:
-            data = response.read(max_bytes + 1)
-            content_type = response.headers.get_content_type()
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
-        raise ValueError(f"Failed to fetch {field_name}: {reason}") from exc
-    if len(data) > max_bytes:
-        raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
-    if not data:
-        raise ValueError(f"{field_name} returned an empty response.")
-    return data, content_type
+    current_url = url
+    for redirect_idx in range(_MAX_REMOTE_REDIRECTS + 1):
+        data, content_type, redirect_url = _read_remote_bytes_once(
+            current_url,
+            max_bytes=max_bytes,
+            field_name=field_name if redirect_idx == 0 else f"{field_name} redirect",
+        )
+        if redirect_url is None:
+            if len(data) > max_bytes:
+                raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
+            if not data:
+                raise ValueError(f"{field_name} returned an empty response.")
+            return data, content_type
+        current_url = _validate_remote_url(
+            redirect_url, field_name=f"{field_name} redirect"
+        )
+    raise ValueError(f"{field_name} exceeded {_MAX_REMOTE_REDIRECTS} redirects.")
 
 
 def _decode_image_bytes_rgb(image_bytes: bytes, *, field_name: str) -> np.ndarray:
@@ -338,18 +440,19 @@ class Lingbot2RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class Lingbot2ImagePayload:
+    data: bytes
+    content_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class Lingbot2SessionInput:
     prompt: str | None = None
     first_frame_image_bytes: bytes | None = None
     first_frame_image_url: str | None = None
     first_frame_content_type: str = "image/jpeg"
+    first_frame_remote_payload: Lingbot2ImagePayload | None = None
     text_events: tuple[TextEventSpec, ...] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Lingbot2ImagePayload:
-    data: bytes
-    content_type: str
 
 
 def normalize_prompt_text(prompt: str) -> str:
@@ -821,6 +924,13 @@ class Lingbot2InferenceRuntime:
             image_rgb = self._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
             )
+        elif (
+            session_input is not None
+            and session_input.first_frame_remote_payload is not None
+        ):
+            image_rgb = self._load_uploaded_first_frame_rgb(
+                session_input.first_frame_remote_payload.data
+            )
         elif session_input is not None and session_input.first_frame_image_url:
             image_rgb = self._load_remote_first_frame_rgb(
                 session_input.first_frame_image_url
@@ -1086,6 +1196,11 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
                 data=pending_input.first_frame_image_bytes,
                 content_type=pending_input.first_frame_content_type,
             )
+        if (
+            pending_input is not None
+            and pending_input.first_frame_remote_payload is not None
+        ):
+            return pending_input.first_frame_remote_payload
         if pending_input is not None and pending_input.first_frame_image_url:
             image_bytes, content_type = _read_remote_bytes(
                 pending_input.first_frame_image_url,
@@ -1115,22 +1230,49 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
             raise SessionBusyError(
                 "Cannot update Lingbot2 input while a session is active."
             )
+        current = self._pending_session_input
+
+        first_frame_image_bytes = (
+            current.first_frame_image_bytes if current is not None else None
+        )
+        first_frame_image_url = (
+            current.first_frame_image_url if current is not None else None
+        )
+        first_frame_content_type = (
+            current.first_frame_content_type
+            if current is not None
+            else session_input.first_frame_content_type
+        )
+        first_frame_remote_payload = (
+            current.first_frame_remote_payload if current is not None else None
+        )
+
         if session_input.first_frame_image_bytes is not None:
             self._runtime._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
             )
-        image_url = None
-        if (
-            session_input.first_frame_image_bytes is None
-            and session_input.first_frame_image_url is not None
-        ):
-            image_url = _validate_remote_url(
+            first_frame_image_bytes = session_input.first_frame_image_bytes
+            first_frame_image_url = None
+            first_frame_content_type = session_input.first_frame_content_type
+            first_frame_remote_payload = None
+        elif session_input.first_frame_image_url is not None:
+            first_frame_image_url = _validate_remote_url(
                 session_input.first_frame_image_url,
                 field_name="Lingbot2 first-frame image URL",
             )
-            self._runtime._load_remote_first_frame_rgb(image_url)
+            image_bytes, content_type = _read_remote_bytes(
+                first_frame_image_url,
+                max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+                field_name="Lingbot2 first-frame image URL",
+            )
+            self._runtime._load_uploaded_first_frame_rgb(image_bytes)
+            first_frame_image_bytes = None
+            first_frame_content_type = content_type
+            first_frame_remote_payload = Lingbot2ImagePayload(
+                data=image_bytes,
+                content_type=content_type,
+            )
 
-        current = self._pending_session_input
         text_events = (
             normalize_text_events(session_input.text_events)
             if session_input.text_events is not None
@@ -1142,30 +1284,9 @@ class Lingbot2WebRTCSessionManager(BaseWebRTCSessionManager):
                 if session_input.prompt is not None
                 else (current.prompt if current is not None else None)
             ),
-            first_frame_image_bytes=(
-                session_input.first_frame_image_bytes
-                if session_input.first_frame_image_bytes is not None
-                else (current.first_frame_image_bytes if current is not None else None)
-            ),
-            first_frame_image_url=(
-                None
-                if session_input.first_frame_image_bytes is not None
-                else (
-                    image_url
-                    if image_url is not None
-                    else (
-                        current.first_frame_image_url if current is not None else None
-                    )
-                )
-            ),
-            first_frame_content_type=(
-                session_input.first_frame_content_type
-                if session_input.first_frame_image_bytes is not None
-                else (
-                    current.first_frame_content_type
-                    if current is not None
-                    else session_input.first_frame_content_type
-                )
-            ),
+            first_frame_image_bytes=first_frame_image_bytes,
+            first_frame_image_url=first_frame_image_url,
+            first_frame_content_type=first_frame_content_type,
+            first_frame_remote_payload=first_frame_remote_payload,
             text_events=text_events,
         )

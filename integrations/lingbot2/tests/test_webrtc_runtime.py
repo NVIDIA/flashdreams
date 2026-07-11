@@ -105,18 +105,110 @@ def test_validate_remote_url_rejects_non_public_hosts(image_url: str) -> None:
         session._validate_remote_url(image_url, field_name="image")
 
 
-def test_remote_redirect_handler_rejects_non_public_targets() -> None:
-    handler = session._ValidatingRemoteRedirectHandler("image")
+def test_read_remote_bytes_rejects_non_public_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_read_once(
+        url: str, *, max_bytes: int, field_name: str
+    ) -> tuple[bytes, str, str | None]:
+        del url, max_bytes, field_name
+        return b"", "", "http://127.0.0.1/image.jpg"
 
     with pytest.raises(ValueError, match="publicly routable"):
-        handler.redirect_request(
-            object(),  # ty:ignore[invalid-argument-type]
-            fp=None,
-            code=302,
-            msg="Found",
-            headers={},
-            newurl="http://127.0.0.1/image.jpg",
+        monkeypatch.setattr(session, "_read_remote_bytes_once", _fake_read_once)
+        session._read_remote_bytes(
+            "https://example.test/image.jpg",
+            max_bytes=1024,
+            field_name="image",
         )
+
+
+def test_read_remote_bytes_uses_validated_resolved_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved_address = ipaddress.ip_address("93.184.216.34")
+    calls: list[dict[str, object]] = []
+
+    class _FakeHeaders:
+        @staticmethod
+        def get_content_type() -> str:
+            return "image/jpeg"
+
+    class _FakeResponse:
+        status = 200
+        headers = _FakeHeaders()
+
+        @staticmethod
+        def getheader(name: str) -> str | None:
+            del name
+            return None
+
+        @staticmethod
+        def read(size: int | None = None) -> bytes:
+            del size
+            return b"image-bytes"
+
+        @staticmethod
+        def close() -> None:
+            return
+
+    class _FakeConnection:
+        def __init__(
+            self,
+            host: str,
+            *,
+            port: int | None,
+            timeout: float,
+            resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+        ) -> None:
+            calls.append(
+                {
+                    "host": host,
+                    "port": port,
+                    "timeout": timeout,
+                    "resolved_address": resolved_address,
+                }
+            )
+
+        def request(
+            self, method: str, target: str, *, headers: dict[str, str]
+        ) -> None:
+            calls[-1]["method"] = method
+            calls[-1]["target"] = target
+            calls[-1]["headers"] = headers
+
+        @staticmethod
+        def getresponse() -> _FakeResponse:
+            return _FakeResponse()
+
+        @staticmethod
+        def close() -> None:
+            return
+
+    monkeypatch.setattr(
+        session, "_resolve_remote_host", lambda hostname: (resolved_address,)
+    )
+    monkeypatch.setattr(session, "_ResolvedHTTPConnection", _FakeConnection)
+
+    data, content_type = session._read_remote_bytes(
+        "http://example.test:8080/path/to/image.jpg?token=1",
+        max_bytes=1024,
+        field_name="image",
+    )
+
+    assert data == b"image-bytes"
+    assert content_type == "image/jpeg"
+    assert calls == [
+        {
+            "host": "example.test",
+            "port": 8080,
+            "timeout": session._REMOTE_READ_TIMEOUT_S,
+            "resolved_address": resolved_address,
+            "method": "GET",
+            "target": "/path/to/image.jpg?token=1",
+            "headers": {"User-Agent": "flashdreams-lingbot2-webrtc/1.0"},
+        }
+    ]
 
 
 def test_initial_scene_advertises_text_event_catalog(
@@ -177,6 +269,115 @@ def test_pending_session_input_overrides_text_event_catalog(
 
     assert scene["capabilities"] == {"text_events": True}
     assert scene["event_catalog"] == [custom_events[0].as_public_dict()]
+
+
+def test_pending_remote_first_frame_is_fetched_once_and_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: Lingbot2RuntimeConfig) -> None:
+            self.config = config
+            self.decoded_images: list[bytes] = []
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+        def _load_uploaded_first_frame_rgb(self, image_bytes: bytes) -> object:
+            self.decoded_images.append(image_bytes)
+            return object()
+
+    fake_runtime: _FakeRuntime | None = None
+    read_calls: list[str] = []
+
+    def _fake_runtime_factory(config: Lingbot2RuntimeConfig) -> _FakeRuntime:
+        nonlocal fake_runtime
+        fake_runtime = _FakeRuntime(config)
+        return fake_runtime
+
+    def _fake_read_remote_bytes(
+        url: str, *, max_bytes: int, field_name: str
+    ) -> tuple[bytes, str]:
+        del max_bytes, field_name
+        read_calls.append(url)
+        return b"remote-image", "image/png"
+
+    monkeypatch.setattr(session, "Lingbot2InferenceRuntime", _fake_runtime_factory)
+    monkeypatch.setattr(
+        session,
+        "_resolve_remote_host",
+        lambda hostname: (ipaddress.ip_address("93.184.216.34"),),
+    )
+    monkeypatch.setattr(session, "_read_remote_bytes", _fake_read_remote_bytes)
+    manager = Lingbot2WebRTCSessionManager(
+        runtime_config=Lingbot2RuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+
+    manager.set_pending_session_input(
+        session.Lingbot2SessionInput(
+            first_frame_image_url="https://example.test/scene.png"
+        )
+    )
+    payload = manager.get_first_frame()
+
+    assert fake_runtime is not None
+    assert fake_runtime.decoded_images == [b"remote-image"]
+    assert read_calls == ["https://example.test/scene.png"]
+    assert payload == session.Lingbot2ImagePayload(
+        data=b"remote-image",
+        content_type="image/png",
+    )
+    assert manager._pending_session_input is not None
+    assert manager._pending_session_input.first_frame_remote_payload == payload
+
+
+def test_prepare_session_input_state_uses_cached_remote_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = session.Lingbot2InferenceRuntime(
+        config=Lingbot2RuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime._device = torch.device("cpu")
+    decoded_images: list[bytes] = []
+
+    def _fake_load_uploaded_first_frame_rgb(image_bytes: bytes) -> object:
+        decoded_images.append(image_bytes)
+        return object()
+
+    def _fail_remote_fetch(image_url: str) -> object:
+        raise AssertionError(f"unexpected remote fetch: {image_url}")
+
+    monkeypatch.setattr(
+        runtime,
+        "_load_uploaded_first_frame_rgb",
+        _fake_load_uploaded_first_frame_rgb,
+    )
+    monkeypatch.setattr(runtime, "_load_remote_first_frame_rgb", _fail_remote_fetch)
+    monkeypatch.setattr(
+        runtime,
+        "_first_frame_to_tensor",
+        lambda image_rgb: torch.zeros((1, 3, 2, 2)),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_encode_text_embeddings_sync",
+        lambda texts: torch.zeros((len(texts), 1, 2)),
+    )
+
+    runtime._prepare_session_input_state(
+        session.Lingbot2SessionInput(
+            prompt="follow a coastal highway",
+            first_frame_image_url="https://example.test/scene.png",
+            first_frame_remote_payload=session.Lingbot2ImagePayload(
+                data=b"cached-image",
+                content_type="image/png",
+            ),
+        )
+    )
+
+    assert decoded_images == [b"cached-image"]
+    assert runtime._prompt == "follow a coastal highway"
 
 
 @pytest.mark.asyncio
