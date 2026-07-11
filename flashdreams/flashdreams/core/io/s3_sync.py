@@ -180,7 +180,9 @@ def sync_s3_dir_to_local(
             else:
                 raise exc
 
+    is_distributed = dist.is_available() and dist.is_initialized()
     payload: list[dict[str, str | None]] = [{"error": None}]
+    rank0_error: Exception | None = None
     if should_download:
         try:
             s3_fs = S3FileSystem(credential_path=s3_credential_path)
@@ -205,13 +207,16 @@ def sync_s3_dir_to_local(
             finally:
                 s3_fs.close()
         except Exception as exc:
+            rank0_error = exc
             payload[0]["error"] = f"{type(exc).__name__}: {exc}"
 
-    if dist.is_available() and dist.is_initialized():
+    if is_distributed:
         dist.broadcast_object_list(payload, src=0)
 
     error = payload[0]["error"]
     if error is not None:
+        if rank0_error is not None and not is_distributed:
+            raise rank0_error
         raise RuntimeError(error)
 
     _barrier_robust()

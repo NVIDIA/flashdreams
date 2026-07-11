@@ -68,3 +68,22 @@ def test_rank0_download_failure_is_broadcast_to_all_ranks(
     assert len(_FailingS3FileSystem.instances) == 1
     assert _FailingS3FileSystem.instances[0].closed
     assert barriers == []
+
+
+def test_single_process_failure_preserves_native_exception(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail_s3_client(*, credential_path: str) -> None:
+        assert credential_path == "credentials/s3.json"
+        raise OSError("S3 client initialization failed")
+
+    monkeypatch.setattr(s3_sync, "S3FileSystem", _fail_s3_client)
+    monkeypatch.setattr(s3_sync, "ensure_free_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(s3_sync.dist, "is_available", lambda: False)
+
+    with pytest.raises(OSError, match="S3 client initialization failed"):
+        s3_sync.sync_s3_dir_to_local(
+            s3_dir="s3://bucket/assets",
+            s3_credential_path="credentials/s3.json",
+            cache_dir=str(tmp_path),
+        )
