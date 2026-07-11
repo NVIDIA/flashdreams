@@ -19,7 +19,6 @@ import base64
 import hashlib
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from urllib.parse import urlparse
 
 import torch.distributed as dist
@@ -125,9 +124,7 @@ def sync_s3_dir_to_local(
     )
 
     should_download = world_rank == 0
-    s3_fs = (
-        S3FileSystem(credential_path=s3_credential_path) if should_download else None
-    )
+    s3_fs: S3FileSystem | None = None
 
     def _validate_local_file(local_path: str, key: str) -> None:
         """Validate local file using remote size and optional FULL_OBJECT SHA256 checksum."""
@@ -183,27 +180,38 @@ def sync_s3_dir_to_local(
             else:
                 raise exc
 
-    try:
-        if should_download:
+    payload: list[dict[str, str | None]] = [{"error": None}]
+    if should_download:
+        try:
+            s3_fs = S3FileSystem(credential_path=s3_credential_path)
             assert s3_fs is not None
-            object_suffixes = s3_fs.list_files_recursive(s3_dir=s3_dir)
-            if object_suffixes:
-                worker_count = min(max(1, max_workers), len(object_suffixes))
-                with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    futures = [
-                        executor.submit(_download_one, obj_suffix)
-                        for obj_suffix in object_suffixes
-                    ]
-                    with tqdm.tqdm(
-                        total=len(object_suffixes),
-                        desc=desc,
-                        disable=not show_progress,
-                    ) as pbar:
-                        for future in as_completed(futures):
-                            future.result()
-                            pbar.update(1)
-    finally:
-        if s3_fs is not None:
-            s3_fs.close()
+            try:
+                object_suffixes = s3_fs.list_files_recursive(s3_dir=s3_dir)
+                if object_suffixes:
+                    worker_count = min(max(1, max_workers), len(object_suffixes))
+                    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                        futures = [
+                            executor.submit(_download_one, obj_suffix)
+                            for obj_suffix in object_suffixes
+                        ]
+                        with tqdm.tqdm(
+                            total=len(object_suffixes),
+                            desc=desc,
+                            disable=not show_progress,
+                        ) as pbar:
+                            for future in as_completed(futures):
+                                future.result()
+                                pbar.update(1)
+            finally:
+                s3_fs.close()
+        except Exception as exc:
+            payload[0]["error"] = f"{type(exc).__name__}: {exc}"
+
+    if dist.is_available() and dist.is_initialized():
+        dist.broadcast_object_list(payload, src=0)
+
+    error = payload[0]["error"]
+    if error is not None:
+        raise RuntimeError(error)
 
     _barrier_robust()
