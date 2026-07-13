@@ -47,11 +47,11 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import torch
-from loguru import logger
 from scipy.spatial.transform import Rotation as R
 from torch import Tensor
 
 
+from ._logging import logger
 from ._ops import (
     FThetaCamera,
     ObstaclePool,

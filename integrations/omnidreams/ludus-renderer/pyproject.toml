@@ -64,6 +64,7 @@ packages = [
     "_cpp/common/*.h",
     "_cpp/common/*.cpp",
     "_cpp/render/*.h",
+    "_cpp/render/*.cpp",
     "_cpp/render/*.cu",
     "_cpp/cudaraster/*.hpp",
     "_cpp/cudaraster/*.cpp",
@@ -84,6 +85,9 @@ packages = [
     "_cpp/loader/*.h",
     "_cpp/loader/*.cpp",
     "_cpp/loader/*.cu",
+    "shaders/*.glsl",
+    "shaders/*.sh",
+    "shaders/*.py",
 ]
 
 [tool.uv]

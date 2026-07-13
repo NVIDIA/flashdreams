@@ -23,6 +23,7 @@ import torch
 from loguru import logger
 from ludus_renderer import (
     FThetaCamera,
+    LudusTimestampedContext,
     load_clipgt_scene,
 )
 from ludus_renderer.clipgt import ClipgtGpuScene
@@ -184,7 +185,13 @@ class _LudusConditionRasterizerImpl:
                 "using host raster frames",
             )
 
-        self.ctx = LudusCudaTimestampedContext(device=self._device)
+        ctx_cls = (
+            LudusTimestampedContext
+            if raster.ludus_backend == "vulkan"
+            else LudusCudaTimestampedContext
+        )
+        logger.info(f"[rasterizer] ludus_backend={raster.ludus_backend}")
+        self.ctx = ctx_cls(device=self._device)
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)
         self.ctx.set_max_tessellation_levels(cube=0)

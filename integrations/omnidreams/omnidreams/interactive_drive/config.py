@@ -10,6 +10,7 @@ from typing import Literal
 BackendName = Literal["raster", "omnidreams"]
 ViewMode = Literal["rgb", "model_rgb"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
+LudusBackendName = Literal["cuda", "vulkan"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class RasterConfig:
     width: int = 1280
     height: int = 704
     compute_device: ComputeDeviceName = "cuda"
+    ludus_backend: LudusBackendName = "cuda"
     sync_gpu_timing: bool = False
     perf_log_interval_frames: int = 20
     near_plane_m: float = 0.1

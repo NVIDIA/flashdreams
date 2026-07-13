@@ -1,0 +1,58 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// CUDA helper used by the Vulkan timestamped renderer to prep RGBA color
+// buffers for nvJPEG encoding. The Vulkan render path uses an inverted
+// viewport-height to match the shaders' GL-style NDC, which means the
+// framebuffer is stored bottom-up in image memory. nvJPEG expects RGB
+// top-down, so the kernel both strips alpha and flips rows.
+
+#include <cuda_runtime.h>
+#include <stdint.h>
+
+__global__ void rgbaToRgbFlipKernel(
+    const uint8_t* __restrict__ srcRgba,
+    uint8_t* __restrict__ dstRgb,
+    int width,
+    int height)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;
+
+    int srcRow = height - 1 - y;
+    int srcIdx = (srcRow * width + x) * 4;
+    uint8_t r = srcRgba[srcIdx + 0];
+    uint8_t g = srcRgba[srcIdx + 1];
+    uint8_t b = srcRgba[srcIdx + 2];
+
+    int dstIdx = (y * width + x) * 3;
+    dstRgb[dstIdx + 0] = r;
+    dstRgb[dstIdx + 1] = g;
+    dstRgb[dstIdx + 2] = b;
+}
+
+extern "C" void launchRgbaToRgbFlip(
+    const uint8_t* srcRgba,
+    uint8_t* dstRgb,
+    int width,
+    int height,
+    cudaStream_t stream)
+{
+    dim3 block(16, 16);
+    dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
+    rgbaToRgbFlipKernel<<<grid, block, 0, stream>>>(srcRgba, dstRgb, width, height);
+}

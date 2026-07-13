@@ -25,8 +25,12 @@ This module re-exports all symbols from the split submodules:
 # JIT compilation
 from ._plugin import _get_plugin, get_log_level, set_log_level
 
-# Ludus rendering context.
+# Ludus rendering contexts.
 from .context import LudusCudaTimestampedContext
+# Vulkan backend: import is lazy and safe even when Vulkan headers/loader
+# are not installed; the ImportError surfaces only when the context is
+# actually constructed.
+from .context_vk import LudusTimestampedContext
 
 # Primitive data types and packing
 from .primitives import (
@@ -119,6 +123,7 @@ __all__ = [
     "CubePool",
     "ObstaclePool",
     "TimestampedScene",
-    # Ludus rendering context
+    # Ludus rendering contexts
     "LudusCudaTimestampedContext",
+    "LudusTimestampedContext",
 ]

@@ -176,6 +176,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="SlangPy device used for raster compute; presenter still uses Vulkan for swapchain",
     )
     parser.add_argument(
+        "--ludus-backend",
+        choices=("cuda", "vulkan"),
+        default="cuda",
+        help="HD-map renderer backend: 'cuda' (default, software rasterizer) or "
+        "'vulkan' (VK_EXT_mesh_shader). Independent of --compute-device.",
+    )
+    parser.add_argument(
         "--sync-gpu-timing",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -457,6 +464,7 @@ def prepare_config_and_backend(
         manifest_path=manifest_path,
         raster=RasterConfig(
             compute_device=args.compute_device,
+            ludus_backend=args.ludus_backend,
             sync_gpu_timing=args.sync_gpu_timing,
         ),
         world_model_profile=WorldModelProfileConfig(

@@ -1,14 +1,22 @@
 # Ludus Renderer
 
-GPU-native F-theta CUDA software rasterizer for autonomous vehicle simulation.
+GPU-native F-theta renderer for autonomous vehicle simulation, with two
+interchangeable backends:
+
+- **CUDA software rasterizer** (`LudusCudaTimestampedContext`): always
+  available, no graphics driver required, built on the HPG 2011
+  CudaRaster triangle pipeline.
+- **Vulkan mesh-shader backend** (`LudusTimestampedContext`): opt-in,
+  uses `VK_EXT_mesh_shader` for hardware-accelerated procedural geometry
+  with CUDA-Vulkan external-memory interop.
 
 ## Features
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
-- **CUDA Software Rasterizer**: GPU rendering backend built on the CudaRaster (HPG 2011) triangle rasterizer
+- **Two rendering backends**: CUDA software rasterizer or Vulkan mesh shaders
 - **Timestamped Rendering**: Efficient temporal queries for simulation playback
 - **Adaptive Tessellation**: Automatic subdivision based on distortion error
-- **MSAA**: 4x antialiasing via 2x supersampling
+- **MSAA**: 4x antialiasing (2x supersampling on CUDA, hardware MSAA on Vulkan)
 - **Mirror Augmentation**: Extend scenes by tiling reflected copies for longer driving sequences
 - **GPU Spatial Culling**: Per-element AABB/sphere culling for large scenes
 
@@ -20,10 +28,17 @@ GPU-native F-theta CUDA software rasterizer for autonomous vehicle simulation.
 
 ## Requirements
 
+**Always:**
 - NVIDIA GPU (Turing or later)
 - CUDA 11+
 - Python 3.10+
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
+
+**For the Vulkan backend additionally:**
+- Vulkan 1.3 SDK or `libvulkan-dev` + `libvulkan1` (Debian/Ubuntu)
+- An NVIDIA GPU + driver that exposes `VK_EXT_mesh_shader` (Ada generation
+  and later on the latest production drivers; consult `vulkaninfo`).
+- To rebuild shaders from source: `glslangValidator` from the Vulkan SDK.
 
 ## Installation
 
@@ -39,10 +54,57 @@ Dependencies installed:
 
 ## Usage
 
+The default CUDA backend just works everywhere:
+
 ```python
 from ludus_renderer import LudusCudaTimestampedContext
 ctx = LudusCudaTimestampedContext(device="cuda")
 ```
+
+The Vulkan backend has the same public API and is selected at construction:
+
+```python
+from ludus_renderer import LudusTimestampedContext
+ctx = LudusTimestampedContext(device="cuda")
+# ... ctx.upload_cameras / upload_scene / render_batch ...
+```
+
+If Vulkan headers / loader / `VK_EXT_mesh_shader` are missing, the
+constructor raises a friendly `ImportError`. The CUDA backend stays
+fully usable.
+
+### Choosing a backend
+
+| Aspect | CUDA backend | Vulkan backend |
+| --- | --- | --- |
+| Driver requirement | CUDA only | CUDA + Vulkan 1.3 + `VK_EXT_mesh_shader` |
+| Geometry generation | CUDA kernels (CPU-side dispatch) | Task/Mesh shaders on the GPU |
+| Render dispatch | One CUDA kernel per query (Python loop) | Single Vulkan submission per batch |
+| MSAA | 2x supersampling | Hardware 4x MSAA |
+| First-call cost | Plugin JIT (~10s once) | Plugin JIT (~10s once) + Vulkan context init |
+
+### Shader build (Vulkan only)
+
+The Vulkan backend ships with pre-compiled SPIR-V embedded in
+`_cpp/render/shaders_spv.h`. The GLSL sources in `ludus_renderer/shaders/`
+are hand-maintained `GL_EXT_mesh_shader` style; regenerate after editing them
+with:
+
+```bash
+bash ludus_renderer/shaders/compile.sh    # GLSL -> SPIR-V -> embed in shaders_spv.h
+```
+
+### v1 caveats for the Vulkan backend
+
+- Dot-primitive rendering (`PRIM_DOT_*`) is implemented in the CUDA
+  backend but not yet plumbed through the Vulkan task/mesh pipeline.
+- The CUDA-Vulkan handoff uses opaque file-descriptor external memory,
+  which is Linux-only; the Vulkan plugin currently refuses to build on
+  Windows. The CUDA backend remains cross-platform.
+- Diagnostics: set `LUDUS_VK_DEBUG=1` to enable internal `[Vulkan] ...`
+  trace logs, and `LUDUS_VK_CLEAR_RED=1` to clear the framebuffer to
+  opaque red instead of transparent black (useful to verify the
+  render-pass and readback path are alive independent of the shaders).
 
 ## Examples
 

@@ -22,7 +22,8 @@ import time
 
 import torch
 import torch.utils.cpp_extension
-from loguru import logger
+
+from .._logging import logger
 
 _cached_plugin = None
 _dll_directory_handles = []
