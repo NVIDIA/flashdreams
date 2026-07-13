@@ -31,6 +31,7 @@ from flashdreams.infra.encoder import (
 )
 from flashdreams.recipes.wan.autoencoder.i2v import (
     I2VCtrl,
+    I2VCtrlEncoder,
     I2VCtrlEncoderCache,
     WanI2VCtrlEncoderConfig,
 )
@@ -67,6 +68,13 @@ class I2VCamCtrlInput:
 
 
 @dataclass(kw_only=True)
+class LingbotI2VCtrlEncoderConfig(WanI2VCtrlEncoderConfig):
+    """Wan I2V control encoder config with Tyro-friendly target typing."""
+
+    _target: type[I2VCtrlEncoder] = field(default_factory=lambda: I2VCtrlEncoder)
+
+
+@dataclass(kw_only=True)
 class I2VCamCtrlEmbeddings:
     """Encoded I2V latent + Plücker volume the transformer cross-attends to."""
 
@@ -89,7 +97,9 @@ class I2VCamCtrlEncoderConfig(EncoderConfig):
         default_factory=lambda: I2VCamCtrlEncoder
     )
 
-    i2v: WanI2VCtrlEncoderConfig = field(default_factory=WanI2VCtrlEncoderConfig)
+    i2v: LingbotI2VCtrlEncoderConfig = field(
+        default_factory=LingbotI2VCtrlEncoderConfig
+    )
     """Config for the Wan-VAE I2V encoder branch."""
 
 

@@ -101,16 +101,6 @@ aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 
 ================================================================================
-Optional integration: integrations/lingbot2
-================================================================================
-
-aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
-aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
-mediapy                Apache-2.0   https://github.com/google/mediapy
-opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
-scipy                  BSD-3-Clause https://github.com/scipy/scipy
-
-================================================================================
 Source-level redistributions
 ================================================================================
 

@@ -16,7 +16,7 @@ VIDEO_WIDTH="${VIDEO_WIDTH:-640}"
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 
-exec uv run --no-sync python -m lingbot2.webrtc.server \
+exec uv run --no-sync python -m lingbot.webrtc.server \
   --host "${HOST}" \
   --port "${PORT}" \
   --config_name "${CONFIG_NAME}" \

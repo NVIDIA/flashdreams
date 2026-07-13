@@ -31,12 +31,17 @@ const firstFrameUrlUpdateButton = document.getElementById("firstFrameUrlUpdateBu
 const firstFrameUrlStatus = document.getElementById("firstFrameUrlStatus")
 const firstFrameName = document.getElementById("firstFrameName")
 const promptInput = document.getElementById("promptInput")
+const textEventList = document.getElementById("textEventList")
+const addTextEventButton = document.getElementById("addTextEventButton")
 const fpsValue = document.getElementById("fpsValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
 const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
+const eventControls = document.getElementById("eventControls")
+const eventButtons = document.getElementById("eventButtons")
+const clearEventButton = document.getElementById("clearEventButton")
 
 const params = new URLSearchParams(window.location.search)
 const mockMode = params.has("mock") && params.get("mock") !== "0"
@@ -63,6 +68,7 @@ let mockChunkTimer = null
 let actionStarted = false
 let initialSceneLocked = false
 let promptEdited = false
+let textEventsEdited = false
 let firstFrameUrlEdited = false
 let firstFrameInputMode = "url"
 let initialScene = null
@@ -70,6 +76,9 @@ let selectedFirstFrameUrl = null
 let selectedFirstFrameFile = null
 let firstFrameSelectionCommitted = false
 let firstFramePreviewRefreshToken = 0
+let activeEventId = null
+let textEventDrafts = []
+let textEventSequence = 0
 
 const metrics = {
   fps: null,
@@ -83,6 +92,16 @@ const metrics = {
 
 function normalizeKey(rawKey) {
   return String(rawKey || "").toLowerCase()
+}
+
+function makeTextEventId(label = "") {
+  const slug = String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+  textEventSequence += 1
+  return `${slug || "event"}-${textEventSequence}`
 }
 
 function isEditableControlTarget(target) {
@@ -173,6 +192,10 @@ function setInitialSceneLocked(locked) {
   firstFrameUrlInput.disabled = locked
   firstFrameUrlUpdateButton.disabled = locked
   promptInput.disabled = locked
+  addTextEventButton.disabled = locked
+  for (const input of textEventList.querySelectorAll("input, textarea, button")) {
+    input.disabled = locked
+  }
 }
 
 function setFirstFrameInputMode(mode) {
@@ -280,8 +303,145 @@ function applyInitialScene(scene) {
       metrics.resolution = `${width}x${height}`
     }
   }
+  activeEventId = scene.active_event_id || null
+  if (!textEventsEdited) {
+    setTextEventDraftsFromCatalog(scene.event_catalog)
+  }
+  renderEventControls()
   renderMetrics()
   updateReadyPreview()
+}
+
+function makeTextEventDraft(item = {}) {
+  const label = String(item.label || "").trim()
+  return {
+    event_id: String(item.event_id || item.id || "").trim() || makeTextEventId(label),
+    label,
+    prompt: String(item.prompt || "").trim(),
+  }
+}
+
+function setTextEventDraftsFromCatalog(catalog) {
+  textEventDrafts = Array.isArray(catalog)
+    ? catalog.map((item) => makeTextEventDraft(item))
+    : []
+  renderTextEventEditor()
+}
+
+function markTextEventsEdited() {
+  textEventsEdited = true
+}
+
+function renderTextEventEditor() {
+  textEventList.replaceChildren()
+  for (const [index, draft] of textEventDrafts.entries()) {
+    const row = document.createElement("div")
+    row.className = "textEventRow"
+
+    const fields = document.createElement("div")
+    fields.className = "textEventFields"
+
+    const labelInput = document.createElement("input")
+    labelInput.className = "textEventLabel"
+    labelInput.type = "text"
+    labelInput.maxLength = 64
+    labelInput.placeholder = "Label"
+    labelInput.value = draft.label
+    labelInput.disabled = initialSceneLocked
+    labelInput.addEventListener("input", () => {
+      draft.label = labelInput.value
+      markTextEventsEdited()
+    })
+    labelInput.addEventListener("focus", releaseAllKeys)
+
+    const promptTextarea = document.createElement("textarea")
+    promptTextarea.className = "textEventPrompt"
+    promptTextarea.rows = 2
+    promptTextarea.maxLength = 1000
+    promptTextarea.placeholder = "Event Prompt"
+    promptTextarea.value = draft.prompt
+    promptTextarea.disabled = initialSceneLocked
+    promptTextarea.addEventListener("input", () => {
+      draft.prompt = promptTextarea.value
+      markTextEventsEdited()
+    })
+    promptTextarea.addEventListener("focus", releaseAllKeys)
+
+    const removeButton = document.createElement("button")
+    removeButton.className = "textEventRemoveButton"
+    removeButton.type = "button"
+    removeButton.textContent = "X"
+    removeButton.setAttribute("aria-label", `Remove text event ${index + 1}`)
+    removeButton.disabled = initialSceneLocked
+    removeButton.addEventListener("click", () => {
+      textEventDrafts.splice(index, 1)
+      markTextEventsEdited()
+      renderTextEventEditor()
+      renderEventControls()
+    })
+
+    fields.append(labelInput, promptTextarea)
+    row.append(fields, removeButton)
+    textEventList.append(row)
+  }
+}
+
+function collectTextEvents() {
+  const events = []
+  const usedIds = new Set()
+  for (const draft of textEventDrafts) {
+    const label = draft.label.trim()
+    const prompt = draft.prompt.trim()
+    if (!label && !prompt) {
+      continue
+    }
+    if (!prompt) {
+      throw new Error("Each text event needs a prompt.")
+    }
+    let eventId = String(draft.event_id || "").trim()
+    if (!eventId) {
+      eventId = makeTextEventId(label)
+      draft.event_id = eventId
+    }
+    while (usedIds.has(eventId)) {
+      eventId = makeTextEventId(label)
+      draft.event_id = eventId
+    }
+    usedIds.add(eventId)
+    events.push({
+      event_id: eventId,
+      label: label || eventId,
+      prompt,
+      category: "custom",
+    })
+  }
+  return events
+}
+
+function renderEventControls() {
+  const catalog = Array.isArray(initialScene && initialScene.event_catalog)
+    ? initialScene.event_catalog
+    : []
+  eventControls.hidden = catalog.length === 0
+  eventButtons.replaceChildren()
+  for (const item of catalog) {
+    const eventId = String(item.event_id || "").trim()
+    if (!eventId) {
+      continue
+    }
+    const button = document.createElement("button")
+    button.className = "eventButton"
+    button.type = "button"
+    button.textContent = String(item.label || eventId)
+    button.dataset.eventId = eventId
+    button.classList.toggle("is-active", activeEventId === eventId)
+    button.addEventListener("click", () => {
+      sendTextEvent(eventId, "trigger")
+    })
+    eventButtons.append(button)
+  }
+  clearEventButton.hidden = catalog.length === 0
+  clearEventButton.classList.toggle("is-active", activeEventId === null)
 }
 
 async function loadInitialScene() {
@@ -293,6 +453,26 @@ async function loadInitialScene() {
       image_url: firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
+      event_catalog: [
+        {
+          event_id: "portal",
+          label: "Portal",
+          prompt: "A luminous magical portal opens in the scene.",
+          category: "environment",
+        },
+        {
+          event_id: "storm",
+          label: "Storm",
+          prompt: "A dramatic storm rolls in with rain and lightning.",
+          category: "environment",
+        },
+        {
+          event_id: "fireworks",
+          label: "Fireworks",
+          prompt: "Bright fireworks burst overhead.",
+          category: "environment",
+        },
+      ],
       input_source: selectedFirstFrameFile ? "uploaded" : "default",
     })
     return
@@ -316,7 +496,12 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
     includeFirstFrame && firstFrameInputMode === "upload" && selectedFirstFrameFile !== null
   const hasImageUrl =
     includeFirstFrame && firstFrameInputMode === "url" && imageUrl.length > 0
-  if (!hasPrompt && !hasImage && !hasImageUrl) {
+  let textEvents = null
+  if (textEventsEdited) {
+    textEvents = collectTextEvents()
+  }
+  const hasTextEvents = textEvents !== null
+  if (!hasPrompt && !hasImage && !hasImageUrl && !hasTextEvents) {
     return
   }
   if (hasImageUrl) {
@@ -337,9 +522,14 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
       image_url: hasImageUrl ? imageUrl : firstFrameUrlInput.value.trim(),
       model: metrics.model,
       resolution: { width: 832, height: 464 },
+      event_catalog: hasTextEvents
+        ? textEvents
+        : (initialScene ? initialScene.event_catalog : []),
+      active_event_id: activeEventId,
       input_source: "uploaded",
     })
     promptEdited = false
+    textEventsEdited = false
     firstFrameUrlEdited = false
     if (hasImage || hasImageUrl) {
       setFirstFrameUrlStatus("Updated", "success")
@@ -356,6 +546,9 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
   } else if (hasImageUrl) {
     form.append("image_url", imageUrl)
   }
+  if (hasTextEvents) {
+    form.append("text_events", JSON.stringify(textEvents))
+  }
 
   const response = await fetch("/api/session/input", {
     method: "POST",
@@ -365,9 +558,10 @@ async function uploadSessionInputIfNeeded({ includeFirstFrame = false } = {}) {
     const text = (await response.text()).trim().replace(/^\d+:\s*/, "")
     throw new Error(text || `input upload failed (${response.status})`)
   }
-  applyInitialScene(await response.json())
   promptEdited = false
+  textEventsEdited = false
   firstFrameUrlEdited = false
+  applyInitialScene(await response.json())
   if (hasImage || hasImageUrl) {
     setFirstFrameUrlStatus("Updated", "success")
   }
@@ -544,6 +738,41 @@ function sendControlAction(action) {
   return true
 }
 
+function sendTextEvent(eventId, state = "trigger") {
+  const label = state === "clear" ? "clear event" : `event:${eventId}`
+  if (mockMode && connected && !controlChannel) {
+    activeEventId = state === "clear" ? null : eventId
+    renderEventControls()
+    actionStarted = true
+    mockGenerationStarted = true
+    setStatus("Generating", "generating")
+    setFlow(`sent ${label}`)
+    logEvent(label, { source: "client" })
+    return true
+  }
+
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    setFlow("connect session first")
+    return false
+  }
+
+  actionStarted = true
+  setInitialSceneLocked(true)
+  updateReadyPreview()
+  inferenceInFlight = true
+  controlChannel.send(
+    JSON.stringify({
+      type: "event",
+      event_id: eventId,
+      state,
+    })
+  )
+  setStatus("Generating", "generating")
+  setFlow(`sent ${label}`)
+  logEvent(label, { source: "client" })
+  return true
+}
+
 function enqueueAction(action) {
   const sent = sendControlAction(action)
   if (!sent) {
@@ -615,6 +844,10 @@ function handleControlMessage(rawMessage) {
 
   if (payload.type === "chunk_done") {
     inferenceInFlight = false
+    if (Object.prototype.hasOwnProperty.call(payload, "active_event_id")) {
+      activeEventId = payload.active_event_id || null
+    }
+    renderEventControls()
     updateMetricsFromChunk(payload)
     const genMs = firstFinite(payload.gen_ms)
     const lagMs = firstFinite(payload.lag_ms)
@@ -642,6 +875,13 @@ function handleControlMessage(rawMessage) {
     if (activeKeys.size > 0) {
       enqueueHeldKeyRepeats()
     }
+    return
+  }
+
+  if (payload.type === "event_ack") {
+    activeEventId = payload.active_event_id || null
+    renderEventControls()
+    logEvent(`event ${payload.event_id} ${payload.state}`, { source: "server" })
     return
   }
 
@@ -1100,7 +1340,8 @@ function mockChunkPayload() {
     enqueued_frames: numFrames,
     fps: targetFps,
     resolution: { width: 1280, height: 720 },
-    model: "lingbot-world-fast-taehv-window15-sink3",
+    model: "lingbot-world-v2-14b-causal-fast-taehv-window15-sink3",
+    active_event_id: activeEventId,
     latency_ms: 118 + Math.random() * 48,
     consumed_actions: 1,
     gen_ms: genMs,
@@ -1136,13 +1377,123 @@ async function startMockSession() {
   connected = true
   metrics.targetFps = 16
   metrics.resolution = "1280x720"
-  metrics.model = "lingbot-world-fast-taehv-window15-sink3"
+  metrics.model = "lingbot-world-v2-14b-causal-fast-taehv-window15-sink3"
   renderMetrics()
   setStatus("Waiting", "waiting")
   setFlow("mock ready; waiting for input")
   logEvent("Connected")
   logEvent("Warmup complete")
   ensureMockChunks()
+}
+
+let panelZIndex = 10
+
+function bringPanelToFront(panel) {
+  panelZIndex += 1
+  panel.style.zIndex = String(panelZIndex)
+}
+
+function makePanelMovable(panel, handle) {
+  handle.classList.add("panelDragHandle")
+
+  const collapseButton = document.createElement("button")
+  collapseButton.type = "button"
+  collapseButton.className = "panelCollapseButton"
+  collapseButton.textContent = "\u2013"
+  collapseButton.setAttribute("aria-expanded", "true")
+  collapseButton.setAttribute("aria-label", "Collapse panel")
+  collapseButton.addEventListener("pointerdown", (event) => {
+    event.stopPropagation()
+  })
+  collapseButton.addEventListener("click", (event) => {
+    event.stopPropagation()
+    const collapsed = panel.classList.toggle("is-collapsed")
+    collapseButton.textContent = collapsed ? "+" : "\u2013"
+    collapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    collapseButton.setAttribute("aria-label", collapsed ? "Expand panel" : "Collapse panel")
+  })
+  handle.appendChild(collapseButton)
+
+  let dragging = false
+  let pointerId = null
+  let startX = 0
+  let startY = 0
+  let startLeft = 0
+  let startTop = 0
+
+  const stageOf = () => panel.offsetParent || document.body
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return
+    }
+    bringPanelToFront(panel)
+    const stageRect = stageOf().getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    startLeft = panelRect.left - stageRect.left
+    startTop = panelRect.top - stageRect.top
+    panel.classList.add("is-floating")
+    panel.style.left = `${startLeft}px`
+    panel.style.top = `${startTop}px`
+    startX = event.clientX
+    startY = event.clientY
+    dragging = true
+    pointerId = event.pointerId
+    handle.setPointerCapture(pointerId)
+    event.preventDefault()
+  })
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!dragging || event.pointerId !== pointerId) {
+      return
+    }
+    const stageRect = stageOf().getBoundingClientRect()
+    const maxLeft = Math.max(0, stageRect.width - panel.offsetWidth)
+    const maxTop = Math.max(0, stageRect.height - panel.offsetHeight)
+    const nextLeft = Math.min(Math.max(0, startLeft + (event.clientX - startX)), maxLeft)
+    const nextTop = Math.min(Math.max(0, startTop + (event.clientY - startY)), maxTop)
+    panel.style.left = `${nextLeft}px`
+    panel.style.top = `${nextTop}px`
+    event.preventDefault()
+  })
+
+  const endDrag = () => {
+    if (!dragging) {
+      return
+    }
+    if (pointerId !== null && handle.hasPointerCapture(pointerId)) {
+      handle.releasePointerCapture(pointerId)
+    }
+    dragging = false
+    pointerId = null
+  }
+  handle.addEventListener("pointerup", endDrag)
+  handle.addEventListener("pointercancel", endDrag)
+  handle.addEventListener("lostpointercapture", endDrag)
+
+  panel.addEventListener("pointerdown", () => {
+    bringPanelToFront(panel)
+  })
+}
+
+function setupPanelChrome() {
+  const panels = [
+    { selector: ".statusCard", handle: ".panelLabel" },
+    { selector: "#sceneCard", handle: ".panelLabel" },
+    { selector: ".controlCard", handle: "h2" },
+    { selector: ".logCard", handle: "h2" },
+  ]
+  for (const entry of panels) {
+    const panel = document.querySelector(entry.selector)
+    if (!panel) {
+      continue
+    }
+    const handle = panel.querySelector(entry.handle)
+    if (!handle) {
+      continue
+    }
+    makePanelMovable(panel, handle)
+  }
 }
 
 function initialize() {
@@ -1158,6 +1509,7 @@ function initialize() {
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
+  setupPanelChrome()
   void loadInitialScene()
   window.requestAnimationFrame(drawMockScene)
   startVideoFrameMonitor()
@@ -1165,6 +1517,9 @@ function initialize() {
 
 connectButton.addEventListener("click", () => {
   void connectSession()
+})
+clearEventButton.addEventListener("click", () => {
+  sendTextEvent(activeEventId || "clear", "clear")
 })
 uploadModeButton.addEventListener("click", () => {
   if (initialSceneLocked) {
@@ -1234,8 +1589,18 @@ promptInput.addEventListener("input", () => {
   }
   promptEdited = true
 })
+addTextEventButton.addEventListener("click", () => {
+  if (initialSceneLocked) {
+    return
+  }
+  textEventDrafts.push(makeTextEventDraft({ label: "", prompt: "" }))
+  markTextEventsEdited()
+  renderTextEventEditor()
+  releaseAllKeys()
+})
 firstFrameUrlInput.addEventListener("focus", releaseAllKeys)
 promptInput.addEventListener("focus", releaseAllKeys)
+addTextEventButton.addEventListener("focus", releaseAllKeys)
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)

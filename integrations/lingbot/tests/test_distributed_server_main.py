@@ -40,12 +40,14 @@ def _args(device: str = "cuda:0") -> Namespace:
     return Namespace(
         host="127.0.0.1",
         port=8080,
-        config_name="LingBot-World-Fast",
+        config_name="lingbot-world-v2-14b-causal-fast",
         no_compile=False,
         device=device,
         warmup_chunks=10,
         warmup_timeout_s=600.0,
         fps=16,
+        video_height=352,
+        video_width=640,
         example_idx=0,
     )
 
@@ -178,6 +180,8 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fake_manager.wait_called is False
     assert runtime_configs[0].device == "cuda:2"
     assert runtime_configs[0].context_parallel_size == 1
+    assert runtime_configs[0].video_height == 352
+    assert runtime_configs[0].video_width == 640
     assert manager_fps == [16]
     assert request_session_urls == ["http://203.0.113.10:8080/request_session"]
 
@@ -214,4 +218,14 @@ def test_main_worker_rank_waits_for_termination(
     assert fake_manager.exit_called is False
     assert runtime_configs[0].device == "cuda:1"
     assert runtime_configs[0].context_parallel_size == 2
+    assert runtime_configs[0].video_height == 352
+    assert runtime_configs[0].video_width == 640
     assert manager_fps == [16]
+
+
+def test_build_runtime_config_rejects_non_patch_aligned_resolution() -> None:
+    args = _args()
+    args.video_height = 360
+
+    with pytest.raises(ValueError, match="divisible by 16"):
+        server.build_runtime_config(args)

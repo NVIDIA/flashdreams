@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import numpy as np
 import pytest
 import torch
 from lingbot.encoder.utils import (
     compute_relative_poses,
     compute_relative_poses_causal,
+    preprocess_example_poses,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -68,6 +70,13 @@ def test_compute_relative_poses_causal():
         last_pose = pose
     relative_poses3 = torch.cat(relative_poses3, dim=0)
     torch.testing.assert_close(relative_poses1, relative_poses3, atol=1e-4, rtol=1e-4)
+
+
+def test_preprocess_example_poses_rejects_short_trajectory():
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 8, axis=0)
+
+    with pytest.raises(ValueError, match="at least 9 raw poses"):
+        preprocess_example_poses(poses)
 
 
 if __name__ == "__main__":

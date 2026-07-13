@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""WebRTC session lifecycle and control-message orchestration."""
+
 from __future__ import annotations
 
 import asyncio

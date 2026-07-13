@@ -24,12 +24,21 @@ from typing import cast
 import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
-from lingbot.config import RUNNER_CONFIGS
+from lingbot.config import (
+    LINGBOT_WORLD_V2_CHECKPOINT_PATH,
+    PIPELINE_CONFIGS,
+    PIPELINE_LINGBOT_WORLD_FAST,
+    PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
+    RUNNER_CONFIGS,
+)
+from lingbot.pipeline import LingbotWorldInferencePipelineConfig
 from lingbot.transformer import (
     LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB,
+    LingbotWorldTransformer,
     LingbotWorldTransformerConfig,
 )
 
+from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
@@ -61,13 +70,40 @@ def test_runners_have_descriptions() -> None:
 
 
 def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
-    """LingBot's large checkpoint should preflight its documented first-run budget."""
+    """All LingBot checkpoints should preflight the documented first-run budget."""
     for cfg in RUNNER_CONFIGS.values():
         transformer = cfg.pipeline.diffusion_model.transformer
         assert isinstance(transformer, LingbotWorldTransformerConfig)
         assert (
             transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
         )
+
+
+def test_v2_only_replaces_the_v1_checkpoint() -> None:
+    """Derive the v2 model by replacing only the v1 checkpoint and slug."""
+    expected = derive_config(
+        PIPELINE_LINGBOT_WORLD_FAST,
+        name="lingbot-world-v2-14b-causal-fast",
+        diffusion_model=dict(
+            transformer=dict(checkpoint_path=LINGBOT_WORLD_V2_CHECKPOINT_PATH),
+        ),
+    )
+
+    assert PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST == expected
+
+
+@pytest.mark.parametrize(
+    "slug",
+    ["lingbot-world-fast", "lingbot-world-v2-14b-causal-fast"],
+)
+def test_model_versions_share_text_event_capable_pipeline(slug: str) -> None:
+    """Expose the same text encoder and transformer runtime for v1 and v2."""
+    pipeline = PIPELINE_CONFIGS[slug]
+    assert isinstance(pipeline, LingbotWorldInferencePipelineConfig)
+    assert pipeline.text_encoder is not None
+    transformer = pipeline.diffusion_model.transformer
+    assert isinstance(transformer, LingbotWorldTransformerConfig)
+    assert transformer._target is LingbotWorldTransformer
 
 
 def test_entry_points_match_module_literals() -> None:

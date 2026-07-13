@@ -75,6 +75,13 @@ limitations under the License.
           <span>Prompt</span>
           <textarea id="promptInput" rows="4" maxlength="2000"></textarea>
         </label>
+        <div class="textEventEditor">
+          <div class="textEventHeader">
+            <span>Text Events</span>
+            <button id="addTextEventButton" class="textEventAddButton" type="button">Add</button>
+          </div>
+          <div id="textEventList" class="textEventList"></div>
+        </div>
       </section>
 
       <section class="controlCard overlayPanel" aria-label="Controls">
@@ -110,6 +117,10 @@ limitations under the License.
             </div>
             <span>Look</span>
           </div>
+        </div>
+        <div id="eventControls" class="eventControls" hidden>
+          <div id="eventButtons" class="eventButtons"></div>
+          <button id="clearEventButton" class="eventButton eventButtonClear" type="button">Clear</button>
         </div>
       </section>
 

@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""WebRTC server for interactive LingBot-World inference."""
+
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import os
 from contextlib import ExitStack
 from importlib.resources import as_file, files
@@ -53,6 +57,7 @@ from lingbot.webrtc.session import (
     LingbotSessionInput,
     LingbotWebRTCSessionManager,
     normalize_prompt_text,
+    normalize_text_events,
 )
 
 WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
@@ -83,7 +88,7 @@ def parse_args() -> argparse.Namespace:
         "--config_name",
         type=str,
         default="lingbot-world-fast",
-        help="Lingbot config preset from PIPELINE_CONFIGS.",
+        help="LingBot-World config preset from PIPELINE_CONFIGS.",
     )
     parser.add_argument(
         "--no_compile",
@@ -115,12 +120,26 @@ def parse_args() -> argparse.Namespace:
         help="Output video framerate for WebRTC playback.",
     )
     parser.add_argument(
+        "--video-height",
+        "--video_height",
+        type=int,
+        default=464,
+        help="Output video pixel height. Must be divisible by 16.",
+    )
+    parser.add_argument(
+        "--video-width",
+        "--video_width",
+        type=int,
+        default=832,
+        help="Output video pixel width. Must be divisible by 16.",
+    )
+    parser.add_argument(
         "--example-idx",
         "--example_idx",
         type=int,
         default=0,
         choices=EXAMPLE_DATA_AVAILABLE_IDXS,
-        help="Example folder index under the LingBot example-data cache (allowed: 0, 1, 2, 5).",
+        help="Example folder index under the LingBot example-data cache.",
     )
     return parser.parse_args()
 
@@ -135,11 +154,9 @@ def create_app(
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
     manager = session_manager or LingbotWebRTCSessionManager()
-
     resource_stack = ExitStack()
     try:
         web_dir = resource_stack.enter_context(as_file(WEB_DIR_RESOURCE))
-
         app = create_webrtc_app(
             web_dir=web_dir,
             session_manager=manager,
@@ -164,7 +181,7 @@ async def _initial_scene(request: web.Request) -> web.StreamResponse:
 
 async def _first_frame(request: web.Request) -> web.StreamResponse:
     manager = _get_lingbot_manager(request.app)
-    payload = manager.get_first_frame()
+    payload = await asyncio.to_thread(manager.get_first_frame)
     if not isinstance(payload, LingbotImagePayload):
         raise web.HTTPInternalServerError(reason="Invalid Lingbot first-frame payload.")
     return web.Response(body=payload.data, content_type=payload.content_type)
@@ -190,6 +207,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
     image_bytes: bytes | None = None
     image_url: str | None = None
     image_content_type = "image/jpeg"
+    text_events: object | None = None
 
     if request.content_type.startswith("multipart/"):
         try:
@@ -215,6 +233,16 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             if field.name == "image_url":
                 image_url = (await field.text()).strip() or None
                 continue
+            if field.name in {"text_events", "events"}:
+                events_raw = (await field.text()).strip()
+                if events_raw:
+                    try:
+                        text_events = json.loads(events_raw)
+                    except json.JSONDecodeError as exc:
+                        raise web.HTTPBadRequest(
+                            reason="Text events must be valid JSON."
+                        ) from exc
+                continue
             if field.name == "image" and field.filename:
                 image_content_type = field.headers.get(
                     "Content-Type", "application/octet-stream"
@@ -232,6 +260,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         form = await request.post()
         prompt_raw = form.get("prompt")
         image_url_raw = form.get("image_url")
+        text_events_raw = form.get("text_events", form.get("events"))
         if isinstance(prompt_raw, str):
             prompt = normalize_prompt_text(prompt_raw)
             if len(prompt) > MAX_PROMPT_CHARS:
@@ -240,25 +269,47 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
                 )
         if isinstance(image_url_raw, str):
             image_url = image_url_raw.strip() or None
+        if isinstance(text_events_raw, str) and text_events_raw.strip():
+            try:
+                text_events = json.loads(text_events_raw)
+            except json.JSONDecodeError as exc:
+                raise web.HTTPBadRequest(
+                    reason="Text events must be valid JSON."
+                ) from exc
 
     if image_bytes is not None:
         image_url = None
 
-    if not prompt and image_bytes is None and image_url is None:
+    try:
+        normalized_text_events = (
+            normalize_text_events(text_events) if text_events is not None else None
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
+
+    if (
+        not prompt
+        and image_bytes is None
+        and image_url is None
+        and normalized_text_events is None
+    ):
         raise web.HTTPBadRequest(
-            reason="Upload a prompt, an image file, an image URL, or a combination."
+            reason=(
+                "Upload a prompt, an image file, an image URL, text events, "
+                "or a combination."
+            )
         )
 
     manager = _get_lingbot_manager(request.app)
+    session_input = LingbotSessionInput(
+        prompt=prompt or None,
+        first_frame_image_bytes=image_bytes,
+        first_frame_image_url=image_url,
+        first_frame_content_type=image_content_type,
+        text_events=normalized_text_events,
+    )
     try:
-        manager.set_pending_session_input(
-            LingbotSessionInput(
-                prompt=prompt or None,
-                first_frame_image_bytes=image_bytes,
-                first_frame_image_url=image_url,
-                first_frame_content_type=image_content_type,
-            )
-        )
+        await asyncio.to_thread(manager.set_pending_session_input, session_input)
     except SessionBusyError as exc:
         raise web.HTTPConflict(reason=str(exc)) from exc
     except ValueError as exc:
@@ -272,6 +323,10 @@ def build_runtime_config(
     device_override: str | None = None,
     context_parallel_size: int = 1,
 ) -> LingbotRuntimeConfig:
+    if args.video_height <= 0 or args.video_width <= 0:
+        raise ValueError("--video-height and --video-width must be > 0")
+    if args.video_height % 16 != 0 or args.video_width % 16 != 0:
+        raise ValueError("--video-height and --video-width must be divisible by 16")
     example_idx = getattr(args, "example_idx", 0)
     example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
     if (
@@ -287,6 +342,8 @@ def build_runtime_config(
         device=device_override or args.device,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
+        video_height=args.video_height,
+        video_width=args.video_width,
         example_data_dir=example_dir,
     )
 

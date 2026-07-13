@@ -16,12 +16,15 @@
 from __future__ import annotations
 
 import base64
+import json
+from collections.abc import Callable
 from contextlib import ExitStack
+from pathlib import Path
 
 import pytest
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
-from lingbot.webrtc import server as webrtc_server
+from lingbot.webrtc import server as lingbot_server
 from lingbot.webrtc.server import _close_package_resources, create_app
 from lingbot.webrtc.session import (
     LingbotImagePayload,
@@ -67,9 +70,15 @@ class FakeSessionManager:
 
     def set_pending_session_input(self, session_input: LingbotSessionInput) -> None:
         self.pending_inputs.append(session_input)
+        event_catalog = (
+            [event.as_public_dict() for event in session_input.text_events]
+            if session_input.text_events is not None
+            else self.initial_scene.get("event_catalog", [])
+        )
         self.initial_scene = {
             **self.initial_scene,
             "prompt": session_input.prompt or self.initial_scene["prompt"],
+            "event_catalog": event_catalog,
             "input_source": "uploaded",
         }
 
@@ -128,25 +137,26 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
 
 
 def test_create_app_closes_package_resource_when_app_creation_fails(
-    monkeypatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class TrackedResource:
         closed = False
 
         def __enter__(self):
-            return tmp_path
+            return WEB_DIR
 
         def __exit__(self, exc_type, exc_value, traceback):
             self.closed = True
 
+    WEB_DIR = Path(__file__).parent
     tracked_resource = TrackedResource()
 
     def raise_app_creation_failure(**_kwargs):
         raise RuntimeError("app creation failed")
 
-    monkeypatch.setattr(webrtc_server, "as_file", lambda _resource: tracked_resource)
+    monkeypatch.setattr(lingbot_server, "as_file", lambda _resource: tracked_resource)
     monkeypatch.setattr(
-        webrtc_server,
+        lingbot_server,
         "create_webrtc_app",
         raise_app_creation_failure,
     )
@@ -233,6 +243,37 @@ async def test_first_frame_route_serves_manager_image() -> None:
 
 
 @pytest.mark.asyncio
+async def test_blocking_session_routes_use_worker_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _FakeAsyncio:
+        @staticmethod
+        async def to_thread(
+            func: Callable[..., object], *args: object, **kwargs: object
+        ) -> object:
+            calls.append(getattr(func, "__name__", "unknown"))
+            return func(*args, **kwargs)
+
+    monkeypatch.setattr(lingbot_server, "asyncio", _FakeAsyncio)
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        first_frame_response = await client.get("/api/session/first_frame")
+        assert first_frame_response.status == 200
+
+        form = FormData()
+        form.add_field("prompt", "follow the river")
+        input_response = await client.post("/api/session/input", data=form)
+        assert input_response.status == 200
+
+        assert calls == ["get_first_frame", "set_pending_session_input"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_session_input_upload_stores_prompt_and_image() -> None:
     png_bytes = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
@@ -289,6 +330,44 @@ async def test_session_input_accepts_image_url() -> None:
         session_input = manager.pending_inputs[0]
         assert session_input.first_frame_image_url == "https://example.test/scene.jpg"
         assert session_input.first_frame_image_bytes is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_accepts_text_events() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field(
+            "text_events",
+            json.dumps(
+                [
+                    {
+                        "event_id": "rain",
+                        "label": "Rain",
+                        "prompt": "Rain begins falling across the street.",
+                    }
+                ]
+            ),
+        )
+
+        response = await client.post("/api/session/input", data=form)
+        payload = await response.json()
+
+        assert response.status == 200
+        assert len(manager.pending_inputs) == 1
+        assert manager.pending_inputs[0].text_events is not None
+        assert manager.pending_inputs[0].text_events[0].event_id == "rain"
+        assert payload["event_catalog"] == [
+            {
+                "event_id": "rain",
+                "label": "Rain",
+                "prompt": "Rain begins falling across the street.",
+                "category": "custom",
+            }
+        ]
     finally:
         await client.close()
 

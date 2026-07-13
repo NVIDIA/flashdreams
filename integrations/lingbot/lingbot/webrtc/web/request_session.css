@@ -260,7 +260,9 @@ body[data-status="generating"] .connectButton {
   position: absolute;
   top: clamp(120px, 15vh, 168px);
   left: clamp(18px, 3vw, 52px);
-  width: min(390px, calc(100vw - 36px));
+  width: min(560px, calc(100vw - 36px));
+  max-height: min(680px, calc(100vh - 224px));
+  overflow: auto;
   padding: 16px 18px 18px;
   display: grid;
   gap: 12px;
@@ -361,6 +363,7 @@ body[data-status="generating"] .connectButton {
 }
 
 .promptControl,
+.textEventEditor,
 .urlControl {
   display: none;
   gap: 6px;
@@ -373,12 +376,18 @@ body[data-status="generating"] .connectButton {
   display: grid;
 }
 
+.textEventEditor {
+  display: grid;
+}
+
 .firstFrameSourceRow[data-mode="url"] .sourcePaneUrl .urlControl {
   display: grid;
   padding: 8px;
 }
 
 .promptControl textarea,
+.textEventPrompt,
+.textEventLabel,
 .urlControl input {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -471,9 +480,81 @@ body[data-status="generating"] .connectButton {
 }
 
 .promptControl textarea:focus,
+.textEventPrompt:focus,
+.textEventLabel:focus,
 .urlControl input:focus {
   outline: 2px solid rgba(142, 240, 28, 0.38);
   outline-offset: 2px;
+}
+
+.textEventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.textEventHeader span {
+  font-weight: 700;
+}
+
+.textEventAddButton,
+.textEventRemoveButton {
+  min-width: 34px;
+  min-height: 30px;
+  border: 1px solid rgba(142, 240, 28, 0.42);
+  border-radius: 6px;
+  background: rgba(142, 240, 28, 0.12);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.textEventRemoveButton {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.textEventAddButton:hover:not(:disabled),
+.textEventRemoveButton:hover:not(:disabled) {
+  border-color: rgba(142, 240, 28, 0.62);
+  background: rgba(142, 240, 28, 0.20);
+}
+
+.textEventAddButton:disabled,
+.textEventRemoveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.textEventList {
+  display: grid;
+  gap: 10px;
+}
+
+.textEventRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: start;
+}
+
+.textEventFields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.textEventLabel {
+  min-height: 34px;
+}
+
+.textEventPrompt {
+  min-height: 62px;
+  resize: vertical;
 }
 
 .controlCard {
@@ -560,6 +641,49 @@ body[data-status="generating"] .connectButton {
     0 0 18px rgba(142, 240, 28, 0.32),
     inset 0 0 0 1px rgba(142, 240, 28, 0.18);
   transform: translateY(1px);
+}
+
+.eventControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.eventButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.eventButton {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 6px;
+  background: rgba(12, 14, 15, 0.62);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.eventButton:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.eventButton.is-active {
+  border-color: rgba(99, 216, 255, 0.72);
+  background: rgba(99, 216, 255, 0.16);
+  color: #dff7ff;
+}
+
+.eventButtonClear {
+  color: var(--muted);
 }
 
 .logCard {
@@ -743,6 +867,61 @@ body[data-status="generating"] .statusLine strong {
   .metric:last-child {
     grid-column: 1 / -1;
   }
+}
+
+/* Collapsible + movable overlay panels */
+.panelDragHandle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.panelDragHandle .panelCollapseButton {
+  margin-left: auto;
+}
+
+.panelCollapseButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.panelCollapseButton:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.overlayPanel.is-floating {
+  right: auto !important;
+  bottom: auto !important;
+}
+
+.overlayPanel.is-collapsed {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.overlayPanel.is-collapsed > :not(.panelDragHandle) {
+  display: none !important;
+}
+
+.overlayPanel.is-collapsed .panelDragHandle {
+  margin-bottom: 0;
 }
 
 @media (max-width: 520px) {

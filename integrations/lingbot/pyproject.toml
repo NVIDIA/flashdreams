@@ -48,6 +48,8 @@ dev = [
 [project.entry-points."flashdreams.runner_configs"]
 "lingbot-world-fast" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST"
 "lingbot-world-fast-taehv-window15-sink3" = "lingbot.config:RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3"
+"lingbot-world-v2-14b-causal-fast" = "lingbot.config:RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST"
+"lingbot-world-v2-14b-causal-fast-taehv-window15-sink3" = "lingbot.config:RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3"
 
 [tool.setuptools.packages.find]
 include = ["lingbot*"]

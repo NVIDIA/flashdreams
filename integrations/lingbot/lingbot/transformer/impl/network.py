@@ -101,6 +101,22 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             cp_method=self.cp_method,
         )
 
+    def replace_text_embeddings(
+        self,
+        cache: LingbotWorldDiTNetworkCache,
+        text_embeddings: Tensor,
+    ) -> None:
+        """Replace cached cross-attention text K/V for all blocks.
+
+        Text events are represented as alternate UMT5 embeddings. The
+        self-attention KV cache stays intact so the rollout horizon is
+        preserved; only the static cross-attention text context changes.
+        """
+        context_text = self.text_embedding(text_embeddings)
+        for block, block_cache in zip(self.blocks, cache.block_caches):
+            assert isinstance(block, CamCtrlBlock)
+            block_cache.cross_attn.text = block.cross_attn.compute_kv(context_text)
+
     def forward(
         self,
         plucker: Tensor,

@@ -53,6 +53,13 @@ def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
     poses = poses[:T]
 
     T_after_encoding = int((T - 1) // _TEMPORAL_COMPRESSION_RATIO) + 1
+    if T_after_encoding < _TRANSFORMER_LEN_T:
+        min_raw_poses = (_TRANSFORMER_LEN_T - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
+        raise ValueError(
+            "Expected at least "
+            f"{min_raw_poses} raw poses to produce one transformer chunk, "
+            f"got {T_raw}."
+        )
     T_after_encoding = int(T_after_encoding - (T_after_encoding % _TRANSFORMER_LEN_T))
 
     poses_after_encoding = interpolate_camera_poses(
