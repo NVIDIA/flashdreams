@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import gc
 import logging
+import multiprocessing
+import time
 from typing import Protocol
 
 import torch
@@ -15,6 +17,8 @@ from aiohttp import web
 from loguru import logger
 
 from flashdreams.core.distributed import configure_loguru_for_distributed
+
+_CHILD_PROCESS_TERMINATION_TIMEOUT_S = 5.0
 
 
 class WebRTCServerLifecycle(Protocol):
@@ -30,6 +34,36 @@ def configure_logging(*, world_rank: int | None = None) -> None:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
+def _terminate_child_processes() -> None:
+    """Terminate and reap subprocesses still owned by this server rank."""
+    children = multiprocessing.active_children()
+    if not children:
+        return
+
+    child_summary = ", ".join(f"{child.name} (pid={child.pid})" for child in children)
+    logger.warning("Terminating child processes during shutdown: {}", child_summary)
+    for child in children:
+        try:
+            child.terminate()
+        except ProcessLookupError:
+            pass
+
+    deadline = time.monotonic() + _CHILD_PROCESS_TERMINATION_TIMEOUT_S
+    for child in children:
+        child.join(timeout=max(0.0, deadline - time.monotonic()))
+
+    survivors = [child for child in children if child.is_alive()]
+    for child in survivors:
+        logger.warning(
+            "Child process {} (pid={}) did not terminate; killing it.",
+            child.name,
+            child.pid,
+        )
+        child.kill()
+    for child in survivors:
+        child.join()
+
+
 def run_webrtc_server(
     *,
     world_rank: int,
@@ -39,18 +73,24 @@ def run_webrtc_server(
     port: int,
 ) -> None:
     """Serve on rank 0, idle on worker ranks, then tear the runtime down."""
-    if world_rank == 0:
-        if app is None:
-            raise ValueError("Rank 0 requires an aiohttp app to serve.")
-        try:
+    if world_rank == 0 and app is None:
+        raise ValueError("Rank 0 requires an aiohttp app to serve.")
+
+    try:
+        if world_rank == 0:
+            assert app is not None
             web.run_app(app, host=host, port=port)
-        finally:
-            session_manager.send_exit_signal()
-    else:
+        else:
+            try:
+                session_manager.wait_for_termination()
+            except KeyboardInterrupt:
+                logger.warning("Worker rank interrupted, shutting down.")
+    finally:
         try:
-            session_manager.wait_for_termination()
-        except KeyboardInterrupt:
-            logger.warning("Worker rank interrupted, shutting down.")
+            _terminate_child_processes()
+        finally:
+            if world_rank == 0:
+                session_manager.send_exit_signal()
 
     gc.collect()
     if torch.cuda.is_available():
