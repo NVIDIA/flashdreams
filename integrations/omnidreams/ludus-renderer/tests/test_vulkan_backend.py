@@ -35,6 +35,7 @@ if not torch.cuda.is_available():
 def _build_camera(width=320, height=240):
     """Linear (pinhole-ish) F-theta camera."""
     from ludus_renderer import FThetaCamera
+
     return FThetaCamera(
         principal_point=torch.tensor([width / 2.0, height / 2.0], dtype=torch.float32),
         image_size=torch.tensor([float(width), float(height)], dtype=torch.float32),
@@ -58,11 +59,13 @@ def _build_synthetic_scene():
     )
 
     polyline_pts = torch.tensor(
-        [[5.0, -2.0, 0.0],
-         [5.0, -1.0, 0.0],
-         [5.0,  0.0, 0.0],
-         [5.0,  1.0, 0.0],
-         [5.0,  2.0, 0.0]],
+        [
+            [5.0, -2.0, 0.0],
+            [5.0, -1.0, 0.0],
+            [5.0, 0.0, 0.0],
+            [5.0, 1.0, 0.0],
+            [5.0, 2.0, 0.0],
+        ],
         dtype=torch.float32,
     )
     pl_pool = TimestampedPolylinePool(
@@ -89,7 +92,7 @@ def _render_once(ctx_cls, scene, camera, resolution=(240, 320)):
     ctx = ctx_cls(device="cuda")
     ctx.upload_cameras([camera])
     scene_id = ctx.upload_scene(scene)
-    queries = [(scene_id, 0, 0, 0)]   # scene, camera, timestamp, camera_type
+    queries = [(scene_id, 0, 0, 0)]  # scene, camera, timestamp, camera_type
     img = ctx.render_batch(queries, _identity_pose("cuda"), resolution)
     return img.detach().cpu()
 
@@ -104,7 +107,9 @@ def test_cuda_backend_renders_synthetic_scene():
 
     assert img.shape == (1, 240, 320, 4), f"unexpected output shape {tuple(img.shape)}"
     assert img.dtype == torch.uint8
-    assert int((img[..., :3].sum(dim=-1) > 0).sum().item()) > 0, "CUDA render is all black"
+    assert int((img[..., :3].sum(dim=-1) > 0).sum().item()) > 0, (
+        "CUDA render is all black"
+    )
 
 
 def test_vulkan_backend_renders_synthetic_scene():
@@ -137,6 +142,7 @@ def test_vulkan_vs_cuda_pixel_counts_close():
     simple synthetic scene the number of lit pixels should be in the same
     ballpark (within 25%)."""
     from ludus_renderer import LudusCudaTimestampedContext
+
     try:
         from ludus_renderer import LudusTimestampedContext
     except ImportError as exc:
@@ -160,4 +166,5 @@ def test_vulkan_vs_cuda_pixel_counts_close():
     ratio = vk_nz / cuda_nz
     assert 0.75 <= ratio <= 1.33, (
         f"Vulkan lit-pixel count diverges from CUDA: vk={vk_nz}, cuda={cuda_nz}, "
-        f"ratio={ratio:.2f}")
+        f"ratio={ratio:.2f}"
+    )

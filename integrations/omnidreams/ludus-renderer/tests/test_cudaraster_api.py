@@ -355,8 +355,8 @@ def _polyline_strip_triangles(
         dx = bx - ax
         dy = by - ay
         length = float(np.sqrt(dx * dx + dy * dy))
-        tx = dx / length
-        ty = dy / length
+        _ = dx / length
+        _ = dy / length
         nx = -dy / length
         ny = dx / length
         quad = [

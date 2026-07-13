@@ -55,7 +55,7 @@ enum CameraTypeId : uint32_t {
 
 // Primitive rendering style (32 bytes)
 // Lookup table indexed by prim_type_id at render time
-// 
+//
 // What each primitive type uses:
 //   Polylines: color, width, bev_width
 //   Polygons:  color only
@@ -382,4 +382,3 @@ static_assert(sizeof(RenderBatchDescriptor) == 32, "RenderBatchDescriptor must b
     "};\n"
 
 //=============================================================================
-

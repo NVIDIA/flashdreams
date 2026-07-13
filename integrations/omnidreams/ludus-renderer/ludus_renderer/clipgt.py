@@ -41,7 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -50,40 +50,39 @@ import torch
 from scipy.spatial.transform import Rotation as R
 from torch import Tensor
 
-
 from ._logging import logger
 from ._ops import (
-    FThetaCamera,
-    ObstaclePool,
+    CUBE_FLAG_WIREFRAME,
+    PRIM_CROSSWALK,
+    PRIM_DOT_YELLOW,
+    PRIM_EGO_OBSTACLE,
+    PRIM_EGO_TRAJECTORY,
+    PRIM_INTERSECTION,
+    PRIM_LANE_BOUNDARY,
+    PRIM_LANE_LINE,
+    PRIM_LANE_LINE_WHITE_DASHED,
+    PRIM_LANE_LINE_WHITE_SOLID,
+    PRIM_LANE_LINE_YELLOW_DASHED,
+    PRIM_LANE_LINE_YELLOW_SOLID,
+    PRIM_OBSTACLE,
+    PRIM_POLE,
+    PRIM_ROAD_BOUNDARY,
+    PRIM_ROAD_ISLAND,
+    PRIM_ROAD_MARKING,
+    PRIM_STATIC_OBSTACLE,
+    PRIM_TRAFFIC_LIGHT,
+    PRIM_TRAFFIC_SIGN,
+    PRIM_WAIT_LINE,
     CubePool,
+    FThetaCamera,
     TimestampedPolygonPool,
     TimestampedPolylinePool,
     TimestampedScene,
-    PRIM_ROAD_BOUNDARY,
-    PRIM_LANE_LINE,
-    PRIM_LANE_BOUNDARY,
-    PRIM_CROSSWALK,
-    PRIM_STATIC_OBSTACLE,
-    PRIM_OBSTACLE,
-    PRIM_EGO_OBSTACLE,
-    PRIM_EGO_TRAJECTORY,
-    PRIM_WAIT_LINE,
-    PRIM_POLE,
-    PRIM_ROAD_MARKING,
-    PRIM_TRAFFIC_LIGHT,
-    PRIM_TRAFFIC_SIGN,
-    PRIM_INTERSECTION,
-    PRIM_ROAD_ISLAND,
-    PRIM_LANE_LINE_WHITE_SOLID,
-    PRIM_LANE_LINE_WHITE_DASHED,
-    PRIM_LANE_LINE_YELLOW_SOLID,
-    PRIM_LANE_LINE_YELLOW_DASHED,
-    PRIM_DOT_YELLOW,
-    CUBE_FLAG_WIREFRAME,
 )
 
 # Persistent background thread pool (avoids per-call ThreadPoolExecutor creation)
 _bg_pool = None
+
 
 def _get_bg_pool():
     global _bg_pool
@@ -98,7 +97,7 @@ EGO_VEHICLE_SIZE = [5.4, 2.4, 1.8]
 
 # Ego colors
 EGO_FRONT_COLOR = [0.9, 0.3, 0.2]  # Light red (front)
-EGO_BACK_COLOR = [0.6, 0.1, 0.1]   # Dark red (back)
+EGO_BACK_COLOR = [0.6, 0.1, 0.1]  # Dark red (back)
 
 
 # ============================================================================
@@ -108,37 +107,52 @@ EGO_BACK_COLOR = [0.6, 0.1, 0.1]   # Dark red (back)
 # v3 color scheme from imaginaire4 config_color_bbox.json for obstacles by category
 # Each entry: [front_rgb, back_rgb] (normalized 0-1)
 OBSTACLE_COLORS_V3 = {
-    'Car': [[0/255, 46/255, 136/255], [126/255, 206/255, 255/255]],           # Blue gradient
-    'Truck': [[204/255, 55/255, 0/255], [255/255, 192/255, 64/255]],          # Orange gradient
-    'Pedestrian': [[148/255, 0/255, 62/255], [255/255, 124/255, 171/255]],    # Magenta/pink gradient
-    'Cyclist': [[0/255, 80/255, 66/255], [102/255, 208/255, 198/255]],        # Teal gradient
-    'Other': [[53/255, 26/255, 20/255], [166/255, 136/255, 125/255]],         # Brown gradient
+    "Car": [
+        [0 / 255, 46 / 255, 136 / 255],
+        [126 / 255, 206 / 255, 255 / 255],
+    ],  # Blue gradient
+    "Truck": [
+        [204 / 255, 55 / 255, 0 / 255],
+        [255 / 255, 192 / 255, 64 / 255],
+    ],  # Orange gradient
+    "Pedestrian": [
+        [148 / 255, 0 / 255, 62 / 255],
+        [255 / 255, 124 / 255, 171 / 255],
+    ],  # Magenta/pink gradient
+    "Cyclist": [
+        [0 / 255, 80 / 255, 66 / 255],
+        [102 / 255, 208 / 255, 198 / 255],
+    ],  # Teal gradient
+    "Other": [
+        [53 / 255, 26 / 255, 20 / 255],
+        [166 / 255, 136 / 255, 125 / 255],
+    ],  # Brown gradient
 }
 
 # Category string to ObjectType mapping (from imaginaire4 clipgt_loader.py)
 CATEGORY_TO_OBJECT_TYPE = {
     # Car types
-    'automobile': 'Car',
-    'other_vehicle': 'Car',
-    'vehicle': 'Car',
-    'car': 'Car',
+    "automobile": "Car",
+    "other_vehicle": "Car",
+    "vehicle": "Car",
+    "car": "Car",
     # Pedestrian types
-    'pedestrian': 'Pedestrian',
-    'person': 'Pedestrian',
+    "pedestrian": "Pedestrian",
+    "person": "Pedestrian",
     # Cyclist types
-    'bicycle': 'Cyclist',
-    'cyclist': 'Cyclist',
-    'motorcyclist': 'Cyclist',
-    'motorcycle': 'Cyclist',
-    'rider': 'Cyclist',
+    "bicycle": "Cyclist",
+    "cyclist": "Cyclist",
+    "motorcyclist": "Cyclist",
+    "motorcycle": "Cyclist",
+    "rider": "Cyclist",
     # Truck types
-    'truck': 'Truck',
-    'bus': 'Truck',
-    'trailer': 'Truck',
-    'large_vehicle': 'Truck',
-    'heavy_truck': 'Truck',
-    'train_or_tram_car': 'Truck',
-    'trolley_bus': 'Truck',
+    "truck": "Truck",
+    "bus": "Truck",
+    "trailer": "Truck",
+    "large_vehicle": "Truck",
+    "heavy_truck": "Truck",
+    "train_or_tram_car": "Truck",
+    "trolley_bus": "Truck",
 }
 
 # AV2 obstacle_class integer IDs to ObjectType mapping.
@@ -147,24 +161,24 @@ CATEGORY_TO_OBJECT_TYPE = {
 #       complete this mapping. Until then, unknown IDs fall back to 'Car' so
 #       obstacles render in the familiar blue color.
 AV2_OBSTACLE_CLASS_TO_TYPE = {
-    1281: 'Car',        # automobile (confirmed in test data)
-    1282: 'Truck',      # truck (estimated)
-    1283: 'Truck',      # bus (estimated)
-    1284: 'Truck',      # trailer (estimated)
-    1285: 'Truck',      # heavy_truck (estimated)
-    1286: 'Car',        # other_vehicle (estimated)
-    2305: 'Cyclist',    # bicycle (estimated)
-    2306: 'Cyclist',    # motorcycle (estimated)
-    2307: 'Cyclist',    # rider (estimated)
-    2308: 'Pedestrian', # pedestrian (estimated)
-    2309: 'Pedestrian', # person (estimated)
-    3329: 'Truck',      # train_or_tram_car (estimated)
-    3330: 'Truck',      # trolley_bus (estimated)
+    1281: "Car",  # automobile (confirmed in test data)
+    1282: "Truck",  # truck (estimated)
+    1283: "Truck",  # bus (estimated)
+    1284: "Truck",  # trailer (estimated)
+    1285: "Truck",  # heavy_truck (estimated)
+    1286: "Car",  # other_vehicle (estimated)
+    2305: "Cyclist",  # bicycle (estimated)
+    2306: "Cyclist",  # motorcycle (estimated)
+    2307: "Cyclist",  # rider (estimated)
+    2308: "Pedestrian",  # pedestrian (estimated)
+    2309: "Pedestrian",  # person (estimated)
+    3329: "Truck",  # train_or_tram_car (estimated)
+    3330: "Truck",  # trolley_bus (estimated)
 }
 
 # Fallback for unknown AV2 class IDs - default to Car (blue) to match
 # the reference renderer which uses a uniform blue for all obstacles
-AV2_OBSTACLE_CLASS_DEFAULT = 'Car'
+AV2_OBSTACLE_CLASS_DEFAULT = "Car"
 
 
 def _get_obstacle_color(category):
@@ -173,25 +187,30 @@ def _get_obstacle_color(category):
     Accepts string categories (clipgt) or integer class IDs (AV2).
     """
     if not category:
-        return OBSTACLE_COLORS_V3['Other']
+        return OBSTACLE_COLORS_V3["Other"]
 
     # Try integer class ID first (AV2 format)
     if isinstance(category, (int, np.integer)):
-        object_type = AV2_OBSTACLE_CLASS_TO_TYPE.get(int(category), AV2_OBSTACLE_CLASS_DEFAULT)
-        return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3['Other'])
+        object_type = AV2_OBSTACLE_CLASS_TO_TYPE.get(
+            int(category), AV2_OBSTACLE_CLASS_DEFAULT
+        )
+        return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3["Other"])
 
     # Try parsing string as integer (AV2 stores class as str sometimes)
     try:
         class_id = int(category)
-        object_type = AV2_OBSTACLE_CLASS_TO_TYPE.get(class_id, AV2_OBSTACLE_CLASS_DEFAULT)
-        return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3['Other'])
+        object_type = AV2_OBSTACLE_CLASS_TO_TYPE.get(
+            class_id, AV2_OBSTACLE_CLASS_DEFAULT
+        )
+        return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3["Other"])
     except (ValueError, TypeError):
         pass
 
     # String category lookup (clipgt format)
     cat_lower = str(category).lower()
-    object_type = CATEGORY_TO_OBJECT_TYPE.get(cat_lower, 'Other')
-    return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3['Other'])
+    object_type = CATEGORY_TO_OBJECT_TYPE.get(cat_lower, "Other")
+    return OBSTACLE_COLORS_V3.get(object_type, OBSTACLE_COLORS_V3["Other"])
+
 
 # Minimum timestamp for static elements (visible at all times)
 MIN_TIMESTAMP_US = 0
@@ -225,7 +244,9 @@ class TarFileLoader:
             self._member_by_name[basename] = m
 
     def open(self, relative_path: str) -> BinaryIO:
-        basename = relative_path.rsplit("/", 1)[-1] if "/" in relative_path else relative_path
+        basename = (
+            relative_path.rsplit("/", 1)[-1] if "/" in relative_path else relative_path
+        )
         member = self._member_by_name.get(basename)
         if member is None:
             raise FileNotFoundError(
@@ -272,9 +293,9 @@ def get_file_loader(path: str):
 
 def _points_to_tensor(points) -> Optional[Tensor]:
     """Convert list of {x, y, z} dicts or numpy array to tensor of shape (N, 3).
-    
+
     Returns None if points is empty or contains NaN values.
-    
+
     Supports:
     - List of dicts with x, y, z keys
     - numpy array of object dtype containing dicts
@@ -282,14 +303,14 @@ def _points_to_tensor(points) -> Optional[Tensor]:
     """
     if points is None:
         return None
-    
+
     # Handle array-like
-    if hasattr(points, '__len__'):
+    if hasattr(points, "__len__"):
         if len(points) == 0:
             return None
     else:
         return None
-    
+
     # Check if it's a numeric numpy array
     if isinstance(points, np.ndarray):
         if points.dtype != np.object_:
@@ -298,7 +319,7 @@ def _points_to_tensor(points) -> Optional[Tensor]:
             if torch.isnan(tensor).any():
                 return None
             return tensor
-    
+
     # Handle list/array of dicts or structured objects
     result = []
     for pt in points:
@@ -306,14 +327,14 @@ def _points_to_tensor(points) -> Optional[Tensor]:
             result.append([pt["x"], pt["y"], pt["z"]])
         elif isinstance(pt, np.ndarray):
             result.append(pt.tolist())
-        elif hasattr(pt, 'x') and hasattr(pt, 'y') and hasattr(pt, 'z'):
+        elif hasattr(pt, "x") and hasattr(pt, "y") and hasattr(pt, "z"):
             result.append([pt.x, pt.y, pt.z])
         else:
             result.append(list(pt))
-    
+
     if not result:
         return None
-    
+
     tensor = torch.tensor(result, dtype=torch.float32)
     if torch.isnan(tensor).any():
         return None
@@ -338,18 +359,18 @@ def _interpolate_polyline(polyline: np.ndarray, interval: float = 0.1) -> np.nda
     """Interpolate a polyline to have evenly spaced points."""
     if len(polyline) < 2:
         return polyline
-    
+
     diffs = np.diff(polyline, axis=0)
     segment_lengths = np.linalg.norm(diffs, axis=1)
     cumulative = np.concatenate([[0], np.cumsum(segment_lengths)])
     total_length = cumulative[-1]
-    
+
     if total_length < interval:
         return polyline
-    
+
     num_points = int(total_length / interval) + 1
     target_distances = np.linspace(0, total_length, num_points)
-    
+
     result = []
     for d in target_distances:
         idx = np.searchsorted(cumulative, d)
@@ -358,47 +379,51 @@ def _interpolate_polyline(polyline: np.ndarray, interval: float = 0.1) -> np.nda
         elif idx >= len(cumulative):
             result.append(polyline[-1])
         else:
-            t = (d - cumulative[idx-1]) / (cumulative[idx] - cumulative[idx-1] + 1e-8)
-            pt = polyline[idx-1] * (1 - t) + polyline[idx] * t
+            t = (d - cumulative[idx - 1]) / (
+                cumulative[idx] - cumulative[idx - 1] + 1e-8
+            )
+            pt = polyline[idx - 1] * (1 - t) + polyline[idx] * t
             result.append(pt)
-    
+
     return np.array(result, dtype=np.float32)
 
 
-def _apply_dash_pattern(polyline: np.ndarray, dash_length: float, gap_length: float) -> List[Tensor]:
+def _apply_dash_pattern(
+    polyline: np.ndarray, dash_length: float, gap_length: float
+) -> List[Tensor]:
     """Apply a dash pattern to a polyline, returning list of visible segments."""
     if len(polyline) < 2:
         return []
-    
+
     # Interpolate to get evenly spaced points
     polyline = _interpolate_polyline(polyline, interval=0.2)
-    
+
     # Compute cumulative distances
     segments = polyline[1:] - polyline[:-1]
     segment_lengths = np.linalg.norm(segments, axis=1)
     cumulative = np.concatenate([[0], np.cumsum(segment_lengths)])
     total_length = cumulative[-1]
-    
+
     if total_length < dash_length * 0.5:
         return [torch.from_numpy(polyline.astype(np.float32))]
-    
+
     pattern_length = dash_length + gap_length
     result_segments = []
     pattern_pos = 0.0
-    
+
     while pattern_pos < total_length:
         dash_start = pattern_pos
         dash_end = min(pattern_pos + dash_length, total_length)
-        
+
         mask = (cumulative >= dash_start) & (cumulative <= dash_end)
         indices = np.where(mask)[0]
-        
+
         if len(indices) >= 2:
             dash_points = polyline[indices]
             result_segments.append(torch.from_numpy(dash_points.astype(np.float32)))
-        
+
         pattern_pos += pattern_length
-    
+
     return result_segments
 
 
@@ -419,15 +444,15 @@ def _apply_dotted_pattern(polyline: np.ndarray) -> List[Tensor]:
 
 def _offset_polyline(polyline: np.ndarray, offset_distance: float) -> np.ndarray:
     """Offset a polyline perpendicular to its direction.
-    
+
     Positive offset = left side, negative offset = right side.
     Uses the horizontal (XY) plane for offset calculation.
     """
     if len(polyline) < 2:
         return polyline
-    
+
     result = np.zeros_like(polyline)
-    
+
     for i in range(len(polyline)):
         # Compute tangent direction
         if i == 0:
@@ -436,43 +461,45 @@ def _offset_polyline(polyline: np.ndarray, offset_distance: float) -> np.ndarray
             tangent = polyline[-1] - polyline[-2]
         else:
             tangent = polyline[i + 1] - polyline[i - 1]
-        
+
         # Normalize in XY plane
         tangent_xy = tangent[:2]
         length = np.linalg.norm(tangent_xy)
         if length < 1e-8:
             result[i] = polyline[i]
             continue
-        
+
         tangent_xy = tangent_xy / length
-        
+
         # Perpendicular in XY plane (rotate 90 degrees left)
         perp = np.array([-tangent_xy[1], tangent_xy[0]])
-        
+
         # Apply offset
         result[i, 0] = polyline[i, 0] + perp[0] * offset_distance
         result[i, 1] = polyline[i, 1] + perp[1] * offset_distance
         result[i, 2] = polyline[i, 2]  # Keep Z unchanged
-    
+
     return result
 
 
-def _create_dual_line(polyline: np.ndarray, left_dashed: bool, separation: float = 0.15):
+def _create_dual_line(
+    polyline: np.ndarray, left_dashed: bool, separation: float = 0.15
+):
     """Create dual line pattern (solid + dashed side by side).
-    
+
     Args:
         polyline: Original center line
         left_dashed: If True, left line is dashed, right is solid (SOLID_DASHED)
                      If False, left is solid, right is dashed (DASHED_SOLID)
         separation: Distance between the two lines in meters
-    
+
     Returns:
         Tuple of (solid_line, dashed_segments)
     """
     # Offset to create left and right lines
     left_line = _offset_polyline(polyline, separation / 2)
     right_line = _offset_polyline(polyline, -separation / 2)
-    
+
     if left_dashed:
         # SOLID_DASHED: left is dashed, right is solid
         solid_line = torch.from_numpy(right_line.astype(np.float32))
@@ -481,46 +508,48 @@ def _create_dual_line(polyline: np.ndarray, left_dashed: bool, separation: float
         # DASHED_SOLID: left is solid, right is dashed
         solid_line = torch.from_numpy(left_line.astype(np.float32))
         dashed_segments = _apply_long_dash_pattern(right_line)
-    
+
     return solid_line, dashed_segments
 
 
 def _create_dual_solid_line(polyline: np.ndarray, separation: float = 0.15):
     """Create dual solid line pattern (two parallel solid lines).
-    
+
     Args:
         polyline: Original center line
         separation: Distance between the two lines in meters
-    
+
     Returns:
         Tuple of (left_line, right_line) as tensors
     """
     left_line = _offset_polyline(polyline, separation / 2)
     right_line = _offset_polyline(polyline, -separation / 2)
-    
+
     return (
         torch.from_numpy(left_line.astype(np.float32)),
-        torch.from_numpy(right_line.astype(np.float32))
+        torch.from_numpy(right_line.astype(np.float32)),
     )
 
 
-def _create_dual_dotted_line(polyline: np.ndarray, separation: float = 0.15, spacing: float = 1.5):
+def _create_dual_dotted_line(
+    polyline: np.ndarray, separation: float = 0.15, spacing: float = 1.5
+):
     """Create dual dotted line pattern (two parallel dotted lines).
-    
+
     Args:
         polyline: Original center line
         separation: Distance between the two lines in meters
         spacing: Dot spacing in meters
-    
+
     Returns:
         Tuple of (left_dots, right_dots) as tensors
     """
     left_line = _offset_polyline(polyline, separation / 2)
     right_line = _offset_polyline(polyline, -separation / 2)
-    
+
     return (
         _sample_dots_along_polyline(left_line, spacing=spacing),
-        _sample_dots_along_polyline(right_line, spacing=spacing)
+        _sample_dots_along_polyline(right_line, spacing=spacing),
     )
 
 
@@ -528,18 +557,18 @@ def _sample_dots_along_polyline(polyline: np.ndarray, spacing: float = 1.5) -> T
     """Sample points along a polyline at regular intervals for dot rendering."""
     if len(polyline) < 2:
         return torch.from_numpy(polyline.astype(np.float32))
-    
+
     polyline = _interpolate_polyline(polyline, interval=spacing * 0.5)
-    
+
     diffs = np.diff(polyline, axis=0)
     segment_lengths = np.linalg.norm(diffs, axis=1)
     cumulative = np.concatenate([[0], np.cumsum(segment_lengths)])
     total_length = cumulative[-1]
-    
+
     if total_length < spacing * 0.5:
-        mid = polyline[len(polyline)//2]
+        mid = polyline[len(polyline) // 2]
         return torch.from_numpy(np.array([mid], dtype=np.float32))
-    
+
     dot_positions = []
     dist = 0.0
     while dist <= total_length:
@@ -549,11 +578,13 @@ def _sample_dots_along_polyline(polyline: np.ndarray, spacing: float = 1.5) -> T
         elif idx >= len(cumulative):
             dot_positions.append(polyline[-1])
         else:
-            t = (dist - cumulative[idx-1]) / (cumulative[idx] - cumulative[idx-1] + 1e-8)
-            pt = polyline[idx-1] * (1 - t) + polyline[idx] * t
+            t = (dist - cumulative[idx - 1]) / (
+                cumulative[idx] - cumulative[idx - 1] + 1e-8
+            )
+            pt = polyline[idx - 1] * (1 - t) + polyline[idx] * t
             dot_positions.append(pt)
         dist += spacing
-    
+
     return torch.from_numpy(np.array(dot_positions, dtype=np.float32))
 
 
@@ -566,7 +597,7 @@ def read_road_boundary(parquet_path: Path) -> List[Tensor]:
     """Read road boundary polylines from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -582,7 +613,7 @@ def read_lane(parquet_path: Path) -> List[Tensor]:
     """Read lane boundary polylines from parquet (left_rail, right_rail)."""
     if not parquet_path.exists():
         return []
-    
+
     lines = []
     df = pd.read_parquet(parquet_path)
     for idx, row in df.iterrows():
@@ -603,6 +634,7 @@ def read_lane(parquet_path: Path) -> List[Tensor]:
 @dataclass
 class LaneLineData:
     """Lane line data separated by color and style."""
+
     white_solid: List[Tensor]
     white_dashed: List[Tensor]
     yellow_solid: List[Tensor]
@@ -610,15 +642,17 @@ class LaneLineData:
     yellow_dots: List[Tensor]  # For DOT_SOLID style - rendered as circles
 
 
-def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> LaneLineData:
+def read_lane_line(
+    parquet_path: Path, simplify_dual_lines: bool = False
+) -> LaneLineData:
     """Read lane line polylines from parquet, separated by color/style.
-    
+
     Applies appropriate dash/dot patterns based on style:
     - SOLID: kept as-is
     - LONG_DASHED: 3m dash, 9m gap
     - SHORT_DASHED: 1m dash, 1m gap
     - DOT: sampled points for dot primitive rendering
-    
+
     Args:
         parquet_path: Path to lane_line parquet file
         simplify_dual_lines: If True, treat SOLID_DASHED, DASHED_SOLID, and SOLID_GROUP
@@ -631,41 +665,41 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
         yellow_dashed=[],
         yellow_dots=[],
     )
-    
+
     if not parquet_path.exists():
         return result
-    
+
     df = pd.read_parquet(parquet_path)
     for idx, row in df.iterrows():
         ll = row["lane_line"]
-        
+
         # Check both new (line_rail) and old (path) format
         pts = None
         if "line_rail" in ll and ll["line_rail"] is not None:
             pts = _points_to_tensor(ll["line_rail"])
         elif "path" in ll and ll["path"] is not None:
             pts = _points_to_tensor(ll["path"])
-        
+
         if pts is None or len(pts) <= 1:
             continue
-        
+
         # Determine color and style
         colors = ll.get("colors", [])
         styles = ll.get("styles", [])
-        
-        if hasattr(colors, '__len__') and len(colors) > 0:
+
+        if hasattr(colors, "__len__") and len(colors) > 0:
             color = str(colors[0]).upper() if colors[0] else "WHITE"
         else:
             color = "WHITE"
-        
-        if hasattr(styles, '__len__') and len(styles) > 0:
+
+        if hasattr(styles, "__len__") and len(styles) > 0:
             style = str(styles[0]).upper() if styles[0] else "SOLID"
         else:
             style = "SOLID"
-        
+
         # Convert to numpy for pattern processing
         pts_np = pts.numpy()
-        
+
         # Categorize by color and apply appropriate pattern
         if color == "YELLOW":
             if style == "SOLID_DASHED":
@@ -674,7 +708,9 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
                     result.yellow_solid.append(pts)
                 else:
                     # Dual line: per reference config: ["long_dashed", "solid"] = left dashed, right solid
-                    solid_line, dashed_segments = _create_dual_line(pts_np, left_dashed=True)
+                    solid_line, dashed_segments = _create_dual_line(
+                        pts_np, left_dashed=True
+                    )
                     result.yellow_solid.append(solid_line)
                     result.yellow_dashed.extend(dashed_segments)
             elif style == "DASHED_SOLID":
@@ -683,7 +719,9 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
                     result.yellow_solid.append(pts)
                 else:
                     # Dual line: per reference config: ["solid", "long_dashed"] = left solid, right dashed
-                    solid_line, dashed_segments = _create_dual_line(pts_np, left_dashed=False)
+                    solid_line, dashed_segments = _create_dual_line(
+                        pts_np, left_dashed=False
+                    )
                     result.yellow_solid.append(solid_line)
                     result.yellow_dashed.extend(dashed_segments)
             elif style == "SOLID_GROUP":
@@ -722,7 +760,9 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
                     # Simplify to single solid line
                     result.white_solid.append(pts)
                 else:
-                    solid_line, dashed_segments = _create_dual_line(pts_np, left_dashed=True)
+                    solid_line, dashed_segments = _create_dual_line(
+                        pts_np, left_dashed=True
+                    )
                     result.white_solid.append(solid_line)
                     result.white_dashed.extend(dashed_segments)
             elif style == "DASHED_SOLID":
@@ -730,7 +770,9 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
                     # Simplify to single solid line
                     result.white_solid.append(pts)
                 else:
-                    solid_line, dashed_segments = _create_dual_line(pts_np, left_dashed=False)
+                    solid_line, dashed_segments = _create_dual_line(
+                        pts_np, left_dashed=False
+                    )
                     result.white_solid.append(solid_line)
                     result.white_dashed.extend(dashed_segments)
             elif style == "SOLID_GROUP":
@@ -753,7 +795,7 @@ def read_lane_line(parquet_path: Path, simplify_dual_lines: bool = False) -> Lan
                 else:
                     # Default to long dashed (LONG_DASHED_SINGLE, OTHER, etc.)
                     result.white_dashed.extend(_apply_long_dash_pattern(pts_np))
-    
+
     return result
 
 
@@ -761,7 +803,7 @@ def read_crosswalk(parquet_path: Path) -> List[Tensor]:
     """Read crosswalk polygons from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -777,7 +819,7 @@ def read_road_marking(parquet_path: Path) -> List[Tensor]:
     """Read road marking polygons from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -793,7 +835,7 @@ def read_wait_line(parquet_path: Path) -> List[Tensor]:
     """Read wait line polylines from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -809,7 +851,7 @@ def read_pole(parquet_path: Path) -> List[Tensor]:
     """Read pole polylines from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     lines = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -834,7 +876,7 @@ def read_intersection_area(parquet_path: Path) -> List[Tensor]:
     """Read intersection area polygons from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -850,7 +892,7 @@ def read_road_island(parquet_path: Path) -> List[Tensor]:
     """Read road island polygons from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     polygons = []
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
@@ -865,18 +907,19 @@ def read_road_island(parquet_path: Path) -> List[Tensor]:
 @dataclass
 class CubeData:
     """Cube data for static elements like traffic lights/signs."""
+
     translations: List[List[float]]  # [n, 3]
-    quaternions: List[List[float]]   # [n, 4] xyzw
-    scales: List[List[float]]        # [n, 3]
+    quaternions: List[List[float]]  # [n, 4] xyzw
+    scales: List[List[float]]  # [n, 3]
 
 
 def read_traffic_light(parquet_path: Path) -> CubeData:
     """Read traffic lights as cubes from parquet."""
     result = CubeData(translations=[], quaternions=[], scales=[])
-    
+
     if not parquet_path.exists():
         return result
-    
+
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
         tl = row.traffic_light  # ty:ignore[unresolved-attribute]
@@ -885,15 +928,20 @@ def read_traffic_light(parquet_path: Path) -> CubeData:
             if any(x is None or np.isnan(x) for x in center):
                 continue
             result.translations.append(center)
-            
+
             # Get orientation
             if "orientation" in tl and tl["orientation"] is not None:
                 ori = tl["orientation"]
-                quat = [ori.get("x", 0), ori.get("y", 0), ori.get("z", 0), ori.get("w", 1)]
+                quat = [
+                    ori.get("x", 0),
+                    ori.get("y", 0),
+                    ori.get("z", 0),
+                    ori.get("w", 1),
+                ]
             else:
                 quat = [0.0, 0.0, 0.0, 1.0]
             result.quaternions.append(quat)
-            
+
             # Get dimensions
             if "dimensions" in tl and tl["dimensions"] is not None:
                 dim = tl["dimensions"]
@@ -901,17 +949,17 @@ def read_traffic_light(parquet_path: Path) -> CubeData:
             else:
                 scale = [0.3, 0.3, 0.5]
             result.scales.append(scale)
-    
+
     return result
 
 
 def read_traffic_sign(parquet_path: Path) -> CubeData:
     """Read traffic signs as cubes from parquet."""
     result = CubeData(translations=[], quaternions=[], scales=[])
-    
+
     if not parquet_path.exists():
         return result
-    
+
     df = pd.read_parquet(parquet_path)
     for row in df.itertuples():
         ts = row.traffic_sign  # ty:ignore[unresolved-attribute]
@@ -920,15 +968,20 @@ def read_traffic_sign(parquet_path: Path) -> CubeData:
             if any(x is None or np.isnan(x) for x in center):
                 continue
             result.translations.append(center)
-            
+
             # Get orientation
             if "orientation" in ts and ts["orientation"] is not None:
                 ori = ts["orientation"]
-                quat = [ori.get("x", 0), ori.get("y", 0), ori.get("z", 0), ori.get("w", 1)]
+                quat = [
+                    ori.get("x", 0),
+                    ori.get("y", 0),
+                    ori.get("z", 0),
+                    ori.get("w", 1),
+                ]
             else:
                 quat = [0.0, 0.0, 0.0, 1.0]
             result.quaternions.append(quat)
-            
+
             # Get dimensions
             if "dimensions" in ts and ts["dimensions"] is not None:
                 dim = ts["dimensions"]
@@ -936,7 +989,7 @@ def read_traffic_sign(parquet_path: Path) -> CubeData:
             else:
                 scale = [0.01, 0.5, 0.8]
             result.scales.append(scale)
-    
+
     return result
 
 
@@ -960,7 +1013,7 @@ def read_obstacles(parquet_path: Path) -> List[ObstacleData]:
     """Read obstacles from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     df = pd.read_parquet(parquet_path)
     raw_data: Dict[str, List[Tuple[int, Dict]]] = defaultdict(list)
 
@@ -996,12 +1049,12 @@ class EgoTrackData:
 
     timestamps: Tensor  # [n_poses] int64
     poses_tquat: Tensor  # [n_poses, 7]
-    
+
     @property
     def translations(self) -> Tensor:
         """Get translation vectors [n_poses, 3]."""
         return self.poses_tquat[:, :3]
-    
+
     @property
     def quaternions(self) -> Tensor:
         """Get quaternions [n_poses, 4] as xyzw."""
@@ -1015,7 +1068,7 @@ def read_egomotion_estimate(parquet_path: Path) -> EgoTrackData:
             timestamps=torch.zeros(0, dtype=torch.int64),
             poses_tquat=torch.zeros(0, 7, dtype=torch.float32),
         )
-    
+
     df = pd.read_parquet(parquet_path)
     timestamps = []
     tquats = []
@@ -1037,7 +1090,7 @@ def read_egomotion_estimate(parquet_path: Path) -> EgoTrackData:
             timestamps=torch.zeros(0, dtype=torch.int64),
             poses_tquat=torch.zeros(0, 7, dtype=torch.float32),
         )
-    
+
     return EgoTrackData(
         timestamps=torch.tensor(timestamps, dtype=torch.int64),
         poses_tquat=torch.stack(tquats),
@@ -1068,7 +1121,7 @@ def read_calibration_estimate(parquet_path: Path) -> List[CameraData]:
     """Read camera calibration from parquet."""
     if not parquet_path.exists():
         return []
-    
+
     df = pd.read_parquet(parquet_path)
     cal_data = df.iloc[0]["calibration_estimate"]
     rig_data = json.loads(str(cal_data["rig_json"]))["rig"]
@@ -1098,9 +1151,9 @@ def read_calibration_estimate(parquet_path: Path) -> List[CameraData]:
         if poly_type == "angle-to-pixeldistance":
             is_bw_poly = False  # Forward polynomial
         elif poly_type == "pixeldistance-to-angle":
-            is_bw_poly = True   # Backward polynomial
+            is_bw_poly = True  # Backward polynomial
         elif poly_key == "bw-poly":
-            is_bw_poly = True   # Explicitly named backward poly
+            is_bw_poly = True  # Explicitly named backward poly
         else:
             # Heuristic fallback: backward poly has small c1 (radians/pixel)
             # Forward poly has large c1 (pixels/radian, ~focal length)
@@ -1118,13 +1171,13 @@ def read_calibration_estimate(parquet_path: Path) -> List[CameraData]:
         # Use intrinsic xyz convention (matching reference renderer)
         # scipy "xyz" = extrinsic XYZ = Rz(yaw) @ Ry(pitch) @ Rx(roll)
         rotation = R.from_euler("xyz", np.radians(rpy)).as_matrix()
-        
+
         # Apply correction if available (sensor = nominal @ correction)
         if "correction_sensor_R_FLU" in sensor:
             corr_rpy = sensor["correction_sensor_R_FLU"]["roll-pitch-yaw"]
             corr_rotation = R.from_euler("xyz", np.radians(corr_rpy)).as_matrix()
             rotation = rotation @ corr_rotation
-        
+
         sensor_to_rig = torch.eye(4, dtype=torch.float32)
         sensor_to_rig[:3, :3] = torch.from_numpy(rotation.astype(np.float32))
         sensor_to_rig[:3, 3] = torch.tensor(translation, dtype=torch.float32)
@@ -1165,8 +1218,12 @@ def _polylines_to_pool(
     ).to(device)
 
     return TimestampedPolylinePool(
-        timestamps_us=torch.tensor([MIN_TIMESTAMP_US], dtype=torch.int64, device=device),
-        timestamped_varrays_prefix_sum=torch.tensor([len(polylines)], dtype=torch.int32, device=device),
+        timestamps_us=torch.tensor(
+            [MIN_TIMESTAMP_US], dtype=torch.int64, device=device
+        ),
+        timestamped_varrays_prefix_sum=torch.tensor(
+            [len(polylines)], dtype=torch.int32, device=device
+        ),
         varrays_prefix_sum=varrays_prefix_sum,
         vertices=vertices,
         prim_type_id=prim_type_id,
@@ -1179,7 +1236,7 @@ def _polygons_to_pool(
     device: torch.device,
 ) -> Optional[TimestampedPolygonPool]:
     """Convert polygons to TimestampedPolygonPool with triangulation.
-    
+
     Triangle indices are LOCAL per polygon (each polygon's indices start from 0).
     """
     if not polygons:
@@ -1198,13 +1255,13 @@ def _polygons_to_pool(
 
         all_vertices.append(poly)
         vert_counts.append(n_verts)
-        
+
         # Fan triangulation with LOCAL indices (0 to n_verts-1)
         n_tris = n_verts - 2
         local_tris = []
         for j in range(1, n_verts - 1):
             local_tris.append([0, j, j + 1])
-        
+
         all_triangles.append(torch.tensor(local_tris, dtype=torch.int32))
         tri_counts.append(n_tris)
 
@@ -1222,8 +1279,12 @@ def _polygons_to_pool(
     ).to(device)
 
     return TimestampedPolygonPool(
-        timestamps_us=torch.tensor([MIN_TIMESTAMP_US], dtype=torch.int64, device=device),
-        timestamped_varrays_prefix_sum=torch.tensor([len(all_vertices)], dtype=torch.int32, device=device),
+        timestamps_us=torch.tensor(
+            [MIN_TIMESTAMP_US], dtype=torch.int64, device=device
+        ),
+        timestamped_varrays_prefix_sum=torch.tensor(
+            [len(all_vertices)], dtype=torch.int32, device=device
+        ),
         varrays_prefix_sum=varrays_prefix_sum,
         triangle_prefix_sum=triangle_prefix_sum,
         vertices=vertices,
@@ -1250,8 +1311,12 @@ def _obstacles_to_pool(
 
     # Concatenate all track poses
     all_timestamps = torch.cat([obs.timestamps for obs in obstacles]).to(device)
-    all_translations = torch.cat([obs.poses_tquat[:, :3] for obs in obstacles]).to(device)
-    all_quaternions = torch.cat([obs.poses_tquat[:, 3:] for obs in obstacles]).to(device)
+    all_translations = torch.cat([obs.poses_tquat[:, :3] for obs in obstacles]).to(
+        device
+    )
+    all_quaternions = torch.cat([obs.poses_tquat[:, 3:] for obs in obstacles]).to(
+        device
+    )
 
     # Global timeline from unique obstacle timestamps
     unique_timestamps = torch.unique(all_timestamps)
@@ -1286,7 +1351,7 @@ def _ego_trajectory_to_pool(
     device: torch.device,
 ) -> Optional[TimestampedPolylinePool]:
     """Create a polyline pool for the ego trajectory.
-    
+
     The ego trajectory is a green polyline showing the full path taken.
     Uses first timestamp so it's always valid for any query timestamp >= first.
     """
@@ -1311,7 +1376,9 @@ def _ego_trajectory_to_pool(
     n_pts = traj_points.shape[0]
     return TimestampedPolylinePool(
         timestamps_us=first_ts,
-        timestamped_varrays_prefix_sum=torch.tensor([1], dtype=torch.int32, device=device),
+        timestamped_varrays_prefix_sum=torch.tensor(
+            [1], dtype=torch.int32, device=device
+        ),
         varrays_prefix_sum=torch.tensor([n_pts], dtype=torch.int32, device=device),
         vertices=traj_points,
         prim_type_id=PRIM_EGO_TRAJECTORY,
@@ -1323,31 +1390,30 @@ def _ego_obstacle_to_pool(
     device: torch.device,
 ) -> Optional[CubePool]:
     """Create a CubePool for the ego vehicle obstacle.
-    
+
     The ego vehicle is rendered as a colored cube at each timestamp.
     Only visible in BEV mode where you want to see the ego position.
     """
     if ego_track is None or len(ego_track.timestamps) == 0:
         return None
-    
+
     n_poses = len(ego_track.timestamps)
-    
+
     # Ego is a single cube with all track poses
     cube_ts_prefix_sum = torch.tensor([n_poses], dtype=torch.int32, device=device)
-    
+
     timestamps = ego_track.timestamps.to(device)
     translations = ego_track.translations.to(device)
     quaternions = ego_track.quaternions.to(device)
-    
+
     # Fixed ego vehicle size [n_cubes=1, 3]
     scales = torch.tensor([EGO_VEHICLE_SIZE], dtype=torch.float32, device=device)
-    
+
     # Ego color: front (light red) and back (dark red) [n_cubes=1, 6]
     colors = torch.tensor(
-        [EGO_FRONT_COLOR + EGO_BACK_COLOR],
-        dtype=torch.float32, device=device
+        [EGO_FRONT_COLOR + EGO_BACK_COLOR], dtype=torch.float32, device=device
     )
-    
+
     return CubePool(
         timestamps_us=timestamps,
         cube_ts_prefix_sum=cube_ts_prefix_sum,
@@ -1368,7 +1434,7 @@ def _static_cubes_to_pool(
     color: Tuple[float, float, float] = (0.5, 0.5, 0.5),
 ) -> Optional[CubePool]:
     """Convert static cubes (traffic lights/signs) to CubePool.
-    
+
     Static cubes need to be visible at any query timestamp. The shader checks
     if query is within [first_ts, last_ts] of each track. We use two timestamps
     (MIN and MAX) with duplicated poses to create a valid range covering all time.
@@ -1377,31 +1443,38 @@ def _static_cubes_to_pool(
         return None
 
     n_cubes = len(cube_data.translations)
-    
+
     # Use MIN and MAX timestamps so cubes are visible at any query time
     MAX_TIMESTAMP_US = 2**62  # Large but safe for int64
-    
+
     # Pool covers the full time range
-    timestamps_us = torch.tensor([MIN_TIMESTAMP_US, MAX_TIMESTAMP_US], dtype=torch.int64, device=device)
-    
+    timestamps_us = torch.tensor(
+        [MIN_TIMESTAMP_US, MAX_TIMESTAMP_US], dtype=torch.int64, device=device
+    )
+
     # Each cube has 2 poses (duplicated at min and max timestamps)
     # prefix sum: [2, 4, 6, ...] - each cube has 2 poses
-    cube_ts_prefix_sum = torch.arange(2, 2 * n_cubes + 1, step=2, dtype=torch.int32, device=device)
-    
+    cube_ts_prefix_sum = torch.arange(
+        2, 2 * n_cubes + 1, step=2, dtype=torch.int32, device=device
+    )
+
     # Track timestamps: [min, max, min, max, ...] for each cube's two poses
     track_timestamps_us = torch.tensor(
-        [MIN_TIMESTAMP_US, MAX_TIMESTAMP_US] * n_cubes,
-        dtype=torch.int64, device=device
+        [MIN_TIMESTAMP_US, MAX_TIMESTAMP_US] * n_cubes, dtype=torch.int64, device=device
     )
 
     # Base data
-    translations_base = torch.tensor(cube_data.translations, dtype=torch.float32, device=device)
-    quaternions_base = torch.tensor(cube_data.quaternions, dtype=torch.float32, device=device)
+    translations_base = torch.tensor(
+        cube_data.translations, dtype=torch.float32, device=device
+    )
+    quaternions_base = torch.tensor(
+        cube_data.quaternions, dtype=torch.float32, device=device
+    )
     scales = torch.tensor(cube_data.scales, dtype=torch.float32, device=device)
 
     # Duplicate poses for each timestamp: [pose0_t0, pose0_t1, pose1_t0, pose1_t1, ...]
     translations = translations_base.repeat_interleave(2, dim=0)  # [2*n_cubes, 3]
-    quaternions = quaternions_base.repeat_interleave(2, dim=0)    # [2*n_cubes, 4]
+    quaternions = quaternions_base.repeat_interleave(2, dim=0)  # [2*n_cubes, 4]
 
     # Colors are per-cube (NOT per-pose)
     colors = torch.tensor(
@@ -1420,7 +1493,6 @@ def _static_cubes_to_pool(
         colors=colors,
         prim_type_id=prim_type_id,
     )
-
 
 
 _camera_cpp_ext = None
@@ -1453,7 +1525,9 @@ def _get_camera_cpp_ext():
                 lock_fn,
             )
     except Exception as exc:
-        logger.debug("Could not inspect camera converter extension build directory: {}", exc)
+        logger.debug(
+            "Could not inspect camera converter extension build directory: {}", exc
+        )
 
     csrc = os.path.join(os.path.dirname(__file__), "_cpp", "loader")
     load_started_at = time.perf_counter()
@@ -1532,10 +1606,10 @@ def _cameras_to_ftheta_ref(
 
         if cam.is_bw_poly and len(poly) > 1 and poly[1] != 0:
             r_max = max(
-                np.sqrt((0 - cam.cx)**2 + (0 - cam.cy)**2),
-                np.sqrt((cam.width - cam.cx)**2 + (0 - cam.cy)**2),
-                np.sqrt((0 - cam.cx)**2 + (cam.height - cam.cy)**2),
-                np.sqrt((cam.width - cam.cx)**2 + (cam.height - cam.cy)**2),
+                np.sqrt((0 - cam.cx) ** 2 + (0 - cam.cy) ** 2),
+                np.sqrt((cam.width - cam.cx) ** 2 + (0 - cam.cy) ** 2),
+                np.sqrt((0 - cam.cx) ** 2 + (cam.height - cam.cy) ** 2),
+                np.sqrt((cam.width - cam.cx) ** 2 + (cam.height - cam.cy) ** 2),
             )
             rs = r_samples * r_max
             theta_samples = _eval_poly_np(poly, rs)
@@ -1550,7 +1624,7 @@ def _cameras_to_ftheta_ref(
         else:
             fw_poly = np.array([p * poly_scale for p in poly[:6]])
 
-        fw_np[i, :len(fw_poly)] = fw_poly[:6]
+        fw_np[i, : len(fw_poly)] = fw_poly[:6]
 
         corners_dx = np.array([0 - cx, img_w - cx, 0 - cx, img_w - cx])
         corners_dy = np.array([0 - cy, 0 - cy, img_h - cy, img_h - cy])
@@ -1686,10 +1760,14 @@ def _cameras_to_ftheta(
         torch.from_numpy(poly_coeffs),
         torch.from_numpy(poly_lengths),
         torch.from_numpy(is_bw),
-        torch.from_numpy(cx_raw), torch.from_numpy(cy_raw),
-        torch.from_numpy(w_raw), torch.from_numpy(h_raw),
-        torch.from_numpy(cx_sc), torch.from_numpy(cy_sc),
-        torch.from_numpy(w_sc), torch.from_numpy(h_sc),
+        torch.from_numpy(cx_raw),
+        torch.from_numpy(cy_raw),
+        torch.from_numpy(w_raw),
+        torch.from_numpy(h_raw),
+        torch.from_numpy(cx_sc),
+        torch.from_numpy(cy_sc),
+        torch.from_numpy(w_sc),
+        torch.from_numpy(h_sc),
         torch.from_numpy(pscale),
     )
     logger.debug(
@@ -1789,8 +1867,8 @@ class ClipgtGpuScene:
             Camera poses [n_timestamps * n_cameras, 4, 4]
         """
         timestamps_us = timestamps_us.to(self.device)
-        n_timestamps = len(timestamps_us)
-        n_cameras = len(camera_names)
+        _ = len(timestamps_us)
+        _ = len(camera_names)
 
         poses = []
         for ts in timestamps_us:
@@ -1845,7 +1923,7 @@ class ClipgtGpuScene:
 # - lane_boundary: structural data from lane.parquet rails, not visual
 # - intersection_area: grey ground polygons not rendered in reference
 # - road_island: green ground polygons not rendered in reference
-EXCLUDED_BY_DEFAULT = {'lane_boundary', 'intersection_area', 'road_island'}
+EXCLUDED_BY_DEFAULT = {"lane_boundary", "intersection_area", "road_island"}
 
 
 def load_clipgt_scene(
@@ -1898,7 +1976,7 @@ def load_clipgt_scene(
         include_dynamic_obstacles,
         simplify_dual_lane_lines,
     )
-    
+
     # Use default exclusions if not specified
     if exclude_elements is None:
         exclude_elements = EXCLUDED_BY_DEFAULT
@@ -1943,7 +2021,7 @@ def load_clipgt_scene(
         get_parquet_path("road_boundary"),
         read_road_boundary,
     )
-    if 'lane_boundary' not in exclude_elements:
+    if "lane_boundary" not in exclude_elements:
         lane_boundary = read_input("lane", get_parquet_path("lane"), read_lane)
     else:
         logger.debug("Skipping ClipGT lane_boundary due to exclusion.")
@@ -1964,7 +2042,7 @@ def load_clipgt_scene(
     )
     wait_line = read_input("wait_line", get_parquet_path("wait_line"), read_wait_line)
     pole = read_input("pole", get_parquet_path("pole"), read_pole)
-    if 'intersection_area' not in exclude_elements:
+    if "intersection_area" not in exclude_elements:
         intersection_area = read_input(
             "intersection_area",
             get_parquet_path("intersection_area"),
@@ -1973,7 +2051,7 @@ def load_clipgt_scene(
     else:
         logger.debug("Skipping ClipGT intersection_area due to exclusion.")
         intersection_area = []
-    if 'road_island' not in exclude_elements:
+    if "road_island" not in exclude_elements:
         road_island = read_input(
             "road_island",
             get_parquet_path("road_island"),
@@ -1995,7 +2073,9 @@ def load_clipgt_scene(
     if include_dynamic_obstacles:
         obstacles = read_input("obstacle", get_parquet_path("obstacle"), read_obstacles)
     else:
-        logger.debug("Skipping ClipGT dynamic obstacles due to include_dynamic_obstacles=False.")
+        logger.debug(
+            "Skipping ClipGT dynamic obstacles due to include_dynamic_obstacles=False."
+        )
         obstacles = []
     ego_track = read_input(
         "egomotion_estimate",
@@ -2023,25 +2103,33 @@ def load_clipgt_scene(
         polyline_pools.append(pool)
 
     # Lane boundary (excluded by default)
-    if 'lane_boundary' not in exclude_elements:
+    if "lane_boundary" not in exclude_elements:
         pool = _polylines_to_pool(lane_boundary, PRIM_LANE_BOUNDARY, device)
         if pool:
             polyline_pools.append(pool)
 
     # Lane lines by color/style
-    pool = _polylines_to_pool(lane_line_data.white_solid, PRIM_LANE_LINE_WHITE_SOLID, device)
+    pool = _polylines_to_pool(
+        lane_line_data.white_solid, PRIM_LANE_LINE_WHITE_SOLID, device
+    )
     if pool:
         polyline_pools.append(pool)
-    pool = _polylines_to_pool(lane_line_data.white_dashed, PRIM_LANE_LINE_WHITE_DASHED, device)
+    pool = _polylines_to_pool(
+        lane_line_data.white_dashed, PRIM_LANE_LINE_WHITE_DASHED, device
+    )
     if pool:
         polyline_pools.append(pool)
-    pool = _polylines_to_pool(lane_line_data.yellow_solid, PRIM_LANE_LINE_YELLOW_SOLID, device)
+    pool = _polylines_to_pool(
+        lane_line_data.yellow_solid, PRIM_LANE_LINE_YELLOW_SOLID, device
+    )
     if pool:
         polyline_pools.append(pool)
-    pool = _polylines_to_pool(lane_line_data.yellow_dashed, PRIM_LANE_LINE_YELLOW_DASHED, device)
+    pool = _polylines_to_pool(
+        lane_line_data.yellow_dashed, PRIM_LANE_LINE_YELLOW_DASHED, device
+    )
     if pool:
         polyline_pools.append(pool)
-    
+
     # Yellow dots (DOT_SOLID style - rendered as circles)
     pool = _polylines_to_pool(lane_line_data.yellow_dots, PRIM_DOT_YELLOW, device)
     if pool:
@@ -2075,13 +2163,13 @@ def load_clipgt_scene(
         polygon_pools.append(pool)
 
     # Intersection area (excluded by default)
-    if 'intersection_area' not in exclude_elements:
+    if "intersection_area" not in exclude_elements:
         pool = _polygons_to_pool(intersection_area, PRIM_INTERSECTION, device)
         if pool:
             polygon_pools.append(pool)
 
     # Road island (excluded by default)
-    if 'road_island' not in exclude_elements:
+    if "road_island" not in exclude_elements:
         pool = _polygons_to_pool(road_island, PRIM_ROAD_ISLAND, device)
         if pool:
             polygon_pools.append(pool)
@@ -2102,12 +2190,19 @@ def load_clipgt_scene(
 
     # Static cubes (traffic lights, signs) - colors match reference v3 scheme
     # traffic_light: [100, 100, 100] = Gray
-    pool = _static_cubes_to_pool(traffic_light, PRIM_TRAFFIC_LIGHT, device, color=(100/255, 100/255, 100/255))
+    pool = _static_cubes_to_pool(
+        traffic_light,
+        PRIM_TRAFFIC_LIGHT,
+        device,
+        color=(100 / 255, 100 / 255, 100 / 255),
+    )
     if pool:
         cube_pools.append(pool)
 
     # traffic_sign: [8, 2, 255] = Blue
-    pool = _static_cubes_to_pool(traffic_sign, PRIM_TRAFFIC_SIGN, device, color=(8/255, 2/255, 255/255))
+    pool = _static_cubes_to_pool(
+        traffic_sign, PRIM_TRAFFIC_SIGN, device, color=(8 / 255, 2 / 255, 255 / 255)
+    )
     if pool:
         cube_pools.append(pool)
 
@@ -2150,7 +2245,9 @@ def load_clipgt_scene(
     )
 
     if verbose:
-        print(f"  Loaded: {len(polyline_pools)} polyline pools, {len(polygon_pools)} polygon pools, {len(cube_pools)} cube pools")
+        print(
+            f"  Loaded: {len(polyline_pools)} polyline pools, {len(polygon_pools)} polygon pools, {len(cube_pools)} cube pools"
+        )
         print(f"  Cameras: {list(camera_name_to_id.keys())}")
         print(f"  Ego timestamps: {len(ego_track.timestamps)} frames")
 
@@ -2193,24 +2290,32 @@ class FlatPolylineData:
     Replaces Dict[int, List[Tensor]] for the GPU path — avoids a
     round-trip through Python dicts and enables batched GPU transforms.
     """
-    timestamps_us: Tensor   # [n_rows] int64, per-row timestamp (may have dupes)
-    vertices: Tensor         # [n_total_verts, 3] float32
-    row_offsets: Tensor      # [n_rows + 1] int32, vertex start/end per row
-    unique_timestamps: Optional[Tensor] = None      # [n_unique] int64, pre-computed
-    ts_counts_prefix_sum: Optional[Tensor] = None   # [n_unique] int32, pre-computed
+
+    timestamps_us: Tensor  # [n_rows] int64, per-row timestamp (may have dupes)
+    vertices: Tensor  # [n_total_verts, 3] float32
+    row_offsets: Tensor  # [n_rows + 1] int32, vertex start/end per row
+    unique_timestamps: Optional[Tensor] = None  # [n_unique] int64, pre-computed
+    ts_counts_prefix_sum: Optional[Tensor] = None  # [n_unique] int32, pre-computed
 
     def to(self, device: torch.device) -> "FlatPolylineData":
         return FlatPolylineData(
             timestamps_us=self.timestamps_us.to(device),
             vertices=self.vertices.to(device),
             row_offsets=self.row_offsets.to(device),
-            unique_timestamps=self.unique_timestamps.to(device) if self.unique_timestamps is not None else None,
-            ts_counts_prefix_sum=self.ts_counts_prefix_sum.to(device) if self.ts_counts_prefix_sum is not None else None,
+            unique_timestamps=self.unique_timestamps.to(device)
+            if self.unique_timestamps is not None
+            else None,
+            ts_counts_prefix_sum=self.ts_counts_prefix_sum.to(device)
+            if self.ts_counts_prefix_sum is not None
+            else None,
         )
 
 
 def _read_polyline_parquet_flat(
-    table, data_col_name: str, points_field_name: str, min_points: int = 2,
+    table,
+    data_col_name: str,
+    points_field_name: str,
+    min_points: int = 2,
 ) -> Optional[FlatPolylineData]:
     """Read a list<struct<x,y,z>> column into FlatPolylineData.
 
@@ -2345,15 +2450,17 @@ def _read_av2_egomotion(fh: BinaryIO) -> EgoTrackData:
     loc = ego_col.field("location")
     ori = ego_col.field("orientation")
 
-    tquats = np.column_stack([
-        loc.field("x").to_numpy(zero_copy_only=False),
-        loc.field("y").to_numpy(zero_copy_only=False),
-        loc.field("z").to_numpy(zero_copy_only=False),
-        ori.field("x").to_numpy(zero_copy_only=False),
-        ori.field("y").to_numpy(zero_copy_only=False),
-        ori.field("z").to_numpy(zero_copy_only=False),
-        ori.field("w").to_numpy(zero_copy_only=False),
-    ]).astype(np.float32)
+    tquats = np.column_stack(
+        [
+            loc.field("x").to_numpy(zero_copy_only=False),
+            loc.field("y").to_numpy(zero_copy_only=False),
+            loc.field("z").to_numpy(zero_copy_only=False),
+            ori.field("x").to_numpy(zero_copy_only=False),
+            ori.field("y").to_numpy(zero_copy_only=False),
+            ori.field("z").to_numpy(zero_copy_only=False),
+            ori.field("w").to_numpy(zero_copy_only=False),
+        ]
+    ).astype(np.float32)
 
     return EgoTrackData(
         timestamps=torch.from_numpy(ts.astype(np.int64).copy()),
@@ -2402,9 +2509,17 @@ def _read_av2_obstacles(fh: BinaryIO) -> List[ObstacleData]:
     qz = np.sin(half_yaw)
     qw = np.cos(half_yaw)
 
-    tquats_all = np.column_stack([
-        cx, cy, cz, qx, qy, qz, qw,
-    ]).astype(np.float32)
+    tquats_all = np.column_stack(
+        [
+            cx,
+            cy,
+            cz,
+            qx,
+            qy,
+            qz,
+            qw,
+        ]
+    ).astype(np.float32)
 
     # Filter rows with valid obstacle_id
     valid = ~np.isnan(obstacle_ids.astype(np.float64))
@@ -2453,7 +2568,8 @@ def _read_av2_obstacles(fh: BinaryIO) -> List[ObstacleData]:
 
 
 def _build_sorted_vertex_gather(
-    row_offsets: Tensor, sorted_idx: Tensor,
+    row_offsets: Tensor,
+    sorted_idx: Tensor,
 ) -> Tensor:
     """Build a flat gather index to reorder vertices by sorted row order.
 
@@ -2482,13 +2598,15 @@ def _build_sorted_vertex_gather(
     cum = torch.cumsum(sorted_counts, dim=0)
     new_starts = torch.zeros_like(cum)
     new_starts[1:] = cum[:-1]
-    within = torch.arange(total, device=device) - new_starts.repeat_interleave(sorted_counts)
+    within = torch.arange(total, device=device) - new_starts.repeat_interleave(
+        sorted_counts
+    )
     bases = sorted_starts.repeat_interleave(sorted_counts)
     return bases + within
 
 
 def _flat_polylines_to_pool(
-    data: FlatPolylineData,
+    data: Optional[FlatPolylineData],
     prim_type_id: int,
     device: torch.device,
     pre_sorted: bool = False,
@@ -2506,7 +2624,9 @@ def _flat_polylines_to_pool(
         ts_np = data.timestamps_us.numpy()
         offsets_np = data.row_offsets.numpy()
         vc_np = np.diff(offsets_np).astype(np.int32)
-        already_sorted = pre_sorted or len(ts_np) <= 1 or np.all(ts_np[:-1] <= ts_np[1:])
+        already_sorted = (
+            pre_sorted or len(ts_np) <= 1 or np.all(ts_np[:-1] <= ts_np[1:])
+        )
 
         if already_sorted:
             unique_ts_np, counts_np = np.unique(ts_np, return_counts=True)
@@ -2518,7 +2638,9 @@ def _flat_polylines_to_pool(
             unique_ts_np, counts_np = np.unique(sorted_ts, return_counts=True)
             sorted_vc = vc_np[order]
             varrays_ps = np.cumsum(sorted_vc)
-            gather = _build_sorted_vertex_gather(data.row_offsets, torch.from_numpy(order.astype(np.int64)))
+            gather = _build_sorted_vertex_gather(
+                data.row_offsets, torch.from_numpy(order.astype(np.int64))
+            )
             vertices = data.vertices[gather]
 
         ts_ps = np.cumsum(counts_np.astype(np.int32))
@@ -2538,7 +2660,9 @@ def _flat_polylines_to_pool(
             unique_ts = d.unique_timestamps
             ts_ps = d.ts_counts_prefix_sum
         else:
-            unique_ts, counts = torch.unique_consecutive(d.timestamps_us, return_counts=True)
+            unique_ts, counts = torch.unique_consecutive(
+                d.timestamps_us, return_counts=True
+            )
             ts_ps = torch.cumsum(counts.int(), dim=0)
         return TimestampedPolylinePool(
             timestamps_us=unique_ts,
@@ -2550,11 +2674,14 @@ def _flat_polylines_to_pool(
 
     vert_counts = d.row_offsets[1:] - d.row_offsets[:-1]
 
-    is_sorted = (len(d.timestamps_us) <= 1
-                 or bool(torch.all(d.timestamps_us[:-1] <= d.timestamps_us[1:]).item()))
+    is_sorted = len(d.timestamps_us) <= 1 or bool(
+        torch.all(d.timestamps_us[:-1] <= d.timestamps_us[1:]).item()
+    )
 
     if is_sorted:
-        unique_ts, counts = torch.unique_consecutive(d.timestamps_us, return_counts=True)
+        unique_ts, counts = torch.unique_consecutive(
+            d.timestamps_us, return_counts=True
+        )
         varrays_prefix_sum = torch.cumsum(vert_counts, dim=0)
         vertices = d.vertices
     else:
@@ -2602,7 +2729,9 @@ def _flat_polygons_to_pool(
             sorted_ts = ts_np_raw[order]
             unique_ts_np, counts_np = np.unique(sorted_ts, return_counts=True)
             final_vc = vc_np[order]
-            gather = _build_sorted_vertex_gather(data.row_offsets, torch.from_numpy(order.astype(np.int64)))
+            gather = _build_sorted_vertex_gather(
+                data.row_offsets, torch.from_numpy(order.astype(np.int64))
+            )
             vertices = data.vertices[gather]
 
         tri_c = np.maximum(final_vc - 2, 0)
@@ -2614,19 +2743,26 @@ def _flat_polygons_to_pool(
             tri_starts[0] = 0
             if len(tri_ps) > 1:
                 tri_starts[1:] = tri_ps[:-1]
-            within = np.arange(total_tris, dtype=np.int32) - np.repeat(tri_starts, tri_c).astype(np.int32)
-            triangles_np = np.stack([
-                np.zeros(total_tris, dtype=np.int32),
-                within + 1,
-                within + 2,
-            ], axis=1)
+            within = np.arange(total_tris, dtype=np.int32) - np.repeat(
+                tri_starts, tri_c
+            ).astype(np.int32)
+            triangles_np = np.stack(
+                [
+                    np.zeros(total_tris, dtype=np.int32),
+                    within + 1,
+                    within + 2,
+                ],
+                axis=1,
+            )
         else:
             triangles_np = np.zeros((0, 3), dtype=np.int32)
             tri_ps = np.cumsum(tri_c)
 
         return TimestampedPolygonPool(
             timestamps_us=torch.from_numpy(unique_ts_np.copy()),
-            timestamped_varrays_prefix_sum=torch.from_numpy(np.cumsum(counts_np.astype(np.int32))),
+            timestamped_varrays_prefix_sum=torch.from_numpy(
+                np.cumsum(counts_np.astype(np.int32))
+            ),
             varrays_prefix_sum=torch.from_numpy(np.cumsum(final_vc)),
             triangle_prefix_sum=torch.from_numpy(tri_ps.astype(np.int32)),
             vertices=vertices,
@@ -2637,11 +2773,14 @@ def _flat_polygons_to_pool(
     d = data.to(device)
     vert_counts = d.row_offsets[1:] - d.row_offsets[:-1]
 
-    is_sorted = (len(d.timestamps_us) <= 1
-                 or bool(torch.all(d.timestamps_us[:-1] <= d.timestamps_us[1:]).item()))
+    is_sorted = len(d.timestamps_us) <= 1 or bool(
+        torch.all(d.timestamps_us[:-1] <= d.timestamps_us[1:]).item()
+    )
 
     if is_sorted:
-        unique_ts, counts = torch.unique_consecutive(d.timestamps_us, return_counts=True)
+        unique_ts, counts = torch.unique_consecutive(
+            d.timestamps_us, return_counts=True
+        )
         final_vert_counts = vert_counts
         vertices = d.vertices
     else:
@@ -2660,12 +2799,18 @@ def _flat_polygons_to_pool(
     if total_tris > 0:
         tri_starts = torch.zeros_like(triangle_prefix_sum)
         tri_starts[1:] = triangle_prefix_sum[:-1]
-        within_tri = (torch.arange(total_tris, device=device) - tri_starts.repeat_interleave(tri_counts)).int()
-        triangles = torch.stack([
-            torch.zeros(total_tris, device=device, dtype=torch.int32),  # ty:ignore[no-matching-overload]
-            within_tri + 1,
-            within_tri + 2,
-        ], dim=1)
+        within_tri = (
+            torch.arange(total_tris, device=device)
+            - tri_starts.repeat_interleave(tri_counts)
+        ).int()
+        triangles = torch.stack(
+            [
+                torch.zeros(total_tris, device=device, dtype=torch.int32),  # ty:ignore[no-matching-overload]
+                within_tri + 1,
+                within_tri + 2,
+            ],
+            dim=1,
+        )
     else:
         triangles = torch.zeros(0, 3, dtype=torch.int32, device=device)
 
@@ -2730,21 +2875,43 @@ def _transform_av2_road_boundary_to_world(
 def _quat_to_rotmat(q: Tensor) -> Tensor:
     """Convert quaternions (xyzw) to 3x3 rotation matrices. Works on any device."""
     x, y, z, w = q.unbind(-1)
-    return torch.stack([
-        1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
-        2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
-        2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y),
-    ], dim=-1).reshape(-1, 3, 3)
+    return torch.stack(
+        [
+            1 - 2 * (y * y + z * z),
+            2 * (x * y - z * w),
+            2 * (x * z + y * w),
+            2 * (x * y + z * w),
+            1 - 2 * (x * x + z * z),
+            2 * (y * z - x * w),
+            2 * (x * z - y * w),
+            2 * (y * z + x * w),
+            1 - 2 * (x * x + y * y),
+        ],
+        dim=-1,
+    ).reshape(-1, 3, 3)
 
 
 def _quat_to_rotmat_np(q: np.ndarray) -> np.ndarray:
     """Convert quaternions (xyzw) to 3x3 rotation matrices using numpy."""
     x, y, z, w = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-    return np.stack([
-        1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
-        2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
-        2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y),
-    ], axis=-1).reshape(-1, 3, 3).astype(np.float32)
+    return (
+        np.stack(
+            [
+                1 - 2 * (y * y + z * z),
+                2 * (x * y - z * w),
+                2 * (x * z + y * w),
+                2 * (x * y + z * w),
+                1 - 2 * (x * x + z * z),
+                2 * (y * z - x * w),
+                2 * (x * z - y * w),
+                2 * (y * z + x * w),
+                1 - 2 * (x * x + y * y),
+            ],
+            axis=-1,
+        )
+        .reshape(-1, 3, 3)
+        .astype(np.float32)
+    )
 
 
 # DEPRECATED: No longer needed — road_boundary_polyline (struct) is already in
@@ -2832,14 +2999,21 @@ def _load_polylines_pyarrow(loader) -> Dict[str, Optional[FlatPolylineData]]:
         table = pq.read_table(buf, columns=["key", data_col])
         if "key" not in table.schema.names:
             return None
-        return _read_polyline_parquet_flat(table, data_col, pts_field, min_points=min_pts)
+        return _read_polyline_parquet_flat(
+            table, data_col, pts_field, min_points=min_pts
+        )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         fut_ll = pool.submit(_parse_polyline, buf_ll, "dw_lane_line", "points", 2)
-        fut_rb = pool.submit(_parse_polyline, buf_rb, "cf_road_boundary",
-                             "road_boundary_polyline", 2)
-        fut_cw = pool.submit(_parse_polyline, buf_cw, "cf_crosswalks", "crosswalk_area", 3)
-        fut_so = pool.submit(_parse_polyline, buf_so, "cf_static_obstacle", "boundary_points", 2)
+        fut_rb = pool.submit(
+            _parse_polyline, buf_rb, "cf_road_boundary", "road_boundary_polyline", 2
+        )
+        fut_cw = pool.submit(
+            _parse_polyline, buf_cw, "cf_crosswalks", "crosswalk_area", 3
+        )
+        fut_so = pool.submit(
+            _parse_polyline, buf_so, "cf_static_obstacle", "boundary_points", 2
+        )
 
         return {
             "dw_lane_line.parquet": fut_ll.result(),
@@ -2869,6 +3043,7 @@ def prefetch_scene(scene_path: Union[str, Path]) -> None:
                 prefetch_scene(paths[i + 1])
     """
     from .gpu_parquet import prefetch_tar
+
     prefetch_tar(str(scene_path))
 
 
@@ -2915,6 +3090,7 @@ def load_av2_scene(
     _use_gpu = use_gpu_decoder
     if _use_gpu is None:
         from .gpu_parquet import is_gpu_parquet_available
+
         _use_gpu = (
             device.type == "cuda"
             and is_gpu_parquet_available()
@@ -2922,9 +3098,10 @@ def load_av2_scene(
         )
 
     _used_scene_loader = False
+    polyline_data: Optional[Dict[str, Optional[FlatPolylineData]]] = None
 
     if _use_gpu:
-        from .gpu_parquet import read_tar_to_pinned_buffer, TarFileEntry
+        from .gpu_parquet import TarFileEntry, read_tar_to_pinned_buffer
 
         if verbose:
             print("  Using GPU-native parquet decoder (unified tar read)")
@@ -2940,13 +3117,14 @@ def load_av2_scene(
 
         def _open_buf(name: str) -> BytesIO:
             ent = entry_map[name]
-            return BytesIO(bytes(pin_np[ent.offset:ent.offset + ent.size]))
+            return BytesIO(bytes(pin_np[ent.offset : ent.offset + ent.size]))
 
         _tA = time.perf_counter()
 
         # Try the unified C++ scene loader (Phase 3: ego+cal+obs parsed, pools ready)
         try:
             from .gpu_parquet import _get_scene_loader_ext
+
             scene_ext = _get_scene_loader_ext()
 
             _tA1 = time.perf_counter()
@@ -2960,15 +3138,19 @@ def load_av2_scene(
 
             gpu_tensors = scene_ext.load_scene_gpu(
                 pinned,
-                entry_names, entry_offsets, entry_sizes,
+                entry_names,
+                entry_offsets,
+                entry_sizes,
                 device.index if device.index is not None else 0,
-                _tw, _th,
+                _tw,
+                _th,
             )
             _tB = time.perf_counter()
 
             # Pinned buffer is fully consumed — kick off prefetch for next scene
             if prefetch_next is not None:
                 from .gpu_parquet import prefetch_tar
+
                 prefetch_tar(str(prefetch_next))
 
             # Unpack ego (indices 20, 21)
@@ -2991,14 +3173,14 @@ def load_av2_scene(
             # Camera data from C++ (indices 32-38, overlapped with GPU pipeline)
             if len(gpu_tensors) > 32 and gpu_tensors[32].shape[0] > 0:
                 n_cams = gpu_tensors[32].shape[0]
-                cam_pp = gpu_tensors[32]    # [N, 2] float32 GPU
-                cam_sz = gpu_tensors[33]    # [N, 2] float32 GPU
-                cam_fw = gpu_tensors[34]    # [N, 6] float32 GPU
-                cam_ld = gpu_tensors[35]    # [N, 2, 2] float32 GPU
-                cam_s2r = gpu_tensors[36]   # [N, 4, 4] float32 GPU
-                cam_mra = gpu_tensors[37]   # [N] float32 CPU
+                cam_pp = gpu_tensors[32]  # [N, 2] float32 GPU
+                cam_sz = gpu_tensors[33]  # [N, 2] float32 GPU
+                cam_fw = gpu_tensors[34]  # [N, 6] float32 GPU
+                cam_ld = gpu_tensors[35]  # [N, 2, 2] float32 GPU
+                cam_s2r = gpu_tensors[36]  # [N, 4, 4] float32 GPU
+                cam_mra = gpu_tensors[37]  # [N] float32 CPU
                 cam_name_bytes = gpu_tensors[38]  # [L] uint8 CPU
-                cam_names = cam_name_bytes.numpy().tobytes().decode().split('\x00')
+                cam_names = cam_name_bytes.numpy().tobytes().decode().split("\x00")
 
                 camera_name_to_id = {name: i for i, name in enumerate(cam_names)}
                 sensor_to_rig = {name: cam_s2r[i] for i, name in enumerate(cam_names)}
@@ -3032,20 +3214,28 @@ def load_av2_scene(
                 n_obs_tracks = _obs_track_ps.shape[0]
                 _cam_in_b = len(gpu_tensors) > 32 and gpu_tensors[32].shape[0] > 0
                 _cam_tag = "cameras(in B)" if _cam_in_b else "cameras"
-                print(f"    [scene_loader] C++ pipeline: {(_tB-_tA1)*1000:.2f}ms, "
-                      f"obs({n_obs_tracks} tracks): {(_tC-_tB)*1000:.2f}ms, "
-                      f"{_cam_tag}: {(_tD-_tC)*1000:.2f}ms, "
-                      f"total: {(_tD-_tA)*1000:.2f}ms")
+                print(
+                    f"    [scene_loader] C++ pipeline: {(_tB - _tA1) * 1000:.2f}ms, "
+                    f"obs({n_obs_tracks} tracks): {(_tC - _tB) * 1000:.2f}ms, "
+                    f"{_cam_tag}: {(_tD - _tC) * 1000:.2f}ms, "
+                    f"total: {(_tD - _tA) * 1000:.2f}ms"
+                )
 
         except Exception as _sl_err:
-            import traceback; traceback.print_exc()
+            from traceback import print_exc
+
+            print_exc()
             if verbose:
-                print(f"    [scene_loader] failed ({_sl_err}), falling back to legacy path")
+                print(
+                    f"    [scene_loader] failed ({_sl_err}), falling back to legacy path"
+                )
 
         if not _used_scene_loader:
             # Legacy GPU path: separate Python orchestration
             from .gpu_parquet import (
-                load_polylines_gpu_native, scan_polyline_metadata, prepare_pipeline_plan,
+                load_polylines_gpu_native,
+                prepare_pipeline_plan,
+                scan_polyline_metadata,
             )
 
             _tA1 = time.perf_counter()
@@ -3064,17 +3254,25 @@ def load_av2_scene(
                 fut_obs = tp.submit(_read_av2_obstacles, buf_obs)
                 fut_cal = tp.submit(_read_av2_calibration_from_fh, cal_fh)
 
-                polyline_data = load_polylines_gpu_native(
-                    scene_path, device, preloaded=(pinned, entries),
-                    pre_scanned=pq_metas, pre_plan=pipeline_plan,
+                polyline_data = cast(
+                    Dict[str, Optional[FlatPolylineData]],
+                    load_polylines_gpu_native(
+                        scene_path,
+                        device,
+                        preloaded=(pinned, entries),
+                        pre_scanned=pq_metas,
+                        pre_plan=pipeline_plan,
+                    ),
                 )
                 _tB = time.perf_counter()
                 if verbose:
-                    print(f"    [B overhead] scan: {(_tA2-_tA1)*1000:.2f}ms, "
-                          f"plan: {(_tA3-_tA2)*1000:.2f}ms, "
-                          f"bufs: {(_tA4-_tA3)*1000:.2f}ms, "
-                          f"gpu_native: {(_tB-_tA4)*1000:.2f}ms, "
-                          f"total_B_phase: {(_tB-_tA)*1000:.2f}ms")
+                    print(
+                        f"    [B overhead] scan: {(_tA2 - _tA1) * 1000:.2f}ms, "
+                        f"plan: {(_tA3 - _tA2) * 1000:.2f}ms, "
+                        f"bufs: {(_tA4 - _tA3) * 1000:.2f}ms, "
+                        f"gpu_native: {(_tB - _tA4) * 1000:.2f}ms, "
+                        f"total_B_phase: {(_tB - _tA) * 1000:.2f}ms"
+                    )
 
                 ego_track = fut_ego.result()
                 obstacles = fut_obs.result()
@@ -3084,7 +3282,9 @@ def load_av2_scene(
                 _tD = time.perf_counter()
 
             _cam_pool = ThreadPoolExecutor(max_workers=1)
-            fut_cam = _cam_pool.submit(_cameras_to_ftheta, cameras, device, target_resolution)
+            fut_cam = _cam_pool.submit(
+                _cameras_to_ftheta, cameras, device, target_resolution
+            )
     else:
         loader = get_file_loader(scene_path)
         polyline_data = _load_polylines_pyarrow(loader)
@@ -3100,12 +3300,19 @@ def load_av2_scene(
 
         cameras = _read_av2_calibration(loader)
 
+    lane_line_flat: Optional[FlatPolylineData] = None
+    road_boundary_flat: Optional[FlatPolylineData] = None
+    crosswalk_flat: Optional[FlatPolylineData] = None
+    static_obstacle_flat: Optional[FlatPolylineData] = None
     if not _used_scene_loader:
-        lane_line_flat = polyline_data.get("dw_lane_line.parquet")
-        road_boundary_flat = polyline_data.get("cf_road_boundary.parquet")
-        crosswalk_flat = polyline_data.get("cf_crosswalks.parquet")
-        static_obstacle_flat = polyline_data.get("cf_static_obstacle.parquet")
-
+        # Always true
+        if polyline_data is not None:
+            lane_line_flat = polyline_data.get("dw_lane_line.parquet")
+            road_boundary_flat = polyline_data.get("cf_road_boundary.parquet")
+            crosswalk_flat = polyline_data.get("cf_crosswalks.parquet")
+            static_obstacle_flat = polyline_data.get("cf_static_obstacle.parquet")
+        else:
+            raise ValueError("Polyline data is empty")
     # Road boundary (road_boundary_polyline) is already in world frame — no transform.
 
     # Clip ego track to the time range covered by scene elements.
@@ -3116,15 +3323,29 @@ def load_av2_scene(
             if n_ego > 0:
                 t0 = ego_track.timestamps[0].item()
                 t1 = ego_track.timestamps[-1].item()
-                print(f"  Clipped ego to scene range: {(t1 - t0)/1e6:.1f}s "
-                      f"({n_ego} ego poses)")
+                print(
+                    f"  Clipped ego to scene range: {(t1 - t0) / 1e6:.1f}s "
+                    f"({n_ego} ego poses)"
+                )
     else:
-        gpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,  # ty:ignore[unresolved-attribute]
-                                             crosswalk_flat, static_obstacle_flat]
-                  if f is not None and f.timestamps_us.is_cuda]  # ty:ignore[unresolved-attribute]
-        cpu_ts = [f.timestamps_us for f in [lane_line_flat, road_boundary_flat,  # ty:ignore[unresolved-attribute]
-                                             crosswalk_flat, static_obstacle_flat]
-                  if f is not None and not f.timestamps_us.is_cuda]  # ty:ignore[unresolved-attribute]
+        if (
+            lane_line_flat is None
+            or road_boundary_flat is None
+            or crosswalk_flat is None
+            or static_obstacle_flat is None
+        ):
+            raise ValueError("Polyline data is empty")
+
+        flat_polylines = (
+            lane_line_flat,
+            road_boundary_flat,
+            crosswalk_flat,
+            static_obstacle_flat,
+        )
+        gpu_ts = [f.timestamps_us for f in flat_polylines if f.timestamps_us.is_cuda]
+        cpu_ts = [
+            f.timestamps_us for f in flat_polylines if not f.timestamps_us.is_cuda
+        ]
         for obs in obstacles:
             (gpu_ts if obs.timestamps.is_cuda else cpu_ts).append(obs.timestamps)
 
@@ -3151,8 +3372,10 @@ def load_av2_scene(
                     poses_tquat=ego_poses[mask],
                 )
                 if verbose:
-                    print(f"  Clipped ego to scene range: {(scene_end - scene_start)/1e6:.1f}s "
-                          f"({len(ego_track.timestamps)} ego poses)")
+                    print(
+                        f"  Clipped ego to scene range: {(scene_end - scene_start) / 1e6:.1f}s "
+                        f"({len(ego_track.timestamps)} ego poses)"
+                    )
             else:
                 ego_track = EgoTrackData(timestamps=ego_ts, poses_tquat=ego_poses)
 
@@ -3162,13 +3385,15 @@ def load_av2_scene(
         # Road boundary: struct (road_boundary_polyline) is already in world frame
         verts = gpu_tensors[0]
         if verts.shape[0] > 0:
-            polyline_pools.append(TimestampedPolylinePool(
-                timestamps_us=gpu_tensors[3],
-                timestamped_varrays_prefix_sum=gpu_tensors[4],
-                varrays_prefix_sum=gpu_tensors[2][1:],
-                vertices=verts,
-                prim_type_id=PRIM_ROAD_BOUNDARY,
-            ))
+            polyline_pools.append(
+                TimestampedPolylinePool(
+                    timestamps_us=gpu_tensors[3],
+                    timestamped_varrays_prefix_sum=gpu_tensors[4],
+                    varrays_prefix_sum=gpu_tensors[2][1:],
+                    vertices=verts,
+                    prim_type_id=PRIM_ROAD_BOUNDARY,
+                )
+            )
         # Lane lines and static obstacles: use C++ output
         for idx, prim_id in [
             (1, PRIM_LANE_LINE),
@@ -3176,22 +3401,30 @@ def load_av2_scene(
         ]:
             verts = gpu_tensors[idx * 5]
             if verts.shape[0] > 0:
-                polyline_pools.append(TimestampedPolylinePool(
-                    timestamps_us=gpu_tensors[idx * 5 + 3],
-                    timestamped_varrays_prefix_sum=gpu_tensors[idx * 5 + 4],
-                    varrays_prefix_sum=gpu_tensors[idx * 5 + 2][1:],
-                    vertices=verts,
-                    prim_type_id=prim_id,
-                ))
+                polyline_pools.append(
+                    TimestampedPolylinePool(
+                        timestamps_us=gpu_tensors[idx * 5 + 3],
+                        timestamped_varrays_prefix_sum=gpu_tensors[idx * 5 + 4],
+                        varrays_prefix_sum=gpu_tensors[idx * 5 + 2][1:],
+                        vertices=verts,
+                        prim_type_id=prim_id,
+                    )
+                )
     else:
         _sorted = _use_gpu
-        pool = _flat_polylines_to_pool(road_boundary_flat, PRIM_ROAD_BOUNDARY, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
+        pool = _flat_polylines_to_pool(
+            road_boundary_flat, PRIM_ROAD_BOUNDARY, device, pre_sorted=_sorted
+        )
         if pool:
             polyline_pools.append(pool)
-        pool = _flat_polylines_to_pool(lane_line_flat, PRIM_LANE_LINE, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
+        pool = _flat_polylines_to_pool(
+            lane_line_flat, PRIM_LANE_LINE, device, pre_sorted=_sorted
+        )
         if pool:
             polyline_pools.append(pool)
-        pool = _flat_polylines_to_pool(static_obstacle_flat, PRIM_STATIC_OBSTACLE, device, pre_sorted=_sorted)  # ty:ignore[invalid-argument-type]
+        pool = _flat_polylines_to_pool(
+            static_obstacle_flat, PRIM_STATIC_OBSTACLE, device, pre_sorted=_sorted
+        )
         if pool:
             polyline_pools.append(pool)
 
@@ -3211,19 +3444,25 @@ def load_av2_scene(
     if _used_scene_loader:
         xw_verts = gpu_tensors[2 * 5]
         if xw_verts.shape[0] > 0:
-            xw_varrays_ps = gpu_tensors[39] if len(gpu_tensors) > 39 and gpu_tensors[39].numel() > 0 else None
+            xw_varrays_ps = (
+                gpu_tensors[39]
+                if len(gpu_tensors) > 39 and gpu_tensors[39].numel() > 0
+                else None
+            )
             if xw_varrays_ps is None:
                 xw_roff = gpu_tensors[2 * 5 + 2]
                 xw_varrays_ps = torch.cumsum(xw_roff[1:] - xw_roff[:-1], dim=0)
-            polygon_pools.append(TimestampedPolygonPool(
-                timestamps_us=gpu_tensors[2 * 5 + 3],
-                timestamped_varrays_prefix_sum=gpu_tensors[2 * 5 + 4],
-                varrays_prefix_sum=xw_varrays_ps,
-                triangle_prefix_sum=gpu_tensors[30],
-                vertices=xw_verts,
-                triangles=gpu_tensors[31],
-                prim_type_id=PRIM_CROSSWALK,
-            ))
+            polygon_pools.append(
+                TimestampedPolygonPool(
+                    timestamps_us=gpu_tensors[2 * 5 + 3],
+                    timestamped_varrays_prefix_sum=gpu_tensors[2 * 5 + 4],
+                    varrays_prefix_sum=xw_varrays_ps,
+                    triangle_prefix_sum=gpu_tensors[30],
+                    vertices=xw_verts,
+                    triangles=gpu_tensors[31],
+                    prim_type_id=PRIM_CROSSWALK,
+                )
+            )
     else:
         pool = _flat_polygons_to_pool(crosswalk_flat, PRIM_CROSSWALK, device)  # ty:ignore[invalid-argument-type]
         if pool:
@@ -3243,17 +3482,19 @@ def load_av2_scene(
             cube_pools.append(ego_cube_pool)
 
     if _used_scene_loader and _obs_track_ps.shape[0] > 0:
-        cube_pools.append(CubePool(
-            timestamps_us=_obs_timestamps_us.to(device),
-            cube_ts_prefix_sum=_obs_track_ps.to(device),
-            track_timestamps_us=_obs_track_ts.to(device),
-            translations=_obs_translations.to(device),
-            quaternions=_obs_quaternions.to(device),
-            scales=_obs_scales.to(device),
-            colors=_obs_colors.to(device),
-            prim_type_id=PRIM_OBSTACLE,
-            render_flags=CUBE_FLAG_WIREFRAME,
-        ))
+        cube_pools.append(
+            CubePool(
+                timestamps_us=_obs_timestamps_us.to(device),
+                cube_ts_prefix_sum=_obs_track_ps.to(device),
+                track_timestamps_us=_obs_track_ts.to(device),
+                translations=_obs_translations.to(device),
+                quaternions=_obs_quaternions.to(device),
+                scales=_obs_scales.to(device),
+                colors=_obs_colors.to(device),
+                prim_type_id=PRIM_OBSTACLE,
+                render_flags=CUBE_FLAG_WIREFRAME,
+            )
+        )
     elif not _used_scene_loader:
         obstacle_pool = _obstacles_to_pool(obstacles, device)
         if obstacle_pool:
@@ -3296,22 +3537,29 @@ def load_av2_scene(
 
     if verbose:
         if _use_gpu:
-            print(f"  Phase breakdown (ms):")
-            print(f"    A  tar read + pinned:    {(_tA - _t0)*1000:6.2f}")
+            print("  Phase breakdown (ms):")
+            print(f"    A  tar read + pinned:    {(_tA - _t0) * 1000:6.2f}")
             if _used_scene_loader:
-                print(f"    A1 entry map + args:     {(_tA1 - _tA)*1000:6.2f}")
-            print(f"    B  C++ pipeline+sync:    {(_tB - _tA1)*1000:6.2f}" if _used_scene_loader else
-                  f"    B  polyline GPU decode:  {(_tB - _tA)*1000:6.2f}")
-            print(f"    C  ego+obs unpack:       {(_tC - _tB)*1000:6.2f}")
-            print(f"    D  cal+cameras unpack:   {(_tD - _tC)*1000:6.2f}")
-            print(f"    E  road boundary xform:  {(_tE - _tD)*1000:6.2f}" +
-                  (" (in B)" if _used_scene_loader else ""))
-            print(f"    F  polyline pools (x3):  {(_tF - _tE)*1000:6.2f}")
-            print(f"    G  polygon pool:         {(_tG - _tF)*1000:6.2f}")
-            print(f"    H  obstacle pool:        {(_tH - _tG)*1000:6.2f}")
-            print(f"    I  cameras+ego+finalize: {(_tI - _tH)*1000:6.2f}")
-            print(f"    TOTAL:                   {(_tI - _t0)*1000:6.2f}")
-        print(f"  Loaded: {len(polyline_pools)} polyline pools, {len(polygon_pools)} polygon pools, {len(cube_pools)} cube pools")
+                print(f"    A1 entry map + args:     {(_tA1 - _tA) * 1000:6.2f}")
+            print(
+                f"    B  C++ pipeline+sync:    {(_tB - _tA1) * 1000:6.2f}"
+                if _used_scene_loader
+                else f"    B  polyline GPU decode:  {(_tB - _tA) * 1000:6.2f}"
+            )
+            print(f"    C  ego+obs unpack:       {(_tC - _tB) * 1000:6.2f}")
+            print(f"    D  cal+cameras unpack:   {(_tD - _tC) * 1000:6.2f}")
+            print(
+                f"    E  road boundary xform:  {(_tE - _tD) * 1000:6.2f}"
+                + (" (in B)" if _used_scene_loader else "")
+            )
+            print(f"    F  polyline pools (x3):  {(_tF - _tE) * 1000:6.2f}")
+            print(f"    G  polygon pool:         {(_tG - _tF) * 1000:6.2f}")
+            print(f"    H  obstacle pool:        {(_tH - _tG) * 1000:6.2f}")
+            print(f"    I  cameras+ego+finalize: {(_tI - _tH) * 1000:6.2f}")
+            print(f"    TOTAL:                   {(_tI - _t0) * 1000:6.2f}")
+        print(
+            f"  Loaded: {len(polyline_pools)} polyline pools, {len(polygon_pools)} polygon pools, {len(cube_pools)} cube pools"
+        )
         print(f"  Cameras: {list(camera_name_to_id.keys())}")
         print(f"  Ego timestamps: {len(ego_track.timestamps)} frames")
 

@@ -163,7 +163,7 @@ bool is_dot_primitive(uint prim_type_id) {
 float get_prim_width(uint prim_type_id, uint camera_type_id) {
     bool is_bev = (camera_type_id == CAMERA_TYPE_BEV);
     float scale = (pc.u_resolution_scale > 0.0) ? pc.u_resolution_scale : 1.0;
-    
+
     float base_width;
     if (prim_type_id == PRIM_EGO_TRAJECTORY) {
         float default_w = is_bev ? DEFAULT_WIDTH_EGO_TRAJ_BEV : DEFAULT_WIDTH_EGO_TRAJ_REGULAR;
@@ -364,15 +364,15 @@ layout(std430, binding = 13) readonly buffer QueryBuffer {
 
 int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
     if (count == 0u) return -1;
-    
+
     int left = 0;
     int right = int(count) - 1;
     int result = -1;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t val = g_timestamps[base_offset + uint(mid)];
-        
+
         if (val <= target) {
             result = mid;
             left = mid + 1;
@@ -380,7 +380,7 @@ int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
             right = mid - 1;
         }
     }
-    
+
     return result;
 }
 
@@ -407,21 +407,21 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
         q1 = -q1;
         d = -d;
     }
-    
+
     // If quaternions are very close, use linear interpolation
     if (d > 0.9995) {
         return quat_normalize(mix(q0, q1, t));
     }
-    
+
     // Spherical interpolation
     float theta_0 = acos(clamp(d, -1.0, 1.0));
     float theta = theta_0 * t;
     float sin_theta = sin(theta);
     float sin_theta_0 = sin(theta_0);
-    
+
     float s0 = cos(theta) - d * sin_theta / sin_theta_0;
     float s1 = sin_theta / sin_theta_0;
-    
+
     return quat_normalize(s0 * q0 + s1 * q1);
 }
 
@@ -429,12 +429,12 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
 // GLSL mat3 is column-major: mat3(col0, col1, col2)
 mat3 quat_to_matrix(vec4 q) {
     float x = q.x, y = q.y, z = q.z, w = q.w;
-    
+
     float x2 = x + x, y2 = y + y, z2 = z + z;
     float xx = x * x2, xy = x * y2, xz = x * z2;
     float yy = y * y2, yz = y * z2, zz = z * z2;
     float wx = w * x2, wy = w * y2, wz = w * z2;
-    
+
     // Column 0: (R00, R10, R20), Column 1: (R01, R11, R21), Column 2: (R02, R12, R22)
     return mat3(
         1.0 - (yy + zz), xy + wz, xz - wy,   // Column 0
@@ -446,7 +446,7 @@ mat3 quat_to_matrix(vec4 q) {
 // Build 4x4 transform from translation and quaternion (with scale)
 mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
     mat3 rot = quat_to_matrix(quaternion);
-    
+
     // Apply scale to each column of rotation matrix
     mat4 result = mat4(
         vec4(rot[0] * scale.x, 0.0),
@@ -454,7 +454,7 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
         vec4(rot[2] * scale.z, 0.0),
         vec4(translation, 1.0)
     );
-    
+
     return result;
 }
 
@@ -462,22 +462,22 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
 // Returns -1 if target is outside the track range
 int binary_search_track(uint base_offset, uint count, int64_t target) {
     if (count < 2u) return -1;  // Need at least 2 points for interpolation
-    
+
     int64_t first_ts = g_timestamps[base_offset];
     int64_t last_ts = g_timestamps[base_offset + count - 1u];
-    
+
     // Check bounds
     if (target < first_ts || target > last_ts) return -1;
-    
+
     int left = 0;
     int right = int(count) - 2;  // Max valid index for interpolation start
     int result = 0;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t t0 = g_timestamps[base_offset + uint(mid)];
         int64_t t1 = g_timestamps[base_offset + uint(mid) + 1u];
-        
+
         if (t0 <= target && target <= t1) {
             return mid;
         } else if (target < t0) {
@@ -486,7 +486,7 @@ int binary_search_track(uint base_offset, uint count, int64_t target) {
             left = mid + 1;
         }
     }
-    
+
     return -1;  // Should not reach here for valid input
 }
 
@@ -530,16 +530,16 @@ vec3 rotate_rodrigues(vec3 v, vec3 r) {
 vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
     vec3 cam_pt = (pose.world_to_camera * vec4(world_pos, 1.0)).xyz;
     float depth = cam_pt.z;
-    
+
     float ray_norm = length(cam_pt);
-    
+
     // Handle points at camera origin
     if (ray_norm < 1e-6) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    
+
     float half_pi = 1.5707963;  // π/2
-    
+
     // For cameras with FOV <= 180° (max_ray_angle <= π/2), points behind camera should be clipped
     // Use pseudo-pinhole projection to push them far away in the correct direction
     if (cam.max_ray_angle <= half_pi && depth < 0.001) {
@@ -548,35 +548,35 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         float y_clip = -cam_pt.y * pseudo_focal / (cam.img_h * 0.5);
         return vec4(x_clip * 10.0, y_clip * 10.0, 1.0, 1.0);  // Scale by 10 to push far outside
     }
-    
+
     float xy_norm = length(cam_pt.xy);
     float cos_alpha = clamp(cam_pt.z / ray_norm, -1.0, 1.0);
     float alpha = acos(cos_alpha);  // alpha in [0, π]
-    
+
     // Apply polynomial projection (with linear extrapolation beyond max_ray_angle)
     float a2 = alpha * alpha;
     float a3 = a2 * alpha;
     float a4 = a2 * a2;
     float a5 = a4 * alpha;
-    
+
     float delta = cam.poly0 + cam.poly1 * alpha + cam.poly2 * a2 +
                   cam.poly3 * a3 + cam.poly4 * a4 + cam.poly5 * a5;
     if (alpha > cam.max_ray_angle) {
         delta = cam.max_distortion_val + (alpha - cam.max_ray_angle) * cam.max_distortion_dval;
     }
-    
+
     float scale = (xy_norm > 1e-6) ? (delta / xy_norm) : 0.0;
     vec2 pixel_rel = scale * cam_pt.xy;
-    
+
     vec2 pixel_dist;
     pixel_dist.x = cam.ld_c * pixel_rel.x + cam.ld_d * pixel_rel.y;
     pixel_dist.y = cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y;
-    
+
     vec2 pixel = pixel_dist + vec2(cam.cx, cam.cy);
-    
+
     float x_ndc = 2.0 * pixel.x / cam.img_w - 1.0;
     float y_ndc = 1.0 - 2.0 * pixel.y / cam.img_h;
-    
+
     // For z-buffer depth mapping:
     // - Narrow FOV (<=180°): use signed depth (cam_pt.z)
     // - Wide FOV (>180°): use ray_norm for front-camera vertices (unchanged),
@@ -589,7 +589,7 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         z_value = depth;
     }
     float z_ndc = clamp(z_value / cam.depth_max, 0.0, 1.0);
-    
+
     return vec4(x_ndc, y_ndc, z_ndc, 1.0);
 }
 
@@ -600,15 +600,15 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
     vec3 cam_pt1 = (world_to_cam * vec4(v1, 1.0)).xyz;
     vec3 mid_world = (v0 + v1) * 0.5;
     vec3 cam_pt_mid = (world_to_cam * vec4(mid_world, 1.0)).xyz;
-    
+
     // Just clamp depths to avoid division issues
-    
+
     // For segments in front of camera, compute f-theta projection error directly
     // Use depth-clamped projection to handle near-plane cases
     float depth0 = max(cam_pt0.z, 0.001);
     float depth1 = max(cam_pt1.z, 0.001);
     float depth_mid = max(cam_pt_mid.z, 0.001);
-    
+
     // Compute f-theta projection for each point
     // We inline the projection to avoid struct-passing issues
     vec2 pixel0, pixel1, pixel_mid;
@@ -663,18 +663,18 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
                                cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y);
         pixel_mid = pixel_dist + vec2(cam.cx, cam.cy);
     }
-    
+
     // Compute error: distance from projected midpoint to linear interpolation
     vec2 linear_pixel_mid = (pixel0 + pixel1) * 0.5;
     float error_pixels = length(pixel_mid - linear_pixel_mid);
-    
+
     // Clamp to reasonable range to handle edge cases
     return clamp(error_pixels, 0.0, 10000.0);
 }
 
 uint compute_subdivision_level(vec3 v0, vec3 v1, CameraPose pose, FThetaCamera cam, float threshold_pixels) {
     float error = estimate_edge_distortion_pixels_mat4(v0, v1, pose.world_to_camera, cam);
-    
+
     if (error < threshold_pixels) return 0u;
     if (error < threshold_pixels * 2.0) return 1u;
     if (error < threshold_pixels * 4.0) return 2u;
@@ -759,7 +759,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         if (t < 7u) {
             row = 0u;
             if (t < 4u) { col = t; is_down = false; }
@@ -777,7 +777,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 3u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -795,7 +795,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         // Row 0: 8 up + 7 down = 15, Row 1: 7 up + 6 down = 13, etc.
         if (t < 15u) {
             row = 0u;
@@ -828,7 +828,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 7u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -891,10 +891,10 @@ void main() {
     // Get chunk ID from mesh workgroup index
     uint chunk_id = gl_WorkGroupID.x;
     uint tid = gl_LocalInvocationID.x;
-    
+
     // Read from task payload
     uint total_pts = payload.total_points;
-    
+
     // Load scene and pool info
     RenderQuery query = g_queries[payload.query_id];
     TimestampedScene scene = g_scenes[query.scene_id];
@@ -902,7 +902,7 @@ void main() {
     FThetaCamera cam = g_camera_intrinsics[query.camera_id];
     CameraPose pose = g_camera_poses[payload.query_id];
     uint cap_style_local = payload.cap_style;
-    
+
     // Handle dot primitives - render each vertex as a circle
     if (is_dot_primitive(pool.prim_type_id)) {
         // Dot mode: each vertex is a separate circle
@@ -910,28 +910,28 @@ void main() {
         uint dot_start = chunk_id * DOTS_PER_CHUNK;
         uint dot_end = min(dot_start + DOTS_PER_CHUNK, total_pts);
         uint num_dots = dot_end - dot_start;
-        
+
         if (num_dots == 0u) {
             _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
             return;
         }
-        
+
         // Get vertex base for this polyline
         uint v_start_base = 0u;
         if (payload.varray_idx > 0u) {
             v_start_base = uint(g_int32[scene.int32_buffer_offset + pool.varrays_ps_offset + payload.varray_idx - 1u]);
         }
         uint base_v_idx = scene.vertex_buffer_offset + pool.vertices_offset + v_start_base;
-        
+
         // Dot radius = same as regular line half-width
         float half_width = payload.width * 0.5;
-        
+
         // Each dot: 9 vertices (center + 8 ring), 8 triangles
         uint total_verts = num_dots * 9u;
         uint total_tris = num_dots * 8u;
-        
+
         _prim_count = total_tris; SetMeshOutputsEXT(total_verts, _prim_count);
-        
+
         // Generate dots (only thread 0 for simplicity, could parallelize)
         if (tid == 0u) {
             for (uint d = 0u; d < num_dots; d++) {
@@ -939,7 +939,7 @@ void main() {
                 uint vi = base_v_idx + global_dot;
                 Vertex vx = g_vertices[vi];
                 vec3 world_pos = vec3(vx.x, vx.y, vx.z);
-                
+
                 // Project center
                 vec4 center_clip = ftheta_project(world_pos, pose, cam);
                 float w = center_clip.w;
@@ -948,31 +948,31 @@ void main() {
                     (center_clip.x / w * 0.5 + 0.5) * cam.img_w,
                     (0.5 - center_clip.y / w * 0.5) * cam.img_h
                 );
-                
+
                 // Emit center vertex
                 uint base_vert = d * 9u;
                 gl_MeshVerticesEXT[base_vert].gl_Position = center_clip;
-                
+
                 // Apply depth-based radius scaling for dots
                 float dot_depth_scale = get_depth_scale(center_clip);
                 float scaled_half_width = half_width * dot_depth_scale;
-                
+
                 // Emit 8 ring vertices (octagon for circle approximation)
                 for (uint i = 0u; i < 8u; i++) {
                     float angle = float(i) * 0.785398;  // 2*PI/8
                     vec2 offset = vec2(cos(angle), sin(angle)) * scaled_half_width;
                     vec2 ring_screen = center_screen + offset;
-                    
+
                     // Convert back to clip space
                     vec4 ring_clip;
                     ring_clip.x = ((ring_screen.x / cam.img_w) * 2.0 - 1.0) * w;
                     ring_clip.y = ((0.5 - ring_screen.y / cam.img_h) * 2.0) * w;
                     ring_clip.z = center_clip.z;
                     ring_clip.w = w;
-                    
+
                     gl_MeshVerticesEXT[base_vert + 1u + i].gl_Position = ring_clip;
                 }
-                
+
                 // Emit 8 triangles (center -> ring[i] -> ring[i+1])
                 uint base_tri = d * 8u;
                 for (uint i = 0u; i < 8u; i++) {
@@ -986,7 +986,7 @@ void main() {
         }
         return;
     }
-    
+
     // Regular polyline mode
     // Calculate chunk range in original segment space
     // 4 segments per chunk with overlap vertices for seamless miter joins (matching task shader)
@@ -995,30 +995,30 @@ void main() {
     uint seg_start = chunk_id * MAX_SEGMENTS_PER_CHUNK;
     uint seg_end = min(seg_start + MAX_SEGMENTS_PER_CHUNK, num_segments);
     uint num_segs_in_chunk = seg_end - seg_start;
-    
+
     bool is_first_chunk = (chunk_id == 0u);
     bool is_last_chunk = (seg_end >= num_segments);
-    
+
     if (num_segs_in_chunk == 0u) {
         _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
         return;
     }
-    
+
     float half_width = payload.width * 0.5;
-    
+
     // Get vertex start for this polyline
     uint v_start = 0u;
     if (payload.varray_idx > 0u) {
         v_start = uint(g_int32[scene.int32_buffer_offset + pool.varrays_ps_offset + payload.varray_idx - 1u]);
     }
     uint base_v_idx = scene.vertex_buffer_offset + pool.vertices_offset + v_start;
-    
+
     // Phase 1: Compute subdivision per segment and generate subdivided points
     // Also load overlap vertices for chunk boundary miter calculation
     uint eff_point_count = 0u;
     bool has_overlap_before = false;
     bool has_overlap_after = false;
-    
+
     if (tid == 0u) {
         // Load overlap vertex BEFORE this chunk (for first point miter)
         if (!is_first_chunk && seg_start > 0u) {
@@ -1027,7 +1027,7 @@ void main() {
             s_world_pos[OVERLAP_BEFORE_IDX] = vec3(vx_before.x, vx_before.y, vx_before.z);
             has_overlap_before = true;
         }
-        
+
         // Load overlap vertex AFTER this chunk (for last point miter)
         if (!is_last_chunk && seg_end < num_segments) {
             uint vi_after = base_v_idx + seg_end + 1u;
@@ -1035,7 +1035,7 @@ void main() {
             s_world_pos[OVERLAP_AFTER_IDX] = vec3(vx_after.x, vx_after.y, vx_after.z);
             has_overlap_after = true;
         }
-        
+
         // Generate body points for this chunk's segments
         for (uint seg_idx = 0u; seg_idx < num_segs_in_chunk; seg_idx++) {
             uint global_seg = seg_start + seg_idx;
@@ -1045,10 +1045,10 @@ void main() {
             Vertex vx1 = g_vertices[vi1];
             vec3 p0 = vec3(vx0.x, vx0.y, vx0.z);
             vec3 p1 = vec3(vx1.x, vx1.y, vx1.z);
-            
+
             // Compute distortion error for this segment
             float error = estimate_edge_distortion_pixels_mat4(p0, p1, pose.world_to_camera, cam);
-            
+
             // Determine subdivision level based on error threshold
             // Max level 4 = 16 subsegments, 3 segs * 16 = 48 subsegments = 49 points
             uint subdiv_level = 0u;
@@ -1058,56 +1058,56 @@ void main() {
             if (tess_thresh > 0.0 && error > tess_thresh * 16.0) subdiv_level = 3u;
             if (tess_thresh > 0.0 && error > tess_thresh * 64.0) subdiv_level = 4u;
             subdiv_level = min(subdiv_level, pc.u_max_tessellation_polyline);
-            
+
             uint num_subsegments = 1u << subdiv_level;
-            
+
             // First point: only if this is the first segment in chunk
             if (seg_idx == 0u) {
                 s_world_pos[eff_point_count] = p0;
                 eff_point_count++;
             }
-            
+
             // Interior and end points
             for (uint sub_i = 1u; sub_i <= num_subsegments; sub_i++) {
                 float t = float(sub_i) / float(num_subsegments);
                 vec3 world_pos = mix(p0, p1, t);
                 s_world_pos[eff_point_count] = world_pos;
                 eff_point_count++;
-                
+
                 if (eff_point_count >= 50u) break;  // 49 segments max = 98 verts + caps < 128
             }
-            
+
             if (eff_point_count >= 50u) break;
         }
-        
+
         // Store counts and flags via shared memory at COUNTER_IDX
         s_clip_pos[COUNTER_IDX].x = float(eff_point_count);
         s_clip_pos[COUNTER_IDX].y = has_overlap_before ? 1.0 : 0.0;
         s_clip_pos[COUNTER_IDX].z = has_overlap_after ? 1.0 : 0.0;
     }
-    
+
     barrier();
-    
+
     uint num_eff_points = uint(s_clip_pos[COUNTER_IDX].x);
     bool use_overlap_before = (s_clip_pos[COUNTER_IDX].y > 0.5);
     bool use_overlap_after = (s_clip_pos[COUNTER_IDX].z > 0.5);
-    
+
     // 128 verts / 2 verts per point = 64 points max, minus caps = ~60 points
     // Use 50 for safety margin with overlap vertices
     num_eff_points = min(num_eff_points, 50u);
-    
+
     if (num_eff_points < 2u) {
         _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
         return;
     }
-    
+
     // Phase 2: Project all points - pass raw values to GPU, no clamping
     // Loop to handle more points than threads (33 points, 32 threads)
     for (uint pt = tid; pt < num_eff_points; pt += 32u) {
         vec3 world_pos = s_world_pos[pt];
         vec4 clip = ftheta_project(world_pos, pose, cam);
         s_clip_pos[pt] = clip;
-        
+
         // Screen position for direction calculation
         float w = clip.w;
         if (abs(w) < 1e-6) w = 1e-6;  // Only prevent division by zero
@@ -1116,14 +1116,14 @@ void main() {
             (0.5 - clip.y / w * 0.5) * cam.img_h
         );
     }
-    
+
     barrier();
-    
+
     // SHARED MITER VERTICES: 2 vertices per point (left, right)
     // Segment i uses vertices from points i and i+1 (shared at joints)
     // No joint triangles needed since vertices are shared
     uint num_eff_segs = num_eff_points - 1u;
-    
+
     // Caps: 4-triangle semicircles for round line ends and to hide chunk seams
     // Each cap: 4 new vertices (center + 3 arc points), 4 triangles
     // Draw caps at ALL chunk boundaries to hide gaps between chunks
@@ -1131,20 +1131,20 @@ void main() {
     bool draw_end_cap = true;     // Always draw end cap (for polyline end or chunk seam)
     uint num_cap_verts = (draw_start_cap ? 4u : 0u) + (draw_end_cap ? 4u : 0u);
     uint num_cap_tris = (draw_start_cap ? 4u : 0u) + (draw_end_cap ? 4u : 0u);
-    
+
     // Vertex layout:
     // [0, 2*num_eff_points-1]: point vertices (left, right per point)
     // [2*num_eff_points, ...]: cap vertices (if any)
     uint point_verts_end = num_eff_points * 2u;
     uint start_cap_base = point_verts_end;  // center, arc1, arc2, arc3
     uint end_cap_base = start_cap_base + (draw_start_cap ? 4u : 0u);
-    
+
     uint num_verts = point_verts_end + num_cap_verts;
     uint num_tris = num_eff_segs * 2u + num_cap_tris;
-    
+
     // With 3 segs × level 4 = 49 points = 48 segs × 2 + 8 caps = 104 tris max
     _prim_count = min(num_tris, 120u); SetMeshOutputsEXT(num_verts, _prim_count);
-    
+
     // Phase 3: Generate point vertices (2 per point) WITH MITER JOINS
     // Point i: vertices [2*i, 2*i+1] = [left, right]
     // Vertices are shared between adjacent segments
@@ -1152,21 +1152,21 @@ void main() {
     for (uint pt = tid; pt < num_eff_points; pt += 32u) {
         vec4 clip = s_clip_pos[pt];
         vec2 screen = s_screen_pos[pt];
-        
+
         // For miter direction calculation, we need stable screen positions
         // If an adjacent point has bad w (off-screen), use binary search to find
         // a closer point with good w for direction calculation
         float w_min = 1.0;
-        
+
         // Get directions to adjacent points for miter calculation in SCREEN SPACE
         vec2 dir_prev = vec2(0.0);
         vec2 dir_next = vec2(0.0);
         bool has_prev = (pt > 0u);
         bool has_next = (pt < num_eff_points - 1u);
-        
+
         vec2 screen_for_dir = screen;
         vec4 clip_curr = clip;
-        
+
         // If current point has bad w, clamp it for direction calculation
         if (clip_curr.w < w_min && pt > 0u && s_clip_pos[pt - 1u].w >= w_min) {
             // Binary search toward prev point to find good w
@@ -1195,7 +1195,7 @@ void main() {
             screen_for_dir = vec2((clamped.x / w_c * 0.5 + 0.5) * cam.img_w,
                                    (0.5 - clamped.y / w_c * 0.5) * cam.img_h);
         }
-        
+
         if (has_prev) {
             vec2 screen_prev = s_screen_pos[pt - 1u];
             // If prev point has bad w, use clamped position for direction
@@ -1236,11 +1236,11 @@ void main() {
             float len = length(d);
             if (len > 0.001) dir_next = d / len;
         }
-        
+
         // Compute miter direction and scale in screen space
         vec2 miter;
         float miter_scale = 1.0;
-        
+
         if (has_prev && has_next && length(dir_prev) > 0.001 && length(dir_next) > 0.001) {
             // Interior point: average perpendiculars
             vec2 perp_prev = vec2(-dir_prev.y, dir_prev.x);
@@ -1265,20 +1265,20 @@ void main() {
             // Degenerate case
             miter = vec2(1.0, 0.0);
         }
-        
+
         // Compute offset: screen-space miter direction, scaled to clip space
         // Apply distance-based width scaling (thinner lines in distance)
         float depth_scale = get_depth_scale(clip);
         float scaled_half_width = half_width * depth_scale;
-        
+
         float off_x = miter.x * scaled_half_width * miter_scale * 2.0 / cam.img_w * clip.w;
         float off_y = -miter.y * scaled_half_width * miter_scale * 2.0 / cam.img_h * clip.w;
-        
+
         uint base = pt * 2u;
         gl_MeshVerticesEXT[base].gl_Position = vec4(clip.x - off_x, clip.y - off_y, clip.z, clip.w);
         gl_MeshVerticesEXT[base + 1u].gl_Position = vec4(clip.x + off_x, clip.y + off_y, clip.z, clip.w);
     }
-    
+
     // Generate cap vertices (first thread only)
     // Cap is a 4-triangle semicircle fan from center through arc points
     // Arc goes from right edge, around the back, to left edge
@@ -1288,80 +1288,80 @@ void main() {
             vec4 clip0 = s_clip_pos[0u];
             vec2 screen0 = s_screen_pos[0u];
             vec2 screen1 = s_screen_pos[1u];
-            
+
             // Line direction and perpendicular
             vec2 line_dir = normalize(screen1 - screen0);
             vec2 perp = vec2(-line_dir.y, line_dir.x);
-            
+
             // Cap center is at the first point (no offset)
             gl_MeshVerticesEXT[start_cap_base].gl_Position = clip0;
-            
+
             // Arc points at 45°, 90°, 135° from right to left (going backward)
             // right = +perp, backward = -line_dir, left = -perp
             // 45°: mix of +perp and -line_dir
             // 90°: pure -line_dir
             // 135°: mix of -perp and -line_dir
             float angles[3] = float[3](0.7854, 1.5708, 2.3562);  // 45°, 90°, 135° in radians
-            
+
             // Apply depth-based width scaling for cap
             float cap0_depth_scale = get_depth_scale(clip0);
             float cap0_scaled_half_width = half_width * cap0_depth_scale;
-            
+
             for (int i = 0; i < 3; i++) {
                 float a = angles[i];
                 // Direction: rotate from +perp toward -line_dir
                 vec2 arc_dir = cos(a) * perp + sin(a) * (-line_dir);
-                
+
                 float arc_off_x = arc_dir.x * cap0_scaled_half_width * 2.0 / cam.img_w * clip0.w;
                 float arc_off_y = -arc_dir.y * cap0_scaled_half_width * 2.0 / cam.img_h * clip0.w;
-                
-                gl_MeshVerticesEXT[start_cap_base + 1u + uint(i)].gl_Position = 
+
+                gl_MeshVerticesEXT[start_cap_base + 1u + uint(i)].gl_Position =
                     vec4(clip0.x + arc_off_x, clip0.y + arc_off_y, clip0.z, clip0.w);
             }
         }
-        
+
         // End cap: at last point, semicircle facing forward (in line direction)
         if (draw_end_cap && num_eff_points >= 2u) {
             uint last_pt = num_eff_points - 1u;
             vec4 clipN = s_clip_pos[last_pt];
             vec2 screenN = s_screen_pos[last_pt];
             vec2 screenN1 = s_screen_pos[last_pt - 1u];
-            
+
             // Line direction (from second-to-last toward last)
             vec2 line_dir = normalize(screenN - screenN1);
             vec2 perp = vec2(-line_dir.y, line_dir.x);
-            
+
             // Cap center is at the last point
             gl_MeshVerticesEXT[end_cap_base].gl_Position = clipN;
-            
+
             // Arc points at 45°, 90°, 135° from left to right (going forward)
             // left = -perp, forward = +line_dir, right = +perp
             float angles[3] = float[3](0.7854, 1.5708, 2.3562);
-            
+
             // Apply depth-based width scaling for cap
             float capN_depth_scale = get_depth_scale(clipN);
             float capN_scaled_half_width = half_width * capN_depth_scale;
-            
+
             for (int i = 0; i < 3; i++) {
                 float a = angles[i];
                 // Direction: rotate from -perp toward +line_dir
                 vec2 arc_dir = cos(a) * (-perp) + sin(a) * line_dir;
-                
+
                 float arc_off_x = arc_dir.x * capN_scaled_half_width * 2.0 / cam.img_w * clipN.w;
                 float arc_off_y = -arc_dir.y * capN_scaled_half_width * 2.0 / cam.img_h * clipN.w;
-                
-                gl_MeshVerticesEXT[end_cap_base + 1u + uint(i)].gl_Position = 
+
+                gl_MeshVerticesEXT[end_cap_base + 1u + uint(i)].gl_Position =
                     vec4(clipN.x + arc_off_x, clipN.y + arc_off_y, clipN.z, clipN.w);
             }
         }
     }
-    
+
     // Phase 4: Set triangle indices (first thread only)
     // SHARED VERTICES: segment i uses vertices from point i and point i+1
     // Point i: vertices [2*i, 2*i+1] = [left, right]
     if (tid == 0u) {
         uint tri_idx = 0u;
-        
+
         // Segment triangles: each segment uses 4 vertices from 2 adjacent points
         // Segment i (points i, i+1): left0=2*i, right0=2*i+1, left1=2*(i+1), right1=2*(i+1)+1
         for (uint seg = 0u; seg < num_eff_segs; seg++) {
@@ -1369,18 +1369,18 @@ void main() {
             uint right0 = seg * 2u + 1u;
             uint left1 = (seg + 1u) * 2u;
             uint right1 = (seg + 1u) * 2u + 1u;
-            
+
             // Triangle 1: left0, right0, left1
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(left0, right0, left1);
             tri_idx++;
-            
+
             // Triangle 2: right0, right1, left1
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(right0, right1, left1);
             tri_idx++;
         }
-        
+
         // No joint triangles needed - vertices are shared!
-        
+
         // Start cap triangles: fan from center through arc points
         // Vertices: right(1), arc1, arc2, arc3, left(0)
         // center = start_cap_base, arc1/2/3 = start_cap_base + 1/2/3
@@ -1391,24 +1391,24 @@ void main() {
             uint arc1 = start_cap_base + 1u;
             uint arc2 = start_cap_base + 2u;
             uint arc3 = start_cap_base + 3u;
-            
+
             // Triangle 1: center, right_edge, arc1
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, right_edge, arc1);
             tri_idx++;
-            
+
             // Triangle 2: center, arc1, arc2
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc1, arc2);
             tri_idx++;
-            
+
             // Triangle 3: center, arc2, arc3
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc2, arc3);
             tri_idx++;
-            
+
             // Triangle 4: center, arc3, left_edge
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc3, left_edge);
             tri_idx++;
         }
-        
+
         // End cap triangles: fan from center through arc points
         // Vertices: left(2*(n-1)), arc1, arc2, arc3, right(2*(n-1)+1)
         if (draw_end_cap) {
@@ -1419,24 +1419,24 @@ void main() {
             uint arc1 = end_cap_base + 1u;
             uint arc2 = end_cap_base + 2u;
             uint arc3 = end_cap_base + 3u;
-            
+
             // Triangle 1: center, left_edge, arc1
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, left_edge, arc1);
             tri_idx++;
-            
+
             // Triangle 2: center, arc1, arc2
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc1, arc2);
             tri_idx++;
-            
+
             // Triangle 3: center, arc2, arc3
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc2, arc3);
             tri_idx++;
-            
+
             // Triangle 4: center, arc3, right_edge
             gl_PrimitiveTriangleIndicesEXT[tri_idx] = uvec3(center, arc3, right_edge);
             tri_idx++;
         }
-        
+
         // Set all primitives to layer matching query_id and uniform color
         for (uint i = 0u; i < _prim_count; i++) {
             gl_MeshPrimitivesEXT[i].gl_Layer = int(payload.query_id);

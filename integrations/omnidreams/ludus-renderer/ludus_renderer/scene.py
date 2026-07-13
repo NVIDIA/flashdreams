@@ -24,7 +24,7 @@ a ClipgtGpuScene with:
 
 Example:
     from ludus_renderer import load_clipgt_scene
-    
+
     scene = load_clipgt_scene("/path/to/clipgt/scene", device="cuda")
     renderer.upload_scene(scene.timestamped_scene)
 """
@@ -32,9 +32,9 @@ Example:
 # Re-export from clipgt for convenience
 from .clipgt import (
     ClipgtGpuScene,
-    load_clipgt_scene,
-    load_av2_scene,
     EgoTrackData,
+    load_av2_scene,
+    load_clipgt_scene,
 )
 
 __all__ = [

@@ -163,7 +163,7 @@ bool is_dot_primitive(uint prim_type_id) {
 float get_prim_width(uint prim_type_id, uint camera_type_id) {
     bool is_bev = (camera_type_id == CAMERA_TYPE_BEV);
     float scale = (pc.u_resolution_scale > 0.0) ? pc.u_resolution_scale : 1.0;
-    
+
     float base_width;
     if (prim_type_id == PRIM_EGO_TRAJECTORY) {
         float default_w = is_bev ? DEFAULT_WIDTH_EGO_TRAJ_BEV : DEFAULT_WIDTH_EGO_TRAJ_REGULAR;
@@ -364,15 +364,15 @@ layout(std430, binding = 13) readonly buffer QueryBuffer {
 
 int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
     if (count == 0u) return -1;
-    
+
     int left = 0;
     int right = int(count) - 1;
     int result = -1;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t val = g_timestamps[base_offset + uint(mid)];
-        
+
         if (val <= target) {
             result = mid;
             left = mid + 1;
@@ -380,7 +380,7 @@ int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
             right = mid - 1;
         }
     }
-    
+
     return result;
 }
 
@@ -407,21 +407,21 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
         q1 = -q1;
         d = -d;
     }
-    
+
     // If quaternions are very close, use linear interpolation
     if (d > 0.9995) {
         return quat_normalize(mix(q0, q1, t));
     }
-    
+
     // Spherical interpolation
     float theta_0 = acos(clamp(d, -1.0, 1.0));
     float theta = theta_0 * t;
     float sin_theta = sin(theta);
     float sin_theta_0 = sin(theta_0);
-    
+
     float s0 = cos(theta) - d * sin_theta / sin_theta_0;
     float s1 = sin_theta / sin_theta_0;
-    
+
     return quat_normalize(s0 * q0 + s1 * q1);
 }
 
@@ -429,12 +429,12 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
 // GLSL mat3 is column-major: mat3(col0, col1, col2)
 mat3 quat_to_matrix(vec4 q) {
     float x = q.x, y = q.y, z = q.z, w = q.w;
-    
+
     float x2 = x + x, y2 = y + y, z2 = z + z;
     float xx = x * x2, xy = x * y2, xz = x * z2;
     float yy = y * y2, yz = y * z2, zz = z * z2;
     float wx = w * x2, wy = w * y2, wz = w * z2;
-    
+
     // Column 0: (R00, R10, R20), Column 1: (R01, R11, R21), Column 2: (R02, R12, R22)
     return mat3(
         1.0 - (yy + zz), xy + wz, xz - wy,   // Column 0
@@ -446,7 +446,7 @@ mat3 quat_to_matrix(vec4 q) {
 // Build 4x4 transform from translation and quaternion (with scale)
 mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
     mat3 rot = quat_to_matrix(quaternion);
-    
+
     // Apply scale to each column of rotation matrix
     mat4 result = mat4(
         vec4(rot[0] * scale.x, 0.0),
@@ -454,7 +454,7 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
         vec4(rot[2] * scale.z, 0.0),
         vec4(translation, 1.0)
     );
-    
+
     return result;
 }
 
@@ -462,22 +462,22 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
 // Returns -1 if target is outside the track range
 int binary_search_track(uint base_offset, uint count, int64_t target) {
     if (count < 2u) return -1;  // Need at least 2 points for interpolation
-    
+
     int64_t first_ts = g_timestamps[base_offset];
     int64_t last_ts = g_timestamps[base_offset + count - 1u];
-    
+
     // Check bounds
     if (target < first_ts || target > last_ts) return -1;
-    
+
     int left = 0;
     int right = int(count) - 2;  // Max valid index for interpolation start
     int result = 0;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t t0 = g_timestamps[base_offset + uint(mid)];
         int64_t t1 = g_timestamps[base_offset + uint(mid) + 1u];
-        
+
         if (t0 <= target && target <= t1) {
             return mid;
         } else if (target < t0) {
@@ -486,7 +486,7 @@ int binary_search_track(uint base_offset, uint count, int64_t target) {
             left = mid + 1;
         }
     }
-    
+
     return -1;  // Should not reach here for valid input
 }
 
@@ -530,16 +530,16 @@ vec3 rotate_rodrigues(vec3 v, vec3 r) {
 vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
     vec3 cam_pt = (pose.world_to_camera * vec4(world_pos, 1.0)).xyz;
     float depth = cam_pt.z;
-    
+
     float ray_norm = length(cam_pt);
-    
+
     // Handle points at camera origin
     if (ray_norm < 1e-6) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    
+
     float half_pi = 1.5707963;  // π/2
-    
+
     // For cameras with FOV <= 180° (max_ray_angle <= π/2), points behind camera should be clipped
     // Use pseudo-pinhole projection to push them far away in the correct direction
     if (cam.max_ray_angle <= half_pi && depth < 0.001) {
@@ -548,35 +548,35 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         float y_clip = -cam_pt.y * pseudo_focal / (cam.img_h * 0.5);
         return vec4(x_clip * 10.0, y_clip * 10.0, 1.0, 1.0);  // Scale by 10 to push far outside
     }
-    
+
     float xy_norm = length(cam_pt.xy);
     float cos_alpha = clamp(cam_pt.z / ray_norm, -1.0, 1.0);
     float alpha = acos(cos_alpha);  // alpha in [0, π]
-    
+
     // Apply polynomial projection (with linear extrapolation beyond max_ray_angle)
     float a2 = alpha * alpha;
     float a3 = a2 * alpha;
     float a4 = a2 * a2;
     float a5 = a4 * alpha;
-    
+
     float delta = cam.poly0 + cam.poly1 * alpha + cam.poly2 * a2 +
                   cam.poly3 * a3 + cam.poly4 * a4 + cam.poly5 * a5;
     if (alpha > cam.max_ray_angle) {
         delta = cam.max_distortion_val + (alpha - cam.max_ray_angle) * cam.max_distortion_dval;
     }
-    
+
     float scale = (xy_norm > 1e-6) ? (delta / xy_norm) : 0.0;
     vec2 pixel_rel = scale * cam_pt.xy;
-    
+
     vec2 pixel_dist;
     pixel_dist.x = cam.ld_c * pixel_rel.x + cam.ld_d * pixel_rel.y;
     pixel_dist.y = cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y;
-    
+
     vec2 pixel = pixel_dist + vec2(cam.cx, cam.cy);
-    
+
     float x_ndc = 2.0 * pixel.x / cam.img_w - 1.0;
     float y_ndc = 1.0 - 2.0 * pixel.y / cam.img_h;
-    
+
     // For z-buffer depth mapping:
     // - Narrow FOV (<=180°): use signed depth (cam_pt.z)
     // - Wide FOV (>180°): use ray_norm for front-camera vertices (unchanged),
@@ -589,7 +589,7 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         z_value = depth;
     }
     float z_ndc = clamp(z_value / cam.depth_max, 0.0, 1.0);
-    
+
     return vec4(x_ndc, y_ndc, z_ndc, 1.0);
 }
 
@@ -600,15 +600,15 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
     vec3 cam_pt1 = (world_to_cam * vec4(v1, 1.0)).xyz;
     vec3 mid_world = (v0 + v1) * 0.5;
     vec3 cam_pt_mid = (world_to_cam * vec4(mid_world, 1.0)).xyz;
-    
+
     // Just clamp depths to avoid division issues
-    
+
     // For segments in front of camera, compute f-theta projection error directly
     // Use depth-clamped projection to handle near-plane cases
     float depth0 = max(cam_pt0.z, 0.001);
     float depth1 = max(cam_pt1.z, 0.001);
     float depth_mid = max(cam_pt_mid.z, 0.001);
-    
+
     // Compute f-theta projection for each point
     // We inline the projection to avoid struct-passing issues
     vec2 pixel0, pixel1, pixel_mid;
@@ -663,18 +663,18 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
                                cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y);
         pixel_mid = pixel_dist + vec2(cam.cx, cam.cy);
     }
-    
+
     // Compute error: distance from projected midpoint to linear interpolation
     vec2 linear_pixel_mid = (pixel0 + pixel1) * 0.5;
     float error_pixels = length(pixel_mid - linear_pixel_mid);
-    
+
     // Clamp to reasonable range to handle edge cases
     return clamp(error_pixels, 0.0, 10000.0);
 }
 
 uint compute_subdivision_level(vec3 v0, vec3 v1, CameraPose pose, FThetaCamera cam, float threshold_pixels) {
     float error = estimate_edge_distortion_pixels_mat4(v0, v1, pose.world_to_camera, cam);
-    
+
     if (error < threshold_pixels) return 0u;
     if (error < threshold_pixels * 2.0) return 1u;
     if (error < threshold_pixels * 4.0) return 2u;
@@ -759,7 +759,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         if (t < 7u) {
             row = 0u;
             if (t < 4u) { col = t; is_down = false; }
@@ -777,7 +777,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 3u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -795,7 +795,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         // Row 0: 8 up + 7 down = 15, Row 1: 7 up + 6 down = 13, etc.
         if (t < 15u) {
             row = 0u;
@@ -828,7 +828,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 7u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -878,14 +878,14 @@ void main() {
     uint chunk_id = gl_WorkGroupID.x;
     uint subdiv = payload.subdivision_level;
     uint tid = gl_LocalInvocationID.x;
-    
+
     RenderQuery query = g_queries[payload.query_id];
     TimestampedScene scene = g_scenes[query.scene_id];
     TimestampedPolygonPool pool = g_polygon_pools[scene.polygon_pools_offset + payload.pool_id];
-    
+
     FThetaCamera cam = g_camera_intrinsics[query.camera_id];
     CameraPose pose = g_camera_poses[payload.query_id];
-    
+
     // Get triangle/vertex ranges for this polygon
     uint tri_start = 0u;
     if (payload.varray_idx > 0u) {
@@ -893,41 +893,41 @@ void main() {
     }
     uint tri_end = uint(g_int32[scene.int32_buffer_offset + pool.tri_ps_offset + payload.varray_idx]);
     uint total_tris = tri_end - tri_start;
-    
+
     uint v_start = 0u;
     if (payload.varray_idx > 0u) {
         v_start = uint(g_int32[scene.int32_buffer_offset + pool.varrays_ps_offset + payload.varray_idx - 1u]);
     }
-    
+
     uint base_v_idx = scene.vertex_buffer_offset + pool.vertices_offset + v_start;
     uint base_t_idx = scene.triangle_buffer_offset + pool.triangles_offset + tri_start;
-    
+
     const uint CHUNK_SIZE = 8u;       // Conservative chunking
     const uint MAX_SHARED_VERTS = 30u;  // Match original
-    
+
     if (subdiv == 0u && payload.vertex_count <= MAX_SHARED_VERTS && chunk_id == 0u) {
         // ===== NO SUBDIVISION, SHARED VERTEX MODE (small polygons) =====
         uint num_verts = min(payload.vertex_count, 30u);
         uint num_tris = min(total_tris, 28u);
-        
+
         _prim_count = num_tris; SetMeshOutputsEXT(num_verts, _prim_count);
-        
+
         if (tid < num_verts) {
             Vertex vtx = g_vertices[base_v_idx + tid];
             vec3 world_pos = vec3(vtx.x, vtx.y, vtx.z);
-            
+
             vec4 clip = ftheta_project(world_pos, pose, cam);
             gl_MeshVerticesEXT[tid].gl_Position = clip;
         }
-        
+
         barrier();
-        
+
         if (tid < num_tris) {
             uvec3 tri = g_triangles[base_t_idx + tid];
-            
+
             uint base = tid * 3u;
             gl_PrimitiveTriangleIndicesEXT[(base) / 3u] = uvec3(tri.x, tri.y, tri.z);
-            
+
             gl_MeshPrimitivesEXT[tid].gl_Layer = int(payload.query_id);
             prim_out[tid].color = payload.color;
             prim_out[tid].is_bev = payload.is_bev;
@@ -936,48 +936,48 @@ void main() {
         // ===== LEVEL 1 SUBDIVISION: 4 sub-triangles per triangle =====
         uint verts_per_tri = bary_vertex_count(1u);  // 6
         uint tris_per_tri = bary_triangle_count(1u);  // 4
-        
+
         uint tris_per_chunk = 5u;  // Original value
         uint chunk_start = chunk_id * tris_per_chunk;
         uint chunk_end = min(chunk_start + tris_per_chunk, total_tris);
         uint num_orig_tris = chunk_end - chunk_start;
-        
+
         if (num_orig_tris == 0u) {
             _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
             return;
         }
-        
+
         uint num_out_verts = num_orig_tris * verts_per_tri;
         uint num_out_tris = num_orig_tris * tris_per_tri;
         _prim_count = num_out_tris; SetMeshOutputsEXT(num_out_verts, _prim_count);
-        
+
         if (tid < num_orig_tris) {
             uvec3 tri = g_triangles[base_t_idx + chunk_start + tid];
-            
+
             Vertex v0_data = g_vertices[base_v_idx + tri.x];
             Vertex v1_data = g_vertices[base_v_idx + tri.y];
             Vertex v2_data = g_vertices[base_v_idx + tri.z];
-            
+
             vec3 v0 = vec3(v0_data.x, v0_data.y, v0_data.z);
             vec3 v1 = vec3(v1_data.x, v1_data.y, v1_data.z);
             vec3 v2 = vec3(v2_data.x, v2_data.y, v2_data.z);
-            
+
             uint vert_base = tid * verts_per_tri;
             for (uint i = 0u; i < verts_per_tri; i++) {
                 vec2 uv = bary_vertex_uv(i, 1u);
                 vec3 pt = bary_interpolate(v0, v1, v2, uv);
-                
+
                 vec4 clip = ftheta_project(pt, pose, cam);
                 gl_MeshVerticesEXT[vert_base + i].gl_Position = clip;
             }
         }
-        
+
         barrier();
-        
+
         if (tid < num_orig_tris) {
             uint vert_base = tid * verts_per_tri;
             uint tri_base = tid * tris_per_tri;
-            
+
             for (uint t = 0u; t < tris_per_tri; t++) {
                 uvec3 idx = bary_triangle_indices(t, 1u);
                 uint idx_base = (tri_base + t) * 3u;
@@ -993,45 +993,45 @@ void main() {
         uint chunk_start = chunk_id * TRIS_PER_CHUNK;
         uint chunk_end = min(chunk_start + TRIS_PER_CHUNK, total_tris);
         uint num_orig_tris = chunk_end - chunk_start;
-        
+
         if (num_orig_tris == 0u) {
             _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
             return;
         }
-        
+
         uint num_out_verts = num_orig_tris * 15u;
         _prim_count = num_orig_tris * 16u; SetMeshOutputsEXT(num_out_verts, _prim_count);
-        
+
         uint tri_local = tid / 16u;
         uint vert_local = tid % 16u;
-        
+
         if (tri_local < num_orig_tris && vert_local < 15u) {
             uvec3 tri = g_triangles[base_t_idx + chunk_start + tri_local];
-            
+
             Vertex v0_data = g_vertices[base_v_idx + tri.x];
             Vertex v1_data = g_vertices[base_v_idx + tri.y];
             Vertex v2_data = g_vertices[base_v_idx + tri.z];
-            
+
             vec3 v0 = vec3(v0_data.x, v0_data.y, v0_data.z);
             vec3 v1 = vec3(v1_data.x, v1_data.y, v1_data.z);
             vec3 v2 = vec3(v2_data.x, v2_data.y, v2_data.z);
-            
+
             vec2 uv = bary_vertex_uv(vert_local, 2u);
             vec3 pt = bary_interpolate(v0, v1, v2, uv);
-            
+
             vec4 clip = ftheta_project(pt, pose, cam);
             uint vert_idx = tri_local * 15u + vert_local;
             gl_MeshVerticesEXT[vert_idx].gl_Position = clip;
         }
-        
+
         barrier();
-        
+
         if (tri_local < num_orig_tris && vert_local < 16u) {
             uint vert_base = tri_local * 15u;
             uint tri_out_idx = tri_local * 16u + vert_local;
-            
+
             uvec3 idx = bary_triangle_indices(vert_local, 2u);
-            
+
             uint idx_base = tri_out_idx * 3u;
             gl_PrimitiveTriangleIndicesEXT[(idx_base) / 3u] = uvec3(vert_base + idx.x, vert_base + idx.y, vert_base + idx.z);
             gl_MeshPrimitivesEXT[tri_out_idx].gl_Layer = int(payload.query_id);
@@ -1043,14 +1043,14 @@ void main() {
         // 1 original triangle per chunk (45 verts, 64 output tris)
         const uint TRIS_PER_CHUNK = 1u;
         uint chunk_start = chunk_id * TRIS_PER_CHUNK;
-        
+
         if (chunk_start >= total_tris) {
             _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
             return;
         }
-        
+
         _prim_count = 64u; SetMeshOutputsEXT(45u, _prim_count);
-        
+
         // Load the single triangle for this chunk
         uvec3 tri = g_triangles[base_t_idx + chunk_start];
         Vertex v0_data = g_vertices[base_v_idx + tri.x];
@@ -1059,7 +1059,7 @@ void main() {
         vec3 v0 = vec3(v0_data.x, v0_data.y, v0_data.z);
         vec3 v1 = vec3(v1_data.x, v1_data.y, v1_data.z);
         vec3 v2 = vec3(v2_data.x, v2_data.y, v2_data.z);
-        
+
         // Each thread handles ~2 vertices (45 verts / 32 threads)
         for (uint v = tid; v < 45u; v += 32u) {
             vec2 uv = bary_vertex_uv(v, 3u);
@@ -1067,9 +1067,9 @@ void main() {
             vec4 clip = ftheta_project(pt, pose, cam);
             gl_MeshVerticesEXT[v].gl_Position = clip;
         }
-        
+
         barrier();
-        
+
         // Each thread handles 2 triangles (64 tris / 32 threads)
         for (uint t = tid; t < 64u; t += 32u) {
             uvec3 idx = bary_triangle_indices(t, 3u);
@@ -1084,35 +1084,35 @@ void main() {
         uint chunk_start = chunk_id * CHUNK_SIZE;
         uint chunk_end = min(chunk_start + CHUNK_SIZE, total_tris);
         uint num_orig_tris = chunk_end - chunk_start;
-        
+
         if (num_orig_tris == 0u) {
             _prim_count = 0u; SetMeshOutputsEXT(0u, _prim_count);
             return;
         }
-        
+
         uint num_out_verts = num_orig_tris * 3u;
         _prim_count = num_orig_tris; SetMeshOutputsEXT(num_out_verts, _prim_count);
-        
+
         if (tid < num_orig_tris) {
             uvec3 tri = g_triangles[base_t_idx + chunk_start + tid];
-            
+
             Vertex v0_data = g_vertices[base_v_idx + tri.x];
             Vertex v1_data = g_vertices[base_v_idx + tri.y];
             Vertex v2_data = g_vertices[base_v_idx + tri.z];
-            
+
             vec3 v0 = vec3(v0_data.x, v0_data.y, v0_data.z);
             vec3 v1 = vec3(v1_data.x, v1_data.y, v1_data.z);
             vec3 v2 = vec3(v2_data.x, v2_data.y, v2_data.z);
-            
+
             uint vert_base = tid * 3u;
-            
+
             vec4 clip0 = ftheta_project(v0, pose, cam);
             vec4 clip1 = ftheta_project(v1, pose, cam);
             vec4 clip2 = ftheta_project(v2, pose, cam);
             gl_MeshVerticesEXT[vert_base + 0u].gl_Position = clip0;
             gl_MeshVerticesEXT[vert_base + 1u].gl_Position = clip1;
             gl_MeshVerticesEXT[vert_base + 2u].gl_Position = clip2;
-            
+
             uint idx_base = tid * 3u;
             gl_PrimitiveTriangleIndicesEXT[(idx_base) / 3u] = uvec3(vert_base + 0u, vert_base + 1u, vert_base + 2u);
             gl_MeshPrimitivesEXT[tid].gl_Layer = int(payload.query_id);

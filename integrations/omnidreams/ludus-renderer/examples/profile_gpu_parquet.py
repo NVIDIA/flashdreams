@@ -29,8 +29,9 @@ Usage (on GPU node):
 
 import os
 import time
-import torch
+
 import numpy as np
+import torch
 
 TAR_PATH = os.environ.get(
     "LUDUS_RENDERER_SAMPLE_TAR",
@@ -50,9 +51,14 @@ def profile_step(label, fn):
 
 def main():
     from ludus_renderer.gpu_parquet import (
-        read_tar_to_pinned_buffer, scan_parquet_pages, batch_decompress_pages,
-        decode_data_pages_gpu, rep_levels_to_offsets_gpu,
-        POLYLINE_SPECS, PageInfo, GpuParquetDecoder,
+        POLYLINE_SPECS,
+        GpuParquetDecoder,
+        PageInfo,
+        batch_decompress_pages,
+        decode_data_pages_gpu,
+        read_tar_to_pinned_buffer,
+        rep_levels_to_offsets_gpu,
+        scan_parquet_pages,
     )
 
     device = torch.device("cuda")
@@ -79,20 +85,22 @@ def main():
         torch.cuda.synchronize()
         times.append((time.perf_counter() - t0) * 1000)
 
-    print(f"  load_scene (decoder):  {np.mean(times):.2f} +/- {np.std(times):.2f} ms  "
-          f"(min={min(times):.2f}, max={max(times):.2f})")
+    print(
+        f"  load_scene (decoder):  {np.mean(times):.2f} +/- {np.std(times):.2f} ms  "
+        f"(min={min(times):.2f}, max={max(times):.2f})"
+    )
 
     # ==== 2. Per-step breakdown ====
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("2. Per-step breakdown (single file, post-warmup)")
     print("   NOTE: forced sync between steps inflates sum vs pipelined total")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     pinned, entries = profile_step(
         "a. read_tar_to_pinned_buffer (CPU I/O)",
         lambda: read_tar_to_pinned_buffer(TAR_PATH),
     )
-    print(f"     tar: {len(pinned)/1024/1024:.2f} MB, {len(entries)} entries")
+    print(f"     tar: {len(pinned) / 1024 / 1024:.2f} MB, {len(entries)} entries")
 
     gpu_buffer = profile_step(
         "b. pinned -> GPU upload",
@@ -107,7 +115,7 @@ def main():
     pq_name = "cf_road_boundary.parquet"
     spec = POLYLINE_SPECS[pq_name]
     entry = entry_map[pq_name]
-    pq_bytes = pinned[entry.offset:entry.offset + entry.size].numpy().tobytes()
+    pq_bytes = pinned[entry.offset : entry.offset + entry.size].numpy().tobytes()
 
     columns_needed = [spec.x_path, spec.y_path, spec.z_path, spec.ts_path]
     page_index = profile_step(
@@ -120,20 +128,24 @@ def main():
     for col_path in columns_needed:
         col = page_index.columns[col_path]
         if col.dict_page is not None:
-            all_pages.append(PageInfo(
-                page_type=col.dict_page.page_type,
-                data_offset=col.dict_page.data_offset + entry.offset,
-                compressed_size=col.dict_page.compressed_size,
-                uncompressed_size=col.dict_page.uncompressed_size,
-            ))
+            all_pages.append(
+                PageInfo(
+                    page_type=col.dict_page.page_type,
+                    data_offset=col.dict_page.data_offset + entry.offset,
+                    compressed_size=col.dict_page.compressed_size,
+                    uncompressed_size=col.dict_page.uncompressed_size,
+                )
+            )
             page_labels.append((col_path, "dict"))
         for i, dp in enumerate(col.data_pages):
-            all_pages.append(PageInfo(
-                page_type=dp.page_type,
-                data_offset=dp.data_offset + entry.offset,
-                compressed_size=dp.compressed_size,
-                uncompressed_size=dp.uncompressed_size,
-            ))
+            all_pages.append(
+                PageInfo(
+                    page_type=dp.page_type,
+                    data_offset=dp.data_offset + entry.offset,
+                    compressed_size=dp.compressed_size,
+                    uncompressed_size=dp.uncompressed_size,
+                )
+            )
             page_labels.append((col_path, f"data_{i}"))
 
     decompressed = profile_step(
@@ -155,23 +167,23 @@ def main():
     print(f"     {len(dp_tensors)} data pages, {total_vals} values")
 
     dv = decomp_map[(spec.x_path, "dict")].view(torch.float32)
-    xi = out_idx[:num_vals[0]].to(torch.int64)
+    xi = out_idx[: num_vals[0]].to(torch.int64)
     profile_step(
         "f. index_select (dict gather GPU)",
         lambda: torch.index_select(dv, 0, xi),
     )
 
-    xr = out_rep[:num_vals[0]]
+    xr = out_rep[: num_vals[0]]
     profile_step(
         "g. rep_levels_to_offsets_gpu",
         lambda: rep_levels_to_offsets_gpu(xr),
     )
 
     # ==== 3. Batch scaling (the key test) ====
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("4. GpuParquetDecoder batch scaling (batched kernel launches)")
     print("   Expected: sub-linear scaling since GPU kernels are batched")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     for bs in [1, 2, 4, 8, 16, 32]:
         paths = [TAR_PATH] * bs
@@ -186,8 +198,10 @@ def main():
         mean = np.mean(batch_times)
         per_scene = mean / bs
         speedup = times[0] / per_scene if per_scene > 0 else 0
-        print(f"  batch={bs:2d}: {mean:8.1f} +/- {np.std(batch_times):5.1f} ms  "
-              f"({per_scene:.1f} ms/scene, {speedup:.1f}x vs single)")
+        print(
+            f"  batch={bs:2d}: {mean:8.1f} +/- {np.std(batch_times):5.1f} ms  "
+            f"({per_scene:.1f} ms/scene, {speedup:.1f}x vs single)"
+        )
 
 
 if __name__ == "__main__":

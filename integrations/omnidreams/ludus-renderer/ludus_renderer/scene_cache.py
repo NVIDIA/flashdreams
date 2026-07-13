@@ -52,12 +52,11 @@ import hashlib
 import io
 import os
 import threading
-import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, Future
-from dataclasses import dataclass, field
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, cast
+from typing import Dict, List, Optional, Set, cast
 
 import numpy as np
 import torch
@@ -69,14 +68,14 @@ try:
 except ImportError:
     _lmdb = None
 
-from .clipgt import ClipgtGpuScene, EgoTrackData, load_av2_scene
 from ._ops.primitives import (
-    FThetaCamera,
-    TimestampedPolylinePool,
-    TimestampedPolygonPool,
     CubePool,
+    FThetaCamera,
+    TimestampedPolygonPool,
+    TimestampedPolylinePool,
     TimestampedScene,
 )
+from .clipgt import ClipgtGpuScene, EgoTrackData, load_av2_scene
 
 CACHE_VERSION = 2
 
@@ -131,6 +130,7 @@ def _resolve_cache_dir(cache_dir: Optional[str] = None) -> Path:
 # L3: Disk cache — serialize / deserialize ClipgtGpuScene
 # ---------------------------------------------------------------------------
 
+
 def scene_key(scene_path: str) -> str:
     """Deterministic cache key from a scene path."""
     return hashlib.sha256(scene_path.encode()).hexdigest()[:16]
@@ -149,10 +149,13 @@ def serialize_scene(scene: ClipgtGpuScene) -> dict:
 
     All tensors are moved to CPU. Non-tensor fields are stored as-is.
     """
+
     def _polyline_pool_to_dict(p: TimestampedPolylinePool) -> dict:
         return {
             "timestamps_us": _ensure_cpu(p.timestamps_us),
-            "timestamped_varrays_prefix_sum": _ensure_cpu(p.timestamped_varrays_prefix_sum),
+            "timestamped_varrays_prefix_sum": _ensure_cpu(
+                p.timestamped_varrays_prefix_sum
+            ),
             "varrays_prefix_sum": _ensure_cpu(p.varrays_prefix_sum),
             "vertices": _ensure_cpu(p.vertices),
             "prim_type_id": p.prim_type_id,
@@ -161,7 +164,9 @@ def serialize_scene(scene: ClipgtGpuScene) -> dict:
     def _polygon_pool_to_dict(p: TimestampedPolygonPool) -> dict:
         return {
             "timestamps_us": _ensure_cpu(p.timestamps_us),
-            "timestamped_varrays_prefix_sum": _ensure_cpu(p.timestamped_varrays_prefix_sum),
+            "timestamped_varrays_prefix_sum": _ensure_cpu(
+                p.timestamped_varrays_prefix_sum
+            ),
             "varrays_prefix_sum": _ensure_cpu(p.varrays_prefix_sum),
             "triangle_prefix_sum": _ensure_cpu(p.triangle_prefix_sum),
             "vertices": _ensure_cpu(p.vertices),
@@ -204,8 +209,10 @@ def serialize_scene(scene: ClipgtGpuScene) -> dict:
         "cube_pools": [_cube_pool_to_dict(p) for p in (ts.cube_pools or [])],
         "cameras": [_camera_to_dict(c) for c in scene.cameras],
         "camera_name_to_id": scene.camera_name_to_id,
-        "sensor_to_rig": {k: _ensure_cpu(v) if isinstance(v, Tensor) else v
-                          for k, v in scene.sensor_to_rig.items()},
+        "sensor_to_rig": {
+            k: _ensure_cpu(v) if isinstance(v, Tensor) else v
+            for k, v in scene.sensor_to_rig.items()
+        },
         "ego_timestamps": _ensure_cpu(scene.ego_track.timestamps),
         "ego_poses_tquat": _ensure_cpu(scene.ego_track.poses_tquat),
         "packed_timestamps": packed.timestamps,
@@ -219,8 +226,11 @@ def serialize_scene(scene: ClipgtGpuScene) -> dict:
     }
 
 
-def deserialize_scene(data: dict, device: torch.device = torch.device("cpu")) -> ClipgtGpuScene:
+def deserialize_scene(
+    data: dict, device: torch.device = torch.device("cpu")
+) -> ClipgtGpuScene:
     """Reconstruct a ClipgtGpuScene from a serialized dict."""
+
     def _to(t, dev=device):
         return t.to(dev) if isinstance(t, Tensor) else t
 
@@ -407,6 +417,7 @@ def scene_to_device(scene: ClipgtGpuScene, device: torch.device) -> ClipgtGpuSce
 # Pre-packed GPU upload buffers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PackedSceneBuffers:
     """Pre-packed flat tensors ready for direct GL buffer upload.
@@ -415,11 +426,12 @@ class PackedSceneBuffers:
     concatenation) is done once at pack time. Upload only needs to
     recompute lightweight pool headers with correct global offsets.
     """
-    timestamps: Tensor        # int64, all pools concatenated
-    int32_data: Tensor        # int32, prefix sums concatenated
-    vertices: Tensor          # float32 [N, 4], padded (x,y,z,0)
-    triangles: Tensor         # int32 [N, 4], padded (i0,i1,i2,0)
-    float_data: Tensor        # float32, AABBs + cube translations/quaternions/scales/colors
+
+    timestamps: Tensor  # int64, all pools concatenated
+    int32_data: Tensor  # int32, prefix sums concatenated
+    vertices: Tensor  # float32 [N, 4], padded (x,y,z,0)
+    triangles: Tensor  # int32 [N, 4], padded (i0,i1,i2,0)
+    float_data: Tensor  # float32, AABBs + cube translations/quaternions/scales/colors
     polyline_meta: List[dict]
     polygon_meta: List[dict]
     cube_meta: List[dict]
@@ -464,10 +476,14 @@ def _compute_element_aabbs(vertices: Tensor, prefix_sum: Tensor) -> Tensor:
     seg_ids = torch.arange(len(verts3), device=vertices.device)
     seg_ids = torch.bucketize(seg_ids, starts, right=True) - 1
 
-    e_min = torch.full((n_elem, 3), float('inf'), device=vertices.device)
-    e_max = torch.full((n_elem, 3), float('-inf'), device=vertices.device)
-    e_min.scatter_reduce_(0, seg_ids.unsqueeze(1).expand_as(verts3), verts3, reduce="amin")
-    e_max.scatter_reduce_(0, seg_ids.unsqueeze(1).expand_as(verts3), verts3, reduce="amax")
+    e_min = torch.full((n_elem, 3), float("inf"), device=vertices.device)
+    e_max = torch.full((n_elem, 3), float("-inf"), device=vertices.device)
+    e_min.scatter_reduce_(
+        0, seg_ids.unsqueeze(1).expand_as(verts3), verts3, reduce="amin"
+    )
+    e_max.scatter_reduce_(
+        0, seg_ids.unsqueeze(1).expand_as(verts3), verts3, reduce="amax"
+    )
 
     return torch.cat([e_min, e_max], dim=-1).reshape(-1)
 
@@ -504,13 +520,19 @@ def pack_scene(scene: ClipgtGpuScene) -> PackedSceneBuffers:
         aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum)
         n_aabb_floats = len(aabbs)
 
-        polyline_meta.append({
-            "n_ts": n_ts, "n_varrays": n_varrays, "n_verts": n_verts,
-            "prim_type_id": pool.prim_type_id,
-            "ts_offset": ts_offset, "int32_offset": int32_offset,
-            "vert_offset": vert_offset, "float_offset": float_offset,
-            "n_aabb_floats": n_aabb_floats,
-        })
+        polyline_meta.append(
+            {
+                "n_ts": n_ts,
+                "n_varrays": n_varrays,
+                "n_verts": n_verts,
+                "prim_type_id": pool.prim_type_id,
+                "ts_offset": ts_offset,
+                "int32_offset": int32_offset,
+                "vert_offset": vert_offset,
+                "float_offset": float_offset,
+                "n_aabb_floats": n_aabb_floats,
+            }
+        )
 
         timestamps_list.append(pool.timestamps_us)
         int32_list.append(pool.timestamped_varrays_prefix_sum.to(torch.int32))
@@ -534,13 +556,21 @@ def pack_scene(scene: ClipgtGpuScene) -> PackedSceneBuffers:
         aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum)
         n_aabb_floats = len(aabbs)
 
-        polygon_meta.append({
-            "n_ts": n_ts, "n_varrays": n_varrays, "n_verts": n_verts,
-            "n_tris": n_tris, "prim_type_id": pool.prim_type_id,
-            "ts_offset": ts_offset, "int32_offset": int32_offset,
-            "vert_offset": vert_offset, "tri_offset": tri_offset,
-            "float_offset": float_offset, "n_aabb_floats": n_aabb_floats,
-        })
+        polygon_meta.append(
+            {
+                "n_ts": n_ts,
+                "n_varrays": n_varrays,
+                "n_verts": n_verts,
+                "n_tris": n_tris,
+                "prim_type_id": pool.prim_type_id,
+                "ts_offset": ts_offset,
+                "int32_offset": int32_offset,
+                "vert_offset": vert_offset,
+                "tri_offset": tri_offset,
+                "float_offset": float_offset,
+                "n_aabb_floats": n_aabb_floats,
+            }
+        )
 
         timestamps_list.append(pool.timestamps_us)
         int32_list.append(pool.timestamped_varrays_prefix_sum.to(torch.int32))
@@ -558,19 +588,23 @@ def pack_scene(scene: ClipgtGpuScene) -> PackedSceneBuffers:
         tri_offset += n_tris
         float_offset += n_aabb_floats
 
-    for pool in (ts.cube_pools or []):
+    for pool in ts.cube_pools or []:
         n_global_ts = pool.timestamps_us.shape[0]
         n_cubes = pool.scales.shape[0]
         n_track_poses = pool.translations.shape[0]
 
-        cube_meta.append({
-            "n_cubes": n_cubes, "n_global_ts": n_global_ts,
-            "n_track_poses": n_track_poses,
-            "prim_type_id": pool.prim_type_id,
-            "render_flags": pool.render_flags,
-            "ts_offset": ts_offset, "int32_offset": int32_offset,
-            "float_offset": float_offset,
-        })
+        cube_meta.append(
+            {
+                "n_cubes": n_cubes,
+                "n_global_ts": n_global_ts,
+                "n_track_poses": n_track_poses,
+                "prim_type_id": pool.prim_type_id,
+                "render_flags": pool.render_flags,
+                "ts_offset": ts_offset,
+                "int32_offset": int32_offset,
+                "float_offset": float_offset,
+            }
+        )
 
         timestamps_list.append(pool.timestamps_us)
         timestamps_list.append(pool.track_timestamps_us)
@@ -585,11 +619,31 @@ def pack_scene(scene: ClipgtGpuScene) -> PackedSceneBuffers:
         float_offset += n_track_poses * 7 + n_cubes * 9
 
     empty_dev = dev if dev.type != "cpu" else torch.device("cpu")
-    packed_timestamps = torch.cat(timestamps_list) if timestamps_list else torch.empty(0, dtype=torch.int64, device=empty_dev)
-    packed_int32 = torch.cat(int32_list) if int32_list else torch.empty(0, dtype=torch.int32, device=empty_dev)
-    packed_vertices = torch.cat(vertices_list) if vertices_list else torch.empty((0, 4), dtype=torch.float32, device=empty_dev)
-    packed_triangles = torch.cat(triangles_list) if triangles_list else torch.empty((0, 4), dtype=torch.int32, device=empty_dev)
-    packed_floats = torch.cat(float_list) if float_list else torch.empty(0, dtype=torch.float32, device=empty_dev)
+    packed_timestamps = (
+        torch.cat(timestamps_list)
+        if timestamps_list
+        else torch.empty(0, dtype=torch.int64, device=empty_dev)
+    )
+    packed_int32 = (
+        torch.cat(int32_list)
+        if int32_list
+        else torch.empty(0, dtype=torch.int32, device=empty_dev)
+    )
+    packed_vertices = (
+        torch.cat(vertices_list)
+        if vertices_list
+        else torch.empty((0, 4), dtype=torch.float32, device=empty_dev)
+    )
+    packed_triangles = (
+        torch.cat(triangles_list)
+        if triangles_list
+        else torch.empty((0, 4), dtype=torch.int32, device=empty_dev)
+    )
+    packed_floats = (
+        torch.cat(float_list)
+        if float_list
+        else torch.empty(0, dtype=torch.float32, device=empty_dev)
+    )
 
     return PackedSceneBuffers(
         timestamps=_ensure_cpu(packed_timestamps),
@@ -606,8 +660,13 @@ def pack_scene(scene: ClipgtGpuScene) -> PackedSceneBuffers:
 def packed_bytes(packed: PackedSceneBuffers) -> int:
     """Estimate memory footprint of pre-packed buffers."""
     total = 0
-    for t in (packed.timestamps, packed.int32_data, packed.vertices,
-              packed.triangles, packed.float_data):
+    for t in (
+        packed.timestamps,
+        packed.int32_data,
+        packed.vertices,
+        packed.triangles,
+        packed.float_data,
+    ):
         total += t.nelement() * t.element_size()
     return total
 
@@ -618,7 +677,9 @@ def save_scene_to_disk(scene: ClipgtGpuScene, path: Path) -> None:
     torch.save(serialize_scene(scene), path)
 
 
-def load_scene_from_disk(path: Path, device: torch.device = torch.device("cpu")) -> ClipgtGpuScene:
+def load_scene_from_disk(
+    path: Path, device: torch.device = torch.device("cpu")
+) -> ClipgtGpuScene:
     """Load a serialized scene from disk (per-file fallback)."""
     data = torch.load(path, map_location="cpu", weights_only=False)
     v = data.get("version", 0)
@@ -637,7 +698,9 @@ def _serialize_to_bytes(scene: ClipgtGpuScene) -> bytes:
     return buf.getvalue()
 
 
-def _deserialize_from_bytes(data: bytes, device: torch.device = torch.device("cpu")) -> ClipgtGpuScene:
+def _deserialize_from_bytes(
+    data: bytes, device: torch.device = torch.device("cpu")
+) -> ClipgtGpuScene:
     """Deserialize a scene from raw bytes (from LMDB storage)."""
     buf = io.BytesIO(data)
     d = torch.load(buf, map_location="cpu", weights_only=False)
@@ -654,6 +717,7 @@ def _deserialize_from_bytes(data: bytes, device: torch.device = torch.device("cp
 # L3: LMDB scene store
 # ---------------------------------------------------------------------------
 
+
 class LMDBSceneStore:
     """LMDB-backed key-value store for serialized scenes.
 
@@ -662,8 +726,9 @@ class LMDBSceneStore:
     per-file I/O is expensive.
     """
 
-    def __init__(self, path: str | Path, map_size: int = 500 * 1024**3,
-                 readonly: bool = False):
+    def __init__(
+        self, path: str | Path, map_size: int = 500 * 1024**3, readonly: bool = False
+    ):
         if _lmdb is None:
             raise ImportError(
                 "lmdb package is required for LMDBSceneStore. "
@@ -681,7 +746,9 @@ class LMDBSceneStore:
             lock=not readonly,
         )
 
-    def get(self, key: str, device: torch.device = torch.device("cpu")) -> Optional[ClipgtGpuScene]:
+    def get(
+        self, key: str, device: torch.device = torch.device("cpu")
+    ) -> Optional[ClipgtGpuScene]:
         with self._env.begin(write=False) as txn:
             data = txn.get(key.encode())
             if data is None:
@@ -725,6 +792,7 @@ def _lmdb_path(cache_dir: Path) -> Path:
 # Size estimation
 # ---------------------------------------------------------------------------
 
+
 def _tensor_bytes(t) -> int:
     return t.nelement() * t.element_size() if isinstance(t, Tensor) else 0
 
@@ -745,7 +813,7 @@ def scene_bytes(scene: ClipgtGpuScene) -> int:
         total += _tensor_bytes(p.triangle_prefix_sum)
         total += _tensor_bytes(p.vertices)
         total += _tensor_bytes(p.triangles)
-    for p in (ts.cube_pools or []):
+    for p in ts.cube_pools or []:
         total += _tensor_bytes(p.timestamps_us)
         total += _tensor_bytes(p.cube_ts_prefix_sum)
         total += _tensor_bytes(p.track_timestamps_us)
@@ -770,6 +838,7 @@ def scene_bytes(scene: ClipgtGpuScene) -> int:
 # ---------------------------------------------------------------------------
 # L2: CPU RAM LRU cache
 # ---------------------------------------------------------------------------
+
 
 class CPUSceneCache:
     """Thread-safe LRU cache for ClipgtGpuScene objects on CPU.
@@ -837,6 +906,7 @@ class CPUSceneCache:
 # ---------------------------------------------------------------------------
 # L1: CUDA tensor cache (GPU-resident scenes)
 # ---------------------------------------------------------------------------
+
 
 class CUDASceneCache:
     """LRU cache for ClipgtGpuScene objects stored as CUDA tensors.
@@ -907,14 +977,15 @@ class CUDASceneCache:
 # Cache statistics
 # ---------------------------------------------------------------------------
 
+
 def _fmt_bytes(b: float) -> str:
     if b < 1024:
         return f"{b:.0f}B"
-    if b < 1024 ** 2:
+    if b < 1024**2:
         return f"{b / 1024:.1f}KB"
-    if b < 1024 ** 3:
-        return f"{b / 1024 ** 2:.1f}MB"
-    return f"{b / 1024 ** 3:.2f}GB"
+    if b < 1024**3:
+        return f"{b / 1024**2:.1f}MB"
+    return f"{b / 1024**3:.2f}GB"
 
 
 @dataclass
@@ -969,6 +1040,7 @@ class CacheStats:
 # ---------------------------------------------------------------------------
 # SceneDatabase: unified multi-level cache
 # ---------------------------------------------------------------------------
+
 
 class SceneDatabase:
     """Multi-level scene cache: L1 (CUDA) / L2 (CPU RAM) / L3 (Disk).
@@ -1158,7 +1230,9 @@ class SceneDatabase:
 
         # Load missing scenes in parallel using prefetch executor or inline
         if self._executor is not None and len(missing) > 1:
-            futures = {k: self._executor.submit(self._ensure_cpu_one, k) for k in missing}
+            futures = {
+                k: self._executor.submit(self._ensure_cpu_one, k) for k in missing
+            }
             for k, fut in futures.items():
                 result[k] = fut.result()
         else:
@@ -1188,7 +1262,9 @@ class SceneDatabase:
         self._stats.l1_misses += 1
 
         cpu_scene = self._ensure_cpu_one(key)
-        gpu_scene = scene_to_device(cpu_scene, torch.device("cuda", torch.cuda.current_device()))
+        gpu_scene = scene_to_device(
+            cpu_scene, torch.device("cuda", torch.cuda.current_device())
+        )
         self._cuda_cache.put(key, gpu_scene)
         return gpu_scene
 
@@ -1253,7 +1329,9 @@ class SceneDatabase:
 
         with torch.cuda.stream(self._prefetch_stream):
             for k, cpu_scene in to_promote:
-                gpu_scene = scene_to_device(cpu_scene, torch.device("cuda", torch.cuda.current_device()))
+                gpu_scene = scene_to_device(
+                    cpu_scene, torch.device("cuda", torch.cuda.current_device())
+                )
                 self._cuda_cache.put(k, gpu_scene)
                 self._l1_pending.add(k)
 
@@ -1263,7 +1341,9 @@ class SceneDatabase:
         """Get a scene from L2 if available (no loading)."""
         return self._cpu_cache.get(key)
 
-    def load_scene_gpu(self, key: str, device: Optional[torch.device] = None) -> ClipgtGpuScene:
+    def load_scene_gpu(
+        self, key: str, device: Optional[torch.device] = None
+    ) -> ClipgtGpuScene:
         """Load a scene to GPU without retaining in L1 cache.
 
         Goes through L2/L3/origin as needed. Caller owns the returned scene;

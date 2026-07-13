@@ -33,15 +33,15 @@ __global__ void chwToHwcKernel(
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
-    
+
     if (x >= width || y >= height)
         return;
-    
+
     int hwSize = height * width;
     int srcIdxR = 0 * hwSize + y * width + x;  // Channel 0 (R)
     int srcIdxG = 1 * hwSize + y * width + x;  // Channel 1 (G)
     int srcIdxB = 2 * hwSize + y * width + x;  // Channel 2 (B)
-    
+
     int dstIdx = (y * width + x) * 3;
     dstHwc[dstIdx + 0] = srcChw[srcIdxR];
     dstHwc[dstIdx + 1] = srcChw[srcIdxG];
@@ -60,18 +60,18 @@ __global__ void nchwToHwcKernel(
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
-    
+
     if (x >= width || y >= height)
         return;
-    
+
     int hwSize = height * width;
     int imageSize = 3 * hwSize;
     int baseOffset = batchIdx * imageSize;
-    
+
     int srcIdxR = baseOffset + 0 * hwSize + y * width + x;
     int srcIdxG = baseOffset + 1 * hwSize + y * width + x;
     int srcIdxB = baseOffset + 2 * hwSize + y * width + x;
-    
+
     int dstIdx = (y * width + x) * 3;
     dstHwc[dstIdx + 0] = srcNchw[srcIdxR];
     dstHwc[dstIdx + 1] = srcNchw[srcIdxG];
@@ -131,7 +131,7 @@ bool NvjpegEncoder::init()
 {
     if (m_initialized)
         return true;
-    
+
     // If device index is set, use it; otherwise use current device (no cudaSetDevice)
     if (m_deviceIndex >= 0)
     {
@@ -139,15 +139,15 @@ bool NvjpegEncoder::init()
         if (cudaErr != cudaSuccess)
             return false;
     }
-    
+
     // Create CUDA stream
     cudaError_t cudaErr = cudaStreamCreate(&m_stream);
     if (cudaErr != cudaSuccess)
         return false;
-    
+
     // Initialize nvjpeg
     nvjpegStatus_t status;
-    
+
     status = nvjpegCreateSimple(&m_handle);
     if (status != NVJPEG_STATUS_SUCCESS)
     {
@@ -155,7 +155,7 @@ bool NvjpegEncoder::init()
         m_stream = nullptr;
         return false;
     }
-    
+
     status = nvjpegEncoderStateCreate(m_handle, &m_encoderState, m_stream);
     if (status != NVJPEG_STATUS_SUCCESS)
     {
@@ -165,7 +165,7 @@ bool NvjpegEncoder::init()
         m_stream = nullptr;
         return false;
     }
-    
+
     status = nvjpegEncoderParamsCreate(m_handle, &m_encoderParams, m_stream);
     if (status != NVJPEG_STATUS_SUCCESS)
     {
@@ -177,7 +177,7 @@ bool NvjpegEncoder::init()
         m_stream = nullptr;
         return false;
     }
-    
+
     m_initialized = true;
     return true;
 }
@@ -186,45 +186,45 @@ void NvjpegEncoder::release()
 {
     if (m_deviceIndex >= 0)
         cudaSetDevice(m_deviceIndex);
-    
+
     if (m_hwcBuffer)
     {
         cudaFree(m_hwcBuffer);
         m_hwcBuffer = nullptr;
         m_hwcBufferSize = 0;
     }
-    
+
     if (m_outputBuffer)
     {
         cudaFreeHost(m_outputBuffer);
         m_outputBuffer = nullptr;
         m_outputBufferSize = 0;
     }
-    
+
     if (m_encoderParams)
     {
         nvjpegEncoderParamsDestroy(m_encoderParams);
         m_encoderParams = nullptr;
     }
-    
+
     if (m_encoderState)
     {
         nvjpegEncoderStateDestroy(m_encoderState);
         m_encoderState = nullptr;
     }
-    
+
     if (m_handle)
     {
         nvjpegDestroy(m_handle);
         m_handle = nullptr;
     }
-    
+
     if (m_stream)
     {
         cudaStreamDestroy(m_stream);
         m_stream = nullptr;
     }
-    
+
     m_initialized = false;
 }
 
@@ -238,20 +238,20 @@ std::vector<uint8_t> NvjpegEncoder::encode(
     {
         throw std::runtime_error("NvjpegEncoder not initialized");
     }
-    
+
     if (m_deviceIndex >= 0)
         cudaSetDevice(m_deviceIndex);
-    
+
     // Set quality and sampling
     nvjpegEncoderParamsSetQuality(m_encoderParams, quality, m_stream);
     nvjpegEncoderParamsSetSamplingFactors(m_encoderParams, NVJPEG_CSS_420, m_stream);
-    
+
     // Setup input image (already HWC/interleaved format)
     nvjpegImage_t nvImage;
     memset(&nvImage, 0, sizeof(nvImage));
     nvImage.channel[0] = const_cast<uint8_t*>(gpuRgb);
     nvImage.pitch[0] = width * 3;  // RGB stride
-    
+
     // Encode
     nvjpegStatus_t status = nvjpegEncodeImage(
         m_handle,
@@ -263,12 +263,12 @@ std::vector<uint8_t> NvjpegEncoder::encode(
         height,
         m_stream
     );
-    
+
     if (status != NVJPEG_STATUS_SUCCESS)
     {
         throw std::runtime_error("nvjpegEncodeImage failed");
     }
-    
+
     // Get compressed size
     size_t compressedSize = 0;
     status = nvjpegEncodeRetrieveBitstream(
@@ -278,15 +278,15 @@ std::vector<uint8_t> NvjpegEncoder::encode(
         &compressedSize,
         m_stream
     );
-    
+
     if (status != NVJPEG_STATUS_SUCCESS || compressedSize == 0)
     {
         throw std::runtime_error("Failed to get JPEG bitstream size");
     }
-    
+
     // Sync stream before retrieving data
     cudaStreamSynchronize(m_stream);
-    
+
     // Reallocate output buffer if needed
     if (compressedSize > m_outputBufferSize)
     {
@@ -296,7 +296,7 @@ std::vector<uint8_t> NvjpegEncoder::encode(
         cudaHostAlloc(reinterpret_cast<void**>(&m_outputBuffer), allocSize, cudaHostAllocDefault);
         m_outputBufferSize = allocSize;
     }
-    
+
     // Retrieve compressed data
     status = nvjpegEncodeRetrieveBitstream(
         m_handle,
@@ -305,14 +305,14 @@ std::vector<uint8_t> NvjpegEncoder::encode(
         &compressedSize,
         0  // Default stream for retrieval
     );
-    
+
     if (status != NVJPEG_STATUS_SUCCESS)
     {
         throw std::runtime_error("Failed to retrieve JPEG bitstream");
     }
-    
+
     cudaStreamSynchronize(0);
-    
+
     // Copy to output vector
     return std::vector<uint8_t>(m_outputBuffer, m_outputBuffer + compressedSize);
 }
@@ -327,10 +327,10 @@ std::vector<uint8_t> NvjpegEncoder::encodeChw(
     {
         throw std::runtime_error("NvjpegEncoder not initialized");
     }
-    
+
     if (m_deviceIndex >= 0)
         cudaSetDevice(m_deviceIndex);
-    
+
     // Allocate HWC buffer if needed
     size_t hwcSize = (size_t)width * height * 3;
     if (hwcSize > m_hwcBufferSize)
@@ -341,7 +341,7 @@ std::vector<uint8_t> NvjpegEncoder::encodeChw(
         cudaMalloc(reinterpret_cast<void**>(&m_hwcBuffer), allocSize);
         m_hwcBufferSize = allocSize;
     }
-    
+
     // Convert CHW to HWC
     launchChwToHwc(gpuRgbChw, m_hwcBuffer, width, height, m_stream);
     cudaError_t err = cudaGetLastError();
@@ -349,7 +349,7 @@ std::vector<uint8_t> NvjpegEncoder::encodeChw(
     {
         throw std::runtime_error("CHW to HWC conversion failed");
     }
-    
+
     // Encode the HWC buffer
     return encode(m_hwcBuffer, width, height, quality);
 }
@@ -365,10 +365,10 @@ std::vector<std::vector<uint8_t>> NvjpegEncoder::encodeBatch(
     {
         throw std::runtime_error("NvjpegEncoder not initialized");
     }
-    
+
     if (m_deviceIndex >= 0)
         cudaSetDevice(m_deviceIndex);
-    
+
     // Allocate HWC buffer if needed
     size_t hwcSize = (size_t)width * height * 3;
     if (hwcSize > m_hwcBufferSize)
@@ -379,10 +379,10 @@ std::vector<std::vector<uint8_t>> NvjpegEncoder::encodeBatch(
         cudaMalloc(reinterpret_cast<void**>(&m_hwcBuffer), allocSize);
         m_hwcBufferSize = allocSize;
     }
-    
+
     std::vector<std::vector<uint8_t>> results;
     results.reserve(batchSize);
-    
+
     for (int i = 0; i < batchSize; i++)
     {
         // Convert this batch element from NCHW to HWC
@@ -392,11 +392,11 @@ std::vector<std::vector<uint8_t>> NvjpegEncoder::encodeBatch(
         {
             throw std::runtime_error("NCHW to HWC conversion failed");
         }
-        
+
         // Encode the HWC buffer
         results.push_back(encode(m_hwcBuffer, width, height, quality));
     }
-    
+
     return results;
 }
 

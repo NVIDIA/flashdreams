@@ -27,6 +27,7 @@ from ._plugin import _get_plugin, get_log_level, set_log_level
 
 # Ludus rendering contexts.
 from .context import LudusCudaTimestampedContext
+
 # Vulkan backend: import is lazy and safe even when Vulkan headers/loader
 # are not installed; the ImportError surfaces only when the context is
 # actually constructed.
@@ -72,8 +73,8 @@ from .primitives import (
     TimestampedPolygonPool,
     TimestampedPolylinePool,
     TimestampedScene,
-    _pack_cameras,
     # Packing functions (internal)
+    _pack_cameras,
     _pack_cubes,
     _pack_polygons,
     _pack_polylines,
@@ -123,6 +124,12 @@ __all__ = [
     "CubePool",
     "ObstaclePool",
     "TimestampedScene",
+    # Packing functions (internal)
+    "_pack_cameras",
+    "_pack_cubes",
+    "_pack_polygons",
+    "_pack_polylines",
+    "_triangulate_polygon_ear_clipping",
     # Ludus rendering contexts
     "LudusCudaTimestampedContext",
     "LudusTimestampedContext",

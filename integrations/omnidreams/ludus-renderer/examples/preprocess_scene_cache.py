@@ -44,10 +44,10 @@ from pathlib import Path
 
 def _load_and_serialize(args_tuple):
     """Worker: load scene from tar, return (key, serialized_bytes, elapsed)."""
-    tar_path, = args_tuple
+    (tar_path,) = args_tuple
 
-    from ludus_renderer.scene_cache import scene_key, _serialize_to_bytes
     from ludus_renderer.clipgt import load_av2_scene
+    from ludus_renderer.scene_cache import _serialize_to_bytes, scene_key
 
     key = scene_key(tar_path)
     t0 = time.perf_counter()
@@ -61,11 +61,14 @@ def _load_and_save_file(args_tuple):
     """Worker: load scene and save as per-file .pt (fallback mode)."""
     tar_path, cache_dir, skip_existing = args_tuple
 
-    from ludus_renderer.scene_cache import (
-        scene_key, _cache_path, _resolve_cache_dir,
-        save_scene_to_disk, load_scene_from_disk,
-    )
     from ludus_renderer.clipgt import load_av2_scene
+    from ludus_renderer.scene_cache import (
+        _cache_path,
+        _resolve_cache_dir,
+        load_scene_from_disk,
+        save_scene_to_disk,
+        scene_key,
+    )
 
     key = scene_key(tar_path)
     versioned_dir = _resolve_cache_dir(cache_dir)
@@ -89,31 +92,55 @@ def _load_and_save_file(args_tuple):
 
 def main():
     parser = argparse.ArgumentParser(description="Preprocess AV2 scenes to disk cache")
-    parser.add_argument("--scene-list", type=str, required=True,
-                        help="Text file with scene tar paths, one per line")
-    parser.add_argument("--cache-dir", type=str, required=True,
-                        help="Output directory for cached scenes")
-    parser.add_argument("--workers", type=int, default=None,
-                        help="Number of parallel workers (default: cpu_count)")
-    parser.add_argument("--skip-existing", action="store_true",
-                        help="Skip scenes that are already cached")
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Process only the first N scenes")
-    parser.add_argument("--no-lmdb", action="store_true",
-                        help="Force per-file .pt cache instead of LMDB")
+    parser.add_argument(
+        "--scene-list",
+        type=str,
+        required=True,
+        help="Text file with scene tar paths, one per line",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        type=str,
+        required=True,
+        help="Output directory for cached scenes",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: cpu_count)",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip scenes that are already cached",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Process only the first N scenes"
+    )
+    parser.add_argument(
+        "--no-lmdb",
+        action="store_true",
+        help="Force per-file .pt cache instead of LMDB",
+    )
     args = parser.parse_args()
 
-    all_paths = [l.strip() for l in Path(args.scene_list).read_text().splitlines() if l.strip()]
+    all_paths = [
+        line.strip()
+        for line in Path(args.scene_list).read_text().splitlines()
+        if line.strip()
+    ]
     if args.limit:
-        all_paths = all_paths[:args.limit]
+        all_paths = all_paths[: args.limit]
 
     workers = args.workers or os.cpu_count()
     cache_dir = args.cache_dir
 
-    try:
-        import lmdb as _lmdb  # ty:ignore[unresolved-import]
+    from importlib.util import find_spec
+
+    if find_spec("lmdb") is not None:
         use_lmdb = not args.no_lmdb
-    except ImportError:
+    else:
         use_lmdb = False
 
     mode = "LMDB" if use_lmdb else "per-file .pt"
@@ -130,7 +157,10 @@ def main():
 
 def _preprocess_lmdb(all_paths, cache_dir, workers, skip_existing):
     from ludus_renderer.scene_cache import (
-        scene_key, _resolve_cache_dir, _lmdb_path, LMDBSceneStore,
+        LMDBSceneStore,
+        _lmdb_path,
+        _resolve_cache_dir,
+        scene_key,
     )
 
     versioned_dir = _resolve_cache_dir(cache_dir)
@@ -156,7 +186,7 @@ def _preprocess_lmdb(all_paths, cache_dir, workers, skip_existing):
         futures = {executor.submit(_load_and_serialize, t): t[0] for t in to_process}
 
         for fut in as_completed(futures):
-            path = futures[fut]
+            _ = futures[fut]
             done += 1
             try:
                 key, data, elapsed = fut.result()
@@ -170,8 +200,10 @@ def _preprocess_lmdb(all_paths, cache_dir, workers, skip_existing):
             if done % 100 == 0 or done == len(to_process):
                 elapsed_total = time.perf_counter() - t0
                 rate = (done - failed) / elapsed_total if elapsed_total > 0 else 0
-                print(f"  [{done}/{len(to_process)}] {status}  "
-                      f"({rate:.1f} scenes/s, {failed} failed)")
+                print(
+                    f"  [{done}/{len(to_process)}] {status}  "
+                    f"({rate:.1f} scenes/s, {failed} failed)"
+                )
 
     store.close()
 
@@ -180,7 +212,9 @@ def _preprocess_lmdb(all_paths, cache_dir, workers, skip_existing):
     print(f"\nDone in {elapsed_total:.1f}s")
     print(f"  Processed: {processed}, Failed: {failed}")
     if processed > 0:
-        print(f"  Total data: {total_bytes / 1024**2:.1f} MB ({total_bytes / processed / 1024:.1f} KB/scene avg)")
+        print(
+            f"  Total data: {total_bytes / 1024**2:.1f} MB ({total_bytes / processed / 1024:.1f} KB/scene avg)"
+        )
         print(f"  Throughput: {processed / elapsed_total:.1f} scenes/s")
 
 
@@ -197,7 +231,7 @@ def _preprocess_files(all_paths, cache_dir, workers, skip_existing):
         futures = {executor.submit(_load_and_save_file, t): t[0] for t in tasks}
 
         for fut in as_completed(futures):
-            path = futures[fut]
+            _ = futures[fut]
             done += 1
             try:
                 key, elapsed, result = fut.result()
@@ -213,16 +247,24 @@ def _preprocess_files(all_paths, cache_dir, workers, skip_existing):
 
             if done % 100 == 0 or done == len(all_paths):
                 elapsed_total = time.perf_counter() - t0
-                rate = (done - skipped - failed) / elapsed_total if elapsed_total > 0 else 0
-                print(f"  [{done}/{len(all_paths)}] {status}  "
-                      f"({rate:.1f} scenes/s, {skipped} skipped, {failed} failed)")
+                rate = (
+                    (done - skipped - failed) / elapsed_total
+                    if elapsed_total > 0
+                    else 0
+                )
+                print(
+                    f"  [{done}/{len(all_paths)}] {status}  "
+                    f"({rate:.1f} scenes/s, {skipped} skipped, {failed} failed)"
+                )
 
     elapsed_total = time.perf_counter() - t0
     processed = done - skipped - failed
     print(f"\nDone in {elapsed_total:.1f}s")
     print(f"  Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
     if processed > 0:
-        print(f"  Cache size: {total_bytes / 1024**2:.1f} MB ({total_bytes / processed / 1024:.1f} KB/scene avg)")
+        print(
+            f"  Cache size: {total_bytes / 1024**2:.1f} MB ({total_bytes / processed / 1024:.1f} KB/scene avg)"
+        )
         print(f"  Throughput: {processed / elapsed_total:.1f} scenes/s")
 
 

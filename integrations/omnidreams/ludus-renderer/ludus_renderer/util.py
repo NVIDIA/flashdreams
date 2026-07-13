@@ -30,21 +30,27 @@ def resample_timestamps(
     timestamps_us: Tensor, timestep_us: int, duration_us: int = 0
 ) -> Tensor:
     """Resample timestamps with the given timestep.
-    
+
     Args:
         timestamps_us: Original timestamps in microseconds (assumed sorted)
         timestep_us: New timestep in microseconds
         duration_us: Duration in microseconds (0 = use original duration)
-    
+
     Returns:
         Resampled timestamps as int64 tensor
     """
-    start_us = timestamps_us[0].item() if timestamps_us.dim() > 0 else int(timestamps_us)
-    end_us = (timestamps_us[-1].item() if timestamps_us.dim() > 0 else int(timestamps_us)) if duration_us == 0 else (start_us + duration_us)
+    start_us = (
+        timestamps_us[0].item() if timestamps_us.dim() > 0 else int(timestamps_us)
+    )
+    end_us = (
+        (timestamps_us[-1].item() if timestamps_us.dim() > 0 else int(timestamps_us))
+        if duration_us == 0
+        else (start_us + duration_us)
+    )
     return torch.tensor(
         list(range(int(start_us), int(end_us) + 1, timestep_us)),
         dtype=torch.int64,
-        device=timestamps_us.device if hasattr(timestamps_us, 'device') else 'cpu',
+        device=timestamps_us.device if hasattr(timestamps_us, "device") else "cpu",
     ).contiguous()
 
 
@@ -54,8 +60,8 @@ FLU_TO_OPENCV_MATRIX = torch.tensor(
     [
         [0, -1, 0, 0],  # X_opencv = -Y_flu
         [0, 0, -1, 0],  # Y_opencv = -Z_flu
-        [1, 0, 0, 0],   # Z_opencv = X_flu
-        [0, 0, 0, 1],   # Translation unchanged
+        [1, 0, 0, 0],  # Z_opencv = X_flu
+        [0, 0, 0, 1],  # Translation unchanged
     ],
     dtype=torch.float32,
 )
@@ -68,10 +74,10 @@ This matrix transforms coordinate frames from FLU (Forward-Left-Up) to OpenCV co
 
 OPENCV_TO_OPENGL_MATRIX = torch.tensor(
     [
-        [1, 0, 0, 0],   # X_opengl = X_opencv
+        [1, 0, 0, 0],  # X_opengl = X_opencv
         [0, -1, 0, 0],  # Y_opengl = -Y_opencv
         [0, 0, -1, 0],  # Z_opengl = -Z_opencv
-        [0, 0, 0, 1],   # Translation unchanged
+        [0, 0, 0, 1],  # Translation unchanged
     ],
     dtype=torch.float32,
 )

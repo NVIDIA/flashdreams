@@ -21,17 +21,17 @@ import struct
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-OUT_HEADER = os.path.normpath(os.path.join(
-    SCRIPT_DIR, "..", "_cpp", "render", "shaders_spv.h"
-))
+OUT_HEADER = os.path.normpath(
+    os.path.join(SCRIPT_DIR, "..", "_cpp", "render", "shaders_spv.h")
+)
 
 SPV_FILES = [
     ("ts_polyline_task", "ts_polyline.task.spv"),
     ("ts_polyline_mesh", "ts_polyline.mesh.spv"),
     ("ts_polyline_frag", "ts_polyline.frag.spv"),
-    ("ts_polygon_task",  "ts_polygon.task.spv"),
-    ("ts_polygon_mesh",  "ts_polygon.mesh.spv"),
-    ("ts_polygon_frag",  "ts_polygon.frag.spv"),
+    ("ts_polygon_task", "ts_polygon.task.spv"),
+    ("ts_polygon_mesh", "ts_polygon.mesh.spv"),
+    ("ts_polygon_frag", "ts_polygon.frag.spv"),
     ("ts_obstacle_task", "ts_obstacle.task.spv"),
     ("ts_obstacle_mesh", "ts_obstacle.mesh.spv"),
     ("ts_obstacle_frag", "ts_obstacle.frag.spv"),
@@ -57,15 +57,16 @@ def emit_array(name: str, data: bytes, out) -> int:
     words = struct.unpack(f"<{len(data) // 4}I", data)
     out.write(f"static const uint32_t kSpv_{name}[] = {{\n")
     for i in range(0, len(words), 8):
-        chunk = ", ".join(f"0x{w:08x}u" for w in words[i:i + 8])
+        chunk = ", ".join(f"0x{w:08x}u" for w in words[i : i + 8])
         out.write(f"    {chunk},\n")
     out.write("};\n\n")
     return len(words)
 
 
 def main() -> int:
-    missing = [fn for _, fn in SPV_FILES
-               if not os.path.exists(os.path.join(SCRIPT_DIR, fn))]
+    missing = [
+        fn for _, fn in SPV_FILES if not os.path.exists(os.path.join(SCRIPT_DIR, fn))
+    ]
     if missing:
         print("Missing .spv files (run compile.sh first):", file=sys.stderr)
         for m in missing:

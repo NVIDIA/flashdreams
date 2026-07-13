@@ -26,19 +26,19 @@ Usage:
     python render_mirror_augmented.py --scene <path> --n-mirrors 4
 """
 
-import os
 import argparse
+import os
 import time
 
 import torch
-
 from ludus_renderer import load_clipgt_scene
 from ludus_renderer.augmentation import mirror_augment_scene
-from ludus_renderer.torch import LudusCudaTimestampedContext
-from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
 from ludus_renderer.render_utils import (
-    SceneAdapter, create_camera, compute_camera_poses,
+    SceneAdapter,
+    compute_camera_poses,
+    create_camera,
 )
+from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.util import resample_timestamps
 
 DEFAULT_SCENE = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
@@ -47,10 +47,18 @@ DEFAULT_SCENE = os.path.join(os.path.dirname(__file__), "../example_data/test_hd
 def main():
     parser = argparse.ArgumentParser(description="Mirror augmentation example")
     parser.add_argument("--scene", type=str, default=DEFAULT_SCENE)
-    parser.add_argument("--n-mirrors", type=int, default=2,
-                        help="Number of mirror reflections (default: 2)")
-    parser.add_argument("--lookahead", type=float, default=50.0,
-                        help="Ego extrapolation before mirror plane (metres)")
+    parser.add_argument(
+        "--n-mirrors",
+        type=int,
+        default=2,
+        help="Number of mirror reflections (default: 2)",
+    )
+    parser.add_argument(
+        "--lookahead",
+        type=float,
+        default=50.0,
+        help="Ego extrapolation before mirror plane (metres)",
+    )
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
@@ -63,22 +71,29 @@ def main():
     # Load and augment
     print(f"Loading scene: {args.scene}")
     raw_scene = load_clipgt_scene(
-        args.scene, device=device,
-        include_ego_trajectory=True, include_ego_obstacle=True,
+        args.scene,
+        device=device,
+        include_ego_trajectory=True,
+        include_ego_obstacle=True,
     )
     orig_poses = len(raw_scene.ego_track.timestamps)
 
     print(f"Augmenting with {args.n_mirrors} mirrors (lookahead={args.lookahead}m)...")
-    aug_scene = mirror_augment_scene(raw_scene, n_mirrors=args.n_mirrors,
-                                     lookahead_m=args.lookahead)
+    aug_scene = mirror_augment_scene(
+        raw_scene, n_mirrors=args.n_mirrors, lookahead_m=args.lookahead
+    )
     scene = SceneAdapter(aug_scene)
     aug_poses = len(aug_scene.ego_track.timestamps)
     print(f"  Ego poses: {orig_poses} -> {aug_poses} ({aug_poses / orig_poses:.1f}x)")
 
     # Timestamps
     timestep_us = 1_000_000 // args.fps
-    duration_us = (scene.ego_tracks.timestamps[-1] - scene.ego_tracks.timestamps[0]).item()
-    timestamps = resample_timestamps(scene.ego_tracks.timestamps, timestep_us, duration_us)
+    duration_us = (
+        scene.ego_tracks.timestamps[-1] - scene.ego_tracks.timestamps[0]
+    ).item()
+    timestamps = resample_timestamps(
+        scene.ego_tracks.timestamps, timestep_us, duration_us
+    )
     n_frames = len(timestamps)
     print(f"  {n_frames} frames at {args.fps} Hz, duration {duration_us / 1e6:.1f}s")
 
@@ -86,30 +101,44 @@ def main():
     ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
 
-    camera = create_camera(args.width, args.height, device, bev=True,
-                           bev_height=args.bev_height, bev_fov=args.bev_fov)
+    camera = create_camera(
+        args.width,
+        args.height,
+        device,
+        bev=True,
+        bev_height=args.bev_height,
+        bev_fov=args.bev_fov,
+    )
     ctx.upload_cameras([camera])
     scene_id = ctx.upload_scene(scene.timestamped_scene)
 
-    poses, ctype = compute_camera_poses(scene, timestamps, device,
-                                        bev_height=args.bev_height)
+    poses, ctype = compute_camera_poses(
+        scene, timestamps, device, bev_height=args.bev_height
+    )
     if poses.dim() == 4:
         poses = poses.squeeze(1)
 
     # Render + encode MP4
     import subprocess
     import tempfile
+
     import PyNvVideoCodec as nvc  # ty:ignore[unresolved-import]
 
-    output_path = os.path.join(os.path.dirname(__file__),
-                               f"../_images/mirror_augmented_bev.mp4")
+    output_path = os.path.join(
+        os.path.dirname(__file__), "../_images/mirror_augmented_bev.mp4"
+    )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     raw_h264 = tempfile.NamedTemporaryFile(suffix=".h264", delete=False)
     encoder = nvc.CreateEncoder(
-        width=args.width, height=args.height, fmt="ABGR",
-        usecpuinputbuffer=False, codec="h264",
-        bitrate=10_000_000, fps=args.fps, preset="P4",
+        width=args.width,
+        height=args.height,
+        fmt="ABGR",
+        usecpuinputbuffer=False,
+        codec="h264",
+        bitrate=10_000_000,
+        fps=args.fps,
+        preset="P4",
     )
 
     print(f"Rendering {n_frames} frames...")
@@ -144,11 +173,25 @@ def main():
     print(f"  Rendered in {elapsed:.1f}s ({n_frames / elapsed:.0f} FPS)")
 
     # Mux to MP4
-    subprocess.run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-f", "h264", "-framerate", str(args.fps), "-i", raw_h264.name,
-        "-c", "copy", output_path,
-    ], check=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "h264",
+            "-framerate",
+            str(args.fps),
+            "-i",
+            raw_h264.name,
+            "-c",
+            "copy",
+            output_path,
+        ],
+        check=True,
+    )
     os.remove(raw_h264.name)
 
     print(f"Saved: {output_path}")

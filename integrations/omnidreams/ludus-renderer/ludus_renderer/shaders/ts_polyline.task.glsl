@@ -163,7 +163,7 @@ bool is_dot_primitive(uint prim_type_id) {
 float get_prim_width(uint prim_type_id, uint camera_type_id) {
     bool is_bev = (camera_type_id == CAMERA_TYPE_BEV);
     float scale = (pc.u_resolution_scale > 0.0) ? pc.u_resolution_scale : 1.0;
-    
+
     float base_width;
     if (prim_type_id == PRIM_EGO_TRAJECTORY) {
         float default_w = is_bev ? DEFAULT_WIDTH_EGO_TRAJ_BEV : DEFAULT_WIDTH_EGO_TRAJ_REGULAR;
@@ -364,15 +364,15 @@ layout(std430, binding = 13) readonly buffer QueryBuffer {
 
 int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
     if (count == 0u) return -1;
-    
+
     int left = 0;
     int right = int(count) - 1;
     int result = -1;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t val = g_timestamps[base_offset + uint(mid)];
-        
+
         if (val <= target) {
             result = mid;
             left = mid + 1;
@@ -380,7 +380,7 @@ int binary_search_timestamps(uint base_offset, uint count, int64_t target) {
             right = mid - 1;
         }
     }
-    
+
     return result;
 }
 
@@ -407,21 +407,21 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
         q1 = -q1;
         d = -d;
     }
-    
+
     // If quaternions are very close, use linear interpolation
     if (d > 0.9995) {
         return quat_normalize(mix(q0, q1, t));
     }
-    
+
     // Spherical interpolation
     float theta_0 = acos(clamp(d, -1.0, 1.0));
     float theta = theta_0 * t;
     float sin_theta = sin(theta);
     float sin_theta_0 = sin(theta_0);
-    
+
     float s0 = cos(theta) - d * sin_theta / sin_theta_0;
     float s1 = sin_theta / sin_theta_0;
-    
+
     return quat_normalize(s0 * q0 + s1 * q1);
 }
 
@@ -429,12 +429,12 @@ vec4 quat_slerp(vec4 q0, vec4 q1, float t) {
 // GLSL mat3 is column-major: mat3(col0, col1, col2)
 mat3 quat_to_matrix(vec4 q) {
     float x = q.x, y = q.y, z = q.z, w = q.w;
-    
+
     float x2 = x + x, y2 = y + y, z2 = z + z;
     float xx = x * x2, xy = x * y2, xz = x * z2;
     float yy = y * y2, yz = y * z2, zz = z * z2;
     float wx = w * x2, wy = w * y2, wz = w * z2;
-    
+
     // Column 0: (R00, R10, R20), Column 1: (R01, R11, R21), Column 2: (R02, R12, R22)
     return mat3(
         1.0 - (yy + zz), xy + wz, xz - wy,   // Column 0
@@ -446,7 +446,7 @@ mat3 quat_to_matrix(vec4 q) {
 // Build 4x4 transform from translation and quaternion (with scale)
 mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
     mat3 rot = quat_to_matrix(quaternion);
-    
+
     // Apply scale to each column of rotation matrix
     mat4 result = mat4(
         vec4(rot[0] * scale.x, 0.0),
@@ -454,7 +454,7 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
         vec4(rot[2] * scale.z, 0.0),
         vec4(translation, 1.0)
     );
-    
+
     return result;
 }
 
@@ -462,22 +462,22 @@ mat4 build_transform(vec3 translation, vec4 quaternion, vec3 scale) {
 // Returns -1 if target is outside the track range
 int binary_search_track(uint base_offset, uint count, int64_t target) {
     if (count < 2u) return -1;  // Need at least 2 points for interpolation
-    
+
     int64_t first_ts = g_timestamps[base_offset];
     int64_t last_ts = g_timestamps[base_offset + count - 1u];
-    
+
     // Check bounds
     if (target < first_ts || target > last_ts) return -1;
-    
+
     int left = 0;
     int right = int(count) - 2;  // Max valid index for interpolation start
     int result = 0;
-    
+
     while (left <= right) {
         int mid = (left + right) / 2;
         int64_t t0 = g_timestamps[base_offset + uint(mid)];
         int64_t t1 = g_timestamps[base_offset + uint(mid) + 1u];
-        
+
         if (t0 <= target && target <= t1) {
             return mid;
         } else if (target < t0) {
@@ -486,7 +486,7 @@ int binary_search_track(uint base_offset, uint count, int64_t target) {
             left = mid + 1;
         }
     }
-    
+
     return -1;  // Should not reach here for valid input
 }
 
@@ -530,16 +530,16 @@ vec3 rotate_rodrigues(vec3 v, vec3 r) {
 vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
     vec3 cam_pt = (pose.world_to_camera * vec4(world_pos, 1.0)).xyz;
     float depth = cam_pt.z;
-    
+
     float ray_norm = length(cam_pt);
-    
+
     // Handle points at camera origin
     if (ray_norm < 1e-6) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    
+
     float half_pi = 1.5707963;  // π/2
-    
+
     // For cameras with FOV <= 180° (max_ray_angle <= π/2), points behind camera should be clipped
     // Use pseudo-pinhole projection to push them far away in the correct direction
     if (cam.max_ray_angle <= half_pi && depth < 0.001) {
@@ -548,35 +548,35 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         float y_clip = -cam_pt.y * pseudo_focal / (cam.img_h * 0.5);
         return vec4(x_clip * 10.0, y_clip * 10.0, 1.0, 1.0);  // Scale by 10 to push far outside
     }
-    
+
     float xy_norm = length(cam_pt.xy);
     float cos_alpha = clamp(cam_pt.z / ray_norm, -1.0, 1.0);
     float alpha = acos(cos_alpha);  // alpha in [0, π]
-    
+
     // Apply polynomial projection (with linear extrapolation beyond max_ray_angle)
     float a2 = alpha * alpha;
     float a3 = a2 * alpha;
     float a4 = a2 * a2;
     float a5 = a4 * alpha;
-    
+
     float delta = cam.poly0 + cam.poly1 * alpha + cam.poly2 * a2 +
                   cam.poly3 * a3 + cam.poly4 * a4 + cam.poly5 * a5;
     if (alpha > cam.max_ray_angle) {
         delta = cam.max_distortion_val + (alpha - cam.max_ray_angle) * cam.max_distortion_dval;
     }
-    
+
     float scale = (xy_norm > 1e-6) ? (delta / xy_norm) : 0.0;
     vec2 pixel_rel = scale * cam_pt.xy;
-    
+
     vec2 pixel_dist;
     pixel_dist.x = cam.ld_c * pixel_rel.x + cam.ld_d * pixel_rel.y;
     pixel_dist.y = cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y;
-    
+
     vec2 pixel = pixel_dist + vec2(cam.cx, cam.cy);
-    
+
     float x_ndc = 2.0 * pixel.x / cam.img_w - 1.0;
     float y_ndc = 1.0 - 2.0 * pixel.y / cam.img_h;
-    
+
     // For z-buffer depth mapping:
     // - Narrow FOV (<=180°): use signed depth (cam_pt.z)
     // - Wide FOV (>180°): use ray_norm for front-camera vertices (unchanged),
@@ -589,7 +589,7 @@ vec4 ftheta_project(vec3 world_pos, CameraPose pose, FThetaCamera cam) {
         z_value = depth;
     }
     float z_ndc = clamp(z_value / cam.depth_max, 0.0, 1.0);
-    
+
     return vec4(x_ndc, y_ndc, z_ndc, 1.0);
 }
 
@@ -600,15 +600,15 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
     vec3 cam_pt1 = (world_to_cam * vec4(v1, 1.0)).xyz;
     vec3 mid_world = (v0 + v1) * 0.5;
     vec3 cam_pt_mid = (world_to_cam * vec4(mid_world, 1.0)).xyz;
-    
+
     // Just clamp depths to avoid division issues
-    
+
     // For segments in front of camera, compute f-theta projection error directly
     // Use depth-clamped projection to handle near-plane cases
     float depth0 = max(cam_pt0.z, 0.001);
     float depth1 = max(cam_pt1.z, 0.001);
     float depth_mid = max(cam_pt_mid.z, 0.001);
-    
+
     // Compute f-theta projection for each point
     // We inline the projection to avoid struct-passing issues
     vec2 pixel0, pixel1, pixel_mid;
@@ -663,18 +663,18 @@ float estimate_edge_distortion_pixels_mat4(vec3 v0, vec3 v1, mat4 world_to_cam, 
                                cam.ld_e * pixel_rel.x + cam.ld_f * pixel_rel.y);
         pixel_mid = pixel_dist + vec2(cam.cx, cam.cy);
     }
-    
+
     // Compute error: distance from projected midpoint to linear interpolation
     vec2 linear_pixel_mid = (pixel0 + pixel1) * 0.5;
     float error_pixels = length(pixel_mid - linear_pixel_mid);
-    
+
     // Clamp to reasonable range to handle edge cases
     return clamp(error_pixels, 0.0, 10000.0);
 }
 
 uint compute_subdivision_level(vec3 v0, vec3 v1, CameraPose pose, FThetaCamera cam, float threshold_pixels) {
     float error = estimate_edge_distortion_pixels_mat4(v0, v1, pose.world_to_camera, cam);
-    
+
     if (error < threshold_pixels) return 0u;
     if (error < threshold_pixels * 2.0) return 1u;
     if (error < threshold_pixels * 4.0) return 2u;
@@ -759,7 +759,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         if (t < 7u) {
             row = 0u;
             if (t < 4u) { col = t; is_down = false; }
@@ -777,7 +777,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 3u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -795,7 +795,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         uint t = tri_idx;
         uint row = 0u, col = 0u;
         bool is_down = false;
-        
+
         // Row 0: 8 up + 7 down = 15, Row 1: 7 up + 6 down = 13, etc.
         if (t < 15u) {
             row = 0u;
@@ -828,7 +828,7 @@ uvec3 bary_triangle_indices(uint tri_idx, uint level) {
         } else {
             row = 7u; col = 0u; is_down = false;
         }
-        
+
         uint i0, i1, i2;
         if (!is_down) {
             i0 = row_start[row] + col;
@@ -864,42 +864,42 @@ taskPayloadSharedEXT PolylineTaskPayload payload;
 void main() {
     uint _task_count = 0u;
     uint work_id = gl_WorkGroupID.x;
-    
+
     // Decode work_id into (query, pool, varray_offset)
     uint varray_offset = work_id % pc.u_max_varrays_per_pool;
     uint temp = work_id / pc.u_max_varrays_per_pool;
     uint pool_id_local = temp % pc.u_num_polyline_pools;
     uint query_id_local = temp / pc.u_num_polyline_pools;
-    
+
     if (query_id_local >= pc.u_num_queries) {
         _task_count = 0u;
         EmitMeshTasksEXT(_task_count, 1, 1); return;
     }
-    
+
     // Load query
     RenderQuery query = g_queries[query_id_local];
     TimestampedScene scene = g_scenes[query.scene_id];
-    
+
     if (pool_id_local >= scene.num_polyline_pools) {
         _task_count = 0u;
         EmitMeshTasksEXT(_task_count, 1, 1); return;
     }
-    
+
     // Load pool
     TimestampedPolylinePool pool = g_polyline_pools[scene.polyline_pools_offset + pool_id_local];
-    
+
     // Binary search for timestamp
     int ts_idx = binary_search_timestamps(
         scene.timestamps_buffer_offset + pool.timestamps_offset,
         pool.num_timestamps,
         query.timestamp_us
     );
-    
+
     if (ts_idx < 0) {
         _task_count = 0u;
         EmitMeshTasksEXT(_task_count, 1, 1); return;
     }
-    
+
     // Compute varray range for this timestamp
     uint varray_start = 0u;
     if (ts_idx > 0) {
@@ -907,7 +907,7 @@ void main() {
     }
     uint varray_end = uint(g_int32[scene.int32_buffer_offset + pool.ts_varrays_ps_offset + uint(ts_idx)]);
     uint num_varrays = varray_end - varray_start;
-    
+
     bool force_zero_tasks = false;
     if (varray_offset >= num_varrays) {
         // Keep subsequent SSBO reads in-bounds, then force the final emit
@@ -917,9 +917,9 @@ void main() {
         force_zero_tasks = true;
         varray_offset = 0u;
     }
-    
+
     uint actual_varray_idx = varray_start + varray_offset;
-    
+
     // Spatial culling: test per-element AABB against camera-centred view volume
     if (pc.u_cull_radius_scale > 0.0 && pool.aabb_offset != 0u) {
         float cull_r = g_camera_intrinsics[query.camera_id].depth_max * pc.u_cull_radius_scale;
@@ -934,7 +934,7 @@ void main() {
             force_zero_tasks = true;
         }
     }
-    
+
     // Get vertex range for this polyline
     uint v_start = 0u;
     if (actual_varray_idx > 0u) {
@@ -942,10 +942,10 @@ void main() {
     }
     uint v_end = uint(g_int32[scene.int32_buffer_offset + pool.varrays_ps_offset + actual_varray_idx]);
     uint total_pts = v_end - v_start;
-    
+
     // Handle dot primitives differently - each vertex is a separate circle
     bool is_dot = is_dot_primitive(pool.prim_type_id);
-    
+
     if (is_dot) {
         // For dots: each vertex is a dot, dispatch one mesh task per batch of dots
         // Each dot uses 9 vertices (center + 8 ring) and 8 triangles
@@ -953,7 +953,7 @@ void main() {
         const uint DOTS_PER_CHUNK = 7u;
         uint num_chunks = (total_pts + DOTS_PER_CHUNK - 1u) / DOTS_PER_CHUNK;
         num_chunks = max(num_chunks, 1u);
-        
+
         _task_count = force_zero_tasks ? 0u : num_chunks;
     } else {
         // Regular polylines
@@ -961,21 +961,21 @@ void main() {
             force_zero_tasks = true;
             total_pts = 2u;
         }
-        
+
         // Per-segment adaptive subdivision with 128 vertex limit (per-primitive color)
         // Max capacity: 128 verts - 8 cap verts = 120 body verts = 60 effective points
         // Worst case 16x subdivision (level 4): 60 / 16 = 3.75 segments
         // Use 3 segments per chunk for safety margin
         const uint MAX_SEGMENTS_PER_CHUNK = 3u;
-        
+
         uint num_segments = total_pts - 1u;
         uint num_chunks = (num_segments + MAX_SEGMENTS_PER_CHUNK - 1u) / MAX_SEGMENTS_PER_CHUNK;
         num_chunks = max(num_chunks, 1u);
-        
+
         // Emit mesh tasks for each chunk
         _task_count = force_zero_tasks ? 0u : num_chunks;
     }
-    
+
     // Write task payload - readable by all spawned mesh shaders
     payload.query_id = query_id_local;
     payload.pool_id = pool_id_local;

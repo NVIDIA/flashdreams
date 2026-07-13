@@ -32,8 +32,8 @@ Runs:
 
 import os
 import random
-import time
 import sys
+import time
 
 import numpy as np
 import torch
@@ -54,7 +54,9 @@ def compare_flat(name: str, gpu_data, pyarrow_data) -> bool:
         print(f"  {name}: both None -- OK")
         return True
     if gpu_data is None or pyarrow_data is None:
-        print(f"  {name}: MISMATCH -- one is None (gpu={gpu_data is not None}, pyarrow={pyarrow_data is not None})")
+        print(
+            f"  {name}: MISMATCH -- one is None (gpu={gpu_data is not None}, pyarrow={pyarrow_data is not None})"
+        )
         return False
 
     g_ts = gpu_data.timestamps_us.cpu()
@@ -97,8 +99,11 @@ def compare_flat(name: str, gpu_data, pyarrow_data) -> bool:
 
 def benchmark_single_scene():
     """Compare GPU-native vs PyArrow for a single scene."""
-    from ludus_renderer.clipgt import load_av2_scene, _load_polylines_pyarrow, get_file_loader
-    from ludus_renderer.gpu_parquet import is_gpu_parquet_available, load_polylines_gpu_native
+    from ludus_renderer.clipgt import _load_polylines_pyarrow, get_file_loader
+    from ludus_renderer.gpu_parquet import (
+        is_gpu_parquet_available,
+        load_polylines_gpu_native,
+    )
 
     device = torch.device("cuda")
 
@@ -123,8 +128,12 @@ def benchmark_single_scene():
     gpu_data = load_polylines_gpu_native(TAR_PATH, device)
 
     all_ok = True
-    for pq_name in ["cf_road_boundary.parquet", "dw_lane_line.parquet",
-                     "cf_crosswalks.parquet", "cf_static_obstacle.parquet"]:
+    for pq_name in [
+        "cf_road_boundary.parquet",
+        "dw_lane_line.parquet",
+        "cf_crosswalks.parquet",
+        "cf_static_obstacle.parquet",
+    ]:
         ok = compare_flat(pq_name, gpu_data.get(pq_name), pyarrow_data.get(pq_name))
         all_ok = all_ok and ok
 
@@ -188,8 +197,12 @@ def compare_full_scene():
     print("3. CORRECTNESS: full load_av2_scene (GPU unified vs PyArrow)")
     print("=" * 60)
 
-    gpu_scene = load_av2_scene(TAR_PATH, device=device, verbose=False, use_gpu_decoder=True)
-    pa_scene = load_av2_scene(TAR_PATH, device=device, verbose=False, use_gpu_decoder=False)
+    gpu_scene = load_av2_scene(
+        TAR_PATH, device=device, verbose=False, use_gpu_decoder=True
+    )
+    pa_scene = load_av2_scene(
+        TAR_PATH, device=device, verbose=False, use_gpu_decoder=False
+    )
     torch.cuda.synchronize()
 
     all_ok = True
@@ -197,10 +210,19 @@ def compare_full_scene():
     # --- Ego track ---
     g_ego, p_ego = gpu_scene.ego_track, pa_scene.ego_track
     ts_ok = torch.equal(g_ego.timestamps.cpu(), p_ego.timestamps.cpu())
-    pose_diff = (g_ego.poses_tquat.cpu().float() - p_ego.poses_tquat.cpu().float()).abs().max().item()
+    pose_diff = (
+        (g_ego.poses_tquat.cpu().float() - p_ego.poses_tquat.cpu().float())
+        .abs()
+        .max()
+        .item()
+    )
     ego_ok = ts_ok and pose_diff < 1e-6
-    print(f"  ego_track timestamps: {'MATCH' if ts_ok else 'MISMATCH'} ({len(g_ego.timestamps)} frames)")
-    print(f"  ego_track poses:      {'MATCH' if pose_diff < 1e-6 else 'MISMATCH'} (max diff {pose_diff:.2e})")
+    print(
+        f"  ego_track timestamps: {'MATCH' if ts_ok else 'MISMATCH'} ({len(g_ego.timestamps)} frames)"
+    )
+    print(
+        f"  ego_track poses:      {'MATCH' if pose_diff < 1e-6 else 'MISMATCH'} (max diff {pose_diff:.2e})"
+    )
     all_ok = all_ok and ego_ok
 
     # --- Cameras (FThetaCamera: principal_point, image_size, fw_poly) ---
@@ -211,7 +233,9 @@ def compare_full_scene():
     max_fw_diff = 0.0
     if cam_ok:
         for gc, pc in zip(g_cams, p_cams):
-            pp_diff = (gc.principal_point.cpu() - pc.principal_point.cpu()).abs().max().item()
+            pp_diff = (
+                (gc.principal_point.cpu() - pc.principal_point.cpu()).abs().max().item()
+            )
             sz_diff = (gc.image_size.cpu() - pc.image_size.cpu()).abs().max().item()
             fw_diff = (gc.fw_poly.cpu() - pc.fw_poly.cpu()).abs().max().item()
             max_fw_diff = max(max_fw_diff, fw_diff)
@@ -219,7 +243,9 @@ def compare_full_scene():
                 cam_ok = False
                 break
     fw_note = f", max fw_poly diff={max_fw_diff:.2e}" if max_fw_diff > 0 else ""
-    print(f"  cameras:              {'MATCH' if cam_ok else 'MISMATCH'} ({len(g_cams)} cameras{fw_note})")
+    print(
+        f"  cameras:              {'MATCH' if cam_ok else 'MISMATCH'} ({len(g_cams)} cameras{fw_note})"
+    )
     all_ok = all_ok and cam_ok
 
     # --- Timestamped scene (polyline pools, polygon pools, cube pools) ---
@@ -229,19 +255,25 @@ def compare_full_scene():
     n_gpoly = len(g_ts.polyline_pools) if g_ts.polyline_pools else 0
     n_ppoly = len(p_ts.polyline_pools) if p_ts.polyline_pools else 0
     poly_ok = n_gpoly == n_ppoly
-    print(f"  polyline pools:       {'MATCH' if poly_ok else 'MISMATCH'} ({n_gpoly} vs {n_ppoly})")
+    print(
+        f"  polyline pools:       {'MATCH' if poly_ok else 'MISMATCH'} ({n_gpoly} vs {n_ppoly})"
+    )
     all_ok = all_ok and poly_ok
 
     n_gpgon = len(g_ts.polygon_pools) if g_ts.polygon_pools else 0
     n_ppgon = len(p_ts.polygon_pools) if p_ts.polygon_pools else 0
     pgon_ok = n_gpgon == n_ppgon
-    print(f"  polygon pools:        {'MATCH' if pgon_ok else 'MISMATCH'} ({n_gpgon} vs {n_ppgon})")
+    print(
+        f"  polygon pools:        {'MATCH' if pgon_ok else 'MISMATCH'} ({n_gpgon} vs {n_ppgon})"
+    )
     all_ok = all_ok and pgon_ok
 
     n_gcube = len(g_ts.cube_pools) if g_ts.cube_pools else 0
     n_pcube = len(p_ts.cube_pools) if p_ts.cube_pools else 0
     cube_ok = n_gcube == n_pcube
-    print(f"  cube pools:           {'MATCH' if cube_ok else 'MISMATCH'} ({n_gcube} vs {n_pcube})")
+    print(
+        f"  cube pools:           {'MATCH' if cube_ok else 'MISMATCH'} ({n_gcube} vs {n_pcube})"
+    )
     all_ok = all_ok and cube_ok
 
     print(f"\n  Full scene: {'ALL MATCH' if all_ok else 'MISMATCH DETECTED'}")
@@ -270,13 +302,19 @@ def _sample_tar_paths(n: int, seed: int = 42) -> list:
     return reservoir
 
 
-def compare_full_scene_one(tar_path: str, device: torch.device, label: str = "") -> bool:
+def compare_full_scene_one(
+    tar_path: str, device: torch.device, label: str = ""
+) -> bool:
     """Compare GPU vs PyArrow load_av2_scene for a single tar. Returns True if match."""
     from ludus_renderer.clipgt import load_av2_scene
 
-    gpu_scene = load_av2_scene(tar_path, device=device, verbose=False, use_gpu_decoder=True)
+    gpu_scene = load_av2_scene(
+        tar_path, device=device, verbose=False, use_gpu_decoder=True
+    )
     torch.cuda.synchronize()
-    pa_scene = load_av2_scene(tar_path, device=device, verbose=False, use_gpu_decoder=False)
+    pa_scene = load_av2_scene(
+        tar_path, device=device, verbose=False, use_gpu_decoder=False
+    )
     torch.cuda.synchronize()
 
     ok = True
@@ -286,7 +324,12 @@ def compare_full_scene_one(tar_path: str, device: torch.device, label: str = "")
     if not torch.equal(g_ego.timestamps.cpu(), p_ego.timestamps.cpu()):
         issues.append("ego_timestamps")
         ok = False
-    pose_diff = (g_ego.poses_tquat.cpu().float() - p_ego.poses_tquat.cpu().float()).abs().max().item()
+    pose_diff = (
+        (g_ego.poses_tquat.cpu().float() - p_ego.poses_tquat.cpu().float())
+        .abs()
+        .max()
+        .item()
+    )
     if pose_diff > 1e-6:
         issues.append(f"ego_poses(diff={pose_diff:.2e})")
         ok = False
@@ -297,7 +340,9 @@ def compare_full_scene_one(tar_path: str, device: torch.device, label: str = "")
         ok = False
     else:
         for gc, pc in zip(g_cams, p_cams):
-            pp_diff = (gc.principal_point.cpu() - pc.principal_point.cpu()).abs().max().item()
+            pp_diff = (
+                (gc.principal_point.cpu() - pc.principal_point.cpu()).abs().max().item()
+            )
             sz_diff = (gc.image_size.cpu() - pc.image_size.cpu()).abs().max().item()
             fw_diff = (gc.fw_poly.cpu() - pc.fw_poly.cpu()).abs().max().item()
             if pp_diff > 1e-6 or sz_diff > 1e-6 or fw_diff > 1e-3:
@@ -362,15 +407,20 @@ def validate_multi_scene(n_scenes: int = 50):
     for i, tar in enumerate(paths):
         if not os.path.isfile(tar):
             scene_id = os.path.basename(os.path.dirname(tar))
-            print(f"  [{i+1:3d}/{len(paths)}] {scene_id}: SKIP (file not found)")
+            print(f"  [{i + 1:3d}/{len(paths)}] {scene_id}: SKIP (file not found)")
             n_skip += 1
             continue
         try:
-            ok = compare_full_scene_one(tar, device, label=f"[{i+1:3d}/{len(paths)}] ")
+            ok = compare_full_scene_one(
+                tar, device, label=f"[{i + 1:3d}/{len(paths)}] "
+            )
         except Exception as e:
             import traceback
+
             scene_id = os.path.basename(os.path.dirname(tar))
-            print(f"  [{i+1:3d}/{len(paths)}] {scene_id}: ERROR -- {type(e).__name__}: {e}")
+            print(
+                f"  [{i + 1:3d}/{len(paths)}] {scene_id}: ERROR -- {type(e).__name__}: {e}"
+            )
             traceback.print_exc()
             ok = False
         elapsed = time.perf_counter() - t_start
@@ -379,10 +429,14 @@ def validate_multi_scene(n_scenes: int = 50):
         else:
             n_fail += 1
         if (i + 1) % 10 == 0:
-            print(f"  --- {i+1}/{len(paths)} done, {elapsed:.1f}s elapsed, "
-                  f"{n_pass} pass / {n_fail} fail / {n_skip} skip ---")
+            print(
+                f"  --- {i + 1}/{len(paths)} done, {elapsed:.1f}s elapsed, "
+                f"{n_pass} pass / {n_fail} fail / {n_skip} skip ---"
+            )
 
-    print(f"\n  Results: {n_pass} passed, {n_fail} failed, {n_skip} skipped out of {len(paths)}")
+    print(
+        f"\n  Results: {n_pass} passed, {n_fail} failed, {n_skip} skipped out of {len(paths)}"
+    )
     return n_fail == 0
 
 
@@ -413,14 +467,18 @@ def benchmark_full_scene():
 
     for label, use_gpu in [("GPU-native", True), ("PyArrow", False)]:
         for _ in range(n_warmup):
-            load_av2_scene(TAR_PATH, device=device, verbose=False, use_gpu_decoder=use_gpu)
+            load_av2_scene(
+                TAR_PATH, device=device, verbose=False, use_gpu_decoder=use_gpu
+            )
             torch.cuda.synchronize()
 
         times = []
         for _ in range(n_runs):
             torch.cuda.synchronize()
             t0 = time.perf_counter()
-            load_av2_scene(TAR_PATH, device=device, verbose=False, use_gpu_decoder=use_gpu)
+            load_av2_scene(
+                TAR_PATH, device=device, verbose=False, use_gpu_decoder=use_gpu
+            )
             torch.cuda.synchronize()
             times.append(time.perf_counter() - t0)
 
@@ -429,8 +487,10 @@ def benchmark_full_scene():
         median = np.median(times) * 1000
         p5 = np.percentile(times, 5) * 1000
         p95 = np.percentile(times, 95) * 1000
-        print(f"  {label:12s}: mean {mean:.1f} +/- {std:.1f} ms, "
-              f"median {median:.1f}, p5 {p5:.1f}, p95 {p95:.1f}")
+        print(
+            f"  {label:12s}: mean {mean:.1f} +/- {std:.1f} ms, "
+            f"median {median:.1f}, p5 {p5:.1f}, p95 {p95:.1f}"
+        )
 
 
 def benchmark_multi_scene_e2e(n_scenes: int = 20):
@@ -453,7 +513,9 @@ def benchmark_multi_scene_e2e(n_scenes: int = 20):
         return
 
     # Warmup: run every scene once with both paths to prime FS cache + CUDA
-    print(f"  Warmup: loading {len(valid_paths)} scenes (both paths) to prime caches...")
+    print(
+        f"  Warmup: loading {len(valid_paths)} scenes (both paths) to prime caches..."
+    )
     for tar in valid_paths:
         try:
             load_av2_scene(tar, device=device, verbose=False, use_gpu_decoder=True)
@@ -479,7 +541,9 @@ def benchmark_multi_scene_e2e(n_scenes: int = 20):
             for label, use_gpu in order:
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
-                load_av2_scene(tar, device=device, verbose=False, use_gpu_decoder=use_gpu)
+                load_av2_scene(
+                    tar, device=device, verbose=False, use_gpu_decoder=use_gpu
+                )
                 torch.cuda.synchronize()
                 times_pair[label] = time.perf_counter() - t0
 
@@ -487,23 +551,33 @@ def benchmark_multi_scene_e2e(n_scenes: int = 20):
             pt = times_pair["PyArrow"]
             gpu_times.append(gt)
             pa_times.append(pt)
-            print(f"  [{i+1:3d}/{len(valid_paths)}] {scene_id}: "
-                  f"GPU {gt*1000:6.1f} ms, PyArrow {pt*1000:6.1f} ms, "
-                  f"speedup {pt/gt:.2f}x")
+            print(
+                f"  [{i + 1:3d}/{len(valid_paths)}] {scene_id}: "
+                f"GPU {gt * 1000:6.1f} ms, PyArrow {pt * 1000:6.1f} ms, "
+                f"speedup {pt / gt:.2f}x"
+            )
         except Exception as e:
-            print(f"  [{i+1:3d}/{len(valid_paths)}] {scene_id}: ERROR -- {e}")
+            print(f"  [{i + 1:3d}/{len(valid_paths)}] {scene_id}: ERROR -- {e}")
 
     if gpu_times:
         gpu_arr = np.array(gpu_times) * 1000
         pa_arr = np.array(pa_times) * 1000
         speedups = np.array(pa_times) / np.array(gpu_times)
         print()
-        print(f"  {'':12s}  {'mean':>7s}  {'std':>6s}  {'median':>7s}  {'p5':>6s}  {'p95':>6s}")
-        print(f"  {'GPU-native':12s}: {gpu_arr.mean():7.1f}  {gpu_arr.std():6.1f}  "
-              f"{np.median(gpu_arr):7.1f}  {np.percentile(gpu_arr,5):6.1f}  {np.percentile(gpu_arr,95):6.1f}")
-        print(f"  {'PyArrow':12s}: {pa_arr.mean():7.1f}  {pa_arr.std():6.1f}  "
-              f"{np.median(pa_arr):7.1f}  {np.percentile(pa_arr,5):6.1f}  {np.percentile(pa_arr,95):6.1f}")
-        print(f"  Speedup:     mean {speedups.mean():.2f}x, median {np.median(speedups):.2f}x")
+        print(
+            f"  {'':12s}  {'mean':>7s}  {'std':>6s}  {'median':>7s}  {'p5':>6s}  {'p95':>6s}"
+        )
+        print(
+            f"  {'GPU-native':12s}: {gpu_arr.mean():7.1f}  {gpu_arr.std():6.1f}  "
+            f"{np.median(gpu_arr):7.1f}  {np.percentile(gpu_arr, 5):6.1f}  {np.percentile(gpu_arr, 95):6.1f}"
+        )
+        print(
+            f"  {'PyArrow':12s}: {pa_arr.mean():7.1f}  {pa_arr.std():6.1f}  "
+            f"{np.median(pa_arr):7.1f}  {np.percentile(pa_arr, 5):6.1f}  {np.percentile(pa_arr, 95):6.1f}"
+        )
+        print(
+            f"  Speedup:     mean {speedups.mean():.2f}x, median {np.median(speedups):.2f}x"
+        )
 
 
 def benchmark_prefetch(n_scenes: int = 20):
@@ -560,14 +634,21 @@ def benchmark_prefetch(n_scenes: int = 20):
         for si, tar in enumerate(valid_paths):
             pf_next = valid_paths[si + 1] if si + 1 < len(valid_paths) else None
             tl = time.perf_counter()
-            load_av2_scene(tar, device=device, verbose=False,
-                           use_gpu_decoder=True, prefetch_next=pf_next)
+            load_av2_scene(
+                tar,
+                device=device,
+                verbose=False,
+                use_gpu_decoder=True,
+                prefetch_next=pf_next,
+            )
             torch.cuda.synchronize()
             per_scene_pf[si].append(time.perf_counter() - tl)
             time.sleep(work_ms / 1000.0)
 
     # Per-scene results
-    print(f"\n  {'scene':>4s}  {'no-pf median':>12s}  {'prefetch median':>15s}  {'saved':>7s}  id")
+    print(
+        f"\n  {'scene':>4s}  {'no-pf median':>12s}  {'prefetch median':>15s}  {'saved':>7s}  id"
+    )
     all_no_pf = []
     all_pf = []
     for si in range(len(valid_paths)):
@@ -575,17 +656,25 @@ def benchmark_prefetch(n_scenes: int = 20):
         pf = np.median(per_scene_pf[si]) * 1000
         sv = no - pf
         scene_id = os.path.basename(os.path.dirname(valid_paths[si]))
-        print(f"  {si+1:>4d}  {no:>10.2f} ms  {pf:>13.2f} ms  {sv:>+6.2f}  {scene_id}")
+        print(
+            f"  {si + 1:>4d}  {no:>10.2f} ms  {pf:>13.2f} ms  {sv:>+6.2f}  {scene_id}"
+        )
         all_no_pf.extend(per_scene_no_pf[si])
         all_pf.extend(per_scene_pf[si])
 
     no_arr = np.array(all_no_pf) * 1000
     pf_arr = np.array(all_pf) * 1000
-    print(f"\n  {'':16s}  {'mean':>7s}  {'std':>6s}  {'median':>7s}  {'p5':>6s}  {'p95':>6s}")
-    print(f"  {'No prefetch':16s}: {no_arr.mean():7.1f}  {no_arr.std():6.1f}  "
-          f"{np.median(no_arr):7.1f}  {np.percentile(no_arr,5):6.1f}  {np.percentile(no_arr,95):6.1f}")
-    print(f"  {'With prefetch':16s}: {pf_arr.mean():7.1f}  {pf_arr.std():6.1f}  "
-          f"{np.median(pf_arr):7.1f}  {np.percentile(pf_arr,5):6.1f}  {np.percentile(pf_arr,95):6.1f}")
+    print(
+        f"\n  {'':16s}  {'mean':>7s}  {'std':>6s}  {'median':>7s}  {'p5':>6s}  {'p95':>6s}"
+    )
+    print(
+        f"  {'No prefetch':16s}: {no_arr.mean():7.1f}  {no_arr.std():6.1f}  "
+        f"{np.median(no_arr):7.1f}  {np.percentile(no_arr, 5):6.1f}  {np.percentile(no_arr, 95):6.1f}"
+    )
+    print(
+        f"  {'With prefetch':16s}: {pf_arr.mean():7.1f}  {pf_arr.std():6.1f}  "
+        f"{np.median(pf_arr):7.1f}  {np.percentile(pf_arr, 5):6.1f}  {np.percentile(pf_arr, 95):6.1f}"
+    )
     print(f"  Prefetch saves: {np.median(no_arr) - np.median(pf_arr):.2f} ms (median)")
 
 
@@ -616,25 +705,34 @@ def benchmark_decoder_class():
         for _ in range(n_runs):
             torch.cuda.synchronize()
             t0 = time.perf_counter()
-            results = decoder.load_scenes(paths)
+            _ = decoder.load_scenes(paths)
             torch.cuda.synchronize()
             times.append(time.perf_counter() - t0)
 
         mean = np.mean(times) * 1000
         std = np.std(times) * 1000
         per_scene = mean / batch_size
-        print(f"  batch={batch_size:2d}: {mean:7.1f} +/- {std:4.1f} ms  "
-              f"({per_scene:.1f} ms/scene)")
+        print(
+            f"  batch={batch_size:2d}: {mean:7.1f} +/- {std:4.1f} ms  "
+            f"({per_scene:.1f} ms/scene)"
+        )
 
     # Correctness: compare decoder output vs standalone
     from ludus_renderer.gpu_parquet import load_polylines_gpu_native
+
     dec_result = decoder.load_scene(TAR_PATH)
     ref_result = load_polylines_gpu_native(TAR_PATH, device)
 
     all_ok = True
-    for pq_name in ["cf_road_boundary.parquet", "dw_lane_line.parquet",
-                     "cf_crosswalks.parquet", "cf_static_obstacle.parquet"]:
-        ok = compare_flat(f"[decoder] {pq_name}", dec_result.get(pq_name), ref_result.get(pq_name))
+    for pq_name in [
+        "cf_road_boundary.parquet",
+        "dw_lane_line.parquet",
+        "cf_crosswalks.parquet",
+        "cf_static_obstacle.parquet",
+    ]:
+        ok = compare_flat(
+            f"[decoder] {pq_name}", dec_result.get(pq_name), ref_result.get(pq_name)
+        )
         all_ok = all_ok and ok
     print(f"\n  Decoder correctness: {'ALL MATCH' if all_ok else 'MISMATCH'}")
 

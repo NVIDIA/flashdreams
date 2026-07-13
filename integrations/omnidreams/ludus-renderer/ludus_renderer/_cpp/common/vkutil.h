@@ -157,4 +157,3 @@ void transitionImageLayout(
     uint32_t layerCount,
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
 );
-

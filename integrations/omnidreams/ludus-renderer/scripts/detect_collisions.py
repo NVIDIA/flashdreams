@@ -45,8 +45,6 @@ Merge shard outputs into final collision list + metadata:
 
 import argparse
 import json
-import os
-import sys
 import time
 from pathlib import Path
 
@@ -61,7 +59,7 @@ def _process_scenes(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with open(scene_list) as f:
-        all_paths = [l.strip() for l in f if l.strip()]
+        all_paths = [line.strip() for line in f if line.strip()]
 
     start = args.start if args.start is not None else 0
     end = args.end if args.end is not None else len(all_paths)
@@ -129,9 +127,9 @@ def _process_scenes(args):
                 rate = (i + 1) / elapsed
                 eta = (n_total - i - 1) / rate if rate > 0 else 0
                 print(
-                    f"[{i+1}/{n_total}] "
+                    f"[{i + 1}/{n_total}] "
                     f"collisions={n_collision} errors={n_error} "
-                    f"{rate:.1f} scenes/s  ETA {eta/60:.0f}m",
+                    f"{rate:.1f} scenes/s  ETA {eta / 60:.0f}m",
                     flush=True,
                 )
                 results_f.flush()
@@ -142,7 +140,7 @@ def _process_scenes(args):
     elapsed = time.perf_counter() - t_start
     print(
         f"\nDone: {n_total} scenes in {elapsed:.1f}s "
-        f"({n_total/elapsed:.1f}/s), "
+        f"({n_total / elapsed:.1f}/s), "
         f"{n_collision} collisions, {n_error} errors"
     )
     print(f"Results: {results_path}")
@@ -200,11 +198,19 @@ def main():
         description="GPU-accelerated ego-obstacle collision detection"
     )
     parser.add_argument("--scene-list", type=str, help="Text file with scene tar paths")
-    parser.add_argument("--output-dir", type=str, required=True, help="Output directory")
-    parser.add_argument("--start", type=int, default=None, help="Start index in scene list")
+    parser.add_argument(
+        "--output-dir", type=str, required=True, help="Output directory"
+    )
+    parser.add_argument(
+        "--start", type=int, default=None, help="Start index in scene list"
+    )
     parser.add_argument("--end", type=int, default=None, help="End index (exclusive)")
-    parser.add_argument("--resume", action="store_true", help="Skip already-processed scenes")
-    parser.add_argument("--merge", action="store_true", help="Merge shard outputs instead of processing")
+    parser.add_argument(
+        "--resume", action="store_true", help="Skip already-processed scenes"
+    )
+    parser.add_argument(
+        "--merge", action="store_true", help="Merge shard outputs instead of processing"
+    )
     args = parser.parse_args()
 
     if args.merge:

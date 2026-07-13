@@ -44,6 +44,7 @@ from pathlib import Path
 def _worker_init():
     """Silence noisy imports in worker processes."""
     import warnings
+
     warnings.filterwarnings("ignore")
 
 
@@ -111,13 +112,16 @@ def _run(args):
     results_f = open(results_path, "a")
     collision_f = open(collision_list_path, "a")
 
-    print(f"Processing {n_total} scenes with {n_workers} CPU workers "
-          f"(cpu_count={os.cpu_count()})")
+    print(
+        f"Processing {n_total} scenes with {n_workers} CPU workers "
+        f"(cpu_count={os.cpu_count()})"
+    )
 
     try:
         with mp.Pool(n_workers, initializer=_worker_init) as pool:
             for record in pool.imap_unordered(
-                _process_one, paths,
+                _process_one,
+                paths,
                 chunksize=max(1, n_total // (n_workers * 10)),
             ):
                 if record.get("skipped"):
@@ -163,6 +167,7 @@ def _sweep(args):
     cpu_count = os.cpu_count() or 4
 
     from ludus_renderer.collision import detect_collisions_cpu
+
     detect_collisions_cpu(test_paths[0])
 
     print(f"Benchmarking with {n_test} scenes, cpu_count={cpu_count}")
@@ -175,11 +180,14 @@ def _sweep(args):
         detect_collisions_cpu(p)
     baseline = time.perf_counter() - t0
     baseline_rate = n_test / baseline
-    print(f"{'sequential':>20} {baseline_rate:>10.1f} "
-          f"{baseline / n_test * 1000:>10.1f} {'1.00x':>8}")
+    print(
+        f"{'sequential':>20} {baseline_rate:>10.1f} "
+        f"{baseline / n_test * 1000:>10.1f} {'1.00x':>8}"
+    )
 
-    worker_counts = sorted(set([2, 4, 8, 16, 32, 64,
-                                cpu_count // 2, cpu_count, cpu_count * 2]))
+    worker_counts = sorted(
+        set([2, 4, 8, 16, 32, 64, cpu_count // 2, cpu_count, cpu_count * 2])
+    )
     worker_counts = [w for w in worker_counts if 2 <= w <= cpu_count * 2]
 
     best_rate = baseline_rate
@@ -188,24 +196,29 @@ def _sweep(args):
     for n_workers in worker_counts:
         t0 = time.perf_counter()
         with mp.Pool(n_workers, initializer=_worker_init) as pool:
-            list(pool.imap_unordered(
-                _process_one, test_paths,
-                chunksize=max(1, n_test // (n_workers * 4)),
-            ))
+            list(
+                pool.imap_unordered(
+                    _process_one,
+                    test_paths,
+                    chunksize=max(1, n_test // (n_workers * 4)),
+                )
+            )
         elapsed = time.perf_counter() - t0
         rate = n_test / elapsed
         speedup = rate / baseline_rate
         tag = " *" if n_workers == cpu_count else ""
         label = f"mp x{n_workers}"
-        print(f"{label:>20} {rate:>10.1f} "
-              f"{elapsed / n_test * 1000:>10.1f} {speedup:>7.2f}x{tag}")
+        print(
+            f"{label:>20} {rate:>10.1f} "
+            f"{elapsed / n_test * 1000:>10.1f} {speedup:>7.2f}x{tag}"
+        )
         if rate > best_rate:
             best_rate = rate
             best_label = label
 
     print(f"\nBest: {best_label.strip()} -> {best_rate:.1f} scenes/s")
-    print(f"  (* = cpu_count)")
-    print(f"\nExtrapolated 23M scenes:")
+    print("  (* = cpu_count)")
+    print("\nExtrapolated 23M scenes:")
     print(f"  Sequential:  {23e6 / baseline_rate / 3600:.0f}h")
     print(f"  {best_label.strip()}:  {23e6 / best_rate / 3600:.0f}h")
 
@@ -216,15 +229,26 @@ def main():
     )
     parser.add_argument("--scene-list", type=str, required=True)
     parser.add_argument("--output-dir", type=str, default="collision_results")
-    parser.add_argument("--workers", type=int, default=None,
-                        help="CPU worker count (default: os.cpu_count())")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="CPU worker count (default: os.cpu_count())",
+    )
     parser.add_argument("--start", type=int, default=None)
     parser.add_argument("--end", type=int, default=None)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--sweep", action="store_true",
-                        help="Benchmark worker counts to find optimal throughput")
-    parser.add_argument("--sweep-scenes", type=int, default=500,
-                        help="Number of scenes for sweep benchmark")
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Benchmark worker counts to find optimal throughput",
+    )
+    parser.add_argument(
+        "--sweep-scenes",
+        type=int,
+        default=500,
+        help="Number of scenes for sweep benchmark",
+    )
     args = parser.parse_args()
 
     if args.sweep:

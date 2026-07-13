@@ -76,10 +76,10 @@ py::list nvjpeg_encode(torch::Tensor images, int quality = 85, int device_index 
     TORCH_CHECK(images.is_cuda(), "Input tensor must be on GPU (CUDA)");
     TORCH_CHECK(images.dtype() == torch::kUInt8, "Input tensor must be uint8");
     TORCH_CHECK(images.is_contiguous(), "Input tensor must be contiguous");
-    
+
     int ndim = images.dim();
     TORCH_CHECK(ndim == 3 || ndim == 4, "Input must be [3, H, W] or [B, 3, H, W]");
-    
+
     int batchSize, channels, height, width;
     if (ndim == 3)
     {
@@ -95,32 +95,32 @@ py::list nvjpeg_encode(torch::Tensor images, int quality = 85, int device_index 
         height = images.size(2);
         width = images.size(3);
     }
-    
+
     TORCH_CHECK(channels == 3, "Input must have 3 channels (RGB)");
     TORCH_CHECK(quality >= 1 && quality <= 100, "Quality must be in range [1, 100]");
-    
+
     // device_index >= 0: use that GPU (tensor must be on it). device_index < 0: use tensor's device (lazy-create encoder for it).
     int dev = (device_index >= 0) ? device_index : images.device().index();
     TORCH_CHECK(dev >= 0, "Invalid device index");
     if (device_index >= 0)
         TORCH_CHECK(images.device().index() == dev, "Tensor must be on device ", dev, " when device_index is specified");
-    
+
     NvjpegEncoder& encoder = getEncoder(dev);
-    
+
     // Get pointer to data
     const uint8_t* dataPtr = images.data_ptr<uint8_t>();
-    
+
     // Encode batch
     std::vector<std::vector<uint8_t>> jpegs = encoder.encodeBatch(
         dataPtr, batchSize, width, height, quality);
-    
+
     // Convert to Python list of bytes
     py::list result;
     for (const auto& jpeg : jpegs)
     {
         result.append(py::bytes(reinterpret_cast<const char*>(jpeg.data()), jpeg.size()));
     }
-    
+
     return result;
 }
 
@@ -137,23 +137,23 @@ py::bytes nvjpeg_encode_single(torch::Tensor image, int quality = 85, int device
     TORCH_CHECK(image.dim() == 3, "Input must be [3, H, W]");
     TORCH_CHECK(image.size(0) == 3, "Input must have 3 channels (RGB)");
     TORCH_CHECK(quality >= 1 && quality <= 100, "Quality must be in range [1, 100]");
-    
+
     int height = image.size(1);
     int width = image.size(2);
-    
+
     int dev = (device_index >= 0) ? device_index : image.device().index();
     TORCH_CHECK(dev >= 0, "Invalid device index");
     if (device_index >= 0)
         TORCH_CHECK(image.device().index() == dev, "Tensor must be on device ", dev, " when device_index is specified");
-    
+
     NvjpegEncoder& encoder = getEncoder(dev);
-    
+
     // Get pointer to data
     const uint8_t* dataPtr = image.data_ptr<uint8_t>();
-    
+
     // Encode single image (CHW format)
     std::vector<uint8_t> jpeg = encoder.encodeChw(dataPtr, width, height, quality);
-    
+
     return py::bytes(reinterpret_cast<const char*>(jpeg.data()), jpeg.size());
 }
 
@@ -163,10 +163,10 @@ py::bytes nvjpeg_encode_single(torch::Tensor image, int quality = 85, int device
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "nvjpeg GPU JPEG encoder for PyTorch tensors";
-    
-    m.def("is_available", &nvjpeg_is_available, 
+
+    m.def("is_available", &nvjpeg_is_available,
           "Check if nvjpeg hardware encoder is available");
-    
+
     m.def("encode", &nvjpeg_encode,
           py::arg("images"),
           py::arg("quality") = 85,
@@ -183,7 +183,7 @@ Args:
 Returns:
     List of bytes objects, one per image in the batch.
 )doc");
-    
+
     m.def("encode_single", &nvjpeg_encode_single,
           py::arg("image"),
           py::arg("quality") = 85,

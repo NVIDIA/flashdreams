@@ -64,7 +64,10 @@ def _resolve_vulkan_libdir() -> list[str]:
             if os.path.isdir(p):
                 dirs.append(p)
     for p in ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib"):
-        if any(f.startswith("libvulkan.so") for f in (os.listdir(p) if os.path.isdir(p) else [])):
+        if any(
+            f.startswith("libvulkan.so")
+            for f in (os.listdir(p) if os.path.isdir(p) else [])
+        ):
             dirs.append(p)
     return dirs
 
@@ -75,11 +78,15 @@ def _vulkan_available() -> tuple[bool, str]:
         return False, "Vulkan backend is currently only supported on Linux."
 
     if not _resolve_vulkan_include():
-        return False, ("Vulkan headers not found. Install libvulkan-dev "
-                       "(Debian/Ubuntu) or set VULKAN_SDK to the Vulkan SDK root.")
+        return False, (
+            "Vulkan headers not found. Install libvulkan-dev "
+            "(Debian/Ubuntu) or set VULKAN_SDK to the Vulkan SDK root."
+        )
     if not _resolve_vulkan_libdir() and not shutil.which("vulkaninfo"):
-        return False, ("Vulkan loader (libvulkan.so) not found. Install "
-                       "libvulkan1 (Debian/Ubuntu) or the Vulkan SDK.")
+        return False, (
+            "Vulkan loader (libvulkan.so) not found. Install "
+            "libvulkan1 (Debian/Ubuntu) or the Vulkan SDK."
+        )
     return True, ""
 
 

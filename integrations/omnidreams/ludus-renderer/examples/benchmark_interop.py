@@ -25,30 +25,35 @@ Usage:
     uv run python examples/benchmark_interop.py --scene example_data/test_hdmap
     uv run python examples/benchmark_interop.py --scene /path/to/scene.tar --sweep
 """
-import argparse
-import time
-import sys
-import os
-import torch
-import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import argparse
+import os
+import sys
+import time
+
+import numpy as np
+import torch
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def benchmark(args):
-    device = torch.device('cuda:0')
+    device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 
-    from ludus_renderer.torch import LudusCudaTimestampedContext
-    from ludus_renderer.util import resample_timestamps
+    from ludus_renderer.render_utils import (
+        compute_camera_poses,
+        create_camera,
+        get_available_cameras,
+    )
     from ludus_renderer.render_utils import (
         load_scene_adapted as load_scene,
-        create_camera, get_available_cameras,
-        compute_camera_poses,
     )
+    from ludus_renderer.torch import LudusCudaTimestampedContext
+    from ludus_renderer.util import resample_timestamps
 
-    print(f"=== Rendering Pipeline Benchmark ===")
-    print(f"Backend:      CUDA software rasterizer (CudaRaster)")
+    print("=== Rendering Pipeline Benchmark ===")
+    print("Backend:      CUDA software rasterizer (CudaRaster)")
     print(f"Resolution:   {args.width}x{args.height}")
     print(f"Batch size:   {args.batch_size}")
     print(f"Warmup:       {args.warmup} iterations")
@@ -60,7 +65,7 @@ def benchmark(args):
     print(f"Loading scene: {args.scene}")
     t0 = time.time()
     scene = load_scene(args.scene, device)
-    scene_id = ctx.upload_scene(scene.timestamped_scene)
+    _ = ctx.upload_scene(scene.timestamped_scene)
     load_time = time.time() - t0
     print(f"  Scene loaded in {load_time:.2f}s")
 
@@ -70,7 +75,9 @@ def benchmark(args):
         return
 
     cam_name = cam_names[0]
-    camera = create_camera(args.width, args.height, device, scene=scene, camera_name=cam_name)
+    camera = create_camera(
+        args.width, args.height, device, scene=scene, camera_name=cam_name
+    )
     ctx.upload_cameras([camera])
 
     # Get timestamps (same approach as render_hdmap_scene.py)
@@ -82,7 +89,8 @@ def benchmark(args):
 
     # Compute camera poses
     all_poses, camera_type_id = compute_camera_poses(
-        scene, timestamps, device, camera_name=cam_name)
+        scene, timestamps, device, camera_name=cam_name
+    )
 
     n_ts = len(timestamps)
     batch = min(args.batch_size, n_ts)
@@ -90,7 +98,9 @@ def benchmark(args):
 
     scene_ids = torch.zeros(batch, dtype=torch.int32, device=device)
     camera_ids = torch.zeros(batch, dtype=torch.int32, device=device)
-    camera_type_ids = torch.full((batch,), camera_type_id, dtype=torch.int32, device=device)
+    camera_type_ids = torch.full(
+        (batch,), camera_type_id, dtype=torch.int32, device=device
+    )
     ts_batch = timestamps[:batch]
     poses_batch = all_poses[:batch]
 
@@ -104,8 +114,12 @@ def benchmark(args):
     print(f"Warming up ({args.warmup} iterations)...")
     for _ in range(args.warmup):
         images = ctx.render(
-            scene_ids, camera_ids, ts_batch, camera_type_ids,
-            poses_batch, resolution=resolution
+            scene_ids,
+            camera_ids,
+            ts_batch,
+            camera_type_ids,
+            poses_batch,
+            resolution=resolution,
         )
     torch.cuda.synchronize()
     print("  Done\n")
@@ -117,19 +131,25 @@ def benchmark(args):
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         images = ctx.render(
-            scene_ids, camera_ids, ts_batch, camera_type_ids,
-            poses_batch, resolution=resolution
+            scene_ids,
+            camera_ids,
+            ts_batch,
+            camera_type_ids,
+            poses_batch,
+            resolution=resolution,
         )
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - t0
         times_full.append(elapsed)
 
     times_full_ms = [t * 1000 for t in times_full]
-    print(f"  Full render: {np.median(times_full_ms):.2f}ms median, "
-          f"{np.mean(times_full_ms):.2f}ms mean, "
-          f"{np.std(times_full_ms):.2f}ms std")
-    print(f"  Per-query:   {np.median(times_full_ms)/batch:.3f}ms")
-    print(f"  Throughput:  {batch/np.median(times_full)*1000:.0f} queries/s")
+    print(
+        f"  Full render: {np.median(times_full_ms):.2f}ms median, "
+        f"{np.mean(times_full_ms):.2f}ms mean, "
+        f"{np.std(times_full_ms):.2f}ms std"
+    )
+    print(f"  Per-query:   {np.median(times_full_ms) / batch:.3f}ms")
+    print(f"  Throughput:  {batch / np.median(times_full) * 1000:.0f} queries/s")
     print()
 
     # Measure GPU->CPU transfer separately
@@ -156,8 +176,10 @@ def benchmark(args):
     print(f"  Batch:         {batch} queries @ {width}x{height}")
     print(f"  Full render:   {np.median(times_full_ms):.2f}ms")
     print(f"  GPU->CPU:      {transfer_only:.2f}ms")
-    print(f"  Render only:   {render_only:.2f}ms (kernel launch + rasterize + readback)")
-    print(f"  Throughput:    {batch/np.median(times_full)*1000:.0f} queries/s")
+    print(
+        f"  Render only:   {render_only:.2f}ms (kernel launch + rasterize + readback)"
+    )
+    print(f"  Throughput:    {batch / np.median(times_full) * 1000:.0f} queries/s")
     fps = batch / np.median(times_full)
     print(f"  Effective FPS: {fps:.1f}")
 
@@ -168,7 +190,9 @@ def benchmark(args):
     # Run multiple batch sizes to see scaling
     if args.sweep:
         print("\n=== Batch Size Sweep ===")
-        print(f"{'Batch':>6} {'Render(ms)':>11} {'Per-query(ms)':>14} {'Queries/s':>10}")
+        print(
+            f"{'Batch':>6} {'Render(ms)':>11} {'Per-query(ms)':>14} {'Queries/s':>10}"
+        )
         for b in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
             if b > n_ts:
                 break
@@ -192,22 +216,25 @@ def benchmark(args):
                 sweep_times.append((time.perf_counter() - t0) * 1000)
 
             med = np.median(sweep_times)
-            print(f"{b:>6} {med:>11.2f} {med/b:>14.3f} {b/med*1000:>10.0f}")
+            print(f"{b:>6} {med:>11.2f} {med / b:>14.3f} {b / med * 1000:>10.0f}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Benchmark rendering pipeline timing')
-    parser.add_argument('--scene', type=str, required=True)
-    parser.add_argument('--width', type=int, default=1280)
-    parser.add_argument('--height', type=int, default=720)
-    parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--warmup', type=int, default=5)
-    parser.add_argument('--iterations', type=int, default=20)
-    parser.add_argument('--sweep', action='store_true',
-                        help='Run batch size sweep (1, 2, 4, 8, ... 256)')
+    parser = argparse.ArgumentParser(description="Benchmark rendering pipeline timing")
+    parser.add_argument("--scene", type=str, required=True)
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Run batch size sweep (1, 2, 4, 8, ... 256)",
+    )
     args = parser.parse_args()
     benchmark(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

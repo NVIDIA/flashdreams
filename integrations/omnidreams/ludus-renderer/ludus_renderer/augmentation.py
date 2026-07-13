@@ -35,34 +35,40 @@ from typing import List, Optional, Tuple
 import torch
 from torch import Tensor
 
+from ._ops import (
+    PRIM_EGO_OBSTACLE,
+    PRIM_EGO_TRAJECTORY,
+    PRIM_LANE_BOUNDARY,
+    PRIM_LANE_LINE,
+    PRIM_LANE_LINE_WHITE_DASHED,
+    PRIM_LANE_LINE_WHITE_SOLID,
+    PRIM_LANE_LINE_YELLOW_DASHED,
+    PRIM_LANE_LINE_YELLOW_SOLID,
+    PRIM_OBSTACLE,
+    PRIM_ROAD_BOUNDARY,
+    CubePool,
+    TimestampedPolygonPool,
+    TimestampedPolylinePool,
+    TimestampedScene,
+)
 from .clipgt import (
     ClipgtGpuScene,
     EgoTrackData,
-    _ego_trajectory_to_pool,
     _ego_obstacle_to_pool,
-)
-from ._ops import (
-    TimestampedPolylinePool,
-    TimestampedPolygonPool,
-    CubePool,
-    TimestampedScene,
-    PRIM_EGO_TRAJECTORY,
-    PRIM_EGO_OBSTACLE,
-    PRIM_OBSTACLE,
-    PRIM_ROAD_BOUNDARY,
-    PRIM_LANE_LINE,
-    PRIM_LANE_BOUNDARY,
-    PRIM_LANE_LINE_WHITE_SOLID,
-    PRIM_LANE_LINE_WHITE_DASHED,
-    PRIM_LANE_LINE_YELLOW_SOLID,
-    PRIM_LANE_LINE_YELLOW_DASHED,
+    _ego_trajectory_to_pool,
 )
 
-_ROAD_PRIM_TYPES = frozenset({
-    PRIM_ROAD_BOUNDARY, PRIM_LANE_LINE, PRIM_LANE_BOUNDARY,
-    PRIM_LANE_LINE_WHITE_SOLID, PRIM_LANE_LINE_WHITE_DASHED,
-    PRIM_LANE_LINE_YELLOW_SOLID, PRIM_LANE_LINE_YELLOW_DASHED,
-})
+_ROAD_PRIM_TYPES = frozenset(
+    {
+        PRIM_ROAD_BOUNDARY,
+        PRIM_LANE_LINE,
+        PRIM_LANE_BOUNDARY,
+        PRIM_LANE_LINE_WHITE_SOLID,
+        PRIM_LANE_LINE_WHITE_DASHED,
+        PRIM_LANE_LINE_YELLOW_SOLID,
+        PRIM_LANE_LINE_YELLOW_DASHED,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +86,14 @@ def _forward_from_quat(q: Tensor) -> Tensor:
         Forward direction(s) with shape ``[..., 3]``.
     """
     qx, qy, qz, qw = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-    return torch.stack([
-        1 - 2 * (qy * qy + qz * qz),
-        2 * (qx * qy + qw * qz),
-        2 * (qx * qz - qw * qy),
-    ], dim=-1)
+    return torch.stack(
+        [
+            1 - 2 * (qy * qy + qz * qz),
+            2 * (qx * qy + qw * qz),
+            2 * (qx * qz - qw * qy),
+        ],
+        dim=-1,
+    )
 
 
 def _reflect_positions(positions: Tensor, center: Tensor, normal: Tensor) -> Tensor:
@@ -151,7 +160,10 @@ def _yaw_from_positions(positions: Tensor, n: int = 5) -> float:
 
 
 def _rigid_transform_positions(
-    positions: Tensor, yaw: float, pivot: Tensor, offset: Tensor,
+    positions: Tensor,
+    yaw: float,
+    pivot: Tensor,
+    offset: Tensor,
 ) -> Tensor:
     """Rotate *positions* by *yaw* around *pivot* on the ground plane, then
     translate so that *pivot* maps to *offset*.
@@ -183,7 +195,9 @@ def _yaw_rotate_quaternions(quaternions: Tensor, yaw: float) -> Tensor:
 
 def _rigid_transform_polyline_pool(
     pool: TimestampedPolylinePool,
-    yaw: float, pivot: Tensor, offset: Tensor,
+    yaw: float,
+    pivot: Tensor,
+    offset: Tensor,
 ) -> TimestampedPolylinePool:
     """Apply a rigid ground-plane transform to a polyline pool."""
     return TimestampedPolylinePool(
@@ -197,7 +211,9 @@ def _rigid_transform_polyline_pool(
 
 def _rigid_transform_polygon_pool(
     pool: TimestampedPolygonPool,
-    yaw: float, pivot: Tensor, offset: Tensor,
+    yaw: float,
+    pivot: Tensor,
+    offset: Tensor,
 ) -> TimestampedPolygonPool:
     """Apply a rigid ground-plane transform to a polygon pool (det=+1, no winding swap)."""
     return TimestampedPolygonPool(
@@ -213,7 +229,9 @@ def _rigid_transform_polygon_pool(
 
 def _rigid_transform_cube_pool(
     pool: CubePool,
-    yaw: float, pivot: Tensor, offset: Tensor,
+    yaw: float,
+    pivot: Tensor,
+    offset: Tensor,
     time_offset_us: int,
 ) -> CubePool:
     """Apply a rigid ground-plane transform + timestamp shift to a cube pool."""
@@ -232,7 +250,9 @@ def _rigid_transform_cube_pool(
 
 def _rigid_transform_ego_track(
     ego: EgoTrackData,
-    yaw: float, pivot: Tensor, offset: Tensor,
+    yaw: float,
+    pivot: Tensor,
+    offset: Tensor,
     time_offset_us: int,
 ) -> EgoTrackData:
     """Apply a rigid ground-plane transform + timestamp shift to an ego track."""
@@ -375,7 +395,9 @@ def _heading_from_trajectory(translations: Tensor, min_step: float = 0.01) -> Te
 
     # Carry forward the last valid tangent through stationary sections.
     # Find first valid tangent as initial seed; fall back to +x.
-    last_valid_yaw = torch.tensor(0.0, device=translations.device, dtype=translations.dtype)
+    last_valid_yaw = torch.tensor(
+        0.0, device=translations.device, dtype=translations.dtype
+    )
     yaw = torch.zeros(n, device=translations.device, dtype=translations.dtype)
     for i in range(n):
         if valid[i]:
@@ -461,16 +483,22 @@ def _extrapolate_ego_track(
     device = ego_track.timestamps.device
 
     # Speed from overall trajectory (robust to ego stopping at the end)
-    total_dist = (ego_track.translations[1:] - ego_track.translations[:-1]).norm(dim=-1).sum().item()
-    total_dt_s = (ego_track.timestamps[-1] - ego_track.timestamps[0]).float().item() * 1e-6
+    total_dist = (
+        (ego_track.translations[1:] - ego_track.translations[:-1])
+        .norm(dim=-1)
+        .sum()
+        .item()
+    )
+    total_dt_s = (
+        ego_track.timestamps[-1] - ego_track.timestamps[0]
+    ).float().item() * 1e-6
     speed = max(total_dist / max(total_dt_s, 1e-9), 1.0)
 
     # Average timestep from last few poses
     n_avg = min(10, n_poses)
     avg_dt_us = (
-        (ego_track.timestamps[-1] - ego_track.timestamps[-n_avg]).float().item()
-        / (n_avg - 1)
-    )
+        ego_track.timestamps[-1] - ego_track.timestamps[-n_avg]
+    ).float().item() / (n_avg - 1)
     dt_us = max(1, int(round(avg_dt_us)))
 
     if forward_override is not None:
@@ -495,7 +523,9 @@ def _extrapolate_ego_track(
     last_quat = ego_track.quaternions[-1]
 
     indices = torch.arange(1, n_extra + 1, device=device, dtype=torch.float32)
-    extra_pos = last_pos.unsqueeze(0) + forward_unit.unsqueeze(0) * (indices.unsqueeze(1) * step_dist)
+    extra_pos = last_pos.unsqueeze(0) + forward_unit.unsqueeze(0) * (
+        indices.unsqueeze(1) * step_dist
+    )
     extra_quat = last_quat.unsqueeze(0).expand(n_extra, -1)
     extra_tquat = torch.cat([extra_pos, extra_quat], dim=-1)
     extra_ts = (last_ts + indices.long() * dt_us).to(torch.int64)
@@ -601,7 +631,9 @@ def _reflect_cube_pool(
 
     if time_reverse:
         n_cubes = len(pool.cube_ts_prefix_sum)
-        starts = torch.zeros(n_cubes, dtype=torch.int32, device=pool.cube_ts_prefix_sum.device)
+        starts = torch.zeros(
+            n_cubes, dtype=torch.int32, device=pool.cube_ts_prefix_sum.device
+        )
         if n_cubes > 1:
             starts[1:] = pool.cube_ts_prefix_sum[:-1]
 
@@ -640,7 +672,9 @@ def _reflect_cube_pool(
 MirrorPlane = Tuple[Tensor, Tensor]  # (center [3], normal [3])
 
 
-def _signed_distance(vertices: Tensor, plane_point: Tensor, plane_normal: Tensor) -> Tensor:
+def _signed_distance(
+    vertices: Tensor, plane_point: Tensor, plane_normal: Tensor
+) -> Tensor:
     """Signed distance of each vertex from a plane.  Positive = same side as normal."""
     return ((vertices - plane_point) * plane_normal).sum(dim=-1)
 
@@ -769,9 +803,9 @@ def _clip_polygon_pool(
     tri_offset = 0
 
     for j in keep_indices:
-        vs = (vps[j - 1].item() if j > 0 else 0)
+        vs = vps[j - 1].item() if j > 0 else 0
         ve = vps[j].item()
-        ts_start = (tps[j - 1].item() if j > 0 else 0)
+        ts_start = tps[j - 1].item() if j > 0 else 0
         ts_end = tps[j].item()
 
         poly_verts = verts[vs:ve]
@@ -780,8 +814,8 @@ def _clip_polygon_pool(
         new_verts_list.append(poly_verts)
         new_tris_list.append(poly_tris)
 
-        vert_offset += (ve - vs)
-        tri_offset += (ts_end - ts_start)
+        vert_offset += ve - vs
+        tri_offset += ts_end - ts_start
         new_vps.append(int(vert_offset))
         new_tps.append(int(tri_offset))
 
@@ -795,8 +829,12 @@ def _clip_polygon_pool(
     return TimestampedPolygonPool(
         timestamps_us=ts,
         timestamped_varrays_prefix_sum=new_tvps,
-        varrays_prefix_sum=torch.tensor(new_vps, dtype=torch.int32, device=verts.device),
-        triangle_prefix_sum=torch.tensor(new_tps, dtype=torch.int32, device=verts.device),
+        varrays_prefix_sum=torch.tensor(
+            new_vps, dtype=torch.int32, device=verts.device
+        ),
+        triangle_prefix_sum=torch.tensor(
+            new_tps, dtype=torch.int32, device=verts.device
+        ),
         vertices=new_vertices,
         triangles=new_triangles,
         prim_type_id=pool.prim_type_id,
@@ -814,7 +852,9 @@ def _clip_cube_pool(
     Returns ``None`` if nothing survives.
     """
     n_cubes = len(pool.cube_ts_prefix_sum)
-    starts = torch.zeros(n_cubes, dtype=torch.int32, device=pool.cube_ts_prefix_sum.device)
+    starts = torch.zeros(
+        n_cubes, dtype=torch.int32, device=pool.cube_ts_prefix_sum.device
+    )
     if n_cubes > 1:
         starts[1:] = pool.cube_ts_prefix_sum[:-1]
 
@@ -842,7 +882,7 @@ def _clip_cube_pool(
         new_trans_list.append(pool.translations[s:e])
         new_quat_list.append(pool.quaternions[s:e])
         new_track_ts_list.append(pool.track_timestamps_us[s:e])
-        track_offset += (e - s)
+        track_offset += e - s
         new_cube_ts_ps.append(int(track_offset))
 
     dev = pool.cube_ts_prefix_sum.device
@@ -875,9 +915,21 @@ def _clip_pools(
         if plane is None:
             continue
         center, normal = plane
-        pl = [r for p in pl if (r := _clip_polyline_pool(p, center, normal, keep_pos)) is not None]
-        pg = [r for p in pg if (r := _clip_polygon_pool(p, center, normal, keep_pos)) is not None]
-        cb = [r for p in cb if (r := _clip_cube_pool(p, center, normal, keep_pos)) is not None]
+        pl = [
+            r
+            for p in pl
+            if (r := _clip_polyline_pool(p, center, normal, keep_pos)) is not None
+        ]
+        pg = [
+            r
+            for p in pg
+            if (r := _clip_polygon_pool(p, center, normal, keep_pos)) is not None
+        ]
+        cb = [
+            r
+            for p in cb
+            if (r := _clip_cube_pool(p, center, normal, keep_pos)) is not None
+        ]
 
     return pl, pg, cb
 
@@ -890,6 +942,7 @@ def _clip_pools(
 @dataclass
 class _Segment:
     """Intermediate container for one segment's pools and ego track."""
+
     polyline_pools: List[TimestampedPolylinePool]
     polygon_pools: List[TimestampedPolygonPool]
     cube_pools: List[CubePool]
@@ -938,18 +991,15 @@ def mirror_augment_scene(
         p.prim_type_id == PRIM_EGO_TRAJECTORY for p in ts_scene.polyline_pools
     )
     has_ego_obs = any(
-        p.prim_type_id == PRIM_EGO_OBSTACLE
-        for p in (ts_scene.cube_pools or [])
+        p.prim_type_id == PRIM_EGO_OBSTACLE for p in (ts_scene.cube_pools or [])
     )
 
     map_polyline_pools = [
-        p for p in ts_scene.polyline_pools
-        if p.prim_type_id != PRIM_EGO_TRAJECTORY
+        p for p in ts_scene.polyline_pools if p.prim_type_id != PRIM_EGO_TRAJECTORY
     ]
     map_polygon_pools = list(ts_scene.polygon_pools)
     other_cube_pools = [
-        p for p in (ts_scene.cube_pools or [])
-        if p.prim_type_id != PRIM_EGO_OBSTACLE
+        p for p in (ts_scene.cube_pools or []) if p.prim_type_id != PRIM_EGO_OBSTACLE
     ]
 
     # ------------------------------------------------------------------
@@ -973,7 +1023,10 @@ def mirror_augment_scene(
         ego_fwd = _forward_from_quat(seg_ego.quaternions[-1])
 
     center_cpu, normal_cpu = _lane_based_mirror_plane(
-        map_polyline_pools, ego_last_pos, ego_fwd, lookahead_m,
+        map_polyline_pools,
+        ego_last_pos,
+        ego_fwd,
+        lookahead_m,
     )
 
     extrap_vec = center_cpu - ego_last_pos
@@ -981,7 +1034,9 @@ def mirror_augment_scene(
     extrap_dir = extrap_vec / extrap_vec.norm().clamp(min=1e-9)
 
     fwd_extended_ego = _extrapolate_ego_track(
-        seg_ego, extrap_dist, forward_override=extrap_dir,
+        seg_ego,
+        extrap_dist,
+        forward_override=extrap_dir,
     )
 
     center_gpu = center_cpu.to(device)
@@ -992,11 +1047,20 @@ def mirror_augment_scene(
 
     # tile_bwd: reflect original about P0 + time-reverse
     bwd_ego = _reflect_ego_track(fwd_extended_ego, center_cpu, normal_cpu, int(t_pivot))
-    bwd_pl = [_reflect_polyline_pool(p, center_gpu, normal_gpu) for p in map_polyline_pools]
-    bwd_pg = [_reflect_polygon_pool(p, center_gpu, normal_gpu) for p in map_polygon_pools]
+    bwd_pl = [
+        _reflect_polyline_pool(p, center_gpu, normal_gpu) for p in map_polyline_pools
+    ]
+    bwd_pg = [
+        _reflect_polygon_pool(p, center_gpu, normal_gpu) for p in map_polygon_pools
+    ]
     bwd_cb = [
-        _reflect_cube_pool(p, center_gpu, normal_gpu, int(t_pivot),
-                           time_reverse=(p.prim_type_id == PRIM_OBSTACLE))
+        _reflect_cube_pool(
+            p,
+            center_gpu,
+            normal_gpu,
+            int(t_pivot),
+            time_reverse=(p.prim_type_id == PRIM_OBSTACLE),
+        )
         for p in other_cube_pools
     ]
 
@@ -1037,10 +1101,14 @@ def mirror_augment_scene(
     prev_exit_yaw = bwd_exit_yaw
 
     for k in range(2, n_mirrors + 1):
-        is_fwd = (k % 2 == 0)
+        is_fwd = k % 2 == 0
 
         if is_fwd:
-            src_pl, src_pg, src_cb = map_polyline_pools, map_polygon_pools, other_cube_pools
+            src_pl, src_pg, src_cb = (
+                map_polyline_pools,
+                map_polygon_pools,
+                other_cube_pools,
+            )
             src_ego = fwd_extended_ego
             src_entry_pos, src_entry_yaw = fwd_entry_pos, fwd_entry_yaw
             src_exit_pos, src_exit_yaw = fwd_exit_pos, fwd_exit_yaw
@@ -1059,33 +1127,48 @@ def mirror_augment_scene(
         src_first_ts = src_ego.timestamps[0].item()
         time_offset_us = prev_last_ts - src_first_ts
 
-        new_pl = [_rigid_transform_polyline_pool(p, theta, pivot, offset) for p in src_pl]
-        new_pg = [_rigid_transform_polygon_pool(p, theta, pivot, offset) for p in src_pg]
-        new_cb = [_rigid_transform_cube_pool(p, theta, pivot, offset, int(time_offset_us))
-                  for p in src_cb]
-        new_ego = _rigid_transform_ego_track(src_ego, theta, pivot, offset, int(time_offset_us))
+        new_pl = [
+            _rigid_transform_polyline_pool(p, theta, pivot, offset) for p in src_pl
+        ]
+        new_pg = [
+            _rigid_transform_polygon_pool(p, theta, pivot, offset) for p in src_pg
+        ]
+        new_cb = [
+            _rigid_transform_cube_pool(p, theta, pivot, offset, int(time_offset_us))
+            for p in src_cb
+        ]
+        new_ego = _rigid_transform_ego_track(
+            src_ego, theta, pivot, offset, int(time_offset_us)
+        )
 
         # Boundary plane at junction: position = previous exit, normal = heading vector
         heading_vec = torch.tensor(
-            [float(torch.cos(torch.tensor(prev_exit_yaw))),
-             float(torch.sin(torch.tensor(prev_exit_yaw))),
-             0.0],
+            [
+                float(torch.cos(torch.tensor(prev_exit_yaw))),
+                float(torch.sin(torch.tensor(prev_exit_yaw))),
+                0.0,
+            ],
             device=device,
         )
         boundary_planes.append((prev_exit_pos.to(device), heading_vec))
 
-        segments.append(_Segment(
-            polyline_pools=new_pl,
-            polygon_pools=new_pg,
-            cube_pools=new_cb,
-            ego=new_ego,
-            extended_ego=new_ego,
-        ))
+        segments.append(
+            _Segment(
+                polyline_pools=new_pl,
+                polygon_pools=new_pg,
+                cube_pools=new_cb,
+                ego=new_ego,
+                extended_ego=new_ego,
+            )
+        )
 
         # Update exit frame for the next iteration: transform the source's
         # exit through the same rigid transform
         new_exit = _rigid_transform_positions(
-            src_exit_pos.unsqueeze(0), theta, pivot, offset,
+            src_exit_pos.unsqueeze(0),
+            theta,
+            pivot,
+            offset,
         ).squeeze(0)
         prev_exit_pos = new_exit
         prev_exit_yaw = src_exit_yaw + theta
@@ -1102,8 +1185,11 @@ def mirror_augment_scene(
         exit_ = boundary_planes[i] if i < len(boundary_planes) else None
 
         pl, pg, cb = _clip_pools(
-            seg.polyline_pools, seg.polygon_pools, seg.cube_pools,
-            entry_plane=entry, exit_plane=exit_,
+            seg.polyline_pools,
+            seg.polygon_pools,
+            seg.cube_pools,
+            entry_plane=entry,
+            exit_plane=exit_,
         )
         all_polyline_pools.extend(pl)
         all_polygon_pools.extend(pg)
@@ -1132,16 +1218,18 @@ def mirror_augment_scene(
         if n_extrap > 0:
             extrap_portion = EgoTrackData(
                 timestamps=extrap_ts,
-                poses_tquat=torch.cat([aug_positions[:n_extrap],
-                                       aug_quats[:n_extrap]], dim=-1),
+                poses_tquat=torch.cat(
+                    [aug_positions[:n_extrap], aug_quats[:n_extrap]], dim=-1
+                ),
             )
             accumulated_ego = _concat_ego_tracks(accumulated_ego, extrap_portion)
 
         if len(next_ts) > 0:
             next_portion = EgoTrackData(
                 timestamps=next_ts,
-                poses_tquat=torch.cat([aug_positions[n_extrap:],
-                                       aug_quats[n_extrap:]], dim=-1),
+                poses_tquat=torch.cat(
+                    [aug_positions[n_extrap:], aug_quats[n_extrap:]], dim=-1
+                ),
             )
             accumulated_ego = _concat_ego_tracks(accumulated_ego, next_portion)
 

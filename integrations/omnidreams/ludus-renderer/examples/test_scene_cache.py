@@ -53,16 +53,20 @@ def main():
     parser.add_argument("--no-gpu", action="store_true", help="Skip GPU tests")
     args = parser.parse_args()
 
-    from ludus_renderer.scene_cache import SceneDatabase, scene_key
+    from ludus_renderer.scene_cache import SceneDatabase
 
-    all_paths = [l.strip() for l in Path(args.scene_list).read_text().splitlines() if l.strip()]
+    all_paths = [
+        line.strip()
+        for line in Path(args.scene_list).read_text().splitlines()
+        if line.strip()
+    ]
     random.seed(args.seed)
     selected = random.sample(all_paths, min(args.num_scenes, len(all_paths)))
 
     db = SceneDatabase(
         cache_dir=args.cache_dir,
-        max_cpu_bytes=256 * 1024**2,   # 256 MB L2 cache
-        max_gpu_bytes=64 * 1024**2,    # 64 MB L1 cache (small for testing eviction)
+        max_cpu_bytes=256 * 1024**2,  # 256 MB L2 cache
+        max_gpu_bytes=64 * 1024**2,  # 64 MB L1 cache (small for testing eviction)
         prefetch_workers=args.prefetch_workers,
     )
 
@@ -70,16 +74,18 @@ def main():
     print(f"Registered {len(keys)} scenes")
 
     # --- Test 1: Cold load (tar → L3 → L2) ---
-    print(f"\n--- Test 1: Cold load (tar → L3 disk cache → L2 CPU cache) ---")
+    print("\n--- Test 1: Cold load (tar → L3 disk cache → L2 CPU cache) ---")
     t0 = time.perf_counter()
     scenes = db.ensure_cpu(keys)
     t_cold = time.perf_counter() - t0
-    print(f"  Loaded {len(scenes)} scenes in {t_cold:.2f}s "
-          f"({len(scenes) / t_cold:.1f} scenes/s)")
+    print(
+        f"  Loaded {len(scenes)} scenes in {t_cold:.2f}s "
+        f"({len(scenes) / t_cold:.1f} scenes/s)"
+    )
     print(f"  Stats: {db.stats}")
 
     # --- Test 2: L2 hit (should be instant) ---
-    print(f"\n--- Test 2: L2 CPU cache hit ---")
+    print("\n--- Test 2: L2 CPU cache hit ---")
     t0 = time.perf_counter()
     scenes2 = db.ensure_cpu(keys)
     t_l2 = time.perf_counter() - t0
@@ -87,19 +93,21 @@ def main():
     print(f"  Stats: {db.stats}")
 
     # --- Test 3: Clear L2, reload from L3 disk cache ---
-    print(f"\n--- Test 3: L3 disk cache hit (after evicting L2) ---")
+    print("\n--- Test 3: L3 disk cache hit (after evicting L2) ---")
     db._cpu_cache._cache.clear()
     db._stats.l2_hits = 0
     db._stats.l2_misses = 0
     t0 = time.perf_counter()
     scenes3 = db.ensure_cpu(keys)
     t_l3 = time.perf_counter() - t0
-    print(f"  Loaded {len(scenes3)} scenes in {t_l3 * 1000:.1f}ms "
-          f"({t_cold / t_l3:.1f}x faster than cold load)")
+    print(
+        f"  Loaded {len(scenes3)} scenes in {t_l3 * 1000:.1f}ms "
+        f"({t_cold / t_l3:.1f}x faster than cold load)"
+    )
     print(f"  Stats: {db.stats}")
 
     # --- Test 4: Prefetch ---
-    print(f"\n--- Test 4: Async prefetch ---")
+    print("\n--- Test 4: Async prefetch ---")
     db._cpu_cache._cache.clear()
     more_paths = random.sample(all_paths, min(args.num_scenes, len(all_paths)))
     more_keys = db.register_scenes(more_paths)
@@ -124,7 +132,7 @@ def main():
 
     # --- Test 5: GPU upload (L2 -> L1 -> rendering context) ---
     if not args.no_gpu:
-        print(f"\n--- Test 5: GPU upload (L2 -> L1 CUDA -> render context) ---")
+        print("\n--- Test 5: GPU upload (L2 -> L1 CUDA -> render context) ---")
         try:
             from ludus_renderer import LudusCudaTimestampedContext
             from ludus_renderer.render_utils import create_bev_camera
@@ -148,7 +156,7 @@ def main():
             print(f"  Stats: {db.stats}")
 
             # --- Test 5b: Async L1 prefetch ---
-            print(f"\n--- Test 5b: Async L1 CUDA prefetch ---")
+            print("\n--- Test 5b: Async L1 CUDA prefetch ---")
             extra_paths = random.sample(all_paths, min(4, len(all_paths)))
             extra_keys = db.register_scenes(extra_paths)
             for ek in extra_keys:
@@ -162,28 +170,36 @@ def main():
             torch.cuda.synchronize()
             t_done = time.perf_counter() - t0
             l1_after = db._cuda_cache.size
-            print(f"  prefetch_l1 submit: {t_submit * 1000:.2f}ms, "
-                  f"sync: {t_done * 1000:.2f}ms")
-            print(f"  L1 size: {l1_before} → {l1_after} "
-                  f"(+{l1_after - l1_before} promoted)")
+            print(
+                f"  prefetch_l1 submit: {t_submit * 1000:.2f}ms, "
+                f"sync: {t_done * 1000:.2f}ms"
+            )
+            print(
+                f"  L1 size: {l1_before} → {l1_after} "
+                f"(+{l1_after - l1_before} promoted)"
+            )
             print(f"  Stats: {db.stats}")
 
         except Exception as e:
             import traceback
+
             print(f"  GPU test failed: {e}")
             traceback.print_exc()
 
     # --- Test 6: Render comparison (cached vs direct) ---
     if not args.no_gpu:
-        print(f"\n--- Test 7: Render correctness (direct tar vs cached L1) ---")
+        print("\n--- Test 7: Render correctness (direct tar vs cached L1) ---")
         try:
-            from ludus_renderer.render_utils import (
-                load_scene_adapted, create_bev_camera,
-                get_all_bev_camera_poses, SceneAdapter,
-            )
             from ludus_renderer import (
-                LudusCudaTimestampedContext, CAMERA_TYPE_BEV,
+                CAMERA_TYPE_BEV,
+                LudusCudaTimestampedContext,
                 resample_timestamps,
+            )
+            from ludus_renderer.render_utils import (
+                SceneAdapter,
+                create_bev_camera,
+                get_all_bev_camera_poses,
+                load_scene_adapted,
             )
             from ludus_renderer.scene_cache import scene_to_device
 
@@ -213,7 +229,9 @@ def main():
                     poses = get_all_bev_camera_poses(sc, ts_win, bev_height, device)
                     poses = poses.squeeze(1)
                     n = len(ts_win)
-                    all_sid.append(torch.full((n,), sid, dtype=torch.int32, device=device))
+                    all_sid.append(
+                        torch.full((n,), sid, dtype=torch.int32, device=device)
+                    )
                     all_ts.append(ts_win)
                     all_poses.append(poses)
 
@@ -222,8 +240,9 @@ def main():
                 ts_t = torch.cat(all_ts).to(torch.int64)
                 type_t = torch.full_like(sid_t, CAMERA_TYPE_BEV)
                 poses_t = torch.cat(all_poses)
-                imgs = ctx2.render(sid_t, cam_t, ts_t, type_t, poses_t,
-                                   resolution=(H, W))
+                imgs = ctx2.render(
+                    sid_t, cam_t, ts_t, type_t, poses_t, resolution=(H, W)
+                )
                 torch.cuda.synchronize()
                 print(f"  {label}: rendered {imgs.shape[0]} frames")
                 return imgs
@@ -256,12 +275,13 @@ def main():
             print(f"  Mean pixel diff: {mean_diff:.4f}")
             print(f"  Nonzero pixels:  {nonzero} / {total_px}")
             if max_diff == 0:
-                print(f"  PASS: Renders are pixel-identical")
+                print("  PASS: Renders are pixel-identical")
             else:
-                print(f"  WARNING: Renders differ (check serialization)")
+                print("  WARNING: Renders differ (check serialization)")
 
             # Save comparison grid: columns = scenes, rows = [direct, cached, diff×10]
             from PIL import Image
+
             n_scenes_show = len(test_paths)
             sample_frame = n_frames // 2
             cols = []
@@ -269,7 +289,9 @@ def main():
                 idx = si * n_frames + sample_frame
                 d = imgs_direct[idx, :, :, :3].flip(0).cpu().numpy()
                 c = imgs_cached[idx, :, :, :3].flip(0).cpu().numpy()
-                df = np.clip(diff[idx, :, :, :3].flip(0).cpu().numpy() * 10, 0, 255).astype(np.uint8)
+                df = np.clip(
+                    diff[idx, :, :, :3].flip(0).cpu().numpy() * 10, 0, 255
+                ).astype(np.uint8)
                 cols.append(np.concatenate([d, c, df], axis=0))
             grid = np.concatenate(cols, axis=1)
             out_dir = "_images/cache_test"
@@ -277,14 +299,17 @@ def main():
             out_path = os.path.join(out_dir, "compare.jpg")
             Image.fromarray(grid).save(out_path, quality=95)
             print(f"  Saved comparison: {out_path}")
-            print(f"    Columns: {n_scenes_show} scenes, Rows: direct / cached / diff×10")
+            print(
+                f"    Columns: {n_scenes_show} scenes, Rows: direct / cached / diff×10"
+            )
 
         except Exception as e:
             import traceback
+
             print(f"  Render comparison failed: {e}")
             traceback.print_exc()
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     print(f"  Cold load (tar):     {t_cold:.2f}s")
     print(f"  L2 cache hit:        {t_l2 * 1000:.2f}ms")
     print(f"  L3 cache hit (disk): {t_l3 * 1000:.1f}ms")

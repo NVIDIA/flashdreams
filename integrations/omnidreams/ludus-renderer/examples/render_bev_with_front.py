@@ -20,15 +20,17 @@ Outputs JPEG files using nvJPEG GPU encoder (no CPU round-trip for encoding).
 """
 
 import os
-import torch
 
+import torch
 from ludus_renderer import load_clipgt_scene, nvjpeg
-from ludus_renderer.torch import LudusCudaTimestampedContext
-from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
 from ludus_renderer.render_utils import (
-    SceneAdapter, create_camera,
-    get_camera_pose, get_bev_camera_pose,
+    SceneAdapter,
+    create_camera,
+    get_bev_camera_pose,
+    get_camera_pose,
 )
+from ludus_renderer.torch import LudusCudaTimestampedContext
+from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from ludus_renderer.util import resample_timestamps
 
 SCENE_PATH = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
@@ -51,7 +53,9 @@ ctx = LudusCudaTimestampedContext(device=device)
 ctx.set_depth_scaling(True)
 
 front_camera = create_camera(WIDTH, HEIGHT, device, scene=scene, camera_name=FRONT_CAM)
-bev_camera = create_camera(WIDTH, HEIGHT, device, bev=True, bev_height=BEV_HEIGHT, bev_fov=BEV_FOV)
+bev_camera = create_camera(
+    WIDTH, HEIGHT, device, bev=True, bev_height=BEV_HEIGHT, bev_fov=BEV_FOV
+)
 ctx.upload_cameras([front_camera, bev_camera])
 
 scene_id = ctx.upload_scene(scene.timestamped_scene)
@@ -69,16 +73,25 @@ bev_pose = get_bev_camera_pose(scene, ts, BEV_HEIGHT, device)
 scene_ids = torch.tensor([scene_id, scene_id], dtype=torch.int32, device=device)
 camera_ids = torch.tensor([0, 1], dtype=torch.int32, device=device)
 timestamps_us = torch.tensor([ts, ts], dtype=torch.int64, device=device)
-camera_type_ids = torch.tensor([CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV], dtype=torch.int32, device=device)
+camera_type_ids = torch.tensor(
+    [CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV], dtype=torch.int32, device=device
+)
 poses = torch.stack([front_pose, bev_pose])
 
-images = ctx.render(scene_ids, camera_ids, timestamps_us, camera_type_ids,
-                    poses, resolution=(HEIGHT, WIDTH))
+images = ctx.render(
+    scene_ids,
+    camera_ids,
+    timestamps_us,
+    camera_type_ids,
+    poses,
+    resolution=(HEIGHT, WIDTH),
+)
 
 # Encode to JPEG on GPU via nvJPEG
 if not nvjpeg.is_available():
     print("WARNING: nvJPEG not available, falling back to PIL")
     from PIL import Image as PILImage
+
     output_dir = os.path.join(os.path.dirname(__file__), "../_images")
     os.makedirs(output_dir, exist_ok=True)
     names = ["example_front.png", "example_bev.png"]

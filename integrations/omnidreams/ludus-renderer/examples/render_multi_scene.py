@@ -40,11 +40,10 @@ import random
 import time
 
 import torch
-
 from ludus_renderer.render_utils import (
-    load_scene_adapted,
     create_bev_camera,
     get_all_bev_camera_poses,
+    load_scene_adapted,
 )
 from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
@@ -56,11 +55,12 @@ def load_scenes(scene_paths, device, num_scenes):
     scenes = []
     for i, path in enumerate(scene_paths[:num_scenes]):
         t0 = time.time()
-        scene = load_scene_adapted(path.strip(), device=device,
-                                   include_ego_obstacle=True)
+        scene = load_scene_adapted(
+            path.strip(), device=device, include_ego_obstacle=True
+        )
         dt = time.time() - t0
         n_ts = len(scene.ego_tracks.timestamps)
-        print(f"  [{i+1}/{num_scenes}] {n_ts} ego poses, {dt:.2f}s")
+        print(f"  [{i + 1}/{num_scenes}] {n_ts} ego poses, {dt:.2f}s")
         scenes.append(scene)
     return scenes
 
@@ -86,8 +86,9 @@ def sample_frame_window(scene, frames_per_scene, fps, device):
     return ts_window
 
 
-def build_batch(scenes, scene_ids, frames_per_scene, fps,
-                bev_height, width, height, device):
+def build_batch(
+    scenes, scene_ids, frames_per_scene, fps, bev_height, width, height, device
+):
     """Build a mixed-scene batch of render queries.
 
     For each scene, samples a random frame window and computes BEV poses.
@@ -127,18 +128,29 @@ def build_batch(scenes, scene_ids, frames_per_scene, fps,
     )
 
 
-def save_preview(images, scenes, scene_ids_list, per_scene_ts,
-                 frames_per_scene, width, height, output_dir):
+def save_preview(
+    images,
+    scenes,
+    scene_ids_list,
+    per_scene_ts,
+    frames_per_scene,
+    width,
+    height,
+    output_dir,
+):
     """Save a grid preview image: one column per scene, 4 sample rows."""
     from PIL import Image
-    import numpy as np
 
     n_scenes = len(scenes)
-    sample_indices = [0, frames_per_scene // 3,
-                      2 * frames_per_scene // 3, frames_per_scene - 1]
+    sample_indices = [
+        0,
+        frames_per_scene // 3,
+        2 * frames_per_scene // 3,
+        frames_per_scene - 1,
+    ]
     n_rows = len(sample_indices)
 
-    grid = Image.new('RGB', (width * n_scenes, height * n_rows))
+    grid = Image.new("RGB", (width * n_scenes, height * n_rows))
     for col, scene_offset in enumerate(range(n_scenes)):
         base = scene_offset * frames_per_scene
         for row, fi in enumerate(sample_indices):
@@ -153,13 +165,13 @@ def save_preview(images, scenes, scene_ids_list, per_scene_ts,
 
 
 def run(args):
-    device = torch.device('cuda')
+    device = torch.device("cuda")
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
     # Read scene paths
     with open(args.scene_list) as f:
-        all_paths = [l.strip() for l in f if l.strip()]
+        all_paths = [line.strip() for line in f if line.strip()]
 
     if args.num_scenes > len(all_paths):
         raise ValueError(
@@ -174,16 +186,19 @@ def run(args):
     t_load_start = time.time()
     scenes = load_scenes(selected, device, args.num_scenes)
     t_load = time.time() - t_load_start
-    print(f"  Total load time: {t_load:.2f}s "
-          f"({t_load / args.num_scenes:.2f}s avg)")
+    print(f"  Total load time: {t_load:.2f}s ({t_load / args.num_scenes:.2f}s avg)")
 
     # --- Setup rendering context ---
     ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
 
-    bev_cam = create_bev_camera(args.width, args.height, device,
-                                bev_height=args.bev_height,
-                                fov_deg=args.bev_fov)
+    bev_cam = create_bev_camera(
+        args.width,
+        args.height,
+        device,
+        bev_height=args.bev_height,
+        fov_deg=args.bev_fov,
+    )
     ctx.upload_cameras([bev_cam])
 
     print(f"\nUploading {args.num_scenes} scenes to GPU...")
@@ -196,7 +211,7 @@ def run(args):
     print(f"  Upload time: {t_upload:.2f}s")
 
     total_frames = args.num_scenes * args.frames_per_scene
-    print(f"\nRendering config:")
+    print("\nRendering config:")
     print(f"  Scenes: {args.num_scenes}")
     print(f"  Frames/scene: {args.frames_per_scene}")
     print(f"  Total frames/batch: {total_frames}")
@@ -205,28 +220,47 @@ def run(args):
     print(f"  BEV height: {args.bev_height}m, FOV: {args.bev_fov}°")
 
     # --- Single batch validation ---
-    print(f"\n--- Single batch render ---")
-    (scene_id_t, cam_id_t, ts_t, cam_type_t, poses_t,
-     per_scene_ts) = build_batch(
-        scenes, scene_ids, args.frames_per_scene, args.fps,
-        args.bev_height, args.width, args.height, device,
+    print("\n--- Single batch render ---")
+    (scene_id_t, cam_id_t, ts_t, cam_type_t, poses_t, per_scene_ts) = build_batch(
+        scenes,
+        scene_ids,
+        args.frames_per_scene,
+        args.fps,
+        args.bev_height,
+        args.width,
+        args.height,
+        device,
     )
 
     torch.cuda.synchronize()
     t0 = time.time()
-    images = ctx.render(scene_id_t, cam_id_t, ts_t, cam_type_t, poses_t,
-                        resolution=(args.height, args.width))
+    images = ctx.render(
+        scene_id_t,
+        cam_id_t,
+        ts_t,
+        cam_type_t,
+        poses_t,
+        resolution=(args.height, args.width),
+    )
     torch.cuda.synchronize()
     dt = time.time() - t0
 
     print(f"  Output shape: {list(images.shape)}")
-    print(f"  Render time: {dt*1000:.1f}ms")
+    print(f"  Render time: {dt * 1000:.1f}ms")
     print(f"  Throughput: {total_frames / dt:.0f} FPS")
 
     # Save preview
     output_dir = os.path.join(os.path.dirname(__file__), "../_images/multi_scene")
-    save_preview(images, scenes, scene_ids, per_scene_ts,
-                 args.frames_per_scene, args.width, args.height, output_dir)
+    save_preview(
+        images,
+        scenes,
+        scene_ids,
+        per_scene_ts,
+        args.frames_per_scene,
+        args.width,
+        args.height,
+        output_dir,
+    )
 
     # --- Benchmark ---
     if args.benchmark and args.benchmark > 0:
@@ -236,8 +270,14 @@ def run(args):
         # Warmup
         for _ in range(3):
             s, c, t, ct, p, _ = build_batch(
-                scenes, scene_ids, args.frames_per_scene, args.fps,
-                args.bev_height, args.width, args.height, device,
+                scenes,
+                scene_ids,
+                args.frames_per_scene,
+                args.fps,
+                args.bev_height,
+                args.width,
+                args.height,
+                device,
             )
             ctx.render(s, c, t, ct, p, resolution=(args.height, args.width))
         torch.cuda.synchronize()
@@ -245,8 +285,14 @@ def run(args):
         timings = []
         for step in range(n_steps):
             s, c, t, ct, p, _ = build_batch(
-                scenes, scene_ids, args.frames_per_scene, args.fps,
-                args.bev_height, args.width, args.height, device,
+                scenes,
+                scene_ids,
+                args.frames_per_scene,
+                args.fps,
+                args.bev_height,
+                args.width,
+                args.height,
+                device,
             )
             torch.cuda.synchronize()
             t0 = time.time()
@@ -257,8 +303,9 @@ def run(args):
 
             if (step + 1) % max(1, n_steps // 10) == 0 or step == 0:
                 fps = total_frames / dt
-                print(f"  Step {step+1:4d}/{n_steps}: "
-                      f"{dt*1000:.1f}ms ({fps:.0f} FPS)")
+                print(
+                    f"  Step {step + 1:4d}/{n_steps}: {dt * 1000:.1f}ms ({fps:.0f} FPS)"
+                )
 
         timings_ms = [t * 1000 for t in timings]
         avg_ms = sum(timings_ms) / len(timings_ms)
@@ -268,8 +315,10 @@ def run(args):
         max_ms = max(timings_ms)
 
         print(f"\n  Summary ({n_steps} steps, {total_frames} frames/step):")
-        print(f"    Mean:   {avg_ms:.1f}ms ({total_frames / (avg_ms/1000):.0f} FPS)")
-        print(f"    Median: {median_ms:.1f}ms ({total_frames / (median_ms/1000):.0f} FPS)")
+        print(f"    Mean:   {avg_ms:.1f}ms ({total_frames / (avg_ms / 1000):.0f} FPS)")
+        print(
+            f"    Median: {median_ms:.1f}ms ({total_frames / (median_ms / 1000):.0f} FPS)"
+        )
         print(f"    P95:    {p95_ms:.1f}ms")
         print(f"    Min:    {min_ms:.1f}ms  Max: {max_ms:.1f}ms")
         print(f"    Budget: <167ms/step -> {'PASS' if p95_ms < 167 else 'FAIL'}")
@@ -280,28 +329,60 @@ def main():
         description="Multi-scene batch rendering benchmark",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--scene-list", required=True,
-                        help="Text file with one tar path per line")
-    parser.add_argument("--num-scenes", type=int, default=4,
-                        help="Number of scenes to load (default: 4)")
-    parser.add_argument("--frames-per-scene", type=int, default=48,
-                        help="Frames to render per scene (default: 48)")
-    parser.add_argument("--fps", type=int, default=10,
-                        help="Sampling rate in Hz for frame windows (default: 10)")
-    parser.add_argument("--width", type=int, default=512,
-                        help="Render width (default: 512)")
-    parser.add_argument("--height", type=int, default=512,
-                        help="Render height (default: 512)")
-    parser.add_argument("--bev-height", type=float, default=80.0,
-                        help="BEV camera height in meters (default: 80)")
-    parser.add_argument("--bev-fov", type=float, default=60.0,
-                        help="BEV camera field of view in degrees (default: 60)")
-    parser.add_argument("--benchmark", type=int, default=0, metavar="N",
-                        help="Run N benchmark steps after validation (default: 0)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed (default: 42)")
-    parser.add_argument("--save-all", action="store_true",
-                        help="Save all rendered frames as individual images")
+    parser.add_argument(
+        "--scene-list", required=True, help="Text file with one tar path per line"
+    )
+    parser.add_argument(
+        "--num-scenes",
+        type=int,
+        default=4,
+        help="Number of scenes to load (default: 4)",
+    )
+    parser.add_argument(
+        "--frames-per-scene",
+        type=int,
+        default=48,
+        help="Frames to render per scene (default: 48)",
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=10,
+        help="Sampling rate in Hz for frame windows (default: 10)",
+    )
+    parser.add_argument(
+        "--width", type=int, default=512, help="Render width (default: 512)"
+    )
+    parser.add_argument(
+        "--height", type=int, default=512, help="Render height (default: 512)"
+    )
+    parser.add_argument(
+        "--bev-height",
+        type=float,
+        default=80.0,
+        help="BEV camera height in meters (default: 80)",
+    )
+    parser.add_argument(
+        "--bev-fov",
+        type=float,
+        default=60.0,
+        help="BEV camera field of view in degrees (default: 60)",
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Run N benchmark steps after validation (default: 0)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="Random seed (default: 42)"
+    )
+    parser.add_argument(
+        "--save-all",
+        action="store_true",
+        help="Save all rendered frames as individual images",
+    )
 
     args = parser.parse_args()
     run(args)

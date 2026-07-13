@@ -144,12 +144,17 @@ class LudusTimestampedContext:
     # into structured pool descriptors.
     # ------------------------------------------------------------------
     @staticmethod
-    def _pack_polyline_pool_row(num_timestamps: int, num_varrays: int,
-                                num_vertices: int, prim_type_id: int,
-                                ts_offset: int, ts_varrays_ps_offset: int,
-                                varrays_ps_offset: int, vertices_offset: int,
-                                aabb_offset: int,
-                                ) -> torch.Tensor:
+    def _pack_polyline_pool_row(
+        num_timestamps: int,
+        num_varrays: int,
+        num_vertices: int,
+        prim_type_id: int,
+        ts_offset: int,
+        ts_varrays_ps_offset: int,
+        varrays_ps_offset: int,
+        vertices_offset: int,
+        aabb_offset: int,
+    ) -> torch.Tensor:
         row = torch.zeros(16, dtype=torch.uint32)
         row[0] = num_timestamps
         row[1] = num_varrays
@@ -163,14 +168,20 @@ class LudusTimestampedContext:
         return row
 
     @staticmethod
-    def _pack_polygon_pool_row(num_timestamps: int, num_varrays: int,
-                               num_vertices: int, num_triangles: int,
-                               prim_type_id: int,
-                               ts_offset: int, ts_varrays_ps_offset: int,
-                               varrays_ps_offset: int, tri_ps_offset: int,
-                               vertices_offset: int, triangles_offset: int,
-                               aabb_offset: int,
-                               ) -> torch.Tensor:
+    def _pack_polygon_pool_row(
+        num_timestamps: int,
+        num_varrays: int,
+        num_vertices: int,
+        num_triangles: int,
+        prim_type_id: int,
+        ts_offset: int,
+        ts_varrays_ps_offset: int,
+        varrays_ps_offset: int,
+        tri_ps_offset: int,
+        vertices_offset: int,
+        triangles_offset: int,
+        aabb_offset: int,
+    ) -> torch.Tensor:
         row = torch.zeros(16, dtype=torch.uint32)
         row[0] = num_timestamps
         row[1] = num_varrays
@@ -187,13 +198,20 @@ class LudusTimestampedContext:
         return row
 
     @staticmethod
-    def _pack_cube_pool_row(num_cubes: int, num_timestamps: int,
-                            num_track_poses: int, prim_type_id: int,
-                            ts_offset: int, cube_ts_ps_offset: int,
-                            track_ts_offset: int, translations_offset: int,
-                            quaternions_offset: int, scales_offset: int,
-                            colors_offset: int, render_flags: int,
-                            ) -> torch.Tensor:
+    def _pack_cube_pool_row(
+        num_cubes: int,
+        num_timestamps: int,
+        num_track_poses: int,
+        prim_type_id: int,
+        ts_offset: int,
+        cube_ts_ps_offset: int,
+        track_ts_offset: int,
+        translations_offset: int,
+        quaternions_offset: int,
+        scales_offset: int,
+        colors_offset: int,
+        render_flags: int,
+    ) -> torch.Tensor:
         row = torch.zeros(16, dtype=torch.uint32)
         row[0] = num_cubes
         row[1] = num_timestamps
@@ -210,13 +228,20 @@ class LudusTimestampedContext:
         return row
 
     @staticmethod
-    def _pack_scene_desc(num_pl_pools: int, pl_pools_offset: int,
-                        num_pg_pools: int, pg_pools_offset: int,
-                        num_cb_pools: int, cb_pools_offset: int,
-                        ts_buf_offset: int, int32_buf_offset: int,
-                        vert_buf_offset: int, tri_buf_offset: int,
-                        pose_buf_offset: int, float_buf_offset: int,
-                        ) -> torch.Tensor:
+    def _pack_scene_desc(
+        num_pl_pools: int,
+        pl_pools_offset: int,
+        num_pg_pools: int,
+        pg_pools_offset: int,
+        num_cb_pools: int,
+        cb_pools_offset: int,
+        ts_buf_offset: int,
+        int32_buf_offset: int,
+        vert_buf_offset: int,
+        tri_buf_offset: int,
+        pose_buf_offset: int,
+        float_buf_offset: int,
+    ) -> torch.Tensor:
         # 128-byte scene descriptor = 32 uint32.
         row = torch.zeros(32, dtype=torch.uint32)
         row[0] = num_pl_pools
@@ -242,14 +267,14 @@ class LudusTimestampedContext:
         device = self._device
 
         timestamps_list: List[torch.Tensor] = []
-        int32_list:      List[torch.Tensor] = []
-        vertices_list:   List[torch.Tensor] = []
-        triangles_list:  List[torch.Tensor] = []
-        float_list:      List[torch.Tensor] = []
+        int32_list: List[torch.Tensor] = []
+        vertices_list: List[torch.Tensor] = []
+        triangles_list: List[torch.Tensor] = []
+        float_list: List[torch.Tensor] = []
 
         polyline_pool_rows: List[torch.Tensor] = []
-        polygon_pool_rows:  List[torch.Tensor] = []
-        cube_pool_rows:     List[torch.Tensor] = []
+        polygon_pool_rows: List[torch.Tensor] = []
+        cube_pool_rows: List[torch.Tensor] = []
 
         # Per-scene local offsets. The C++ side appends each scene's data
         # to the global SSBOs and patches absolute offsets later via the
@@ -283,10 +308,14 @@ class LudusTimestampedContext:
                 _max_varrays_per_ts(pool.timestamped_varrays_prefix_sum),
             )
 
-            aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum, device)
+            aabbs = _compute_element_aabbs(
+                pool.vertices, pool.varrays_prefix_sum, device
+            )
 
             row = self._pack_polyline_pool_row(
-                num_timestamps=n_ts, num_varrays=n_var, num_vertices=n_v,
+                num_timestamps=n_ts,
+                num_varrays=n_var,
+                num_vertices=n_v,
                 prim_type_id=pool.prim_type_id,
                 ts_offset=ts_off,
                 ts_varrays_ps_offset=i32_off,
@@ -297,7 +326,9 @@ class LudusTimestampedContext:
             polyline_pool_rows.append(row)
 
             timestamps_list.append(pool.timestamps_us.to(device, dtype=torch.int64))
-            int32_list.append(pool.timestamped_varrays_prefix_sum.to(device, dtype=torch.int32))
+            int32_list.append(
+                pool.timestamped_varrays_prefix_sum.to(device, dtype=torch.int32)
+            )
             int32_list.append(pool.varrays_prefix_sum.to(device, dtype=torch.int32))
 
             # Vertices are stored as Vertex (vec3 + pad) in the SSBO.
@@ -323,11 +354,16 @@ class LudusTimestampedContext:
                 _max_varrays_per_ts(pool.timestamped_varrays_prefix_sum),
             )
 
-            aabbs = _compute_element_aabbs(pool.vertices, pool.varrays_prefix_sum, device)
+            aabbs = _compute_element_aabbs(
+                pool.vertices, pool.varrays_prefix_sum, device
+            )
 
             row = self._pack_polygon_pool_row(
-                num_timestamps=n_ts, num_varrays=n_var, num_vertices=n_v,
-                num_triangles=n_t, prim_type_id=pool.prim_type_id,
+                num_timestamps=n_ts,
+                num_varrays=n_var,
+                num_vertices=n_v,
+                num_triangles=n_t,
+                prim_type_id=pool.prim_type_id,
                 ts_offset=ts_off,
                 ts_varrays_ps_offset=i32_off,
                 varrays_ps_offset=i32_off + n_ts,
@@ -339,7 +375,9 @@ class LudusTimestampedContext:
             polygon_pool_rows.append(row)
 
             timestamps_list.append(pool.timestamps_us.to(device, dtype=torch.int64))
-            int32_list.append(pool.timestamped_varrays_prefix_sum.to(device, dtype=torch.int32))
+            int32_list.append(
+                pool.timestamped_varrays_prefix_sum.to(device, dtype=torch.int32)
+            )
             int32_list.append(pool.varrays_prefix_sum.to(device, dtype=torch.int32))
             int32_list.append(pool.triangle_prefix_sum.to(device, dtype=torch.int32))
 
@@ -360,14 +398,16 @@ class LudusTimestampedContext:
             float_off += int(aabbs.numel())
 
         # ---------- cube pools ----------
-        for pool in (scene.cube_pools or []):
+        for pool in scene.cube_pools or []:
             n_global_ts = int(pool.timestamps_us.shape[0])
             n_cubes = int(pool.scales.shape[0])
             n_track = int(pool.translations.shape[0])
 
             row = self._pack_cube_pool_row(
-                num_cubes=n_cubes, num_timestamps=n_global_ts,
-                num_track_poses=n_track, prim_type_id=pool.prim_type_id,
+                num_cubes=n_cubes,
+                num_timestamps=n_global_ts,
+                num_track_poses=n_track,
+                prim_type_id=pool.prim_type_id,
                 ts_offset=ts_off,
                 cube_ts_ps_offset=i32_off,
                 track_ts_offset=ts_off + n_global_ts,
@@ -380,10 +420,16 @@ class LudusTimestampedContext:
             cube_pool_rows.append(row)
 
             timestamps_list.append(pool.timestamps_us.to(device, dtype=torch.int64))
-            timestamps_list.append(pool.track_timestamps_us.to(device, dtype=torch.int64))
+            timestamps_list.append(
+                pool.track_timestamps_us.to(device, dtype=torch.int64)
+            )
             int32_list.append(pool.cube_ts_prefix_sum.to(device, dtype=torch.int32))
-            float_list.append(pool.translations.to(device, dtype=torch.float32).reshape(-1))
-            float_list.append(pool.quaternions.to(device, dtype=torch.float32).reshape(-1))
+            float_list.append(
+                pool.translations.to(device, dtype=torch.float32).reshape(-1)
+            )
+            float_list.append(
+                pool.quaternions.to(device, dtype=torch.float32).reshape(-1)
+            )
             float_list.append(pool.scales.to(device, dtype=torch.float32).reshape(-1))
             float_list.append(pool.colors.to(device, dtype=torch.float32).reshape(-1))
 
@@ -392,28 +438,47 @@ class LudusTimestampedContext:
             float_off += n_track * 7 + n_cubes * 9
 
         # ---------- concatenate flat buffers ----------
-        all_timestamps = (torch.cat(timestamps_list).contiguous()
-                          if timestamps_list else torch.empty(0, dtype=torch.int64, device=device))
-        all_int32 = (torch.cat(int32_list).contiguous()
-                     if int32_list else torch.empty(0, dtype=torch.int32, device=device))
-        all_vertices = (torch.cat(vertices_list).contiguous()
-                        if vertices_list else torch.empty((0, 4), dtype=torch.float32, device=device))
-        all_triangles = (torch.cat(triangles_list).contiguous()
-                         if triangles_list else torch.empty((0, 4), dtype=torch.int32, device=device))
-        all_floats = (torch.cat(float_list).contiguous()
-                      if float_list else torch.empty(0, dtype=torch.float32, device=device))
+        all_timestamps = (
+            torch.cat(timestamps_list).contiguous()
+            if timestamps_list
+            else torch.empty(0, dtype=torch.int64, device=device)
+        )
+        all_int32 = (
+            torch.cat(int32_list).contiguous()
+            if int32_list
+            else torch.empty(0, dtype=torch.int32, device=device)
+        )
+        all_vertices = (
+            torch.cat(vertices_list).contiguous()
+            if vertices_list
+            else torch.empty((0, 4), dtype=torch.float32, device=device)
+        )
+        all_triangles = (
+            torch.cat(triangles_list).contiguous()
+            if triangles_list
+            else torch.empty((0, 4), dtype=torch.int32, device=device)
+        )
+        all_floats = (
+            torch.cat(float_list).contiguous()
+            if float_list
+            else torch.empty(0, dtype=torch.float32, device=device)
+        )
 
         # Pool descriptor tensors (16 uint32 per row, viewed as raw bytes
         # so the C++ side can reinterpret_cast<TimestampedPool*>).
-        def _pools_to_bytes(rows: List[torch.Tensor], stride_u32: int = 16) -> torch.Tensor:
+        def _pools_to_bytes(
+            rows: List[torch.Tensor], stride_u32: int = 16
+        ) -> torch.Tensor:
             if not rows:
-                return torch.empty((0, stride_u32 * 4), dtype=torch.uint8, device=device)
+                return torch.empty(
+                    (0, stride_u32 * 4), dtype=torch.uint8, device=device
+                )
             stacked = torch.stack(rows).to(device).contiguous()  # [N, 16] uint32
             return stacked.view(torch.uint8).reshape(-1, stride_u32 * 4).contiguous()
 
         polyline_pool_bytes = _pools_to_bytes(polyline_pool_rows, stride_u32=16)
-        polygon_pool_bytes  = _pools_to_bytes(polygon_pool_rows,  stride_u32=16)
-        cube_pool_bytes     = _pools_to_bytes(cube_pool_rows,     stride_u32=16)
+        polygon_pool_bytes = _pools_to_bytes(polygon_pool_rows, stride_u32=16)
+        cube_pool_bytes = _pools_to_bytes(cube_pool_rows, stride_u32=16)
 
         # Scene descriptor (128 bytes).
         # This scene's base offset in each shared SSBO (0 for the first scene).
@@ -439,24 +504,27 @@ class LudusTimestampedContext:
         empty_poses = torch.empty((0, 16), dtype=torch.float32, device=device)
 
         # Per-pool max obstacle count drives one dispatch per pool.
-        max_obstacles = max((int(p.scales.shape[0]) for p in (scene.cube_pools or [])),
-                            default=0)
+        max_obstacles = max(
+            (int(p.scales.shape[0]) for p in (scene.cube_pools or [])), default=0
+        )
 
-        scene_id = int(self.cpp_wrapper.upload_scene(
-            scene_desc,
-            polyline_pool_bytes,
-            polygon_pool_bytes,
-            cube_pool_bytes,
-            max_obstacles,
-            max_varrays_per_ts_polyline,
-            max_varrays_per_ts_polygon,
-            all_timestamps,
-            all_int32,
-            all_vertices,
-            all_triangles,
-            empty_poses,
-            all_floats,
-        ))
+        scene_id = int(
+            self.cpp_wrapper.upload_scene(
+                scene_desc,
+                polyline_pool_bytes,
+                polygon_pool_bytes,
+                cube_pool_bytes,
+                max_obstacles,
+                max_varrays_per_ts_polyline,
+                max_varrays_per_ts_polygon,
+                all_timestamps,
+                all_int32,
+                all_vertices,
+                all_triangles,
+                empty_poses,
+                all_floats,
+            )
+        )
 
         # Advance the cursors past this scene for the next upload_scene.
         self._global_ts_off += ts_off
@@ -524,8 +592,10 @@ class LudusTimestampedContext:
         wireframe: float = 0.0,
     ) -> None:
         self.cpp_wrapper.set_line_widths(
-            float(polyline_regular), float(polyline_bev),
-            float(ego_traj_regular), float(ego_traj_bev),
+            float(polyline_regular),
+            float(polyline_bev),
+            float(ego_traj_regular),
+            float(ego_traj_bev),
             float(wireframe),
         )
 
@@ -535,7 +605,9 @@ class LudusTimestampedContext:
         polygon: int = 3,
         cube: int = 3,
     ) -> None:
-        self.cpp_wrapper.set_max_tessellation_levels(int(polyline), int(polygon), int(cube))
+        self.cpp_wrapper.set_max_tessellation_levels(
+            int(polyline), int(polygon), int(cube)
+        )
 
     def upload_color_palette(self, colors: dict) -> None:
         """Upload a custom color palette.
@@ -559,9 +631,13 @@ class LudusTimestampedContext:
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
-    def _pack_queries(self, scene_ids: torch.Tensor, camera_ids: torch.Tensor,
-                      timestamps_us: torch.Tensor, camera_type_ids: torch.Tensor,
-                      ) -> torch.Tensor:
+    def _pack_queries(
+        self,
+        scene_ids: torch.Tensor,
+        camera_ids: torch.Tensor,
+        timestamps_us: torch.Tensor,
+        camera_type_ids: torch.Tensor,
+    ) -> torch.Tensor:
         """Pack into ``RenderQuery[]`` (32 bytes each, returned as uint8)."""
         n = int(scene_ids.shape[0])
         # Layout (32 bytes per query):
@@ -585,10 +661,10 @@ class LudusTimestampedContext:
         buf = torch.zeros(n, 32, dtype=torch.uint8)
         buf_i32_view = buf.view(torch.int32).reshape(n, 8)
         buf_i64_view = buf.view(torch.int64).reshape(n, 4)
-        buf_i32_view[:, 0] = ints[:, 0]   # scene_id
-        buf_i32_view[:, 1] = ints[:, 1]   # camera_id
-        buf_i64_view[:, 1] = ts            # timestamp_us
-        buf_i32_view[:, 4] = ints[:, 4]   # camera_type_id
+        buf_i32_view[:, 0] = ints[:, 0]  # scene_id
+        buf_i32_view[:, 1] = ints[:, 1]  # camera_id
+        buf_i64_view[:, 1] = ts  # timestamp_us
+        buf_i32_view[:, 4] = ints[:, 4]  # camera_type_id
         return buf.to(self._device).contiguous()
 
     def render(
@@ -635,12 +711,25 @@ class LudusTimestampedContext:
             ts = q[2]
             return int(ts.item() if isinstance(ts, torch.Tensor) else ts)
 
-        scene_ids = torch.tensor([int(q[0]) for q in queries], dtype=torch.int32, device=device)
-        camera_ids = torch.tensor([int(q[1]) for q in queries], dtype=torch.int32, device=device)
-        timestamps_us = torch.tensor([_ts(q) for q in queries], dtype=torch.int64, device=device)
+        scene_ids = torch.tensor(
+            [int(q[0]) for q in queries], dtype=torch.int32, device=device
+        )
+        camera_ids = torch.tensor(
+            [int(q[1]) for q in queries], dtype=torch.int32, device=device
+        )
+        timestamps_us = torch.tensor(
+            [_ts(q) for q in queries], dtype=torch.int64, device=device
+        )
         camera_type_ids = torch.tensor(
-            [int(q[3]) if len(q) > 3 else 0 for q in queries], dtype=torch.int32, device=device)
+            [int(q[3]) if len(q) > 3 else 0 for q in queries],
+            dtype=torch.int32,
+            device=device,
+        )
         return self.render(
-            scene_ids, camera_ids, timestamps_us, camera_type_ids,
-            camera_poses, resolution,
+            scene_ids,
+            camera_ids,
+            timestamps_us,
+            camera_type_ids,
+            camera_poses,
+            resolution,
         )

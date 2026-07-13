@@ -31,13 +31,16 @@ egomotion_estimate + object_fused from tar files, skipping all map
 geometry for ~5-10x faster I/O than full scene loading.
 """
 
+import io
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+import numpy as np
 import torch
 from torch import Tensor
 
-from ._ops import CubePool, PRIM_OBSTACLE
+from ._ops import PRIM_OBSTACLE, CubePool
 from .clipgt import ClipgtGpuScene, EgoTrackData
 
 # True ego vehicle half-extents in meters (not the BEV-inflated values).
@@ -71,12 +74,12 @@ def _quat_to_yaw(q: Tensor) -> Tensor:
 
 
 def _obb_overlap_2d(
-    pos_a: Tensor,      # [N, 2]
-    yaw_a: Tensor,      # [N]
-    half_a: Tensor,     # [N, 2] or [2]
-    pos_b: Tensor,      # [N, 2]
-    yaw_b: Tensor,      # [N]
-    half_b: Tensor,     # [N, 2] or [2]
+    pos_a: Tensor,  # [N, 2]
+    yaw_a: Tensor,  # [N]
+    half_a: Tensor,  # [N, 2] or [2]
+    pos_b: Tensor,  # [N, 2]
+    yaw_b: Tensor,  # [N]
+    half_b: Tensor,  # [N, 2] or [2]
 ) -> Tensor:
     """Vectorised 2D OBB-OBB SAT overlap test.
 
@@ -97,12 +100,15 @@ def _obb_overlap_2d(
     #   axis 1: a's local y  (-sin_a,  cos_a)
     #   axis 2: b's local x  ( cos_b,  sin_b)
     #   axis 3: b's local y  (-sin_b,  cos_b)
-    axes = torch.stack([
-        torch.stack([cos_a, sin_a], dim=1),
-        torch.stack([-sin_a, cos_a], dim=1),
-        torch.stack([cos_b, sin_b], dim=1),
-        torch.stack([-sin_b, cos_b], dim=1),
-    ], dim=1)  # [N, 4, 2]
+    axes = torch.stack(
+        [
+            torch.stack([cos_a, sin_a], dim=1),
+            torch.stack([-sin_a, cos_a], dim=1),
+            torch.stack([cos_b, sin_b], dim=1),
+            torch.stack([-sin_b, cos_b], dim=1),
+        ],
+        dim=1,
+    )  # [N, 4, 2]
 
     # Project separation vector onto each axis: [N, 4]
     proj_d = (axes * d.unsqueeze(1)).sum(dim=2)
@@ -149,7 +155,7 @@ def detect_collisions_gpu(
     """
     # Find the dynamic obstacle pool
     obs_pool: Optional[CubePool] = None
-    for pool in (cube_pools or []):
+    for pool in cube_pools or []:
         if pool.prim_type_id == PRIM_OBSTACLE:
             obs_pool = pool
             break
@@ -158,13 +164,13 @@ def detect_collisions_gpu(
         return CollisionResult(has_collision=False)
 
     device = ego_track.timestamps.device
-    ego_ts = ego_track.timestamps          # [n_ego] int64, sorted
-    ego_pos = ego_track.translations       # [n_ego, 3]
-    ego_quat = ego_track.quaternions       # [n_ego, 4]
+    ego_ts = ego_track.timestamps  # [n_ego] int64, sorted
+    ego_pos = ego_track.translations  # [n_ego, 3]
+    ego_quat = ego_track.quaternions  # [n_ego, 4]
 
     obs_ts = obs_pool.track_timestamps_us  # [n_obs_poses] int64
-    obs_pos = obs_pool.translations        # [n_obs_poses, 3]
-    obs_quat = obs_pool.quaternions        # [n_obs_poses, 4]
+    obs_pos = obs_pool.translations  # [n_obs_poses, 3]
+    obs_quat = obs_pool.quaternions  # [n_obs_poses, 4]
 
     n_ego = ego_ts.shape[0]
     n_obs = obs_ts.shape[0]
@@ -187,25 +193,28 @@ def detect_collisions_gpu(
         return CollisionResult(has_collision=False)
 
     # --- 2. Gather ego poses at matched timestamps ---
-    ego_xy = ego_pos[nearest_idx, :2]     # [n_obs, 2]
-    ego_q = ego_quat[nearest_idx]          # [n_obs, 4]
-    ego_yaw = _quat_to_yaw(ego_q)         # [n_obs]
+    ego_xy = ego_pos[nearest_idx, :2]  # [n_obs, 2]
+    ego_q = ego_quat[nearest_idx]  # [n_obs, 4]
+    ego_yaw = _quat_to_yaw(ego_q)  # [n_obs]
 
-    obs_xy = obs_pos[:, :2]               # [n_obs, 2]
-    obs_yaw = _quat_to_yaw(obs_quat)      # [n_obs]
+    obs_xy = obs_pos[:, :2]  # [n_obs, 2]
+    obs_yaw = _quat_to_yaw(obs_quat)  # [n_obs]
 
     # --- 3. Per-pose obstacle half-extents (expand from per-track scales) ---
     # cube_ts_prefix_sum is cumulative track lengths [n_tracks].
-    prefix = obs_pool.cube_ts_prefix_sum   # [n_tracks] int32
-    scales = obs_pool.scales               # [n_tracks, 3] (full extents)
+    prefix = obs_pool.cube_ts_prefix_sum  # [n_tracks] int32
+    scales = obs_pool.scales  # [n_tracks, 3] (full extents)
 
     # Map each pose index → track index
-    track_idx = torch.searchsorted(prefix, torch.arange(1, n_obs + 1, device=device, dtype=prefix.dtype))
+    track_idx = torch.searchsorted(
+        prefix, torch.arange(1, n_obs + 1, device=device, dtype=prefix.dtype)
+    )
     obs_half_xy = scales[track_idx, :2] * 0.5  # [n_obs, 2]
 
     ego_half = torch.tensor(
         [ego_half_size_xy[0], ego_half_size_xy[1]],
-        dtype=torch.float32, device=device,
+        dtype=torch.float32,
+        device=device,
     )
 
     # --- 4. 2D OBB-OBB SAT test ---
@@ -253,26 +262,29 @@ def detect_collisions_from_scene(
 # Minimal CPU-only collision pipeline (no GPU, no full scene load)
 # ---------------------------------------------------------------------------
 
-import io
-import os
-import numpy as np
-
 
 def _np_obb_overlap_2d(
-    pos_a: np.ndarray, yaw_a: np.ndarray, half_a: np.ndarray,
-    pos_b: np.ndarray, yaw_b: np.ndarray, half_b: np.ndarray,
+    pos_a: np.ndarray,
+    yaw_a: np.ndarray,
+    half_a: np.ndarray,
+    pos_b: np.ndarray,
+    yaw_b: np.ndarray,
+    half_b: np.ndarray,
 ) -> np.ndarray:
     """Vectorized 2D OBB-SAT on numpy arrays. Returns bool [N]."""
     cos_a, sin_a = np.cos(yaw_a), np.sin(yaw_a)
     cos_b, sin_b = np.cos(yaw_b), np.sin(yaw_b)
     d = pos_b - pos_a  # [N, 2]
 
-    axes = np.stack([
-        np.stack([cos_a, sin_a], axis=1),
-        np.stack([-sin_a, cos_a], axis=1),
-        np.stack([cos_b, sin_b], axis=1),
-        np.stack([-sin_b, cos_b], axis=1),
-    ], axis=1)  # [N, 4, 2]
+    axes = np.stack(
+        [
+            np.stack([cos_a, sin_a], axis=1),
+            np.stack([-sin_a, cos_a], axis=1),
+            np.stack([cos_b, sin_b], axis=1),
+            np.stack([-sin_b, cos_b], axis=1),
+        ],
+        axis=1,
+    )  # [N, 4, 2]
 
     proj_d = np.sum(axes * d[:, None, :], axis=2)  # [N, 4]
 
@@ -299,7 +311,9 @@ def _parse_ego_numpy(parquet_bytes: bytes):
     """Parse egomotion parquet → (timestamps_i64, positions_f32[N,2], quats_f32[N,4])."""
     import pyarrow.parquet as pq
 
-    table = pq.read_table(io.BytesIO(parquet_bytes), columns=["key", "egomotion_estimate"])
+    table = pq.read_table(
+        io.BytesIO(parquet_bytes), columns=["key", "egomotion_estimate"]
+    )
     if len(table) == 0:
         return None
     key_col = table.column("key").combine_chunks()
@@ -309,17 +323,21 @@ def _parse_ego_numpy(parquet_bytes: bytes):
     loc = ego_col.field("location")
     ori = ego_col.field("orientation")
 
-    pos = np.column_stack([
-        loc.field("x").to_numpy(zero_copy_only=False),
-        loc.field("y").to_numpy(zero_copy_only=False),
-    ]).astype(np.float32)
+    pos = np.column_stack(
+        [
+            loc.field("x").to_numpy(zero_copy_only=False),
+            loc.field("y").to_numpy(zero_copy_only=False),
+        ]
+    ).astype(np.float32)
 
-    quat = np.column_stack([
-        ori.field("x").to_numpy(zero_copy_only=False),
-        ori.field("y").to_numpy(zero_copy_only=False),
-        ori.field("z").to_numpy(zero_copy_only=False),
-        ori.field("w").to_numpy(zero_copy_only=False),
-    ]).astype(np.float32)
+    quat = np.column_stack(
+        [
+            ori.field("x").to_numpy(zero_copy_only=False),
+            ori.field("y").to_numpy(zero_copy_only=False),
+            ori.field("z").to_numpy(zero_copy_only=False),
+            ori.field("w").to_numpy(zero_copy_only=False),
+        ]
+    ).astype(np.float32)
 
     return ts, pos, quat
 
@@ -341,10 +359,12 @@ def _parse_obs_flat_numpy(parquet_bytes: bytes):
     ts = key_col.field("timestamp_micros").to_numpy().astype(np.int64)
 
     center = obj_col.field("cuboid_3D_center")
-    pos = np.column_stack([
-        center.field("x").to_numpy(zero_copy_only=False),
-        center.field("y").to_numpy(zero_copy_only=False),
-    ]).astype(np.float32)
+    pos = np.column_stack(
+        [
+            center.field("x").to_numpy(zero_copy_only=False),
+            center.field("y").to_numpy(zero_copy_only=False),
+        ]
+    ).astype(np.float32)
 
     direction = obj_col.field("obstacle_direction")
     dx = direction.field("x").to_numpy(zero_copy_only=False)
@@ -352,10 +372,12 @@ def _parse_obs_flat_numpy(parquet_bytes: bytes):
     yaw = np.arctan2(dy, dx).astype(np.float32)
 
     half_axis = obj_col.field("cuboid_3D_halfAxisXYZ")
-    half_xy = np.column_stack([
-        half_axis.field("x").to_numpy(zero_copy_only=False),
-        half_axis.field("y").to_numpy(zero_copy_only=False),
-    ]).astype(np.float32)
+    half_xy = np.column_stack(
+        [
+            half_axis.field("x").to_numpy(zero_copy_only=False),
+            half_axis.field("y").to_numpy(zero_copy_only=False),
+        ]
+    ).astype(np.float32)
 
     # Filter rows with valid obstacle_id
     obstacle_ids = obj_col.field("obstacle_id").to_numpy(zero_copy_only=False)
@@ -367,10 +389,11 @@ def _parse_obs_flat_numpy(parquet_bytes: bytes):
     return ts, pos, yaw, half_xy
 
 
-def detect_collisions_cpu(tar_path: str,
-                          ego_half_size_xy: Tuple[float, float] = EGO_HALF_SIZE_XY,
-                          time_tolerance_us: int = DEFAULT_TIME_TOLERANCE_US,
-                          ) -> CollisionResult:
+def detect_collisions_cpu(
+    tar_path: str,
+    ego_half_size_xy: Tuple[float, float] = EGO_HALF_SIZE_XY,
+    time_tolerance_us: int = DEFAULT_TIME_TOLERANCE_US,
+) -> CollisionResult:
     """CPU-only collision detection — single bulk tar read, direct numpy parsing.
 
     Reads the entire tar into memory in one syscall (Lustre-friendly), then
@@ -438,8 +461,9 @@ def detect_collisions_cpu(tar_path: str,
     ego_yaw = 2.0 * np.arctan2(ego_quat[nearest_idx, 2], ego_quat[nearest_idx, 3])
     ego_half = np.array(ego_half_size_xy, dtype=np.float32)
 
-    overlap = _np_obb_overlap_2d(ego_xy, ego_yaw, ego_half,
-                                 obs_pos, obs_yaw, obs_half_xy)
+    overlap = _np_obb_overlap_2d(
+        ego_xy, ego_yaw, ego_half, obs_pos, obs_yaw, obs_half_xy
+    )
     overlap &= valid_time
 
     if not np.any(overlap):

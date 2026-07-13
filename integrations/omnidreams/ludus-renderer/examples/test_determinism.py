@@ -176,7 +176,7 @@ def main():
     if all_pass:
         print(f"\nALL {args.n_runs} RUNS PIXEL-PERFECT")
     else:
-        print(f"\nSOME RUNS HAD DIFFS")
+        print("\nSOME RUNS HAD DIFFS")
 
     sys.exit(0 if all_pass else 1)
 

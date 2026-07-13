@@ -42,7 +42,7 @@ IF_ZMODIFY(layout(location = 0) uniform float in_dummy;)
 
 void main() {
     vec3 color = prim_in.color;
-    
+
     // Apply distance-based fog (darken with distance) - disabled for BEV cameras
     // gl_FragCoord.z is in [0, 1] where 0=near, 1=far
     if (pc.u_fog_enabled > 0.5 && prim_in.is_bev < 0.5) {
@@ -50,7 +50,7 @@ void main() {
         fog_factor = clamp(fog_factor, 0.0, 1.0);
         color *= fog_factor;
     }
-    
+
     out_color = vec4(color, 1.0);
     IF_ZMODIFY(gl_FragDepth = gl_FragCoord.z + in_dummy;)
 }

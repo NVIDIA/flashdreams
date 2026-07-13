@@ -51,11 +51,15 @@ def main():
     parser = argparse.ArgumentParser(description="Validate cached .pt scene files")
     default_cache_dir = str(Path.cwd() / "ludus_renderer_cache")
     parser.add_argument(
-        "--cache-dir", type=str, default=default_cache_dir,
+        "--cache-dir",
+        type=str,
+        default=default_cache_dir,
         help="Cache root directory",
     )
     parser.add_argument(
-        "--workers", type=int, default=None,
+        "--workers",
+        type=int,
+        default=None,
         help="Number of parallel workers (default: cpu_count)",
     )
     args = parser.parse_args()
@@ -92,8 +96,10 @@ def main():
             if done % 500 == 0 or done == len(pt_files):
                 elapsed = time.perf_counter() - t0
                 rate = done / elapsed if elapsed > 0 else 0
-                print(f"  [{done}/{len(pt_files)}] {passed} ok, {failed} bad "
-                      f"({rate:.0f} files/s)")
+                print(
+                    f"  [{done}/{len(pt_files)}] {passed} ok, {failed} bad "
+                    f"({rate:.0f} files/s)"
+                )
 
     elapsed = time.perf_counter() - t0
     print(f"\nDone in {elapsed:.1f}s")
