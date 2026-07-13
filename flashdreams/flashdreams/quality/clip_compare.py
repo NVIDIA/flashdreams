@@ -327,7 +327,8 @@ def _compute_flip_scores(
         flip_evaluator = importlib.import_module("flip_evaluator")
     except ImportError as exc:
         raise ImportError(
-            "`flip_evaluator` failed to import."
+            "FLIP clip comparison requires a working flip-evaluator install. "
+            "Install the omnidreams dev extra or set max_mean_flip/max_frame_flip to None."
         ) from exc
 
     scores = []
