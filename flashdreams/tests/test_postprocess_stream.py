@@ -19,6 +19,7 @@ from flashdreams.infra.postprocess import (
     VideoPostProcessorSession,
     VideoSpec,
 )
+from flashdreams.infra.postprocess.base import _VideoPostprocessChainSession
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -110,6 +111,7 @@ def test_chain_propagates_output_spec_to_downstream_session() -> None:
     )
     session = chain.setup(VideoSpec(height=4, width=6, fps=12))
 
+    assert isinstance(session, _VideoPostprocessChainSession)
     assert isinstance(session._sessions[1], _BufferSession)
     assert session._sessions[1].spec == VideoSpec(height=8, width=12, fps=12)
 
