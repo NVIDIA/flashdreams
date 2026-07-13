@@ -2606,7 +2606,7 @@ def _build_sorted_vertex_gather(
 
 
 def _flat_polylines_to_pool(
-    data: Optional[FlatPolylineData],
+    data: FlatPolylineData | None,
     prim_type_id: int,
     device: torch.device,
     pre_sorted: bool = False,
@@ -3328,23 +3328,17 @@ def load_av2_scene(
                     f"({n_ego} ego poses)"
                 )
     else:
-        if (
-            lane_line_flat is None
-            or road_boundary_flat is None
-            or crosswalk_flat is None
-            or static_obstacle_flat is None
-        ):
-            raise ValueError("Polyline data is empty")
-
         flat_polylines = (
             lane_line_flat,
             road_boundary_flat,
             crosswalk_flat,
             static_obstacle_flat,
         )
-        gpu_ts = [f.timestamps_us for f in flat_polylines if f.timestamps_us.is_cuda]
+        gpu_ts = [
+            f.timestamps_us for f in flat_polylines if f and f.timestamps_us.is_cuda
+        ]
         cpu_ts = [
-            f.timestamps_us for f in flat_polylines if not f.timestamps_us.is_cuda
+            f.timestamps_us for f in flat_polylines if f and not f.timestamps_us.is_cuda
         ]
         for obs in obstacles:
             (gpu_ts if obs.timestamps.is_cuda else cpu_ts).append(obs.timestamps)
