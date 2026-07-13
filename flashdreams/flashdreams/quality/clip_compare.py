@@ -323,7 +323,12 @@ def _compute_flip_scores(
             "FLIP clip comparison requires flip-evaluator. Install the "
             "omnidreams dev extra or set max_mean_flip/max_frame_flip to None."
         )
-    flip_evaluator = importlib.import_module("flip_evaluator")
+    try:
+        flip_evaluator = importlib.import_module("flip_evaluator")
+    except ImportError as exc:
+        raise ImportError(
+            "`flip_evaluator` failed to import."
+        ) from exc
 
     scores = []
     for idx in indices:
