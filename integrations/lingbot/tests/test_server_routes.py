@@ -79,7 +79,8 @@ class FakeSessionManager:
             **self.initial_scene,
             "prompt": session_input.prompt or self.initial_scene["prompt"],
             "event_catalog": event_catalog,
-            "input_source": "uploaded",
+            "input_source": "preset" if session_input.preset_id else "uploaded",
+            "active_preset_id": session_input.preset_id,
         }
 
     async def preload_runtime(self) -> None:
@@ -223,7 +224,11 @@ async def test_initial_scene_route_returns_preview_metadata() -> None:
         response = await client.get("/api/session/initial_scene")
         payload = await response.json()
         assert response.status == 200
-        assert payload == manager.initial_scene
+        assert payload["prompt"] == manager.initial_scene["prompt"]
+        assert payload["active_preset_id"] is None
+        assert [preset["preset_id"] for preset in payload["presets"]] == list(
+            lingbot_server.BUNDLED_PRESET_IDS
+        )
     finally:
         await client.close()
 
@@ -238,6 +243,68 @@ async def test_first_frame_route_serves_manager_image() -> None:
         assert response.status == 200
         assert response.headers["Content-Type"] == "image/jpeg"
         assert body == b"fake-first-frame"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_bundled_preset_preview_route_serves_png() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        response = await client.get("/api/presets/golden-hour-portrait/first_frame")
+        body = await response.read()
+
+        assert response.status == 200
+        assert response.headers["Content-Type"] == "image/png"
+        assert body.startswith(b"\x89PNG\r\n\x1a\n")
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_selects_bundled_preset() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("preset_id", "moonlit-portal")
+
+        response = await client.post("/api/session/input", data=form)
+        payload = await response.json()
+
+        assert response.status == 200
+        assert payload["active_preset_id"] == "moonlit-portal"
+        assert payload["input_source"] == "preset"
+        assert len(manager.pending_inputs) == 1
+        session_input = manager.pending_inputs[0]
+        assert session_input.preset_id == "moonlit-portal"
+        assert session_input.prompt is not None and "portal" in session_input.prompt
+        assert session_input.first_frame_image_bytes is not None
+        assert session_input.first_frame_image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+        assert session_input.first_frame_content_type == "image/png"
+        assert session_input.text_events is not None
+        assert [event.event_id for event in session_input.text_events] == [
+            "portal-awakens",
+            "fireflies-gather",
+            "storm-approaches",
+        ]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_input_rejects_unknown_preset() -> None:
+    manager = FakeSessionManager()
+    client = await _build_client(manager)
+    try:
+        form = FormData()
+        form.add_field("preset_id", "missing-preset")
+
+        response = await client.post("/api/session/input", data=form)
+
+        assert response.status == 400
+        assert manager.pending_inputs == []
     finally:
         await client.close()
 

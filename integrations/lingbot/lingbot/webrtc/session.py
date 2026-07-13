@@ -450,14 +450,17 @@ class LingbotRuntimeConfig:
     default_prompt: str = ""
     """Prompt used when the selected example does not provide ``prompt.txt``."""
     default_image_url: str | None = _DEFAULT_IMAGE_URL
+    default_preset_id: str | None = None
+    """Bundled preset represented by the default scene, when applicable."""
     default_intrinsics_url: str | None = _DEFAULT_INTRINSICS_URL
     default_poses_url: str | None = _DEFAULT_POSES_URL
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
 
     example_data_dir: Path = field(
-        default_factory=lambda: default_flashdreams_cache_dir()
-        / "example_data/lingbot_world"
+        default_factory=lambda: (
+            default_flashdreams_cache_dir() / "example_data/lingbot_world"
+        )
     )
     first_frame_filename: str = "image.jpg"
     intrinsics_filename: str = "intrinsics.npy"
@@ -476,6 +479,9 @@ class LingbotImagePayload:
 
 @dataclass(frozen=True, slots=True)
 class LingbotSessionInput:
+    preset_id: str | None = None
+    """Bundled preset selected as the base for this session input."""
+
     prompt: str | None = None
     first_frame_image_bytes: bytes | None = None
     first_frame_image_url: str | None = None
@@ -876,8 +882,7 @@ class LingbotInferenceRuntime:
     def _load_default_prompt(self) -> str:
         prompt_path = self.config.example_data_dir / self.config.prompt_filename
         if prompt_path.exists():
-            with prompt_path.open("r", encoding="utf-8") as handle:
-                prompt = normalize_prompt_text(handle.readline())
+            prompt = normalize_prompt_text(prompt_path.read_text(encoding="utf-8"))
             if prompt:
                 return prompt
         prompt = normalize_prompt_text(self.config.default_prompt)
@@ -955,8 +960,6 @@ class LingbotInferenceRuntime:
             if session_input is not None and session_input.prompt is not None
             else self._load_default_prompt()
         )
-        if not prompt:
-            raise ValueError("Lingbot prompt is empty.")
 
         if session_input is not None and session_input.first_frame_image_bytes:
             image_rgb = self._load_uploaded_first_frame_rgb(
@@ -1190,11 +1193,21 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
             if pending_input is not None and pending_input.prompt is not None
             else self._runtime._load_default_prompt()
         )
-        if pending_input is not None and pending_input.first_frame_image_url:
-            image_url = pending_input.first_frame_image_url
-        else:
-            image_url = self.runtime_config.default_image_url
-        input_source = "uploaded" if pending_input is not None else "default"
+        image_url = (
+            pending_input.first_frame_image_url
+            if pending_input is not None
+            else self.runtime_config.default_image_url
+        )
+        input_source = (
+            "preset"
+            if pending_input is not None and pending_input.preset_id is not None
+            else ("uploaded" if pending_input is not None else "default")
+        )
+        active_preset_id = (
+            pending_input.preset_id
+            if pending_input is not None
+            else self.runtime_config.default_preset_id
+        )
         first_frame_path = (
             self.runtime_config.example_data_dir
             / self.runtime_config.first_frame_filename
@@ -1221,6 +1234,7 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
             "capabilities": {"text_events": bool(text_events)},
             "event_catalog": [event.as_public_dict() for event in text_events],
             "active_event_id": getattr(self._runtime, "_active_event_id", None),
+            "active_preset_id": active_preset_id,
             "resolution": {
                 "width": self.runtime_config.video_width,
                 "height": self.runtime_config.video_height,
@@ -1317,6 +1331,11 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
             else (current.text_events if current is not None else None)
         )
         self._pending_session_input = LingbotSessionInput(
+            preset_id=(
+                session_input.preset_id
+                if session_input.preset_id is not None
+                else (current.preset_id if current is not None else None)
+            ),
             prompt=(
                 normalize_prompt_text(session_input.prompt)
                 if session_input.prompt is not None

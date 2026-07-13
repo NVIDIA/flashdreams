@@ -1,0 +1,20 @@
+[
+  {
+    "event_id": "dinosaur-raises-head",
+    "label": "Dinosaur Raises Head",
+    "prompt": "The long-necked dinosaur slowly raises its head above the mist and looks across the valley.",
+    "category": "wildlife"
+  },
+  {
+    "event_id": "flock-crosses-sky",
+    "label": "Flock Crosses Sky",
+    "prompt": "A flock of prehistoric flying reptiles glides across the pale dawn sky above the cliffs.",
+    "category": "wildlife"
+  },
+  {
+    "event_id": "mist-rolls-in",
+    "label": "Mist Rolls In",
+    "prompt": "A thicker bank of cool morning mist rolls along the river and through the fern-covered valley.",
+    "category": "weather"
+  }
+]

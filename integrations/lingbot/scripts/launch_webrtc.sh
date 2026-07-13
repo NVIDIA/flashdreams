@@ -13,6 +13,12 @@ FPS="${FPS:-16}"
 EXAMPLE_IDX="${EXAMPLE_IDX:-0}"
 VIDEO_HEIGHT="${VIDEO_HEIGHT:-352}"
 VIDEO_WIDTH="${VIDEO_WIDTH:-640}"
+PRESET_ASSETS_DIR="${PRESET_ASSETS_DIR:-}"
+
+PRESET_ARGS=()
+if [[ -n "${PRESET_ASSETS_DIR}" ]]; then
+  PRESET_ARGS+=(--preset-assets-dir "${PRESET_ASSETS_DIR}")
+fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 
@@ -25,4 +31,5 @@ exec uv run --no-sync python -m lingbot.webrtc.server \
   --fps "${FPS}" \
   --video-height "${VIDEO_HEIGHT}" \
   --video-width "${VIDEO_WIDTH}" \
-  --example-idx "${EXAMPLE_IDX}"
+  --example-idx "${EXAMPLE_IDX}" \
+  "${PRESET_ARGS[@]}"

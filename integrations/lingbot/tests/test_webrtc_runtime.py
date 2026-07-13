@@ -231,6 +231,7 @@ def test_initial_scene_advertises_text_event_catalog(
 
     assert scene["capabilities"] == {"text_events": True}
     assert scene["active_event_id"] is None
+    assert scene["active_preset_id"] is None
     assert scene["event_catalog"] == [
         event.as_public_dict() for event in session.DEFAULT_TEXT_EVENTS
     ]
@@ -289,6 +290,40 @@ def test_pending_session_input_overrides_text_event_catalog(
 
     assert scene["capabilities"] == {"text_events": True}
     assert scene["event_catalog"] == [custom_events[0].as_public_dict()]
+
+
+def test_initial_scene_tracks_selected_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Advertise the default and pending preset selections."""
+
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: LingbotRuntimeConfig) -> None:
+            self.config = config
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _FakeRuntime)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            default_preset_id="golden-hour-portrait",
+        )
+    )
+
+    assert manager.get_initial_scene()["active_preset_id"] == "golden-hour-portrait"
+
+    manager.set_pending_session_input(
+        session.LingbotSessionInput(preset_id="moonlit-portal")
+    )
+
+    scene = manager.get_initial_scene()
+    assert scene["active_preset_id"] == "moonlit-portal"
+    assert scene["input_source"] == "preset"
 
 
 def test_pending_remote_first_frame_is_fetched_once_and_cached(
@@ -398,6 +433,36 @@ def test_prepare_session_input_state_uses_cached_remote_payload(
 
     assert decoded_images == [b"cached-image"]
     assert runtime._prompt == "follow a coastal highway"
+
+
+def test_prepare_session_input_state_accepts_empty_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Encode an empty base prompt when preset ``prompt.txt`` is empty."""
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime._device = torch.device("cpu")
+    encoded_texts: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(runtime, "_load_default_prompt", lambda: "")
+    monkeypatch.setattr(runtime, "_load_default_first_frame_rgb", object)
+    monkeypatch.setattr(
+        runtime,
+        "_first_frame_to_tensor",
+        lambda image_rgb: torch.zeros((1, 3, 2, 2)),
+    )
+
+    def _encode(texts: list[str]) -> torch.Tensor:
+        encoded_texts.append(tuple(texts))
+        return torch.zeros((len(texts), 1, 2))
+
+    monkeypatch.setattr(runtime, "_encode_text_embeddings_sync", _encode)
+
+    runtime._prepare_session_input_state(None)
+
+    assert runtime._prompt == ""
+    assert encoded_texts == [("",)]
 
 
 @pytest.mark.asyncio

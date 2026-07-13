@@ -62,6 +62,11 @@ exclude = ["tests"]
     "*.js",
     "assets/*.svg",
 ]
+"lingbot.webrtc" = [
+    "presets/*/first_frame.png",
+    "presets/*/prompt.txt",
+    "presets/*/event_texts.json",
+]
 
 [tool.uv]
 managed = true

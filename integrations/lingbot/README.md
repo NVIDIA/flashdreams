@@ -177,6 +177,60 @@ Then open:
 - [http://localhost:8089/request_session](http://localhost:8089/request_session)
 - [http://localhost:8089/healthz](http://localhost:8089/healthz) (`runtime_ready` indicates preload completion)
 
+### Preset assets
+
+Launch with a local preset directory to replace the initial frame, base prompt,
+and text-event catalog without changing the model config:
+
+```bash
+uv run --package flashdreams-lingbot python -m lingbot.webrtc.server \
+  --host 0.0.0.0 --port 8089 \
+  --config_name lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
+  --preset-assets-dir \
+    integrations/lingbot/lingbot/webrtc/presets/golden-hour-portrait
+```
+
+Four ready-to-run presets are bundled under `lingbot/webrtc/presets/`:
+
+- `golden-hour-portrait`: sunlit portrait with subtle character actions.
+- `moonlit-portal`: fantasy ruins with portal, light, and weather events.
+- `cozy-reading-room`: rainy library with fire, book, and rain events.
+- `misty-dinosaur-valley`: prehistoric landscape with wildlife and mist events.
+
+The Initial Scene panel displays the bundled presets as clickable thumbnails.
+Selecting one replaces the frame, prompt, and event catalog for the next WebRTC
+session while keeping the model server loaded. Use **Disconnect Session** before
+selecting another preset and reconnecting.
+
+The directory must contain:
+
+```text
+my-preset/
+├── first_frame.png
+├── prompt.txt
+└── event_texts.json
+```
+
+`event_texts.json` accepts either a top-level list or an object containing an
+`events` or `text_events` list. Each event uses the same schema advertised by
+the WebRTC initial-scene payload:
+
+```json
+[
+  {
+    "event_id": "hair-tuck",
+    "label": "Hair Tuck",
+    "prompt": "The woman gently tucks a strand of light brown hair behind her ear.",
+    "category": "portrait"
+  }
+]
+```
+
+When `--preset-assets-dir` is set, `--example-idx` is ignored and no bundled
+example assets are downloaded. Camera intrinsics and poses continue to use the
+existing defaults. The launch helper accepts the same directory through the
+`PRESET_ASSETS_DIR` environment variable.
+
 ### Runtime requirements
 
 - CUDA-capable GPU.
