@@ -24,6 +24,7 @@ from typing import cast
 import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
+from lingbot import runner as runner_mod
 from lingbot.config import (
     LINGBOT_WORLD_V2_CHECKPOINT_PATH,
     PIPELINE_CONFIGS,
@@ -32,6 +33,12 @@ from lingbot.config import (
     RUNNER_CONFIGS,
 )
 from lingbot.pipeline import LingbotWorldInferencePipelineConfig
+from lingbot.runner import (
+    EXAMPLE_DATA_AVAILABLE_IDXS,
+    LingbotWorldRunner,
+    LingbotWorldRunnerConfig,
+    example_data_dirname,
+)
 from lingbot.transformer import (
     LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB,
     LingbotWorldTransformer,
@@ -44,6 +51,88 @@ from flashdreams.infra.runner import RunnerConfig
 pytestmark = pytest.mark.ci_cpu
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
+
+
+def test_all_upstream_example_indices_are_available() -> None:
+    """Accept every upstream example folder from ``00`` through ``05``."""
+    assert EXAMPLE_DATA_AVAILABLE_IDXS == tuple(range(6))
+    assert [example_data_dirname(idx) for idx in range(6)] == [
+        "00",
+        "01",
+        "02",
+        "03",
+        "04",
+        "05",
+    ]
+
+
+@pytest.mark.parametrize("example_idx", [3, 4])
+def test_promptless_examples_skip_the_prompt_download(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    example_idx: int,
+) -> None:
+    """Skip ``prompt.txt`` for scenes without an upstream prompt."""
+    downloads: list[tuple[str, Path, str]] = []
+
+    def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
+        downloads.append((url, cache_dir, filename))
+
+    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+
+    cache_dir = runner_mod.ensure_example_data_downloaded(
+        is_rank_zero=True,
+        example_idx=example_idx,
+    )
+
+    assert cache_dir == tmp_path / f"{example_idx:02d}"
+    assert [filename for _, _, filename in downloads] == [
+        "image.jpg",
+        "poses.npy",
+        "intrinsics.npy",
+    ]
+    assert all(download_cache == cache_dir for _, download_cache, _ in downloads)
+    assert all(f"/{example_idx:02d}/" in url for url, _, _ in downloads)
+
+
+def test_promptless_example_resolves_to_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Use an empty model prompt when the example provides no prompt."""
+    (tmp_path / "prompt.txt").write_text("stale fallback prompt", encoding="utf-8")
+    runner = object.__new__(LingbotWorldRunner)
+    runner_config = cast(
+        LingbotWorldRunnerConfig,
+        derive_config(
+            RUNNER_CONFIGS["lingbot-world-v2-14b-causal-fast"],
+            prompt="",
+            prompt_path=None,
+            example_idx=3,
+        ),
+    )
+    runner.config = runner_config
+    runner.is_rank_zero = True
+    monkeypatch.setattr(
+        runner_mod,
+        "ensure_example_data_downloaded",
+        lambda **_kwargs: tmp_path,
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        runner_mod.logger,
+        "warning",
+        lambda message, *args: warnings.append(message.format(*args)),
+    )
+
+    runner._fill_example_data_defaults()
+
+    assert runner_config.prompt_path is None
+    assert runner._resolve_prompt() == ""
+    assert warnings == [
+        "LingBot prompt.txt is missing; proceeding with an empty prompt."
+    ]
 
 
 def test_runners_dict_is_non_empty() -> None:

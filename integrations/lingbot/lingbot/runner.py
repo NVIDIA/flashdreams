@@ -66,10 +66,13 @@ EXAMPLE_DATA_FILENAMES = (
     "intrinsics.npy",
     "prompt.txt",
 )
-"""Example files required by :class:`LingbotWorldRunner`'s demo mode."""
+"""Example assets downloaded when each file is available upstream."""
 
-EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 5)
+EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 3, 4, 5)
 """Supported upstream example indices currently hosted under ``examples/``."""
+
+EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS = (0, 1, 2, 5)
+"""Example indices that provide their own upstream ``prompt.txt`` file."""
 
 
 def example_data_dirname(example_idx: int) -> str:
@@ -87,15 +90,20 @@ def ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> P
     the WebRTC server calls it from its ``main()`` so the same files
     land on disk before the server's
     ``LingbotWebRTCSessionManager._initialize_sync`` checks for them. The
-    download itself is small (image + intrinsics + poses + prompt for
-    the chosen example), uses the public LingBot-World GitHub raw URLs,
-    and is cached at :data:`EXAMPLE_DATA_DIR_LOCAL` so repeat calls are
+    download itself is small (image + intrinsics + poses, plus a prompt
+    when available), uses the public LingBot-World GitHub raw URLs, and
+    is cached at :data:`EXAMPLE_DATA_DIR_LOCAL` so repeat calls are
     no-ops.
     """
     example_dirname = example_data_dirname(example_idx)
     cache_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
     if is_rank_zero:
         for filename in EXAMPLE_DATA_FILENAMES:
+            if (
+                filename == "prompt.txt"
+                and example_idx not in EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS
+            ):
+                continue
             download_to_cache(
                 f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/{filename}",
                 cache_dir=cache_dir,
@@ -154,7 +162,7 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     for production runs."""
 
     example_idx: int = 0
-    """Example folder index under ``.../examples/``; allowed: ``0, 1, 2, 5``."""
+    """Example folder index under ``.../examples/``; allowed: ``0`` through ``5``."""
 
 
 class LingbotWorldRunner(
@@ -169,13 +177,20 @@ class LingbotWorldRunner(
         cfg = self.config
         if cfg.prompt:
             return cfg.prompt
-        assert cfg.prompt_path is not None, (
-            "either --prompt or --prompt-path must be set "
-            "(both empty resolved to no text input)."
-        )
+        if cfg.prompt_path is None:
+            if self.is_rank_zero:
+                logger.warning(
+                    "LingBot prompt.txt is missing; proceeding with an empty prompt."
+                )
+            return ""
         text = cfg.prompt_path.read_text().splitlines()
-        assert text, f"prompt file {cfg.prompt_path} is empty"
-        return text[0].strip()
+        prompt = text[0].strip() if text else ""
+        if not prompt and self.is_rank_zero:
+            logger.warning(
+                "LingBot prompt file {} is empty; proceeding with an empty prompt.",
+                cfg.prompt_path,
+            )
+        return prompt
 
     def _fill_example_data_defaults(self) -> None:
         """Lazy-download bundled assets and fill empty path defaults in-place."""
@@ -190,7 +205,11 @@ class LingbotWorldRunner(
             cfg.pose_path = example_dir / "poses.npy"
         if cfg.intrinsic_path is None:
             cfg.intrinsic_path = example_dir / "intrinsics.npy"
-        if not cfg.prompt and cfg.prompt_path is None:
+        if (
+            not cfg.prompt
+            and cfg.prompt_path is None
+            and cfg.example_idx in EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS
+        ):
             cfg.prompt_path = example_dir / "prompt.txt"
 
     def run(self) -> None:

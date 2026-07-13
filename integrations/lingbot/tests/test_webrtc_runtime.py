@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -232,6 +233,27 @@ def test_initial_scene_advertises_text_event_catalog(
     assert scene["active_event_id"] is None
     assert scene["event_catalog"] == [
         event.as_public_dict() for event in session.DEFAULT_TEXT_EVENTS
+    ]
+
+
+def test_missing_default_prompt_warns_and_resolves_to_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Use an empty prompt when the example has no ``prompt.txt`` file."""
+    runtime = object.__new__(session.LingbotInferenceRuntime)
+    runtime.config = LingbotRuntimeConfig(example_data_dir=tmp_path)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        session.logger,
+        "warning",
+        lambda message, *args: warnings.append(message.format(*args)),
+    )
+
+    assert runtime._load_default_prompt() == ""
+    assert warnings == [
+        f"LingBot prompt.txt is missing or empty at {tmp_path / 'prompt.txt'}; "
+        "proceeding with an empty prompt."
     ]
 
 

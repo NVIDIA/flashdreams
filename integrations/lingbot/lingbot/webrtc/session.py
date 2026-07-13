@@ -33,6 +33,7 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
+from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -64,12 +65,6 @@ _DEFAULT_INTRINSICS = (
 )
 # Aligned with the world scale computed from the first LingBot-World demo scene.
 _DEFAULT_WORLD_SCALE = 1.271182656288147
-_DEFAULT_PROMPT = (
-    "The video presents a soaring journey through a fantasy jungle. The wind whips "
-    "past the rider's blue hands gripping the reins, causing the leather straps to "
-    "vibrate. The ancient gothic castle approaches steadily, its stone details "
-    "becoming clearer against the backdrop of floating islands and distant waterfalls."
-)
 _DEFAULT_DEMO_BASE_URL = (
     "https://raw.githubusercontent.com/robbyant/lingbot-world/main/examples/00"
 )
@@ -452,7 +447,8 @@ class LingbotRuntimeConfig:
     video_width: int = 832
     world_scale: float | None = None
     default_intrinsics: tuple[float, float, float, float] | None = None
-    default_prompt: str = _DEFAULT_PROMPT
+    default_prompt: str = ""
+    """Prompt used when the selected example does not provide ``prompt.txt``."""
     default_image_url: str | None = _DEFAULT_IMAGE_URL
     default_intrinsics_url: str | None = _DEFAULT_INTRINSICS_URL
     default_poses_url: str | None = _DEFAULT_POSES_URL
@@ -884,7 +880,14 @@ class LingbotInferenceRuntime:
                 prompt = normalize_prompt_text(handle.readline())
             if prompt:
                 return prompt
-        return normalize_prompt_text(self.config.default_prompt) or _DEFAULT_PROMPT
+        prompt = normalize_prompt_text(self.config.default_prompt)
+        if not prompt and (not dist.is_initialized() or dist.get_rank() == 0):
+            logger.warning(
+                "LingBot prompt.txt is missing or empty at {}; "
+                "proceeding with an empty prompt.",
+                prompt_path,
+            )
+        return prompt
 
     def _load_default_first_frame_rgb(self) -> np.ndarray:
         first_frame_path = (

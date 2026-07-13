@@ -184,11 +184,13 @@ Then open:
   `robbyant/lingbot-world-v2-14b-causal-fast` (v2) checkpoint is pulled from
   HuggingFace on first run and cached under `$HF_HOME`.
 - ~200 GB free disk for the model + HF cache.
-- Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`,
-  `prompt.txt`) auto-download from the upstream
+- Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`, and a prompt when
+  available) auto-download from the upstream
   [`Robbyant/lingbot-world`](https://github.com/Robbyant/lingbot-world/tree/main/examples)
   examples folder into `assets/example_data/lingbot_world/<NN>/` on
-  first launch (`<NN>` is the `--example-idx`: `00`, `01`, `02`, `05`).
+  first launch (`<NN>` is the `--example-idx`: `00` through `05`). Examples
+  `03` and `04` use an empty prompt because they do not provide their own
+  upstream `prompt.txt`.
 
 ### DataChannel message format
 
