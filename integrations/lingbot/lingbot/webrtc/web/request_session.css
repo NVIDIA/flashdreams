@@ -272,6 +272,78 @@ body[data-status="generating"] .connectButton {
   display: none;
 }
 
+.presetPicker {
+  display: grid;
+  gap: 7px;
+}
+
+.presetPicker[hidden] {
+  display: none;
+}
+
+.presetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.presetList {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.presetButton {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(4, 6, 7, 0.72);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.presetButton:hover:not(:disabled),
+.presetButton:focus-visible {
+  border-color: rgba(142, 240, 28, 0.68);
+  outline: 0;
+}
+
+.presetButton.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(142, 240, 28, 0.28);
+}
+
+.presetButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.presetThumbnail {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.presetLabel {
+  display: block;
+  min-height: 36px;
+  padding: 7px 8px;
+  overflow: hidden;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
 .firstFrameSourceRow {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr) 86px;
@@ -830,6 +902,10 @@ body[data-status="generating"] .statusLine strong {
     left: 18px;
     right: 18px;
     width: auto;
+  }
+
+  .presetList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .controlCard,

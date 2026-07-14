@@ -1,0 +1,20 @@
+[
+  {
+    "event_id": "hair-tuck",
+    "label": "Hair Tuck",
+    "prompt": "The woman gently tucks a strand of light brown hair behind her ear.",
+    "category": "portrait"
+  },
+  {
+    "event_id": "subtle-smile",
+    "label": "Subtle Smile",
+    "prompt": "A soft, warm smile gradually forms on her face as she looks out the window.",
+    "category": "portrait"
+  },
+  {
+    "event_id": "head-turn",
+    "label": "Head Turn",
+    "prompt": "She slowly turns her head from the window to look directly at the camera.",
+    "category": "portrait"
+  }
+]

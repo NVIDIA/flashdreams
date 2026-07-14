@@ -1,0 +1,20 @@
+[
+  {
+    "event_id": "portal-awakens",
+    "label": "Portal Awakens",
+    "prompt": "The ancient portal awakens as its cyan runes brighten and a swirling field of light forms within the stone ring.",
+    "category": "fantasy"
+  },
+  {
+    "event_id": "fireflies-gather",
+    "label": "Fireflies Gather",
+    "prompt": "A cloud of luminous fireflies rises from the ferns and spirals slowly around the portal.",
+    "category": "fantasy"
+  },
+  {
+    "event_id": "storm-approaches",
+    "label": "Storm Approaches",
+    "prompt": "Dark clouds gather above the ruins as distant lightning briefly illuminates the mountains.",
+    "category": "weather"
+  }
+]

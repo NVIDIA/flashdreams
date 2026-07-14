@@ -22,7 +22,10 @@ import asyncio
 import json
 import os
 from contextlib import ExitStack
+from dataclasses import dataclass
+from functools import lru_cache
 from importlib.resources import as_file, files
+from pathlib import Path
 from typing import Protocol, cast
 
 import torch
@@ -56,13 +59,64 @@ from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotSessionInput,
     LingbotWebRTCSessionManager,
+    TextEventSpec,
     normalize_prompt_text,
     normalize_text_events,
 )
 
 WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
+PRESET_DIR_RESOURCE = files("lingbot.webrtc").joinpath("presets")
 MAX_UPLOAD_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PROMPT_CHARS = 2_000
+PRESET_FIRST_FRAME_FILENAME = "first_frame.png"
+PRESET_PROMPT_FILENAME = "prompt.txt"
+PRESET_TEXT_EVENTS_FILENAME = "event_texts.json"
+PRESET_ASSET_FILENAMES = (
+    PRESET_FIRST_FRAME_FILENAME,
+    PRESET_PROMPT_FILENAME,
+    PRESET_TEXT_EVENTS_FILENAME,
+)
+"""Required filenames in a WebRTC preset-assets directory."""
+
+BUNDLED_PRESET_IDS = (
+    "golden-hour-portrait",
+    "moonlit-portal",
+    "cozy-reading-room",
+    "misty-dinosaur-valley",
+)
+"""Stable UI order for bundled WebRTC presets."""
+
+
+@dataclass(frozen=True, slots=True)
+class PresetAsset:
+    """In-memory assets for one selectable WebRTC scene preset."""
+
+    preset_id: str
+    """Stable identifier submitted by the WebRTC client."""
+
+    label: str
+    """Short display label for the preset picker."""
+
+    prompt: str
+    """Base scene prompt."""
+
+    first_frame: LingbotImagePayload
+    """Initial scene image."""
+
+    text_events: tuple[TextEventSpec, ...]
+    """Text-driven events available for the scene."""
+
+    def as_public_dict(self) -> dict[str, str]:
+        """Return metadata needed to render a preset picker card."""
+        return {
+            "preset_id": self.preset_id,
+            "label": self.label,
+            "first_frame_url": f"/api/presets/{self.preset_id}/first_frame",
+        }
+
+
+PRESET_CATALOG_KEY = web.AppKey("lingbot_preset_catalog", dict[str, PresetAsset])
+"""Application key for the immutable bundled-preset lookup."""
 
 
 class LingbotSessionManager(WebRTCSessionManager, Protocol):
@@ -71,8 +125,41 @@ class LingbotSessionManager(WebRTCSessionManager, Protocol):
     def set_pending_session_input(self, session_input: LingbotSessionInput) -> None: ...
 
 
+class _PresetResource(Protocol):
+    """Readable interface shared by package resources and local paths."""
+
+    def joinpath(
+        self,
+        *descendants: str | os.PathLike[str],
+    ) -> _PresetResource: ...
+
+    def is_file(self) -> bool: ...
+    def read_bytes(self) -> bytes: ...
+    def read_text(
+        self,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> str: ...
+
+
 def _get_lingbot_manager(app: web.Application) -> LingbotSessionManager:
     return cast(LingbotSessionManager, app[SESSION_MANAGER_KEY])
+
+
+def _get_preset_catalog(app: web.Application) -> dict[str, PresetAsset]:
+    return app[PRESET_CATALOG_KEY]
+
+
+def _initial_scene_payload(
+    app: web.Application,
+    manager: LingbotSessionManager,
+) -> dict[str, object]:
+    payload = dict(manager.get_initial_scene())
+    payload.setdefault("active_preset_id", None)
+    payload["presets"] = [
+        preset.as_public_dict() for preset in _get_preset_catalog(app).values()
+    ]
+    return payload
 
 
 def parse_args() -> argparse.Namespace:
@@ -141,6 +228,16 @@ def parse_args() -> argparse.Namespace:
         choices=EXAMPLE_DATA_AVAILABLE_IDXS,
         help="Example folder index under the LingBot example-data cache.",
     )
+    parser.add_argument(
+        "--preset-assets-dir",
+        "--preset_assets_dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory containing first_frame.png, prompt.txt, and "
+            "event_texts.json. Overrides --example-idx and skips example downloads."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -165,7 +262,14 @@ def create_app(
         )
         app.router.add_get("/api/session/initial_scene", _initial_scene)
         app.router.add_get("/api/session/first_frame", _first_frame)
+        app.router.add_get(
+            "/api/presets/{preset_id}/first_frame",
+            _preset_first_frame,
+        )
         app.router.add_post("/api/session/input", _session_input)
+        app[PRESET_CATALOG_KEY] = {
+            preset.preset_id: preset for preset in load_bundled_presets()
+        }
         app["package_resource_stack"] = resource_stack
         app.on_cleanup.append(_close_package_resources)
     except Exception:
@@ -176,7 +280,7 @@ def create_app(
 
 async def _initial_scene(request: web.Request) -> web.StreamResponse:
     manager = _get_lingbot_manager(request.app)
-    return web.json_response(manager.get_initial_scene())
+    return web.json_response(_initial_scene_payload(request.app, manager))
 
 
 async def _first_frame(request: web.Request) -> web.StreamResponse:
@@ -185,6 +289,17 @@ async def _first_frame(request: web.Request) -> web.StreamResponse:
     if not isinstance(payload, LingbotImagePayload):
         raise web.HTTPInternalServerError(reason="Invalid Lingbot first-frame payload.")
     return web.Response(body=payload.data, content_type=payload.content_type)
+
+
+async def _preset_first_frame(request: web.Request) -> web.StreamResponse:
+    preset_id = request.match_info["preset_id"]
+    preset = _get_preset_catalog(request.app).get(preset_id)
+    if preset is None:
+        raise web.HTTPNotFound(reason=f"Unknown Lingbot preset: {preset_id}")
+    return web.Response(
+        body=preset.first_frame.data,
+        content_type=preset.first_frame.content_type,
+    )
 
 
 async def _read_upload_bytes(field: BodyPartReader) -> bytes:
@@ -203,6 +318,7 @@ async def _read_upload_bytes(field: BodyPartReader) -> bytes:
 
 
 async def _session_input(request: web.Request) -> web.StreamResponse:
+    preset_id: str | None = None
     prompt: str | None = None
     image_bytes: bytes | None = None
     image_url: str | None = None
@@ -222,6 +338,9 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             if field is None:
                 break
             if not isinstance(field, BodyPartReader):
+                continue
+            if field.name == "preset_id":
+                preset_id = (await field.text()).strip() or None
                 continue
             if field.name == "prompt":
                 prompt = normalize_prompt_text(await field.text())
@@ -258,9 +377,12 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
                     )
     else:
         form = await request.post()
+        preset_id_raw = form.get("preset_id")
         prompt_raw = form.get("prompt")
         image_url_raw = form.get("image_url")
         text_events_raw = form.get("text_events", form.get("events"))
+        if isinstance(preset_id_raw, str):
+            preset_id = preset_id_raw.strip() or None
         if isinstance(prompt_raw, str):
             prompt = normalize_prompt_text(prompt_raw)
             if len(prompt) > MAX_PROMPT_CHARS:
@@ -276,6 +398,19 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
                 raise web.HTTPBadRequest(
                     reason="Text events must be valid JSON."
                 ) from exc
+
+    preset = None
+    if preset_id is not None:
+        preset = _get_preset_catalog(request.app).get(preset_id)
+        if preset is None:
+            raise web.HTTPBadRequest(reason=f"Unknown Lingbot preset: {preset_id}")
+        if prompt is None:
+            prompt = preset.prompt
+        if image_bytes is None and image_url is None:
+            image_bytes = preset.first_frame.data
+            image_content_type = preset.first_frame.content_type
+        if text_events is None:
+            text_events = preset.text_events
 
     if image_bytes is not None:
         image_url = None
@@ -307,6 +442,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         first_frame_image_url=image_url,
         first_frame_content_type=image_content_type,
         text_events=normalized_text_events,
+        preset_id=preset.preset_id if preset is not None else None,
     )
     try:
         await asyncio.to_thread(manager.set_pending_session_input, session_input)
@@ -314,7 +450,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         raise web.HTTPConflict(reason=str(exc)) from exc
     except ValueError as exc:
         raise web.HTTPBadRequest(reason=str(exc)) from exc
-    return web.json_response(manager.get_initial_scene())
+    return web.json_response(_initial_scene_payload(request.app, manager))
 
 
 def build_runtime_config(
@@ -327,14 +463,26 @@ def build_runtime_config(
         raise ValueError("--video-height and --video-width must be > 0")
     if args.video_height % 16 != 0 or args.video_width % 16 != 0:
         raise ValueError("--video-height and --video-width must be divisible by 16")
-    example_idx = getattr(args, "example_idx", 0)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
-    if (
-        example_idx == 0
-        and not example_dir.exists()
-        and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
-    ):
-        example_dir = EXAMPLE_DATA_DIR_LOCAL
+    preset_assets_dir = getattr(args, "preset_assets_dir", None)
+    if preset_assets_dir is not None:
+        example_dir, text_events = load_preset_assets(preset_assets_dir)
+        first_frame_filename = PRESET_FIRST_FRAME_FILENAME
+        default_image_url = None
+        default_preset_id = _bundled_preset_id_for_path(example_dir)
+    else:
+        example_idx = getattr(args, "example_idx", 0)
+        example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
+        if (
+            example_idx == 0
+            and not example_dir.exists()
+            and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
+        ):
+            example_dir = EXAMPLE_DATA_DIR_LOCAL
+        default_runtime_config = LingbotRuntimeConfig()
+        text_events = default_runtime_config.text_events
+        first_frame_filename = "image.jpg"
+        default_image_url = default_runtime_config.default_image_url
+        default_preset_id = None
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
@@ -345,7 +493,116 @@ def build_runtime_config(
         video_height=args.video_height,
         video_width=args.video_width,
         example_data_dir=example_dir,
+        first_frame_filename=first_frame_filename,
+        default_image_url=default_image_url,
+        default_preset_id=default_preset_id,
+        text_events=text_events,
     )
+
+
+def _read_preset_assets(
+    preset_assets_dir: _PresetResource,
+    *,
+    source: str,
+) -> tuple[bytes, str, tuple[TextEventSpec, ...]]:
+    missing = [
+        filename
+        for filename in PRESET_ASSET_FILENAMES
+        if not preset_assets_dir.joinpath(filename).is_file()
+    ]
+    if missing:
+        raise ValueError(f"{source} is missing: {', '.join(missing)}")
+
+    first_frame_path = preset_assets_dir.joinpath(PRESET_FIRST_FRAME_FILENAME)
+    try:
+        first_frame_bytes = first_frame_path.read_bytes()
+    except OSError as exc:
+        raise ValueError(
+            f"Failed to read preset first frame from {first_frame_path}: {exc}"
+        ) from exc
+    if not first_frame_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError(f"Preset first frame is not a PNG file: {first_frame_path}")
+
+    prompt_path = preset_assets_dir.joinpath(PRESET_PROMPT_FILENAME)
+    try:
+        prompt = normalize_prompt_text(prompt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"Failed to read preset prompt from {prompt_path}: {exc}"
+        ) from exc
+
+    events_path = preset_assets_dir.joinpath(PRESET_TEXT_EVENTS_FILENAME)
+    try:
+        raw_events: object = json.loads(events_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"Failed to read preset text events from {events_path}: {exc}"
+        ) from exc
+
+    if isinstance(raw_events, dict):
+        raw_events = raw_events.get("text_events", raw_events.get("events"))
+        if raw_events is None:
+            raise ValueError(
+                f"Preset text events in {events_path} must be a list or contain "
+                "an 'events' or 'text_events' list."
+            )
+    try:
+        text_events = normalize_text_events(raw_events)
+    except ValueError as exc:
+        raise ValueError(f"Invalid preset text events in {events_path}: {exc}") from exc
+    return first_frame_bytes, prompt, text_events
+
+
+def load_preset_assets(
+    preset_assets_dir: Path,
+) -> tuple[Path, tuple[TextEventSpec, ...]]:
+    """Validate a preset-assets directory and load its text-event catalog."""
+    preset_assets_dir = preset_assets_dir.expanduser().resolve()
+    if not preset_assets_dir.is_dir():
+        raise ValueError(
+            f"--preset-assets-dir must be an existing directory: {preset_assets_dir}"
+        )
+    _, _, text_events = _read_preset_assets(
+        preset_assets_dir,
+        source=f"Preset assets directory {preset_assets_dir}",
+    )
+    return preset_assets_dir, text_events
+
+
+@lru_cache(maxsize=1)
+def load_bundled_presets() -> tuple[PresetAsset, ...]:
+    """Load bundled preset assets for the WebRTC picker."""
+    presets = []
+    for preset_id in BUNDLED_PRESET_IDS:
+        preset_dir = cast(
+            _PresetResource,
+            PRESET_DIR_RESOURCE.joinpath(preset_id),
+        )
+        first_frame_bytes, prompt, text_events = _read_preset_assets(
+            preset_dir,
+            source=f"Bundled preset {preset_id}",
+        )
+        presets.append(
+            PresetAsset(
+                preset_id=preset_id,
+                label=preset_id.replace("-", " ").title(),
+                prompt=prompt,
+                first_frame=LingbotImagePayload(
+                    data=first_frame_bytes,
+                    content_type="image/png",
+                ),
+                text_events=text_events,
+            )
+        )
+    return tuple(presets)
+
+
+def _bundled_preset_id_for_path(preset_assets_dir: Path) -> str | None:
+    preset_id = preset_assets_dir.name
+    if preset_id not in BUNDLED_PRESET_IDS:
+        return None
+    bundled_path = Path(__file__).resolve().parent / "presets" / preset_id
+    return preset_id if preset_assets_dir == bundled_path.resolve() else None
 
 
 def initialize_distributed(
@@ -407,17 +664,13 @@ def main() -> None:
         default_device=args.device
     )
 
-    # Pull the bundled example-data assets onto rank 0 (and barrier the
-    # rest) before constructing the session manager: the manager's
-    # initial-sync step checks the example_data_dir for the first frame
-    # / intrinsics / poses / prompt files and raises FileNotFoundError
-    # otherwise. Mirrors the offline runner's pre-flight behavior so the
-    # WebRTC entry point is launchable on a fresh checkout with no
-    # manual file staging.
-    ensure_example_data_downloaded(
-        is_rank_zero=(world_rank == 0),
-        example_idx=args.example_idx,
-    )
+    # Without a local preset, mirror the offline runner's example-data
+    # preflight so the WebRTC entry point works on a fresh checkout.
+    if getattr(args, "preset_assets_dir", None) is None:
+        ensure_example_data_downloaded(
+            is_rank_zero=(world_rank == 0),
+            example_idx=args.example_idx,
+        )
 
     runtime_config = build_runtime_config(
         args,

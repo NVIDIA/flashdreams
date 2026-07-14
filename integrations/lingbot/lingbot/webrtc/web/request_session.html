@@ -51,6 +51,13 @@ limitations under the License.
 
       <section id="sceneCard" class="sceneCard overlayPanel" aria-label="Initial Scene">
         <span class="panelLabel">Initial Scene</span>
+        <div id="presetPicker" class="presetPicker" hidden>
+          <div class="presetHeader">
+            <span>Presets</span>
+            <span id="presetStatus" class="fieldStatus" role="status"></span>
+          </div>
+          <div id="presetList" class="presetList" aria-label="Scene presets"></div>
+        </div>
         <div id="firstFrameSourceRow" class="firstFrameSourceRow" data-mode="url">
           <div class="sourcePane sourcePaneUpload">
             <button id="uploadModeButton" class="sourceModeButton" type="button">Upload</button>

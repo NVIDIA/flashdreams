@@ -1,0 +1,20 @@
+[
+  {
+    "event_id": "fire-brightens",
+    "label": "Fire Brightens",
+    "prompt": "The fireplace flares gently, casting warmer moving light and soft shadows across the reading room.",
+    "category": "interior"
+  },
+  {
+    "event_id": "pages-turn",
+    "label": "Pages Turn",
+    "prompt": "A faint breeze turns several pages of the open book on the table.",
+    "category": "interior"
+  },
+  {
+    "event_id": "rain-intensifies",
+    "label": "Rain Intensifies",
+    "prompt": "Rain begins falling more heavily against the window while droplets trail down the glass.",
+    "category": "weather"
+  }
+]

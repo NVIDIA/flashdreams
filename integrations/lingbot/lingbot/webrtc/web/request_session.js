@@ -22,6 +22,9 @@ const remoteVideo = document.getElementById("remoteVideo")
 const mockCanvas = document.getElementById("mockCanvas")
 const firstFramePreview = document.getElementById("firstFramePreview")
 const sceneCard = document.getElementById("sceneCard")
+const presetPicker = document.getElementById("presetPicker")
+const presetList = document.getElementById("presetList")
+const presetStatus = document.getElementById("presetStatus")
 const firstFrameSourceRow = document.getElementById("firstFrameSourceRow")
 const uploadModeButton = document.getElementById("uploadModeButton")
 const urlModeButton = document.getElementById("urlModeButton")
@@ -67,6 +70,7 @@ let mockGenerationStarted = false
 let mockChunkTimer = null
 let actionStarted = false
 let initialSceneLocked = false
+let presetSelectionInFlight = false
 let promptEdited = false
 let textEventsEdited = false
 let firstFrameUrlEdited = false
@@ -193,6 +197,9 @@ function setInitialSceneLocked(locked) {
   firstFrameUrlUpdateButton.disabled = locked
   promptInput.disabled = locked
   addTextEventButton.disabled = locked
+  for (const button of presetList.querySelectorAll("button")) {
+    button.disabled = locked || presetSelectionInFlight
+  }
   for (const input of textEventList.querySelectorAll("input, textarea, button")) {
     input.disabled = locked
   }
@@ -209,6 +216,14 @@ function setFirstFrameInputMode(mode) {
 }
 
 function defaultFirstFrameName() {
+  const activePresetId = initialScene && initialScene.active_preset_id
+  const presets = Array.isArray(initialScene && initialScene.presets)
+    ? initialScene.presets
+    : []
+  const activePreset = presets.find((preset) => preset.preset_id === activePresetId)
+  if (activePreset && activePreset.label) {
+    return String(activePreset.label)
+  }
   return initialScene && initialScene.has_first_frame ? "Example Image" : "Choose Image"
 }
 
@@ -256,6 +271,91 @@ function refreshedPreviewUrl(url) {
   return `${url}${separator}t=${firstFramePreviewRefreshToken}`
 }
 
+function setPresetStatus(message = "", state = "idle") {
+  presetStatus.textContent = message
+  presetStatus.dataset.state = state
+}
+
+function renderPresetPicker() {
+  const presets = Array.isArray(initialScene && initialScene.presets)
+    ? initialScene.presets
+    : []
+  presetPicker.hidden = presets.length === 0
+  presetList.replaceChildren()
+  for (const preset of presets) {
+    const presetId = String(preset.preset_id || "").trim()
+    if (!presetId) {
+      continue
+    }
+    const label = String(preset.label || presetId)
+    const button = document.createElement("button")
+    button.className = "presetButton"
+    button.type = "button"
+    button.dataset.presetId = presetId
+    button.disabled = initialSceneLocked || presetSelectionInFlight
+    button.classList.toggle("is-active", initialScene.active_preset_id === presetId)
+    button.setAttribute("aria-pressed", initialScene.active_preset_id === presetId ? "true" : "false")
+    button.setAttribute("aria-label", `Use ${label} preset`)
+
+    const thumbnail = document.createElement("img")
+    thumbnail.className = "presetThumbnail"
+    thumbnail.src = String(preset.first_frame_url || "")
+    thumbnail.alt = ""
+    thumbnail.loading = "lazy"
+
+    const caption = document.createElement("span")
+    caption.className = "presetLabel"
+    caption.textContent = label
+    button.append(thumbnail, caption)
+    button.addEventListener("click", () => {
+      void selectPreset(presetId, label)
+    })
+    presetList.append(button)
+  }
+}
+
+async function selectPreset(presetId, label) {
+  if (initialSceneLocked || presetSelectionInFlight || mockMode) {
+    return
+  }
+  presetSelectionInFlight = true
+  setPresetStatus("Loading...", "pending")
+  renderPresetPicker()
+
+  try {
+    const form = new FormData()
+    form.append("preset_id", presetId)
+    const response = await fetch("/api/session/input", {
+      method: "POST",
+      body: form,
+    })
+    if (!response.ok) {
+      const text = (await response.text()).trim().replace(/^\d+:\s*/, "")
+      throw new Error(text || `preset selection failed (${response.status})`)
+    }
+
+    clearSelectedFirstFrameFile()
+    clearFirstFrameUrlInput()
+    setFirstFrameInputMode("url")
+    firstFrameSelectionCommitted = false
+    promptEdited = false
+    textEventsEdited = false
+    firstFrameUrlEdited = false
+    applyInitialScene(await response.json())
+    setPresetStatus("Selected", "success")
+    logEvent(`selected preset: ${label}`, { source: "client" })
+  } catch (error) {
+    setPresetStatus(error.message, "error")
+    logEvent(`preset selection failed: ${error.message}`, {
+      source: "client",
+      level: "error",
+    })
+  } finally {
+    presetSelectionInFlight = false
+    renderPresetPicker()
+  }
+}
+
 function updateReadyPreview() {
   const canPreview = !document.body.classList.contains("has-video")
   const hasSelectedImage = selectedFirstFrameUrl !== null && firstFrameSelectionCommitted
@@ -283,7 +383,11 @@ function applyInitialScene(scene) {
   }
   const sceneImageUrl = typeof scene.image_url === "string"
     ? scene.image_url
-    : (typeof scene.default_image_url === "string" ? scene.default_image_url : "")
+    : (
+      scene.input_source === "default" && typeof scene.default_image_url === "string"
+        ? scene.default_image_url
+        : ""
+    )
   if (!selectedFirstFrameFile && !firstFrameUrlEdited && sceneImageUrl) {
     firstFrameUrlInput.value = sceneImageUrl
     setFirstFrameInputMode("url")
@@ -304,6 +408,7 @@ function applyInitialScene(scene) {
     }
   }
   activeEventId = scene.active_event_id || null
+  renderPresetPicker()
   if (!textEventsEdited) {
     setTextEventDraftsFromCatalog(scene.event_catalog)
   }
@@ -1001,6 +1106,13 @@ function disconnectSession({ notify = true } = {}) {
   stopStatsPolling()
   connected = false
   actionStarted = false
+  inferenceInFlight = false
+  mockGenerationStarted = false
+  releaseAllKeys()
+  setInitialSceneLocked(false)
+  setStatus("Idle", "idle")
+  setFlow("waiting")
+  connectButton.textContent = mockMode ? "Start Mock Session" : "Connect Session"
   updateReadyPreview()
   connectButton.disabled = false
   if (notify && controlChannel && controlChannel.readyState === "open") {
@@ -1016,6 +1128,8 @@ function disconnectSession({ notify = true } = {}) {
   if (peerConnection) {
     peerConnection.close()
   }
+  remoteVideo.srcObject = null
+  setVideoVisible(false)
 }
 
 async function connectSession() {
@@ -1067,6 +1181,8 @@ async function connectSession() {
       logEvent(`connection_state=${state}`, { source: "client" })
       if (state === "connected") {
         connected = true
+        connectButton.disabled = false
+        connectButton.textContent = "Disconnect Session"
         setStatus("Waiting", "waiting")
         setFlow("connected; waiting for input")
         startStatsPolling()
@@ -1079,8 +1195,10 @@ async function connectSession() {
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
         actionStarted = false
+        setInitialSceneLocked(false)
         updateReadyPreview()
         connectButton.disabled = false
+        connectButton.textContent = "Connect Session"
         stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
@@ -1369,12 +1487,15 @@ async function startMockSession() {
   setStatus("Connecting", "connecting")
   setFlow("mock warmup")
   logEvent("connecting to mock server...", { source: "client" })
+  disconnecting = false
   actionStarted = false
   await uploadSessionInputIfNeeded()
   await new Promise((resolve) => {
     window.setTimeout(resolve, 260)
   })
   connected = true
+  connectButton.disabled = false
+  connectButton.textContent = "Disconnect Session"
   metrics.targetFps = 16
   metrics.resolution = "1280x720"
   metrics.model = "lingbot-world-v2-14b-causal-fast-taehv-window15-sink3"
@@ -1516,7 +1637,11 @@ function initialize() {
 }
 
 connectButton.addEventListener("click", () => {
-  void connectSession()
+  if (connected) {
+    disconnectSession()
+  } else {
+    void connectSession()
+  }
 })
 clearEventButton.addEventListener("click", () => {
   sendTextEvent(activeEventId || "clear", "clear")
