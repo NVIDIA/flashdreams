@@ -23,6 +23,8 @@ that it is safe for the target workflow.
 - Change one optimization family at a time unless a combined profile is the
   explicit validation target.
 - Add or extend the benchmark harness in the same change as the runtime flag.
+- After applying an optimization, continue with `validate-performance-quality`
+  before promoting it as a default or documenting a speedup claim.
 - Print active settings and stage timing summaries so runs are auditable.
 - Read `flashdreams-integrations` before moving code across `core`, `infra`,
   recipes, or integrations. Avoid model-specific branches in shared layers; add
