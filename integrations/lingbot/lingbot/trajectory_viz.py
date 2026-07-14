@@ -24,7 +24,7 @@ Usage:
             --example_idx 0 \
             --output_path outputs/lingbot-world-traj-00.mp4
 
-    Render a different built-in example (allowed: ``0, 1, 2, 5``):
+    Render a different built-in example (allowed: ``0`` through ``5``):
 
     .. code-block:: bash
 
@@ -70,7 +70,7 @@ DEFAULT_EXAMPLE_DATA_ROOT = (
 DEFAULT_OUTPUT_PATH = (
     default_flashdreams_cache_dir() / "outputs/lingbot_camera_trajectory.mp4"
 )
-AVAILABLE_EXAMPLE_IDXS = (0, 1, 2, 5)
+AVAILABLE_EXAMPLE_IDXS = (0, 1, 2, 3, 4, 5)
 DEFAULT_OUTPUT_FPS = 16
 """Default trajectory video FPS, aligned with ``LingbotWorldRunnerConfig.fps``."""
 LINE_THICKNESS = 6
@@ -96,7 +96,7 @@ def _parse_args() -> argparse.Namespace:
         "--example_data_root",
         type=Path,
         default=DEFAULT_EXAMPLE_DATA_ROOT,
-        help="Base directory containing example folders (00, 01, 02, 05).",
+        help="Base directory containing example folders 00 through 05.",
     )
     parser.add_argument(
         "--poses_path",

@@ -16,6 +16,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import json
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -39,6 +42,16 @@ class _FakeCloseable:
         self.closed = True
 
 
+class _FakeControlChannel:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    def send(self, payload: str) -> None:
+        decoded = json.loads(payload)
+        assert isinstance(decoded, dict)
+        self.messages.append(decoded)
+
+
 def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     del config
     return object()
@@ -60,13 +73,640 @@ def test_session_manager_hooks_are_wired() -> None:
     assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
 
 
-def test_validate_remote_url_normalizes_github_blob_image_url() -> None:
+def test_validate_remote_url_normalizes_github_blob_image_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        session,
+        "_resolve_remote_host",
+        lambda hostname: (ipaddress.ip_address("140.82.112.4"),),
+    )
     image_url = (
-        "https://github.com/Robbyant/lingbot-world/blob/main/examples/03/image.jpg"
+        "https://github.com/Robbyant/lingbot-world-v2/blob/main/examples/03/image.jpg"
     )
     assert session._validate_remote_url(image_url, field_name="image") == (
-        "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/03/image.jpg"
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/03/image.jpg"
     )
+
+
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "http://127.0.0.1/image.jpg",
+        "http://10.0.0.5/image.jpg",
+        "http://172.16.0.5/image.jpg",
+        "http://192.168.1.10/image.jpg",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/image.jpg",
+        "http://localhost/image.jpg",
+    ],
+)
+def test_validate_remote_url_rejects_non_public_hosts(image_url: str) -> None:
+    with pytest.raises(ValueError, match="publicly routable"):
+        session._validate_remote_url(image_url, field_name="image")
+
+
+def test_read_remote_bytes_rejects_non_public_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_read_once(
+        url: str, *, max_bytes: int, field_name: str
+    ) -> tuple[bytes, str, str | None]:
+        del url, max_bytes, field_name
+        return b"", "", "http://127.0.0.1/image.jpg"
+
+    with pytest.raises(ValueError, match="publicly routable"):
+        monkeypatch.setattr(session, "_read_remote_bytes_once", _fake_read_once)
+        session._read_remote_bytes(
+            "https://example.test/image.jpg",
+            max_bytes=1024,
+            field_name="image",
+        )
+
+
+def test_read_remote_bytes_uses_validated_resolved_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved_address = ipaddress.ip_address("93.184.216.34")
+    calls: list[dict[str, object]] = []
+
+    class _FakeHeaders:
+        @staticmethod
+        def get_content_type() -> str:
+            return "image/jpeg"
+
+    class _FakeResponse:
+        status = 200
+        headers = _FakeHeaders()
+
+        @staticmethod
+        def getheader(name: str) -> str | None:
+            del name
+            return None
+
+        @staticmethod
+        def read(size: int | None = None) -> bytes:
+            del size
+            return b"image-bytes"
+
+        @staticmethod
+        def close() -> None:
+            return
+
+    class _FakeConnection:
+        def __init__(
+            self,
+            host: str,
+            *,
+            port: int | None,
+            timeout: float,
+            resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+        ) -> None:
+            calls.append(
+                {
+                    "host": host,
+                    "port": port,
+                    "timeout": timeout,
+                    "resolved_address": resolved_address,
+                }
+            )
+
+        def request(self, method: str, target: str, *, headers: dict[str, str]) -> None:
+            calls[-1]["method"] = method
+            calls[-1]["target"] = target
+            calls[-1]["headers"] = headers
+
+        @staticmethod
+        def getresponse() -> _FakeResponse:
+            return _FakeResponse()
+
+        @staticmethod
+        def close() -> None:
+            return
+
+    monkeypatch.setattr(
+        session, "_resolve_remote_host", lambda hostname: (resolved_address,)
+    )
+    monkeypatch.setattr(session, "_ResolvedHTTPConnection", _FakeConnection)
+
+    data, content_type = session._read_remote_bytes(
+        "http://example.test:8080/path/to/image.jpg?token=1",
+        max_bytes=1024,
+        field_name="image",
+    )
+
+    assert data == b"image-bytes"
+    assert content_type == "image/jpeg"
+    assert calls == [
+        {
+            "host": "example.test",
+            "port": 8080,
+            "timeout": session._REMOTE_READ_TIMEOUT_S,
+            "resolved_address": resolved_address,
+            "method": "GET",
+            "target": "/path/to/image.jpg?token=1",
+            "headers": {"User-Agent": "flashdreams-lingbot-webrtc/1.0"},
+        }
+    ]
+
+
+def test_initial_scene_advertises_text_event_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: LingbotRuntimeConfig) -> None:
+            self.config = config
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _FakeRuntime)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+
+    scene = manager.get_initial_scene()
+
+    assert scene["capabilities"] == {"text_events": True}
+    assert scene["active_event_id"] is None
+    assert scene["event_catalog"] == [
+        event.as_public_dict() for event in session.DEFAULT_TEXT_EVENTS
+    ]
+
+
+def test_missing_default_prompt_warns_and_resolves_to_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Use an empty prompt when the example has no ``prompt.txt`` file."""
+    runtime = object.__new__(session.LingbotInferenceRuntime)
+    runtime.config = LingbotRuntimeConfig(example_data_dir=tmp_path)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        session.logger,
+        "warning",
+        lambda message, *args: warnings.append(message.format(*args)),
+    )
+
+    assert runtime._load_default_prompt() == ""
+    assert warnings == [
+        f"LingBot prompt.txt is missing or empty at {tmp_path / 'prompt.txt'}; "
+        "proceeding with an empty prompt."
+    ]
+
+
+def test_pending_session_input_overrides_text_event_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: LingbotRuntimeConfig) -> None:
+            self.config = config
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _FakeRuntime)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    custom_events = (
+        session.TextEventSpec(
+            event_id="rain",
+            label="Rain",
+            prompt="Rain begins falling across the street.",
+            category="custom",
+        ),
+    )
+
+    manager.set_pending_session_input(
+        session.LingbotSessionInput(text_events=custom_events)
+    )
+    scene = manager.get_initial_scene()
+
+    assert scene["capabilities"] == {"text_events": True}
+    assert scene["event_catalog"] == [custom_events[0].as_public_dict()]
+
+
+def test_pending_remote_first_frame_is_fetched_once_and_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        _active_event_id = None
+
+        def __init__(self, config: LingbotRuntimeConfig) -> None:
+            self.config = config
+            self.decoded_images: list[bytes] = []
+
+        def _load_default_prompt(self) -> str:
+            return "drive through a city"
+
+        def _load_uploaded_first_frame_rgb(self, image_bytes: bytes) -> object:
+            self.decoded_images.append(image_bytes)
+            return object()
+
+    fake_runtime: _FakeRuntime | None = None
+    read_calls: list[str] = []
+
+    def _fake_runtime_factory(config: LingbotRuntimeConfig) -> _FakeRuntime:
+        nonlocal fake_runtime
+        fake_runtime = _FakeRuntime(config)
+        return fake_runtime
+
+    def _fake_read_remote_bytes(
+        url: str, *, max_bytes: int, field_name: str
+    ) -> tuple[bytes, str]:
+        del max_bytes, field_name
+        read_calls.append(url)
+        return b"remote-image", "image/png"
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+    monkeypatch.setattr(
+        session,
+        "_resolve_remote_host",
+        lambda hostname: (ipaddress.ip_address("93.184.216.34"),),
+    )
+    monkeypatch.setattr(session, "_read_remote_bytes", _fake_read_remote_bytes)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+
+    manager.set_pending_session_input(
+        session.LingbotSessionInput(
+            first_frame_image_url="https://example.test/scene.png"
+        )
+    )
+    payload = manager.get_first_frame()
+
+    assert fake_runtime is not None
+    assert fake_runtime.decoded_images == [b"remote-image"]
+    assert read_calls == ["https://example.test/scene.png"]
+    assert payload == session.LingbotImagePayload(
+        data=b"remote-image",
+        content_type="image/png",
+    )
+    assert manager._pending_session_input is not None
+    assert manager._pending_session_input.first_frame_remote_payload == payload
+
+
+def test_prepare_session_input_state_uses_cached_remote_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime._device = torch.device("cpu")
+    decoded_images: list[bytes] = []
+
+    def _fake_load_uploaded_first_frame_rgb(image_bytes: bytes) -> object:
+        decoded_images.append(image_bytes)
+        return object()
+
+    def _fail_remote_fetch(image_url: str) -> object:
+        raise AssertionError(f"unexpected remote fetch: {image_url}")
+
+    monkeypatch.setattr(
+        runtime,
+        "_load_uploaded_first_frame_rgb",
+        _fake_load_uploaded_first_frame_rgb,
+    )
+    monkeypatch.setattr(runtime, "_load_remote_first_frame_rgb", _fail_remote_fetch)
+    monkeypatch.setattr(
+        runtime,
+        "_first_frame_to_tensor",
+        lambda image_rgb: torch.zeros((1, 3, 2, 2)),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_encode_text_embeddings_sync",
+        lambda texts: torch.zeros((len(texts), 1, 2)),
+    )
+
+    runtime._prepare_session_input_state(
+        session.LingbotSessionInput(
+            prompt="follow a coastal highway",
+            first_frame_image_url="https://example.test/scene.png",
+            first_frame_remote_payload=session.LingbotImagePayload(
+                data=b"cached-image",
+                content_type="image/png",
+            ),
+        )
+    )
+
+    assert decoded_images == [b"cached-image"]
+    assert runtime._prompt == "follow a coastal highway"
+
+
+@pytest.mark.asyncio
+async def test_event_message_dispatches_to_runtime_and_acknowledges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {"active_event_id": event_id}
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = session._ManagedLingbotSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+    )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","event_id":"portal","state":"trigger"}',
+    )
+
+    assert runtime.calls == [("portal", "trigger")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": "portal",
+            "state": "trigger",
+            "active_event_id": "portal",
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_clear_event_message_does_not_require_event_id_and_preserves_ack_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {
+                "type": "not_event_ack",
+                "event_id": "overwritten",
+                "state": "overwritten",
+                "active_event_id": None,
+            }
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = session._ManagedLingbotSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+    )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"clear"}',
+    )
+
+    assert runtime.calls == [("", "clear")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": None,
+            "state": "clear",
+            "active_event_id": None,
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_event_message_without_id_is_rejected_for_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            del event_id, state
+            self.calls += 1
+            return {}
+
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = session._ManagedLingbotSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+    )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"trigger"}',
+    )
+
+    assert runtime.calls == 0
+    assert channel.messages == [
+        {
+            "type": "error",
+            "message": (
+                "Event payload must include non-empty 'event_id' "
+                "unless state clears the active event."
+            ),
+        }
+    ]
+    assert not managed_session.first_action_received.is_set()
+
+
+def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
+    class _FakeTransformer:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, torch.Tensor]] = []
+
+        def replace_text_embeddings(
+            self, cache: object, text_embeddings: torch.Tensor
+        ) -> None:
+            self.calls.append((cache, text_embeddings))
+
+    class _FakeDiffusionModel:
+        def __init__(self) -> None:
+            self.transformer = _FakeTransformer()
+
+    class _FakePipeline:
+        def __init__(self) -> None:
+            self.diffusion_model = _FakeDiffusionModel()
+
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    transformer_cache = object()
+    cache = type("_FakeCache", (), {"transformer_cache": transformer_cache})()
+    base_text = torch.zeros((1, 2, 3))
+    event_text = torch.ones((1, 2, 3))
+    runtime._pipeline = _FakePipeline()
+    runtime._cache = cache
+    runtime._base_text_embeddings = base_text
+    runtime._event_embeddings = {"portal": event_text}
+
+    result = runtime._trigger_event_sync(event_id="portal", state="trigger")
+
+    transformer = runtime._pipeline.diffusion_model.transformer
+    assert result == {"active_event_id": "portal"}
+    assert runtime._active_event_id == "portal"
+    assert transformer.calls == [(transformer_cache, event_text)]
+
+    result = runtime._trigger_event_sync(event_id="portal", state="clear")
+
+    assert result == {"active_event_id": None}
+    assert runtime._active_event_id is None
+    assert transformer.calls[-1] == (transformer_cache, base_text)
+
+
+def test_reset_rollout_precomputes_session_text_events() -> None:
+    class _FakePipeline:
+        def __init__(self) -> None:
+            self.encoded_texts: list[tuple[str, ...]] = []
+
+        def _ensure_oneshot_encoders_loaded(self) -> None:
+            return
+
+        def text_encoder(self, texts: list[str]) -> torch.Tensor:
+            self.encoded_texts.append(tuple(texts))
+            return torch.arange(len(texts) * 2, dtype=torch.float32).reshape(
+                len(texts), 1, 2
+            )
+
+        def initialize_cache(self, *, text: list[str], image: torch.Tensor) -> object:
+            del text, image
+            return object()
+
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    pipeline = _FakePipeline()
+    runtime._device = torch.device("cpu")
+    runtime._pipeline = pipeline
+
+    def _fake_prepare_session_input_state(
+        session_input: session.LingbotSessionInput | None,
+    ) -> None:
+        del session_input
+        runtime._first_frames = torch.zeros((1, 3, 2, 2))
+        runtime._prompt = "base prompt"
+        runtime._base_text_embeddings = torch.zeros((1, 1, 2))
+
+    setattr(
+        runtime,
+        "_prepare_session_input_state",
+        _fake_prepare_session_input_state,
+    )
+    custom_events = (
+        session.TextEventSpec(
+            event_id="rain",
+            label="Rain",
+            prompt="Rain begins falling across the street.",
+        ),
+    )
+
+    runtime._reset_rollout_sync(session.LingbotSessionInput(text_events=custom_events))
+
+    assert pipeline.encoded_texts == [("Rain begins falling across the street.",)]
+    assert set(runtime._event_embeddings) == {"rain"}
+
+
+@pytest.mark.asyncio
+async def test_trigger_event_prevalidates_before_distributed_broadcast() -> None:
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    runtime._pipeline = object()
+    runtime._cache = object()
+    runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
+    calls = 0
+
+    def _fail_if_called(event_id: str, state: str) -> dict[str, str | None]:
+        nonlocal calls
+        del event_id, state
+        calls += 1
+        raise AssertionError("distributed event op should not be invoked")
+
+    runtime._trigger_event_sync_all_ranks = _fail_if_called
+
+    with pytest.raises(ValueError, match="Unknown event_id='unknown'"):
+        await runtime.trigger_event(event_id="unknown", state="trigger")
+
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_trigger_event_waits_for_generation_lock() -> None:
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    runtime._pipeline = object()
+    runtime._cache = object()
+    runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
+    calls: list[tuple[str, str]] = []
+
+    def _fake_event_op(event_id: str, state: str) -> dict[str, str | None]:
+        calls.append((event_id, state))
+        return {"active_event_id": event_id}
+
+    runtime._trigger_event_sync_all_ranks = _fake_event_op
+
+    await runtime._step_lock.acquire()
+    task = asyncio.create_task(
+        runtime.trigger_event(event_id="portal", state="trigger")
+    )
+    await asyncio.sleep(0)
+    assert not task.done()
+    assert calls == []
+
+    runtime._step_lock.release()
+    result = await asyncio.wait_for(task, timeout=1.0)
+
+    assert result == {"active_event_id": "portal"}
+    assert calls == [("portal", "trigger")]
 
 
 @pytest.mark.asyncio

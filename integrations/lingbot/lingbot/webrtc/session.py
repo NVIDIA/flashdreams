@@ -13,13 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""LingBot-World WebRTC runtime and session management."""
+
 from __future__ import annotations
 
 import asyncio
+import http.client
 import io
-import urllib.error
+import ipaddress
+import re
+import socket
+import ssl
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +33,7 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
+from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -57,14 +63,8 @@ _DEFAULT_INTRINSICS = (
     415.7778625488281,
     239.7777862548828,
 )
-# Aligned with the world scale computed from the first LingBot World demo scene.
+# Aligned with the world scale computed from the first LingBot-World demo scene.
 _DEFAULT_WORLD_SCALE = 1.271182656288147
-_DEFAULT_PROMPT = (
-    "The video presents a soaring journey through a fantasy jungle. The wind whips "
-    "past the rider's blue hands gripping the reins, causing the leather straps to "
-    "vibrate. The ancient gothic castle approaches steadily, its stone details "
-    "becoming clearer against the backdrop of floating islands and distant waterfalls."
-)
 _DEFAULT_DEMO_BASE_URL = (
     "https://raw.githubusercontent.com/robbyant/lingbot-world/main/examples/00"
 )
@@ -74,10 +74,71 @@ _DEFAULT_POSES_URL = f"{_DEFAULT_DEMO_BASE_URL}/poses.npy"
 _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
 _MAX_REMOTE_NUMPY_BYTES = 64 * 1024 * 1024
 _REMOTE_READ_TIMEOUT_S = 20.0
+_MAX_REMOTE_REDIRECTS = 5
+_BLOCKED_REMOTE_HOSTNAMES = {"localhost", "localhost.localdomain"}
+_MAX_TEXT_EVENTS = 12
+_MAX_TEXT_EVENT_LABEL_CHARS = 64
+_MAX_TEXT_EVENT_PROMPT_CHARS = 1_000
+_TEXT_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
 
 class LingbotRuntimeError(RuntimeError):
     """Raised when the Lingbot runtime is used incorrectly."""
+
+
+@dataclass(frozen=True, slots=True)
+class TextEventSpec:
+    """Server-owned text event exposed to WebRTC clients by stable id."""
+
+    event_id: str
+    """Stable identifier sent over the WebRTC data channel."""
+
+    label: str
+    """Short client-facing event label."""
+
+    prompt: str
+    """Text context activated when the event is triggered."""
+
+    category: str = "environment"
+    """Client-facing group used to organize event controls."""
+
+    def as_public_dict(self) -> dict[str, str]:
+        """Return the client-facing event payload."""
+        return {
+            "event_id": self.event_id,
+            "label": self.label,
+            "prompt": self.prompt,
+            "category": self.category,
+        }
+
+
+DEFAULT_TEXT_EVENTS: tuple[TextEventSpec, ...] = (
+    TextEventSpec(
+        event_id="portal",
+        label="Portal",
+        prompt=(
+            "A luminous magical portal opens in the scene, casting colored light "
+            "and swirling particles into the environment."
+        ),
+    ),
+    TextEventSpec(
+        event_id="storm",
+        label="Storm",
+        prompt=(
+            "A dramatic storm rolls in with dark clouds, wind, rain, and flashes "
+            "of lightning reshaping the atmosphere."
+        ),
+    ),
+    TextEventSpec(
+        event_id="fireworks",
+        label="Fireworks",
+        prompt=(
+            "Bright fireworks burst overhead, filling the sky with colorful sparks "
+            "and reflections across the scene."
+        ),
+    ),
+)
+"""Default text events advertised by the interactive viewer."""
 
 
 def _content_type_for_image_path(path: Path) -> str:
@@ -107,35 +168,228 @@ def _normalize_github_blob_url(url: str, parsed: urllib.parse.ParseResult) -> st
     )
 
 
+def _resolve_remote_host(
+    hostname: str,
+) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
+    try:
+        return (ipaddress.ip_address(hostname),)
+    except ValueError:
+        pass
+
+    try:
+        address_infos = socket.getaddrinfo(
+            hostname,
+            None,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise ValueError(
+            f"Remote URL host {hostname!r} could not be resolved."
+        ) from exc
+
+    addresses: dict[str, ipaddress.IPv4Address | ipaddress.IPv6Address] = {}
+    for address_info in address_infos:
+        socket_address = address_info[4]
+        if not socket_address:
+            continue
+        try:
+            address = ipaddress.ip_address(socket_address[0])
+        except ValueError:
+            continue
+        addresses[str(address)] = address
+    if not addresses:
+        raise ValueError(
+            f"Remote URL host {hostname!r} did not resolve to an IP address."
+        )
+    return tuple(addresses.values())
+
+
+def _validate_remote_hostname(hostname: str | None, *, field_name: str) -> None:
+    if not hostname:
+        raise ValueError(f"{field_name} must include a host.")
+    normalized_hostname = hostname.rstrip(".").lower()
+    if normalized_hostname in _BLOCKED_REMOTE_HOSTNAMES or normalized_hostname.endswith(
+        ".localhost"
+    ):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+    addresses = _resolve_remote_host(normalized_hostname)
+    if any(not address.is_global for address in addresses):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+
 def _validate_remote_url(url: str, *, field_name: str) -> str:
     normalized = url.strip()
     parsed = urllib.parse.urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{field_name} must be an http(s) URL.")
-    return _normalize_github_blob_url(normalized, parsed)
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{field_name} has an invalid port.") from exc
+    normalized = _normalize_github_blob_url(normalized, parsed)
+    parsed = urllib.parse.urlparse(normalized)
+    _validate_remote_hostname(parsed.hostname, field_name=field_name)
+    return normalized
+
+
+def _open_resolved_socket(
+    resolved_address: str,
+    *,
+    port: int,
+    timeout: float,
+) -> socket.socket:
+    """Open a socket to the already-validated public address."""
+    connection = socket.create_connection(
+        (resolved_address, port),
+        timeout=timeout,
+    )
+    try:
+        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        pass
+    return connection
+
+
+class _ResolvedHTTPConnection(http.client.HTTPConnection):
+    def __init__(
+        self,
+        host: str,
+        *,
+        port: int | None,
+        timeout: float,
+        resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> None:
+        super().__init__(host=host, port=port, timeout=timeout)
+        self._resolved_address = str(resolved_address)
+        self._resolved_timeout = timeout
+
+    def connect(self) -> None:
+        self.sock = _open_resolved_socket(
+            self._resolved_address,
+            port=self.port,
+            timeout=self._resolved_timeout,
+        )
+
+
+class _ResolvedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        host: str,
+        *,
+        port: int | None,
+        timeout: float,
+        resolved_address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> None:
+        ssl_context = ssl.create_default_context()
+        super().__init__(host=host, port=port, timeout=timeout, context=ssl_context)
+        self._resolved_address = str(resolved_address)
+        self._resolved_timeout = timeout
+        self._ssl_context = ssl_context
+
+    def connect(self) -> None:
+        raw_socket = _open_resolved_socket(
+            self._resolved_address,
+            port=self.port,
+            timeout=self._resolved_timeout,
+        )
+        try:
+            self.sock = self._ssl_context.wrap_socket(
+                raw_socket,
+                server_hostname=self.host,
+            )
+        except Exception:
+            raw_socket.close()
+            raise
+
+
+def _remote_request_target(parsed: urllib.parse.ParseResult) -> str:
+    return urllib.parse.urlunparse(
+        ("", "", parsed.path or "/", parsed.params, parsed.query, "")
+    )
+
+
+def _read_remote_bytes_once(
+    url: str, *, max_bytes: int, field_name: str
+) -> tuple[bytes, str, str | None]:
+    normalized = _validate_remote_url(url, field_name=field_name)
+    parsed = urllib.parse.urlparse(normalized)
+    hostname = parsed.hostname
+    if hostname is None:
+        raise ValueError(f"{field_name} must include a host.")
+    addresses = _resolve_remote_host(hostname.rstrip(".").lower())
+    if any(not address.is_global for address in addresses):
+        raise ValueError(f"{field_name} host must be publicly routable.")
+
+    connection_cls: type[http.client.HTTPConnection] = (
+        _ResolvedHTTPSConnection
+        if parsed.scheme == "https"
+        else _ResolvedHTTPConnection
+    )
+    last_error: Exception | None = None
+    for address in addresses:
+        connection = connection_cls(
+            hostname,
+            port=parsed.port,
+            timeout=_REMOTE_READ_TIMEOUT_S,
+            resolved_address=address,
+        )
+        try:
+            connection.request(
+                "GET",
+                _remote_request_target(parsed),
+                headers={"User-Agent": "flashdreams-lingbot-webrtc/1.0"},
+            )
+            response = connection.getresponse()
+            try:
+                location = response.getheader("Location")
+                if response.status in {301, 302, 303, 307, 308}:
+                    response.read()
+                    if not location:
+                        raise ValueError(f"{field_name} redirect missing Location.")
+                    return b"", "", urllib.parse.urljoin(normalized, location)
+                if response.status >= 400:
+                    response.read()
+                    raise ValueError(
+                        f"{field_name} returned HTTP status {response.status}."
+                    )
+                data = response.read(max_bytes + 1)
+                content_type = response.headers.get_content_type()
+                return data, content_type, None
+            finally:
+                response.close()
+        except ValueError:
+            raise
+        except (OSError, TimeoutError, http.client.HTTPException) as exc:
+            last_error = exc
+        finally:
+            connection.close()
+
+    if last_error is None:
+        raise ValueError(f"Failed to fetch {field_name}.")
+    raise ValueError(f"Failed to fetch {field_name}: {last_error}") from last_error
 
 
 def _read_remote_bytes(
     url: str, *, max_bytes: int, field_name: str
 ) -> tuple[bytes, str]:
-    normalized = _validate_remote_url(url, field_name=field_name)
-    request = urllib.request.Request(
-        normalized,
-        headers={"User-Agent": "flashdreams-lingbot-webrtc/1.0"},
-    )
-    try:
-        with urllib.request.urlopen(
-            request, timeout=_REMOTE_READ_TIMEOUT_S
-        ) as response:
-            data = response.read(max_bytes + 1)
-            content_type = response.headers.get_content_type()
-    except urllib.error.URLError as exc:
-        raise ValueError(f"Failed to fetch {field_name}: {exc.reason}") from exc
-    if len(data) > max_bytes:
-        raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
-    if not data:
-        raise ValueError(f"{field_name} returned an empty response.")
-    return data, content_type
+    current_url = url
+    for redirect_idx in range(_MAX_REMOTE_REDIRECTS + 1):
+        data, content_type, redirect_url = _read_remote_bytes_once(
+            current_url,
+            max_bytes=max_bytes,
+            field_name=field_name if redirect_idx == 0 else f"{field_name} redirect",
+        )
+        if redirect_url is None:
+            if len(data) > max_bytes:
+                raise ValueError(f"{field_name} exceeds {max_bytes} bytes.")
+            if not data:
+                raise ValueError(f"{field_name} returned an empty response.")
+            return data, content_type
+        current_url = _validate_remote_url(
+            redirect_url, field_name=f"{field_name} redirect"
+        )
+    raise ValueError(f"{field_name} exceeded {_MAX_REMOTE_REDIRECTS} redirects.")
 
 
 def _decode_image_bytes_rgb(image_bytes: bytes, *, field_name: str) -> np.ndarray:
@@ -193,7 +447,8 @@ class LingbotRuntimeConfig:
     video_width: int = 832
     world_scale: float | None = None
     default_intrinsics: tuple[float, float, float, float] | None = None
-    default_prompt: str = _DEFAULT_PROMPT
+    default_prompt: str = ""
+    """Prompt used when the selected example does not provide ``prompt.txt``."""
     default_image_url: str | None = _DEFAULT_IMAGE_URL
     default_intrinsics_url: str | None = _DEFAULT_INTRINSICS_URL
     default_poses_url: str | None = _DEFAULT_POSES_URL
@@ -208,14 +463,9 @@ class LingbotRuntimeConfig:
     intrinsics_filename: str = "intrinsics.npy"
     poses_filename: str = "poses.npy"
     prompt_filename: str = "prompt.txt"
-
-
-@dataclass(frozen=True, slots=True)
-class LingbotSessionInput:
-    prompt: str | None = None
-    first_frame_image_bytes: bytes | None = None
-    first_frame_image_url: str | None = None
-    first_frame_content_type: str = "image/jpeg"
+    text_events: tuple[TextEventSpec, ...] = field(
+        default_factory=lambda: DEFAULT_TEXT_EVENTS
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,8 +474,89 @@ class LingbotImagePayload:
     content_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class LingbotSessionInput:
+    prompt: str | None = None
+    first_frame_image_bytes: bytes | None = None
+    first_frame_image_url: str | None = None
+    first_frame_content_type: str = "image/jpeg"
+    first_frame_remote_payload: LingbotImagePayload | None = None
+    text_events: tuple[TextEventSpec, ...] | None = None
+
+
 def normalize_prompt_text(prompt: str) -> str:
+    """Collapse prompt whitespace into a single line."""
     return " ".join(prompt.split())
+
+
+def _slugify_event_id(label: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return (slug or f"event-{index + 1}")[:64]
+
+
+def _normalize_text_event_field(value: object) -> str:
+    return normalize_prompt_text(str(value)) if value is not None else ""
+
+
+def normalize_text_events(raw_events: object) -> tuple[TextEventSpec, ...]:
+    """Validate and normalize a client-supplied text-event catalog."""
+    if not isinstance(raw_events, (list, tuple)):
+        raise ValueError("Text events must be a list.")
+
+    text_events: list[TextEventSpec] = []
+    seen_ids: set[str] = set()
+    for index, raw_event in enumerate(raw_events):
+        if isinstance(raw_event, TextEventSpec):
+            event_id = raw_event.event_id.strip()
+            label = normalize_prompt_text(raw_event.label)
+            prompt = normalize_prompt_text(raw_event.prompt)
+            category = normalize_prompt_text(raw_event.category) or "custom"
+        elif isinstance(raw_event, dict):
+            label = _normalize_text_event_field(raw_event.get("label"))
+            prompt = _normalize_text_event_field(raw_event.get("prompt"))
+            raw_event_id = _normalize_text_event_field(
+                raw_event.get("event_id", raw_event.get("id"))
+            )
+            event_id = raw_event_id or _slugify_event_id(label, index)
+            category = _normalize_text_event_field(raw_event.get("category"))
+        else:
+            raise ValueError("Each text event must be an object.")
+
+        if not event_id and not label and not prompt:
+            continue
+        if not prompt:
+            raise ValueError("Text event prompt is required.")
+        if not label:
+            label = event_id
+        if len(label) > _MAX_TEXT_EVENT_LABEL_CHARS:
+            raise ValueError(
+                f"Text event labels must be <= {_MAX_TEXT_EVENT_LABEL_CHARS} characters."
+            )
+        if len(prompt) > _MAX_TEXT_EVENT_PROMPT_CHARS:
+            raise ValueError(
+                "Text event prompts must be "
+                f"<= {_MAX_TEXT_EVENT_PROMPT_CHARS} characters."
+            )
+        if not _TEXT_EVENT_ID_RE.fullmatch(event_id):
+            raise ValueError(
+                "Text event ids must be 1-64 characters using only letters, "
+                "numbers, '_', '.', ':', or '-'."
+            )
+        if event_id in seen_ids:
+            raise ValueError(f"Duplicate text event id={event_id!r}.")
+        seen_ids.add(event_id)
+        text_events.append(
+            TextEventSpec(
+                event_id=event_id,
+                label=label,
+                prompt=prompt,
+                category=category or "custom",
+            )
+        )
+
+    if len(text_events) > _MAX_TEXT_EVENTS:
+        raise ValueError(f"At most {_MAX_TEXT_EVENTS} text events are supported.")
+    return tuple(text_events)
 
 
 class LingbotInferenceRuntime:
@@ -253,6 +584,9 @@ class LingbotInferenceRuntime:
         self._base_intrinsics: torch.Tensor | None = None
         self._first_frames: torch.Tensor | None = None
         self._prompt: str | None = None
+        self._base_text_embeddings: torch.Tensor | None = None
+        self._event_embeddings: dict[str, torch.Tensor] = {}
+        self._active_event_id: str | None = None
         self._world_scale = 1.0
         self._closed = False
 
@@ -293,6 +627,26 @@ class LingbotInferenceRuntime:
     async def close(self) -> None:
         self._closed = True
         await asyncio.to_thread(self._close_sync_all_ranks)
+
+    async def trigger_event(
+        self, *, event_id: str, state: str = "trigger"
+    ) -> dict[str, str | None]:
+        """Activate or clear a precomputed text event for subsequent chunks."""
+        if self._closed:
+            raise LingbotRuntimeError("Runtime is closed.")
+        if self._pipeline is None or self._cache is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        async with self._step_lock:
+            if self._closed:
+                raise LingbotRuntimeError("Runtime is closed.")
+            if self._pipeline is None or self._cache is None:
+                raise LingbotRuntimeError("Runtime is not initialized.")
+            return await asyncio.to_thread(
+                self._trigger_event_sync_all_ranks,
+                event_id,
+                state,
+            )
 
     async def generate_chunk(
         self,
@@ -385,6 +739,14 @@ class LingbotInferenceRuntime:
     ) -> WebRTCStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
+    @distributed_op(WebRTCControlSignal.EVENT)
+    def _trigger_event_sync_all_ranks(
+        self,
+        event_id: str,
+        state: str = "trigger",
+    ) -> dict[str, str | None]:
+        return self._trigger_event_sync(event_id=event_id, state=state)
+
     @distributed_op(WebRTCControlSignal.CLOSE)
     def _close_sync_all_ranks(self) -> None:
         self._close_sync()
@@ -423,6 +785,29 @@ class LingbotInferenceRuntime:
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
         self._reset_rollout_sync()
+
+    def _encode_text_embeddings_sync(self, texts: list[str]) -> torch.Tensor:
+        if self._pipeline is None:
+            raise LingbotRuntimeError("Runtime pipeline is not initialized.")
+        self._pipeline._ensure_oneshot_encoders_loaded()
+        assert self._pipeline.text_encoder is not None
+        return self._pipeline.text_encoder(texts).to(device=self._device)
+
+    def _precompute_event_embeddings_sync(
+        self, text_events: tuple[TextEventSpec, ...]
+    ) -> None:
+        if not text_events:
+            self._event_embeddings = {}
+            return
+        event_ids = [event.event_id for event in text_events]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("text event ids must be unique.")
+        prompts = [event.prompt for event in text_events]
+        embeddings = self._encode_text_embeddings_sync(prompts)
+        self._event_embeddings = {
+            event_id: embeddings[index : index + 1].contiguous()
+            for index, event_id in enumerate(event_ids)
+        }
 
     def _build_base_intrinsics(self) -> torch.Tensor:
         if self._device is None:
@@ -495,7 +880,14 @@ class LingbotInferenceRuntime:
                 prompt = normalize_prompt_text(handle.readline())
             if prompt:
                 return prompt
-        return normalize_prompt_text(self.config.default_prompt) or _DEFAULT_PROMPT
+        prompt = normalize_prompt_text(self.config.default_prompt)
+        if not prompt and (not dist.is_initialized() or dist.get_rank() == 0):
+            logger.warning(
+                "LingBot prompt.txt is missing or empty at {}; "
+                "proceeding with an empty prompt.",
+                prompt_path,
+            )
+        return prompt
 
     def _load_default_first_frame_rgb(self) -> np.ndarray:
         first_frame_path = (
@@ -570,6 +962,13 @@ class LingbotInferenceRuntime:
             image_rgb = self._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
             )
+        elif (
+            session_input is not None
+            and session_input.first_frame_remote_payload is not None
+        ):
+            image_rgb = self._load_uploaded_first_frame_rgb(
+                session_input.first_frame_remote_payload.data
+            )
         elif session_input is not None and session_input.first_frame_image_url:
             image_rgb = self._load_remote_first_frame_rgb(
                 session_input.first_frame_image_url
@@ -579,6 +978,7 @@ class LingbotInferenceRuntime:
 
         self._first_frames = self._first_frame_to_tensor(image_rgb)
         self._prompt = prompt
+        self._base_text_embeddings = self._encode_text_embeddings_sync([prompt])
 
     def _reset_rollout_sync(
         self, session_input: LingbotSessionInput | None = None
@@ -591,15 +991,64 @@ class LingbotInferenceRuntime:
             self._cache = None
 
         self._prepare_session_input_state(session_input)
+        text_events = (
+            session_input.text_events
+            if session_input is not None and session_input.text_events is not None
+            else self.config.text_events
+        )
+        self._precompute_event_embeddings_sync(text_events)
         if self._first_frames is None or self._prompt is None:
             raise LingbotRuntimeError("Runtime input state is not initialized.")
 
         self.pose_integrator = CameraPoseIntegrator()
         self.autoregressive_index = 0
+        self._active_event_id = None
         self._cache = self._pipeline.initialize_cache(
             text=[self._prompt],
             image=self._first_frames,
         )
+
+    def _replace_rollout_text_embeddings(self, text_embeddings: torch.Tensor) -> None:
+        if self._pipeline is None or self._cache is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        transformer = self._pipeline.diffusion_model.transformer
+        replace_text_embeddings = getattr(transformer, "replace_text_embeddings", None)
+        if not callable(replace_text_embeddings):
+            raise LingbotRuntimeError(
+                "Current pipeline does not support runtime text-event swapping."
+            )
+        replace_text_embeddings(self._cache.transformer_cache, text_embeddings)
+
+    def _validate_event_request(self, *, event_id: str, state: str) -> tuple[str, str]:
+        state = state.strip().lower() or "trigger"
+        if state in {"clear", "release", "off", "none"}:
+            return event_id.strip(), state
+        if state not in {"trigger", "hold", "on"}:
+            raise ValueError(
+                "Event state must be one of trigger, hold, on, clear, release, off."
+            )
+        event_id = event_id.strip()
+        if event_id not in self._event_embeddings:
+            supported = ", ".join(sorted(self._event_embeddings))
+            raise ValueError(f"Unknown event_id={event_id!r}. Supported: {supported}")
+        return event_id, state
+
+    def _trigger_event_sync(
+        self,
+        *,
+        event_id: str,
+        state: str = "trigger",
+    ) -> dict[str, str | None]:
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        if state in {"clear", "release", "off", "none"}:
+            if self._base_text_embeddings is None:
+                raise LingbotRuntimeError("Base prompt embeddings are not ready.")
+            self._replace_rollout_text_embeddings(self._base_text_embeddings)
+            self._active_event_id = None
+            return {"active_event_id": None}
+        self._replace_rollout_text_embeddings(self._event_embeddings[event_id])
+        self._active_event_id = event_id
+        return {"active_event_id": event_id}
 
     def _close_sync(self) -> None:
         cache = self._cache
@@ -609,6 +1058,9 @@ class LingbotInferenceRuntime:
         self._base_intrinsics = None
         self._first_frames = None
         self._prompt = None
+        self._base_text_embeddings = None
+        self._event_embeddings = {}
+        self._active_event_id = None
 
         if cache is not None:
             del cache
@@ -708,6 +1160,9 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
     def _model_name(self) -> str:
         return self.runtime_config.config_name
 
+    def _chunk_done_extra(self) -> dict[str, object]:
+        return {"active_event_id": getattr(self._runtime, "_active_event_id", None)}
+
     def _peek_pending_session_input(self) -> LingbotSessionInput | None:
         return self._pending_session_input
 
@@ -719,8 +1174,17 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
     ) -> None:
         await self._runtime.reset_for_new_session(session_input=session_input)
 
+    def _effective_text_events(self) -> tuple[TextEventSpec, ...]:
+        if (
+            self._pending_session_input is not None
+            and self._pending_session_input.text_events is not None
+        ):
+            return self._pending_session_input.text_events
+        return self.runtime_config.text_events
+
     def get_initial_scene(self) -> dict[str, object]:
         pending_input = self._pending_session_input
+        text_events = self._effective_text_events()
         prompt = (
             normalize_prompt_text(pending_input.prompt)
             if pending_input is not None and pending_input.prompt is not None
@@ -754,6 +1218,9 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
             "prompt": prompt,
             "input_source": input_source,
             "model": self.runtime_config.config_name,
+            "capabilities": {"text_events": bool(text_events)},
+            "event_catalog": [event.as_public_dict() for event in text_events],
+            "active_event_id": getattr(self._runtime, "_active_event_id", None),
             "resolution": {
                 "width": self.runtime_config.video_width,
                 "height": self.runtime_config.video_height,
@@ -767,6 +1234,11 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
                 data=pending_input.first_frame_image_bytes,
                 content_type=pending_input.first_frame_content_type,
             )
+        if (
+            pending_input is not None
+            and pending_input.first_frame_remote_payload is not None
+        ):
+            return pending_input.first_frame_remote_payload
         if pending_input is not None and pending_input.first_frame_image_url:
             image_bytes, content_type = _read_remote_bytes(
                 pending_input.first_frame_image_url,
@@ -796,51 +1268,63 @@ class LingbotWebRTCSessionManager(BaseWebRTCSessionManager):
             raise SessionBusyError(
                 "Cannot update Lingbot input while a session is active."
             )
+        current = self._pending_session_input
+
+        first_frame_image_bytes = (
+            current.first_frame_image_bytes if current is not None else None
+        )
+        first_frame_image_url = (
+            current.first_frame_image_url if current is not None else None
+        )
+        first_frame_content_type = (
+            current.first_frame_content_type
+            if current is not None
+            else session_input.first_frame_content_type
+        )
+        first_frame_remote_payload = (
+            current.first_frame_remote_payload if current is not None else None
+        )
+
         if session_input.first_frame_image_bytes is not None:
             self._runtime._load_uploaded_first_frame_rgb(
                 session_input.first_frame_image_bytes
             )
-        image_url = None
-        if (
-            session_input.first_frame_image_bytes is None
-            and session_input.first_frame_image_url is not None
-        ):
-            image_url = _validate_remote_url(
+            first_frame_image_bytes = session_input.first_frame_image_bytes
+            first_frame_image_url = None
+            first_frame_content_type = session_input.first_frame_content_type
+            first_frame_remote_payload = None
+        elif session_input.first_frame_image_url is not None:
+            first_frame_image_url = _validate_remote_url(
                 session_input.first_frame_image_url,
                 field_name="Lingbot first-frame image URL",
             )
-            self._runtime._load_remote_first_frame_rgb(image_url)
+            image_bytes, content_type = _read_remote_bytes(
+                first_frame_image_url,
+                max_bytes=_MAX_REMOTE_IMAGE_BYTES,
+                field_name="Lingbot first-frame image URL",
+            )
+            self._runtime._load_uploaded_first_frame_rgb(image_bytes)
+            first_frame_image_bytes = None
+            first_frame_content_type = content_type
+            first_frame_remote_payload = LingbotImagePayload(
+                data=image_bytes,
+                content_type=content_type,
+            )
 
-        current = self._pending_session_input
+        text_events = (
+            normalize_text_events(session_input.text_events)
+            if session_input.text_events is not None
+            else (current.text_events if current is not None else None)
+        )
         self._pending_session_input = LingbotSessionInput(
             prompt=(
                 normalize_prompt_text(session_input.prompt)
                 if session_input.prompt is not None
                 else (current.prompt if current is not None else None)
             ),
-            first_frame_image_bytes=(
-                session_input.first_frame_image_bytes
-                if session_input.first_frame_image_bytes is not None
-                else (current.first_frame_image_bytes if current is not None else None)
-            ),
-            first_frame_image_url=(
-                None
-                if session_input.first_frame_image_bytes is not None
-                else (
-                    image_url
-                    if image_url is not None
-                    else (
-                        current.first_frame_image_url if current is not None else None
-                    )
-                )
-            ),
-            first_frame_content_type=(
-                session_input.first_frame_content_type
-                if session_input.first_frame_image_bytes is not None
-                else (
-                    current.first_frame_content_type
-                    if current is not None
-                    else session_input.first_frame_content_type
-                )
-            ),
+            first_frame_image_bytes=first_frame_image_bytes,
+            first_frame_image_url=first_frame_image_url,
+            first_frame_content_type=first_frame_content_type,
+            first_frame_remote_payload=first_frame_remote_payload,
+            text_events=text_events,
         )

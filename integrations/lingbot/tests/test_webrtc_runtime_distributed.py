@@ -52,10 +52,18 @@ def _patch_cv2(monkeypatch: pytest.MonkeyPatch, *, height: int, width: int) -> N
 class _FakePipeline:
     def __init__(self, events: list[tuple[Any, ...]]) -> None:
         self.events = events
+        self.text_encoder = self._encode_text
 
     def to(self, *, device: torch.device) -> "_FakePipeline":
         self.events.append(("to", str(device)))
         return self
+
+    def _ensure_oneshot_encoders_loaded(self) -> None:
+        self.events.append(("ensure_oneshot_encoders_loaded",))
+
+    def _encode_text(self, texts: list[str]) -> torch.Tensor:
+        self.events.append(("text_encoder", tuple(texts)))
+        return torch.zeros((len(texts), 2, 3), dtype=torch.float32)
 
     def initialize_cache(self, *, text: list[str], image: torch.Tensor) -> object:
         self.events.append(

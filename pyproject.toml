@@ -110,6 +110,7 @@ replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
 norecursedirs = [
     "parity_check",
+    "parity_check_v2",
     "baseline_fastvideo",
     "baseline_lightx2v",
 ]

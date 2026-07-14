@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
+from flashdreams.infra.encoder.text.umt5 import UMT5TextEncoder, UMT5TextEncoderConfig
 from flashdreams.recipes.wan.pipeline import (
     WanInferencePipeline,
     WanInferencePipelineCache,
@@ -34,6 +35,13 @@ from lingbot.encoder.camctrl import (
 
 
 @dataclass(kw_only=True)
+class LingbotUMT5TextEncoderConfig(UMT5TextEncoderConfig):
+    """UMT5 text encoder config with Tyro-friendly target typing."""
+
+    _target: type[UMT5TextEncoder] = field(default_factory=lambda: UMT5TextEncoder)
+
+
+@dataclass(kw_only=True)
 class LingbotWorldInferencePipelineConfig(WanInferencePipelineConfig):
     """Config for the Lingbot World streaming pipeline.
 
@@ -42,6 +50,9 @@ class LingbotWorldInferencePipelineConfig(WanInferencePipelineConfig):
 
     _target: type["LingbotWorldInferencePipeline"] = field(
         default_factory=lambda: LingbotWorldInferencePipeline
+    )
+    text_encoder: LingbotUMT5TextEncoderConfig | None = field(
+        default_factory=LingbotUMT5TextEncoderConfig
     )
 
 

@@ -20,8 +20,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import overload
 
+import torch
 from torch import Tensor
 
+from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
     Wan21TransformerCache,
@@ -30,6 +32,7 @@ from flashdreams.recipes.wan.transformer.wan21 import (
 from lingbot.encoder.camctrl import I2VCamCtrlEmbeddings
 
 from .impl.network import (
+    LingbotWorldDiTNetwork,
     LingbotWorldDiTNetwork14BConfig,
     LingbotWorldDiTNetworkCache,
     LingbotWorldDiTNetworkConfig,
@@ -83,6 +86,23 @@ class LingbotWorldTransformer(Wan21Transformer):
 
     def __init__(self, config: LingbotWorldTransformerConfig) -> None:
         super().__init__(config)
+
+    @torch.no_grad()
+    def replace_text_embeddings(
+        self,
+        cache: LingbotWorldTransformerCache,
+        text_embeddings: Tensor,
+    ) -> None:
+        """Swap the rollout's conditional cross-attention text context."""
+        network = getattr(self.network, "_orig_mod", self.network)
+        assert isinstance(network, LingbotWorldDiTNetwork)
+        network.replace_text_embeddings(cache.network_cache, text_embeddings)
+        if self._use_cuda_graph:
+            assert isinstance(self._network_call, CUDAGraphWrapper)
+            self._network_call.reset()
+            if self._network_call_uncond is not None:
+                assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
+                self._network_call_uncond.reset()
 
     def predict_flow(
         self,

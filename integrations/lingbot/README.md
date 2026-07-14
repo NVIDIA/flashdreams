@@ -17,9 +17,10 @@ limitations under the License.
 
 # flashdreams-lingbot
 
-LingBot-World streaming camera-control I2V integration + a minimal WebRTC
-demo server, packaged as a [`flashdreams`](../..) plugin, in a
-standalone repo.
+LingBot-World v1/v2 streaming camera-control I2V integration + a minimal
+WebRTC demo server, packaged as a [`flashdreams`](../..) plugin. Both model
+versions use the same pipeline and serving code; v2 is selected by its
+checkpoint-backed config slug.
 
 This is a worked example of the
 [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
@@ -31,6 +32,8 @@ developer-guide flow, extended with a per-plugin runtime server.
 | --- | --- |
 | `lingbot-world-fast` | Lingbot World Fast streaming camera-control I2V (Wan VAE decoder, 4-step). |
 | `lingbot-world-fast-taehv-window15-sink3` | LightTAE decoder swap with `window_size_t=15` + `sink_size_t=3` for tighter interactive streaming. |
+| `lingbot-world-v2-14b-causal-fast` | LingBot-World v2 14B causal-fast using the shared LingBot pipeline (Wan VAE decoder, 4-step). |
+| `lingbot-world-v2-14b-causal-fast-taehv-window15-sink3` | v2 checkpoint with the same LightTAE/window/sink interactive preset. |
 
 ## Install
 
@@ -75,6 +78,10 @@ uv run flashdreams-run lingbot-world-fast --help
 # from the upstream LingBot-World GitHub examples folder on first run).
 uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
 
+# The v2 model is the same runtime with the v2 checkpoint config.
+uv run flashdreams-run lingbot-world-v2-14b-causal-fast \
+    --example-data True --total-blocks 21
+
 # Custom inputs (production layout).
 uv run flashdreams-run lingbot-world-fast \
     --image-path /path/to/first_frame.jpg \
@@ -102,6 +109,10 @@ cfg = derive_config(runner_config, prompt="A cinematic flythrough.", example_dat
 runner = cfg.setup()
 runner.run()
 ```
+
+To use v2, import
+`RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST` from the same `lingbot.config`
+module; no separate package or alternate serving path is required.
 
 Access via pipeline.
 ```python
@@ -169,15 +180,17 @@ Then open:
 ### Runtime requirements
 
 - CUDA-capable GPU.
-- `HF_TOKEN` exported. The `robbyant/lingbot-world-fast` checkpoint
-  (~70 GB) is pulled from HuggingFace on first run and cached under
-  `$HF_HOME`.
+- `HF_TOKEN` exported. The selected `robbyant/lingbot-world-fast` (v1) or
+  `robbyant/lingbot-world-v2-14b-causal-fast` (v2) checkpoint is pulled from
+  HuggingFace on first run and cached under `$HF_HOME`.
 - ~200 GB free disk for the model + HF cache.
-- Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`,
-  `prompt.txt`) auto-download from the upstream
+- Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`, and a prompt when
+  available) auto-download from the upstream
   [`Robbyant/lingbot-world`](https://github.com/Robbyant/lingbot-world/tree/main/examples)
   examples folder into `assets/example_data/lingbot_world/<NN>/` on
-  first launch (`<NN>` is the `--example-idx`: `00`, `01`, `02`, `05`).
+  first launch (`<NN>` is the `--example-idx`: `00` through `05`). Examples
+  `03` and `04` use an empty prompt because they do not provide their own
+  upstream `prompt.txt`.
 
 ### DataChannel message format
 
@@ -215,6 +228,22 @@ Server -> browser:
   "enqueued_frames": 12
 }
 ```
+
+Text-driven events work with both v1 and v2 through the same DataChannel:
+
+```json
+{
+  "type": "event",
+  "event_id": "portal",
+  "state": "trigger"
+}
+```
+
+- `trigger`, `hold`, or `on` activates an advertised event.
+- `clear`, `release`, `off`, or `none` restores the base prompt context.
+- The initial-scene payload advertises `capabilities.text_events`,
+  `event_catalog`, and `active_event_id`; successful updates receive an
+  `event_ack`.
 
 ## Tests
 
