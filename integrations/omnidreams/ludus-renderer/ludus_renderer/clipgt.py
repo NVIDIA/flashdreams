@@ -1933,8 +1933,6 @@ _CLIPGT_PARQUET_PATTERNS = (
     "*.road_boundary.parquet",
     "lane_line.parquet",
     "*.lane_line.parquet",
-    "calibration_estimate.parquet",
-    "*.calibration_estimate.parquet",
 )
 
 
