@@ -183,8 +183,8 @@ The short version:
 4. Run the project's checks locally:
 
    ```bash
-   uv run pre-commit run -a       # format + lint + type-check
-   uv run pytest -m ci_cpu         # CPU tests (no GPU required)
+   uv run --group lint pre-commit run -a       # format + lint + type-check
+   uv run --group test pytest -m ci_cpu         # CPU tests (no GPU required)
    ```
 
 5. Sign off your commits (`git commit --signoff`) and push to your fork.

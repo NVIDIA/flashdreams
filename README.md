@@ -136,7 +136,7 @@ For day-to-day development:
 
 ```bash
 uv sync --extra dev --extra runners
-uv run pre-commit run -a
+uv run --group lint pre-commit run -a
 uv run pytest -m "not manual"
 ```
 

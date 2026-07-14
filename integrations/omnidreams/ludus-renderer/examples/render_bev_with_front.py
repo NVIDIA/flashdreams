@@ -21,15 +21,17 @@ Outputs JPEG files using nvJPEG GPU encoder (no CPU round-trip for encoding).
 
 import argparse
 import os
-import torch
 
+import torch
 from ludus_renderer import load_scene, nvjpeg
-from ludus_renderer.torch import LudusCudaTimestampedContext
-from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
 from ludus_renderer.render_utils import (
-    SceneAdapter, create_camera,
-    get_camera_pose, get_bev_camera_pose,
+    SceneAdapter,
+    create_camera,
+    get_bev_camera_pose,
+    get_camera_pose,
 )
+from ludus_renderer.torch import LudusCudaTimestampedContext
+from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from ludus_renderer.util import resample_timestamps
 
 DEFAULT_SCENE = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
@@ -62,7 +64,9 @@ def main() -> None:
     ctx = LudusCudaTimestampedContext(device=device)
     ctx.set_depth_scaling(True)
 
-    front_camera = create_camera(WIDTH, HEIGHT, device, scene=scene, camera_name=FRONT_CAM)
+    front_camera = create_camera(
+        WIDTH, HEIGHT, device, scene=scene, camera_name=FRONT_CAM
+    )
     bev_camera = create_camera(
         WIDTH,
         HEIGHT,
@@ -106,6 +110,7 @@ def main() -> None:
     if not nvjpeg.is_available():
         print("WARNING: nvJPEG not available, falling back to PIL")
         from PIL import Image as PILImage
+
         output_dir = os.path.join(os.path.dirname(__file__), "../_images")
         os.makedirs(output_dir, exist_ok=True)
         names = ["example_front.png", "example_bev.png"]

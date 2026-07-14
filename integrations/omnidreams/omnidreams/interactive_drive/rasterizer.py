@@ -21,6 +21,8 @@ from loguru import logger
 from ludus_renderer import (
     FThetaCamera,
     LudusTimestampedContext,
+)
+from ludus_renderer import (
     load_scene as load_ludus_scene,
 )
 from ludus_renderer.clipgt import ClipgtGpuScene
@@ -34,7 +36,6 @@ from omnidreams.interactive_drive.types import PresentedFrame, RasterChunk, Scen
 from torch import Tensor
 
 _BEV_CAMERA_NAME = "interactive_drive_bev"
-
 
 
 @dataclass

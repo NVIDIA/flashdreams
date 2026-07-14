@@ -24,12 +24,12 @@ This module provides reusable utilities for:
 - Batch rendering helpers
 """
 
-import time
 import math
-from typing import Optional, Dict, List, Tuple
+import time
+from typing import Dict, List, Optional, Tuple
 
-import torch
 import numpy as np
+import torch
 from PIL import Image
 
 # =============================================================================
@@ -37,46 +37,58 @@ from PIL import Image
 # =============================================================================
 
 COLORS_V3 = {
-    'lane_line': [98, 183, 249],
-    'lane_boundary': [98, 183, 249],
-    'poles': [183, 69, 177],
-    'road_boundary': [253, 1, 232],
-    'wait_line': [108, 179, 59],
-    'crosswalk': [139, 93, 255],
-    'road_marking': [20, 254, 185],
-    'traffic_sign': [8, 2, 255],
-    'traffic_light': [100, 100, 100],
-    'intersection_area': [80, 80, 120],
-    'road_island': [60, 120, 60],
-    'ego_trajectory': [0, 255, 0],
+    "lane_line": [98, 183, 249],
+    "lane_boundary": [98, 183, 249],
+    "poles": [183, 69, 177],
+    "road_boundary": [253, 1, 232],
+    "wait_line": [108, 179, 59],
+    "crosswalk": [139, 93, 255],
+    "road_marking": [20, 254, 185],
+    "traffic_sign": [8, 2, 255],
+    "traffic_light": [100, 100, 100],
+    "intersection_area": [80, 80, 120],
+    "road_island": [60, 120, 60],
+    "ego_trajectory": [0, 255, 0],
 }
 
 
 def build_color_palette_v3():
     """Build a color palette dict for upload_color_palette() using v3 colors."""
     from ludus_renderer.torch.ops import (
-        PRIM_ROAD_BOUNDARY, PRIM_LANE_LINE, PRIM_CROSSWALK, PRIM_EGO_TRAJECTORY,
-        PRIM_WAIT_LINE, PRIM_POLE, PRIM_ROAD_MARKING, PRIM_LANE_BOUNDARY,
-        PRIM_TRAFFIC_LIGHT, PRIM_TRAFFIC_SIGN, PRIM_INTERSECTION, PRIM_ROAD_ISLAND,
-        PRIM_LANE_LINE_WHITE_SOLID, PRIM_LANE_LINE_WHITE_DASHED,
-        PRIM_LANE_LINE_YELLOW_SOLID, PRIM_LANE_LINE_YELLOW_DASHED,
-        PRIM_DOT_YELLOW, PRIM_DOT_WHITE,
+        PRIM_CROSSWALK,
+        PRIM_DOT_WHITE,
+        PRIM_DOT_YELLOW,
+        PRIM_EGO_TRAJECTORY,
+        PRIM_INTERSECTION,
+        PRIM_LANE_BOUNDARY,
+        PRIM_LANE_LINE,
+        PRIM_LANE_LINE_WHITE_DASHED,
+        PRIM_LANE_LINE_WHITE_SOLID,
+        PRIM_LANE_LINE_YELLOW_DASHED,
+        PRIM_LANE_LINE_YELLOW_SOLID,
+        PRIM_POLE,
+        PRIM_ROAD_BOUNDARY,
+        PRIM_ROAD_ISLAND,
+        PRIM_ROAD_MARKING,
+        PRIM_TRAFFIC_LIGHT,
+        PRIM_TRAFFIC_SIGN,
+        PRIM_WAIT_LINE,
     )
 
     palette = {}
     name_to_prim = {
-        'road_boundary': PRIM_ROAD_BOUNDARY,
-        'lane_line': PRIM_LANE_LINE,
-        'lane_boundary': PRIM_LANE_BOUNDARY,
-        'crosswalk': PRIM_CROSSWALK,
-        'wait_line': PRIM_WAIT_LINE,
-        'poles': PRIM_POLE,
-        'road_marking': PRIM_ROAD_MARKING,
-        'traffic_sign': PRIM_TRAFFIC_SIGN,
-        'traffic_light': PRIM_TRAFFIC_LIGHT,
-        'intersection_area': PRIM_INTERSECTION,
-        'road_island': PRIM_ROAD_ISLAND,
-        'ego_trajectory': PRIM_EGO_TRAJECTORY,
+        "road_boundary": PRIM_ROAD_BOUNDARY,
+        "lane_line": PRIM_LANE_LINE,
+        "lane_boundary": PRIM_LANE_BOUNDARY,
+        "crosswalk": PRIM_CROSSWALK,
+        "wait_line": PRIM_WAIT_LINE,
+        "poles": PRIM_POLE,
+        "road_marking": PRIM_ROAD_MARKING,
+        "traffic_sign": PRIM_TRAFFIC_SIGN,
+        "traffic_light": PRIM_TRAFFIC_LIGHT,
+        "intersection_area": PRIM_INTERSECTION,
+        "road_island": PRIM_ROAD_ISLAND,
+        "ego_trajectory": PRIM_EGO_TRAJECTORY,
     }
 
     for name, rgb in COLORS_V3.items():
@@ -101,6 +113,7 @@ def build_color_palette_v3():
 # =============================================================================
 # Scene adapters
 # =============================================================================
+
 
 class EgoTracksAdapter:
     """Adapter to make ClipgtGpuScene.ego_track look like legacy ego_tracks interface."""
@@ -136,14 +149,14 @@ class EgoTracksAdapter:
             elif idx >= len(ego_ts):
                 idx = len(ego_ts) - 1
 
-            t0, t1 = ego_ts[idx-1].item(), ego_ts[idx].item()
+            t0, t1 = ego_ts[idx - 1].item(), ego_ts[idx].item()
             alpha = 0.0 if t1 == t0 else (ts_val - t0) / (t1 - t0)
 
-            trans0 = self._ego_track.translations[idx-1].cpu().numpy()
+            trans0 = self._ego_track.translations[idx - 1].cpu().numpy()
             trans1 = self._ego_track.translations[idx].cpu().numpy()
             trans = trans0 * (1 - alpha) + trans1 * alpha
 
-            quat0 = self._ego_track.quaternions[idx-1].cpu().numpy()
+            quat0 = self._ego_track.quaternions[idx - 1].cpu().numpy()
             quat1 = self._ego_track.quaternions[idx].cpu().numpy()
             quat = quat0 * (1 - alpha) + quat1 * alpha
             quat = quat / np.linalg.norm(quat)
@@ -165,8 +178,10 @@ class SceneAdapter:
         self.timestamped_scene = clipgt_scene.timestamped_scene
         self.ego_tracks = EgoTracksAdapter(clipgt_scene.ego_track)
         self.obstacles = None
-        self.cameras = {name: self._adapt_camera(name, i)
-                       for name, i in clipgt_scene.camera_name_to_id.items()}
+        self.cameras = {
+            name: self._adapt_camera(name, i)
+            for name, i in clipgt_scene.camera_name_to_id.items()
+        }
 
     def _adapt_camera(self, name, idx):
         from dataclasses import dataclass
@@ -205,6 +220,7 @@ class SceneAdapter:
 # Scene loading
 # =============================================================================
 
+
 def is_clipgt_directory(scene_path: str) -> bool:
     """Check if ``scene_path`` is a ClipGT directory or archive."""
     from ludus_renderer import is_clipgt
@@ -219,10 +235,13 @@ def is_av2_scene(scene_path: str) -> bool:
     return not is_clipgt(scene_path)
 
 
-def load_scene_adapted(scene_path: str, device: torch.device,
-                       include_ego_trajectory: bool = True,
-                       include_ego_obstacle: bool = False,
-                       use_gpu_decoder: Optional[bool] = None):
+def load_scene_adapted(
+    scene_path: str,
+    device: torch.device,
+    include_ego_trajectory: bool = True,
+    include_ego_obstacle: bool = False,
+    use_gpu_decoder: Optional[bool] = None,
+):
     """Load a scene (clipgt or AV2) and wrap with SceneAdapter for legacy interface."""
     from ludus_renderer import load_scene
 
@@ -240,9 +259,16 @@ def load_scene_adapted(scene_path: str, device: torch.device,
 # Camera utilities
 # =============================================================================
 
-def create_bev_camera(width: int, height: int, device: torch.device,
-                      bev_height: float = 80.0, fov_deg: float = 60.0,
-                      near: float = 1.0, far: float = 150.0):
+
+def create_bev_camera(
+    width: int,
+    height: int,
+    device: torch.device,
+    bev_height: float = 80.0,
+    fov_deg: float = 60.0,
+    near: float = 1.0,
+    far: float = 150.0,
+):
     """Create a bird's eye view camera with perspective projection."""
     from ludus_renderer.torch import FThetaCamera
 
@@ -255,9 +281,17 @@ def create_bev_camera(width: int, height: int, device: torch.device,
     max_ray_angle = math.atan(diagonal_r / focal)
 
     # Taylor series for tan(α) -> pinhole projection
-    poly_coeffs = torch.tensor([
-        0.0, focal, 0.0, focal / 3.0, 0.0, 2.0 * focal / 15.0,
-    ], device=device)
+    poly_coeffs = torch.tensor(
+        [
+            0.0,
+            focal,
+            0.0,
+            focal / 3.0,
+            0.0,
+            2.0 * focal / 15.0,
+        ],
+        device=device,
+    )
 
     return FThetaCamera(
         principal_point=torch.tensor([cx, cy], device=device),
@@ -279,26 +313,32 @@ def get_bev_sensor_to_rig(bev_height: float, device: torch.device):
       Sensor Y (left)     -> Rig +Y (unchanged)
       Sensor Z (up image) -> Rig +X (forward)
     """
-    return torch.tensor([
-        [0,  0, 1, 0],
-        [0,  1, 0, 0],
-        [-1, 0, 0, bev_height],
-        [0,  0, 0, 1],
-    ], dtype=torch.float32, device=device)
+    return torch.tensor(
+        [
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [-1, 0, 0, bev_height],
+            [0, 0, 0, 1],
+        ],
+        dtype=torch.float32,
+        device=device,
+    )
 
 
 def get_bev_camera_pose(scene, timestamp, bev_height: float, device: torch.device):
     """Compute world-to-camera matrix (FLU) for BEV at a single timestamp."""
-    ego_to_world = scene.ego_tracks.get_transforms_at_timestamp(
-        timestamp.unsqueeze(0)
-    )[0, 0]
+    ego_to_world = scene.ego_tracks.get_transforms_at_timestamp(timestamp.unsqueeze(0))[
+        0, 0
+    ]
 
     sensor_to_rig = get_bev_sensor_to_rig(bev_height, device)
     camera_to_world = ego_to_world @ sensor_to_rig
     return torch.linalg.inv(camera_to_world)
 
 
-def get_all_bev_camera_poses(scene, timestamps, bev_height: float, device: torch.device):
+def get_all_bev_camera_poses(
+    scene, timestamps, bev_height: float, device: torch.device
+):
     """Compute world-to-camera matrices (FLU) for BEV at all timestamps (batched)."""
     ego_to_world = scene.ego_tracks.get_transforms_at_timestamp(timestamps)
     sensor_to_rig = get_bev_sensor_to_rig(bev_height, device)
@@ -309,9 +349,9 @@ def get_all_bev_camera_poses(scene, timestamps, bev_height: float, device: torch
 def get_camera_pose(scene, timestamp, camera_name: str, device: torch.device):
     """Compute world-to-camera matrix (FLU) for a named camera at a single timestamp."""
     cam = scene.cameras[camera_name]
-    ego_to_world = scene.ego_tracks.get_transforms_at_timestamp(
-        timestamp.unsqueeze(0)
-    )[0, 0]
+    ego_to_world = scene.ego_tracks.get_transforms_at_timestamp(timestamp.unsqueeze(0))[
+        0, 0
+    ]
 
     sensor_to_rig = cam.sensor_to_rig.to(device)
     camera_to_world = ego_to_world @ sensor_to_rig
@@ -328,8 +368,7 @@ def get_all_camera_poses(scene, timestamps, camera_name: str, device: torch.devi
     return torch.linalg.inv(camera_to_world)
 
 
-def get_scene_camera(scene, camera_name: str,
-                     target_width: int, target_height: int):
+def get_scene_camera(scene, camera_name: str, target_width: int, target_height: int):
     """Get a camera from the scene by name, with intrinsics scaled to the target resolution.
 
     Args:
@@ -364,10 +403,15 @@ def get_scene_camera(scene, camera_name: str,
     device = cam.principal_point.device
     return FThetaCamera(
         principal_point=torch.tensor(
-            [cam.principal_point[0].item() * scale_x,
-             cam.principal_point[1].item() * scale_y], device=device),
+            [
+                cam.principal_point[0].item() * scale_x,
+                cam.principal_point[1].item() * scale_y,
+            ],
+            device=device,
+        ),
         image_size=torch.tensor(
-            [float(target_width), float(target_height)], device=device),
+            [float(target_width), float(target_height)], device=device
+        ),
         fw_poly=cam.fw_poly * scale,
         max_ray_angle=cam.max_ray_angle,
         linear_distortion=cam.linear_distortion,
@@ -387,10 +431,16 @@ def get_available_cameras(scene) -> List[str]:
     return list(scene._scene.camera_name_to_id.keys())
 
 
-def create_camera(width: int, height: int, device: torch.device,
-                  bev: bool = False, bev_height: float = 80.0,
-                  bev_fov: float = 60.0, scene=None,
-                  camera_name: str | None = None):
+def create_camera(
+    width: int,
+    height: int,
+    device: torch.device,
+    bev: bool = False,
+    bev_height: float = 80.0,
+    bev_fov: float = 60.0,
+    scene=None,
+    camera_name: str | None = None,
+):
     """Create a camera for rendering.
 
     If *scene* and *camera_name* are provided, returns the scene camera
@@ -413,6 +463,7 @@ def create_camera(width: int, height: int, device: torch.device,
         return get_scene_camera(scene, camera_name, width, height)
 
     from ludus_renderer.torch import FThetaCamera
+
     cx, cy = width / 2.0, height / 2.0
     focal = 400.0
     max_angle = math.radians(90)
@@ -430,11 +481,20 @@ def create_camera(width: int, height: int, device: torch.device,
 # Rendering utilities
 # =============================================================================
 
-def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
-                 width: int, height: int, device: torch.device,
-                 bev_height: float | None = None,
-                 camera_name: str = 'camera:front:wide:120fov',
-                 camera_id: int = 0) -> Image.Image:
+
+def render_frame(
+    ctx,
+    scene,
+    scene_id: int,
+    timestamps,
+    frame_idx: int,
+    width: int,
+    height: int,
+    device: torch.device,
+    bev_height: float | None = None,
+    camera_name: str = "camera:front:wide:120fov",
+    camera_id: int = 0,
+) -> Image.Image:
     """Render a single frame and return as PIL Image.
 
     Args:
@@ -449,7 +509,7 @@ def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
         camera_name: Camera name for extrinsics (sensor_to_rig transform)
         camera_id: Camera ID (index in uploaded cameras list)
     """
-    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
+    from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 
     ts = timestamps[frame_idx]
 
@@ -465,14 +525,18 @@ def render_frame(ctx, scene, scene_id: int, timestamps, frame_idx: int,
 
     images = ctx.render_batch(queries, camera_poses, resolution=(height, width))
     img = images[0, :, :, :3]
-    if getattr(ctx, 'needs_vflip', True):
+    if getattr(ctx, "needs_vflip", True):
         img = img.flip(0)
     return Image.fromarray(img.cpu().numpy())
 
 
-def compute_camera_poses(scene, timestamps, device: torch.device,
-                         bev_height: float | None = None,
-                         camera_name: str = 'camera:front:wide:120fov') -> Tuple[torch.Tensor, int]:
+def compute_camera_poses(
+    scene,
+    timestamps,
+    device: torch.device,
+    bev_height: float | None = None,
+    camera_name: str = "camera:front:wide:120fov",
+) -> Tuple[torch.Tensor, int]:
     """Compute camera poses for all timestamps.
 
     Args:
@@ -485,7 +549,7 @@ def compute_camera_poses(scene, timestamps, device: torch.device,
     Returns:
         Tuple of (poses tensor [N, 4, 4], camera_type_id)
     """
-    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR, CAMERA_TYPE_BEV
+    from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 
     if bev_height is not None:
         poses = get_all_bev_camera_poses(scene, timestamps, bev_height, device)
@@ -497,9 +561,16 @@ def compute_camera_poses(scene, timestamps, device: torch.device,
     return poses, camera_type_id
 
 
-def render_sequence_gpu(ctx, scene_id: int, timestamps,
-                        camera_poses: torch.Tensor, camera_type_id: int,
-                        width: int, height: int, device: torch.device) -> torch.Tensor:
+def render_sequence_gpu(
+    ctx,
+    scene_id: int,
+    timestamps,
+    camera_poses: torch.Tensor,
+    camera_type_id: int,
+    width: int,
+    height: int,
+    device: torch.device,
+) -> torch.Tensor:
     """Render all frames and return as GPU tensor.
 
     This is the core rendering function that keeps everything on GPU.
@@ -523,16 +594,22 @@ def render_sequence_gpu(ctx, scene_id: int, timestamps,
     scene_ids = torch.full((n_frames,), scene_id, dtype=torch.int32, device=device)
     camera_ids = torch.zeros(n_frames, dtype=torch.int32, device=device)
     timestamps_tensor = timestamps.to(torch.int64)
-    camera_type_ids = torch.full((n_frames,), camera_type_id, dtype=torch.int32, device=device)
+    camera_type_ids = torch.full(
+        (n_frames,), camera_type_id, dtype=torch.int32, device=device
+    )
 
     # Render all frames
     images = ctx.render(
-        scene_ids, camera_ids, timestamps_tensor, camera_type_ids,
-        camera_poses, resolution=(height, width)
+        scene_ids,
+        camera_ids,
+        timestamps_tensor,
+        camera_type_ids,
+        camera_poses,
+        resolution=(height, width),
     )
 
     images_rgb = images[:, :, :, :3]
-    if getattr(ctx, 'needs_vflip', True):
+    if getattr(ctx, "needs_vflip", True):
         images_rgb = images_rgb.flip(1)
     return images_rgb.contiguous()
 
@@ -550,7 +627,9 @@ def gpu_to_numpy(gpu_tensor: torch.Tensor) -> np.ndarray:
     return gpu_tensor.cpu().numpy()
 
 
-def save_frames(images: np.ndarray, output_dir: str, prefix: str = "frame") -> List[str]:
+def save_frames(
+    images: np.ndarray, output_dir: str, prefix: str = "frame"
+) -> List[str]:
     """Save numpy images to PNG files.
 
     Args:
@@ -562,6 +641,7 @@ def save_frames(images: np.ndarray, output_dir: str, prefix: str = "frame") -> L
         List of saved file paths
     """
     import os
+
     os.makedirs(output_dir, exist_ok=True)
 
     paths = []
@@ -573,11 +653,18 @@ def save_frames(images: np.ndarray, output_dir: str, prefix: str = "frame") -> L
     return paths
 
 
-def render_all_frames(ctx, scene, scene_id: int, timestamps,
-                      width: int, height: int, device: torch.device,
-                      bev_height: float | None = None,
-                      camera_name: str = 'camera:front:wide:120fov',
-                      verbose: bool = False) -> Tuple[List[Image.Image], Dict]:
+def render_all_frames(
+    ctx,
+    scene,
+    scene_id: int,
+    timestamps,
+    width: int,
+    height: int,
+    device: torch.device,
+    bev_height: float | None = None,
+    camera_name: str = "camera:front:wide:120fov",
+    verbose: bool = False,
+) -> Tuple[List[Image.Image], Dict]:
     """Render all frames and return as PIL Images with timing info.
 
     This is a convenience function that combines compute_camera_poses,
@@ -600,29 +687,33 @@ def render_all_frames(ctx, scene, scene_id: int, timestamps,
 
     # Compute camera poses
     t0 = time.time()
-    camera_poses, camera_type_id = compute_camera_poses(scene, timestamps, device, bev_height, camera_name)
-    timings['pose_compute'] = time.time() - t0
+    camera_poses, camera_type_id = compute_camera_poses(
+        scene, timestamps, device, bev_height, camera_name
+    )
+    timings["pose_compute"] = time.time() - t0
 
     # GPU rendering
     t0 = time.time()
-    gpu_images = render_sequence_gpu(ctx, scene_id, timestamps,
-                                      camera_poses, camera_type_id,
-                                      width, height, device)
+    gpu_images = render_sequence_gpu(
+        ctx, scene_id, timestamps, camera_poses, camera_type_id, width, height, device
+    )
     torch.cuda.synchronize()
-    timings['gpu_render'] = time.time() - t0
+    timings["gpu_render"] = time.time() - t0
 
     # Transfer to CPU
     t0 = time.time()
     cpu_images = gpu_to_numpy(gpu_images)
-    timings['cpu_transfer'] = time.time() - t0
+    timings["cpu_transfer"] = time.time() - t0
 
     # Convert to PIL
     pil_images = [Image.fromarray(cpu_images[i]) for i in range(n_frames)]
 
     if verbose:
-        print(f"    Pose compute: {timings['pose_compute']*1000:.1f}ms")
-        print(f"    GPU render:   {timings['gpu_render']*1000:.1f}ms ({n_frames/timings['gpu_render']:.1f} FPS)")
-        print(f"    CPU transfer: {timings['cpu_transfer']*1000:.1f}ms")
+        print(f"    Pose compute: {timings['pose_compute'] * 1000:.1f}ms")
+        print(
+            f"    GPU render:   {timings['gpu_render'] * 1000:.1f}ms ({n_frames / timings['gpu_render']:.1f} FPS)"
+        )
+        print(f"    CPU transfer: {timings['cpu_transfer'] * 1000:.1f}ms")
 
     return pil_images, timings
 
@@ -635,7 +726,7 @@ def get_gpu_memory_mb() -> float:
 def get_gpu_memory_stats() -> Dict:
     """Get GPU memory statistics."""
     return {
-        'allocated_mb': torch.cuda.memory_allocated() / (1024 * 1024),
-        'reserved_mb': torch.cuda.memory_reserved() / (1024 * 1024),
-        'max_allocated_mb': torch.cuda.max_memory_allocated() / (1024 * 1024),
+        "allocated_mb": torch.cuda.memory_allocated() / (1024 * 1024),
+        "reserved_mb": torch.cuda.memory_reserved() / (1024 * 1024),
+        "max_allocated_mb": torch.cuda.max_memory_allocated() / (1024 * 1024),
     }

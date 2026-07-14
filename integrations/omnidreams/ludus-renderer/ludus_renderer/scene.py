@@ -32,11 +32,11 @@ Example:
 # Re-export from clipgt for convenience
 from .clipgt import (
     ClipgtGpuScene,
-    load_scene,
-    is_clipgt,
-    load_clipgt_scene,
-    load_av2_scene,
     EgoTrackData,
+    is_clipgt,
+    load_av2_scene,
+    load_clipgt_scene,
+    load_scene,
 )
 
 __all__ = [

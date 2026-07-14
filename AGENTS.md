@@ -35,7 +35,7 @@ uv sync --package <integration> --extra dev
 uv run flashdreams-run --help
 uv run flashdreams-run <runner-name> --help
 uv run flashdreams-run --no-instantiate <runner-name>
-uv run pre-commit run -a
+uv run --group lint pre-commit run -a
 uv run pytest -m ci_cpu
 uv run pytest -m "not manual"
 ./tests/run_tests_local.sh [target]

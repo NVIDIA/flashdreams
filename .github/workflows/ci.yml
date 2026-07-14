@@ -65,7 +65,7 @@ jobs:
           # Container runs as root but the workspace is owned by the runner
           # uid -- git refuses to operate without safe.directory.
           git config --global --add safe.directory "$(pwd)"
-          uv run --no-sync pre-commit run -a
+          uv run --group lint pre-commit run -a
 
       - name: Install remaining system dependencies
         run: |
