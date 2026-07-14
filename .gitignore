@@ -132,3 +132,6 @@ CLAUDE.md
 .codex/
 .claude/
 .agents/
+
+_output/
+_vk_compare/

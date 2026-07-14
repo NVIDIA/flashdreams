@@ -12,10 +12,7 @@ each :class:`PresentedFrame`.
 import concurrent.futures
 import contextlib
 import math
-import tempfile
-import zipfile
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +21,7 @@ from loguru import logger
 from ludus_renderer import (
     FThetaCamera,
     LudusTimestampedContext,
-    load_clipgt_scene,
+    load_scene as load_ludus_scene,
 )
 from ludus_renderer.clipgt import ClipgtGpuScene
 from ludus_renderer.render_utils import SceneAdapter
@@ -38,31 +35,6 @@ from torch import Tensor
 
 _BEV_CAMERA_NAME = "interactive_drive_bev"
 
-
-def _extract_clipgt_from_usdz(usdz_path: Path, dest_dir: Path) -> Path:
-    """Extract clipgt parquet files from USDZ archive.
-
-    Our USDZ bundles contain clipgt/ subdirectory with parquet files.
-    This extracts them to a directory compatible with load_clipgt_scene.
-
-    Returns:
-        Path to the clipgt directory with extracted parquets.
-    """
-    clipgt_dir = dest_dir / "clipgt"
-    clipgt_dir.mkdir(parents=True, exist_ok=True)
-
-    with zipfile.ZipFile(usdz_path, "r") as zf:
-        for name in zf.namelist():
-            if not name.startswith("clipgt/") or name.endswith("/"):
-                continue
-            relative = Path(name).relative_to("clipgt")
-            if relative.suffix in {".parquet", ".json"}:
-                target_name = f"clipgt.{relative.name}"
-            else:
-                target_name = relative.name
-            (clipgt_dir / target_name).write_bytes(zf.read(name))
-
-    return clipgt_dir
 
 
 @dataclass
@@ -215,7 +187,6 @@ class _LudusConditionRasterizerImpl:
         self._selected_camera_name: str | None = None
         self._bev_camera_id: int | None = None
         self._bev_sensor_to_rig: Tensor | None = None
-        self._temp_dir: tempfile.TemporaryDirectory[str] | None = None
 
     def _to_ludus_camera_pose(self, camera_poses: Tensor) -> Tensor:
         """Convert sensor-to-world camera poses to Ludus' world-to-sensor format."""
@@ -229,16 +200,8 @@ class _LudusConditionRasterizerImpl:
         """
         self.ctx.clear_scenes()
 
-        if self._temp_dir is not None:
-            self._temp_dir.cleanup()
-        self._temp_dir = tempfile.TemporaryDirectory()
-
-        clipgt_dir = _extract_clipgt_from_usdz(
-            scene.scene_path, Path(self._temp_dir.name)
-        )
-
-        clipgt_scene = load_clipgt_scene(
-            clipgt_dir,
+        clipgt_scene = load_ludus_scene(
+            scene.scene_path,
             device=self._device,
             target_resolution=(self._raster.width, self._raster.height),
             include_ego_trajectory=False,

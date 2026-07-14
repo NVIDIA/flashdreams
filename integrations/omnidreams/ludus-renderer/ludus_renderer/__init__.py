@@ -23,9 +23,9 @@ Ludus Renderer - GPU-native F-theta fisheye renderer with two backends:
 
 High-level API::
 
-    from ludus_renderer import LudusCudaTimestampedContext, load_clipgt_scene
+    from ludus_renderer import LudusCudaTimestampedContext, load_scene
 
-    scene = load_clipgt_scene("/path/to/clipgt/scene", device="cuda")
+    scene = load_scene("/path/to/scene", device="cuda")
     ctx = LudusCudaTimestampedContext(device="cuda")
     ctx.upload_cameras(cameras)
     scene_id = ctx.upload_scene(scene.timestamped_scene)
@@ -83,7 +83,14 @@ from ._ops import (
     TimestampedScene,
 )
 from .augmentation import mirror_augment_scene
-from .clipgt import ClipgtGpuScene, EgoTrackData, load_av2_scene, load_clipgt_scene
+from .clipgt import (
+    ClipgtGpuScene,
+    EgoTrackData,
+    is_clipgt,
+    load_av2_scene,
+    load_clipgt_scene,
+    load_scene,
+)
 
 # Scene cache
 from .scene_cache import (
@@ -111,6 +118,8 @@ __all__ = [
     "__version__",
     # High-level API
     "ClipgtGpuScene",
+    "load_scene",
+    "is_clipgt",
     "load_clipgt_scene",
     "load_av2_scene",
     "EgoTrackData",

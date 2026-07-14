@@ -31,7 +31,7 @@ from loguru import logger
 from ludus_renderer import (
     CubePool,
     TimestampedScene,
-    load_clipgt_scene,
+    load_scene,
     mirror_augment_scene,
 )
 from ludus_renderer.render_utils import (
@@ -282,7 +282,7 @@ def load_and_attach_ludus_scene(
     """Load HDMap scene from path and attach it to scene data."""
     started_at = time.perf_counter()
     logger.info("Loading Ludus scene from {} on {}.", scene_data_path, device)
-    ludus_scene = load_clipgt_scene(
+    ludus_scene = load_scene(
         scene_data_path,
         device=torch.device(device),
         include_ego_trajectory=include_ego_trajectory,
@@ -291,7 +291,7 @@ def load_and_attach_ludus_scene(
         simplify_dual_lane_lines=simplify_dual_lane_lines,
     )
     logger.info(
-        "Loaded Ludus ClipGT scene in {:.1f}s; mirror_augment={}.",
+        "Loaded Ludus scene in {:.1f}s; mirror_augment={}.",
         time.perf_counter() - started_at,
         perform_mirror_augment,
     )

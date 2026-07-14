@@ -35,7 +35,9 @@ Supports both file naming conventions:
 import json
 import os
 import tarfile
+import tempfile
 import time
+import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -1926,6 +1928,102 @@ class ClipgtGpuScene:
 EXCLUDED_BY_DEFAULT = {"lane_boundary", "intersection_area", "road_island"}
 
 
+_CLIPGT_PARQUET_PATTERNS = (
+    "road_boundary.parquet",
+    "*.road_boundary.parquet",
+    "lane_line.parquet",
+    "*.lane_line.parquet",
+    "calibration_estimate.parquet",
+    "*.calibration_estimate.parquet",
+)
+
+
+_AV2_SCENE_FILES = (
+    "dw_lane_line.parquet",
+    "cf_road_boundary.parquet",
+    "cf_crosswalks.parquet",
+    "cf_static_obstacle.parquet",
+    "egomotion_estimate.parquet",
+    "object_fused.parquet",
+    "calibration_estimate.parquet",
+)
+
+
+def _is_clipgt_directory(scene_dir: Path) -> bool:
+    """Return True when ``scene_dir`` contains ClipGT parquet payloads."""
+    if not scene_dir.is_dir():
+        return False
+    return any(
+        next(scene_dir.glob(pattern), None) is not None
+        for pattern in _CLIPGT_PARQUET_PATTERNS
+    )
+
+
+def _is_clipgt_archive(scene_path: Path) -> bool:
+    """Return True when ``scene_path`` is a zip/USDZ containing ClipGT parquets."""
+    if not scene_path.is_file() or not zipfile.is_zipfile(scene_path):
+        return False
+    try:
+        with zipfile.ZipFile(scene_path, "r") as zf:
+            return any(
+                name.startswith("clipgt/")
+                and name.endswith(".parquet")
+                and not name.endswith("/")
+                for name in zf.namelist()
+            )
+    except zipfile.BadZipFile:
+        return False
+
+
+def is_clipgt(scene_path: Union[str, Path]) -> bool:
+    """Return True when ``scene_path`` points at a ClipGT directory or archive."""
+    path = Path(scene_path)
+    if _is_clipgt_directory(path):
+        return True
+    if _is_clipgt_directory(path / "clipgt"):
+        return True
+    return _is_clipgt_archive(path)
+
+
+def _is_av2_scene(scene_path: Path) -> bool:
+    """Return True when ``scene_path`` points at an AV2 tar or directory."""
+    if scene_path.is_file():
+        return tarfile.is_tarfile(scene_path)
+    if not scene_path.is_dir():
+        return False
+    return any((scene_path / name).is_file() for name in _AV2_SCENE_FILES)
+
+
+def _extract_clipgt_archive(scene_path: Path, dest_dir: Path) -> Path:
+    """Extract a ClipGT archive to a loader-compatible parquet directory."""
+    clipgt_dir = dest_dir / "clipgt"
+    clipgt_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(scene_path, "r") as zf:
+        for name in zf.namelist():
+            if not name.startswith("clipgt/") or name.endswith("/"):
+                continue
+            relative = Path(name).relative_to("clipgt")
+            if relative.suffix in {".parquet", ".json"}:
+                target_name = f"clipgt.{relative.name}"
+            else:
+                target_name = relative.name
+            (clipgt_dir / target_name).write_bytes(zf.read(name))
+
+    return clipgt_dir
+
+
+def _resolve_clipgt_directory(scene_path: Union[str, Path]) -> Path:
+    """Resolve an already-extracted ClipGT directory."""
+    path = Path(scene_path)
+    if _is_clipgt_directory(path):
+        return path
+    child = path / "clipgt"
+    if _is_clipgt_directory(child):
+        return child
+    raise ValueError(f"{path} is not a ClipGT directory")
+
+
 def load_clipgt_scene(
     scene_dir: Union[str, Path],
     device: Union[str, torch.device] = "cuda",
@@ -3564,6 +3662,67 @@ def load_av2_scene(
         sensor_to_rig=sensor_to_rig,
         ego_track=ego_track,
         device=device,
+    )
+
+
+def load_scene(
+    scene_path: Union[str, Path],
+    device: Union[str, torch.device] = "cuda",
+    target_resolution: Optional[Tuple[int, int]] = None,
+    exclude_elements: Optional[set] = None,
+    include_ego_trajectory: bool = True,
+    include_ego_obstacle: bool = False,
+    include_dynamic_obstacles: bool = True,
+    simplify_dual_lane_lines: bool = True,
+    verbose: bool = False,
+    use_gpu_decoder: Optional[bool] = None,
+    prefetch_next: Optional[Union[str, Path]] = None,
+) -> ClipgtGpuScene:
+    """Load either a ClipGT or AV2 scene into one ``ClipgtGpuScene`` object."""
+    path = Path(scene_path)
+    if is_clipgt(path):
+        if path.is_file():
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                clipgt_dir = _extract_clipgt_archive(path, Path(tmp_dir))
+                return load_clipgt_scene(
+                    clipgt_dir,
+                    device=device,
+                    target_resolution=target_resolution,
+                    exclude_elements=exclude_elements,
+                    include_ego_trajectory=include_ego_trajectory,
+                    include_ego_obstacle=include_ego_obstacle,
+                    include_dynamic_obstacles=include_dynamic_obstacles,
+                    simplify_dual_lane_lines=simplify_dual_lane_lines,
+                    verbose=verbose,
+                )
+
+        return load_clipgt_scene(
+            _resolve_clipgt_directory(path),
+            device=device,
+            target_resolution=target_resolution,
+            exclude_elements=exclude_elements,
+            include_ego_trajectory=include_ego_trajectory,
+            include_ego_obstacle=include_ego_obstacle,
+            include_dynamic_obstacles=include_dynamic_obstacles,
+            simplify_dual_lane_lines=simplify_dual_lane_lines,
+            verbose=verbose,
+        )
+
+    if _is_av2_scene(path):
+        return load_av2_scene(
+            path,
+            device=device,
+            target_resolution=target_resolution,
+            include_ego_trajectory=include_ego_trajectory,
+            include_ego_obstacle=include_ego_obstacle,
+            verbose=verbose,
+            use_gpu_decoder=use_gpu_decoder,
+            prefetch_next=prefetch_next,
+        )
+
+    raise ValueError(
+        f"Unsupported scene path {path}: expected a ClipGT directory/archive "
+        "or an AV2 tar/directory."
     )
 
 

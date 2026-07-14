@@ -38,7 +38,7 @@ from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
 from ludus_renderer.util import resample_timestamps
 
-SCENE_PATH = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
+DEFAULT_SCENE = os.path.join(os.path.dirname(__file__), "../example_data/test_hdmap")
 CAMERA_NAME = "camera:front:wide:120fov"
 WIDTH, HEIGHT = 1280, 720
 FPS = 30
@@ -71,6 +71,18 @@ def main():
         help="Number of comparison passes against the reference (default: 1)",
     )
     parser.add_argument(
+        "--scene",
+        type=str,
+        default=DEFAULT_SCENE,
+        help="Scene directory, archive, or AV2 tar to render",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Limit the number of frames rendered for smoke tests",
+    )
+    parser.add_argument(
         "--dump-ref",
         type=str,
         default=None,
@@ -82,7 +94,7 @@ def main():
     device = torch.device("cuda")
 
     print("Loading scene...")
-    scene = load_scene(SCENE_PATH, device)
+    scene = load_scene(args.scene, device)
 
     timestep_us = 1_000_000 // FPS
     duration_us = (
@@ -91,6 +103,8 @@ def main():
     timestamps = resample_timestamps(
         scene.ego_tracks.timestamps, timestep_us, duration_us
     )
+    if args.max_frames is not None:
+        timestamps = timestamps[: args.max_frames]
     n_frames = len(timestamps)
     print(f"  {n_frames} frames at {FPS}Hz")
 

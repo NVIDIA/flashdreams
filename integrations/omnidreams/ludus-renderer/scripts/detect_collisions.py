@@ -51,7 +51,7 @@ from pathlib import Path
 
 def _process_scenes(args):
     import torch
-    from ludus_renderer.clipgt import load_av2_scene
+    from ludus_renderer import load_scene
     from ludus_renderer.collision import detect_collisions_from_scene
 
     scene_list = Path(args.scene_list)
@@ -98,7 +98,7 @@ def _process_scenes(args):
             record = {"path": tar_path, "collision": False, "n_events": 0, "events": []}
 
             try:
-                scene = load_av2_scene(tar_path, device=device)
+                scene = load_scene(tar_path, device=device)
                 result = detect_collisions_from_scene(scene)
 
                 if result.has_collision:
