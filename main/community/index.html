@@ -572,8 +572,8 @@ exactly one CI tier marker (<code class="docutils literal notranslate"><span cla
 <a class="reference internal" href="#testing">Testing</a> below. The project enforces this at collection
 time – pytest will error if a test is missing a marker.</p></li>
 <li><p>Run the project’s checks locally:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>-a<span class="w">       </span><span class="c1"># format + lint + type-check</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w">         </span><span class="c1"># CPU tests (no GPU required)</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>lint<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>-a<span class="w">       </span><span class="c1"># format + lint + type-check</span>
+uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w">         </span><span class="c1"># CPU tests (no GPU required)</span>
 </pre></div>
 </div>
 </li>
