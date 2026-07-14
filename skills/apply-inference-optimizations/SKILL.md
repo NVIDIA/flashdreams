@@ -108,7 +108,8 @@ CPU work dominates after decode.
 
 ## Promotion criteria
 
-Promote an optimization from experimental to recommended only when all apply:
+Promote an optimization to the `Recommended` validation status only when all
+apply:
 
 - steady-state total chunk time or target latency improves materially;
 - stage timing shows the expected bottleneck moved or shrank;
@@ -116,8 +117,9 @@ Promote an optimization from experimental to recommended only when all apply:
 - startup, prewarm, reset, scene-switch, and shape-change behavior are
   acceptable;
 - the fallback path remains available;
-- docs state the command, caveats, and whether the setting is default,
-  recommended, experimental, rejected, or deferred.
+- docs state the command, caveats, whether the setting is enabled by default,
+  and its `validate-performance-quality` status: `Recommended`,
+  `Useful opt-in`, `Rejected`, or `Deferred`.
 
 ## Rejection notes
 

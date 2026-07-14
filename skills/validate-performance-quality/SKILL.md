@@ -5,9 +5,10 @@ description: Design benchmark, quality, and documentation validation for FlashDr
 
 # Validate performance quality
 
+Use this skill after `apply-inference-optimizations` changes a runtime path.
 Performance changes are not complete until they have a reproducible benchmark,
 the right quality reference, and documentation that explains defaults versus
-experimental paths.
+validated opt-in paths.
 
 ## Benchmark contract
 
