@@ -45,10 +45,16 @@ from flashdreams.serving.webrtc.server import (
     WebRTCSessionManager,
     create_webrtc_app,
 )
+from lingbot.config import RUNNER_CONFIGS
 from lingbot.runner import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     EXAMPLE_DATA_DIR_LOCAL,
+    EXAMPLE_DATA_REPOSITORY_V1,
+    ExampleDataRepository,
+    LingbotWorldRunnerConfig,
     ensure_example_data_downloaded,
+    example_data_base_url,
+    example_data_cache_dir,
     example_data_dirname,
 )
 from lingbot.webrtc.session import (
@@ -328,13 +334,20 @@ def build_runtime_config(
     if args.video_height % 16 != 0 or args.video_width % 16 != 0:
         raise ValueError("--video-height and --video-width must be divisible by 16")
     example_idx = getattr(args, "example_idx", 0)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
+    repository = _example_data_repository(args.config_name)
+    example_dir = example_data_cache_dir(
+        repository=repository,
+        example_idx=example_idx,
+    )
     if (
-        example_idx == 0
+        repository == EXAMPLE_DATA_REPOSITORY_V1
+        and example_idx == 0
         and not example_dir.exists()
         and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
     ):
         example_dir = EXAMPLE_DATA_DIR_LOCAL
+    example_dirname = example_data_dirname(example_idx)
+    base_url = example_data_base_url(repository)
     return LingbotRuntimeConfig(
         config_name=args.config_name,
         compile_network=not args.no_compile,
@@ -345,7 +358,17 @@ def build_runtime_config(
         video_height=args.video_height,
         video_width=args.video_width,
         example_data_dir=example_dir,
+        default_image_url=f"{base_url}/{example_dirname}/image.jpg",
+        default_intrinsics_url=f"{base_url}/{example_dirname}/intrinsics.npy",
+        default_poses_url=f"{base_url}/{example_dirname}/poses.npy",
     )
+
+
+def _example_data_repository(config_name: str) -> ExampleDataRepository:
+    runner_config = RUNNER_CONFIGS.get(config_name)
+    if not isinstance(runner_config, LingbotWorldRunnerConfig):
+        raise ValueError(f"Unknown LingBot runner config: {config_name!r}")
+    return runner_config.example_data_repository
 
 
 def initialize_distributed(
@@ -417,6 +440,7 @@ def main() -> None:
     ensure_example_data_downloaded(
         is_rank_zero=(world_rank == 0),
         example_idx=args.example_idx,
+        repository=_example_data_repository(args.config_name),
     )
 
     runtime_config = build_runtime_config(
