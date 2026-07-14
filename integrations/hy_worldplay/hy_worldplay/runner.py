@@ -381,7 +381,7 @@ class HyWorldPlayWanI2VRunner(
         )
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
-        stats_history: list[dict[str, float]] = []
+        stats_history: list[dict[str, object]] = []
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
@@ -394,7 +394,12 @@ class HyWorldPlayWanI2VRunner(
                 stats = self.pipeline.finalize(ar_idx, cache)
                 postprocess_stream.process(chunk, autoregressive_index=ar_idx)
                 if postprocess_stream.collect_output and stats is not None:
-                    stats_history.append({"autoregressive_index": ar_idx, **stats})
+                    stats_history.append(
+                        {
+                            "autoregressive_index": ar_idx,
+                            **postprocess_stream.add_process_stats(stats),
+                        }
+                    )
             video = postprocess_stream.finish()
         elapsed = time.time() - start_time
 

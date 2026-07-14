@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import pytest
 import torch
 
+import flashdreams.infra.postprocess.stream as postprocess_stream_module
 from flashdreams.infra.postprocess import (
     VideoChunk,
     VideoPostprocessChainConfig,
@@ -83,6 +84,44 @@ def test_stream_buffers_then_flushes_once_and_closes() -> None:
     assert stream.finish() is None
     with pytest.raises(RuntimeError, match="after finish"):
         stream.process(video, autoregressive_index=1)
+
+
+def test_stream_profiles_buffering_as_a_separate_ar_stat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeEventProfiler:
+        def __init__(self, *, synchronize_distributed: bool) -> None:
+            assert not synchronize_distributed
+
+        def record(self, stage: str) -> None:
+            assert stage == "postprocess"
+
+        def sync_and_summarize(self) -> dict[str, float]:
+            return {"postprocess": 0.125}
+
+    monkeypatch.setattr(
+        postprocess_stream_module, "EventProfiler", _FakeEventProfiler
+    )
+    stream = VideoPostprocessStream(
+        postprocess=VideoPostprocessChainConfig(processors=(_BufferConfig(),)),
+        output_layout="tchw",
+        profile=True,
+    )
+    video = torch.ones(3, 3, 4, 5)
+
+    output = stream.process(video, autoregressive_index=0)
+    stats = stream.add_process_stats({"total_ms": 10.0})
+
+    assert output.shape[0] == 0
+    assert stats == {
+        "total_ms": 10.0,
+        "postprocess": {
+            "elapsed_ms": 0.125,
+            "input_frames": 3,
+            "output_frames": 0,
+            "buffering": True,
+        },
+    }
 
 
 def test_stream_collects_generated_chunks_without_postprocess() -> None:

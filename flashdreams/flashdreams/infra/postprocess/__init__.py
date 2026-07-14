@@ -26,12 +26,14 @@ from flashdreams.infra.postprocess.base import (
     to_bvtchw,
 )
 from flashdreams.infra.postprocess.stream import (
+    VideoPostprocessStepStats,
     VideoPostprocessStream,
     create_runner_postprocess_stream,
 )
 
 __all__ = [
     "VideoPostprocessStream",
+    "VideoPostprocessStepStats",
     "create_runner_postprocess_stream",
     "VideoChunk",
     "VideoPostProcessor",

@@ -434,7 +434,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         cache = self._initialize_cache()
 
         postprocess_stream = self.create_postprocess_stream(fps=fps)
-        stats_history: list[dict[str, float]] = []
+        stats_history: list[dict[str, object]] = []
         for chunk_idx, (start, size) in enumerate(chunks):
             clip = video_t[:, :, start : start + size]
             video_chunk = self.pipeline.generate(
@@ -442,26 +442,26 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 cache=cache,
                 input=clip,
             )
+            pipeline_frames = int(video_chunk.shape[2])
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
-            video_chunk = postprocess_stream.process(
+            postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=chunk_idx,
             )
             if postprocess_stream.collect_output and stats is not None:
-                # Report throughput against the visible output frames for this
-                # chunk. ``fps`` is reserved for the output video's frame rate.
-                chunk_frames = int(video_chunk.shape[2])
+                # Pipeline throughput is based on this AR step's direct output.
+                # Postprocess emission/buffering is reported separately.
                 chunk_total_ms = stats["total_ms"]
                 chunk_fps = (
-                    chunk_frames / chunk_total_ms * 1000.0
+                    pipeline_frames / chunk_total_ms * 1000.0
                     if chunk_total_ms > 0
                     else 0.0
                 )
                 stats_history.append(
                     {
                         "autoregressive_index": chunk_idx,
-                        **stats,
-                        "frames": chunk_frames,
+                        **postprocess_stream.add_process_stats(stats),
+                        "frames": pipeline_frames,
                         "fps": chunk_fps,
                     }
                 )

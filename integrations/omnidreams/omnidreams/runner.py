@@ -387,7 +387,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             torch.distributed.barrier()
 
         postprocess_stream = self.create_postprocess_stream(fps=cfg.output_fps)
-        stats_history: list[dict[str, float]] = []
+        stats_history: list[dict[str, object]] = []
         start = 0
         for i in range(cfg.total_blocks):
             num_frames = self.pipeline.get_num_frames(i)
@@ -409,7 +409,12 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 video_chunk, autoregressive_index=i
             )
             if postprocess_stream.collect_output and stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
+                stats_history.append(
+                    {
+                        "autoregressive_index": i,
+                        **postprocess_stream.add_process_stats(stats),
+                    }
+                )
             start = end
 
         video = postprocess_stream.finish()

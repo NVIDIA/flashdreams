@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import mediapy as media
-import torch
 from einops import rearrange
 from loguru import logger
 
@@ -130,7 +129,7 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
 
         # Generate the autoregressive chunks.
         postprocess_stream = self.create_postprocess_stream(fps=config.fps)
-        stats_history: list[dict[str, float]] = []
+        stats_history: list[dict[str, object]] = []
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
@@ -138,7 +137,12 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
                 video_chunk, autoregressive_index=i
             )
             if postprocess_stream.collect_output and stats is not None:
-                stats_history.append({"autoregressive_index": i, **stats})
+                stats_history.append(
+                    {
+                        "autoregressive_index": i,
+                        **postprocess_stream.add_process_stats(stats),
+                    }
+                )
 
         generated = postprocess_stream.finish()
         if generated is None:

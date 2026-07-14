@@ -56,6 +56,25 @@ class _VideoPostprocessStreamState:
     """Stable view count for per-view streams."""
 
 
+@dataclass(frozen=True, kw_only=True)
+class VideoPostprocessStepStats:
+    """Profiling data for one AR chunk passed through post-processing."""
+
+    elapsed_ms: float
+    input_frames: int
+    output_frames: int
+    buffering: bool
+
+    def as_dict(self) -> dict[str, float | int | bool]:
+        """Return a JSON-serializable representation."""
+        return {
+            "elapsed_ms": self.elapsed_ms,
+            "input_frames": self.input_frames,
+            "output_frames": self.output_frames,
+            "buffering": self.buffering,
+        }
+
+
 class VideoPostprocessStream:
     """Process and collect decoded video chunks through one configured chain.
 
@@ -91,11 +110,13 @@ class VideoPostprocessStream:
         self._time_dim = _video_layout_time_dim(output_layout)
         self._chunks: list[Tensor] = []
         self._closed = False
+        self.last_process_stats: VideoPostprocessStepStats | None = None
 
     def process(self, output: Tensor, *, autoregressive_index: int) -> Tensor:
         """Process and collect one decoded chunk."""
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
+        self.last_process_stats = None
         if not self.profile:
             result = apply_video_postprocess(
                 postprocess=self.postprocess,
@@ -121,12 +142,28 @@ class VideoPostprocessStream:
         )
         profiler.record("postprocess")
         elapsed_ms = profiler.sync_and_summarize()["postprocess"]
+        input_frames = int(output.shape[self._time_dim])
+        output_frames = int(result.shape[self._time_dim])
+        self.last_process_stats = VideoPostprocessStepStats(
+            elapsed_ms=elapsed_ms,
+            input_frames=input_frames,
+            output_frames=output_frames,
+            buffering=output_frames == 0,
+        )
         logger.info(
             f"postprocess AR {autoregressive_index} {elapsed_ms:.3f} ms | "
-            f"input {tuple(output.shape)} output {tuple(result.shape)}"
+            f"input {tuple(output.shape)} output {tuple(result.shape)} | "
+            f"buffering {self.last_process_stats.buffering}"
         )
         self._append_if_nonempty(result)
         return result
+
+    def add_process_stats(self, stats: dict[str, float]) -> dict[str, object]:
+        """Add the latest postprocess measurement to pipeline AR stats."""
+        combined: dict[str, object] = dict(stats)
+        if self.last_process_stats is not None:
+            combined["postprocess"] = self.last_process_stats.as_dict()
+        return combined
 
     def finish(self) -> Tensor | None:
         """Flush buffered output and return the collected rank-zero video."""
