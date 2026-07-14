@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar, cast
+from typing import TypeVar
 
 from torch import Tensor
 
@@ -52,20 +52,17 @@ def configure_runner_pipeline_postprocess(config: RunnerConfigT) -> RunnerConfig
     if fps is None:
         fps = getattr(config, "fps", getattr(config, "output_fps", None))
 
-    return cast(
-        RunnerConfigT,
-        derive_config(
-            config,
-            pipeline=dict(
-                postprocess=postprocess,
-                postprocess_output_layout=output_layout,
-                postprocess_output_value_range=getattr(
-                    config,
-                    "postprocess_output_value_range",
-                ),
-                postprocess_fps=fps,
-                postprocess_per_view=getattr(config, "postprocess_per_view"),
+    return derive_config(
+        config,
+        pipeline=dict(
+            postprocess=postprocess,
+            postprocess_output_layout=output_layout,
+            postprocess_output_value_range=getattr(
+                config,
+                "postprocess_output_value_range",
             ),
+            postprocess_fps=fps,
+            postprocess_per_view=getattr(config, "postprocess_per_view"),
         ),
     )
 

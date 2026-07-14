@@ -143,7 +143,9 @@ def init() -> int | None:
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     try:
         device = Device(local_rank)
-        os.sched_setaffinity(0, device.get_cpu_affinity())
+        sched_setaffinity = getattr(os, "sched_setaffinity", None)
+        if sched_setaffinity is not None:
+            sched_setaffinity(0, device.get_cpu_affinity())
     except (pynvml.NVMLError, OSError) as e:
         logger.warning(f"Failed to set device affinity: {e}")
 

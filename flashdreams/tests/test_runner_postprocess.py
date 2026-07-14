@@ -26,8 +26,8 @@ import torch
 
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import (
-    VideoPostProcessorConfig,
     VideoPostprocessChainConfig,
+    VideoPostProcessorConfig,
 )
 from flashdreams.infra.runner import Runner, RunnerConfig
 
@@ -86,7 +86,9 @@ def test_apply_output_postprocess_disabled_returns_input() -> None:
     assert result is video
 
 
-@patch.object(_MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5))
+@patch.object(
+    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
+)
 def test_apply_output_postprocess_rank_zero_only(mock_postprocess: MagicMock) -> None:
     runner = _runner(
         is_rank_zero=True,
@@ -104,7 +106,9 @@ def test_apply_output_postprocess_rank_zero_only(mock_postprocess: MagicMock) ->
     assert torch.equal(result, torch.ones(2, 3, 4, 5))
 
 
-@patch.object(_MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5))
+@patch.object(
+    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
+)
 def test_apply_output_postprocess_non_zero_skips_rank_zero_only(
     mock_postprocess: MagicMock,
 ) -> None:
@@ -122,7 +126,9 @@ def test_apply_output_postprocess_non_zero_skips_rank_zero_only(
     assert result is None
 
 
-@patch.object(_MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5))
+@patch.object(
+    _MinimalRunner, "postprocess_video_tensor", return_value=torch.ones(2, 3, 4, 5)
+)
 def test_apply_output_postprocess_full_attn_runs_on_all_ranks(
     mock_postprocess: MagicMock,
 ) -> None:

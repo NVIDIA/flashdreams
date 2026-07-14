@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
 
 from flashdreams.infra.config import InstantiateConfig
+from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineConfig,
@@ -155,7 +156,10 @@ def _pipeline(
     output = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
     config = StreamInferencePipelineConfig(
         name="test-postprocess-pipeline",
-        diffusion_model=_FakeDiffusionModelConfig(output=output),
+        diffusion_model=cast(
+            DiffusionModelConfig,
+            _FakeDiffusionModelConfig(output=output),
+        ),
         postprocess=VideoPostprocessChainConfig(processors=(postprocessor,)),
         postprocess_output_layout="tchw",
     )
@@ -169,8 +173,12 @@ def test_generate_returns_postprocessed_output_and_keeps_raw_cache() -> None:
     output = pipeline.generate(0, cache)
 
     assert torch.equal(output, raw + 1)
-    assert torch.equal(cache.last_raw_output, raw)
-    assert torch.equal(cache.last_output, output)
+    last_raw_output = cache.last_raw_output
+    assert last_raw_output is not None
+    assert torch.equal(last_raw_output, raw)
+    last_output = cache.last_output
+    assert last_output is not None
+    assert torch.equal(last_output, output)
 
 
 def test_buffered_postprocess_flush_preserves_original_generate_output() -> None:
@@ -181,6 +189,8 @@ def test_buffered_postprocess_flush_preserves_original_generate_output() -> None
     tail = pipeline.flush_postprocess(cache)
 
     assert output.shape == (0, 3, 4, 5)
-    assert torch.equal(cache.last_raw_output, raw)
+    last_raw_output = cache.last_raw_output
+    assert last_raw_output is not None
+    assert torch.equal(last_raw_output, raw)
     assert tail is not None
     assert torch.equal(tail, raw + 2)

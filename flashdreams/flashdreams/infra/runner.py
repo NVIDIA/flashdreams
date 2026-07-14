@@ -39,9 +39,11 @@ from flashdreams.infra.postprocess import (
     VideoValueRange,
     apply_runner_output_postprocess,
     configure_runner_pipeline_postprocess,
-    postprocess_requires_all_ranks as runner_postprocess_requires_all_ranks,
     postprocess_video_tensor,
     validate_runner_postprocess_for_world_size,
+)
+from flashdreams.infra.postprocess import (
+    postprocess_requires_all_ranks as runner_postprocess_requires_all_ranks,
 )
 
 
