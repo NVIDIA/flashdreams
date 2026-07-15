@@ -764,8 +764,9 @@ SPDX-License-Identifier: Apache-2.0
 <div class="viewcode-block" id="BlockKVCache.reset">
 <a class="viewcode-back" href="../../../../api/core.html#flashdreams.core.attention.BlockKVCache.reset">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reset the cache to its initial empty state.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reset bookkeeping while preserving the allocated tensor storage.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">=</span> <span class="mi">0</span></div>
 </div>
 

@@ -439,6 +439,52 @@ SPDX-License-Identifier: Apache-2.0
         <span class="k">pass</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">shutdown</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">synchronize</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">terminate_process</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform bounded distributed shutdown for an owned process lifetime.</span>
+
+<span class="sd">    Callers should request synchronization only after every rank completed its</span>
+<span class="sd">    workload. ``terminate_process`` is intended for a successful NCCL console</span>
+<span class="sd">    command whose process lifetime is owned by the caller. Compiled CUDA-graph</span>
+<span class="sd">    inference can leave backend workers that make both process-group shutdown</span>
+<span class="sd">    and abort block indefinitely; after the final barrier, immediate process</span>
+<span class="sd">    termination is the only bounded cleanup for that case.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">synchronization_complete</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">synchronize</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">synchronize</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Synchronizing distributed ranks before shutdown.&quot;</span><span class="p">)</span>
+            <span class="n">dist</span><span class="o">.</span><span class="n">barrier</span><span class="p">(</span><span class="n">device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()])</span>
+            <span class="n">synchronization_complete</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Distributed shutdown synchronization complete.&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">is_distributed_initialized</span><span class="p">():</span>
+            <span class="n">terminate_nccl</span> <span class="o">=</span> <span class="n">terminate_process</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_backend</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;nccl&quot;</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">synchronize</span><span class="p">:</span>
+                <span class="c1"># A rank-local failure can leave peers inside outstanding NCCL</span>
+                <span class="c1"># or compiled CUDA-graph work.  destroy_process_group() waits</span>
+                <span class="c1"># for that work and can therefore hide the original exception</span>
+                <span class="c1"># indefinitely.  Let the exception escape so torchrun can</span>
+                <span class="c1"># terminate the remaining ranks as a group.</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;Skipping process-group destruction after an &quot;</span>
+                    <span class="s2">&quot;unsynchronized rank failure.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">terminate_nccl</span><span class="p">:</span>
+                <span class="n">atexit</span><span class="o">.</span><span class="n">unregister</span><span class="p">(</span><span class="n">_safe_destroy_pg</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">synchronization_complete</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Exiting after coordinated NCCL shutdown barrier.&quot;</span><span class="p">)</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Destroying the distributed process group.&quot;</span><span class="p">)</span>
+                <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Distributed process group destroyed.&quot;</span><span class="p">)</span>
+        <span class="n">atexit</span><span class="o">.</span><span class="n">unregister</span><span class="p">(</span><span class="n">_safe_destroy_pg</span><span class="p">)</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">is_distributed_initialized</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True when torch distributed is available and initialized.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">()</span>
@@ -537,7 +583,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">Device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
-        <span class="n">os</span><span class="o">.</span><span class="n">sched_setaffinity</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">get_cpu_affinity</span><span class="p">())</span>
+        <span class="n">sched_setaffinity</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s2">&quot;sched_setaffinity&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sched_setaffinity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">sched_setaffinity</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">get_cpu_affinity</span><span class="p">())</span>
     <span class="k">except</span> <span class="p">(</span><span class="n">pynvml</span><span class="o">.</span><span class="n">NVMLError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to set device affinity: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
