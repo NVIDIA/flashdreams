@@ -187,7 +187,7 @@ Then open:
 - Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`, and a prompt when
   available) for both v1 and v2 models auto-download from the canonical
   [`Robbyant/lingbot-world-v2`](https://github.com/Robbyant/lingbot-world-v2/tree/main/examples)
-  examples folder into `assets/example_data/lingbot_world/<NN>/` on
+  examples folder into `$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world/<NN>/` on
   first launch (`<NN>` is the `--example-idx`: `00` through `05`). Examples
   `03` and `04` use an empty prompt because they do not provide their own
   upstream `prompt.txt`.

@@ -47,6 +47,7 @@ from flashdreams.serving.webrtc.server import (
 )
 from lingbot.runner import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
+    EXAMPLE_DATA_BASE_URL,
     EXAMPLE_DATA_DIR_LOCAL,
     ensure_example_data_downloaded,
     example_data_dirname,
@@ -328,7 +329,8 @@ def build_runtime_config(
     if args.video_height % 16 != 0 or args.video_width % 16 != 0:
         raise ValueError("--video-height and --video-width must be divisible by 16")
     example_idx = getattr(args, "example_idx", 0)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_data_dirname(example_idx)
+    example_dirname = example_data_dirname(example_idx)
+    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
     if (
         example_idx == 0
         and not example_dir.exists()
@@ -345,6 +347,11 @@ def build_runtime_config(
         video_height=args.video_height,
         video_width=args.video_width,
         example_data_dir=example_dir,
+        default_image_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/image.jpg",
+        default_intrinsics_url=(
+            f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/intrinsics.npy"
+        ),
+        default_poses_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/poses.npy",
     )
 
 
