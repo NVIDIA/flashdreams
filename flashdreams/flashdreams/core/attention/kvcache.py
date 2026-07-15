@@ -356,6 +356,7 @@ class BlockKVCache:
         return self._v[self._seq_slice(0, self._visible_end())]
 
     def reset(self) -> None:
-        """Reset the cache to its initial empty state."""
+        """Reset bookkeeping while preserving the allocated tensor storage."""
         self._prev_chunk_idx = -1
+        self._curr_chunk_idx = None
         self._n_cached = 0

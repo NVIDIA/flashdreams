@@ -38,6 +38,9 @@ from flashvsr.encoder import FlashVSREncoder
 _DTypeName = Literal["bfloat16", "float16", "float32"]
 _TailPolicy = Literal["replicate_pad", "drop"]
 
+_DISTRIBUTED_PREPARE_STEADY_CHUNKS = 4
+"""Steady chunks needed to warm, capture, and replay every CUDA-graph stage."""
+
 
 @dataclass(kw_only=True)
 class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
@@ -144,6 +147,58 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._ar_idx = 0
 
     @torch.no_grad()
+    def prepare(self) -> None:
+        """Warm compiled context-parallel shapes, then reset stream state."""
+        if not self._requires_distributed_compile_warmup():
+            return
+
+        self._ensure_pipeline_for_shape(self._spec.height, self._spec.width)
+        assert self._pipeline is not None
+        dtype = getattr(
+            getattr(self._pipeline, "diffusion_model", None),
+            "dtype",
+            _resolve_dtype(self._config.dtype),
+        )
+        device = getattr(
+            self._pipeline,
+            "device",
+            torch.device(_resolve_postprocess_device(self._config.device)),
+        )
+        first = torch.zeros(
+            (1, 3, self._first_size, self._spec.height, self._spec.width),
+            device=device,
+            dtype=dtype,
+        )
+        self._run_flashvsr_chunk(first)
+        # The steady-state path can have different iteration and graph shapes
+        # from the cold-start chunk, so compile/capture it as well.
+        steady = torch.zeros(
+            (1, 3, self._subseq_size, self._spec.height, self._spec.width),
+            device=device,
+            dtype=dtype,
+        )
+        for _ in range(_DISTRIBUTED_PREPARE_STEADY_CHUNKS):
+            self._run_flashvsr_chunk(steady)
+        del first, steady
+
+        # Warmup must not consume rollout state. Keep the transformer cache
+        # object and its CUDA-graph-bound KV storage, but restore every nested
+        # cache's cold-start bookkeeping for the real video.
+        self._pipeline.reset_cache_in_place(self._cache)
+        self._buffer = None
+        self._metadata_spans.clear()
+        self._ar_idx = 0
+
+    def _requires_distributed_compile_warmup(self) -> bool:
+        return (
+            self._config.compile_network
+            and self._config.attention_mode == "full"
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+            and torch.distributed.get_world_size() > 1
+        )
+
+    @torch.no_grad()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Buffer input frames and emit complete FlashVSR chunks."""
         bcthw = self._chunk_to_bcthw(chunk)
@@ -203,6 +258,11 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
                 "FlashVSR postprocess stream dimensions changed from "
                 f"{self._spec.height}x{self._spec.width} to {height}x{width}."
             )
+        self._ensure_pipeline_for_shape(height, width)
+
+    def _ensure_pipeline_for_shape(self, height: int, width: int) -> None:
+        if self._pipeline is not None:
+            return
         dtype = _resolve_dtype(self._config.dtype)
         pipeline_cfg = _build_flashvsr_pipeline(
             input_H=height,
@@ -223,9 +283,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         self._pipeline = pipeline_cfg.setup().to(device=device).eval()
         self._cache = self._pipeline.initialize_cache()
 
-    def _append_to_buffer(
-        self, bcthw: Tensor, *, metadata: dict[str, Any]
-    ) -> None:
+    def _append_to_buffer(self, bcthw: Tensor, *, metadata: dict[str, Any]) -> None:
         assert self._pipeline is not None
         dtype = getattr(
             getattr(self._pipeline, "diffusion_model", None), "dtype", bcthw.dtype
@@ -268,9 +326,7 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             cache=self._cache,
             input=clip,
         )
-        self._pipeline.finalize(
-            autoregressive_index=self._ar_idx, cache=self._cache
-        )
+        self._pipeline.finalize(autoregressive_index=self._ar_idx, cache=self._cache)
         self._ar_idx += 1
         return output
 

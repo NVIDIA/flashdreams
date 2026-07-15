@@ -24,7 +24,6 @@ import torch
 from loguru import logger
 from torch import Tensor
 
-from flashdreams.infra.profiler import EventProfiler
 from flashdreams.infra.postprocess.base import (
     VideoChunk,
     VideoPostprocessChainConfig,
@@ -36,7 +35,7 @@ from flashdreams.infra.postprocess.base import (
     infer_video_spec_from_tensor_shape,
     to_bvtchw,
 )
-
+from flashdreams.infra.profiler import EventProfiler
 
 RunnerConfigT = TypeVar("RunnerConfigT")
 
@@ -110,6 +109,7 @@ class VideoPostprocessStream:
         self._time_dim = _video_layout_time_dim(output_layout)
         self._chunks: list[Tensor] = []
         self._closed = False
+        self._prepared = False
         self.last_process_stats: VideoPostprocessStepStats | None = None
 
     def process(self, output: Tensor, *, autoregressive_index: int) -> Tensor:
@@ -117,6 +117,7 @@ class VideoPostprocessStream:
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
         self.last_process_stats = None
+        self._prepare(output)
         if not self.profile:
             result = apply_video_postprocess(
                 postprocess=self.postprocess,
@@ -197,11 +198,32 @@ class VideoPostprocessStream:
         return self._collected_output()
 
     def _create_event_profiler(self) -> EventProfiler:
-        return EventProfiler(
-            synchronize_distributed=self.postprocess.requires_all_ranks(
-                world_size=self.world_size
-            )
+        # The stream owns its one explicit readiness barrier in ``_prepare``.
+        # Profiling must not inject additional collectives between model calls.
+        return EventProfiler(synchronize_distributed=False)
+
+    def _prepare(self, output: Tensor) -> None:
+        """Prepare sessions once, then synchronize distributed readiness."""
+        if self._prepared or not self.postprocess.is_enabled():
+            return
+        prepare_video_postprocess(
+            postprocess=self.postprocess,
+            output_layout=self.output_layout,
+            fps=self.fps,
+            per_view=self.per_view,
+            state=self.state,
+            output=output,
         )
+        if (
+            self.postprocess.requires_all_ranks(world_size=self.world_size)
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        ):
+            # This is deliberately the only postprocess readiness collective.
+            # All compilation/model warmup collectives have completed before a
+            # rank can enter it, and the process-group timeout bounds failures.
+            torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
+        self._prepared = True
 
     def _append_if_nonempty(self, output: Tensor) -> None:
         if not self.collect_output or output.shape[self._time_dim] == 0:
@@ -308,6 +330,40 @@ def apply_video_postprocess(
     return result
 
 
+def prepare_video_postprocess(
+    *,
+    postprocess: VideoPostprocessChainConfig,
+    output_layout: VideoTensorLayout,
+    fps: float | None,
+    per_view: bool,
+    state: _VideoPostprocessStreamState,
+    output: Tensor,
+) -> None:
+    """Create and prepare sessions before the first measured process call."""
+    _validate_input_spec(state=state, output=output, layout=output_layout, fps=fps)
+    if per_view:
+        if output_layout != "bvtchw":
+            raise ValueError(
+                "postprocess_per_view requires a layout with an explicit view "
+                f"axis; got {output_layout!r}."
+            )
+        canonical = to_bvtchw(output, layout=output_layout)
+        views = canonical.shape[1]
+        state.num_views = views
+        for view_idx in range(views):
+            view = canonical[:, view_idx : view_idx + 1]
+            spec = infer_video_spec_from_tensor_shape(view, layout="bvtchw", fps=fps)
+            session = postprocess.setup(spec)
+            state.sessions[view_idx] = session
+            session.prepare()
+        return
+
+    spec = infer_video_spec_from_tensor_shape(output, layout=output_layout, fps=fps)
+    session = postprocess.setup(spec)
+    state.sessions[-1] = session
+    session.prepare()
+
+
 def flush_video_postprocess(
     *,
     postprocess: VideoPostprocessChainConfig,
@@ -358,8 +414,7 @@ def _postprocess_output_per_view(
         state.num_views = views
     elif state.num_views != views:
         raise ValueError(
-            "postprocess stream view count changed from "
-            f"{state.num_views} to {views}."
+            f"postprocess stream view count changed from {state.num_views} to {views}."
         )
     view_outputs: list[Tensor] = []
     for view_idx in range(canonical.shape[1]):

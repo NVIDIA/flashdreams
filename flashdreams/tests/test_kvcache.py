@@ -136,6 +136,35 @@ class _FakeDeviceMesh:
         return self._world_size
 
 
+@pytest.mark.ci_cpu
+def test_reset_preserves_storage_and_restores_empty_bookkeeping() -> None:
+    cache = BlockKVCache(
+        k_shape=(1, 4, 1, 2),
+        v_shape=(1, 4, 1, 2),
+        seq_dim=1,
+        chunk_size=2,
+        window_size=4,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    k_ptr = cache._k.data_ptr()
+    v_ptr = cache._v.data_ptr()
+    cache.before_update(0)
+    cache.update(torch.ones((1, 2, 1, 2)), torch.ones((1, 2, 1, 2)))
+    cache.after_update(0)
+
+    cache.reset()
+
+    assert cache._k.data_ptr() == k_ptr
+    assert cache._v.data_ptr() == v_ptr
+    assert cache._prev_chunk_idx == -1
+    assert cache._curr_chunk_idx is None
+    assert cache._n_cached == 0
+
+    cache.before_update(0)
+    assert cache.size == 2
+
+
 @pytest.fixture
 def device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")

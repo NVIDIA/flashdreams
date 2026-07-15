@@ -95,6 +95,14 @@ class Wan21TransformerCache(TransformerAutoregressiveCache):
         if self.network_cache_uncond is not None:
             self.network_cache_uncond.after_update(autoregressive_index)
 
+    def reset(self) -> None:
+        """Reset rollout bookkeeping while preserving CUDA-graph-bound buffers."""
+        self.network_cache.reset()
+        if self.network_cache_uncond is not None:
+            self.network_cache_uncond.reset()
+        self.rope_freqs = None
+        self.autoregressive_index = -1
+
 
 ## Transformer
 

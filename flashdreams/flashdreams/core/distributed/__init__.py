@@ -56,6 +56,52 @@ def _safe_destroy_pg() -> None:
         pass
 
 
+def shutdown(*, synchronize: bool = False, terminate_process: bool = False) -> None:
+    """Perform bounded distributed shutdown for an owned process lifetime.
+
+    Callers should request synchronization only after every rank completed its
+    workload. ``terminate_process`` is intended for a successful NCCL console
+    command whose process lifetime is owned by the caller. Compiled CUDA-graph
+    inference can leave backend workers that make both process-group shutdown
+    and abort block indefinitely; after the final barrier, immediate process
+    termination is the only bounded cleanup for that case.
+    """
+    synchronization_complete = not synchronize
+    try:
+        if not is_distributed_initialized():
+            return
+        if synchronize:
+            logger.info("Synchronizing distributed ranks before shutdown.")
+            dist.barrier(device_ids=[torch.cuda.current_device()])
+            synchronization_complete = True
+            logger.info("Distributed shutdown synchronization complete.")
+    finally:
+        if is_distributed_initialized():
+            terminate_nccl = terminate_process and dist.get_backend() == "nccl"
+            if not synchronize:
+                # A rank-local failure can leave peers inside outstanding NCCL
+                # or compiled CUDA-graph work.  destroy_process_group() waits
+                # for that work and can therefore hide the original exception
+                # indefinitely.  Let the exception escape so torchrun can
+                # terminate the remaining ranks as a group.
+                logger.warning(
+                    "Skipping process-group destruction after an "
+                    "unsynchronized rank failure."
+                )
+            elif terminate_nccl:
+                atexit.unregister(_safe_destroy_pg)
+                if synchronization_complete:
+                    logger.info("Exiting after coordinated NCCL shutdown barrier.")
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    os._exit(0)
+            else:
+                logger.info("Destroying the distributed process group.")
+                dist.destroy_process_group()
+                logger.info("Distributed process group destroyed.")
+        atexit.unregister(_safe_destroy_pg)
+
+
 def is_distributed_initialized() -> bool:
     """Return True when torch distributed is available and initialized."""
     return dist.is_available() and dist.is_initialized()

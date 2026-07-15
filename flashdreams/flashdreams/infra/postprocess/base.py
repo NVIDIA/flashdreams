@@ -35,6 +35,7 @@ VideoTensorLayout = Literal[
 ]
 """Supported RGB video tensor layouts at the post-processing boundary."""
 
+
 @dataclass(frozen=True, kw_only=True)
 class VideoSpec:
     """Static stream metadata passed to post-processors before first use."""
@@ -99,6 +100,16 @@ VideoPostProcessorConfigT = TypeVar(
 
 class VideoPostProcessorSession(ABC):
     """Stateful per-stream post-processing session."""
+
+    def prepare(self) -> None:
+        """Prepare expensive runtime state before the first timed chunk.
+
+        Most processors need no explicit preparation. Compiled distributed
+        processors can override this hook to compile representative shapes on
+        every rank before the stream enters its measured execution phase.
+        Implementations must leave the session equivalent to a newly started
+        stream when this method returns.
+        """
 
     @abstractmethod
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
@@ -191,6 +202,11 @@ class _VideoPostprocessChainSession(VideoPostProcessorSession):
             chunks=[chunk],
         )
 
+    def prepare(self) -> None:
+        """Prepare every processor session in chain order."""
+        for session in self._sessions:
+            session.prepare()
+
     def flush(self) -> list[VideoChunk]:
         """Flush each session once and feed its tail output downstream.
 
@@ -260,7 +276,9 @@ def concatenate_video_chunks(
     layout: VideoTensorLayout,
 ) -> Tensor:
     """Concatenate ``[-1, 1]`` chunks along time in the requested layout."""
-    canonical_chunks = [to_bvtchw(chunk.tensor, layout=chunk.layout) for chunk in chunks]
+    canonical_chunks = [
+        to_bvtchw(chunk.tensor, layout=chunk.layout) for chunk in chunks
+    ]
     if not canonical_chunks:
         raise ValueError("cannot concatenate an empty video chunk sequence")
     canonical = torch.cat(canonical_chunks, dim=2)

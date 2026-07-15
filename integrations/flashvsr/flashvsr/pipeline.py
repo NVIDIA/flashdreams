@@ -231,6 +231,29 @@ class FlashVSRPipeline(
             decoder_context={},
         )
 
+    @staticmethod
+    def reset_cache_in_place(cache: FlashVSRPipelineCache) -> None:
+        """Reset a rollout while preserving transformer KV-buffer identities.
+
+        CUDA graphs in :class:`FlashVSRTransformer` capture the transformer's
+        per-rollout KV-buffer addresses. Replacing ``cache`` after warmup
+        invalidates those graphs and repeats their expensive warmup and capture
+        during the measured rollout. Reset the nested caches in place so the
+        transformer graph remains reusable; the encoder and decoder restore
+        their cold-start semantics independently.
+
+        Args:
+            cache: Completed warmup cache to reuse for the real rollout.
+        """
+        assert cache.encoder_cache is not None
+        assert cache.decoder_cache is not None
+        cache.encoder_cache.reset()
+        cache.transformer_cache.reset()
+        cache.decoder_cache.reset()
+        cache.final_state = None
+        cache.autoregressive_index = None
+        cache.event_profiler = None
+
     @torch.no_grad()
     def generate(  # type: ignore[override]
         self,

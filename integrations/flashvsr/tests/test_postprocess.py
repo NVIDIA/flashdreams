@@ -18,11 +18,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import flashvsr.postprocess as flashvsr_postprocess
 import pytest
 import torch
+from flashvsr.pipeline import FlashVSRPipeline
 from flashvsr.postprocess import FlashVSRPostProcessorConfig
 
 from flashdreams.infra.postprocess import (
@@ -52,6 +53,9 @@ class _FakeFlashVSRPipeline:
         self.diffusion_model = SimpleNamespace(dtype=torch.float32)
         self.inputs: list[tuple[int, torch.Tensor]] = []
         self.finalized: list[int] = []
+        self.cache_initializations = 0
+        self.cache_resets = 0
+        self.cache_ids: list[int] = []
 
     def to(self, device: str) -> "_FakeFlashVSRPipeline":
         self.device = torch.device(device)
@@ -61,7 +65,12 @@ class _FakeFlashVSRPipeline:
         return self
 
     def initialize_cache(self) -> SimpleNamespace:
+        self.cache_initializations += 1
         return SimpleNamespace()
+
+    def reset_cache_in_place(self, cache: SimpleNamespace) -> None:
+        self.cache_resets += 1
+        cache.was_reset = True
 
     def generate(
         self,
@@ -70,6 +79,7 @@ class _FakeFlashVSRPipeline:
         input: torch.Tensor,
     ) -> torch.Tensor:
         self.inputs.append((autoregressive_index, input.detach().cpu()))
+        self.cache_ids.append(id(cache))
         return input.repeat_interleave(2, dim=-2).repeat_interleave(2, dim=-1)
 
     def finalize(self, autoregressive_index: int, cache: SimpleNamespace) -> None:
@@ -195,6 +205,69 @@ def test_flashvsr_postprocessor_declares_distributed_execution() -> None:
     assert full.requires_all_ranks(world_size=2)
     with pytest.raises(ValueError, match="does not support multi-GPU"):
         sparse.validate_execution(world_size=2)
+
+
+def test_flashvsr_distributed_prepare_warms_both_shapes_and_resets_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_builder(monkeypatch)
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.distributed, "get_world_size", lambda: 2)
+    monkeypatch.setattr(
+        flashvsr_postprocess, "_resolve_postprocess_device", lambda _: "cpu"
+    )
+    config = FlashVSRPostProcessorConfig(
+        device="cpu",
+        chunk_size=8,
+        attention_mode="full",
+        compile_network=True,
+        dtype="float32",
+    )
+    session = config.setup().start(VideoSpec(height=4, width=4, fps=24))
+
+    session.prepare()
+    output = session.process(VideoChunk(tensor=torch.ones((5, 3, 4, 4)), layout="tchw"))
+
+    assert len(created) == 1
+    pipeline = created[0]
+    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2, 3, 4, 0]
+    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8, 8, 8, 5]
+    assert pipeline.finalized == [0, 1, 2, 3, 4, 0]
+    assert pipeline.cache_initializations == 1
+    assert pipeline.cache_resets == 1
+    assert len(set(pipeline.cache_ids)) == 1
+    assert len(output) == 1
+
+
+def test_flashvsr_pipeline_resets_nested_caches_in_place() -> None:
+    class _Resettable:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def reset(self) -> None:
+            self.calls += 1
+
+    encoder = _Resettable()
+    transformer = _Resettable()
+    decoder = _Resettable()
+    cache = SimpleNamespace(
+        encoder_cache=encoder,
+        transformer_cache=transformer,
+        decoder_cache=decoder,
+        final_state=object(),
+        autoregressive_index=4,
+        event_profiler=object(),
+    )
+    identities = tuple(id(item) for item in (encoder, transformer, decoder))
+
+    FlashVSRPipeline.reset_cache_in_place(cast(Any, cache))
+
+    assert tuple(id(item) for item in (encoder, transformer, decoder)) == identities
+    assert (encoder.calls, transformer.calls, decoder.calls) == (1, 1, 1)
+    assert cache.final_state is None
+    assert cache.autoregressive_index is None
+    assert cache.event_profiler is None
 
 
 def test_flashvsr_postprocessor_reports_aligned_output_spec() -> None:

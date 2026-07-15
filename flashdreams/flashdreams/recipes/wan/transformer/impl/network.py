@@ -61,6 +61,11 @@ class WanDiTNetworkCache:
         for block_cache in self.block_caches:
             block_cache.after_update(chunk_idx)
 
+    def reset(self) -> None:
+        """Reset self-attention bookkeeping without reallocating KV buffers."""
+        for block_cache in self.block_caches:
+            block_cache.self_attn.reset()
+
 
 @dataclass
 class WanDiTNetworkConfig(InstantiateConfig):

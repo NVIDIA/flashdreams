@@ -12,8 +12,8 @@ from typing import Literal
 import pytest
 
 from flashdreams.infra.postprocess import (
-    VideoPostProcessorConfig,
     VideoPostprocessChainConfig,
+    VideoPostProcessorConfig,
     create_runner_postprocess_stream,
 )
 
@@ -92,9 +92,7 @@ def test_full_attention_chain_requires_all_ranks() -> None:
 
 def test_rank_zero_processor_is_skipped_on_nonzero_rank() -> None:
     config = _config(
-        VideoPostprocessChainConfig(
-            processors=(_RankZeroProcessorConfig(),)
-        )
+        VideoPostprocessChainConfig(processors=(_RankZeroProcessorConfig(),))
     )
 
     stream = create_runner_postprocess_stream(

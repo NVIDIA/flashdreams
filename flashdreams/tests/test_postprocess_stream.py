@@ -14,10 +14,10 @@ import flashdreams.infra.postprocess.stream as postprocess_stream_module
 from flashdreams.infra.postprocess import (
     VideoChunk,
     VideoPostprocessChainConfig,
-    VideoPostprocessStream,
     VideoPostProcessor,
     VideoPostProcessorConfig,
     VideoPostProcessorSession,
+    VideoPostprocessStream,
     VideoSpec,
 )
 from flashdreams.infra.postprocess.base import _VideoPostprocessChainSession
@@ -39,6 +39,10 @@ class _BufferSession(VideoPostProcessorSession):
     def __init__(self, spec: VideoSpec) -> None:
         self.spec = spec
         self.chunk: VideoChunk | None = None
+        self.prepare_calls = 0
+
+    def prepare(self) -> None:
+        self.prepare_calls += 1
 
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         self.chunk = chunk
@@ -86,6 +90,22 @@ def test_stream_buffers_then_flushes_once_and_closes() -> None:
         stream.process(video, autoregressive_index=1)
 
 
+def test_stream_prepares_session_once_before_processing() -> None:
+    stream = _stream(_BufferConfig())
+    first = torch.ones(3, 3, 4, 5)
+    second = torch.ones(2, 3, 4, 5)
+
+    stream.process(first, autoregressive_index=0)
+    session = stream.state.sessions[-1]
+    assert isinstance(session, _VideoPostprocessChainSession)
+    processor_session = session._sessions[0]
+    assert isinstance(processor_session, _BufferSession)
+    assert processor_session.prepare_calls == 1
+
+    stream.process(second, autoregressive_index=1)
+    assert processor_session.prepare_calls == 1
+
+
 def test_stream_profiles_buffering_as_a_separate_ar_stat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -99,9 +119,7 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
         def sync_and_summarize(self) -> dict[str, float]:
             return {"postprocess": 0.125}
 
-    monkeypatch.setattr(
-        postprocess_stream_module, "EventProfiler", _FakeEventProfiler
-    )
+    monkeypatch.setattr(postprocess_stream_module, "EventProfiler", _FakeEventProfiler)
     stream = VideoPostprocessStream(
         postprocess=VideoPostprocessChainConfig(processors=(_BufferConfig(),)),
         output_layout="tchw",

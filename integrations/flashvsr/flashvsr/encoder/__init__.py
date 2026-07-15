@@ -177,6 +177,13 @@ class FlashVSREncoderCache(StreamingEncoderCache):
     token count. Equals ``1`` for an 8-frame chunk and ``2`` for a 16-frame
     chunk; matches the legacy ``n_iters = (T // 4) // 2``."""
 
+    def reset(self) -> None:
+        """Reset projector and per-step state for a new video rollout."""
+        self.proj_cache.cache["conv1"] = None
+        self.proj_cache.cache["conv2"] = None
+        self.last_upres = None
+        self.last_n_iters = 0
+
 
 class FlashVSREncoder(StreamingEncoder[FlashVSREncoderCache]):
     """Bicubic-upsample + ``Causal_LQ4x_Proj`` encoder for FlashVSR."""

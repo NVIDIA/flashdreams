@@ -139,6 +139,11 @@ class FlashVSRDecoderCache(StreamingDecoderCache):
     used as ``cond`` for the TC decoder and as the AdaIN reference for the
     color corrector."""
 
+    def reset(self) -> None:
+        """Reset temporal decoder state for a new video rollout."""
+        self.tdec_cache.dec_state.clear()
+        self.last_upres = None
+
 
 class FlashVSRDecoder(StreamingDecoder[FlashVSRDecoderCache]):
     """TC decoder + AdaIN color corrector for FlashVSR."""

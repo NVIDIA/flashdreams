@@ -47,6 +47,7 @@ from typing import Annotated
 import tyro
 
 from flashdreams.configs.runner_configs import _annotated_base_runner_union
+from flashdreams.core.distributed import shutdown as shutdown_distributed
 from flashdreams.core.io.disk import disk_space_error_from_exception
 from flashdreams.infra.runner import RunnerConfig
 
@@ -66,7 +67,17 @@ def main(
     if no_instantiate:
         return
     runner = config.setup()
-    runner.run()
+    completed = False
+    try:
+        runner.run()
+        completed = True
+    finally:
+        # Successful ranks rendezvous before bounded NCCL process exit.
+        # A failed rank skips the barrier to avoid creating a cleanup deadlock.
+        shutdown_distributed(
+            synchronize=completed,
+            terminate_process=completed,
+        )
 
 
 def _is_rank_zero() -> bool:

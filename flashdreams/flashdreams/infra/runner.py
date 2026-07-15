@@ -34,8 +34,8 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.infra.postprocess import (
-    VideoPostprocessStream,
     VideoPostprocessChainConfig,
+    VideoPostprocessStream,
     VideoTensorLayout,
     create_runner_postprocess_stream,
 )
