@@ -416,7 +416,9 @@ SPDX-License-Identifier: Apache-2.0
 <p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/robbyant/lingbot-world"><span>Official code</span></a></p>
 </div>
 <p>Introduced by <a class="reference external" href="https://technology.robbyant.com/">Robbyant</a>, LingBot-World is a camera-controllable image-to-video
-(I2V) world model with streaming inference and context-parallel runtime support.</p>
+(I2V) world model with streaming inference and context-parallel runtime support. This page covers both the original
+<a class="reference external" href="https://github.com/robbyant/lingbot-world">LingBot-World v1</a> and the newer 14B causal-fast
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2">LingBot-World v2</a> checkpoints.</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://gw.alipayobjects.com/v/huamei_u94ywh/afts/video/XQk7Rb44qJwAAAAAgfAAAAgAfoeUAQBr" type="video/mp4">
@@ -454,7 +456,7 @@ example:</p>
 </pre></div>
 </div>
 <p>Sample data is downloaded from the
-<a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">LingBot-World repository</a>.
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2/tree/main/examples">LingBot-World v2 repository</a>.
 Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>. Note the single GPU command might run
 out of memory for large <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p>
 <p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
@@ -487,6 +489,14 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 <td><p>Efficient streaming configuration: TAEHV decoder, <code class="docutils literal notranslate"><span class="pre">window_size_t=15</span></code>
 + <code class="docutils literal notranslate"><span class="pre">sink_size_t=3</span></code> streaming KV-cache.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast</span></code></p></td>
+<td><p>LingBot-World V2 14B causal-fast on the shared LingBot pipeline
+(Wan VAE decoder, 4-step). See <a href="#id2"><span class="problematic" id="id3">`LingBot-World V2`_</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast-taehv-window15-sink3</span></code></p></td>
+<td><p>LingBot-World V2 14B causal-fast with the TAEHV decoder,
+<code class="docutils literal notranslate"><span class="pre">window_size_t=15</span></code> + <code class="docutils literal notranslate"><span class="pre">sink_size_t=3</span></code> streaming KV-cache.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -498,12 +508,56 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 </pre></div>
 </div>
 </section>
+<section id="id1">
+<h2>LingBot-World V2<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<p>LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
+uses the same architecture, pipeline, and serving code as v1 — only the
+checkpoint config slug changes — so every command on this page works by
+swapping in a V2 runner slug. See the canonical repository at
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2">Robbyant/lingbot-world-v2</a>.</p>
+<p>Two V2 runner slugs are registered:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 45.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Method</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast</span></code></p></td>
+<td><p>LingBot-World V2 14B causal-fast on the shared LingBot pipeline
+(Wan VAE decoder, full KV-cache).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast-taehv-window15-sink3</span></code></p></td>
+<td><p>V2 checkpoint with the efficient streaming preset: TAEHV decoder,
+<code class="docutils literal notranslate"><span class="pre">window_size_t=15</span></code> + <code class="docutils literal notranslate"><span class="pre">sink_size_t=3</span></code> streaming KV-cache.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>For example, to run the V2 model on a single GPU:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>lingbot-world-v2-14b-causal-fast<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+</pre></div>
+</div>
+<p>The V2 checkpoint (~70 GB) is pulled from
+<code class="docutils literal notranslate"><span class="pre">huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast</span></code> on first run.
+Export <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> first.</p>
+</section>
 <section id="what-to-expect">
 <h2>What to expect<a class="headerlink" href="#what-to-expect" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><strong>Example data</strong>: <code class="docutils literal notranslate"><span class="pre">--example-data</span> <span class="pre">True</span></code> downloads <code class="docutils literal notranslate"><span class="pre">image.jpg</span></code>,
 <code class="docutils literal notranslate"><span class="pre">intrinsics.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">poses.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">prompt.txt</span></code> from the
-<a class="reference external" href="https://github.com/Robbyant/lingbot-world/tree/main/examples">upstream examples folder</a>
+<a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2/tree/main/examples">canonical examples folder</a>
 into <code class="docutils literal notranslate"><span class="pre">assets/example_data/lingbot_world/&lt;NN&gt;/</span></code> (<code class="docutils literal notranslate"><span class="pre">&lt;NN&gt;</span></code> matches
 <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code>). Cached after first run; no credentials needed.</p></li>
 <li><p><strong>Model checkpoint</strong>: ~70 GB pulled from
@@ -680,6 +734,7 @@ matched settings.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-method">Running the method</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">LingBot-World V2</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-to-expect">What to expect</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#launch-the-interactive-server">Launch the interactive server</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling-benchmark">Profiling benchmark</a></li>
