@@ -75,7 +75,7 @@ example:
        --total-blocks 21
 
 Sample data is downloaded from the
-`LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
+`LingBot-World v2 repository <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
 
@@ -120,7 +120,7 @@ What to expect
 
 - **Example data**: ``--example-data True`` downloads ``image.jpg``,
   ``intrinsics.npy``, ``poses.npy``, ``prompt.txt`` from the
-  `upstream examples folder <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_
+  `canonical examples folder <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_
   into ``assets/example_data/lingbot_world/<NN>/`` (``<NN>`` matches
   ``--example-idx``). Cached after first run; no credentials needed.
 - **Model checkpoint**: ~70 GB pulled from

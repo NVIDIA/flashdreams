@@ -54,9 +54,9 @@ _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
 EXAMPLE_DATA_BASE_URL = (
-    "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples"
+    "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples"
 )
-"""HTTP base URL where bundled example folders are downloaded from."""
+"""HTTP base URL for the canonical examples shared by all LingBot versions."""
 
 EXAMPLE_DATA_DIR_LOCAL = default_flashdreams_cache_dir() / "example_data/lingbot_world"
 """Local cache root where downloaded example folders are stored."""

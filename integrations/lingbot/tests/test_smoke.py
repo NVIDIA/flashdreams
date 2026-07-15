@@ -66,6 +66,33 @@ def test_all_upstream_example_indices_are_available() -> None:
     ]
 
 
+def test_examples_download_from_canonical_v2_repository(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Download shared examples from the canonical LingBot-World v2 repository."""
+    urls: list[str] = []
+
+    def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
+        del cache_dir, filename
+        urls.append(url)
+
+    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+
+    runner_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
+
+    expected_base_url = (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
+    )
+    assert urls == [
+        f"{expected_base_url}/image.jpg",
+        f"{expected_base_url}/poses.npy",
+        f"{expected_base_url}/intrinsics.npy",
+        f"{expected_base_url}/prompt.txt",
+    ]
+
+
 @pytest.mark.parametrize("example_idx", [3, 4])
 def test_promptless_examples_skip_the_prompt_download(
     monkeypatch: pytest.MonkeyPatch,

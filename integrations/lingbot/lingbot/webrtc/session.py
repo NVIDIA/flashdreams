@@ -66,7 +66,7 @@ _DEFAULT_INTRINSICS = (
 # Aligned with the world scale computed from the first LingBot-World demo scene.
 _DEFAULT_WORLD_SCALE = 1.271182656288147
 _DEFAULT_DEMO_BASE_URL = (
-    "https://raw.githubusercontent.com/robbyant/lingbot-world/main/examples/00"
+    "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
 )
 _DEFAULT_IMAGE_URL = f"{_DEFAULT_DEMO_BASE_URL}/image.jpg"
 _DEFAULT_INTRINSICS_URL = f"{_DEFAULT_DEMO_BASE_URL}/intrinsics.npy"
