@@ -1553,6 +1553,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pyarrow", specifier = ">=16.0" },
+    { name = "pynvvideocodec", specifier = ">=2.1,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "pyvirtualdisplay", marker = "extra == 'dev'", specifier = ">=3.0" },
