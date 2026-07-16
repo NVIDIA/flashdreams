@@ -29,7 +29,9 @@ LingBot-World
       Official code
 
 Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a camera-controllable image-to-video
-(I2V) world model with streaming inference and context-parallel runtime support.
+(I2V) world model with streaming inference and context-parallel runtime support. This page covers both the original
+`LingBot-World v1 <https://github.com/robbyant/lingbot-world>`_ and the newer 14B causal-fast
+`LingBot-World v2 <https://github.com/Robbyant/lingbot-world-v2>`_ checkpoints.
 
 .. raw:: html
 
@@ -75,7 +77,7 @@ example:
        --total-blocks 21
 
 Sample data is downloaded from the
-`LingBot-World repository <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_.
+`LingBot-World v2 repository <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
 
@@ -105,6 +107,12 @@ We provide the following variants:
    * - ``lingbot-world-fast-taehv-window15-sink3``
      - Efficient streaming configuration: TAEHV decoder, ``window_size_t=15``
        + ``sink_size_t=3`` streaming KV-cache.
+   * - ``lingbot-world-v2-14b-causal-fast``
+     - LingBot-World V2 14B causal-fast on the shared LingBot pipeline
+       (Wan VAE decoder, 4-step). See `LingBot-World V2`_.
+   * - ``lingbot-world-v2-14b-causal-fast-taehv-window15-sink3``
+     - LingBot-World V2 14B causal-fast with the TAEHV decoder,
+       ``window_size_t=15`` + ``sink_size_t=3`` streaming KV-cache.
 
 To inspect all supported CLI arguments and their default values, run:
 
@@ -115,12 +123,52 @@ To inspect all supported CLI arguments and their default values, run:
        lingbot-world-fast \
        --help
 
+LingBot-World V2
+----------------
+
+LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
+uses the same architecture, pipeline, and serving code as v1 — only the
+checkpoint config slug changes — so every command on this page works by
+swapping in a V2 runner slug. See the canonical repository at
+`Robbyant/lingbot-world-v2 <https://github.com/Robbyant/lingbot-world-v2>`_.
+
+Two V2 runner slugs are registered:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Method
+     - Description
+   * - ``lingbot-world-v2-14b-causal-fast``
+     - LingBot-World V2 14B causal-fast on the shared LingBot pipeline
+       (Wan VAE decoder, full KV-cache).
+   * - ``lingbot-world-v2-14b-causal-fast-taehv-window15-sink3``
+     - V2 checkpoint with the efficient streaming preset: TAEHV decoder,
+       ``window_size_t=15`` + ``sink_size_t=3`` streaming KV-cache.
+
+For example, to run the V2 model on a single GPU:
+
+.. code-block:: bash
+
+   uv run --project integrations/lingbot \
+       flashdreams-run \
+       lingbot-world-v2-14b-causal-fast \
+       --example-data True \
+       --example-idx 0 \
+       --pixel-height 464 --pixel-width 832 \
+       --total-blocks 21
+
+The V2 checkpoint (~70 GB) is pulled from
+``huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast`` on first run.
+Export ``HF_TOKEN`` first.
+
 What to expect
 --------------
 
 - **Example data**: ``--example-data True`` downloads ``image.jpg``,
   ``intrinsics.npy``, ``poses.npy``, ``prompt.txt`` from the
-  `upstream examples folder <https://github.com/Robbyant/lingbot-world/tree/main/examples>`_
+  `canonical examples folder <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_
   into ``assets/example_data/lingbot_world/<NN>/`` (``<NN>`` matches
   ``--example-idx``). Cached after first run; no credentials needed.
 - **Model checkpoint**: ~70 GB pulled from

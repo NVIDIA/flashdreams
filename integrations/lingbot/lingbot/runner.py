@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import torch
@@ -41,14 +40,8 @@ from lingbot.pipeline import (
 )
 
 __all__ = [
-    "EXAMPLE_DATA_REPOSITORY_V1",
-    "EXAMPLE_DATA_REPOSITORY_V2",
-    "ExampleDataRepository",
     "LingbotWorldRunnerConfig",
     "LingbotWorldRunner",
-    "ensure_example_data_downloaded",
-    "example_data_base_url",
-    "example_data_cache_dir",
 ]
 
 
@@ -61,31 +54,12 @@ _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
 EXAMPLE_DATA_BASE_URL = (
-    "https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples"
-)
-"""HTTP base URL where LingBot-World v1 example folders are downloaded from."""
-
-EXAMPLE_DATA_BASE_URL_V2 = (
     "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples"
 )
-"""HTTP base URL where LingBot-World v2 example folders are downloaded from."""
+"""HTTP base URL for the canonical examples shared by all LingBot versions."""
 
 EXAMPLE_DATA_DIR_LOCAL = default_flashdreams_cache_dir() / "example_data/lingbot_world"
-"""Local cache root where downloaded LingBot-World v1 examples are stored."""
-
-EXAMPLE_DATA_DIR_LOCAL_V2 = (
-    default_flashdreams_cache_dir() / "example_data/lingbot_world_v2"
-)
-"""Local cache root where downloaded LingBot-World v2 examples are stored."""
-
-ExampleDataRepository = Literal["lingbot-world", "lingbot-world-v2"]
-"""Supported upstream repositories for bundled LingBot example data."""
-
-EXAMPLE_DATA_REPOSITORY_V1: ExampleDataRepository = "lingbot-world"
-"""Upstream example-data repository used by LingBot-World v1 presets."""
-
-EXAMPLE_DATA_REPOSITORY_V2: ExampleDataRepository = "lingbot-world-v2"
-"""Upstream example-data repository used by LingBot-World v2 presets."""
+"""Local cache root where downloaded example folders are stored."""
 
 EXAMPLE_DATA_FILENAMES = (
     "image.jpg",
@@ -110,55 +84,7 @@ def example_data_dirname(example_idx: int) -> str:
     return f"{example_idx:02d}"
 
 
-def example_data_base_url(repository: ExampleDataRepository) -> str:
-    """Return the raw GitHub examples URL for ``repository``.
-
-    Args:
-        repository: Upstream repository selected by the runner preset.
-
-    Returns:
-        Raw GitHub URL containing the numbered example folders.
-
-    Raises:
-        ValueError: ``repository`` is not a supported LingBot example source.
-    """
-    if repository == EXAMPLE_DATA_REPOSITORY_V1:
-        return EXAMPLE_DATA_BASE_URL
-    if repository == EXAMPLE_DATA_REPOSITORY_V2:
-        return EXAMPLE_DATA_BASE_URL_V2
-    raise ValueError(f"Unsupported LingBot example-data repository: {repository!r}")
-
-
-def example_data_cache_dir(
-    *, repository: ExampleDataRepository, example_idx: int
-) -> Path:
-    """Return the version-specific local cache directory for an example.
-
-    Args:
-        repository: Upstream repository selected by the runner preset.
-        example_idx: Numbered upstream example folder.
-
-    Returns:
-        Cache directory reserved for the selected repository and example.
-
-    Raises:
-        ValueError: ``repository`` is not a supported LingBot example source.
-    """
-    if repository == EXAMPLE_DATA_REPOSITORY_V1:
-        cache_root = EXAMPLE_DATA_DIR_LOCAL
-    elif repository == EXAMPLE_DATA_REPOSITORY_V2:
-        cache_root = EXAMPLE_DATA_DIR_LOCAL_V2
-    else:
-        raise ValueError(f"Unsupported LingBot example-data repository: {repository!r}")
-    return cache_root / example_data_dirname(example_idx)
-
-
-def ensure_example_data_downloaded(
-    *,
-    is_rank_zero: bool,
-    example_idx: int,
-    repository: ExampleDataRepository = EXAMPLE_DATA_REPOSITORY_V1,
-) -> Path:
+def ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> Path:
     """Download bundled GitHub example files on rank 0; barrier other ranks.
 
     The runner calls this from :meth:`LingbotWorldRunner._fill_example_data_defaults`;
@@ -167,23 +93,11 @@ def ensure_example_data_downloaded(
     ``LingbotWebRTCSessionManager._initialize_sync`` checks for them. The
     download itself is small (image + intrinsics + poses, plus a prompt
     when available), uses the public LingBot-World GitHub raw URLs, and
-    is cached in a repository-specific directory so v1 and v2 assets
-    cannot be silently mixed.
-
-    Args:
-        is_rank_zero: Whether this process owns filesystem downloads.
-        example_idx: Numbered upstream example folder.
-        repository: Upstream repository selected by the runner preset.
-
-    Returns:
-        Version-specific directory containing the downloaded files.
+    is cached at :data:`EXAMPLE_DATA_DIR_LOCAL` so repeat calls are
+    no-ops.
     """
     example_dirname = example_data_dirname(example_idx)
-    cache_dir = example_data_cache_dir(
-        repository=repository,
-        example_idx=example_idx,
-    )
-    base_url = example_data_base_url(repository)
+    cache_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
     if is_rank_zero:
         for filename in EXAMPLE_DATA_FILENAMES:
             if (
@@ -192,7 +106,7 @@ def ensure_example_data_downloaded(
             ):
                 continue
             download_to_cache(
-                f"{base_url}/{example_dirname}/{filename}",
+                f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/{filename}",
                 cache_dir=cache_dir,
                 filename=filename,
             )
@@ -246,15 +160,13 @@ class LingbotWorldRunnerConfig(RunnerConfig):
 
     example_data: bool = False
     """When ``True``, lazy-download bundled GitHub example assets into
-    a version-specific cache and fill ``image_path`` / ``pose_path`` /
-    ``intrinsic_path`` / ``prompt_path`` from the bundled defaults. Use
-    for the README demo; pass explicit paths for production runs."""
+    ``$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world/`` and fill ``image_path`` /
+    ``pose_path`` / ``intrinsic_path`` / ``prompt_path`` from the
+    bundled defaults. Use for the README demo; pass explicit paths
+    for production runs."""
 
     example_idx: int = 0
     """Example folder index under ``.../examples/``; allowed: ``0`` through ``5``."""
-
-    example_data_repository: ExampleDataRepository = EXAMPLE_DATA_REPOSITORY_V1
-    """Upstream GitHub repository used for bundled example data."""
 
 
 class LingbotWorldRunner(
@@ -290,7 +202,6 @@ class LingbotWorldRunner(
         example_dir = ensure_example_data_downloaded(
             is_rank_zero=self.is_rank_zero,
             example_idx=cfg.example_idx,
-            repository=cfg.example_data_repository,
         )
         if cfg.image_path is None:
             cfg.image_path = example_dir / "image.jpg"

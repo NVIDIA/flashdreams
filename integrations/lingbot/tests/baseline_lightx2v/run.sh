@@ -20,7 +20,7 @@ RESULT_PATH_4GPU="${REPO_DIR}/save_results/output_lightx2v_lingbot_fast_i2v_4gpu
 RUN_CONFIG_JSON_4GPU="${SCRIPT_DIR}/lingbot_fast_i2v_4gpu.runtime.json"
 LOG_DIR="${SCRIPT_DIR}/logs"
 EXAMPLES_DIR="${SCRIPT_DIR}/lingbot-world-examples/00"
-EXAMPLES_BASE_URL="https://raw.githubusercontent.com/Robbyant/lingbot-world/main/examples/00"
+EXAMPLES_BASE_URL="https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
 PROMPT_PATH="${EXAMPLES_DIR}/prompt.txt"
 
 if [[ ! -d "${REPO_DIR}/.git" ]]; then

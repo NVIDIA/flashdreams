@@ -73,6 +73,18 @@ def test_session_manager_hooks_are_wired() -> None:
     assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
 
 
+def test_runtime_defaults_use_canonical_v2_examples() -> None:
+    """Use LingBot-World v2 assets for the shared WebRTC defaults."""
+    config = LingbotRuntimeConfig()
+    expected_base_url = (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
+    )
+
+    assert config.default_image_url == f"{expected_base_url}/image.jpg"
+    assert config.default_intrinsics_url == f"{expected_base_url}/intrinsics.npy"
+    assert config.default_poses_url == f"{expected_base_url}/poses.npy"
+
+
 def test_validate_remote_url_normalizes_github_blob_image_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

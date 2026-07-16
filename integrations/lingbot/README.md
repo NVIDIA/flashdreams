@@ -185,16 +185,12 @@ Then open:
   HuggingFace on first run and cached under `$HF_HOME`.
 - ~200 GB free disk for the model + HF cache.
 - Example assets (`image.jpg`, `intrinsics.npy`, `poses.npy`, and a prompt when
-  available) for v1 presets auto-download from the upstream
-  [`Robbyant/lingbot-world`](https://github.com/Robbyant/lingbot-world/tree/main/examples)
-  examples folder into
-  `$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world/<NN>/`. A v2 preset instead
-  downloads from
+  available) for both v1 and v2 models auto-download from the canonical
   [`Robbyant/lingbot-world-v2`](https://github.com/Robbyant/lingbot-world-v2/tree/main/examples)
-  into `$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world_v2/<NN>/`, which keeps
-  the versions from sharing stale cached assets. `<NN>` is the `--example-idx`:
-  `00` through `05`. Examples `03` and `04` use an empty prompt because they do
-  not provide their own upstream `prompt.txt`.
+  examples folder into `$FLASHDREAMS_CACHE_DIR/example_data/lingbot_world/<NN>/` on
+  first launch (`<NN>` is the `--example-idx`: `00` through `05`). Examples
+  `03` and `04` use an empty prompt because they do not provide their own
+  upstream `prompt.txt`.
 
 ### DataChannel message format
 

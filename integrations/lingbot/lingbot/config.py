@@ -33,10 +33,7 @@ from lingbot.encoder.camctrl import (
     LingbotI2VCtrlEncoderConfig,
 )
 from lingbot.pipeline import LingbotWorldInferencePipelineConfig
-from lingbot.runner import (
-    EXAMPLE_DATA_REPOSITORY_V2,
-    LingbotWorldRunnerConfig,
-)
+from lingbot.runner import LingbotWorldRunnerConfig
 from lingbot.transformer import LingbotWorldTransformerConfig
 from lingbot.transformer.impl.network import LingbotWorldDiTNetwork14BConfig
 
@@ -154,7 +151,6 @@ RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST = LingbotWorldRunnerConfig(
         "(Wan VAE decoder, 4-step)."
     ),
     pipeline=PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
-    example_data_repository=EXAMPLE_DATA_REPOSITORY_V2,
 )
 
 PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
@@ -175,7 +171,6 @@ RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunne
         "(LightTAE decoder, window=15 + sink=3 streaming KV cache)."
     ),
     pipeline=PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
-    example_data_repository=EXAMPLE_DATA_REPOSITORY_V2,
 )
 
 PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {

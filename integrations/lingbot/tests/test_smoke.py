@@ -35,8 +35,6 @@ from lingbot.config import (
 from lingbot.pipeline import LingbotWorldInferencePipelineConfig
 from lingbot.runner import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
-    EXAMPLE_DATA_REPOSITORY_V1,
-    EXAMPLE_DATA_REPOSITORY_V2,
     LingbotWorldRunner,
     LingbotWorldRunnerConfig,
     example_data_dirname,
@@ -65,6 +63,33 @@ def test_all_upstream_example_indices_are_available() -> None:
         "03",
         "04",
         "05",
+    ]
+
+
+def test_examples_download_from_canonical_v2_repository(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Download shared examples from the canonical LingBot-World v2 repository."""
+    urls: list[str] = []
+
+    def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
+        del cache_dir, filename
+        urls.append(url)
+
+    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+
+    runner_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
+
+    expected_base_url = (
+        "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
+    )
+    assert urls == [
+        f"{expected_base_url}/image.jpg",
+        f"{expected_base_url}/poses.npy",
+        f"{expected_base_url}/intrinsics.npy",
+        f"{expected_base_url}/prompt.txt",
     ]
 
 
@@ -98,54 +123,6 @@ def test_promptless_examples_skip_the_prompt_download(
     assert all(f"/{example_idx:02d}/" in url for url, _, _ in downloads)
 
 
-@pytest.mark.parametrize(
-    ("repository", "cache_name"),
-    [
-        (EXAMPLE_DATA_REPOSITORY_V1, "lingbot_world"),
-        (EXAMPLE_DATA_REPOSITORY_V2, "lingbot_world_v2"),
-    ],
-)
-def test_example_download_uses_versioned_repository_and_cache(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    repository: runner_mod.ExampleDataRepository,
-    cache_name: str,
-) -> None:
-    """Route each model version to its matching repository and cache."""
-    downloads: list[tuple[str, Path, str]] = []
-
-    def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
-        downloads.append((url, cache_dir, filename))
-
-    monkeypatch.setattr(
-        runner_mod,
-        "EXAMPLE_DATA_DIR_LOCAL",
-        tmp_path / "lingbot_world",
-    )
-    monkeypatch.setattr(
-        runner_mod,
-        "EXAMPLE_DATA_DIR_LOCAL_V2",
-        tmp_path / "lingbot_world_v2",
-    )
-    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
-
-    cache_dir = runner_mod.ensure_example_data_downloaded(
-        is_rank_zero=True,
-        example_idx=0,
-        repository=repository,
-    )
-
-    assert cache_dir == tmp_path / cache_name / "00"
-    assert len(downloads) == 4
-    assert all(
-        url.startswith(
-            f"https://raw.githubusercontent.com/Robbyant/{repository}/main/examples/00/"
-        )
-        for url, _, _ in downloads
-    )
-    assert all(download_cache == cache_dir for _, download_cache, _ in downloads)
-
-
 def test_promptless_example_resolves_to_empty_string(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -164,17 +141,10 @@ def test_promptless_example_resolves_to_empty_string(
     )
     runner.config = runner_config
     runner.is_rank_zero = True
-
-    download_kwargs: dict[str, object] = {}
-
-    def _record_example_download(**kwargs: object) -> Path:
-        download_kwargs.update(kwargs)
-        return tmp_path
-
     monkeypatch.setattr(
         runner_mod,
         "ensure_example_data_downloaded",
-        _record_example_download,
+        lambda **_kwargs: tmp_path,
     )
     warnings: list[str] = []
     monkeypatch.setattr(
@@ -185,7 +155,6 @@ def test_promptless_example_resolves_to_empty_string(
 
     runner._fill_example_data_defaults()
 
-    assert download_kwargs["repository"] == EXAMPLE_DATA_REPOSITORY_V2
     assert runner_config.prompt_path is None
     assert runner._resolve_prompt() == ""
     assert warnings == [
@@ -214,22 +183,6 @@ def test_runners_have_descriptions() -> None:
         slug for slug, cfg in RUNNER_CONFIGS.items() if not cfg.description.strip()
     ]
     assert not empty, f"runners missing description: {empty}"
-
-
-def test_runner_versions_select_matching_example_repository() -> None:
-    """Keep every runner preset on its matching example-data repository."""
-    repositories = {
-        slug: cast(LingbotWorldRunnerConfig, cfg).example_data_repository
-        for slug, cfg in RUNNER_CONFIGS.items()
-    }
-    assert repositories == {
-        "lingbot-world-fast": EXAMPLE_DATA_REPOSITORY_V1,
-        "lingbot-world-fast-taehv-window15-sink3": EXAMPLE_DATA_REPOSITORY_V1,
-        "lingbot-world-v2-14b-causal-fast": EXAMPLE_DATA_REPOSITORY_V2,
-        "lingbot-world-v2-14b-causal-fast-taehv-window15-sink3": (
-            EXAMPLE_DATA_REPOSITORY_V2
-        ),
-    }
 
 
 def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:

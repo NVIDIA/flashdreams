@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 from argparse import Namespace
-from pathlib import Path
 
 import pytest
 import torch
@@ -143,7 +142,6 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_manager = _FakeSessionManager()
     runtime_configs = []
     request_session_urls = []
-    example_downloads: list[dict[str, object]] = []
 
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("WORLD_SIZE", raising=False)
@@ -154,11 +152,7 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda default_device: (torch.device("cuda:2"), 0, 1),
     )
     # Don't hit the network for the bundled example assets in a unit test.
-    monkeypatch.setattr(
-        server,
-        "ensure_example_data_downloaded",
-        lambda **kwargs: example_downloads.append(kwargs),
-    )
+    monkeypatch.setattr(server, "ensure_example_data_downloaded", lambda **kwargs: None)
 
     manager_fps: list[int] = []
 
@@ -190,13 +184,6 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert runtime_configs[0].video_width == 640
     assert manager_fps == [16]
     assert request_session_urls == ["http://203.0.113.10:8080/request_session"]
-    assert example_downloads == [
-        {
-            "is_rank_zero": True,
-            "example_idx": 0,
-            "repository": "lingbot-world-v2",
-        }
-    ]
 
 
 def test_main_worker_rank_waits_for_termination(
@@ -242,51 +229,3 @@ def test_build_runtime_config_rejects_non_patch_aligned_resolution() -> None:
 
     with pytest.raises(ValueError, match="divisible by 16"):
         server.build_runtime_config(args)
-
-
-@pytest.mark.parametrize(
-    ("config_name", "repository", "cache_name"),
-    [
-        ("lingbot-world-fast", "lingbot-world", "lingbot_world"),
-        (
-            "lingbot-world-v2-14b-causal-fast",
-            "lingbot-world-v2",
-            "lingbot_world_v2",
-        ),
-    ],
-)
-def test_build_runtime_config_uses_versioned_example_source(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    config_name: str,
-    repository: str,
-    cache_name: str,
-) -> None:
-    """Route WebRTC defaults through the selected model version's examples."""
-    monkeypatch.setattr(
-        server,
-        "EXAMPLE_DATA_DIR_LOCAL",
-        tmp_path / "lingbot_world",
-    )
-    monkeypatch.setattr(
-        server,
-        "example_data_cache_dir",
-        lambda *, repository, example_idx: tmp_path
-        / ("lingbot_world_v2" if repository.endswith("-v2") else "lingbot_world")
-        / f"{example_idx:02d}",
-    )
-    args = _args()
-    args.config_name = config_name
-    args.example_idx = 2
-
-    runtime_config = server.build_runtime_config(args)
-
-    assert runtime_config.example_data_dir == tmp_path / cache_name / "02"
-    expected_base_url = (
-        f"https://raw.githubusercontent.com/Robbyant/{repository}/main/examples/02"
-    )
-    assert runtime_config.default_image_url == f"{expected_base_url}/image.jpg"
-    assert (
-        runtime_config.default_intrinsics_url == f"{expected_base_url}/intrinsics.npy"
-    )
-    assert runtime_config.default_poses_url == f"{expected_base_url}/poses.npy"
