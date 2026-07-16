@@ -67,6 +67,10 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+# Unified serving CLI over model plugins and protocol adapters.
+flashdreams-serve = "flashdreams.scripts.serve:entrypoint"
+# Headless control + media validation for a running WebRTC serving endpoint.
+flashdreams-webrtc-client = "flashdreams.serving.webrtc.client:entrypoint"
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/flashdreams"

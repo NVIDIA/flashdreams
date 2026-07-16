@@ -16,18 +16,18 @@
 Serving
 ===================================
 
-Serving in FlashDreams is currently integration-driven: model-specific serving
-stacks wrap the same runner/pipeline abstractions used for offline inference.
+Serving in FlashDreams uses a protocol-neutral session lifecycle with
+integration-provided model workers. The :doc:`serving API design
+</developer_guides/serving_api>` documents the endpoint contract, worker
+scheduler, multi-session behavior, and Dynamo extension point.
 
 Serving building blocks
 -----------------------
 
-- **Runner config** defines serving-relevant I/O fields (prompts, control
-  tensors, image paths, output transport).
-- **Pipeline** manages model lifecycle and cached state across steps.
-- **Integration transport** (for example WebRTC in
-  :doc:`LingBot-World </models/lingbot_world>`) handles
-  session I/O, request routing, and media responses.
+- **Serve model config** publishes model capabilities and a lazy worker factory.
+- **Session service** owns session leases, sequence numbers, and worker placement.
+- **Protocol transport** maps WebSocket, WebRTC, or gRPC onto the common service.
+- **Model worker** owns shared weights and one or more isolated session caches.
 
 Reference integration
 ---------------------
@@ -45,15 +45,13 @@ Single GPU:
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
+   uv run flashdreams-serve lingbot-world-fast --protocol webrtc --eager-load
 
-Multi GPU:
-
-.. code-block:: bash
-
-   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
+Multi-GPU workers publish ``ResourceRequest.gpu_count > 1`` and rely on a
+rank-aware scheduler/worker implementation to create their process group. The
+current Lingbot serving adapter advertises one GPU and one session per worker;
+its existing multi-rank WebRTC bootstrap remains available through the
+integration-specific launch script while that worker is migrated.
 
 See also
 --------

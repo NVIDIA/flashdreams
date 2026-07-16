@@ -56,6 +56,7 @@ generated clip, see :doc:`/quickstart/index`.
    inference_pipeline_overview
    config_system
    new_integration
+   serving_api
 
 ..
    Temporarily commented out for internal development:
