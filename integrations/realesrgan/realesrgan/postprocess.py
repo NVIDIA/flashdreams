@@ -30,7 +30,6 @@ from flashdreams.infra.postprocess import (
     VideoPostProcessorSession,
     VideoSpec,
     to_bvtchw,
-    to_minus_one_one,
 )
 from realesrgan.upsampler import RealESRGANUpsampler, default_model_name
 
@@ -73,6 +72,15 @@ class RealESRGANPostProcessorConfig(VideoPostProcessorConfig):
     device: str = "cuda"
     """Torch device used by the Real-ESRGAN model."""
 
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Return the spatially upsampled output specification."""
+        return VideoSpec(
+            height=input_spec.height * self.scale,
+            width=input_spec.width * self.scale,
+            fps=input_spec.fps,
+            channels=input_spec.channels,
+        )
+
 
 class RealESRGANPostProcessor(VideoPostProcessor[RealESRGANPostProcessorConfig]):
     """Factory for Real-ESRGAN post-processing sessions."""
@@ -93,10 +101,7 @@ class _RealESRGANPostProcessorSession(VideoPostProcessorSession):
 
     @torch.no_grad()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
-        canonical = to_bvtchw(
-            to_minus_one_one(chunk.tensor, value_range=chunk.value_range),
-            layout=chunk.layout,
-        )
+        canonical = to_bvtchw(chunk.tensor, layout=chunk.layout)
         batch, views, _, channels, _, _ = canonical.shape
         if channels != 3:
             raise ValueError(
@@ -116,8 +121,6 @@ class _RealESRGANPostProcessorSession(VideoPostProcessorSession):
             VideoChunk(
                 tensor=output,
                 layout="bvtchw",
-                value_range="minus_one_one",
-                is_final=chunk.is_final,
                 metadata={**chunk.metadata, "source": "realesrgan"},
             )
         ]

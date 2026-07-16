@@ -201,8 +201,6 @@ def test_postprocess_scales_batched_views(monkeypatch: pytest.MonkeyPatch) -> No
     chunk = VideoChunk(
         tensor=torch.zeros(1, 2, 4, 3, 2, 3),
         layout="bvtchw",
-        value_range="minus_one_one",
-        is_final=True,
     )
 
     outputs = session.process(chunk)
@@ -211,6 +209,14 @@ def test_postprocess_scales_batched_views(monkeypatch: pytest.MonkeyPatch) -> No
     assert outputs[0].layout == "bvtchw"
     assert outputs[0].metadata["source"] == "realesrgan"
     assert outputs[0].tensor.shape == (1, 2, 4, 3, 4, 6)
+
+
+def test_postprocess_reports_scaled_output_spec() -> None:
+    config = RealESRGANPostProcessorConfig(scale=4)
+
+    spec = config.output_spec(postprocess_mod.VideoSpec(height=8, width=12, fps=24))
+
+    assert spec == postprocess_mod.VideoSpec(height=32, width=48, fps=24)
 
 
 def test_realesrgan_postprocess_preset_is_registered() -> None:
