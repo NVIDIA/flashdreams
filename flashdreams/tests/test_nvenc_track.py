@@ -70,10 +70,10 @@ class TestRecv:
         # aiortc's H264Encoder.pack() consumes bytes(packet), packet.pts
         # and packet.time_base directly, so recv() must not mutate them.
         track = NVENCVideoTrack(fps=30, maxsize=8)
-        original = _mk_packet(pts=1234, payload=b"\x00\x00\x00\x01\x25\xAA")
+        original = _mk_packet(pts=1234, payload=b"\x00\x00\x00\x01\x25\xaa")
         track.enqueue_encoded_packet_nowait(original)
         got = await asyncio.wait_for(track.recv(), timeout=1.0)
-        assert bytes(got) == b"\x00\x00\x00\x01\x25\xAA"
+        assert bytes(got) == b"\x00\x00\x00\x01\x25\xaa"
         assert got.pts == 1234
         assert got.time_base == Fraction(1, 90_000)
 

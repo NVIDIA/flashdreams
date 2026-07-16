@@ -39,6 +39,19 @@ class _FakeCloseable:
         self.closed = True
 
 
+class _FakeVideoEncoder:
+    """Minimal ``VideoEncoder``-shaped stub for ``_ManagedLingbotSession``
+    construction. Enough to satisfy the dataclass field; the tests here do
+    not exercise ``create_track`` / ``deliver_chunk`` on it."""
+
+    fps = 30
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def close(self) -> None:
+        return
+
+
 def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     del config
     return object()
@@ -280,6 +293,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     managed_session = session._ManagedLingbotSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),
@@ -310,6 +324,7 @@ async def test_client_liveness_timeout_closes_active_session(
     managed_session = session._ManagedLingbotSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         last_client_message_at=asyncio.get_running_loop().time() - 1.0,
@@ -341,6 +356,7 @@ async def test_disconnect_message_closes_active_session(
     managed_session = session._ManagedLingbotSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),

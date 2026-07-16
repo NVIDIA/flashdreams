@@ -730,7 +730,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),
@@ -761,7 +761,7 @@ async def test_client_liveness_timeout_closes_active_session(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         last_client_message_at=asyncio.get_running_loop().time() - 1.0,
@@ -793,7 +793,7 @@ async def test_disconnect_message_closes_active_session(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),
@@ -878,7 +878,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     managed_session = session._ManagedOmnidreamsSession(
         runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),
         peer_connection=peer_connection,
         resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
         control_channel=control_channel,
@@ -961,7 +961,7 @@ def _sdp_fallback_managed_session(
     return session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
-        video_encoder=hw_encoder,  # ty:ignore[invalid-argument-type]
+        video_encoder=hw_encoder,
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
     )
@@ -978,7 +978,7 @@ def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> 
     transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/VP8")])
 
     manager._enforce_h264_or_fallback(
-        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
@@ -1000,7 +1000,7 @@ def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
     transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/H264")])
 
     manager._enforce_h264_or_fallback(
-        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
@@ -1020,7 +1020,7 @@ def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> None:
     transceiver = _FakeTransceiver([])
 
     manager._enforce_h264_or_fallback(
-        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
