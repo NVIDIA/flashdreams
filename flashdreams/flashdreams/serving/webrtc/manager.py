@@ -16,10 +16,20 @@ from enum import IntEnum
 from typing import Any
 
 import torch
-from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCConfiguration,
+    RTCPeerConnection,
+    RTCRtpSender,
+    RTCSessionDescription,
+)
+from aiortc.mediastreams import MediaStreamTrack
 from loguru import logger
 
 from flashdreams.serving.realtime.input import KeyboardResampler
+from flashdreams.serving.webrtc.encoders import (
+    DefaultRTCEncoder,
+    VideoEncoder,
+)
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
@@ -61,7 +71,8 @@ class ManagedWebRTCSession:
     """Per-session state for the single active WebRTC peer connection."""
 
     runtime: Any
-    video_track: BufferedVideoTrack
+    video_track: MediaStreamTrack
+    video_encoder: VideoEncoder
     peer_connection: Any
     resampler: KeyboardResampler
     control_channel: Any | None = None
@@ -157,6 +168,69 @@ class BaseWebRTCSessionManager:
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         """Register optional extra peer-connection event handlers."""
+
+    def _prefer_h264_video_codec(self, *, transceiver: Any) -> None:
+        """Constrain the transceiver's codec preferences to H.264 variants.
+
+        Required when the selected encoder emits pre-encoded H.264 packets
+        (``av.Packet`` route through ``H264Encoder.pack()``): if the SDP
+        negotiates VP8/VP9 instead, aiortc will pack the H.264 bitstream
+        under the wrong codec header and the receiver will fail to decode.
+
+        If the local aiortc build does not advertise H.264, no preference
+        is set; the SDP-time fallback in ``_enforce_h264_or_fallback``
+        will then swap the encoder to :class:`DefaultRTCEncoder`.
+        """
+        caps = RTCRtpSender.getCapabilities("video")
+        h264_codecs = [c for c in caps.codecs if c.mimeType.lower() == "video/h264"]
+        if not h264_codecs:
+            return
+        transceiver.setCodecPreferences(h264_codecs)
+
+    def _enforce_h264_or_fallback(
+        self,
+        *,
+        transceiver: Any,
+        managed_session: ManagedWebRTCSession,
+        num_frames: int,
+    ) -> None:
+        """Verify H.264 was negotiated; swap to the software encoder if not.
+
+        aiortc exposes the negotiated codec set on
+        ``RTCRtpTransceiver._codecs`` after ``setLocalDescription``. We
+        read it via that attribute (aiortc-internal, but stable in the
+        pinned version) and, if H.264 did not land, close the hardware
+        encoder and install a :class:`DefaultRTCEncoder` with a
+        :class:`BufferedVideoTrack` on the same sender before the first
+        RTP packet flies. ``replaceTrack`` does not renegotiate; aiortc's
+        RTP loop will encode raw ``av.VideoFrame`` output with whatever
+        codec (VP8/VP9/H.264) actually landed in the SDP.
+        """
+        negotiated = getattr(transceiver, "_codecs", None) or []
+        if negotiated and negotiated[0].mimeType.lower() == "video/h264":
+            logger.info(
+                "Video codec negotiated: {} (hardware encoder path active).",
+                negotiated[0].mimeType,
+            )
+            return
+
+        chosen = negotiated[0].mimeType if negotiated else "<none>"
+        logger.warning(
+            "H.264 preferred by hardware encoder but SDP negotiation "
+            "landed on {!r}; swapping to the software encoder before "
+            "streaming begins.",
+            chosen,
+        )
+        # Close the hardware encoder so its NVENC session is released
+        # promptly; the software adapter has no hardware resources to
+        # release itself.
+        managed_session.video_encoder.close()
+
+        fallback_encoder = DefaultRTCEncoder(fps=self.fps)
+        fallback_track = fallback_encoder.create_track(maxsize=num_frames)
+        transceiver.sender.replaceTrack(fallback_track)
+        managed_session.video_encoder = fallback_encoder
+        managed_session.video_track = fallback_track
 
     def _on_offer_received(self, offer_sdp: str) -> None:
         """Hook invoked with the remote offer SDP before negotiation."""
@@ -283,8 +357,17 @@ class BaseWebRTCSessionManager:
         # frames than steady state; sizing to it would force a per-chunk
         # stall, so we size to the steady-state count.
         num_frames = self._runtime.peek_steady_chunk_num_frames()
-        video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
-        peer_connection.addTrack(video_track)
+        video_encoder: VideoEncoder = self._runtime.video_encoder
+        video_track = video_encoder.create_track(maxsize=num_frames)
+        # Use ``addTransceiver`` (not ``addTrack``) so we can constrain the
+        # SDP m-line's codec list via ``setCodecPreferences`` when the
+        # encoder emits pre-encoded H.264 packets.
+        video_transceiver = peer_connection.addTransceiver(
+            video_track,
+            direction="sendonly",
+        )
+        if video_encoder.prefers_codec == "h264":
+            self._prefer_h264_video_codec(transceiver=video_transceiver)
         # Start the resampler's virtual clock at 0; the real anchor is set
         # in the ``on_datachannel`` handler so chunk 0's window starts when
         # input can actually arrive.
@@ -293,6 +376,7 @@ class BaseWebRTCSessionManager:
         managed_session = ManagedWebRTCSession(
             runtime=self._runtime,
             video_track=video_track,
+            video_encoder=video_encoder,
             peer_connection=peer_connection,
             resampler=resampler,
             last_client_message_at=loop.time(),
@@ -350,6 +434,12 @@ class BaseWebRTCSessionManager:
             answer = await peer_connection.createAnswer()
             await peer_connection.setLocalDescription(answer)
             await wait_for_ice_gathering_complete(peer_connection)
+            if video_encoder.prefers_codec == "h264":
+                self._enforce_h264_or_fallback(
+                    transceiver=video_transceiver,
+                    managed_session=managed_session,
+                    num_frames=num_frames,
+                )
             local_description = peer_connection.localDescription
             if local_description is None:
                 raise RuntimeError("Peer connection did not produce local description.")
@@ -548,6 +638,7 @@ class BaseWebRTCSessionManager:
         runtime = managed_session.runtime
         resampler = managed_session.resampler
         video_track = managed_session.video_track
+        video_encoder = managed_session.video_encoder
 
         # Stay idle until the user interacts. Generating eagerly would burn
         # GPU cycles on a still scene the viewer never sees. Once an event
@@ -617,7 +708,12 @@ class BaseWebRTCSessionManager:
                         return
                     continue
                 t_after_gen = loop.time()
-                enqueued = await video_track.enqueue_chunk(result.video_chunk)
+                delivery = await video_encoder.deliver_chunk(
+                    result.video_chunk,
+                    video_track,
+                    force_keyframe=False,
+                )
+                enqueued = delivery.num_frames
                 t_after_enqueue = loop.time()
 
                 gen_ms = (t_after_gen - t_before_gen) * 1e3
