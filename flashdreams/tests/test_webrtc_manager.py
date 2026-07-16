@@ -48,6 +48,19 @@ class _FakeVideoTrack:
         self.closed = True
 
 
+class _FakeVideoEncoder:
+    """Minimal ``VideoEncoder``-shaped stub for ``ManagedWebRTCSession``
+    construction. Enough to satisfy the dataclass field; the manager tests
+    here do not exercise ``create_track`` / ``deliver_chunk`` on it."""
+
+    fps = 30
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def close(self) -> None:
+        return
+
+
 class _FakePeerConnection:
     def __init__(self) -> None:
         self.closed = False
@@ -101,6 +114,7 @@ def _managed_session(
     managed = ManagedWebRTCSession(
         runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer,
         resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
         control_channel=channel,
