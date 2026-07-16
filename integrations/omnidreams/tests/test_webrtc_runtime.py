@@ -30,7 +30,12 @@ from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
 )
+from flashdreams.serving.webrtc.encoders import (
+    ChunkDeliveryResult,
+    DefaultRTCEncoder,
+)
 from flashdreams.serving.webrtc.manager import WebRTCStepResult
+from flashdreams.serving.webrtc.media import BufferedVideoTrack
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -40,6 +45,51 @@ class _FakeCloseable:
         self.closed = False
 
     async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeVideoEncoder:
+    """Minimal :class:`VideoEncoder`-shaped stub for the manager tests.
+
+    Wraps a real :class:`BufferedVideoTrack` because the manager attaches
+    the track to a real :class:`RTCPeerConnection` in the warmup path;
+    aiortc rejects anything that is not a genuine ``MediaStreamTrack``.
+    """
+
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def __init__(self, *, fps: int = 30) -> None:
+        self.fps = fps
+        self.delivered_chunks: list[Any] = []
+        self.closed = False
+
+    def create_track(self, *, maxsize: int) -> BufferedVideoTrack:
+        return BufferedVideoTrack(fps=self.fps, maxsize=max(1, maxsize))
+
+    async def deliver_chunk(
+        self,
+        chunk: Any,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        del force_keyframe
+        self.delivered_chunks.append(chunk)
+        # If a real BufferedVideoTrack was provided, thread the chunk
+        # through its enqueue path so downstream consumers see frames.
+        if isinstance(track, BufferedVideoTrack):
+            enqueued = await track.enqueue_chunk(chunk)
+        else:
+            enqueued = int(chunk.shape[2]) if chunk.ndim == 6 else int(chunk.shape[0])
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=enqueued,
+            num_keyframes=0,
+            encode_ms=0.1,
+        )
+
+    def close(self) -> None:
         self.closed = True
 
 
@@ -486,6 +536,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
         postprocess_preset="rtx-super-resolution",
+        prefer_sw_encoder=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
@@ -498,6 +549,44 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
     assert cfg.video_width == 640
     assert cfg.debug_serve_hdmaps is True
     assert cfg.postprocess.preset == "rtx-super-resolution"
+    # ``--prefer_sw_encoder`` unset maps to the ``auto`` backend, which
+    # still probes NVENC and only falls back to software when the driver
+    # reports it unsupported.
+    assert cfg.encoder_backend == "auto"
+
+
+@pytest.mark.parametrize(
+    "prefer_sw_encoder, expected_backend",
+    [(False, "auto"), (True, "default")],
+)
+def test_build_runtime_config_maps_prefer_sw_encoder_to_backend(
+    tmp_path: Path,
+    prefer_sw_encoder: bool,
+    expected_backend: str,
+) -> None:
+    """--prefer_sw_encoder is the single CLI switch that toggles between
+    the auto-probe path and the forced-software path. Any regression in
+    this mapping would silently disable the hardware encoder (or worse,
+    fail to disable it when explicitly asked)."""
+    args = argparse.Namespace(
+        pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        scene_dir=tmp_path / "local-scene",
+        scene_uuid=None,
+        scene_variant="default",
+        seed=1,
+        device="cuda:0",
+        video_height=360,
+        video_width=640,
+        fps=24,
+        camera_name="camera_front_wide_120fov",
+        warmup_chunks=0,
+        warmup_timeout_s=30.0,
+        debug_serve_hdmaps=False,
+        postprocess_preset="",
+        prefer_sw_encoder=prefer_sw_encoder,
+    )
+    cfg = webrtc_server.build_runtime_config(args)
+    assert cfg.encoder_backend == expected_backend
 
 
 def test_parse_args_omits_scene_dir_by_default(
@@ -591,6 +680,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
         postprocess_preset="",
+        prefer_sw_encoder=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args)
@@ -687,6 +777,9 @@ async def test_loopback_warmup_drives_session_generation(
             self.generated_segments: list[
                 list[tuple[float, float, frozenset[str]]]
             ] = []
+            # The manager reads ``runtime.video_encoder`` when it wires the
+            # peer connection during the warmup loopback session.
+            self.video_encoder = _FakeVideoEncoder(fps=config.fps)
 
         async def initialize(self) -> None:
             self.initialize_calls += 1
@@ -758,6 +851,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),
@@ -788,6 +882,7 @@ async def test_client_liveness_timeout_closes_active_session(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         last_client_message_at=asyncio.get_running_loop().time() - 1.0,
@@ -819,6 +914,7 @@ async def test_disconnect_message_closes_active_session(
     managed_session = session._ManagedOmnidreamsSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=object(),
@@ -903,6 +999,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     managed_session = session._ManagedOmnidreamsSession(
         runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer_connection,
         resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
         control_channel=control_channel,
@@ -923,3 +1020,132 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     assert video_track.closed
     assert peer_connection.closed
     assert len(control_channel.messages) == 1
+
+
+class _HardwareEncoderStub:
+    """A stand-in that ``_enforce_h264_or_fallback`` should recognize as a
+    hardware encoder (``prefers_codec == "h264"``) and, when H.264 fails to
+    negotiate, close and replace with :class:`DefaultRTCEncoder`."""
+
+    backend = "pynvvideocodec"
+    prefers_codec: str | None = "h264"
+
+    def __init__(self, *, fps: int = 30) -> None:
+        self.fps = fps
+        self.closed = False
+
+    def create_track(self, *, maxsize: int) -> Any:
+        del maxsize
+        return _FakeCloseable()
+
+    async def deliver_chunk(
+        self,
+        chunk: Any,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        del chunk, track, force_keyframe
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=0,
+            num_keyframes=0,
+            encode_ms=0.0,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@dataclass
+class _FakeSdpCodec:
+    mimeType: str
+
+
+class _FakeSender:
+    def __init__(self) -> None:
+        self.replaced_with: Any = None
+
+    def replaceTrack(self, track: Any) -> None:
+        self.replaced_with = track
+
+
+class _FakeTransceiver:
+    def __init__(self, negotiated: list[_FakeSdpCodec]) -> None:
+        self._codecs = negotiated
+        self.sender = _FakeSender()
+
+
+def _sdp_fallback_managed_session(
+    hw_encoder: _HardwareEncoderStub,
+) -> session._ManagedOmnidreamsSession:
+    return session._ManagedOmnidreamsSession(
+        runtime=object(),
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=hw_encoder,  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+    )
+
+
+def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+    original_track = _FakeCloseable()
+    managed_session = _sdp_fallback_managed_session(hw_encoder)
+    managed_session.video_track = original_track  # ty:ignore[invalid-assignment]
+    transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/VP8")])
+
+    manager._enforce_h264_or_fallback(
+        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        managed_session=managed_session,
+        num_frames=4,
+    )
+
+    assert hw_encoder.closed, "hardware encoder should be closed on fallback"
+    assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
+    assert isinstance(managed_session.video_track, BufferedVideoTrack)
+    assert transceiver.sender.replaced_with is managed_session.video_track
+
+
+def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+    original_track = _FakeCloseable()
+    managed_session = _sdp_fallback_managed_session(hw_encoder)
+    managed_session.video_track = original_track  # ty:ignore[invalid-assignment]
+    transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/H264")])
+
+    manager._enforce_h264_or_fallback(
+        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        managed_session=managed_session,
+        num_frames=4,
+    )
+
+    assert not hw_encoder.closed
+    assert managed_session.video_encoder is hw_encoder
+    assert managed_session.video_track is original_track
+    assert transceiver.sender.replaced_with is None
+
+
+def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+    managed_session = _sdp_fallback_managed_session(hw_encoder)
+    transceiver = _FakeTransceiver([])
+
+    manager._enforce_h264_or_fallback(
+        transceiver=transceiver,  # ty:ignore[invalid-argument-type]
+        managed_session=managed_session,
+        num_frames=4,
+    )
+
+    assert hw_encoder.closed
+    assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
+    assert isinstance(managed_session.video_track, BufferedVideoTrack)

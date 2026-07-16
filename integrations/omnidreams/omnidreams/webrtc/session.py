@@ -59,6 +59,11 @@ from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
 )
+from flashdreams.serving.webrtc.encoders import (
+    EncoderBackend,
+    VideoEncoder,
+    select_encoder,
+)
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     BaseWebRTCSessionManager,
@@ -446,6 +451,14 @@ class OmnidreamsRuntimeConfig:
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
+    # Video encoder selection. ``"auto"`` prefers NVENC when the driver
+    # reports support at the target resolution (Stage-1 probe via
+    # ``PyNvVideoCodec.GetEncoderCaps``) and falls back to aiortc's
+    # software encoder otherwise. ``"nvenc"`` fails startup if NVENC
+    # cannot be initialized. ``"default"`` skips the probe entirely.
+    encoder_backend: EncoderBackend = "auto"
+    encoder_bitrate_bps: int = 6_000_000
+    encoder_gop: int = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +500,11 @@ class OmnidreamsInferenceRuntime:
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        # Selected once at initialization; the concrete backend is chosen
+        # by ``select_encoder`` based on ``config.encoder_backend`` and
+        # the driver's ``GetEncoderCaps`` response at
+        # ``config.video_width`` / ``config.video_height``.
+        self._video_encoder: VideoEncoder | None = None
         # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
         # graph capture/replay state is thread-local, so spreading calls across
         # workers (e.g. asyncio.to_thread) crashes capture after a few chunks.
@@ -512,6 +530,15 @@ class OmnidreamsInferenceRuntime:
     def postprocess_preset(self) -> str:
         """Preset active for the current rollout, or an empty string when off."""
         return self._postprocess_preset
+
+    @property
+    def video_encoder(self) -> VideoEncoder:
+        """Return the encoder selected at :meth:`initialize` time."""
+        if self._video_encoder is None:
+            raise OmnidreamsRuntimeError(
+                "Video encoder is not initialized; call runtime.initialize() first."
+            )
+        return self._video_encoder
 
     def wait_for_termination(self) -> None:
         self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
@@ -766,9 +793,37 @@ class OmnidreamsInferenceRuntime:
         self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
         self._reset_rollout_sync()
+        self._initialize_video_encoder_sync()
         logger.info(
             "Omnidreams runtime initialization complete in {:.1f}s.",
             time.perf_counter() - init_t0,
+        )
+
+    def _initialize_video_encoder_sync(self) -> None:
+        """Select the video encoder for this runtime.
+
+        Runs on the runtime executor thread so any GPU-side probe
+        (``CreateEncoder``) sees the same CUDA context the model uses.
+        """
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
+        device = (
+            self._device
+            if self._device is not None
+            else _resolve_cuda_device(
+                self.config.device,
+            )
+        )
+        gpu_id = device.index if device.index is not None else 0
+        self._video_encoder = select_encoder(
+            backend=self.config.encoder_backend,
+            width=self.config.video_width,
+            height=self.config.video_height,
+            fps=self.config.fps,
+            bitrate=self.config.encoder_bitrate_bps,
+            gpu_id=gpu_id,
+            gop=self.config.encoder_gop,
         )
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
@@ -842,6 +897,9 @@ class OmnidreamsInferenceRuntime:
         self._camera_to_rig = None
         self._initial_ego_pose = None
         self._close_postprocess_stream()
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
 
         if state is not None and wrapper is not None:
             wrapper.cleanup(state)
@@ -981,10 +1039,19 @@ class OmnidreamsInferenceRuntime:
                 autoregressive_index=self.autoregressive_index,
             )
 
+        # Preserve the compute-stream sync barrier that the previous
+        # ``.cpu()`` provided implicitly. The tensor stays on-device — the
+        # hardware encoder reads it via DLPack (zero-copy) while the
+        # software encoder path performs its own D2H copy inside
+        # ``BufferedVideoTrack``'s worker thread. Either way, the model's
+        # writes must be visible before those readers run.
+        if self._device is not None and self._device.type == "cuda":
+            torch.cuda.current_stream(self._device).synchronize()
+
         result = WebRTCStepResult(
             chunk_index=self.autoregressive_index,
             num_frames=int(video_chunk.shape[2]),
-            video_chunk=video_chunk.detach().cpu(),
+            video_chunk=video_chunk.detach(),
             stats=None,
         )
         self.autoregressive_index += 1
