@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import torch
 from aiortc import MediaStreamTrack
@@ -40,17 +40,23 @@ if TYPE_CHECKING:
         NVENCVideoTrack,
     )
 
-# PyNvVideoCodec is optional — required only when the hardware encoder is
-# actually selected. Environments without NVENC hardware or without the
-# library installed must still be able to import this module and use the
-# software backend.
-try:
-    import PyNvVideoCodec as nvc  # type: ignore[import-untyped]
+# PyNvVideoCodec is a runtime dep. Members like ``nvc.GetEncoderCaps`` /
+# ``nvc.FORCEIDR`` are not declared in any type stub, and the module may be
+# absent at import time on non-NVENC hosts (or intentionally removed for
+# testing the auto-fallback path). Hiding the import behind ``TYPE_CHECKING``
+# gives ty a single ``Any``-typed name to reason about while the runtime
+# path keeps the guarded try / except.
+if TYPE_CHECKING:
+    nvc: Any = None
+    _PYNVVIDEOCODEC_AVAILABLE: bool = False
+else:
+    try:
+        import PyNvVideoCodec as nvc
 
-    _PYNVVIDEOCODEC_AVAILABLE = True
-except ImportError:
-    nvc = None  # type: ignore[assignment]
-    _PYNVVIDEOCODEC_AVAILABLE = False
+        _PYNVVIDEOCODEC_AVAILABLE = True
+    except ImportError:
+        nvc = None
+        _PYNVVIDEOCODEC_AVAILABLE = False
 
 
 EncoderBackend = Literal["auto", "nvenc", "default"]
@@ -103,7 +109,7 @@ class VideoEncoder(Protocol):
     honoured or the pre-encoded bitstream will not decode); ``None`` to
     let aiortc pick freely."""
 
-    def create_track(self, *, maxsize: int) -> MediaStreamTrack:
+    def create_track(self, *, maxsize: int) -> BufferedVideoTrack | NVENCVideoTrack:
         """Create a fresh session track compatible with this encoder."""
         ...
 
@@ -146,7 +152,8 @@ class DefaultRTCEncoder:
         self.fps = fps
         logger.info(
             "Video encoder ready: backend={} fps={}",
-            self.backend, fps,
+            self.backend,
+            fps,
         )
 
     def create_track(self, *, maxsize: int) -> BufferedVideoTrack:
@@ -291,13 +298,10 @@ class PyNvHardwareEncoder:
             caps = nvc.GetEncoderCaps(gpuid=gpu_id, codec="h264")
         except Exception as exc:
             return False, (
-                f"GetEncoderCaps gpuid={gpu_id} raised "
-                f"{type(exc).__name__}: {exc}"
+                f"GetEncoderCaps gpuid={gpu_id} raised {type(exc).__name__}: {exc}"
             )
         if not caps:
-            return False, (
-                f"GetEncoderCaps gpuid={gpu_id} returned no capabilities"
-            )
+            return False, (f"GetEncoderCaps gpuid={gpu_id} returned no capabilities")
         max_w = int(caps.get("width_max", 0) or 0)
         max_h = int(caps.get("height_max", 0) or 0)
         min_w = int(caps.get("width_min", 0) or 0)
@@ -332,9 +336,7 @@ class PyNvHardwareEncoder:
                 "select DefaultRTCEncoder."
             )
         if width <= 0 or height <= 0:
-            raise ValueError(
-                f"width and height must be > 0, got {width}x{height}"
-            )
+            raise ValueError(f"width and height must be > 0, got {width}x{height}")
         if fps <= 0:
             raise ValueError(f"fps must be > 0, got {fps}")
         if bitrate <= 0:
@@ -347,7 +349,9 @@ class PyNvHardwareEncoder:
         # redundant with the factory's own probe, but a direct instantiation
         # (e.g. from a test) still gets a clear reason.
         supported, reason = self.is_supported(
-            gpu_id=gpu_id, width=width, height=height,
+            gpu_id=gpu_id,
+            width=width,
+            height=height,
         )
         if not supported:
             raise RuntimeError(f"NVENC H.264 not supported: {reason}")
@@ -388,7 +392,13 @@ class PyNvHardwareEncoder:
         logger.info(
             "Video encoder ready: backend={} codec=h264 {}x{}@{}fps "
             "bitrate={}bps gop={} gpu={}",
-            self.backend, width, height, fps, bitrate, gop, gpu_id,
+            self.backend,
+            width,
+            height,
+            fps,
+            bitrate,
+            gop,
+            gpu_id,
         )
 
     def create_track(self, *, maxsize: int) -> NVENCVideoTrack:
@@ -420,7 +430,8 @@ class PyNvHardwareEncoder:
             # bounded below by ``T / fps``.
             try:
                 loop.call_soon_threadsafe(
-                    track.enqueue_encoded_packet_nowait, pkt,
+                    track.enqueue_encoded_packet_nowait,
+                    pkt,
                 )
             except RuntimeError:
                 # Loop has been closed; drop the packet silently rather
@@ -523,7 +534,9 @@ def select_encoder(
         return DefaultRTCEncoder(fps=fps)
 
     supported, reason = PyNvHardwareEncoder.is_supported(
-        gpu_id=gpu_id, width=width, height=height,
+        gpu_id=gpu_id,
+        width=width,
+        height=height,
     )
     if not supported:
         if backend == "nvenc":

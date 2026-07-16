@@ -21,7 +21,6 @@ from aiortc import (
     RTCRtpSender,
     RTCSessionDescription,
 )
-from aiortc.mediastreams import MediaStreamTrack
 from loguru import logger
 
 from flashdreams.serving.realtime.input import KeyboardResampler
@@ -29,7 +28,7 @@ from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     VideoEncoder,
 )
-from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 from flashdreams.serving.webrtc.messages import (
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
@@ -100,7 +99,7 @@ class ManagedWebRTCSession:
     """Per-session state for the single active WebRTC peer connection."""
 
     runtime: Any
-    video_track: MediaStreamTrack
+    video_track: BufferedVideoTrack | NVENCVideoTrack
     video_encoder: VideoEncoder
     peer_connection: Any
     resampler: KeyboardResampler

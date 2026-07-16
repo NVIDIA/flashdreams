@@ -42,9 +42,13 @@ from flashdreams.serving.webrtc.encoders import (
 )
 from flashdreams.serving.webrtc.media import NVENCVideoTrack
 
-
 _SELECT_KW = dict(
-    width=1280, height=704, fps=30, bitrate=6_000_000, gpu_id=0, gop=30,
+    width=1280,
+    height=704,
+    fps=30,
+    bitrate=6_000_000,
+    gpu_id=0,
+    gop=30,
 )
 
 
@@ -81,14 +85,18 @@ class TestSelectDefaultBackend:
         # keeps the software path deterministic and safe on hosts where
         # GetEncoderCaps might have side effects.
         fake_nvc = MagicMock()
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True), \
-             patch.object(enc_mod, "nvc", fake_nvc):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
+            patch.object(enc_mod, "nvc", fake_nvc),
+        ):
             select_encoder(backend="default", **_SELECT_KW)
         fake_nvc.GetEncoderCaps.assert_not_called()
 
     def test_works_even_when_library_missing(self) -> None:
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False), \
-             patch.object(enc_mod, "nvc", None):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
+            patch.object(enc_mod, "nvc", None),
+        ):
             enc = select_encoder(backend="default", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
 
@@ -103,14 +111,18 @@ class TestSelectStage1Failure:
     nvenc raises loudly."""
 
     def test_library_missing_auto_falls_back(self, caplog) -> None:
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False), \
-             patch.object(enc_mod, "nvc", None):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
+            patch.object(enc_mod, "nvc", None),
+        ):
             enc = select_encoder(backend="auto", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
 
     def test_library_missing_nvenc_raises(self) -> None:
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False), \
-             patch.object(enc_mod, "nvc", None):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
+            patch.object(enc_mod, "nvc", None),
+        ):
             with pytest.raises(EncoderInitError, match="not installed"):
                 select_encoder(backend="nvenc", **_SELECT_KW)
 
@@ -120,28 +132,40 @@ class TestSelectStage1Failure:
             (RuntimeError("driver comms error"), "driver comms error"),
             ({}, "no capabilities"),
             (
-                {"width_max": 640, "height_max": 480,
-                 "width_min": 32, "height_min": 32},
+                {
+                    "width_max": 640,
+                    "height_max": 480,
+                    "width_min": 32,
+                    "height_min": 32,
+                },
                 "exceeds driver maximum",
             ),
             (
-                {"width_max": 8192, "height_max": 8192,
-                 "width_min": 1920, "height_min": 1088},
+                {
+                    "width_max": 8192,
+                    "height_max": 8192,
+                    "width_min": 1920,
+                    "height_min": 1088,
+                },
                 "below driver minimum",
             ),
         ],
         ids=["caps_raise", "caps_empty", "caps_max_too_small", "caps_min_too_big"],
     )
     def test_caps_failure_auto_falls_back(
-        self, caps_effect, expected_reason_frag,
+        self,
+        caps_effect,
+        expected_reason_frag,
     ) -> None:
         fake_nvc = MagicMock()
         if isinstance(caps_effect, BaseException):
             fake_nvc.GetEncoderCaps.side_effect = caps_effect
         else:
             fake_nvc.GetEncoderCaps.return_value = caps_effect
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True), \
-             patch.object(enc_mod, "nvc", fake_nvc):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
+            patch.object(enc_mod, "nvc", fake_nvc),
+        ):
             enc = select_encoder(backend="auto", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
         # ``CreateEncoder`` must not be reached when Stage 1 fails.
@@ -150,8 +174,10 @@ class TestSelectStage1Failure:
     def test_caps_failure_nvenc_raises_with_reason(self) -> None:
         fake_nvc = MagicMock()
         fake_nvc.GetEncoderCaps.side_effect = RuntimeError("driver comms error")
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True), \
-             patch.object(enc_mod, "nvc", fake_nvc):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
+            patch.object(enc_mod, "nvc", fake_nvc),
+        ):
             with pytest.raises(EncoderInitError, match="driver comms error"):
                 select_encoder(backend="nvenc", **_SELECT_KW)
 
@@ -172,8 +198,10 @@ class TestSelectStage2HardError:
     def _fake_nvc_caps_ok(self) -> MagicMock:
         fake = MagicMock()
         fake.GetEncoderCaps.return_value = {
-            "width_max": 8192, "height_max": 8192,
-            "width_min": 32, "height_min": 32,
+            "width_max": 8192,
+            "height_max": 8192,
+            "width_min": 32,
+            "height_min": 32,
         }
         fake.FORCEIDR = 0x1
         return fake
@@ -183,16 +211,20 @@ class TestSelectStage2HardError:
         fake_nvc.CreateEncoder.side_effect = RuntimeError(
             "NVENC session pool exhausted"
         )
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True), \
-             patch.object(enc_mod, "nvc", fake_nvc):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
+            patch.object(enc_mod, "nvc", fake_nvc),
+        ):
             with pytest.raises(RuntimeError, match="session pool exhausted"):
                 select_encoder(backend="auto", **_SELECT_KW)
 
     def test_construct_failure_reraises_under_nvenc(self) -> None:
         fake_nvc = self._fake_nvc_caps_ok()
         fake_nvc.CreateEncoder.side_effect = RuntimeError("hardware fault")
-        with patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True), \
-             patch.object(enc_mod, "nvc", fake_nvc):
+        with (
+            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
+            patch.object(enc_mod, "nvc", fake_nvc),
+        ):
             with pytest.raises(RuntimeError, match="hardware fault"):
                 select_encoder(backend="nvenc", **_SELECT_KW)
 
@@ -205,10 +237,13 @@ class TestSelectStage2HardError:
 class TestChunkDeliveryResult:
     def test_is_frozen_dataclass(self) -> None:
         result = ChunkDeliveryResult(
-            backend="fake", num_frames=4, num_keyframes=1, encode_ms=1.5,
+            backend="fake",
+            num_frames=4,
+            num_keyframes=1,
+            encode_ms=1.5,
         )
         with pytest.raises((AttributeError, Exception)):
-            result.backend = "other"  # type: ignore[misc]
+            result.backend = "other"  # ty:ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -236,12 +271,11 @@ class TestDefaultRTCEncoderDeliver:
 
         fake_track = _FakeBufferedVideoTrack()
         # Patch the isinstance check inside deliver_chunk to accept our fake.
-        with patch.object(media_mod, "BufferedVideoTrack",
-                          _FakeBufferedVideoTrack):
+        with patch.object(media_mod, "BufferedVideoTrack", _FakeBufferedVideoTrack):
             enc = DefaultRTCEncoder(fps=30)
             result = await enc.deliver_chunk(
-                SimpleNamespace(shape=(4, 3, 8, 8)),
-                fake_track,  # type: ignore[arg-type]
+                SimpleNamespace(shape=(4, 3, 8, 8)),  # ty:ignore[invalid-argument-type]
+                fake_track,  # ty:ignore[invalid-argument-type]
             )
         assert result.backend == "aiortc"
         assert result.num_frames == 4
@@ -253,8 +287,8 @@ class TestDefaultRTCEncoderDeliver:
         enc = DefaultRTCEncoder(fps=30)
         with pytest.raises(TypeError, match="BufferedVideoTrack"):
             await enc.deliver_chunk(
-                SimpleNamespace(),
-                SimpleNamespace(),  # type: ignore[arg-type]
+                SimpleNamespace(),  # ty:ignore[invalid-argument-type]
+                SimpleNamespace(),  # ty:ignore[invalid-argument-type]
             )
 
 
@@ -349,7 +383,8 @@ class _OrderingFakeEncoder:
                 packet.pts = (pts_frame_index * 90_000) // self.fps
                 packet.time_base = self._time_base
                 loop.call_soon_threadsafe(
-                    track.enqueue_encoded_packet_nowait, packet,
+                    track.enqueue_encoded_packet_nowait,
+                    packet,
                 )
 
         await asyncio.to_thread(_encode_worker)
@@ -397,7 +432,8 @@ class TestDeliverChunkOrdering:
     @pytest.mark.asyncio
     async def test_sequential_await_produces_monotonic_pts(self) -> None:
         encoder = _OrderingFakeEncoder(
-            fps=_ORDERING_FPS, frames_per_chunk=_ORDERING_FRAMES_PER_CHUNK,
+            fps=_ORDERING_FPS,
+            frames_per_chunk=_ORDERING_FRAMES_PER_CHUNK,
         )
         track = encoder.create_track(maxsize=_ORDERING_TOTAL_FRAMES)
 
@@ -407,12 +443,14 @@ class TestDeliverChunkOrdering:
         seen_pts: list[int] = []
         for _ in range(_ORDERING_TOTAL_FRAMES):
             packet = await asyncio.wait_for(track.recv(), timeout=1.0)
+            # ``_OrderingFakeEncoder`` always sets pts before enqueueing; the
+            # ``av.Packet.pts`` field is nullable at the type level, so narrow.
+            assert packet.pts is not None
             seen_pts.append(int(packet.pts))
 
         # Strictly monotonic and matches the exact expected pts sequence.
         expected = [
-            (i * 90_000) // _ORDERING_FPS
-            for i in range(_ORDERING_TOTAL_FRAMES)
+            (i * 90_000) // _ORDERING_FPS for i in range(_ORDERING_TOTAL_FRAMES)
         ]
         assert seen_pts == expected, (
             "packets emitted out of order across chunks: "
@@ -432,7 +470,8 @@ class TestDeliverChunkOrdering:
         await in the manager is *load-bearing* for ordering.
         """
         encoder = _OrderingFakeEncoder(
-            fps=_ORDERING_FPS, frames_per_chunk=_ORDERING_FRAMES_PER_CHUNK,
+            fps=_ORDERING_FPS,
+            frames_per_chunk=_ORDERING_FRAMES_PER_CHUNK,
         )
         track = encoder.create_track(maxsize=_ORDERING_TOTAL_FRAMES)
 
@@ -448,6 +487,9 @@ class TestDeliverChunkOrdering:
         seen_pts: list[int] = []
         for _ in range(_ORDERING_TOTAL_FRAMES):
             packet = await asyncio.wait_for(track.recv(), timeout=1.0)
+            # ``_OrderingFakeEncoder`` always sets pts before enqueueing; the
+            # ``av.Packet.pts`` field is nullable at the type level, so narrow.
+            assert packet.pts is not None
             seen_pts.append(int(packet.pts))
 
         # Every pts value must be present exactly once; that part is a
@@ -455,8 +497,7 @@ class TestDeliverChunkOrdering:
         # around ``_pts_counter``). Duplicate pts here would be a bug in
         # the fake, not in the code under test.
         expected_set = {
-            (i * 90_000) // _ORDERING_FPS
-            for i in range(_ORDERING_TOTAL_FRAMES)
+            (i * 90_000) // _ORDERING_FPS for i in range(_ORDERING_TOTAL_FRAMES)
         }
         assert set(seen_pts) == expected_set
         assert len(seen_pts) == _ORDERING_TOTAL_FRAMES
