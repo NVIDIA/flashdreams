@@ -28,6 +28,12 @@ SPDX-License-Identifier: Apache-2.0
                           or pagename.startswith('_modules/')
                           or pagename in ('search', 'genindex', 'py-modindex') %}
 
+{% block extrahead %}
+  {{ super() }}
+  <link rel="icon" type="image/svg+xml" href="{{ pathto('_static/logo-light.svg', 1) | e }}" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="{{ pathto('_static/logo-dark.svg', 1) | e }}" media="(prefers-color-scheme: dark)">
+{% endblock extrahead %}
+
 {% block docs_main %}
   {% if _fd_is_reference %}
     {{ super() }}
