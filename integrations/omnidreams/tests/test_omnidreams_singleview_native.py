@@ -147,7 +147,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         captured["cuda_arch_list_env"] = os.environ.get("TORCH_CUDA_ARCH_LIST")
         return _fake_extension_module()
 
-    monkeypatch.setattr(native, "_extension", None)
+    monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
@@ -335,7 +335,7 @@ def test_load_extension_uses_sage3_stub_when_disabled(
         captured.update(kwargs)
         return _fake_extension_module()
 
-    monkeypatch.setattr(native, "_extension", None)
+    monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(
         native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
@@ -355,6 +355,43 @@ def test_load_extension_uses_sage3_stub_when_disabled(
     assert "lightvae_fp8_attention.cu" in sources
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cuda_cflags"]
+
+
+@pytest.mark.ci_cpu
+def test_load_extension_caches_separate_sage3_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch.utils.cpp_extension as cpp_extension
+
+    extensions: list[ModuleType] = []
+
+    def fake_load_torch_extension(**_: object) -> ModuleType:
+        extension = _fake_extension_module()
+        extensions.append(extension)
+        return extension
+
+    monkeypatch.setattr(native, "_extension", {})
+    monkeypatch.setattr(native, "_extension_load_error", None)
+    monkeypatch.setattr(
+        native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
+    )
+    monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
+
+    sage3_extension = native.load_extension(build_root=tmp_path / "native-build")
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", "1")
+    stub_extension = native.load_extension(build_root=tmp_path / "native-build")
+
+    assert sage3_extension is extensions[0]
+    assert stub_extension is extensions[1]
+    assert native.load_extension(build_root=tmp_path / "native-build") is stub_extension
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
+    assert (
+        native.load_extension(build_root=tmp_path / "native-build") is sage3_extension
+    )
+    assert len(extensions) == 2
 
 
 @pytest.mark.ci_cpu
@@ -389,7 +426,7 @@ def test_load_extension_respects_existing_max_jobs(
         captured["cuda_arch_list_env"] = os.environ.get("TORCH_CUDA_ARCH_LIST")
         return _fake_extension_module()
 
-    monkeypatch.setattr(native, "_extension", None)
+    monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(
         native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
@@ -422,7 +459,7 @@ def test_load_extension_retries_after_failed_build(
         return _fake_extension_module()
 
     thirdparty_info = _fake_thirdparty_info(tmp_path)
-    monkeypatch.setattr(native, "_extension", None)
+    monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr("torch.utils.cpp_extension.load", fake_load_torch_extension)

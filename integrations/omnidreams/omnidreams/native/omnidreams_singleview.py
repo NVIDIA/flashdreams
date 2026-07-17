@@ -58,7 +58,7 @@ _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
 
 _native_build_module: ModuleType | None = None
-_extension: ModuleType | None = None
+_extension: dict[bool, ModuleType] = {}
 _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
 _dll_directory_handles: list[object] = []
@@ -540,8 +540,9 @@ def load_extension(
 
     global _extension, _extension_load_error
     with _state_lock:
-        if _extension is not None:
-            return _extension
+        sage3_disabled = _sage3_disabled()
+        if (extension := _extension.get(sage3_disabled)) is not None:
+            return extension
         _extension_load_error = None
 
         try:
@@ -551,7 +552,7 @@ def load_extension(
 
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(thirdparty_info)
-            has_sage3 = int(not _sage3_disabled())
+            has_sage3 = int(not sage3_disabled)
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
             cutlass_include = cutlass_dir / "include"
             sage_attention_dir = Path(thirdparty_info["SageAttention"]["path"])
@@ -570,7 +571,7 @@ def load_extension(
             _add_windows_cuda_dll_directories(cudnn_package_dir)
 
             with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
-                _extension = load_torch_extension(
+                _extension[sage3_disabled] = load_torch_extension(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],
                     build_directory=str(extension_build_dir),
@@ -672,7 +673,7 @@ def load_extension(
         except Exception as exc:  # pragma: no cover - environment-specific build path
             _extension_load_error = exc
             return None
-        return _extension
+        return _extension[sage3_disabled]
 
 
 def extension_load_error() -> Exception | None:
