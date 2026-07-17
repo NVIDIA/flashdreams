@@ -45,7 +45,7 @@ video-codec = [
 dev = [
     "pytest>=8.0",
     "imageio-ffmpeg>=0.5",
-    "opencv-python>=4.5",
+    "opencv-python-headless>=4.5",
 ]
 
 [build-system]

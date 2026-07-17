@@ -27,7 +27,6 @@ dependencies = [
     "flashdreams",
     "grpcio>=1.80",
     "mediapy>=1.1",
-    "opencv-python>=4.8",
     "Pillow>=10",
     "protobuf>=6.31.1",
 ]
