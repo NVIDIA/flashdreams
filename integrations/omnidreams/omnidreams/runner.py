@@ -42,6 +42,7 @@ from omnidreams.transformer import CosmosTransformerConfig
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
+    DEFAULT_RUNNER_INSTALL_HINT,
     ensure_output_dir,
     load_first_frame_tensor,
     load_video_tensor,
@@ -57,8 +58,6 @@ DEFAULT_VIDEO_WIDTH = 1280
 """Pixel-space rollout width (matches the trained 720p chassis)."""
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-
-_RUNNER_INSTALL_HINT = "Install the runner extras: pip install 'flashdreams[runners]'."
 
 EXAMPLE_DATA_HF_REPO = "nvidia/omni-dreams-samples"
 """Single-view HDMap clips + first frames in the NVIDIA HF dataset."""
@@ -445,7 +444,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             video_path,
             fps=cfg.output_fps,
             layout="thwc",
-            install_hint=_RUNNER_INSTALL_HINT,
+            install_hint=DEFAULT_RUNNER_INSTALL_HINT,
         )
         logger.info(
             f"[{cfg.runner_name}] wrote {output_description} {tuple(canvas.shape)} "
@@ -510,7 +509,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 device=device,
                 dtype=dtype,
                 allow_video=True,
-                install_hint=_RUNNER_INSTALL_HINT,
+                install_hint=DEFAULT_RUNNER_INSTALL_HINT,
             )
             for p in first_frame_paths
         ]
@@ -577,5 +576,5 @@ def _load_video(
         pixel_width=pixel_width,
         device=device,
         dtype=dtype,
-        install_hint=_RUNNER_INSTALL_HINT,
+        install_hint=DEFAULT_RUNNER_INSTALL_HINT,
     )

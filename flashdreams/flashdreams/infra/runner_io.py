@@ -74,9 +74,11 @@ def resolve_prompt_value(value: str | Path) -> str:
     """Resolve an inline prompt or first non-empty line of a prompt file."""
     if isinstance(value, Path):
         lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
-        assert lines, f"prompt file {value} has no non-empty lines"
+        if not lines:
+            raise ValueError(f"prompt file {value} has no non-empty lines")
         return lines[0]
-    assert value, "--prompt must be a non-empty string or a path to a .txt file"
+    if not value:
+        raise ValueError("--prompt must be a non-empty string or a path to a .txt file")
     return value
 
 
@@ -245,7 +247,7 @@ def video_tensor_to_uint8(
     else:
         raise ValueError(f"Unsupported video tensor layout: {layout!r}")
 
-    arr = (canvas.float().numpy() + 1.0) / 2.0
+    arr = (canvas.detach().cpu().float().numpy() + 1.0) / 2.0
     return (arr * 255).clip(0, 255).astype("uint8")
 
 

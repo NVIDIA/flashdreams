@@ -48,6 +48,16 @@ def test_resolve_prompt_value_reads_first_non_empty_line(tmp_path: Path) -> None
     assert resolve_prompt_value(prompt_path) == "first prompt"
 
 
+def test_resolve_prompt_value_rejects_empty_values(tmp_path: Path) -> None:
+    prompt_path = tmp_path / "prompt.txt"
+    prompt_path.write_text("\n  \n")
+
+    with pytest.raises(ValueError, match="has no non-empty lines"):
+        resolve_prompt_value(prompt_path)
+    with pytest.raises(ValueError, match="must be a non-empty string"):
+        resolve_prompt_value("")
+
+
 def test_runner_artifact_and_stats_paths(tmp_path: Path) -> None:
     output_dir = ensure_output_dir(tmp_path / "nested")
 
@@ -94,6 +104,30 @@ def test_video_tensor_to_uint8_converts_tchw_layout() -> None:
         frames,
         np.array(
             [[[[0, 0, 255], [127, 191, 0]], [[255, 127, 127], [255, 255, 127]]]],
+            dtype=np.uint8,
+        ),
+    )
+
+
+def test_video_tensor_to_uint8_converts_thwc_layout() -> None:
+    video = torch.tensor(
+        [
+            [
+                [[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0]],
+                [[1.0, 1.0, -1.0], [2.0, -2.0, 0.0]],
+            ],
+        ],
+        dtype=torch.float32,
+    )
+
+    frames = video_tensor_to_uint8(video, layout="thwc")
+
+    assert frames.dtype == np.uint8
+    assert frames.shape == (1, 2, 2, 3)
+    np.testing.assert_array_equal(
+        frames,
+        np.array(
+            [[[[0, 127, 255], [191, 63, 127]], [[255, 255, 0], [255, 0, 127]]]],
             dtype=np.uint8,
         ),
     )
