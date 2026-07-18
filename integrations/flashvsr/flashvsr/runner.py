@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +33,12 @@ from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
     FlashVSRPipeline,
@@ -470,12 +475,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         if generated is None:
             return
 
-        # [1, 3, T_out, target_H, target_W] in [-1, 1] -> [T_out, H, W, 3].
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        video_path = config.output_dir / f"{config.runner_name}.mp4"
-        canvas = rearrange(generated, "1 c t h w -> t h w c")
-        arr = ((canvas.float().numpy() + 1.0) / 2.0 * 255).clip(0, 255).astype("uint8")
-        media.write_video(str(video_path), arr, fps=fps)
+        ensure_output_dir(config.output_dir)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        write_video_tensor(generated, video_path, fps=fps, layout="bcthw")
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
@@ -483,8 +485,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         )
 
         if stats_history:
-            stats_path = config.output_dir / f"stats_{config.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                config.output_dir, config.runner_name, stats_history
+            )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> "
                 f"{stats_path.resolve()}"

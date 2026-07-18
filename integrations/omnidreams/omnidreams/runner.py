@@ -27,11 +27,9 @@ The ``*_RUNNER`` literals + ``OMNIDREAMS_RUNNERS`` dict live in
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import torch
 from einops import rearrange
 from loguru import logger
@@ -43,6 +41,14 @@ from omnidreams.transformer import CosmosTransformerConfig
 
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    load_first_frame_tensor,
+    load_video_tensor,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 
 DEFAULT_VIDEO_HEIGHT = 704
 """Pixel-space rollout height (matches the trained 720p chassis)."""
@@ -50,9 +56,9 @@ DEFAULT_VIDEO_HEIGHT = 704
 DEFAULT_VIDEO_WIDTH = 1280
 """Pixel-space rollout width (matches the trained 720p chassis)."""
 
-IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
-
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+
+_RUNNER_INSTALL_HINT = "Install the runner extras: pip install 'flashdreams[runners]'."
 
 EXAMPLE_DATA_HF_REPO = "nvidia/omni-dreams-samples"
 """Single-view HDMap clips + first frames in the NVIDIA HF dataset."""
@@ -432,9 +438,15 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 video=video,
             )
 
-        cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
-        _write_video(canvas, video_path, fps=cfg.output_fps)
+        ensure_output_dir(cfg.output_dir)
+        video_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
+        write_video_tensor(
+            canvas,
+            video_path,
+            fps=cfg.output_fps,
+            layout="thwc",
+            install_hint=_RUNNER_INSTALL_HINT,
+        )
         logger.info(
             f"[{cfg.runner_name}] wrote {output_description} {tuple(canvas.shape)} "
             f"from generated={tuple(video.shape)}; wrote video {tuple(video.shape)} "
@@ -442,8 +454,9 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         )
 
         if stats_history:
-            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                cfg.output_dir, cfg.runner_name, stats_history
+            )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
@@ -490,12 +503,14 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         """Load the per-camera first-frame seeds as ``[B=1, V, 1, C, H, W]``."""
         cfg = self.config
         first_frames = [
-            _load_first_frame(
+            load_first_frame_tensor(
                 p,
                 pixel_height=cfg.pixel_height,
                 pixel_width=cfg.pixel_width,
                 device=device,
                 dtype=dtype,
+                allow_video=True,
+                install_hint=_RUNNER_INSTALL_HINT,
             )
             for p in first_frame_paths
         ]
@@ -547,53 +562,6 @@ __all__ = [
     "DEFAULT_VIDEO_HEIGHT",
     "DEFAULT_VIDEO_WIDTH",
 ]
-
-
-## I/O helpers (``cv2`` / ``mediapy`` lazy-imported; live under the ``runners`` extras).
-
-
-def _read_first_frame_np(path: Path) -> np.ndarray:
-    """Read a first-frame image (or frame 0 of a video) as ``[H, W, 3]``."""
-    try:
-        import mediapy as media  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Loading the first-frame asset needs mediapy. "
-            "Install the runner extras: pip install 'flashdreams[runners]'."
-        ) from exc
-
-    if path.suffix.lower() in IMAGE_SUFFIXES:
-        return media.read_image(str(path))[..., :3]
-    video = media.read_video(str(path))
-    assert video.shape[0] > 0, f"video has no frames: {path}"
-    return video[0, ..., :3]
-
-
-def _load_first_frame(
-    path: Path,
-    *,
-    pixel_height: int,
-    pixel_width: int,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> torch.Tensor:
-    """Resize a first-frame asset and return ``[1, C, H, W]`` in ``[-1, 1]``."""
-    try:
-        import cv2  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Resizing the first-frame asset needs opencv. "
-            "Install the runner extras: pip install 'flashdreams[runners]'."
-        ) from exc
-
-    arr = _read_first_frame_np(path)
-    arr = cv2.resize(arr, (pixel_width, pixel_height))
-    tensor = (
-        torch.from_numpy(arr).to(dtype=dtype, device=device) / 127.5 - 1.0
-    )  # [H, W, C]
-    return rearrange(tensor, "h w c -> 1 c h w")
-
-
 def _load_video(
     path: Path,
     *,
@@ -603,36 +571,11 @@ def _load_video(
     dtype: torch.dtype,
 ) -> torch.Tensor:
     """Load + resize an HDMap video to ``[T, C, H, W]`` in ``[-1, 1]``."""
-    try:
-        import cv2  # noqa: PLC0415
-        import mediapy as media  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Loading HDMap videos needs mediapy + opencv. "
-            "Install the runner extras: pip install 'flashdreams[runners]'."
-        ) from exc
-
-    video_np = media.read_video(str(path))[..., :3]
-    if video_np.shape[1:3] != (pixel_height, pixel_width):
-        video_np = np.stack(
-            [cv2.resize(f, (pixel_width, pixel_height)) for f in video_np], axis=0
-        )
-    tensor = (
-        torch.from_numpy(video_np).to(dtype=dtype, device=device) / 127.5 - 1.0
-    )  # [T, H, W, C]
-    return rearrange(tensor, "t h w c -> t c h w")
-
-
-def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
-    """Save a ``[T, H, W, C]`` ``[-1, 1]`` tensor as an MP4."""
-    try:
-        import mediapy as media  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Writing the output video needs mediapy. Install the runner "
-            "extras: pip install 'flashdreams[runners]'."
-        ) from exc
-
-    arr = (canvas.float().numpy() + 1.0) / 2.0
-    arr = (arr * 255).clip(0, 255).astype("uint8")
-    media.write_video(str(path), arr, fps=fps)
+    return load_video_tensor(
+        path,
+        pixel_height=pixel_height,
+        pixel_width=pixel_width,
+        device=device,
+        dtype=dtype,
+        install_hint=_RUNNER_INSTALL_HINT,
+    )

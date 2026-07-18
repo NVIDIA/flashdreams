@@ -17,19 +17,24 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import torch
-from einops import rearrange
 from loguru import logger
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    load_first_frame_tensor,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.encoder.utils import (
     get_Ks_transformed,
@@ -240,11 +245,14 @@ class LingbotWorldRunner(
         # shipped configs pin ``batch_shape=()`` so a single-rollout layout
         # is just ``[T, C, H, W]`` (image) / ``[T, 4, 4]`` (poses) /
         # ``[T, 4]`` (intrinsics).
-        first_frames_t = _load_first_frame(
+        first_frames_t = load_first_frame_tensor(
             cfg.image_path,
             pixel_height=cfg.pixel_height,
             pixel_width=cfg.pixel_width,
             device=device,
+            dtype=torch.bfloat16,
+            interpolation="cubic",
+            install_hint="Install the lingbot plugin: pip install flashdreams-lingbot.",
         )
 
         Ks = np.load(cfg.intrinsic_path)
@@ -318,62 +326,24 @@ class LingbotWorldRunner(
         if video is None:
             return
 
-        cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        canvas = rearrange(video, "t c h w -> t h w c")
-        video_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
-        _write_video(canvas, video_path, fps=cfg.fps)
+        ensure_output_dir(cfg.output_dir)
+        video_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
+        write_video_tensor(
+            video,
+            video_path,
+            fps=cfg.fps,
+            layout="tchw",
+            install_hint="Install the lingbot plugin: pip install flashdreams-lingbot.",
+        )
         logger.info(
             f"[{cfg.runner_name}] wrote video {tuple(video.shape)} "
             f"-> {video_path.resolve()}"
         )
 
         if stats_history:
-            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                cfg.output_dir, cfg.runner_name, stats_history
+            )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
-
-
-## I/O helpers (``cv2`` / ``mediapy`` are listed under ``flashdreams-lingbot``'s
-## runtime dependencies, so the import-time guards mostly catch the bare
-## ``pip install flashdreams`` case where the plugin extras were skipped).
-
-
-def _load_first_frame(
-    path: Path, *, pixel_height: int, pixel_width: int, device: torch.device
-) -> torch.Tensor:
-    """Load + resize a first-frame image into ``[1, C, H, W]`` ``[-1, 1]``."""
-    try:
-        import cv2  # noqa: PLC0415
-        import mediapy as media  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Loading the first-frame image needs mediapy + opencv. "
-            "Install the lingbot plugin: pip install flashdreams-lingbot."
-        ) from exc
-
-    arr = media.read_image(str(path))[..., :3]
-    # Bicubic to match the upstream Lingbot World demo / generate_fast.py
-    # (which uses ``F.interpolate(mode='bicubic')`` over the ``[-1, 1]``
-    # tensor); bilinear here would give a different first-frame VAE latent.
-    arr = cv2.resize(arr, (pixel_width, pixel_height), interpolation=cv2.INTER_CUBIC)
-    tensor = (
-        torch.from_numpy(arr).to(device=device, dtype=torch.bfloat16) / 127.5 - 1.0
-    )  # [H, W, 3]
-    return rearrange(tensor, "h w c -> 1 c h w")  # [T=1, C, H, W]
-
-
-def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
-    """Save a ``[T, H, W, C]`` ``[-1, 1]`` tensor as an MP4."""
-    try:
-        import mediapy as media  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Writing the output video needs mediapy. "
-            "Install the lingbot plugin: pip install flashdreams-lingbot."
-        ) from exc
-
-    arr = (canvas.float().numpy() + 1.0) / 2.0
-    arr = (arr * 255).clip(0, 255).astype("uint8")
-    media.write_video(str(path), arr, fps=fps)

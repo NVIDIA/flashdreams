@@ -17,21 +17,26 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import cv2
-import mediapy as media
 import torch
-from einops import rearrange
 from loguru import logger
 
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    load_first_frame_tensor,
+    read_image_rgb,
+    resolve_prompt_value,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 from flashdreams.recipes.cosmos.pipeline import (
     CosmosInferencePipeline,
     CosmosInferencePipelineCache,
@@ -86,7 +91,7 @@ def _resolve_image_path(image_path: str | Path) -> Path:
     return download_to_cache(
         image_path,
         cache_dir=IMAGE_CACHE_DIR,
-        validator=lambda p: media.read_image(str(p)),
+        validator=read_image_rgb,
     )
 
 
@@ -123,13 +128,7 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
 
         A Path reads its first non-empty line, a str is used as-is.
         """
-        value = self.config.prompt
-        if isinstance(value, Path):
-            lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
-            assert lines, f"prompt file {value} has no non-empty lines"
-            return lines[0]
-        assert value, "--prompt must be a non-empty string or a path to a .txt file"
-        return value
+        return resolve_prompt_value(self.config.prompt)
 
     def _initialize_cache(self) -> CosmosInferencePipelineCache:
         """Initialize the autoregressive cache for T2V."""
@@ -165,13 +164,9 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
         if generated is None:
             return
 
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        video_path = config.output_dir / f"{config.runner_name}.mp4"
-        canvas = rearrange(generated, "t c h w -> t h w c")
-
-        arr = (canvas.float().numpy() + 1.0) / 2.0
-        arr = (arr * 255).clip(0, 255).astype("uint8")
-        media.write_video(str(video_path), arr, fps=config.fps)
+        ensure_output_dir(config.output_dir)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        write_video_tensor(generated, video_path, fps=config.fps, layout="tchw")
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
@@ -179,9 +174,10 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
         )
 
         if stats is not None:
-            stats_path = config.output_dir / f"stats_{config.runner_name}.json"
-            stats_path.write_text(
-                json.dumps([{"autoregressive_index": 0, **stats}], indent=2)
+            stats_path = write_runner_stats(
+                config.output_dir,
+                config.runner_name,
+                [{"autoregressive_index": 0, **stats}],
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats "
@@ -222,14 +218,12 @@ class Cosmos2I2VRunner(Cosmos2T2VRunner):
         # in shape [T=1, C, H, W] (matches batch_shape=()). Pin to the
         # pipeline's actual device so non-default ``--device`` selections
         # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
-        local_image_path = _resolve_image_path(config.image_path)
-        arr = media.read_image(str(local_image_path))[..., :3]
-        arr = cv2.resize(arr, (config.pixel_width, config.pixel_height))
-        tensor = (
-            torch.from_numpy(arr).to(device=self.pipeline.device, dtype=torch.bfloat16)
-            / 127.5
-            - 1.0
+        image = load_first_frame_tensor(
+            _resolve_image_path(config.image_path),
+            pixel_height=config.pixel_height,
+            pixel_width=config.pixel_width,
+            device=self.pipeline.device,
+            dtype=torch.bfloat16,
         )
-        image = rearrange(tensor, "h w c -> 1 c h w")
 
         return self.pipeline.initialize_cache(text=[prompt], image=image)

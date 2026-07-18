@@ -17,17 +17,21 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import mediapy as media
-from einops import rearrange
 from loguru import logger
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    resolve_prompt_value,
+    runner_artifact_path,
+    write_runner_stats,
+    write_video_tensor,
+)
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
     WanInferencePipelineCache,
@@ -91,13 +95,7 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
 
         A Path reads its first non-empty line, a str is used as-is.
         """
-        value = self.config.prompt
-        if isinstance(value, Path):
-            lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
-            assert lines, f"prompt file {value} has no non-empty lines"
-            return lines[0]
-        assert value, "--prompt must be a non-empty string or a path to a .txt file"
-        return value
+        return resolve_prompt_value(self.config.prompt)
 
     def _initialize_cache(self) -> WanInferencePipelineCache:
         """Initialize the autoregressive cache."""
@@ -149,13 +147,9 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
             return
 
         # Write the video.
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        video_path = config.output_dir / f"{config.runner_name}.mp4"
-        canvas = rearrange(generated, "t c h w -> t h w c")
-
-        arr = (canvas.float().numpy() + 1.0) / 2.0
-        arr = (arr * 255).clip(0, 255).astype("uint8")
-        media.write_video(str(video_path), arr, fps=config.fps)
+        ensure_output_dir(config.output_dir)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        write_video_tensor(generated, video_path, fps=config.fps, layout="tchw")
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
@@ -164,8 +158,9 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
 
         # Write the perf stats.
         if stats_history:
-            stats_path = config.output_dir / f"stats_{config.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                config.output_dir, config.runner_name, stats_history
+            )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )

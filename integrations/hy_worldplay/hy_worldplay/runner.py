@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +30,12 @@ from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import (
+    ensure_output_dir,
+    resolve_prompt_value,
+    runner_artifact_path,
+    write_runner_stats,
+)
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 __all__ = [
@@ -119,16 +124,6 @@ def _pil_to_numpy(img: object) -> object:
     import numpy as np
 
     return np.asarray(img)
-
-
-def _resolve_prompt(value: str | Path) -> str:
-    """Read an inline prompt or the first non-empty line of a prompt file."""
-    if isinstance(value, Path):
-        lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
-        assert lines, f"prompt file {value} has no non-empty lines"
-        return lines[0]
-    assert value, "--prompt must be a non-empty string or a path to a .txt file"
-    return value
 
 
 def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
@@ -351,7 +346,7 @@ class HyWorldPlayWanI2VRunner(
         image = preprocess_first_frame(
             cfg.image_path, cfg.pixel_height, cfg.pixel_width
         ).to(device=device, dtype=first_param.dtype)
-        prompt = _resolve_prompt(cfg.prompt)
+        prompt = resolve_prompt_value(cfg.prompt)
 
         cache = self.pipeline.initialize_cache(
             text=[prompt],
@@ -406,8 +401,8 @@ class HyWorldPlayWanI2VRunner(
         if video is None:
             return
 
-        cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
+        ensure_output_dir(cfg.output_dir)
+        out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
         _write_mp4(video, out_path, fps=cfg.fps)
         logger.info(
             f"[{cfg.runner_name}] wrote video "
@@ -415,8 +410,9 @@ class HyWorldPlayWanI2VRunner(
         )
 
         if stats_history:
-            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
-            stats_path.write_text(json.dumps(stats_history, indent=2))
+            stats_path = write_runner_stats(
+                cfg.output_dir, cfg.runner_name, stats_history
+            )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
