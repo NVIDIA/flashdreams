@@ -62,6 +62,21 @@ def test_presentation_queue_reports_drops_during_drain() -> None:
     assert ready.pop_ready() is None
 
 
+def test_presentation_queue_prepares_only_frames_retained_after_capacity() -> None:
+    source: queue.Queue[str] = queue.Queue()
+    for value in ["first", "second", "third"]:
+        source.put(value)
+    prepared: list[str] = []
+    ready = PresentationQueue[str](capacity=1)
+
+    result = ready.drain_nowait(source, prepare=prepared.append)
+
+    assert result.accepted == 3
+    assert result.dropped == ("first", "second")
+    assert prepared == ["third"]
+    assert list(ready) == ["third"]
+
+
 def test_presentation_queue_clear_flushes_ready_frames() -> None:
     ready = PresentationQueue[int]()
     ready.append(1)
@@ -69,6 +84,13 @@ def test_presentation_queue_clear_flushes_ready_frames() -> None:
 
     assert ready.clear() == 2
     assert len(ready) == 0
+
+
+def test_presentation_queue_popleft_raises_when_empty() -> None:
+    ready = PresentationQueue[int]()
+
+    with pytest.raises(IndexError):
+        ready.popleft()
 
 
 def test_wait_until_present_time_sleeps_until_poll_timeout() -> None:

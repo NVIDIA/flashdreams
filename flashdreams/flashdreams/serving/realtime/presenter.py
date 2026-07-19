@@ -86,6 +86,10 @@ class PresentationQueue(Generic[FrameT]):
             return None
         return self._frames.popleft()
 
+    def popleft(self) -> FrameT:
+        """Return the oldest ready frame, raising ``IndexError`` if empty."""
+        return self._frames.popleft()
+
     def clear(self) -> int:
         """Drop all queued frames and return the number removed."""
         count = len(self._frames)
@@ -103,7 +107,7 @@ class PresentationQueue(Generic[FrameT]):
         pulled = 0
         accepted = 0
         skipped = 0
-        dropped: list[FrameT] = []
+        accepted_frames: list[FrameT] = []
         while True:
             try:
                 frame = source.get_nowait()
@@ -113,12 +117,29 @@ class PresentationQueue(Generic[FrameT]):
             if include is not None and not include(frame):
                 skipped += 1
                 continue
-            if prepare is not None:
-                prepare(frame)
-            dropped_frame = self.append(frame)
-            if dropped_frame is not None:
-                dropped.append(dropped_frame)
+            accepted_frames.append(frame)
             accepted += 1
+
+        if self._capacity is None:
+            retained_entries = [(False, frame) for frame in self._frames] + [
+                (True, frame) for frame in accepted_frames
+            ]
+            dropped: list[FrameT] = []
+        else:
+            entries = [(False, frame) for frame in self._frames] + [
+                (True, frame) for frame in accepted_frames
+            ]
+            overflow = max(0, len(entries) - self._capacity)
+            dropped = [frame for _, frame in entries[:overflow]]
+            retained_entries = entries[overflow:]
+
+        if prepare is not None:
+            for is_new, frame in retained_entries:
+                if is_new:
+                    prepare(frame)
+        self._frames.clear()
+        self._frames.extend(frame for _, frame in retained_entries)
+
         return QueueDrainResult(
             pulled=pulled,
             accepted=accepted,

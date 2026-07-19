@@ -512,9 +512,7 @@ def run_main_loop(
             continue
 
         if ready_frames:
-            queued_frame = ready_frames.pop_ready()
-            if queued_frame is None:
-                continue
+            queued_frame = ready_frames.popleft()
             chunk_transitioned = (
                 queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index
             )
