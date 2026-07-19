@@ -144,6 +144,24 @@ def test_realtime_media_supports_omnidreams_uint8_layout() -> None:
     assert frames[1][0, 0, 0] == 255
 
 
+@pytest.mark.parametrize(
+    "chunk",
+    [
+        torch.full((1, 3, 2, 2), -1.0, dtype=torch.bfloat16),
+        torch.full((1, 1, 1, 3, 2, 2), -1.0, dtype=torch.bfloat16),
+    ],
+)
+def test_realtime_media_promotes_bfloat16_tensor_chunks(
+    chunk: torch.Tensor,
+) -> None:
+    frames = tensor_chunk_to_rgb_frames(chunk)
+
+    assert len(frames) == 1
+    assert frames[0].shape == (2, 2, 3)
+    assert frames[0].dtype == np.uint8
+    assert frames[0].max() == 0
+
+
 def test_realtime_media_rejects_non_rgb_bvtchw_layout() -> None:
     chunk = torch.zeros((1, 1, 2, 4, 5, 6), dtype=torch.uint8)
 

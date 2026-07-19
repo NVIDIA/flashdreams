@@ -38,6 +38,8 @@ def _as_numpy(value: object, *, sync_device: bool) -> np.ndarray:
                 "host/device synchronization is explicit at the call site."
             )
         tensor = tensor.cpu()
+    if tensor.is_floating_point():
+        tensor = tensor.float()
     return tensor.numpy()
 
 
@@ -135,10 +137,10 @@ def tensor_chunk_to_rgb_frames(
     sync_device: bool = True,
 ) -> list[np.ndarray]:
     """Convert common model output tensor layouts to RGB uint8 frames."""
+    value_range: ValueRange = (
+        "minus_one_one" if video_chunk.is_floating_point() else "uint8"
+    )
     if video_chunk.ndim == 4:
-        value_range: ValueRange = (
-            "minus_one_one" if video_chunk.is_floating_point() else "uint8"
-        )
         return rgb_array_to_uint8_frames(
             video_chunk,
             layout="tchw",
@@ -146,9 +148,6 @@ def tensor_chunk_to_rgb_frames(
             sync_device=sync_device,
         )
     if video_chunk.ndim == 6:
-        value_range: ValueRange = (
-            "minus_one_one" if video_chunk.is_floating_point() else "uint8"
-        )
         return rgb_array_to_uint8_frames(
             video_chunk,
             layout="bvtchw",
