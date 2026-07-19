@@ -15,6 +15,8 @@ from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import PresentedFrame
 
+from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
+
 
 class SlangPyPresenter:
     def __init__(self, raster: RasterConfig, keyboard: KeyboardState) -> None:
@@ -707,9 +709,7 @@ _env_truthy = env_truthy
 
 
 def _prefetch_to_numpy(frame: object) -> None:
-    prefetch = getattr(frame, "prefetch_to_numpy", None)
-    if callable(prefetch):
-        prefetch()
+    prefetch_to_numpy(frame)
 
 
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
