@@ -159,7 +159,7 @@ def test_read_first_frame_rgb_rejects_empty_video(
     def read_video(path: str) -> np.ndarray:
         return np.empty((0, 2, 2, 3), dtype=np.uint8)
 
-    fake_media.read_video = read_video  # type: ignore[attr-defined]
+    setattr(fake_media, "read_video", read_video)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
     with pytest.raises(ValueError, match="video has no frames"):
@@ -175,7 +175,7 @@ def test_write_video_tensor_lazy_imports_mediapy(
     def write_video(path: str, frames: np.ndarray, *, fps: int) -> None:
         calls.append((path, frames, fps))
 
-    fake_media.write_video = write_video  # type: ignore[attr-defined]
+    setattr(fake_media, "write_video", write_video)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
     out_path = tmp_path / "out.mp4"
@@ -200,26 +200,24 @@ def test_load_first_frame_tensor_uses_requested_resize_interpolation(
     fake_cv2 = types.ModuleType("cv2")
     calls: dict[str, Any] = {}
 
-    fake_cv2.INTER_CUBIC = 2  # type: ignore[attr-defined]
-    fake_cv2.INTER_NEAREST = 0  # type: ignore[attr-defined]
-    fake_cv2.INTER_LINEAR = 1  # type: ignore[attr-defined]
-    fake_cv2.INTER_AREA = 3  # type: ignore[attr-defined]
-    fake_cv2.INTER_LANCZOS4 = 4  # type: ignore[attr-defined]
+    setattr(fake_cv2, "INTER_CUBIC", 2)
+    setattr(fake_cv2, "INTER_NEAREST", 0)
+    setattr(fake_cv2, "INTER_LINEAR", 1)
+    setattr(fake_cv2, "INTER_AREA", 3)
+    setattr(fake_cv2, "INTER_LANCZOS4", 4)
 
     def read_image(path: str) -> np.ndarray:
         calls["path"] = path
         return np.full((2, 3, 4), 127, dtype=np.uint8)
 
-    def resize(
-        image: np.ndarray, dsize: tuple[int, int], **kwargs: int
-    ) -> np.ndarray:
+    def resize(image: np.ndarray, dsize: tuple[int, int], **kwargs: int) -> np.ndarray:
         calls["dsize"] = dsize
         calls["kwargs"] = kwargs
         width, height = dsize
         return np.full((height, width, 3), image[0, 0, 0], dtype=image.dtype)
 
-    fake_media.read_image = read_image  # type: ignore[attr-defined]
-    fake_cv2.resize = resize  # type: ignore[attr-defined]
+    setattr(fake_media, "read_image", read_image)
+    setattr(fake_cv2, "resize", resize)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
     monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
 

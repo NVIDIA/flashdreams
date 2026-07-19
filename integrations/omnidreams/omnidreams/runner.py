@@ -561,6 +561,8 @@ __all__ = [
     "DEFAULT_VIDEO_HEIGHT",
     "DEFAULT_VIDEO_WIDTH",
 ]
+
+
 def _load_video(
     path: Path,
     *,
