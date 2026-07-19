@@ -10,7 +10,6 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
-import io
 import json
 import shutil
 import subprocess
@@ -23,12 +22,16 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+from flashdreams.serving.realtime.frame_bus import LatestFrameBus
+from flashdreams.serving.realtime.media import (
+    encode_rgb_frame_to_jpeg,
+    rgb_frame_to_uint8,
+)
 from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
-from PIL import Image
 
 # Boundary marker embedded in the multipart response. The exact string
 # doesn't matter as long as it never appears inside a JPEG payload (they
@@ -540,19 +543,11 @@ class MJPEGStreamingPresenter:
         self._keyboard = keyboard
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
-        # Guarded by ``_frame_cond`` so a sending thread can ``wait()``
-        # for the next frame rather than spinning.
-        self._latest_jpeg: bytes | None = None
-        self._frame_count = 0
-        self._frame_cond = threading.Condition()
+        self._frame_bus = LatestFrameBus[bytes]()
         # BEV minimap stream lives on its own JPEG buffer so connected
         # clients of /bev_stream can paginate at a different rate than
-        # /stream (e.g. if the HUD process throttles). We reuse the same
-        # condition variable as the main stream because frames are only
-        # published when ``present_frame`` runs anyway, so notifications
-        # to either waiter are always safe.
-        self._latest_bev_jpeg: bytes | None = None
-        self._bev_frame_count = 0
+        # /stream (e.g. if the HUD process throttles).
+        self._bev_frame_bus = LatestFrameBus[bytes]()
         # Scene options surfaced to the browser dropdown via /scenes.
         # Each entry is a dict with ``label``, ``path``, ``variants``;
         # the demo wrapper builds these from its scene-discovery layer
@@ -736,10 +731,8 @@ class MJPEGStreamingPresenter:
 
     def close(self) -> None:
         self._stop_event.set()
-        # Wake any /stream handlers blocked in ``_frame_cond.wait`` so
-        # they observe ``should_close`` and exit their per-connection loop.
-        with self._frame_cond:
-            self._frame_cond.notify_all()
+        self._frame_bus.close()
+        self._bev_frame_bus.close()
         self._server.shutdown()
         self._server.server_close()
         if self._server_thread.is_alive():
@@ -748,15 +741,12 @@ class MJPEGStreamingPresenter:
     # -- Internals --------------------------------------------------
 
     def _publish(self, rgb_host_uint8: object) -> None:
-        buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(rgb_host_uint8)).save(
-            buf, format="JPEG", quality=self._jpeg_quality
+        jpeg = encode_rgb_frame_to_jpeg(
+            _as_rgb_host_uint8(rgb_host_uint8),
+            quality=self._jpeg_quality,
+            value_range="uint8",
         )
-        jpeg = buf.getvalue()
-        with self._frame_cond:
-            self._latest_jpeg = jpeg
-            self._frame_count += 1
-            self._frame_cond.notify_all()
+        _publish_if_open(self._frame_bus, jpeg, stop_event=self._stop_event)
 
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
@@ -764,44 +754,34 @@ class MJPEGStreamingPresenter:
         Higher quality avoids JPEG ringing the HUD's Google-Maps filter would
         otherwise surface as grey halos around lane / vehicle edges.
         """
-        buf = io.BytesIO()
-        Image.fromarray(_as_rgb_host_uint8(bev_rgb_host_uint8)).save(
-            buf, format="JPEG", quality=95
+        jpeg = encode_rgb_frame_to_jpeg(
+            _as_rgb_host_uint8(bev_rgb_host_uint8),
+            quality=95,
+            value_range="uint8",
         )
-        jpeg = buf.getvalue()
-        with self._frame_cond:
-            self._latest_bev_jpeg = jpeg
-            self._bev_frame_count += 1
-            self._frame_cond.notify_all()
+        _publish_if_open(self._bev_frame_bus, jpeg, stop_event=self._stop_event)
 
     def _wait_for_new_frame(self, last_seen_count: int) -> tuple[bytes, int] | None:
         """Block until a frame newer than ``last_seen_count`` is ready or
         the server is shutting down. Returns ``(jpeg_bytes, frame_count)``
         on success, ``None`` when closing.
         """
-        with self._frame_cond:
-            while self._latest_jpeg is None or self._frame_count <= last_seen_count:
-                if self._stop_event.is_set():
-                    return None
-                self._frame_cond.wait(timeout=1.0)
-            return self._latest_jpeg, self._frame_count
+        return _wait_for_bus_frame(
+            self._frame_bus,
+            last_seen_count=last_seen_count,
+            stop_event=self._stop_event,
+        )
 
     def _wait_for_new_bev_frame(self, last_seen_count: int) -> tuple[bytes, int] | None:
         """Same as :meth:`_wait_for_new_frame` but for the BEV stream.
 
-        Returns ``None`` when the server is closing. Sharing the condition
-        variable means the waiter wakes immediately on every published
-        frame; the loop body then re-checks the BEV-specific counter.
+        Returns ``None`` when the server is closing.
         """
-        with self._frame_cond:
-            while (
-                self._latest_bev_jpeg is None
-                or self._bev_frame_count <= last_seen_count
-            ):
-                if self._stop_event.is_set():
-                    return None
-                self._frame_cond.wait(timeout=1.0)
-            return self._latest_bev_jpeg, self._bev_frame_count
+        return _wait_for_bus_frame(
+            self._bev_frame_bus,
+            last_seen_count=last_seen_count,
+            stop_event=self._stop_event,
+        )
 
     def _apply_control(self, key: str, down: bool) -> None:
         # Direction keys (W/A/S/D + arrows + Space) flow through the
@@ -867,15 +847,7 @@ class MJPEGStreamingPresenter:
                 resolved_variant = (
                     variant if variant in entry_variants else entry_variants[0]
                 )
-                # Wake any handlers waiting on the frame condition so
-                # they observe ``should_close`` flipping and exit their
-                # per-connection loop promptly. Not strictly required
-                # for correctness (the existing 1 s timeout would
-                # eventually retry) but it makes the scene transition
-                # feel snappier.
                 self._pending_scene_change = (Path(entry_path), str(resolved_variant))
-                with self._frame_cond:
-                    self._frame_cond.notify_all()
                 return True
         return False
 
@@ -1070,13 +1042,43 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     """Materialize a frame to ``(H, W, 3)`` uint8.
 
     World-model frames are lazy GPU handles (``_LazyRGBFrame``) with
-    ``to_numpy()`` but no ``__array_interface__``, so ``Image.fromarray`` can't
-    take them directly. Mirrors the slangpy presenter.
+    ``to_numpy()`` but no ``__array_interface__``, so shared media helpers
+    need an explicit materialization step. Mirrors the slangpy presenter.
     """
     to_numpy = getattr(frame, "to_numpy", None)
     if callable(to_numpy):
         frame = to_numpy()
-    return np.ascontiguousarray(np.asarray(frame, dtype=np.uint8)[..., :3])
+    array = np.asarray(frame)
+    if array.ndim == 3 and array.shape[-1] > 3:
+        array = array[..., :3]
+    return rgb_frame_to_uint8(array, value_range="uint8")
+
+
+def _publish_if_open(
+    bus: LatestFrameBus[bytes], jpeg: bytes, *, stop_event: threading.Event
+) -> None:
+    if stop_event.is_set():
+        return
+    try:
+        bus.publish(jpeg)
+    except RuntimeError:
+        if not stop_event.is_set():
+            raise
+
+
+def _wait_for_bus_frame(
+    bus: LatestFrameBus[bytes],
+    *,
+    last_seen_count: int,
+    stop_event: threading.Event,
+) -> tuple[bytes, int] | None:
+    while not stop_event.is_set():
+        frame = bus.wait_for_frame(last_seen_count=last_seen_count, timeout_s=1.0)
+        if frame is not None:
+            return frame.payload, frame.count
+        if bus.closed:
+            return None
+    return None
 
 
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:

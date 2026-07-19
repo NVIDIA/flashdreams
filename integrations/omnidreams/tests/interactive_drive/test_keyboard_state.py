@@ -46,6 +46,17 @@ def test_view_mode_reflects_set_view_mode() -> None:
     assert keyboard.view_mode == "hdmap"
 
 
+def test_keyboard_state_uses_shared_key_normalization() -> None:
+    keyboard = KeyboardState()
+    keyboard.set_key("ArrowUp", True)
+    keyboard.set_key("ArrowLeft", True)
+
+    command = keyboard.command()
+
+    assert command.throttle == 1.0
+    assert command.steer == 1.0
+
+
 def test_consume_exit_scene_request_returns_false_when_none_pending() -> None:
     keyboard = KeyboardState()
     assert keyboard.consume_exit_scene_request() is False

@@ -4,6 +4,11 @@
 import threading
 import time
 
+from flashdreams.serving.realtime.input import (
+    DRIVING_SUPPORTED_KEYS,
+    KeyboardState as RealtimeKeyboardState,
+    normalize_key,
+)
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
@@ -26,7 +31,7 @@ class KeyboardState:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._pressed: set[str] = set()
+        self._keyboard = RealtimeKeyboardState(supported_keys=DRIVING_SUPPORTED_KEYS)
         self._view_mode = "rgb"
         self._drive_command: DriverCommand | None = None
         self._reset_pending = False
@@ -44,10 +49,10 @@ class KeyboardState:
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
-            if down:
-                self._pressed.add(name)
-            else:
-                self._pressed.discard(name)
+            self._keyboard.apply_event(
+                event="keydown" if down else "keyup",
+                key=name,
+            )
 
     def set_view_mode(self, mode: str) -> None:
         with self._lock:
@@ -113,7 +118,7 @@ class KeyboardState:
     def command(self) -> DriverCommand:
         with self._lock:
             drive_command = self._drive_command
-            pressed = set(self._pressed)
+            pressed = set(self._keyboard.snapshot())
         if drive_command is not None:
             if "space" in pressed:
                 return DriverCommand(
@@ -130,18 +135,19 @@ class KeyboardState:
 
 
 def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
-    throttle = 1.0 if {"w", "up"} & snapshot.pressed else 0.0
-    brake = 1.0 if {"s", "down"} & snapshot.pressed else 0.0
+    pressed = {normalize_key(key) for key in snapshot.pressed}
+    throttle = 1.0 if {"w", "up"} & pressed else 0.0
+    brake = 1.0 if {"s", "down"} & pressed else 0.0
     steer = 0.0
-    if {"a", "left"} & snapshot.pressed:
+    if {"a", "left"} & pressed:
         steer += 1.0
-    if {"d", "right"} & snapshot.pressed:
+    if {"d", "right"} & pressed:
         steer -= 1.0
     return DriverCommand(
         throttle=throttle,
         brake=brake,
         steer=steer,
-        stop="space" in snapshot.pressed,
+        stop="space" in pressed,
     )
 
 

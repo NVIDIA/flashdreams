@@ -33,7 +33,6 @@ Usage (from repo root):
 """
 
 import argparse
-import io
 import sys
 import time
 import uuid
@@ -44,6 +43,7 @@ import grpc
 import mediapy as media
 import numpy as np
 
+from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
 from flashvsr.grpc.protos import flashvsr_pb2 as pb2
 from flashvsr.grpc.protos import flashvsr_pb2_grpc as pb2_grpc
 
@@ -106,20 +106,16 @@ def video_to_rgb_bytes(frames_np: np.ndarray) -> bytes:
 def encode_jpeg_frames(frames_np: np.ndarray, quality: int) -> list[bytes]:
     """uint8 [T,H,W,3] → one JPEG byte string per frame."""
     try:
-        from PIL import Image
-    except ImportError as exc:
+        return [
+            encode_rgb_frame_to_jpeg(frame, quality=quality, value_range="uint8")
+            for frame in frames_np
+        ]
+    except ModuleNotFoundError as exc:
+        if exc.name not in ("PIL", "PIL.Image"):
+            raise
         raise RuntimeError(
             "JPEG input requires Pillow in the client environment"
         ) from exc
-
-    encoded = []
-    for frame in frames_np:
-        buf = io.BytesIO()
-        Image.fromarray(np.ascontiguousarray(frame)).save(
-            buf, format="JPEG", quality=quality
-        )
-        encoded.append(buf.getvalue())
-    return encoded
 
 
 def build_chunk_request(

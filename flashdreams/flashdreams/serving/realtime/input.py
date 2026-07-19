@@ -12,6 +12,9 @@ from typing import Literal
 import numpy as np
 
 DEFAULT_SUPPORTED_KEYS = frozenset({"w", "a", "s", "d", "q", "e", "i", "k", "j", "l"})
+DRIVING_SUPPORTED_KEYS = frozenset(
+    {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
+)
 WSAD_SUPPORTED_KEYS = frozenset({"w", "a", "s", "d"})
 KEY_ALIASES = {
     "arrowup": "w",

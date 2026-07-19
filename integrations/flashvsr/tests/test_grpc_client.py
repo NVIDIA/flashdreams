@@ -17,9 +17,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from flashvsr.grpc import uplift_server as grpc_server
 from flashvsr.grpc.protos import flashvsr_pb2 as pb2
-from flashvsr.grpc.uplift_client import build_chunk_request, build_chunks
+from flashvsr.grpc.streaming_view import _encode_jpeg_rgb
+from flashvsr.grpc.uplift_client import (
+    build_chunk_request,
+    build_chunks,
+    encode_jpeg_frames,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -55,7 +59,30 @@ def test_build_chunk_request_raw_display_only() -> None:
     assert request.display_only
 
 
+def test_encode_jpeg_frames_returns_jpeg_payloads() -> None:
+    pytest.importorskip("PIL.Image")
+    frames = np.zeros((2, 4, 6, 3), dtype=np.uint8)
+
+    encoded = encode_jpeg_frames(frames, quality=90)
+
+    assert len(encoded) == 2
+    assert all(frame.startswith(b"\xff\xd8") for frame in encoded)
+    assert all(frame.endswith(b"\xff\xd9") for frame in encoded)
+
+
+def test_streaming_view_cpu_jpeg_encoder_returns_jpeg_payload() -> None:
+    pytest.importorskip("PIL.Image")
+    frame = np.zeros((4, 6, 3), dtype=np.uint8)
+
+    encoded = _encode_jpeg_rgb(frame, quality=90)
+
+    assert encoded.startswith(b"\xff\xd8")
+    assert encoded.endswith(b"\xff\xd9")
+
+
 def test_attention_mode_auto_uses_sparse(monkeypatch: pytest.MonkeyPatch) -> None:
+    from flashvsr.grpc import uplift_server as grpc_server
+
     monkeypatch.setattr(grpc_server, "_sparse_attention_available", lambda: True)
 
     assert grpc_server._resolve_attention_mode("auto") == "sparse"
@@ -66,6 +93,8 @@ def test_attention_mode_auto_uses_sparse(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_attention_mode_auto_falls_back_to_full_when_sparse_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from flashvsr.grpc import uplift_server as grpc_server
+
     monkeypatch.setattr(
         grpc_server,
         "_sparse_attention_available",

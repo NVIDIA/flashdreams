@@ -27,6 +27,8 @@ import numpy as np
 import torch
 from loguru import logger
 
+from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
+
 DEFAULT_VIEWER_CHUNK_QUEUE_DEPTH = 8
 DEFAULT_VIEWER_JPEG_QUALITY = 90
 DEFAULT_VIEWER_JPEG_BACKEND = "auto"
@@ -58,10 +60,15 @@ def _load_pillow_image():
 
 def _encode_jpeg_rgb(frame: np.ndarray, quality: int) -> bytes:
     """Encode one uint8 RGB frame to JPEG bytes."""
-    image = _load_pillow_image().fromarray(np.ascontiguousarray(frame))
-    buf = io.BytesIO()
-    image.save(buf, format="JPEG", quality=quality)
-    return buf.getvalue()
+    try:
+        return encode_rgb_frame_to_jpeg(frame, quality=quality, value_range="uint8")
+    except ModuleNotFoundError as exc:
+        if exc.name not in ("PIL", "PIL.Image"):
+            raise
+        raise RuntimeError(
+            "JPEG support requires Pillow. Install the flashvsr integration "
+            "dependencies before using JPEG input or the browser viewer."
+        ) from exc
 
 
 def _load_torchvision_encode_jpeg():
