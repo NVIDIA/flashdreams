@@ -114,7 +114,8 @@ def read_first_frame_rgb(
     if path.suffix.lower() in image_suffixes:
         return media.read_image(str(path))[..., :3]
     video = media.read_video(str(path))
-    assert video.shape[0] > 0, f"video has no frames: {path}"
+    if video.shape[0] == 0:
+        raise ValueError(f"video has no frames: {path}")
     return video[0, ..., :3]
 
 
@@ -240,9 +241,11 @@ def video_tensor_to_uint8(
     elif layout == "tchw":
         canvas = video.permute(0, 2, 3, 1)
     elif layout == "bcthw":
-        assert video.shape[0] == 1, (
-            f"layout='bcthw' expects a single batch element; got {tuple(video.shape)}"
-        )
+        if video.shape[0] != 1:
+            raise ValueError(
+                "layout='bcthw' expects a single batch element; "
+                f"got {tuple(video.shape)}"
+            )
         canvas = video[0].permute(1, 2, 3, 0)
     else:
         raise ValueError(f"Unsupported video tensor layout: {layout!r}")

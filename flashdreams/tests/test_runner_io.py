@@ -29,6 +29,7 @@ import torch
 from flashdreams.infra.runner_io import (
     ensure_output_dir,
     load_first_frame_tensor,
+    read_first_frame_rgb,
     resolve_prompt_value,
     runner_artifact_path,
     runner_stats_path,
@@ -141,6 +142,28 @@ def test_video_tensor_to_uint8_converts_bcthw_layout() -> None:
     assert frames.shape == (2, 4, 5, 3)
     assert frames.dtype == np.uint8
     assert frames.max() == 0
+
+
+def test_video_tensor_to_uint8_rejects_multi_batch_bcthw() -> None:
+    video = torch.zeros((2, 3, 1, 4, 5), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="expects a single batch element"):
+        video_tensor_to_uint8(video, layout="bcthw")
+
+
+def test_read_first_frame_rgb_rejects_empty_video(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_media = types.ModuleType("mediapy")
+
+    def read_video(path: str) -> np.ndarray:
+        return np.empty((0, 2, 2, 3), dtype=np.uint8)
+
+    fake_media.read_video = read_video  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
+    with pytest.raises(ValueError, match="video has no frames"):
+        read_first_frame_rgb(Path("empty.mp4"))
 
 
 def test_write_video_tensor_lazy_imports_mediapy(
