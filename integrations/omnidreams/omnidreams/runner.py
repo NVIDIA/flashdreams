@@ -316,7 +316,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         text_emb = embeddings["text_embeddings"]
         image_emb = embeddings["image_embeddings"]
         assert text_emb is not None and image_emb is not None
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_dir(output_path.parent)
         torch.save(embeddings, output_path)
         logger.info(
             f"[{cfg.runner_name}] saved precomputed embeddings "

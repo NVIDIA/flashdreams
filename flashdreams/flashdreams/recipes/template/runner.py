@@ -34,6 +34,7 @@ from loguru import logger
 
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.runner import Runner, RunnerConfig
+from flashdreams.infra.runner_io import ensure_output_dir, runner_artifact_path
 from flashdreams.recipes.template.encoder import TemplateControlEncoder
 from flashdreams.recipes.template.transformer import (
     TemplateTransformer,
@@ -135,8 +136,8 @@ class TemplateRunner(Runner[TemplateRunnerConfig, StreamInferencePipeline]):
         if not self.is_rank_zero:
             return
         stacked = torch.stack(outputs, dim=0).cpu()
-        cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        out_path = cfg.output_dir / f"{cfg.runner_name}.pt"
+        ensure_output_dir(cfg.output_dir)
+        out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "pt")
         torch.save(stacked, out_path)
 
         logger.info(

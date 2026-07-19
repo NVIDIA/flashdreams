@@ -26,10 +26,13 @@ import numpy as np
 import pytest
 import torch
 
+import flashdreams.infra.runner_io as runner_io
 from flashdreams.infra.runner_io import (
     ensure_output_dir,
     load_first_frame_tensor,
     read_first_frame_rgb,
+    read_video_fps,
+    resolve_input_path,
     resolve_prompt_value,
     runner_artifact_path,
     runner_stats_path,
@@ -57,6 +60,50 @@ def test_resolve_prompt_value_rejects_empty_values(tmp_path: Path) -> None:
         resolve_prompt_value(prompt_path)
     with pytest.raises(ValueError, match="must be a non-empty string"):
         resolve_prompt_value("")
+
+
+def test_resolve_input_path_passes_local_paths_through(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+
+    assert resolve_input_path(tmp_path / "frame.png", cache_dir=cache_dir) == (
+        tmp_path / "frame.png"
+    )
+    assert resolve_input_path("relative.mp4", cache_dir=cache_dir) == Path(
+        "relative.mp4"
+    )
+
+
+def test_resolve_input_path_downloads_urls(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, Path, str | None, runner_io.InputAssetValidator | None]] = []
+
+    def validator(path: Path) -> object:
+        return path
+
+    def fake_download_to_cache(
+        url: str,
+        *,
+        cache_dir: Path,
+        filename: str | None = None,
+        validator: runner_io.InputAssetValidator | None = None,
+    ) -> Path:
+        calls.append((url, cache_dir, filename, validator))
+        return cache_dir / (filename or "asset.bin")
+
+    monkeypatch.setattr(runner_io, "_download_to_cache", fake_download_to_cache)
+
+    resolved = resolve_input_path(
+        "https://example.test/asset.png",
+        cache_dir=tmp_path / "cache",
+        filename="input.png",
+        validator=validator,
+    )
+
+    assert resolved == tmp_path / "cache" / "input.png"
+    assert calls == [
+        ("https://example.test/asset.png", tmp_path / "cache", "input.png", validator)
+    ]
 
 
 def test_runner_artifact_and_stats_paths(tmp_path: Path) -> None:
@@ -164,6 +211,27 @@ def test_read_first_frame_rgb_rejects_empty_video(
 
     with pytest.raises(ValueError, match="video has no frames"):
         read_first_frame_rgb(Path("empty.mp4"))
+
+
+def test_read_video_fps_uses_lazy_mediapy_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_media = types.ModuleType("mediapy")
+    calls: list[str] = []
+
+    class VideoMetadata:
+        fps = 23.976
+
+        @classmethod
+        def from_path(cls, path: str) -> "VideoMetadata":
+            calls.append(path)
+            return cls()
+
+    setattr(fake_media, "VideoMetadata", VideoMetadata)
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
+    assert read_video_fps(Path("clip.mp4")) == pytest.approx(23.976)
+    assert calls == ["clip.mp4"]
 
 
 def test_write_video_tensor_lazy_imports_mediapy(

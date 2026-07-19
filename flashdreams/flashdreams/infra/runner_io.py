@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
@@ -39,6 +40,9 @@ ResizeInterpolation: TypeAlias = Literal[
 
 VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "bcthw"]
 """Tensor layouts accepted by ``write_video_tensor``."""
+
+InputAssetValidator: TypeAlias = Callable[[Path], object]
+"""Validator signature for runner input assets downloaded to local cache."""
 
 
 def ensure_output_dir(output_dir: Path) -> Path:
@@ -82,6 +86,44 @@ def resolve_prompt_value(value: str | Path) -> str:
     return value
 
 
+def resolve_input_path(
+    value: str | Path,
+    *,
+    cache_dir: Path,
+    filename: str | None = None,
+    validator: InputAssetValidator | None = None,
+) -> Path:
+    """Resolve a local input path or download an HTTP(S) asset into cache."""
+    if isinstance(value, Path):
+        return value
+    if not value.startswith(("http://", "https://")):
+        return Path(value)
+    return _download_to_cache(
+        value,
+        cache_dir=cache_dir,
+        filename=filename,
+        validator=validator,
+    )
+
+
+def _download_to_cache(
+    url: str,
+    *,
+    cache_dir: Path,
+    filename: str | None,
+    validator: InputAssetValidator | None,
+) -> Path:
+    """Download an asset through the core downloader without importing it eagerly."""
+    from flashdreams.core.io.download import download_to_cache  # noqa: PLC0415
+
+    return download_to_cache(
+        url,
+        cache_dir=cache_dir,
+        filename=filename,
+        validator=validator,
+    )
+
+
 def read_image_rgb(
     path: str | Path,
     *,
@@ -100,6 +142,16 @@ def read_video_rgb(
     """Read an RGB video as ``[T, H, W, 3]``."""
     media = _import_mediapy("Loading videos", install_hint=install_hint)
     return media.read_video(str(path))[..., :3]
+
+
+def read_video_fps(
+    path: str | Path,
+    *,
+    install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
+) -> float:
+    """Read a video's frame rate from ``mediapy`` metadata."""
+    media = _import_mediapy("Probing video metadata", install_hint=install_hint)
+    return float(media.VideoMetadata.from_path(str(path)).fps)
 
 
 def read_first_frame_rgb(

@@ -24,7 +24,6 @@ from pathlib import Path
 import torch
 from loguru import logger
 
-from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
@@ -32,6 +31,7 @@ from flashdreams.infra.runner_io import (
     ensure_output_dir,
     load_first_frame_tensor,
     read_image_rgb,
+    resolve_input_path,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
@@ -70,25 +70,6 @@ IMAGE_CACHE_DIR = (
     / "wan21"
 )
 """User-writable cache for on-the-fly I2V first-frame downloads."""
-
-
-def _resolve_image_path(image_path: str | Path) -> Path:
-    """Return a local ``Path`` for ``image_path``, downloading URLs on the fly.
-
-    ``http(s)://`` strings are atomically fetched into
-    :data:`IMAGE_CACHE_DIR` and validated as decodable images before
-    being published; local paths pass through unchanged.
-    """
-    if isinstance(image_path, Path):
-        return image_path
-    if not image_path.startswith(("http://", "https://")):
-        return Path(image_path)
-
-    return download_to_cache(
-        image_path,
-        cache_dir=IMAGE_CACHE_DIR,
-        validator=read_image_rgb,
-    )
 
 
 @dataclass(kw_only=True)
@@ -245,7 +226,11 @@ class Wan21I2VRunner(Wan21T2VRunner):
         # pipeline's actual device so non-default ``--device`` selections
         # (and the auto cuda:LOCAL_RANK override under torchrun) both work.
         image = load_first_frame_tensor(
-            _resolve_image_path(config.image_path),
+            resolve_input_path(
+                config.image_path,
+                cache_dir=IMAGE_CACHE_DIR,
+                validator=read_image_rgb,
+            ),
             pixel_height=config.pixel_height,
             pixel_width=config.pixel_width,
             device=self.pipeline.device,
