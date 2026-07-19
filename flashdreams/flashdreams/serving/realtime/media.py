@@ -42,7 +42,11 @@ def _as_numpy(value: object, *, sync_device: bool) -> np.ndarray:
 
 
 def _scale_rgb(array: np.ndarray, *, value_range: ValueRange) -> np.ndarray:
+    if value_range not in ("minus_one_one", "zero_one", "uint8"):
+        raise ValueError(f"Unsupported value_range={value_range!r}.")
     if array.dtype == np.uint8:
+        if value_range != "uint8":
+            raise ValueError("uint8 inputs require value_range='uint8'.")
         return np.ascontiguousarray(array)
 
     values = array.astype(np.float32, copy=False)
@@ -50,8 +54,6 @@ def _scale_rgb(array: np.ndarray, *, value_range: ValueRange) -> np.ndarray:
         values = (values + 1.0) / 2.0 * 255.0
     elif value_range == "zero_one":
         values = values * 255.0
-    elif value_range != "uint8":
-        raise ValueError(f"Unsupported value_range={value_range!r}.")
     return np.ascontiguousarray(values.clip(0, 255).astype(np.uint8))
 
 
@@ -110,7 +112,12 @@ def rgb_array_to_uint8_frames(
             )
         frames = np.transpose(array, (0, 2, 3, 1))
     elif layout == "bvtchw":
-        if array.ndim != 6 or array.shape[0] != 1 or array.shape[1] != 1:
+        if (
+            array.ndim != 6
+            or array.shape[0] != 1
+            or array.shape[1] != 1
+            or array.shape[3] != 3
+        ):
             raise ValueError(
                 "Expected single-batch single-view video chunk "
                 f"[1, 1, T, 3, H, W], got {array.shape}"
@@ -129,10 +136,13 @@ def tensor_chunk_to_rgb_frames(
 ) -> list[np.ndarray]:
     """Convert common model output tensor layouts to RGB uint8 frames."""
     if video_chunk.ndim == 4:
+        value_range: ValueRange = (
+            "minus_one_one" if video_chunk.is_floating_point() else "uint8"
+        )
         return rgb_array_to_uint8_frames(
             video_chunk,
             layout="tchw",
-            value_range="minus_one_one",
+            value_range=value_range,
             sync_device=sync_device,
         )
     if video_chunk.ndim == 6:

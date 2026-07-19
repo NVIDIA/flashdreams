@@ -22,9 +22,6 @@ from flashdreams.serving.realtime.media import (
     rgb_array_to_uint8_frames,
     tensor_chunk_to_rgb_frames,
 )
-from flashdreams.serving.webrtc.media import (
-    tensor_chunk_to_rgb_frames as webrtc_tensor_chunk_to_rgb_frames,
-)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -85,16 +82,22 @@ def test_latest_frame_bus_publishes_single_slot_frames() -> None:
 
 def test_latest_frame_bus_close_wakes_waiters() -> None:
     bus = LatestFrameBus[bytes]()
-    waiter_ready = threading.Event()
+    waiter_blocking = threading.Event()
     results: list[object] = []
+    original_wait = bus._condition.wait
+
+    def wait_after_ready(timeout: float | None = None) -> bool:
+        waiter_blocking.set()
+        return original_wait(timeout=timeout)
+
+    setattr(bus._condition, "wait", wait_after_ready)
 
     def wait_for_frame() -> None:
-        waiter_ready.set()
-        results.append(bus.wait_for_frame(last_seen_count=0, timeout_s=1.0))
+        results.append(bus.wait_for_frame(last_seen_count=0, timeout_s=5.0))
 
     thread = threading.Thread(target=wait_for_frame)
     thread.start()
-    assert waiter_ready.wait(timeout=1.0)
+    assert waiter_blocking.wait(timeout=1.0)
 
     bus.close()
     thread.join(timeout=1.0)
@@ -105,7 +108,7 @@ def test_latest_frame_bus_close_wakes_waiters() -> None:
         bus.publish(b"late")
 
 
-def test_realtime_media_matches_webrtc_tensor_chunk_conversion() -> None:
+def test_realtime_media_matches_legacy_tensor_chunk_pixels() -> None:
     chunk = torch.tensor(
         [
             [
@@ -118,10 +121,8 @@ def test_realtime_media_matches_webrtc_tensor_chunk_conversion() -> None:
     )
 
     shared_frames = tensor_chunk_to_rgb_frames(chunk)
-    webrtc_frames = webrtc_tensor_chunk_to_rgb_frames(chunk)
 
     assert len(shared_frames) == 1
-    np.testing.assert_array_equal(shared_frames[0], webrtc_frames[0])
     np.testing.assert_array_equal(
         shared_frames[0],
         np.array(
@@ -141,6 +142,24 @@ def test_realtime_media_supports_omnidreams_uint8_layout() -> None:
     assert frames[0].shape == (4, 5, 3)
     assert frames[0].dtype == np.uint8
     assert frames[1][0, 0, 0] == 255
+
+
+def test_realtime_media_rejects_non_rgb_bvtchw_layout() -> None:
+    chunk = torch.zeros((1, 1, 2, 4, 5, 6), dtype=torch.uint8)
+
+    with pytest.raises(ValueError, match=r"\[1, 1, T, 3, H, W\]"):
+        tensor_chunk_to_rgb_frames(chunk)
+
+
+def test_realtime_media_rejects_scaled_value_range_for_uint8() -> None:
+    chunk = np.zeros((1, 2, 2, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="uint8 inputs require value_range='uint8'"):
+        rgb_array_to_uint8_frames(
+            chunk,
+            layout="thwc",
+            value_range="minus_one_one",
+        )
 
 
 def test_realtime_media_converts_array_chunks() -> None:
