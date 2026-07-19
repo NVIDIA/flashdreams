@@ -19,7 +19,7 @@ import torch
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from loguru import logger
 
-from flashdreams.serving.webrtc.controls import KeyboardResampler
+from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (

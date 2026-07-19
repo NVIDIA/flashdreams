@@ -6,41 +6,25 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 from aiortc import MediaStreamTrack
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from loguru import logger
 
+from flashdreams.serving.realtime.media import tensor_chunk_to_rgb_frames
+
+if TYPE_CHECKING:
+    import torch
+
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
 
 
-def tensor_chunk_to_rgb_frames(video_chunk: torch.Tensor) -> list[np.ndarray]:
-    """Convert common model output tensor layouts to RGB uint8 frames."""
-    if video_chunk.ndim == 4:
-        frames = video_chunk.float().permute(0, 2, 3, 1).numpy()
-        frames = ((frames + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
-        return [np.ascontiguousarray(frame) for frame in frames]
-    if video_chunk.ndim == 6:
-        if video_chunk.shape[0] != 1 or video_chunk.shape[1] != 1:
-            raise ValueError(
-                "Expected single-batch single-view video chunk [1, 1, T, 3, H, W], "
-                f"got {tuple(video_chunk.shape)}"
-            )
-        chunk = video_chunk[0, 0]
-        if chunk.dtype == torch.uint8:
-            frames = chunk.permute(0, 2, 3, 1).cpu().numpy()
-        else:
-            frames = chunk.float().permute(0, 2, 3, 1).cpu().numpy()
-            frames = ((frames + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
-        return [np.ascontiguousarray(frame) for frame in frames]
-    raise ValueError(
-        "Expected video chunk [T, C, H, W] or [1, 1, T, 3, H, W], "
-        f"got {tuple(video_chunk.shape)}"
-    )
+def _default_frame_converter(video_chunk: torch.Tensor) -> list[np.ndarray]:
+    return tensor_chunk_to_rgb_frames(video_chunk, sync_device=True)
 
 
 class BufferedVideoTrack(MediaStreamTrack):
@@ -66,7 +50,7 @@ class BufferedVideoTrack(MediaStreamTrack):
         self._next_deadline_s: float | None = None
         self._pts = 0
         self._maxsize = maxsize
-        self._frame_converter = frame_converter or tensor_chunk_to_rgb_frames
+        self._frame_converter = frame_converter or _default_frame_converter
         self._frames: asyncio.Queue[np.ndarray | None] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
 
