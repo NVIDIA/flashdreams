@@ -12,15 +12,6 @@ from typing import Protocol
 from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
-from omnidreams.interactive_drive.runtime.timing import (
-    ChunkHistory,
-    ChunkPrediction,
-    ChunkTimes,
-    TraceComponentValue,
-    TraceContext,
-    event_dependencies,
-    trace_time_ns,
-)
 from omnidreams.interactive_drive.simulation.backend import SimulationBackend
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
@@ -29,15 +20,23 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     QueuedFrame,
 )
 
+from flashdreams.serving.realtime.timing import (
+    ChunkHistory,
+    ChunkPrediction,
+    ChunkTimes,
+    InputToPresentProfileWindow,
+    TraceComponentValue,
+    TraceContext,
+    event_dependencies,
+    trace_time_ns,
+)
+
 _PROFILE_INPUT_TO_PRESENT_ENV = "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT"
 _PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (
     "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT_INTERVAL_S"
 )
 
-_PROFILE_E2E_SUM_RAW_MS: float = 0.0
-_PROFILE_E2E_SUM_ADJ_MS: float = 0.0
-_PROFILE_E2E_COUNT: int = 0
-_PROFILE_E2E_WINDOW_START: float | None = None
+_PROFILE_E2E_WINDOW = InputToPresentProfileWindow()
 
 
 def _profile_input_to_present_enabled() -> bool:
@@ -56,15 +55,7 @@ def _profile_input_to_present_interval_s() -> float:
 
 def reset_input_to_present_profile_window() -> None:
     """Clear accumulated e2e samples when the main loop starts."""
-    global _PROFILE_E2E_SUM_RAW_MS
-    global _PROFILE_E2E_SUM_ADJ_MS
-    global _PROFILE_E2E_COUNT
-    global _PROFILE_E2E_WINDOW_START
-
-    _PROFILE_E2E_SUM_RAW_MS = 0.0
-    _PROFILE_E2E_SUM_ADJ_MS = 0.0
-    _PROFILE_E2E_COUNT = 0
-    _PROFILE_E2E_WINDOW_START = None
+    _PROFILE_E2E_WINDOW.reset(interval_s=_profile_input_to_present_interval_s())
 
 
 def _chunk_frame_interval_s(chunk_times: ChunkTimes) -> float:
@@ -83,42 +74,15 @@ def _record_input_to_present_for_profile(
     frame_index: int,
     frame_interval_s: float,
 ) -> None:
-    global _PROFILE_E2E_SUM_RAW_MS
-    global _PROFILE_E2E_SUM_ADJ_MS
-    global _PROFILE_E2E_COUNT
-    global _PROFILE_E2E_WINDOW_START
-
-    raw_ms = (present_time - input_sample_time) * 1000.0
-    scheduled_ms = frame_index * (frame_interval_s * 1000.0)
-    adj_ms = raw_ms - scheduled_ms
-    _PROFILE_E2E_SUM_RAW_MS += raw_ms
-    _PROFILE_E2E_SUM_ADJ_MS += adj_ms
-    _PROFILE_E2E_COUNT += 1
-    if _PROFILE_E2E_WINDOW_START is None:
-        _PROFILE_E2E_WINDOW_START = present_time
-
-    interval_s = _profile_input_to_present_interval_s()
-    if present_time - _PROFILE_E2E_WINDOW_START < interval_s:
-        return
-
-    count = _PROFILE_E2E_COUNT
-    if count <= 0:
-        return
-    window_s = present_time - _PROFILE_E2E_WINDOW_START
-    wall_present_fps = float(count) / window_s if window_s > 1e-9 else 0.0
-    avg_raw_ms = _PROFILE_E2E_SUM_RAW_MS / float(count)
-    avg_adj_ms = _PROFILE_E2E_SUM_ADJ_MS / float(count)
-    logger.info(
-        "[profile] e2e "
-        f"wall_present_fps={wall_present_fps:.1f} "
-        f"avg_adj_control_to_present_ms={avg_adj_ms:.2f} "
-        f"avg_raw_control_to_present_ms={avg_raw_ms:.2f} "
-        f"samples={count}",
+    _PROFILE_E2E_WINDOW.interval_s = _profile_input_to_present_interval_s()
+    summary = _PROFILE_E2E_WINDOW.record(
+        present_time=present_time,
+        input_sample_time=input_sample_time,
+        frame_index=frame_index,
+        frame_interval_s=frame_interval_s,
     )
-    _PROFILE_E2E_SUM_RAW_MS = 0.0
-    _PROFILE_E2E_SUM_ADJ_MS = 0.0
-    _PROFILE_E2E_COUNT = 0
-    _PROFILE_E2E_WINDOW_START = present_time
+    if summary is not None:
+        logger.info(summary.log_message())
 
 
 class PresenterBackend(Protocol):

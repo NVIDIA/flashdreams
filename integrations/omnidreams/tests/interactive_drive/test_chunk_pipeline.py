@@ -12,15 +12,16 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-from omnidreams.interactive_drive.runtime.timing import (
-    ChunkTimes,
-    TraceComponentValue,
-    TraceContext,
-)
 from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     ChunkRequest,
+)
+
+from flashdreams.serving.realtime.timing import (
+    ChunkTimes,
+    TraceComponentValue,
+    TraceContext,
 )
 
 

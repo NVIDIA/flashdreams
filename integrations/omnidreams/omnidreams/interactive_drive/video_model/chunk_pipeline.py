@@ -9,17 +9,19 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from loguru import logger
-from omnidreams.interactive_drive.runtime.timing import (
-    ChunkTimes,
-    TraceContext,
-    event_dependencies,
-    trace_time_ns,
-)
 from omnidreams.interactive_drive.types import (
     FrameChunk,
     PresentedFrame,
     SceneBundle,
     TrajectoryChunk,
+)
+
+from flashdreams.serving.realtime.timing import (
+    ChunkTimes,
+    TraceContext,
+    emit_video_model_timing_ranges,
+    event_dependencies,
+    trace_time_ns,
 )
 
 
@@ -238,30 +240,14 @@ class ChunkPipeline:
                 worker_ready_event_id = chunk_render_event
                 timings = frame_chunk.video_model_timings
                 if timings is not None:
-                    condition_event = trace_context.add_range(
-                        "condition_raster",
+                    timing_events = emit_video_model_timing_ranges(
+                        trace_context,
+                        timings=timings,
                         thread=trace_context.worker_thread,
-                        begin_ns=trace_time_ns(timings.condition_start_time),
-                        end_ns=trace_time_ns(timings.condition_ready_time),
                         depends_on=event_dependencies(queue_wait_event),
                         chunk_index=chunk_times.chunk_index,
                     )
-                    model_event = trace_context.add_range(
-                        "model_generate",
-                        thread=trace_context.worker_thread,
-                        begin_ns=trace_time_ns(timings.model_start_time),
-                        end_ns=trace_time_ns(timings.model_ready_time),
-                        depends_on=event_dependencies(condition_event),
-                        chunk_index=chunk_times.chunk_index,
-                    )
-                    worker_ready_event_id = trace_context.add_range(
-                        "frame_merge",
-                        thread=trace_context.worker_thread,
-                        begin_ns=trace_time_ns(timings.merge_start_time),
-                        end_ns=trace_time_ns(timings.merge_ready_time),
-                        depends_on=event_dependencies(model_event),
-                        chunk_index=chunk_times.chunk_index,
-                    )
+                    worker_ready_event_id = timing_events.final_event_id
             # Drop the output if a reset / scene switch superseded this chunk
             # while it was queued or rendering -- its frames belong to a
             # rollout the user has already moved on from.

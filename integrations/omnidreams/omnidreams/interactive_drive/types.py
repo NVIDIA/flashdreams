@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from flashdreams.serving.realtime.timing import VideoModelTimings
+
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
 Int32Array = npt.NDArray[np.int32]
@@ -205,16 +207,6 @@ class PresentedFrame:
     # first chunk replays the debug HDMap override.
     bev_host_uint8: Any | None = None
     status_message: str | None = None
-
-
-@dataclass(frozen=True)
-class VideoModelTimings:
-    condition_start_time: float
-    condition_ready_time: float
-    model_start_time: float
-    model_ready_time: float
-    merge_start_time: float
-    merge_ready_time: float
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,6 @@ from omnidreams.interactive_drive.runtime.loop import (
     PresenterBackend,
     run_main_loop,
 )
-from omnidreams.interactive_drive.runtime.timing import TraceContext, TraceSink
 from omnidreams.interactive_drive.scene_loader import (
     load_scene_bundle,
     reseed_scene_bundle,
@@ -41,6 +40,8 @@ from omnidreams.interactive_drive.streaming_presenter import (
 from omnidreams.interactive_drive.types import PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
+
+from flashdreams.serving.realtime.timing import TraceContext, TraceSink
 
 # Cadence for the event-pump loop that keeps the presenter alive while a
 # scene parses on a background thread. ~60 Hz keeps input latency low and
