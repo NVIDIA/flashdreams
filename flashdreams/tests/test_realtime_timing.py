@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pytest
 
 from flashdreams.serving.realtime.timing import (
+    ChunkHistory,
     ChunkTimes,
     InputToPresentProfileWindow,
     TraceComponentValue,
@@ -123,6 +125,20 @@ def test_chunk_times_create_allocates_frame_times() -> None:
 
     assert [frame.frame_index for frame in chunk.frames] == [0, 1, 2]
     assert [frame.intended_present_time for frame in chunk.frames] == [1.5, 1.6, 1.7]
+
+
+def test_chunk_history_iter_returns_iterator() -> None:
+    first = _chunk_times()
+    second = _chunk_times()
+    history = ChunkHistory(capacity=2)
+    history.append(first)
+    history.append(second)
+
+    iterator = iter(history)
+
+    assert isinstance(iterator, Iterator)
+    assert next(iterator) is first
+    assert next(iterator) is second
 
 
 def test_chunk_stage_durations_are_derived_from_milestones() -> None:
