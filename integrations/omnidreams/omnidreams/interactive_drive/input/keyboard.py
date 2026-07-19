@@ -4,16 +4,19 @@
 import threading
 import time
 
-from flashdreams.serving.realtime.input import (
-    DRIVING_SUPPORTED_KEYS,
-    KeyboardState as RealtimeKeyboardState,
-    normalize_key,
-)
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
     VehicleState,
+)
+
+from flashdreams.serving.realtime.input import (
+    DRIVING_SUPPORTED_KEYS,
+    normalize_key,
+)
+from flashdreams.serving.realtime.input import (
+    KeyboardState as RealtimeKeyboardState,
 )
 
 

@@ -1,18 +1,18 @@
-# SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 import threading
 
 import numpy as np
-
-from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from omnidreams.interactive_drive.streaming_presenter import (
     _as_rgb_host_uint8,
     _publish_if_open,
     _wait_for_bus_frame,
 )
+
+from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 
 
 def test_streaming_presenter_materializes_lazy_rgba_frames() -> None:

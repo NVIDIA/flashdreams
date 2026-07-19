@@ -35,7 +35,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
 from google.protobuf.json_format import MessageToDict
 from loguru import logger
 from ludus_renderer import CUBE_FLAG_WIREFRAME, PRIM_OBSTACLE, CubePool
@@ -48,6 +47,8 @@ from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from PIL import Image
 from scipy.spatial.transform import Rotation, Slerp
 from torch import Tensor
+
+from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
 
 
 def decode_image(
