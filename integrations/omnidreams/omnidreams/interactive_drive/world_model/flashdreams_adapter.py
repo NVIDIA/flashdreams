@@ -13,12 +13,13 @@ import numpy as np
 import torch
 from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
-from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     build_synthetic_world_model_assets,
     default_synthetic_asset_dir,
 )
+
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -767,7 +768,7 @@ class FlashdreamsWorldModelSession:
         ]
 
 
-class _LazyRGBFrame:
+class _LazyRGBFrame(LazyCudaFrame):
     """Defer GPU-to-host copies until the presenter consumes each frame."""
 
     def __init__(
@@ -777,61 +778,13 @@ class _LazyRGBFrame:
         *,
         source_event: object | None = None,
     ) -> None:
-        self._frames_hwc_uint8: torch.Tensor | None = frames_hwc_uint8
-        self._frame_index = int(frame_index)
-        self._source_event = source_event
-        self._host: np.ndarray | None = None
-        self._prefetch: CudaHostPrefetch | None = None
-
-    def prefetch_to_numpy(self) -> None:
-        if (
-            self._host is not None
-            or self._prefetch is not None
-            or self._frames_hwc_uint8 is None
-        ):
-            return
-        frame = self._frames_hwc_uint8[self._frame_index].detach()
-        prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
-        if prefetch.start():
-            self._prefetch = prefetch
-
-    def to_numpy(self) -> np.ndarray:
-        if self._host is None:
-            if self._prefetch is not None:
-                self._host = self._prefetch.to_numpy()
-                self._prefetch = None
-                self._frames_hwc_uint8 = None
-                return self._host
-            if self._frames_hwc_uint8 is None:
-                raise RuntimeError(
-                    "Lazy RGB frame lost its source tensor before materialization."
-                )
-            frame = self._frames_hwc_uint8[self._frame_index].detach().cpu().numpy()
-            self._host = np.ascontiguousarray(frame, dtype=np.uint8)
-            self._frames_hwc_uint8 = None
-        return self._host
-
-    def to_cuda_tensor(self) -> torch.Tensor:
-        if self._frames_hwc_uint8 is None:
-            raise RuntimeError("Lazy RGB frame was already materialized on the host.")
-        return self._frames_hwc_uint8[self._frame_index]
-
-    def to_cuda_event(self) -> object | None:
-        if self._frames_hwc_uint8 is None:
-            return None
-        return self._source_event
-
-    def __array__(
-        self,
-        dtype: object | None = None,
-        copy: bool | None = None,
-    ) -> np.ndarray:
-        array = self.to_numpy()
-        if dtype is not None:
-            array = array.astype(dtype, copy=False)
-        if copy:
-            return np.array(array, copy=True)
-        return array
+        super().__init__(
+            frames_hwc_uint8,
+            frame_index,
+            source_event=source_event,
+            lost_source_message="Lazy RGB frame lost its source tensor before materialization.",
+            already_materialized_message="Lazy RGB frame was already materialized on the host.",
+        )
 
 
 def _rgb_hwc_uint8(frame: object) -> np.ndarray:

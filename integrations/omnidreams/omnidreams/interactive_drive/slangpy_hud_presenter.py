@@ -31,6 +31,8 @@ from omnidreams.interactive_drive.presenter import (
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from PIL import Image, ImageDraw, ImageFont
 
+from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
+
 # Colour palette mirrors :mod:`omnidreams.interactive_drive.demo` for a
 # consistent visual identity.
 NVIDIA_GREEN: tuple[int, int, int] = (118, 185, 0)
@@ -2467,9 +2469,7 @@ def _rect_contains(rect: tuple[int, int, int, int], pos: tuple[int, int]) -> boo
 
 
 def _prefetch_to_numpy(frame: object) -> None:
-    prefetch = getattr(frame, "prefetch_to_numpy", None)
-    if callable(prefetch):
-        prefetch()
+    prefetch_to_numpy(frame)
 
 
 def _has_cuda_tensor(frame: object) -> bool:

@@ -31,9 +31,10 @@ from ludus_renderer.torch import LudusCudaTimestampedContext
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
-from omnidreams.interactive_drive.cuda_host_prefetch import CudaHostPrefetch
 from omnidreams.interactive_drive.types import PresentedFrame, RasterChunk, SceneBundle
 from torch import Tensor
+
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 
 _BEV_CAMERA_NAME = "interactive_drive_bev"
 
@@ -52,7 +53,7 @@ class _RenderedCameraFrames:
     ready_event: object | None
 
 
-class _LazyRasterFrame:
+class _LazyRasterFrame(LazyCudaFrame):
     """Expose a rendered HDMap frame as CUDA first, NumPy only on fallback."""
 
     def __init__(
@@ -62,66 +63,14 @@ class _LazyRasterFrame:
         *,
         source_event: object | None = None,
     ) -> None:
-        self._frames_hwc_uint8: Tensor | None = frames_hwc_uint8
-        self._frame_index = int(frame_index)
-        self._source_event = source_event
-        self._host: np.ndarray | None = None
-        self._prefetch: CudaHostPrefetch | None = None
-
-    def prefetch_to_numpy(self) -> None:
-        if (
-            self._host is not None
-            or self._prefetch is not None
-            or self._frames_hwc_uint8 is None
-        ):
-            return
-        frame = self._frames_hwc_uint8[self._frame_index].detach()
-        prefetch = CudaHostPrefetch(frame, source_event=self._source_event)
-        if prefetch.start():
-            self._prefetch = prefetch
-
-    def to_numpy(self) -> np.ndarray:
-        if self._host is None:
-            if self._prefetch is not None:
-                self._host = self._prefetch.to_numpy()
-                self._prefetch = None
-                self._frames_hwc_uint8 = None
-                return self._host
-            if self._frames_hwc_uint8 is None:
-                raise RuntimeError(
-                    "Lazy raster frame lost its source tensor before materialization."
-                )
-            synchronize = getattr(self._source_event, "synchronize", None)
-            if callable(synchronize):
-                synchronize()
-            frame = self._frames_hwc_uint8[self._frame_index].detach().cpu().numpy()
-            self._host = np.ascontiguousarray(frame, dtype=np.uint8)
-            self._frames_hwc_uint8 = None
-        return self._host
-
-    def to_cuda_tensor(self) -> Tensor:
-        if self._frames_hwc_uint8 is None:
-            raise RuntimeError(
-                "Lazy raster frame was already materialized on the host."
-            )
-        return self._frames_hwc_uint8[self._frame_index]
-
-    def to_cuda_event(self) -> object | None:
-        if self._frames_hwc_uint8 is None:
-            return None
-        return self._source_event
-
-    def __array__(
-        self,
-        dtype: object | None = None,
-        copy: bool | None = None,
-    ) -> np.ndarray:
-        array = self.to_numpy()
-        if dtype is not None:
-            array = array.astype(dtype, copy=False)
-        if copy:
-            return np.array(array, copy=True)
-        return array
+        super().__init__(
+            frames_hwc_uint8,
+            frame_index,
+            source_event=source_event,
+            lost_source_message="Lazy raster frame lost its source tensor before materialization.",
+            already_materialized_message="Lazy raster frame was already materialized on the host.",
+            synchronize_source_event_on_host_copy=True,
+        )
 
 
 class _LudusConditionRasterizerImpl:
