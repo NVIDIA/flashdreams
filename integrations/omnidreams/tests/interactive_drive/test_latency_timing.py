@@ -3,7 +3,7 @@
 
 import time
 
-from omnidreams.interactive_drive.runtime.timing import ChunkTimes
+from flashdreams.serving.realtime.timing import ChunkTimes
 
 
 def _make_chunk(chunk_index: int = 0, chunk_size: int = 4) -> ChunkTimes:

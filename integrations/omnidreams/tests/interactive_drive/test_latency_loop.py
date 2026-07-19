@@ -20,12 +20,6 @@ from omnidreams.interactive_drive.runtime.loop import (
     present_queued_frame,
     run_main_loop,
 )
-from omnidreams.interactive_drive.runtime.timing import (
-    ChunkPrediction,
-    ChunkTimes,
-    TraceComponentValue,
-    TraceContext,
-)
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     PresentedFrame,
@@ -35,6 +29,13 @@ from omnidreams.interactive_drive.types import (
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     QueuedFrame,
+)
+
+from flashdreams.serving.realtime.timing import (
+    ChunkPrediction,
+    ChunkTimes,
+    TraceComponentValue,
+    TraceContext,
 )
 
 

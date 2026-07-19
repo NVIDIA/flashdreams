@@ -21,10 +21,11 @@ from omnidreams.interactive_drive.config import (
     WorldModelProfileConfig,
 )
 from omnidreams.interactive_drive.log import configure_logging
-from omnidreams.interactive_drive.runtime.timing import TraceSink
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 from omnidreams.scenes import local_scene_archive_path
+
+from flashdreams.serving.realtime.timing import TraceSink
 
 # Package root (from this file's location) so packaged-asset defaults below
 # resolve relative to the install, not the user's cwd. Bundled configs live at
