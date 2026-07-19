@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from threading import Lock
 from typing import Protocol
@@ -147,7 +147,7 @@ class ChunkHistory:
     def append(self, chunk: ChunkTimes) -> None:
         self._deque.append(chunk)
 
-    def __iter__(self) -> Iterable[ChunkTimes]:
+    def __iter__(self) -> Iterator[ChunkTimes]:
         return iter(self._deque)
 
     def __len__(self) -> int:
@@ -290,17 +290,22 @@ def emit_video_model_timing_ranges(
         thread=thread,
         begin_time=timings.decode_start_time,
         end_time=timings.decode_ready_time,
-        depends_on=event_dependencies(cache_update_event or model_event),
+        depends_on=event_dependencies(
+            cache_update_event if cache_update_event is not None else model_event
+        ),
         chunk_index=chunk_index,
     )
+    last_event = decode_event
+    if last_event is None:
+        last_event = cache_update_event
+    if last_event is None:
+        last_event = model_event
     merge_event = trace_context.add_range(
         "frame_merge",
         thread=thread,
         begin_ns=trace_time_ns(timings.merge_start_time),
         end_ns=trace_time_ns(timings.merge_ready_time),
-        depends_on=event_dependencies(
-            decode_event or cache_update_event or model_event
-        ),
+        depends_on=event_dependencies(last_event),
         chunk_index=chunk_index,
     )
     return VideoModelTraceEvents(
@@ -463,8 +468,6 @@ class InputToPresentProfileWindow:
 
         window_s = present_time - self._window_start
         if window_s < self.interval_s:
-            return None
-        if self._count <= 0:
             return None
 
         samples = self._count

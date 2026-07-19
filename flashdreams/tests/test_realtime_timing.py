@@ -81,6 +81,21 @@ class _RecordingTraceSink:
         return len(self.events) - 1
 
 
+class _NamedIdTraceSink(_RecordingTraceSink):
+    def __init__(self, event_ids: dict[str, int]) -> None:
+        super().__init__()
+        self._event_ids = event_ids
+
+    def _append_event(
+        self,
+        name: str,
+        depends_on: list[int] | None,
+        components: dict[str, TraceComponentValue],
+    ) -> int:
+        super()._append_event(name, depends_on, components)
+        return self._event_ids[name]
+
+
 def _chunk_times() -> ChunkTimes:
     chunk = ChunkTimes.create(
         chunk_index=7,
@@ -197,6 +212,76 @@ def test_emit_video_model_timing_ranges_adds_optional_subranges() -> None:
     assert sink.events[3].depends_on == [events.cache_update_event_id]
     assert sink.events[4].depends_on == [events.decode_event_id]
     assert events.final_event_id == events.merge_event_id
+
+
+def test_emit_video_model_timing_ranges_keeps_zero_valued_event_ids() -> None:
+    sink = _NamedIdTraceSink(
+        {
+            "condition_raster": 10,
+            "model_generate": 11,
+            "cache_update": 0,
+            "decode": 12,
+            "frame_merge": 13,
+        }
+    )
+    trace_context = TraceContext.create(sink)
+    timings = VideoModelTimings(
+        condition_start_time=1.0,
+        condition_ready_time=1.1,
+        model_start_time=1.1,
+        model_ready_time=1.6,
+        merge_start_time=1.65,
+        merge_ready_time=1.7,
+        cache_update_start_time=1.2,
+        cache_update_ready_time=1.3,
+        decode_start_time=1.4,
+        decode_ready_time=1.55,
+    )
+
+    events = emit_video_model_timing_ranges(
+        trace_context,
+        timings=timings,
+        thread=trace_context.worker_thread,
+        chunk_index=9,
+    )
+
+    assert events.cache_update_event_id == 0
+    assert sink.events[3].depends_on == [0]
+
+
+def test_emit_video_model_timing_ranges_uses_zero_decode_event_for_merge() -> None:
+    sink = _NamedIdTraceSink(
+        {
+            "condition_raster": 10,
+            "model_generate": 11,
+            "cache_update": 12,
+            "decode": 0,
+            "frame_merge": 13,
+        }
+    )
+    trace_context = TraceContext.create(sink)
+    timings = VideoModelTimings(
+        condition_start_time=1.0,
+        condition_ready_time=1.1,
+        model_start_time=1.1,
+        model_ready_time=1.6,
+        merge_start_time=1.65,
+        merge_ready_time=1.7,
+        cache_update_start_time=1.2,
+        cache_update_ready_time=1.3,
+        decode_start_time=1.4,
+        decode_ready_time=1.55,
+    )
+
+    events = emit_video_model_timing_ranges(
+        trace_context,
+        timings=timings,
+        thread=trace_context.worker_thread,
+        chunk_index=9,
+    )
+
+    assert events.decode_event_id == 0
+    assert sink.events[4].depends_on == [0]
 
 
 def test_input_to_present_profile_window_returns_summary_on_interval() -> None:
