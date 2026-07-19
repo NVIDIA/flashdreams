@@ -2,9 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 import os
-import queue
 import time
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
@@ -20,6 +18,10 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     QueuedFrame,
 )
 
+from flashdreams.serving.realtime.presenter import (
+    PresentationQueue,
+    wait_until_present_time,
+)
 from flashdreams.serving.realtime.timing import (
     ChunkHistory,
     ChunkPrediction,
@@ -398,22 +400,18 @@ def _prepare_queued_frame(
 def _drain_pipeline_frames(
     *,
     pipeline: ChunkPipeline,
-    ready_frames: "deque[QueuedFrame]",
+    ready_frames: PresentationQueue[QueuedFrame],
     presenter: PresenterBackend,
     view_mode: str,
 ) -> None:
     current_generation = pipeline.current_generation
-    while True:
-        try:
-            queued_frame = pipeline.frame_queue.get_nowait()
-        except queue.Empty:
-            return
-        if queued_frame.generation != current_generation:
-            # Stale frame from a superseded rollout/scene (generation bumped);
-            # drop it so old content isn't flashed over the new load.
-            continue
-        _prepare_queued_frame(queued_frame, presenter, view_mode)
-        ready_frames.append(queued_frame)
+    ready_frames.drain_nowait(
+        pipeline.frame_queue,
+        include=lambda queued_frame: queued_frame.generation == current_generation,
+        prepare=lambda queued_frame: _prepare_queued_frame(
+            queued_frame, presenter, view_mode
+        ),
+    )
 
 
 def run_main_loop(
@@ -442,7 +440,7 @@ def run_main_loop(
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
-    ready_frames: deque[QueuedFrame] = deque()
+    ready_frames = PresentationQueue[QueuedFrame]()
     chunk_history = ChunkHistory(config.history_capacity)
     last_input_sample_event: int | None = None
     last_present_wait_event: int | None = None
@@ -499,24 +497,24 @@ def run_main_loop(
             view_mode=view_mode,
         )
 
-        now = time.perf_counter()
-        if now < state.next_present_time:
-            wait_begin = now
-            time.sleep(
-                min(config.poll_timeout_s, max(0.0, state.next_present_time - now))
-            )
-            wait_end = time.perf_counter()
+        present_wait = wait_until_present_time(
+            state.next_present_time,
+            poll_timeout_s=config.poll_timeout_s,
+        )
+        if present_wait is not None:
             last_present_wait_event = _trace_main_range(
                 active_trace,
                 "present_wait",
-                begin_time=wait_begin,
-                end_time=wait_end,
+                begin_time=present_wait.begin_time,
+                end_time=present_wait.end_time,
                 depends_on=[],
             )
             continue
 
         if ready_frames:
-            queued_frame = ready_frames.popleft()
+            queued_frame = ready_frames.pop_ready()
+            if queued_frame is None:
+                continue
             chunk_transitioned = (
                 queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index
             )

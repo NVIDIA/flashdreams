@@ -29,10 +29,15 @@ from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
-from flashdreams.serving.realtime.media import (
-    encode_rgb_frame_to_jpeg,
-    rgb_frame_to_uint8,
+from flashdreams.serving.realtime.media import encode_rgb_frame_to_jpeg
+from flashdreams.serving.realtime.mjpeg import (
+    WaitForMjpegFrame,
+    publish_latest_jpeg,
+    send_mjpeg_response_headers,
+    wait_for_latest_jpeg,
+    write_mjpeg_stream,
 )
+from flashdreams.serving.realtime.presenter import materialize_rgb_host_uint8
 
 # Boundary marker embedded in the multipart response. The exact string
 # doesn't matter as long as it never appears inside a JPEG payload (they
@@ -853,11 +858,6 @@ class MJPEGStreamingPresenter:
         return False
 
 
-# Type alias for ``_serve_mjpeg``'s blocking getter parameter. ``None``
-# means the server is shutting down; ``(jpeg, count)`` is a fresh frame.
-_WaitForFrame = Callable[[int], tuple[bytes, int] | None]
-
-
 def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHandler]:
     """Build a BaseHTTPRequestHandler subclass closed over ``presenter``.
 
@@ -980,48 +980,19 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
         def _serve_bev_stream(self) -> None:
             self._serve_mjpeg(presenter._wait_for_new_bev_frame)
 
-        def _serve_mjpeg(self, wait_fn: _WaitForFrame) -> None:
+        def _serve_mjpeg(self, wait_fn: WaitForMjpegFrame) -> None:
             """Generic ``multipart/x-mixed-replace`` writer used by /stream and
             /bev_stream. ``wait_fn(last_seen)`` is the per-stream blocking
             getter that returns ``(jpeg, frame_count)`` or ``None`` on
             shutdown.
             """
-            self.send_response(HTTPStatus.OK)
-            self.send_header(
-                "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
-            )
-            self.send_header("Pragma", "no-cache")
-            self.send_header(
-                "Content-Type",
-                f"multipart/x-mixed-replace; boundary={_MULTIPART_BOUNDARY}",
-            )
-            self.end_headers()
-            last_seen = 0
-            try:
-                # Loop until shutdown (``wait_fn`` returns None only on
-                # ``_stop_event``). NOT gated on ``should_close``: that also
-                # flips True on a pending scene/variant change, and closing the
-                # connection there would freeze the browser's multipart <img>
-                # (it never auto-reconnects) mid-switch.
-                while True:
-                    result = wait_fn(last_seen)
-                    if result is None:
-                        break
-                    jpeg, last_seen = result
-                    part = (
-                        (
-                            f"--{_MULTIPART_BOUNDARY}\r\n"
-                            f"Content-Type: image/jpeg\r\n"
-                            f"Content-Length: {len(jpeg)}\r\n\r\n"
-                        ).encode("ascii")
-                        + jpeg
-                        + b"\r\n"
-                    )
-                    self.wfile.write(part)
-                    self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                # Client disconnected; that's normal, not an error.
-                return
+            send_mjpeg_response_headers(self, boundary=_MULTIPART_BOUNDARY)
+            # Loop until shutdown (``wait_fn`` returns None only on
+            # ``_stop_event``). NOT gated on ``should_close``: that also
+            # flips True on a pending scene/variant change, and closing the
+            # connection there would freeze the browser's multipart <img>
+            # (it never auto-reconnects) mid-switch.
+            write_mjpeg_stream(self.wfile, wait_fn, boundary=_MULTIPART_BOUNDARY)
 
         def _serve_control(self, query: dict[str, list[str]]) -> None:
             key = query.get("key", [""])[0]
@@ -1046,25 +1017,13 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     ``to_numpy()`` but no ``__array_interface__``, so shared media helpers
     need an explicit materialization step. Mirrors the slangpy presenter.
     """
-    to_numpy = getattr(frame, "to_numpy", None)
-    if callable(to_numpy):
-        frame = to_numpy()
-    array = np.asarray(frame)
-    if array.ndim == 3 and array.shape[-1] > 3:
-        array = array[..., :3]
-    return rgb_frame_to_uint8(array, value_range="uint8")
+    return materialize_rgb_host_uint8(frame)
 
 
 def _publish_if_open(
     bus: LatestFrameBus[bytes], jpeg: bytes, *, stop_event: threading.Event
 ) -> None:
-    if stop_event.is_set():
-        return
-    try:
-        bus.publish(jpeg)
-    except RuntimeError:
-        if not stop_event.is_set():
-            raise
+    publish_latest_jpeg(bus, jpeg, stop_event=stop_event)
 
 
 def _wait_for_bus_frame(
@@ -1073,13 +1032,11 @@ def _wait_for_bus_frame(
     last_seen_count: int,
     stop_event: threading.Event,
 ) -> tuple[bytes, int] | None:
-    while not stop_event.is_set():
-        frame = bus.wait_for_frame(last_seen_count=last_seen_count, timeout_s=1.0)
-        if frame is not None:
-            return frame.payload, frame.count
-        if bus.closed:
-            return None
-    return None
+    return wait_for_latest_jpeg(
+        bus,
+        last_seen_count=last_seen_count,
+        stop_event=stop_event,
+    )
 
 
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:
