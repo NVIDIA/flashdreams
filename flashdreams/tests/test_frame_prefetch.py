@@ -94,6 +94,29 @@ def test_lazy_cuda_frame_array_protocol_supports_dtype_and_copy() -> None:
     np.testing.assert_array_equal(array, np.ones((1, 1, 3), dtype=np.float32))
 
 
+def test_lazy_cuda_frame_array_protocol_rejects_unavoidable_copy() -> None:
+    frames = torch.ones((1, 1, 1, 3), dtype=torch.uint8)
+    frame = LazyCudaFrame(frames, 0)
+
+    with pytest.raises(ValueError, match="Unable to avoid copy"):
+        np.asarray(frame, dtype=np.float32, copy=False)
+
+
+def test_lazy_cuda_frame_recovers_from_failed_prefetch() -> None:
+    frames = torch.arange(3, dtype=torch.uint8).reshape(1, 1, 1, 3)
+    frame = LazyCudaFrame(frames, 0)
+    failed_prefetch = _FailedPrefetch()
+    frame._prefetch = failed_prefetch  # ty:ignore[invalid-assignment]
+
+    with pytest.raises(RuntimeError, match="copy failed"):
+        frame.to_numpy()
+
+    assert failed_prefetch.calls == 1
+    host = frame.to_numpy()
+
+    np.testing.assert_array_equal(host, frames[0].numpy())
+
+
 def test_prefetch_to_numpy_dispatches_only_when_supported() -> None:
     prefetchable = _Prefetchable()
 
@@ -101,3 +124,12 @@ def test_prefetch_to_numpy_dispatches_only_when_supported() -> None:
     prefetch_to_numpy(object())
 
     assert prefetchable.calls == 1
+
+
+class _FailedPrefetch:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def to_numpy(self) -> np.ndarray:
+        self.calls += 1
+        raise RuntimeError("copy failed")

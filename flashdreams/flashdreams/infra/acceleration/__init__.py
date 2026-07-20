@@ -15,6 +15,11 @@ from flashdreams.infra.acceleration.encoder_lifecycle import (
     run_one_shot_encoder_stage,
     setup_one_shot_encoder,
 )
+from flashdreams.infra.acceleration.frame_prefetch import (
+    CudaHostPrefetch,
+    LazyCudaFrame,
+    prefetch_to_numpy,
+)
 from flashdreams.infra.acceleration.overlap import (
     CudaStreamOverlap,
     HostThreadOverlap,
@@ -33,8 +38,10 @@ from flashdreams.infra.acceleration.prewarm import (
 
 __all__ = [
     "CUDAGraphDispatch",
+    "CudaHostPrefetch",
     "CudaStreamOverlap",
     "HostThreadOverlap",
+    "LazyCudaFrame",
     "PrewarmDeadline",
     "PrewarmSequenceTiming",
     "PrewarmTimeoutError",
@@ -46,6 +53,7 @@ __all__ = [
     "ensure_one_shot_encoder",
     "is_warmup_index",
     "move_tensors_to_cpu",
+    "prefetch_to_numpy",
     "release_one_shot_encoder_references",
     "run_prewarm_sequence",
     "run_one_shot_encoder_stage",
