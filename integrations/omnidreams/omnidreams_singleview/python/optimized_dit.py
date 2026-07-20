@@ -1134,6 +1134,9 @@ class OptimizedDiTExecutor:
         # The parent graph wrappers point at the freed PyTorch network and
         # must stay disabled when a reset initializes a fresh cache.
         self.transformer._use_cuda_graph = False
+        cuda_graph_dispatch = getattr(self.transformer, "_cuda_graph_dispatch", None)
+        if cuda_graph_dispatch is not None:
+            cuda_graph_dispatch.disable(fn=shape_ops)
         cast(Any, self.transformer)._network_call = None
         cast(Any, self.transformer)._network_call_uncond = None
         self.network = shape_ops

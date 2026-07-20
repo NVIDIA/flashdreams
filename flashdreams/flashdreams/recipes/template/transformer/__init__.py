@@ -30,8 +30,11 @@ from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
 )
+from flashdreams.infra.acceleration.cuda_graph_dispatch import (
+    CUDAGraphDispatch,
+    cuda_graph_capture_ar_index,
+)
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
@@ -213,9 +216,16 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         self._output_width: int | None = None
 
         self._use_cuda_graph = config.use_cuda_graph
-        self._network_call: CUDAGraphWrapper | None = None
-        self._network_call_uncond: CUDAGraphWrapper | None = None
         self._cuda_graph_capture_ar_idx: int = 0
+        self._cuda_graph_dispatch = CUDAGraphDispatch(
+            self.network,
+            enabled=config.use_cuda_graph,
+            capture_ar_idx=self._cuda_graph_capture_ar_idx,
+            warmup_iters=config.cuda_graph_warmup_iters,
+            build=False,
+        )
+        self._network_call = None
+        self._network_call_uncond = None
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
@@ -406,20 +416,19 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         self._output_height = height
         self._output_width = width
 
-        # One wrapper per rollout: static buffers and the captured
-        # graph are bound to this cache's KV pointers. The dispatch
-        # threshold matches the KV cache's filling → steady transition
-        # so the captured region only sees steady-state paths.
+        # One wrapper pair per rollout: static buffers and the captured graph
+        # are bound to this cache's KV pointers.
         if self._use_cuda_graph:
-            self._cuda_graph_capture_ar_idx = (
-                cfg.sink_size_t + cfg.window_size_t
-            ) // cfg.len_t
-            self._network_call = CUDAGraphWrapper(
-                self.network, warmup_iters=cfg.cuda_graph_warmup_iters
+            self._cuda_graph_capture_ar_idx = cuda_graph_capture_ar_index(
+                sink_size_t=cfg.sink_size_t,
+                window_size_t=cfg.window_size_t,
+                len_t=cfg.len_t,
             )
-            self._network_call_uncond = CUDAGraphWrapper(
-                self.network, warmup_iters=cfg.cuda_graph_warmup_iters
+            self._cuda_graph_dispatch.rebuild(
+                capture_ar_idx=self._cuda_graph_capture_ar_idx
             )
+            self._network_call = self._cuda_graph_dispatch.cond_call
+            self._network_call_uncond = self._cuda_graph_dispatch.uncond_call
 
         return TemplateTransformerCache(
             network_cache=network_cache,
@@ -428,22 +437,11 @@ class TemplateTransformer(Transformer[TemplateTransformerCache]):
         )
 
     def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
-        # Filling phase: eager ``.drain`` (drains Inductor autotune and
-        # exercises the KV cache's slice-returning filling path).
-        # Steady phase: ``wrapper.__call__`` (warmup + capture + replay).
-        # Capturing in the filling phase would bake slice pointers into
-        # the graph and read stale storage after the cache rolls.
         if not self._use_cuda_graph:
             return self.network
-        network_call = self._network_call_uncond if uncond else self._network_call
-        assert isinstance(network_call, CUDAGraphWrapper), (
-            "predict_flow called before initialize_autoregressive_cache "
-            "while use_cuda_graph=True."
-        )
-        return (
-            network_call.drain
-            if autoregressive_index < self._cuda_graph_capture_ar_idx
-            else network_call
+        return self._cuda_graph_dispatch.select(
+            autoregressive_index,
+            uncond=uncond,
         )
 
     def _predict_flow(

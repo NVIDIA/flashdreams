@@ -29,8 +29,11 @@ from flashdreams.core.attention.rope import (
     RotaryPositionEmbedding3D,
 )
 from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.acceleration.cuda_graph_dispatch import (
+    CUDAGraphDispatch,
+    cuda_graph_capture_ar_index,
+)
 from flashdreams.infra.compile import compile_module
-from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
@@ -261,10 +264,11 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         len_t = config.len_t // kt
         window_size_t = config.window_size_t // kt
         sink_size_t = config.sink_size_t // kt
-        assert (sink_size_t + window_size_t) % len_t == 0, (
-            f"sink_size_t + window_size_t ({sink_size_t + window_size_t}) must be "
-            f"divisible by post-patch len_t ({len_t}) so the BlockKVCache can "
-            f"fit a whole number of AR chunks."
+        cuda_graph_capture_ar_idx = cuda_graph_capture_ar_index(
+            sink_size_t=sink_size_t,
+            window_size_t=window_size_t,
+            len_t=len_t,
+            len_name="post-patch len_t",
         )
         self._output_height: int | None = None
         self._output_width: int | None = None
@@ -287,25 +291,21 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         if config.compile_network:
             self.network = compile_module(self.network)
 
-        # Per-rollout dispatch when use_cuda_graph=True:
-        # filling phase -> wrapper.drain (eager, drains Inductor autotune);
-        # steady-state -> wrapper.__call__ (warmup + capture + replay).
-        # Cond and CFG-uncond branches each get their own wrapper since each
-        # mutates an independent rolling KV cache. The dispatch threshold
-        # matches the KV cache's filling -> steady transition so the captured
-        # region only sees steady-state paths.
+        # Cond and CFG-uncond branches each get their own CUDA-graph wrapper
+        # since each mutates an independent rolling KV cache.
         self._use_cuda_graph = config.use_cuda_graph
-        chunks_total = sink_size_t + window_size_t
-        self._cuda_graph_capture_ar_idx: int = chunks_total // len_t
-        self._network_call: CUDAGraphWrapper | WanDiTNetwork = (
-            CUDAGraphWrapper(self.network, warmup_iters=config.cuda_graph_warmup_iters)
-            if config.use_cuda_graph
-            else self.network
+        self._cuda_graph_capture_ar_idx = cuda_graph_capture_ar_idx
+        self._cuda_graph_dispatch = CUDAGraphDispatch(
+            self.network,
+            enabled=config.use_cuda_graph,
+            capture_ar_idx=self._cuda_graph_capture_ar_idx,
+            warmup_iters=config.cuda_graph_warmup_iters,
         )
-        self._network_call_uncond: CUDAGraphWrapper | WanDiTNetwork = (
-            CUDAGraphWrapper(self.network, warmup_iters=config.cuda_graph_warmup_iters)
-            if config.use_cuda_graph
-            else self.network
+        # Compatibility aliases for diagnostic hooks that predate the shared
+        # dispatch helper.
+        self._network_call = self._cuda_graph_dispatch.cond_call or self.network
+        self._network_call_uncond = (
+            self._cuda_graph_dispatch.uncond_call or self.network
         )
 
     @property
@@ -460,13 +460,8 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
             rope_adapter = KVCacheRelativeRotaryPositionEmbedding3D(**rope_kwargs)
         rope_adapter.set_context_parallel_group(cp_group=self._cp_group)
 
-        # Reset any prior CUDA graph: it refers to slot pointers from the
-        # previous cache, which the new cache invalidates.
         if self._use_cuda_graph:
-            assert isinstance(self._network_call, CUDAGraphWrapper)
-            self._network_call.reset()
-            assert isinstance(self._network_call_uncond, CUDAGraphWrapper)
-            self._network_call_uncond.reset()
+            self._cuda_graph_dispatch.reset()
 
         return Wan21TransformerCache(
             network_cache=network_cache,
@@ -532,19 +527,11 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         return latent * (1.0 - control.mask) + control.latent * control.mask
 
     def _select_network(self, autoregressive_index: int, *, uncond: bool) -> Any:
-        # Filling phase: eager ``.drain`` (drains Inductor autotune and
-        # exercises the KV cache's slice-returning filling path).
-        # Steady phase: ``wrapper.__call__`` (warmup + capture + replay).
-        # Cond and CFG-uncond branches both mutate their rolling KV cache,
-        # so neither branch can be graph-captured until the cache is steady.
         if not self._use_cuda_graph:
             return self.network
-        network_call = self._network_call_uncond if uncond else self._network_call
-        assert isinstance(network_call, CUDAGraphWrapper)
-        return (
-            network_call.drain
-            if autoregressive_index < self._cuda_graph_capture_ar_idx
-            else network_call
+        return self._cuda_graph_dispatch.select(
+            autoregressive_index,
+            uncond=uncond,
         )
 
     def _build_network_input(
