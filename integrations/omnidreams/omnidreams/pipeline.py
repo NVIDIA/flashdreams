@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import gc
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
@@ -35,6 +34,10 @@ from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
     split_inputs_cp_object_list,
+)
+from flashdreams.infra.acceleration.encoder_lifecycle import (
+    move_tensors_to_cpu,
+    release_one_shot_encoder_references,
 )
 from flashdreams.infra.decoder import StreamingDecoderCache
 from flashdreams.infra.encoder import StreamingEncoderCache
@@ -347,15 +350,18 @@ class OmnidreamsPipeline(
                     for prompt_row in text
                 ],
                 dim=0,
-            ).cpu()
+            )
         else:
             negative_text_embeddings = None
 
-        return {
-            "text_embeddings": text_embeddings.cpu(),
-            "image_embeddings": image_embeddings.cpu(),
-            "negative_text_embeddings": negative_text_embeddings,
-        }
+        return move_tensors_to_cpu(
+            {
+                "text_embeddings": text_embeddings,
+                "image_embeddings": image_embeddings,
+                "negative_text_embeddings": negative_text_embeddings,
+            },
+            torch_module=torch,
+        )
 
     def _validate_image_resolution(self, image: Tensor) -> None:
         transformer = self.diffusion_model.transformer
@@ -383,13 +389,12 @@ class OmnidreamsPipeline(
         Idempotent. Only safe for one-shot pipeline lifetimes (demos);
         long-lived hosts that reuse the pipeline must not call this.
         """
-        # None (not delattr) so initialize_cache's `is not None` guard gives a useful error.
-        self.text_encoder = None
-        self.image_encoder = None
-        # nn.Module ref cycles (parent<->child, hooks) outlive the refcount drop;
-        # force GC before releasing the freed CUDA blocks.
-        gc.collect()
-        torch.cuda.empty_cache()
+        release_one_shot_encoder_references(
+            self,
+            "text_encoder",
+            "image_encoder",
+            torch_module=torch,
+        )
 
     @torch.no_grad()
     def generate(
