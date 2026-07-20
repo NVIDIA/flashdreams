@@ -69,6 +69,8 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+flashdreams-uplift-client = "flashdreams.serving.uplift.uplift_client:main"
+flashdreams-feed-frames = "flashdreams.serving.uplift.uplift_client:run_continuous_client"
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/flashdreams"
@@ -111,6 +113,10 @@ runners = [
 serving = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
+    "grpcio>=1.80",
+    "mediapy>=1.1",
+    "Pillow>=10",
+    "protobuf>=7.35.0,<8",
 ]
 
 [tool.setuptools.dynamic]

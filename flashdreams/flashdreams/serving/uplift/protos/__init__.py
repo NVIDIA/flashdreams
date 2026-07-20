@@ -13,5 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generated protobuf modules for FlashVSR gRPC serving."""
-
+"""Generated protobuf modules for FlashDreams video uplift serving."""

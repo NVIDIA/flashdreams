@@ -5,7 +5,7 @@
 import grpc
 import warnings
 
-from flashvsr.grpc.protos import flashvsr_pb2 as flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2
+from flashdreams.serving.uplift.protos import uplift_pb2 as flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -20,18 +20,19 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in flashvsr/grpc/protos/flashvsr_pb2_grpc.py depends on'
+        + ' but the generated code in flashdreams/serving/uplift/protos/uplift_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class FlashVSRStub(object):
+class VideoUpliftStub(object):
     """---------------------------------------------------------------------------
-    FlashVSR gRPC Service
+    FlashDreams video uplift gRPC service
 
-    Streaming video super-resolution (2× or 4×) using a diffusion-based model.
+    Streaming video super-resolution (2× or 4×) using any server-side model
+    implementation that speaks this protocol.
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
@@ -56,37 +57,38 @@ class FlashVSRStub(object):
             channel: A grpc.Channel.
         """
         self.get_status = channel.unary_unary(
-                '/flashvsr.FlashVSR/get_status',
-                request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.SerializeToString,
-                response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.FromString,
+                '/flashdreams.uplift.VideoUplift/get_status',
+                request_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusRequest.SerializeToString,
+                response_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.start_session = channel.unary_unary(
-                '/flashvsr.FlashVSR/start_session',
-                request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.SerializeToString,
-                response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.FromString,
+                '/flashdreams.uplift.VideoUplift/start_session',
+                request_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionRequest.SerializeToString,
+                response_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionResponse.FromString,
                 _registered_method=True)
         self.end_session = channel.unary_unary(
-                '/flashvsr.FlashVSR/end_session',
-                request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.SerializeToString,
-                response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.FromString,
+                '/flashdreams.uplift.VideoUplift/end_session',
+                request_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionRequest.SerializeToString,
+                response_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionResponse.FromString,
                 _registered_method=True)
         self.upscale_chunk = channel.unary_unary(
-                '/flashvsr.FlashVSR/upscale_chunk',
-                request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
-                response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
+                '/flashdreams.uplift.VideoUplift/upscale_chunk',
+                request_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.SerializeToString,
+                response_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.FromString,
                 _registered_method=True)
         self.upscale_video = channel.stream_stream(
-                '/flashvsr.FlashVSR/upscale_video',
-                request_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
-                response_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
+                '/flashdreams.uplift.VideoUplift/upscale_video',
+                request_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.SerializeToString,
+                response_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.FromString,
                 _registered_method=True)
 
 
-class FlashVSRServicer(object):
+class VideoUpliftServicer(object):
     """---------------------------------------------------------------------------
-    FlashVSR gRPC Service
+    FlashDreams video uplift gRPC service
 
-    Streaming video super-resolution (2× or 4×) using a diffusion-based model.
+    Streaming video super-resolution (2× or 4×) using any server-side model
+    implementation that speaks this protocol.
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
@@ -135,46 +137,47 @@ class FlashVSRServicer(object):
         raise NotImplementedError('Method not implemented!')
 
 
-def add_FlashVSRServicer_to_server(servicer, server):
+def add_VideoUpliftServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'get_status': grpc.unary_unary_rpc_method_handler(
                     servicer.get_status,
-                    request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.FromString,
-                    response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusRequest.FromString,
+                    response_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusResponse.SerializeToString,
             ),
             'start_session': grpc.unary_unary_rpc_method_handler(
                     servicer.start_session,
-                    request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.FromString,
-                    response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.SerializeToString,
+                    request_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionRequest.FromString,
+                    response_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionResponse.SerializeToString,
             ),
             'end_session': grpc.unary_unary_rpc_method_handler(
                     servicer.end_session,
-                    request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.FromString,
-                    response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.SerializeToString,
+                    request_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionRequest.FromString,
+                    response_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionResponse.SerializeToString,
             ),
             'upscale_chunk': grpc.unary_unary_rpc_method_handler(
                     servicer.upscale_chunk,
-                    request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.FromString,
-                    response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.SerializeToString,
+                    request_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.FromString,
+                    response_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.SerializeToString,
             ),
             'upscale_video': grpc.stream_stream_rpc_method_handler(
                     servicer.upscale_video,
-                    request_deserializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.FromString,
-                    response_serializer=flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.SerializeToString,
+                    request_deserializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.FromString,
+                    response_serializer=flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'flashvsr.FlashVSR', rpc_method_handlers)
+            'flashdreams.uplift.VideoUplift', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('flashvsr.FlashVSR', rpc_method_handlers)
+    server.add_registered_method_handlers('flashdreams.uplift.VideoUplift', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class FlashVSR(object):
+class VideoUplift(object):
     """---------------------------------------------------------------------------
-    FlashVSR gRPC Service
+    FlashDreams video uplift gRPC service
 
-    Streaming video super-resolution (2× or 4×) using a diffusion-based model.
+    Streaming video super-resolution (2× or 4×) using any server-side model
+    implementation that speaks this protocol.
     Two usage patterns:
 
     Unary chunk-by-chunk flow (best for integration into existing pipelines):
@@ -206,9 +209,9 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/get_status',
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusRequest.SerializeToString,
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StatusResponse.FromString,
+            '/flashdreams.uplift.VideoUplift/get_status',
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusRequest.SerializeToString,
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -233,9 +236,9 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/start_session',
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionRequest.SerializeToString,
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.StartSessionResponse.FromString,
+            '/flashdreams.uplift.VideoUplift/start_session',
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionRequest.SerializeToString,
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.StartSessionResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -260,9 +263,9 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/end_session',
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionRequest.SerializeToString,
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.EndSessionResponse.FromString,
+            '/flashdreams.uplift.VideoUplift/end_session',
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionRequest.SerializeToString,
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.EndSessionResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -287,9 +290,9 @@ class FlashVSR(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/flashvsr.FlashVSR/upscale_chunk',
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
+            '/flashdreams.uplift.VideoUplift/upscale_chunk',
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.SerializeToString,
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -314,9 +317,9 @@ class FlashVSR(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/flashvsr.FlashVSR/upscale_video',
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkRequest.SerializeToString,
-            flashvsr_dot_grpc_dot_protos_dot_flashvsr__pb2.UpscaleChunkResponse.FromString,
+            '/flashdreams.uplift.VideoUplift/upscale_video',
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkRequest.SerializeToString,
+            flashdreams_dot_serving_dot_uplift_dot_protos_dot_uplift__pb2.UpscaleChunkResponse.FromString,
             options,
             channel_credentials,
             insecure,

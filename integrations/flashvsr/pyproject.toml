@@ -24,12 +24,9 @@ description = "FlashVSR streaming video super-resolution (LR projector + Wan 2.1
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flashdreams",
-    "grpcio>=1.80",
+    "flashdreams[serving]",
     "mediapy>=1.1",
     "opencv-python>=4.8",
-    "Pillow>=10",
-    "protobuf>=6.31.1",
 ]
 
 [tool.uv]
@@ -45,9 +42,9 @@ dev = [
 ]
 
 [project.scripts]
-flashvsr-grpc-server = "flashvsr.grpc.uplift_server:main"
-flashvsr-grpc-client = "flashvsr.grpc.uplift_client:main"
-flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
+uplift-server = "flashvsr.grpc.uplift_server:main"
+flashvsr-grpc-client = "flashdreams.serving.uplift.uplift_client:main"
+flashvsr-feed-frames = "flashdreams.serving.uplift.uplift_client:run_continuous_client"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

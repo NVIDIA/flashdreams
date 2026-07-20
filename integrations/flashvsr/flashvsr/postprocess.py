@@ -321,14 +321,18 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def _run_flashvsr_chunk(self, clip: Tensor) -> Tensor:
         assert self._pipeline is not None
         assert self._cache is not None
-        output = self._pipeline.generate(
-            autoregressive_index=self._ar_idx,
-            cache=self._cache,
-            input=clip,
-        )
-        self._pipeline.finalize(autoregressive_index=self._ar_idx, cache=self._cache)
-        self._ar_idx += 1
-        return output
+        try:
+            return self._pipeline.generate(
+                autoregressive_index=self._ar_idx,
+                cache=self._cache,
+                input=clip,
+            )
+        finally:
+            self._pipeline.finalize(
+                autoregressive_index=self._ar_idx,
+                cache=self._cache,
+            )
+            self._ar_idx += 1
 
     def _consume_metadata(self, frames: int, *, source: str) -> dict[str, Any]:
         """Consume metadata spans covering ``frames`` buffered frames."""
