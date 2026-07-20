@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Literal
 
 import torch
 from torch import Tensor
 
+from flashdreams.infra.acceleration.prewarm import (
+    cuda_graph_prewarm_steps,
+    run_prewarm_sequence,
+)
 from flashdreams.infra.postprocess import (
     VideoChunk,
     VideoPostProcessor,
@@ -38,7 +43,7 @@ from flashvsr.encoder import FlashVSREncoder
 _DTypeName = Literal["bfloat16", "float16", "float32"]
 _TailPolicy = Literal["replicate_pad", "drop"]
 
-_DISTRIBUTED_PREPARE_STEADY_CHUNKS = 4
+_DISTRIBUTED_PREPARE_STEADY_CHUNKS = cuda_graph_prewarm_steps(warmup_iters=2)
 """Steady chunks needed to warm, capture, and replay every CUDA-graph stage."""
 
 
@@ -169,16 +174,19 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
             device=device,
             dtype=dtype,
         )
-        self._run_flashvsr_chunk(first)
-        # The steady-state path can have different iteration and graph shapes
-        # from the cold-start chunk, so compile/capture it as well.
         steady = torch.zeros(
             (1, 3, self._subseq_size, self._spec.height, self._spec.width),
             device=device,
             dtype=dtype,
         )
-        for _ in range(_DISTRIBUTED_PREPARE_STEADY_CHUNKS):
-            self._run_flashvsr_chunk(steady)
+        # The steady-state path can have different iteration and graph shapes
+        # from the cold-start chunk, so compile/capture it as well.
+        run_prewarm_sequence(
+            cold_start=partial(self._run_flashvsr_chunk, first),
+            steady_state=partial(self._run_flashvsr_chunk, steady),
+            steady_steps=_DISTRIBUTED_PREPARE_STEADY_CHUNKS,
+            label="flashvsr.distributed_prepare",
+        )
         del first, steady
 
         # Warmup must not consume rollout state. Keep the transformer cache

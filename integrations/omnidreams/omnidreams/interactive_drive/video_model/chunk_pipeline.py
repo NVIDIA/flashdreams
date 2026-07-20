@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.types import (
     TrajectoryChunk,
 )
 
+from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 from flashdreams.serving.realtime.timing import (
     ChunkTimes,
     TraceContext,
@@ -302,20 +303,20 @@ class ChunkPipeline:
 
     def _worker(self) -> None:
         try:
-            warmup_start = time.perf_counter()
             logger.info("[chunk-pipeline] warmup start")
-            self._backend.warmup_model()
-            warmup_end = time.perf_counter()
+            warmup_timing = run_timed_prewarm(
+                self._backend.warmup_model,
+                label="chunk-pipeline.worker_warmup",
+            )
             if self._trace_context is not None:
                 self._trace_context.add_range(
                     "worker_warmup",
                     thread=self._trace_context.worker_thread,
-                    begin_ns=trace_time_ns(warmup_start),
-                    end_ns=trace_time_ns(warmup_end),
+                    begin_ns=trace_time_ns(warmup_timing.start_time),
+                    end_ns=trace_time_ns(warmup_timing.end_time),
                 )
-            warmup_elapsed_ms = (warmup_end - warmup_start) * 1000.0
             logger.info(
-                f"[chunk-pipeline] warmup done elapsed_ms={warmup_elapsed_ms:.1f}",
+                f"[chunk-pipeline] warmup done elapsed_ms={warmup_timing.elapsed_ms:.1f}",
             )
             self._model_ready.set()
             while True:
