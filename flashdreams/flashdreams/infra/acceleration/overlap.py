@@ -208,6 +208,12 @@ def _cuda_device_context(torch_module: Any, device: Any | None) -> Any:
 
 
 def _wait_for_cuda_event(event: Any, *, timeout_s: float) -> bool:
+    """Wait up to ``timeout_s`` for a CUDA event using a short host poll.
+
+    PyTorch exposes blocking event synchronization and non-blocking ``query()``,
+    but not a native timed CUDA-event wait. Use a 1 ms sleep between polls so
+    callers can bound wait time without a tight CPU spin loop.
+    """
     if timeout_s < 0.0:
         raise ValueError(f"timeout_s must be non-negative, got {timeout_s}.")
     deadline = time.monotonic() + timeout_s

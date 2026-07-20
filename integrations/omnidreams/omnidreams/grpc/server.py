@@ -1141,6 +1141,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         return response
 
     @capture_exceptions
+    @_synchronized_method("_finalization_lock")
     def close_session(
         self,
         request: video_model_pb2.SessionCloseRequest,

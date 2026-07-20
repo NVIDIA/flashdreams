@@ -6,18 +6,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 CUDAGraphWrapper: Any | None = None
 
 
 def _cuda_graph_wrapper_cls() -> Any:
-    global CUDAGraphWrapper
-    if CUDAGraphWrapper is None:
-        from flashdreams.infra.cuda_graph import CUDAGraphWrapper as wrapper_cls
+    if CUDAGraphWrapper is not None:
+        return CUDAGraphWrapper
+    return _default_cuda_graph_wrapper_cls()
 
-        CUDAGraphWrapper = wrapper_cls
-    return CUDAGraphWrapper
+
+@lru_cache(maxsize=1)
+def _default_cuda_graph_wrapper_cls() -> Any:
+    from flashdreams.infra.cuda_graph import CUDAGraphWrapper as wrapper_cls
+
+    return wrapper_cls
 
 
 def cuda_graph_capture_ar_index(
