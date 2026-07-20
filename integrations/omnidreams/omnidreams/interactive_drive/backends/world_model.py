@@ -31,6 +31,8 @@ from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from PIL import Image
 
+from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
+
 _FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
 
 
@@ -85,10 +87,12 @@ class WorldModelRenderBackend(RenderBackend):
             raise ValueError(
                 "The flashdreams world-model path is locked to a 5-frame first chunk."
             )
-        start = time.perf_counter()
-        self._session.warmup_model()
+        warmup_timing = run_timed_prewarm(
+            self._session.warmup_model,
+            label="world-model.session",
+        )
         logger.info(
-            f"[world-model] model warmup session_ms={(time.perf_counter() - start) * 1000.0:.1f}",
+            f"[world-model] model warmup session_ms={warmup_timing.elapsed_ms:.1f}",
         )
 
     def load_scene(self, scene: SceneBundle) -> None:

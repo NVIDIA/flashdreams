@@ -20,6 +20,7 @@ from omnidreams.interactive_drive.world_model.synthetic_fixture import (
 )
 
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
+from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -501,18 +502,25 @@ class FlashdreamsWorldModelSession:
         embeddings are computed and the one-shot encoders freed before the
         AR pipeline is allocated.
         """
-        start = time.perf_counter()
-        if self._pipeline_factory is not None:
-            self._pipeline = self._pipeline_factory(self.manifest, self._profile_config)
-        elif self._offload_text_encoder and not self.manifest.synthetic_model:
+        if self._offload_text_encoder and not self.manifest.synthetic_model:
             return
-        else:
-            config = _build_pipeline_config(self.manifest, self._profile_config)
-            self._pipeline = _setup_pipeline_from_config(config, self.manifest)
-        self._validate_chunk_sizes()
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        def build_and_validate_pipeline() -> None:
+            if self._pipeline_factory is not None:
+                self._pipeline = self._pipeline_factory(
+                    self.manifest, self._profile_config
+                )
+            else:
+                config = _build_pipeline_config(self.manifest, self._profile_config)
+                self._pipeline = _setup_pipeline_from_config(config, self.manifest)
+            self._validate_chunk_sizes()
+
+        warmup_timing = run_timed_prewarm(
+            build_and_validate_pipeline,
+            label="flashdreams-session.model",
+        )
         logger.info(
-            f"[flashdreams-session] model warmup runtime_ms={elapsed_ms:.1f}",
+            f"[flashdreams-session] model warmup runtime_ms={warmup_timing.elapsed_ms:.1f}",
         )
 
     def prepare_for_scene(

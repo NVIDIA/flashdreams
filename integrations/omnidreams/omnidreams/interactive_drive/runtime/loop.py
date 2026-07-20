@@ -20,6 +20,7 @@ from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     QueuedFrame,
 )
 
+from flashdreams.infra.acceleration.prewarm import is_warmup_index
 from flashdreams.serving.realtime.timing import (
     ChunkHistory,
     ChunkPrediction,
@@ -524,7 +525,9 @@ def run_main_loop(
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
             present_trace = (
-                trace_context if queued_frame.chunk_times.chunk_index >= 1 else None
+                None
+                if is_warmup_index(queued_frame.chunk_times.chunk_index)
+                else trace_context
             )
             present_queued_frame(
                 queued_frame,
