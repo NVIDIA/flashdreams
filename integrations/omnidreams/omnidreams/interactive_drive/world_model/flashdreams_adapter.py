@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import gc
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -19,6 +19,13 @@ from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     default_synthetic_asset_dir,
 )
 
+from flashdreams.infra.acceleration.encoder_lifecycle import (
+    collect_and_release_cuda_memory,
+    move_tensors_to_cpu,
+    release_one_shot_encoder_references,
+    run_one_shot_encoder_stage,
+    setup_one_shot_encoder,
+)
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 
@@ -325,17 +332,28 @@ def _precompute_embeddings_from_config(
     )
 
     start = time.perf_counter()
-    text_encoder = text_encoder_config.setup().to(device=device)
-    image_encoder = image_encoder_config.setup().to(device=device)
-    with torch.no_grad():
+    encoders = SimpleNamespace(
+        text_encoder=setup_one_shot_encoder(
+            text_encoder_config,
+            device=device,
+            torch_module=torch,
+        ),
+        image_encoder=setup_one_shot_encoder(
+            image_encoder_config,
+            device=device,
+            torch_module=torch,
+        ),
+    )
+
+    def compute_embeddings() -> dict[str, torch.Tensor | None]:
         text_embeddings = torch.stack(
-            [text_encoder(prompt_row) for prompt_row in text], dim=0
+            [encoders.text_encoder(prompt_row) for prompt_row in text], dim=0
         )
-        image_embeddings = image_encoder(image)
+        image_embeddings = encoders.image_encoder(image)
         negative_text_embeddings = (
             torch.stack(
                 [
-                    text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
+                    encoders.text_encoder([NEGATIVE_PROMPT for _ in prompt_row])
                     for prompt_row in text
                 ],
                 dim=0,
@@ -343,33 +361,34 @@ def _precompute_embeddings_from_config(
             if needs_negative_text
             else None
         )
+        return {
+            "text_embeddings": text_embeddings,
+            "image_embeddings": image_embeddings,
+            "negative_text_embeddings": negative_text_embeddings,
+        }
 
-    embeddings = {
-        "text_embeddings": text_embeddings.cpu(),
-        "image_embeddings": image_embeddings.cpu(),
-        "negative_text_embeddings": (
-            negative_text_embeddings.cpu()
-            if negative_text_embeddings is not None
-            else None
+    embeddings = run_one_shot_encoder_stage(
+        compute_embeddings,
+        release=lambda: release_one_shot_encoder_references(
+            encoders,
+            "text_encoder",
+            "image_encoder",
+            device=device,
+            synchronize_cuda=device.type == "cuda",
+            torch_module=torch,
         ),
-    }
-    del (
-        text_encoder,
-        image_encoder,
-        text_embeddings,
-        image_embeddings,
-        negative_text_embeddings,
+        torch_module=torch,
     )
-    gc.collect()
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.synchronize(device)
-        torch.cuda.empty_cache()
+    text_embeddings = embeddings["text_embeddings"]
+    image_embeddings = embeddings["image_embeddings"]
+    assert text_embeddings is not None
+    assert image_embeddings is not None
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     logger.info(
         "[flashdreams-session] offloaded one-shot encoders "
         f"precompute_ms={elapsed_ms:.1f} "
-        f"text_shape={tuple(embeddings['text_embeddings'].shape)} "
-        f"image_shape={tuple(embeddings['image_embeddings'].shape)}",
+        f"text_shape={tuple(text_embeddings.shape)} "
+        f"image_shape={tuple(image_embeddings.shape)}",
     )
     return embeddings
 
@@ -581,11 +600,12 @@ class FlashdreamsWorldModelSession:
         if self._pipeline is None:
             return
         self._pipeline = None
-        gc.collect()
         device = torch.device(self.manifest.device)
-        if device.type == "cuda" and torch.cuda.is_available():
-            torch.cuda.synchronize(device)
-            torch.cuda.empty_cache()
+        collect_and_release_cuda_memory(
+            device=device,
+            synchronize_cuda=device.type == "cuda",
+            torch_module=torch,
+        )
 
     def start(
         self,
@@ -722,15 +742,18 @@ class FlashdreamsWorldModelSession:
                 "offload_text_encoder requires flashdreams precompute_embeddings()."
             )
 
-        embeddings = precompute_embeddings(
-            text=[[prompt]],
-            image=self._initial_rgb_tensor(initial_rgb),
+        embeddings = move_tensors_to_cpu(
+            precompute_embeddings(
+                text=[[prompt]],
+                image=self._initial_rgb_tensor(initial_rgb),
+            ),
+            torch_module=torch,
         )
         self._precomputed_embeddings = {
-            "text_embeddings": embeddings["text_embeddings"].cpu(),
-            "image_embeddings": embeddings["image_embeddings"].cpu(),
+            "text_embeddings": embeddings["text_embeddings"],
+            "image_embeddings": embeddings["image_embeddings"],
             "negative_text_embeddings": (
-                embeddings["negative_text_embeddings"].cpu()
+                embeddings["negative_text_embeddings"]
                 if embeddings.get("negative_text_embeddings") is not None
                 else None
             ),

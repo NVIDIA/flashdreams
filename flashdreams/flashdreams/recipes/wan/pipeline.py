@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import gc
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,6 +24,11 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.infra.acceleration.encoder_lifecycle import (
+    ensure_one_shot_encoder,
+    release_one_shot_encoder_references,
+    setup_one_shot_encoder,
+)
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.encoder import StreamingVideoEncoder
 from flashdreams.infra.encoder.image.clip import (
@@ -141,22 +145,30 @@ class WanInferencePipeline(
         )
 
     def _setup_oneshot_encoder(self, config: Any) -> Any:
-        encoder = config.setup()
-        if isinstance(encoder, torch.nn.Module):
-            encoder = encoder.to(device=self.device)
-        return encoder
+        return setup_one_shot_encoder(
+            config,
+            device=lambda: self.device,
+            torch_module=torch,
+        )
 
     def _ensure_oneshot_encoders_loaded(self) -> None:
         """Reload one-shot encoders released after an earlier rollout."""
         if self.text_encoder is None:
-            assert self.config.text_encoder is not None, (
-                "text_encoder is not set and config.text_encoder is None; "
-                "cannot encode raw prompts."
+            self.text_encoder = ensure_one_shot_encoder(
+                self.text_encoder,
+                self.config.text_encoder,
+                device=lambda: self.device,
+                name="text_encoder",
+                torch_module=torch,
             )
-            self.text_encoder = self._setup_oneshot_encoder(self.config.text_encoder)
-
         if self.image_encoder is None and self.config.image_encoder is not None:
-            self.image_encoder = self._setup_oneshot_encoder(self.config.image_encoder)
+            self.image_encoder = ensure_one_shot_encoder(
+                self.image_encoder,
+                self.config.image_encoder,
+                device=lambda: self.device,
+                name="image_encoder",
+                torch_module=torch,
+            )
 
     @property
     def _transformer_config(self) -> Wan21TransformerConfig | Wan22TransformerConfig:
@@ -322,15 +334,12 @@ class WanInferencePipeline(
         Idempotent. A later :meth:`initialize_cache` call can reload the
         encoders from ``self.config`` before encoding raw prompts/images.
         """
-        # None instead of delattr so initialize_cache's `is not None` guard
-        # fires with a useful message rather than an AttributeError.
-        self.text_encoder = None
-        self.image_encoder = None
-        # nn.Module reference cycles (parent <-> child, hooks) often outlive
-        # the local refcount drop, so force a GC pass before releasing the
-        # freed CUDA blocks.
-        gc.collect()
-        torch.cuda.empty_cache()
+        release_one_shot_encoder_references(
+            self,
+            "text_encoder",
+            "image_encoder",
+            torch_module=torch,
+        )
 
     @torch.no_grad()
     def generate(
