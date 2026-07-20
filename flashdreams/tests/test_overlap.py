@@ -91,17 +91,21 @@ def test_cuda_stream_overlap_enqueues_work_and_waits_on_event() -> None:
     assert fake_torch.cuda.device_contexts == ["cuda:0"]
     assert overlap.pending
 
-    overlap._event.complete()
+    event = overlap._event
+    assert event is not None
+    event.complete()
 
     assert overlap.wait(timeout_s=1.0)
     assert not overlap.pending
-    assert overlap._event.synchronize_calls == 0
+    assert event.synchronize_calls == 0
 
     overlap.submit(lambda: calls.append("again"))
     assert calls == ["work", "again"]
-    overlap._event.complete()
+    event = overlap._event
+    assert event is not None
+    event.complete()
     overlap.close()
-    assert overlap._event.synchronize_calls == 1
+    assert event.synchronize_calls == 1
 
 
 class _FakeTorch:
