@@ -502,7 +502,11 @@ class FlashdreamsWorldModelSession:
         embeddings are computed and the one-shot encoders freed before the
         AR pipeline is allocated.
         """
-        if self._offload_text_encoder and not self.manifest.synthetic_model:
+        if (
+            self._pipeline_factory is None
+            and self._offload_text_encoder
+            and not self.manifest.synthetic_model
+        ):
             return
 
         def build_and_validate_pipeline() -> None:
