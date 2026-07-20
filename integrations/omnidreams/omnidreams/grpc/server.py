@@ -29,6 +29,7 @@ import gc
 import importlib.metadata
 import os
 import re
+import threading
 import time
 import traceback
 import uuid
@@ -36,6 +37,7 @@ import warnings
 from concurrent import futures
 from dataclasses import dataclass
 from enum import IntEnum
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
 
@@ -167,7 +169,8 @@ class RenderVideoChunkPayload:
         )
 
 
-def capture_exceptions(func: Callable) -> Callable:
+def capture_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -177,6 +180,20 @@ def capture_exceptions(func: Callable) -> Callable:
             raise
 
     return wrapper
+
+
+def _synchronized_method(
+    lock_attr: str,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+            with getattr(self, lock_attr):
+                return func(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def _omnidreams_version_id() -> str:
@@ -759,6 +776,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         self._finalization_overlap = HostThreadOverlap(
             name="omnidreams-kv-finalization"
         )
+        self._finalization_lock = threading.Lock()
 
         logger.info("WorldModelService initialized successfully")
 
@@ -985,6 +1003,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         return response
 
     @capture_exceptions
+    @_synchronized_method("_finalization_lock")
     def render_video_chunk(
         self,
         request: video_model_pb2.VideoChunkRequest,

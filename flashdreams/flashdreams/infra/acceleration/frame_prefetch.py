@@ -113,8 +113,9 @@ class LazyCudaFrame:
     def to_numpy(self) -> np.ndarray:
         if self._host is None:
             if self._prefetch is not None:
-                self._host = self._prefetch.to_numpy()
+                prefetch = self._prefetch
                 self._prefetch = None
+                self._host = prefetch.to_numpy()
                 self._frames_hwc_uint8 = None
                 return self._host
             if self._frames_hwc_uint8 is None:
@@ -145,8 +146,13 @@ class LazyCudaFrame:
     ) -> np.ndarray:
         array = self.to_numpy()
         if dtype is not None:
+            target_dtype = np.dtype(dtype)
+            if copy is False and target_dtype != array.dtype:
+                raise ValueError(
+                    "Unable to avoid copy while creating an array as requested."
+                )
             array = array.astype(dtype, copy=False)
-        if copy:
+        if copy is True:
             return np.array(array, copy=True)
         return array
 
