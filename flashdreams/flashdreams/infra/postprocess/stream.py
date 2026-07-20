@@ -235,7 +235,9 @@ class VideoPostprocessStream:
             return None
         if not self._chunks:
             raise ValueError(self.empty_message)
-        return torch.cat(self._chunks, dim=self._time_dim)
+        output = torch.cat(self._chunks, dim=self._time_dim)
+        self._chunks.clear()
+        return output
 
 
 def create_runner_postprocess_stream(

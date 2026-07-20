@@ -28,6 +28,8 @@ The ``*_RUNNER`` literals + ``OMNIDREAMS_RUNNERS`` dict live in
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -625,14 +627,79 @@ def _load_video(
 
 def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
     """Save a ``[T, H, W, C]`` ``[-1, 1]`` tensor as an MP4."""
+    if canvas.ndim != 4 or canvas.shape[-1] != 3:
+        raise ValueError(
+            "expected video canvas with shape [T, H, W, C=3], "
+            f"got {tuple(canvas.shape)}"
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_bin = _find_ffmpeg_binary()
+    num_frames, height, width, _channels = canvas.shape
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-vcodec",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        str(fps),
+        "-i",
+        "-",
+        "-an",
+        "-vcodec",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "18",
+        "-preset",
+        "medium",
+        "-movflags",
+        "+faststart",
+        str(path),
+    ]
+    process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdin is not None
     try:
-        import mediapy as media  # noqa: PLC0415
+        for frame_index in range(num_frames):
+            frame = canvas[frame_index]
+            frame_u8 = (
+                ((frame.detach().to(device="cpu", dtype=torch.float32) + 1.0) * 127.5)
+                .clamp(0, 255)
+                .to(torch.uint8)
+                .contiguous()
+            )
+            process.stdin.write(frame_u8.numpy().tobytes())
+    except BrokenPipeError as exc:
+        stderr = process.stderr.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"ffmpeg closed while writing {path}: {stderr}") from exc
+    finally:
+        process.stdin.close()
+
+    stderr = process.stderr.read().decode("utf-8", errors="replace")
+    returncode = process.wait()
+    if returncode != 0:
+        raise RuntimeError(f"ffmpeg failed while writing {path}: {stderr}")
+
+
+def _find_ffmpeg_binary() -> str:
+    """Find an ffmpeg binary for streaming MP4 writes."""
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin is not None:
+        return ffmpeg_bin
+    try:
+        import imageio_ffmpeg  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
-            "Writing the output video needs mediapy. Install the runner "
-            "extras: pip install 'flashdreams[runners]'."
+            "Writing the output video needs ffmpeg or imageio-ffmpeg. Install "
+            "ffmpeg with the system package manager or `pip install imageio-ffmpeg`."
         ) from exc
-
-    arr = (canvas.float().numpy() + 1.0) / 2.0
-    arr = (arr * 255).clip(0, 255).astype("uint8")
-    media.write_video(str(path), arr, fps=fps)
+    return imageio_ffmpeg.get_ffmpeg_exe()
