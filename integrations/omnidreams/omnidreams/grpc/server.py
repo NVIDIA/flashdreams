@@ -29,7 +29,6 @@ import gc
 import importlib.metadata
 import os
 import re
-import threading
 import time
 import traceback
 import uuid
@@ -87,6 +86,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
+from flashdreams.infra.acceleration.overlap import HostThreadOverlap
 from flashdreams.serving.network import get_external_ip
 
 VERBOSE = False
@@ -754,10 +754,11 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
             logger.info("Session recording disabled")
         self.recorders: dict[str, SessionRecorder] = {}  # session_id -> SessionRecorder
 
-        # Finalization synchronization: ensures KV cache update completes before next request
-        # The event is set when no finalization is pending, cleared when finalization starts
-        self._finalization_done = threading.Event()
-        self._finalization_done.set()  # Initially done (no pending finalization)
+        # Finalization synchronization: ensures KV cache update completes before
+        # the next request while still allowing post-response overlap.
+        self._finalization_overlap = HostThreadOverlap(
+            name="omnidreams-kv-finalization"
+        )
 
         logger.info("WorldModelService initialized successfully")
 
@@ -1011,7 +1012,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
 
         # Wait for previous finalization to complete before processing new request
         # This ensures KV cache is ready for the new generation
-        self._finalization_done.wait()
+        self._finalization_overlap.wait()
 
         # 1. Get session ID
         session_id = request.session_id.session_id
@@ -1096,20 +1097,14 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         )
         response = self.render_video_chunk_all_ranks(render_video_chunk_payload)
 
-        # Schedule KV cache finalization in background thread
-        # This allows the gRPC response to be sent immediately while KV cache update
+        # Schedule KV cache finalization in a background host thread. This
+        # allows the gRPC response to be sent immediately while KV cache update
         # happens in parallel, utilizing the network transfer time.
         if session_state.pending_finalization_state is not None:
-            self._finalization_done.clear()  # Mark finalization as pending
-
-            def do_finalization():
-                try:
-                    self.finalize_kv_cache_all_ranks(session_id=session_id)
-                finally:
-                    self._finalization_done.set()  # Mark finalization as complete
-
-            finalization_thread = threading.Thread(target=do_finalization, daemon=True)
-            finalization_thread.start()
+            self._finalization_overlap.submit(
+                lambda: self.finalize_kv_cache_all_ranks(session_id=session_id),
+                name=f"omnidreams-kv-finalization-{session_id}",
+            )
 
         profiler.increment_chunk_idx(session_id)
 
@@ -1147,7 +1142,7 @@ class WorldModelService(video_model_pb2_grpc.WorldModelServiceServicer):
         start_time_ns = time.time_ns()
 
         # Wait for any pending finalization to complete before closing
-        self._finalization_done.wait()
+        self._finalization_overlap.wait()
 
         # Get session ID
         session_id = request.session_id
