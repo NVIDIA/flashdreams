@@ -652,12 +652,53 @@ def test_build_runtime_config_manifest_allows_explicit_runtime_overrides() -> No
     assert cfg.pipeline_config is not OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
 
 
+def test_build_runtime_config_manifest_allows_abbreviated_runtime_overrides() -> None:
+    args = webrtc_server.parse_args(
+        [
+            "--manif",
+            "example_world_model_perf.yaml",
+            "--dev",
+            "cuda:5",
+            "--see",
+            "123",
+            "--fp",
+            "24",
+            "--video_w",
+            "640",
+            "--video_h",
+            "352",
+        ]
+    )
+
+    cfg = webrtc_server.build_runtime_config(args)
+
+    assert cfg.device == "cuda:5"
+    assert cfg.seed == 123
+    assert cfg.fps == 24
+    assert cfg.video_width == 640
+    assert cfg.video_height == 352
+
+
 def test_build_runtime_config_rejects_manifest_config_name_conflict() -> None:
     args = webrtc_server.parse_args(
         [
             "--manifest",
             "example_world_model_perf.yaml",
             "--pipeline_config_name",
+            "omnidreams-sv-2steps-chunk3-loc6-vae-vae",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="--manifest selects pipeline config"):
+        webrtc_server.build_runtime_config(args)
+
+
+def test_build_runtime_config_rejects_manifest_abbreviated_config_name_conflict() -> None:
+    args = webrtc_server.parse_args(
+        [
+            "--manif",
+            "example_world_model_perf.yaml",
+            "--pipeline",
             "omnidreams-sv-2steps-chunk3-loc6-vae-vae",
         ]
     )
