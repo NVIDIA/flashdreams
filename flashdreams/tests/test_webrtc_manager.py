@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
+from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -50,12 +51,27 @@ class _FakeVideoTrack:
 
 class _FakeVideoEncoder:
     """Minimal ``VideoEncoder``-shaped stub for ``ManagedWebRTCSession``
-    construction. Enough to satisfy the dataclass field; the manager tests
-    here do not exercise ``create_track`` / ``deliver_chunk`` on it."""
+    construction and generation-worker tests."""
 
     fps = 30
     backend = "fake"
     prefers_codec: str | None = None
+
+    async def deliver_chunk(
+        self,
+        chunk: Any,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        del force_keyframe
+        num_frames = await track.enqueue_chunk(chunk)
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=num_frames,
+            num_keyframes=0,
+            encode_ms=0.0,
+        )
 
     def close(self) -> None:
         return
