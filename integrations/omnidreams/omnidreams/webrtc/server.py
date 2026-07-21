@@ -8,6 +8,7 @@ import os
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Protocol, cast
 
 import torch
 import torch.distributed as dist
@@ -17,20 +18,36 @@ from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
+    OmnidreamsSessionInput,
     OmnidreamsWebRTCSessionManager,
 )
 
 from flashdreams.core.distributed import (
     init as distributed_init,
 )
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     run_webrtc_server,
 )
-from flashdreams.serving.webrtc.server import WebRTCSessionManager, create_webrtc_app
+from flashdreams.serving.webrtc.server import (
+    SESSION_MANAGER_KEY,
+    SessionBusyError,
+    WebRTCSessionManager,
+    create_webrtc_app,
+)
 
 WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
+
+
+class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
+    runtime_config: OmnidreamsRuntimeConfig
+
+    def set_pending_session_input(
+        self, session_input: OmnidreamsSessionInput
+    ) -> None: ...
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,11 +123,62 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
+    parser.add_argument(
+        "--postprocess-preset",
+        "--postprocess_preset",
+        dest="postprocess_preset",
+        default="",
+        choices=sorted(discover_postprocess_presets()),
+        help=(
+            "Default video post-process preset for WebRTC sessions. The browser "
+            "can override this selection before connecting."
+        ),
+    )
     return parser.parse_args()
 
 
 async def _close_package_resources(app: web.Application) -> None:
     app["package_resource_stack"].close()
+
+
+def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
+    return cast(_OmnidreamsSessionManager, app[SESSION_MANAGER_KEY])
+
+
+async def _postprocess_options(request: web.Request) -> web.StreamResponse:
+    manager = _get_omnidreams_manager(request.app)
+    presets = sorted(discover_postprocess_presets())
+    return web.json_response(
+        {
+            "default_preset": manager.runtime_config.postprocess.preset,
+            "presets": presets,
+        }
+    )
+
+
+async def _session_input(request: web.Request) -> web.StreamResponse:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise web.HTTPBadRequest(reason="Expected JSON session input.") from exc
+    if not isinstance(payload, dict):
+        raise web.HTTPBadRequest(reason="Session input must be a JSON object.")
+    preset = payload.get("postprocess_preset")
+    if not isinstance(preset, str):
+        raise web.HTTPBadRequest(
+            reason="Session input must include string 'postprocess_preset'."
+        )
+
+    manager = _get_omnidreams_manager(request.app)
+    try:
+        manager.set_pending_session_input(
+            OmnidreamsSessionInput(postprocess_preset=preset)
+        )
+    except SessionBusyError as exc:
+        raise web.HTTPConflict(reason=str(exc)) from exc
+    except ValueError as exc:
+        raise web.HTTPBadRequest(reason=str(exc)) from exc
+    return web.json_response({"postprocess_preset": preset})
 
 
 def create_app(
@@ -131,6 +199,8 @@ def create_app(
             request_session_url=request_session_url,
         )
         app["package_resource_stack"] = resource_stack
+        app.router.add_get("/api/postprocess/options", _postprocess_options)
+        app.router.add_post("/api/session/input", _session_input)
         app.on_cleanup.append(_close_package_resources)
     except Exception:
         resource_stack.close()
@@ -157,6 +227,7 @@ def build_runtime_config(
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
+        postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
     )
 
 

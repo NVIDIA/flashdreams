@@ -656,6 +656,8 @@ def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
         "-an",
         "-vcodec",
         "libx264",
+        "-vf",
+        "pad=ceil(iw/2)*2:ceil(ih/2)*2",
         "-pix_fmt",
         "yuv420p",
         "-crf",
@@ -668,6 +670,8 @@ def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
     ]
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     assert process.stdin is not None
+    assert process.stderr is not None
+    write_error: BrokenPipeError | None = None
     try:
         for frame_index in range(num_frames):
             frame = canvas[frame_index]
@@ -679,27 +683,30 @@ def _write_video(canvas: torch.Tensor, path: Path, *, fps: int) -> None:
             )
             process.stdin.write(frame_u8.numpy().tobytes())
     except BrokenPipeError as exc:
-        stderr = process.stderr.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"ffmpeg closed while writing {path}: {stderr}") from exc
+        write_error = exc
     finally:
-        process.stdin.close()
+        try:
+            process.stdin.close()
+        except BrokenPipeError as exc:
+            if write_error is None:
+                write_error = exc
+        stderr = process.stderr.read().decode("utf-8", errors="replace")
+        returncode = process.wait()
 
-    stderr = process.stderr.read().decode("utf-8", errors="replace")
-    returncode = process.wait()
+    if write_error is not None:
+        raise RuntimeError(
+            f"ffmpeg closed while writing {path} (exit code {returncode}): {stderr}"
+        ) from write_error
     if returncode != 0:
         raise RuntimeError(f"ffmpeg failed while writing {path}: {stderr}")
 
 
 def _find_ffmpeg_binary() -> str:
-    """Find an ffmpeg binary for streaming MP4 writes."""
+    """Find the host-provided ffmpeg binary for streaming MP4 writes."""
     ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin is not None:
-        return ffmpeg_bin
-    try:
-        import imageio_ffmpeg  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - import-time gate
-        raise ImportError(
-            "Writing the output video needs ffmpeg or imageio-ffmpeg. Install "
-            "ffmpeg with the system package manager or `pip install imageio-ffmpeg`."
-        ) from exc
-    return imageio_ffmpeg.get_ffmpeg_exe()
+    if ffmpeg_bin is None:
+        raise RuntimeError(
+            "Writing the output video requires an ffmpeg executable installed "
+            "on the host and available on PATH."
+        )
+    return ffmpeg_bin

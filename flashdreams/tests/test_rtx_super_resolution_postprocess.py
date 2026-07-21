@@ -154,15 +154,120 @@ def test_rtx_super_resolution_processes_frames_with_fake_backend(
     assert created[0].output_height == 4
     assert created[0].output_width == 6
     assert created[0].calls == [((3, 2, 3), False, 0), ((3, 2, 3), False, 0)]
-    expected_first = F.interpolate(
-        video[0].add(1.0).mul(0.5).unsqueeze(0),
-        size=(4, 6),
-        mode="nearest",
-    )[0].mul(2.0).sub(1.0)
+    expected_first = (
+        F.interpolate(
+            video[0].add(1.0).mul(0.5).unsqueeze(0),
+            size=(4, 6),
+            mode="nearest",
+        )[0]
+        .mul(2.0)
+        .sub(1.0)
+    )
     assert torch.equal(outputs[0].tensor[0, 0, 0], expected_first)
 
     assert session.flush() == []
     assert created[0].closed
+
+
+def test_rtx_super_resolution_normalizes_uint8_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vfx_inputs: list[torch.Tensor] = []
+
+    class _FakeVideoSuperRes:
+        class QualityLevel:
+            HIGH = "HIGH"
+
+        def __init__(self, **_kwargs: object) -> None:
+            self.output_width = 0
+            self.output_height = 0
+
+        def load(self) -> None:
+            pass
+
+        def run(self, input_array: torch.Tensor, **_kwargs: object) -> SimpleNamespace:
+            vfx_inputs.append(input_array.clone())
+            image = F.interpolate(
+                input_array.unsqueeze(0),
+                size=(self.output_height, self.output_width),
+                mode="nearest",
+            )[0]
+            return SimpleNamespace(image=image)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        rtx_module, "_load_video_super_res_class", lambda: _FakeVideoSuperRes
+    )
+    monkeypatch.setattr(
+        rtx_module,
+        "_torch_device_for_nvvfx_device",
+        lambda device: torch.device("cpu"),
+    )
+    video = torch.tensor(
+        [[[[[[0, 64], [128, 255]], [[16, 80], [144, 240]], [[32, 96], [160, 224]]]]]],
+        dtype=torch.uint8,
+    )
+    config = RTXVideoSuperResolutionPostProcessorConfig(scale=2.0)
+    session = config.setup().start(VideoSpec(height=2, width=2))
+
+    outputs = session.process(VideoChunk(tensor=video, layout="bvtchw"))
+
+    expected_input = video[0, 0, 0].float().div(255.0)
+    assert len(vfx_inputs) == 1
+    assert torch.allclose(vfx_inputs[0], expected_input)
+    expected_output = (
+        F.interpolate(expected_input.unsqueeze(0), size=(4, 4), mode="nearest")[0]
+        .mul(2.0)
+        .sub(1.0)
+    )
+    assert torch.allclose(outputs[0].tensor[0, 0, 0], expected_output)
+
+
+def test_rtx_super_resolution_synchronizes_nonblocking_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeVideoSuperRes:
+        class QualityLevel:
+            HIGH = "HIGH"
+
+        def __init__(self, **_kwargs: object) -> None:
+            self.output_width = 0
+            self.output_height = 0
+
+        def load(self) -> None:
+            pass
+
+        def run(self, input_array: torch.Tensor, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(image=input_array)
+
+        def close(self) -> None:
+            pass
+
+    synchronizations: list[tuple[torch.device, bool]] = []
+    monkeypatch.setattr(
+        rtx_module, "_load_video_super_res_class", lambda: _FakeVideoSuperRes
+    )
+    monkeypatch.setattr(
+        rtx_module,
+        "_torch_device_for_nvvfx_device",
+        lambda device: torch.device("cpu"),
+    )
+    monkeypatch.setattr(
+        rtx_module,
+        "_synchronize_nonblocking_output",
+        lambda *, device, enabled: synchronizations.append((device, enabled)),
+    )
+    config = RTXVideoSuperResolutionPostProcessorConfig(
+        scale=1.0,
+        non_blocking=True,
+    )
+    session = config.setup().start(VideoSpec(height=2, width=3))
+
+    session.process(VideoChunk(tensor=torch.zeros(1, 3, 2, 3)))
+
+    assert synchronizations == [(torch.device("cpu"), True)]
 
 
 def test_rtx_super_resolution_empty_chunk_does_not_load_backend(

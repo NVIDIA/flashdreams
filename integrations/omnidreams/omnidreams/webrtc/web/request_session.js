@@ -13,6 +13,7 @@ const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
 const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
+const postprocessSelect = document.getElementById("postprocessSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -117,6 +118,51 @@ function setFlow(message) {
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+}
+
+async function loadPostprocessOptions() {
+  const response = await fetch("/api/postprocess/options")
+  if (!response.ok) {
+    throw new Error(`post-process options failed (${response.status})`)
+  }
+  const payload = await response.json()
+  const presets = Array.isArray(payload.presets) ? payload.presets : []
+  postprocessSelect.replaceChildren()
+
+  const offOption = document.createElement("option")
+  offOption.value = ""
+  offOption.textContent = "Off"
+  postprocessSelect.append(offOption)
+  for (const preset of presets) {
+    if (typeof preset !== "string" || !preset) {
+      continue
+    }
+    const option = document.createElement("option")
+    option.value = preset
+    option.textContent = preset
+    postprocessSelect.append(option)
+  }
+  const defaultPreset = typeof payload.default_preset === "string"
+    ? payload.default_preset
+    : ""
+  postprocessSelect.value = presets.includes(defaultPreset) ? defaultPreset : ""
+}
+
+async function configureSessionInput() {
+  const postprocessPreset = postprocessSelect.value
+  const response = await fetch("/api/session/input", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ postprocess_preset: postprocessPreset }),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`session configuration failed (${response.status}): ${text}`)
+  }
+  logEvent(
+    `post-process=${postprocessPreset || "off"}`,
+    { source: "client" }
+  )
 }
 
 function renderMetrics() {
@@ -640,6 +686,7 @@ function disconnectSession({ notify = true } = {}) {
   stopStatsPolling()
   connected = false
   connectButton.disabled = false
+  postprocessSelect.disabled = false
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
       controlChannel.send(JSON.stringify({ type: "disconnect" }))
@@ -662,12 +709,14 @@ async function connectSession() {
   }
 
   connectButton.disabled = true
+  postprocessSelect.disabled = true
   setStatus("Connecting", "connecting")
   setFlow("creating peer connection")
   logEvent("connecting to server...", { source: "client" })
   disconnecting = false
 
   try {
+    await configureSessionInput()
     const pc = new RTCPeerConnection()
     const channel = pc.createDataChannel("controls")
     peerConnection = pc
@@ -726,6 +775,7 @@ async function connectSession() {
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
         connectButton.disabled = false
+        postprocessSelect.disabled = false
         stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
@@ -780,6 +830,7 @@ async function connectSession() {
     setFlow("failed")
     logEvent(`connect failed: ${error.message}`, { source: "client", level: "error" })
     connectButton.disabled = false
+    postprocessSelect.disabled = false
   }
 }
 
@@ -854,6 +905,12 @@ function initialize() {
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
+  void loadPostprocessOptions().catch((error) => {
+    logEvent(`post-process options unavailable: ${error.message}`, {
+      source: "client",
+      level: "error",
+    })
+  })
 }
 
 connectButton.addEventListener("click", () => {

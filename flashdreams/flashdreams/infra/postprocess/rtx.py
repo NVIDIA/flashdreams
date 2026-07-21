@@ -99,7 +99,7 @@ class RTXVideoSuperResolutionPostProcessorConfig(VideoPostProcessorConfig):
     """Clamp incoming FlashDreams frames to ``[-1, 1]`` before VFX conversion."""
 
     non_blocking: bool = False
-    """Forward ``non_blocking`` to ``VideoSuperRes.run``."""
+    """Request asynchronous VFX execution before synchronizing at the boundary."""
 
     use_current_stream: bool = True
     """Pass the current PyTorch CUDA stream pointer to ``VideoSuperRes.run``."""
@@ -141,10 +141,10 @@ class RTXVideoSuperResolutionPostProcessorConfig(VideoPostProcessorConfig):
                 "RTX Video Super Resolution output dimensions must be positive; "
                 f"got {output_height}x{output_width}."
             )
-        if (
-            self.quality in _SAME_RESOLUTION_QUALITIES
-            and (output_height, output_width) != (input_spec.height, input_spec.width)
-        ):
+        if self.quality in _SAME_RESOLUTION_QUALITIES and (
+            output_height,
+            output_width,
+        ) != (input_spec.height, input_spec.width):
             raise ValueError(
                 f"RTX Video Super Resolution quality {self.quality!r} is a "
                 "same-resolution mode; set scale=1.0 or explicit dimensions "
@@ -280,15 +280,24 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
         stream_ptr: int,
     ) -> Tensor:
         # The VFX binding expects contiguous channels-first float32 CUDA frames
-        # in [0, 1]. FlashDreams post-processing receives RGB in [-1, 1].
-        frame = frame.to(device=device, dtype=torch.float32)
-        if self._config.clamp_input:
-            frame = frame.clamp(-1.0, 1.0)
-        frame = frame.add(1.0).mul(0.5).contiguous()
+        # in [0, 1]. Most FlashDreams runners emit float RGB in [-1, 1], while
+        # serving integrations such as Omnidreams emit display-ready uint8 RGB.
+        if frame.dtype == torch.uint8:
+            frame = frame.to(device=device, dtype=torch.float32).mul(1.0 / 255.0)
+        else:
+            frame = frame.to(device=device, dtype=torch.float32)
+            if self._config.clamp_input:
+                frame = frame.clamp(-1.0, 1.0)
+            frame = frame.add(1.0).mul(0.5)
+        frame = frame.contiguous()
         result = effect.run(
             frame,
             non_blocking=self._config.non_blocking,
             stream_ptr=stream_ptr,
+        )
+        _synchronize_nonblocking_output(
+            device=device,
+            enabled=self._config.non_blocking,
         )
         output = torch.from_dlpack(result.image).clone()
         return output.mul(2.0).sub(1.0)
@@ -304,7 +313,9 @@ def _empty_output_like(canonical: Tensor, *, spec: VideoSpec) -> Tensor:
 
 def _load_video_super_res_class() -> Any:
     try:
-        from nvvfx import VideoSuperRes  # noqa: PLC0415
+        from nvvfx import (  # ty: ignore[unresolved-import]  # noqa: PLC0415
+            VideoSuperRes,
+        )
     except ImportError as exc:
         raise RuntimeError(
             "RTX Video Super Resolution post-processing requires the optional "
@@ -334,6 +345,12 @@ def _current_cuda_stream_ptr(*, device: torch.device, enabled: bool) -> int:
     if not enabled or device.type != "cuda":
         return 0
     return torch.cuda.current_stream(device=device).cuda_stream
+
+
+def _synchronize_nonblocking_output(*, device: torch.device, enabled: bool) -> None:
+    """Wait until an asynchronous VFX write is safe to import through DLPack."""
+    if enabled:
+        torch.cuda.synchronize(device=device)
 
 
 POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION = RTXVideoSuperResolutionPostProcessorConfig()
