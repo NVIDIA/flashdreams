@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import math
 from collections import deque
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from aiortc import (
     RTCRtpSender,
     RTCSessionDescription,
 )
+from aiortc.sdp import SessionDescription
 from loguru import logger
 
 from flashdreams.serving.realtime.input import KeyboardResampler
@@ -42,6 +44,45 @@ DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 
 # How often the liveness watchdog wakes to re-check the elapsed-since-last-message.
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
+
+
+def _performance_stats_payload(stats: dict[str, float] | None) -> dict[str, float]:
+    if not stats:
+        return {}
+    payload: dict[str, float] = {}
+    for key, value in stats.items():
+        if not isinstance(key, str):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            payload[key] = round(number, 1)
+    return payload
+
+
+def _format_performance_stats(stats: dict[str, float]) -> str:
+    return " ".join(f"{key}={value:.1f}" for key, value in sorted(stats.items()))
+
+
+def _sdp_video_codecs(sdp: str) -> tuple[str, ...] | None:
+    """Return offered video codec MIME types, or ``None`` if parsing fails."""
+    try:
+        description = SessionDescription.parse(sdp)
+    except Exception:
+        logger.debug("Could not parse remote SDP while checking video codecs.")
+        return None
+
+    codecs: list[str] = []
+    for media in description.media:
+        if getattr(media, "kind", None) != "video":
+            continue
+        for codec in media.rtp.codecs:
+            mime_type = str(getattr(codec, "mimeType", "")).strip()
+            if mime_type:
+                codecs.append(mime_type)
+    return tuple(dict.fromkeys(codecs))
 
 
 class WebRTCControlSignal(IntEnum):
@@ -186,6 +227,39 @@ class BaseWebRTCSessionManager:
             return
         transceiver.setCodecPreferences(h264_codecs)
 
+    def _prepare_video_encoder_for_offer(
+        self,
+        *,
+        video_encoder: VideoEncoder,
+        offer_sdp: str,
+    ) -> VideoEncoder:
+        """Select a session encoder compatible with the browser offer."""
+        if video_encoder.prefers_codec != "h264":
+            return video_encoder
+
+        offered_video_codecs = _sdp_video_codecs(offer_sdp)
+        if offered_video_codecs is None:
+            return video_encoder
+        if any(codec.lower() == "video/h264" for codec in offered_video_codecs):
+            return video_encoder
+
+        offered = ", ".join(offered_video_codecs) or "<none>"
+        if getattr(self.runtime_config, "encoder_backend", None) == "nvenc":
+            video_encoder.close()
+            raise RuntimeError(
+                "encoder_backend='nvenc' requested but the browser offer does "
+                f"not advertise H.264; offered video codecs: {offered}."
+            )
+
+        logger.warning(
+            "Hardware encoder emits H.264, but the browser offer does not "
+            "advertise H.264 (offered: {}). Using aiortc software encoder "
+            "for this session.",
+            offered,
+        )
+        video_encoder.close()
+        return DefaultRTCEncoder(fps=self.fps)
+
     def _enforce_h264_or_fallback(
         self,
         *,
@@ -214,6 +288,12 @@ class BaseWebRTCSessionManager:
             return
 
         chosen = negotiated[0].mimeType if negotiated else "<none>"
+        if getattr(self.runtime_config, "encoder_backend", None) == "nvenc":
+            managed_session.video_encoder.close()
+            raise RuntimeError(
+                "encoder_backend='nvenc' requested but SDP negotiation landed on "
+                f"{chosen!r}; cannot stream pre-encoded H.264 packets."
+            )
         logger.warning(
             "H.264 preferred by hardware encoder but SDP negotiation "
             "landed on {!r}; swapping to the software encoder before "
@@ -356,7 +436,10 @@ class BaseWebRTCSessionManager:
         # frames than steady state; sizing to it would force a per-chunk
         # stall, so we size to the steady-state count.
         num_frames = self._runtime.peek_steady_chunk_num_frames()
-        video_encoder: VideoEncoder = self._runtime.video_encoder
+        video_encoder: VideoEncoder = self._prepare_video_encoder_for_offer(
+            video_encoder=self._runtime.video_encoder,
+            offer_sdp=offer_sdp,
+        )
         video_track = video_encoder.create_track(maxsize=num_frames)
         # Use ``addTransceiver`` (not ``addTrack``) so we can constrain the
         # SDP m-line's codec list via ``setCodecPreferences`` when the
@@ -693,6 +776,7 @@ class BaseWebRTCSessionManager:
                     consumed_action_arrivals.append(
                         managed_session.pending_action_arrivals.popleft()
                     )
+                t_after_sample = loop.time()
                 try:
                     result = await runtime.generate_chunk(
                         segments=segments, frame_times=frame_times
@@ -716,7 +800,15 @@ class BaseWebRTCSessionManager:
                 t_after_enqueue = loop.time()
 
                 gen_ms = (t_after_gen - t_before_gen) * 1e3
+                sample_ms = (t_after_sample - t_before_gen) * 1e3
+                runtime_call_ms = (t_after_gen - t_after_sample) * 1e3
                 enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3
+                chunk_total_ms = (t_after_enqueue - t_before_gen) * 1e3
+                chunk_fps = (
+                    result.num_frames * 1000.0 / chunk_total_ms
+                    if chunk_total_ms > 0
+                    else 0.0
+                )
                 play_ms = result.num_frames * 1000.0 / video_track.fps
                 lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
                 control_latency_ms = (
@@ -724,19 +816,49 @@ class BaseWebRTCSessionManager:
                     if consumed_action_arrivals
                     else None
                 )
-                logger.debug(
-                    "Chunk done chunk={} num_frames={} segments={} enqueued={} "
-                    "gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} queue_depth={} "
-                    "lag_ms={:.1f}",
+                track_dropped_packets = getattr(
+                    video_track,
+                    "dropped_packets",
+                    None,
+                )
+                runtime_stats = _performance_stats_payload(result.stats)
+                log_stats = {
+                    **runtime_stats,
+                    "delivery_encode_ms": round(delivery.encode_ms, 1),
+                }
+                if isinstance(track_dropped_packets, int):
+                    log_stats["track_dropped_packets"] = float(track_dropped_packets)
+                extra_stats = _format_performance_stats(log_stats)
+                log_level = (
+                    logger.info
+                    if (
+                        result.chunk_index <= 2
+                        or result.chunk_index % 10 == 0
+                        or chunk_total_ms > play_ms
+                        or lag_ms > play_ms
+                    )
+                    else logger.debug
+                )
+                log_level(
+                    "WebRTC chunk done chunk={} num_frames={} segments={} "
+                    "enqueued={} encoder={} gen_ms={:.1f} sample_ms={:.1f} "
+                    "runtime_call_ms={:.1f} delivery_ms={:.1f} "
+                    "play_ms={:.1f} chunk_fps={:.1f} queue_depth={} "
+                    "lag_ms={:.1f} {}",
                     result.chunk_index,
                     result.num_frames,
                     len(segments),
                     enqueued,
+                    delivery.backend,
                     gen_ms,
+                    sample_ms,
+                    runtime_call_ms,
                     enqueue_ms,
                     play_ms,
+                    chunk_fps,
                     video_track.qsize(),
                     lag_ms,
+                    extra_stats,
                 )
 
                 channel = managed_session.control_channel
@@ -753,11 +875,22 @@ class BaseWebRTCSessionManager:
                         },
                         "model": self._model_name(),
                         "gen_ms": round(gen_ms, 1),
+                        "sample_ms": round(sample_ms, 1),
+                        "runtime_call_ms": round(runtime_call_ms, 1),
                         "enqueue_ms": round(enqueue_ms, 1),
+                        "delivery_ms": round(enqueue_ms, 1),
+                        "delivery_encode_ms": round(delivery.encode_ms, 1),
+                        "encoder_backend": delivery.backend,
+                        "keyframes": delivery.num_keyframes,
+                        "chunk_total_ms": round(chunk_total_ms, 1),
+                        "chunk_fps": round(chunk_fps, 1),
                         "play_ms": round(play_ms, 1),
                         "queue_depth": video_track.qsize(),
                         "lag_ms": round(lag_ms, 1),
                     }
+                    if isinstance(track_dropped_packets, int):
+                        payload["track_dropped_packets"] = track_dropped_packets
+                    payload.update(runtime_stats)
                     payload.update(self._chunk_done_extra())
                     if control_latency_ms is not None:
                         payload["latency_ms"] = round(control_latency_ms, 1)

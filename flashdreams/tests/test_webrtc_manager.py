@@ -232,7 +232,10 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
                 chunk_index=0,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+                stats={
+                    "runtime_input_ms": 1.25,
+                    "wrapper_generate_ms": 2.5,
+                },
             )
 
     class _ExtraManager(_BaseTestManager):
@@ -259,6 +262,12 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
     assert payload["model"] == "fake-model"
     assert payload["stream"] == "rgb"
     assert payload["resolution"] == {"width": 8, "height": 4}
+    assert payload["encoder_backend"] == "fake"
+    assert payload["delivery_encode_ms"] == 0.0
+    assert payload["runtime_input_ms"] == 1.2
+    assert payload["wrapper_generate_ms"] == 2.5
+    assert payload["chunk_total_ms"] >= 0.0
+    assert payload["chunk_fps"] >= 0.0
 
 
 @pytest.mark.asyncio

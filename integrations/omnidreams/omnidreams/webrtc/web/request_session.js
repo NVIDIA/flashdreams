@@ -8,11 +8,16 @@ const eventLog = document.getElementById("eventLog")
 const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const idleCanvas = document.getElementById("idleCanvas")
-const fpsValue = document.getElementById("fpsValue")
+const browserFpsValue = document.getElementById("browserFpsValue")
+const presentedFpsValue = document.getElementById("presentedFpsValue")
+const serverFpsValue = document.getElementById("serverFpsValue")
+const dropValue = document.getElementById("dropValue")
+const jitterValue = document.getElementById("jitterValue")
+const decodeValue = document.getElementById("decodeValue")
+const bitrateValue = document.getElementById("bitrateValue")
 const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
 const stepValue = document.getElementById("stepValue")
-const modelValue = document.getElementById("modelValue")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -25,26 +30,59 @@ const keyAliases = new Map([
 const keySources = new Map()
 const heldKeyOrder = new Map()
 const activeKeys = new Set()
-const frameTimes = []
+const videoFrameCallbackTimes = []
+const presentedFrameSamples = []
 const pendingActions = []
 const maxPendingActions = 32
 const heartbeatIntervalMs = 2000
+const browserProfileLogIntervalMs = 5000
+const metricsRenderIntervalMs = 500
 
 let peerConnection = null
 let controlChannel = null
 let statsTimer = null
 let videoMetricsTimer = null
 let heartbeatTimer = null
+let metricsRenderTimer = null
+let idleAnimationFrame = null
+let previousInboundVideoStats = null
+let previousBrowserProfileLogAt = 0
+let previousMetricsRenderAt = 0
 let inferenceInFlight = false
 let connected = false
 let disconnecting = false
 let heldKeySequence = 0
 
 const metrics = {
-  fps: null,
+  browserFps: null,
+  browserRtpFps: null,
+  receivedFps: null,
+  decodedFps: null,
+  presentedFps: null,
+  videoCallbackFps: null,
+  serverFps: null,
   targetFps: null,
   latencyMs: null,
   rttMs: null,
+  droppedFrames: null,
+  droppedFps: null,
+  dropPercent: null,
+  jitterMs: null,
+  jitterBufferMs: null,
+  decodeMs: null,
+  processingMs: null,
+  bitrateMbps: null,
+  packetsLost: null,
+  packetsLostPerSec: null,
+  freezeCount: null,
+  nackCount: null,
+  decoder: null,
+  presentationDelayMs: null,
+  serverQueueDepth: null,
+  serverLagMs: null,
+  serverDeliveryMs: null,
+  serverEncodeMs: null,
+  serverTrackDroppedPackets: null,
   resolution: null,
   step: null,
   model: "Omnidreams",
@@ -61,12 +99,24 @@ function formatTime() {
 
 function firstFinite(...values) {
   for (const value of values) {
+    if (value === null || value === undefined || value === "") {
+      continue
+    }
     const number = Number(value)
     if (Number.isFinite(number)) {
       return number
     }
   }
   return null
+}
+
+function toFiniteNumber(value) {
+  return firstFinite(value)
+}
+
+function formatFps(value) {
+  const number = toFiniteNumber(value)
+  return number === null ? "--" : number.toFixed(1)
 }
 
 function formatMs(value) {
@@ -79,12 +129,49 @@ function formatMs(value) {
   return `${Math.round(value)} ms`
 }
 
-function logEvent(message, { source = "server", level = "info" } = {}) {
-  const consoleMessage = `[Omnidreams WebRTC][${source}] ${message}`
-  if (level === "error") {
-    console.error(consoleMessage)
-  } else {
-    console.info(consoleMessage)
+function formatMbps(value) {
+  const number = toFiniteNumber(value)
+  if (number === null) {
+    return "--"
+  }
+  if (number >= 10) {
+    return `${number.toFixed(1)} Mb/s`
+  }
+  return `${number.toFixed(2)} Mb/s`
+}
+
+function formatDropValue() {
+  const total = toFiniteNumber(metrics.droppedFrames)
+  if (total === null) {
+    return "--"
+  }
+  const droppedFps = toFiniteNumber(metrics.droppedFps)
+  if (droppedFps !== null && droppedFps > 0.05) {
+    return `${Math.round(total)} (${droppedFps.toFixed(1)}/s)`
+  }
+  return String(Math.round(total))
+}
+
+function setTextIfChanged(element, text) {
+  if (element.textContent !== text) {
+    element.textContent = text
+  }
+}
+
+function logEvent(
+  message,
+  { source = "server", level = "info", dom = true, consoleOutput = true } = {}
+) {
+  if (consoleOutput) {
+    const consoleMessage = `[Omnidreams WebRTC][${source}] ${message}`
+    if (level === "error") {
+      console.error(consoleMessage)
+    } else {
+      console.info(consoleMessage)
+    }
+  }
+  if (!dom) {
+    return
   }
 
   const entry = document.createElement("div")
@@ -106,27 +193,65 @@ function logEvent(message, { source = "server", level = "info" } = {}) {
 }
 
 function setStatus(message, state = message.toLowerCase()) {
-  statusText.textContent = message
-  document.body.dataset.status = state
-  logState.textContent = state === "idle" ? "Waiting" : message
+  setTextIfChanged(statusText, message)
+  if (document.body.dataset.status !== state) {
+    document.body.dataset.status = state
+  }
+  setTextIfChanged(logState, state === "idle" ? "Waiting" : message)
 }
 
 function setFlow(message) {
-  flowText.textContent = message
+  setTextIfChanged(flowText, message)
 }
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+  if (visible) {
+    stopIdleAnimation()
+  } else {
+    startIdleAnimation()
+  }
 }
 
-function renderMetrics() {
-  const fps = firstFinite(metrics.fps, metrics.targetFps)
+function renderMetrics({ force = false } = {}) {
+  const now = performance.now()
+  if (!force && previousMetricsRenderAt > 0) {
+    const elapsed = now - previousMetricsRenderAt
+    if (elapsed < metricsRenderIntervalMs) {
+      if (metricsRenderTimer === null) {
+        metricsRenderTimer = window.setTimeout(() => {
+          metricsRenderTimer = null
+          renderMetrics({ force: true })
+        }, metricsRenderIntervalMs - elapsed)
+      }
+      return
+    }
+  }
+
+  previousMetricsRenderAt = now
+  const browserFps = firstFinite(
+    metrics.browserRtpFps,
+    metrics.decodedFps,
+    metrics.receivedFps,
+    metrics.presentedFps
+  )
+  const presentedFps = firstFinite(metrics.presentedFps)
+  const serverFps = firstFinite(metrics.serverFps, metrics.targetFps)
   const latency = firstFinite(metrics.latencyMs, metrics.rttMs)
-  fpsValue.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : "--"
-  latencyValue.textContent = formatMs(latency)
-  resolutionValue.textContent = metrics.resolution || "--"
-  stepValue.textContent = metrics.step === null ? "--" : String(metrics.step)
-  modelValue.textContent = metrics.model || "Omnidreams"
+  metrics.browserFps = browserFps
+  setTextIfChanged(browserFpsValue, formatFps(browserFps))
+  setTextIfChanged(presentedFpsValue, formatFps(presentedFps))
+  setTextIfChanged(serverFpsValue, formatFps(serverFps))
+  setTextIfChanged(dropValue, formatDropValue())
+  setTextIfChanged(
+    jitterValue,
+    formatMs(firstFinite(metrics.jitterBufferMs, metrics.jitterMs))
+  )
+  setTextIfChanged(decodeValue, formatMs(firstFinite(metrics.decodeMs, metrics.processingMs)))
+  setTextIfChanged(bitrateValue, formatMbps(metrics.bitrateMbps))
+  setTextIfChanged(latencyValue, formatMs(latency))
+  setTextIfChanged(resolutionValue, metrics.resolution || "--")
+  setTextIfChanged(stepValue, metrics.step === null ? "--" : String(metrics.step))
 }
 
 function recordActionSent(action) {
@@ -151,6 +276,15 @@ function takeObservedActionLatency(now = performance.now()) {
 function updateMetricsFromChunk(payload) {
   const observedLatencyMs = takeObservedActionLatency()
   metrics.targetFps = firstFinite(payload.fps, payload.target_fps, metrics.targetFps)
+  metrics.serverFps = firstFinite(payload.chunk_fps, metrics.serverFps)
+  metrics.serverQueueDepth = firstFinite(payload.queue_depth, metrics.serverQueueDepth)
+  metrics.serverLagMs = firstFinite(payload.lag_ms, metrics.serverLagMs)
+  metrics.serverDeliveryMs = firstFinite(payload.delivery_ms, payload.enqueue_ms, metrics.serverDeliveryMs)
+  metrics.serverEncodeMs = firstFinite(payload.delivery_encode_ms, metrics.serverEncodeMs)
+  metrics.serverTrackDroppedPackets = firstFinite(
+    payload.track_dropped_packets,
+    metrics.serverTrackDroppedPackets
+  )
   metrics.latencyMs = firstFinite(
     payload.latency_ms,
     payload.control_latency_ms,
@@ -178,8 +312,11 @@ function updateMetricsFromChunk(payload) {
 
 function updateMetricsFromVideo() {
   if (remoteVideo.videoWidth > 0 && remoteVideo.videoHeight > 0) {
-    metrics.resolution = `${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`
-    renderMetrics()
+    const resolution = `${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`
+    if (metrics.resolution !== resolution) {
+      metrics.resolution = resolution
+      renderMetrics({ force: true })
+    }
   }
 }
 
@@ -226,6 +363,11 @@ function drawRouteRibbon(ctx, width, height, t) {
 }
 
 function drawIdleScene(now) {
+  idleAnimationFrame = null
+  if (document.body.classList.contains("has-video")) {
+    return
+  }
+
   const ctx = idleCanvas.getContext("2d")
   if (!ctx) {
     return
@@ -319,23 +461,78 @@ function drawIdleScene(now) {
   ctx.fillStyle = `rgba(255, 255, 255, ${0.06 + Math.sin(t * 1.4) * 0.018})`
   ctx.fillRect(0, 0, width, height)
 
-  if (!document.body.classList.contains("has-video")) {
-    recordFrame(now)
-  }
-  window.requestAnimationFrame(drawIdleScene)
+  idleAnimationFrame = window.requestAnimationFrame(drawIdleScene)
 }
 
-function recordFrame(timestamp) {
+function startIdleAnimation() {
+  if (
+    idleAnimationFrame !== null ||
+    document.body.classList.contains("has-video")
+  ) {
+    return
+  }
+  idleAnimationFrame = window.requestAnimationFrame(drawIdleScene)
+}
+
+function stopIdleAnimation() {
+  if (idleAnimationFrame !== null) {
+    window.cancelAnimationFrame(idleAnimationFrame)
+    idleAnimationFrame = null
+  }
+}
+
+function recordPresentedFrame(timestamp, metadata = {}) {
   const now = Number.isFinite(timestamp) ? timestamp : performance.now()
-  frameTimes.push(now)
-  while (frameTimes.length > 0 && now - frameTimes[0] > 1200) {
-    frameTimes.shift()
+  videoFrameCallbackTimes.push(now)
+  while (
+    videoFrameCallbackTimes.length > 0 &&
+    now - videoFrameCallbackTimes[0] > 1200
+  ) {
+    videoFrameCallbackTimes.shift()
   }
-  if (frameTimes.length >= 2) {
-    const elapsed = frameTimes[frameTimes.length - 1] - frameTimes[0]
-    metrics.fps = elapsed > 0 ? ((frameTimes.length - 1) * 1000) / elapsed : metrics.fps
-    renderMetrics()
+  if (videoFrameCallbackTimes.length >= 2) {
+    const elapsed =
+      videoFrameCallbackTimes[videoFrameCallbackTimes.length - 1] -
+      videoFrameCallbackTimes[0]
+    metrics.videoCallbackFps =
+      elapsed > 0
+        ? ((videoFrameCallbackTimes.length - 1) * 1000) / elapsed
+        : metrics.videoCallbackFps
   }
+
+  const presentedFrames = toFiniteNumber(metadata.presentedFrames)
+  if (presentedFrames !== null) {
+    presentedFrameSamples.push({ count: presentedFrames, timestamp: now })
+    while (
+      presentedFrameSamples.length > 0 &&
+      now - presentedFrameSamples[0].timestamp > 1200
+    ) {
+      presentedFrameSamples.shift()
+    }
+    if (presentedFrameSamples.length >= 2) {
+      const firstSample = presentedFrameSamples[0]
+      const lastSample = presentedFrameSamples[presentedFrameSamples.length - 1]
+      const elapsed = lastSample.timestamp - firstSample.timestamp
+      const frameDelta = lastSample.count - firstSample.count
+      if (elapsed > 0 && frameDelta >= 0) {
+        metrics.presentedFps = (frameDelta * 1000) / elapsed
+      }
+    }
+  } else {
+    metrics.presentedFps = metrics.videoCallbackFps
+  }
+
+  const presentationTime = toFiniteNumber(metadata.presentationTime)
+  if (presentationTime !== null) {
+    metrics.presentationDelayMs = Math.max(0, now - presentationTime)
+  }
+
+  const processingDuration = toFiniteNumber(metadata.processingDuration)
+  if (processingDuration !== null) {
+    metrics.processingMs = processingDuration * 1000
+  }
+
+  renderMetrics()
 }
 
 function updateControlHighlights() {
@@ -356,7 +553,7 @@ function actionLabel(action) {
   return `${action.event}${action.key ? `:${action.key}` : ""}`
 }
 
-function sendControlAction(action) {
+function sendControlAction(action, { log = true } = {}) {
   if (!connected || !controlChannel || controlChannel.readyState !== "open") {
     return false
   }
@@ -371,12 +568,17 @@ function sendControlAction(action) {
   recordActionSent(action)
   setStatus("Generating", "generating")
   setFlow(`sent ${actionLabel(action)}, waiting=${inferenceInFlight}`)
-  logEvent(`control ${actionLabel(action)}`, { source: "client" })
+  if (log) {
+    logEvent(`control ${actionLabel(action)}`, {
+      source: "client",
+      dom: !document.body.classList.contains("has-video"),
+    })
+  }
   return true
 }
 
-function enqueueAction(action) {
-  const sent = sendControlAction(action)
+function enqueueAction(action, options = {}) {
+  const sent = sendControlAction(action, options)
   if (!sent) {
     setFlow(connected ? `not_sent ${actionLabel(action)}` : "connect session first")
   }
@@ -387,7 +589,7 @@ function enqueueHeldKeyRepeats() {
     return (heldKeyOrder.get(a) || 0) - (heldKeyOrder.get(b) || 0)
   })
   for (const key of heldKeys) {
-    enqueueAction({ event: "keydown", key })
+    enqueueAction({ event: "keydown", key }, { log: false })
   }
 }
 
@@ -448,17 +650,49 @@ function handleControlMessage(rawMessage) {
     inferenceInFlight = false
     updateMetricsFromChunk(payload)
     const genMs = firstFinite(payload.gen_ms)
+    const runtimeCallMs = firstFinite(payload.runtime_call_ms)
+    const renderMs = firstFinite(payload.wrapper_render_ms)
+    const modelMs = firstFinite(payload.wrapper_generate_ms)
+    const syncMs = firstFinite(payload.runtime_sync_ms)
+    const deliveryMs = firstFinite(payload.delivery_ms, payload.enqueue_ms)
+    const encodeMs = firstFinite(payload.delivery_encode_ms)
+    const chunkFps = firstFinite(payload.chunk_fps)
     const lagMs = firstFinite(payload.lag_ms)
     const queueDepth = firstFinite(payload.queue_depth)
+    const trackDroppedPackets = firstFinite(payload.track_dropped_packets)
     const parts = [
       `chunk_done index=${payload.chunk_index}`,
       `frames=${payload.num_frames}`,
     ]
+    if (typeof payload.encoder_backend === "string" && payload.encoder_backend) {
+      parts.push(`encoder=${payload.encoder_backend}`)
+    }
     if (Number.isFinite(Number(payload.enqueued_frames))) {
       parts.push(`enqueued=${payload.enqueued_frames}`)
     }
+    if (chunkFps !== null) {
+      parts.push(`chunk_fps=${Math.round(chunkFps)}`)
+    }
     if (genMs !== null) {
       parts.push(`gen=${Math.round(genMs)}ms`)
+    }
+    if (runtimeCallMs !== null) {
+      parts.push(`runtime=${Math.round(runtimeCallMs)}ms`)
+    }
+    if (renderMs !== null) {
+      parts.push(`render=${Math.round(renderMs)}ms`)
+    }
+    if (modelMs !== null) {
+      parts.push(`model=${Math.round(modelMs)}ms`)
+    }
+    if (syncMs !== null) {
+      parts.push(`sync=${Math.round(syncMs)}ms`)
+    }
+    if (deliveryMs !== null) {
+      parts.push(`delivery=${Math.round(deliveryMs)}ms`)
+    }
+    if (encodeMs !== null) {
+      parts.push(`encode=${Math.round(encodeMs)}ms`)
     }
     if (lagMs !== null) {
       parts.push(`lag=${Math.round(lagMs)}ms`)
@@ -469,9 +703,26 @@ function handleControlMessage(rawMessage) {
     if (queueDepth !== null) {
       parts.push(`queue=${queueDepth}`)
     }
-    logEvent(parts.join(", "))
+    if (trackDroppedPackets !== null && trackDroppedPackets > 0) {
+      parts.push(`track_dropped=${trackDroppedPackets}`)
+    }
+    const chunkIndex = Number(payload.chunk_index)
+    const hasVideo = document.body.classList.contains("has-video")
+    const importantChunk =
+      !Number.isFinite(chunkIndex) ||
+      chunkIndex <= 2 ||
+      chunkIndex % 10 === 0 ||
+      (trackDroppedPackets !== null && trackDroppedPackets > 0)
+    const showInPanel = !hasVideo && importantChunk
+    const showInConsole = importantChunk
+    logEvent(parts.join(", "), {
+      dom: showInPanel,
+      consoleOutput: showInConsole,
+    })
     setStatus(activeKeys.size > 0 ? "Generating" : "Waiting", activeKeys.size > 0 ? "generating" : "waiting")
-    setFlow(`chunk ${payload.chunk_index} complete`)
+    if (showInPanel || !hasVideo) {
+      setFlow(`chunk ${payload.chunk_index} complete`)
+    }
     if (activeKeys.size > 0) {
       enqueueHeldKeyRepeats()
     }
@@ -515,6 +766,273 @@ async function waitForIceGatheringComplete(pc) {
   })
 }
 
+function setLowLatencyReceiverHint(receiver) {
+  if (!receiver || !("playoutDelayHint" in receiver)) {
+    return
+  }
+  try {
+    receiver.playoutDelayHint = 0
+  } catch (error) {
+    logEvent(`could not set low-latency playout hint: ${error.message}`, {
+      source: "client",
+    })
+  }
+}
+
+function applyLowLatencyReceiverHints(pc) {
+  for (const receiver of pc.getReceivers()) {
+    if (receiver.track && receiver.track.kind === "video") {
+      setLowLatencyReceiverHint(receiver)
+    }
+  }
+}
+
+function preferH264VideoCodec(transceiver) {
+  if (
+    !transceiver ||
+    typeof transceiver.setCodecPreferences !== "function" ||
+    !window.RTCRtpReceiver ||
+    typeof RTCRtpReceiver.getCapabilities !== "function"
+  ) {
+    return
+  }
+  const capabilities = RTCRtpReceiver.getCapabilities("video")
+  const codecs = capabilities && Array.isArray(capabilities.codecs)
+    ? capabilities.codecs
+    : []
+  const h264Codecs = codecs.filter((codec) => {
+    return String(codec.mimeType || "").toLowerCase() === "video/h264"
+  })
+  if (h264Codecs.length === 0) {
+    return
+  }
+  try {
+    transceiver.setCodecPreferences(h264Codecs)
+    logEvent("preferred H.264 receive codec for NVENC compatibility", {
+      source: "client",
+    })
+  } catch (error) {
+    logEvent(`could not prefer H.264 codec: ${error.message}`, {
+      source: "client",
+    })
+  }
+}
+
+function snapshotInboundVideoStats(report) {
+  const timestamp = toFiniteNumber(report.timestamp)
+  return {
+    timestamp: timestamp === null ? performance.now() : timestamp,
+    framesPerSecond: toFiniteNumber(report.framesPerSecond),
+    framesReceived: toFiniteNumber(report.framesReceived),
+    framesDecoded: toFiniteNumber(report.framesDecoded),
+    framesDropped: toFiniteNumber(report.framesDropped),
+    jitter: toFiniteNumber(report.jitter),
+    jitterBufferDelay: toFiniteNumber(report.jitterBufferDelay),
+    jitterBufferEmittedCount: toFiniteNumber(report.jitterBufferEmittedCount),
+    totalDecodeTime: toFiniteNumber(report.totalDecodeTime),
+    totalProcessingDelay: toFiniteNumber(report.totalProcessingDelay),
+    bytesReceived: toFiniteNumber(report.bytesReceived),
+    packetsLost: toFiniteNumber(report.packetsLost),
+    nackCount: toFiniteNumber(report.nackCount),
+    freezeCount: toFiniteNumber(report.freezeCount),
+    decoderImplementation:
+      typeof report.decoderImplementation === "string" ? report.decoderImplementation : null,
+  }
+}
+
+function deltaValue(current, previous, key) {
+  if (!previous) {
+    return null
+  }
+  const currentValue = toFiniteNumber(current[key])
+  const previousValue = toFiniteNumber(previous[key])
+  if (currentValue === null || previousValue === null) {
+    return null
+  }
+  const delta = currentValue - previousValue
+  return delta >= 0 ? delta : null
+}
+
+function deltaRate(current, previous, key, elapsedSeconds) {
+  const delta = deltaValue(current, previous, key)
+  if (delta === null || elapsedSeconds <= 0) {
+    return null
+  }
+  return delta / elapsedSeconds
+}
+
+function deltaAverageMs(current, previous, totalKey, countKey) {
+  const totalDelta = deltaValue(current, previous, totalKey)
+  const countDelta = deltaValue(current, previous, countKey)
+  if (totalDelta === null || countDelta === null || countDelta <= 0) {
+    return null
+  }
+  return (totalDelta * 1000) / countDelta
+}
+
+function updateInboundVideoMetrics(report) {
+  const current = snapshotInboundVideoStats(report)
+  const previous = previousInboundVideoStats
+  const elapsedMs = previous ? current.timestamp - previous.timestamp : null
+  const elapsedSeconds = elapsedMs !== null && elapsedMs > 0 ? elapsedMs / 1000 : null
+
+  metrics.browserRtpFps = firstFinite(current.framesPerSecond, metrics.browserRtpFps)
+  metrics.jitterMs = current.jitter === null ? metrics.jitterMs : current.jitter * 1000
+  metrics.droppedFrames = firstFinite(current.framesDropped, metrics.droppedFrames)
+  metrics.packetsLost = firstFinite(current.packetsLost, metrics.packetsLost)
+  metrics.freezeCount = firstFinite(current.freezeCount, metrics.freezeCount)
+  metrics.nackCount = firstFinite(current.nackCount, metrics.nackCount)
+  metrics.decoder = current.decoderImplementation || metrics.decoder
+
+  if (elapsedSeconds !== null) {
+    const receivedFps = deltaRate(current, previous, "framesReceived", elapsedSeconds)
+    const decodedFps = deltaRate(current, previous, "framesDecoded", elapsedSeconds)
+    const droppedFps = deltaRate(current, previous, "framesDropped", elapsedSeconds)
+    const bytesPerSecond = deltaRate(current, previous, "bytesReceived", elapsedSeconds)
+    const packetsLostPerSecond = deltaRate(current, previous, "packetsLost", elapsedSeconds)
+    const jitterBufferMs = deltaAverageMs(
+      current,
+      previous,
+      "jitterBufferDelay",
+      "jitterBufferEmittedCount"
+    )
+    const decodeMs = deltaAverageMs(current, previous, "totalDecodeTime", "framesDecoded")
+    const processingMs = deltaAverageMs(
+      current,
+      previous,
+      "totalProcessingDelay",
+      "framesDecoded"
+    )
+
+    metrics.receivedFps = firstFinite(receivedFps, metrics.receivedFps)
+    metrics.decodedFps = firstFinite(decodedFps, metrics.decodedFps)
+    metrics.droppedFps = firstFinite(droppedFps, metrics.droppedFps)
+    metrics.packetsLostPerSec = firstFinite(packetsLostPerSecond, metrics.packetsLostPerSec)
+    metrics.jitterBufferMs = firstFinite(jitterBufferMs, metrics.jitterBufferMs)
+    metrics.decodeMs = firstFinite(decodeMs, metrics.decodeMs)
+    metrics.processingMs = firstFinite(processingMs, metrics.processingMs)
+    if (bytesPerSecond !== null) {
+      metrics.bitrateMbps = (bytesPerSecond * 8) / 1_000_000
+    }
+
+    const dropped = deltaValue(current, previous, "framesDropped")
+    const decoded = deltaValue(current, previous, "framesDecoded")
+    if (dropped !== null && decoded !== null && dropped + decoded > 0) {
+      metrics.dropPercent = (dropped * 100) / (dropped + decoded)
+    }
+  }
+
+  previousInboundVideoStats = current
+  renderMetrics()
+}
+
+function diagnoseBrowserProfile() {
+  const serverFps = firstFinite(metrics.serverFps, metrics.targetFps)
+  const mediaFps = firstFinite(
+    metrics.browserFps,
+    metrics.browserRtpFps,
+    metrics.decodedFps,
+    metrics.receivedFps
+  )
+  const presentedFps = firstFinite(metrics.presentedFps)
+  if (serverFps === null || mediaFps === null) {
+    return "collecting"
+  }
+  const frameBudgetMs = 1000 / Math.max(firstFinite(metrics.targetFps, 30), 1)
+  if (firstFinite(metrics.droppedFps, 0) > 1 || firstFinite(metrics.dropPercent, 0) > 5) {
+    return "browser_dropping_frames"
+  }
+  if (
+    firstFinite(metrics.jitterBufferMs, 0) > frameBudgetMs * 2 ||
+    firstFinite(metrics.jitterMs, 0) > 20
+  ) {
+    return "network_or_jitter_buffer"
+  }
+  if (firstFinite(metrics.decodeMs, 0) > frameBudgetMs) {
+    return "decode_bound"
+  }
+  if (presentedFps !== null && mediaFps - presentedFps > 3) {
+    return "presentation_throttled"
+  }
+  if (serverFps - mediaFps <= 3) {
+    return "server_browser_matched"
+  }
+  if (
+    metrics.receivedFps !== null &&
+    metrics.decodedFps !== null &&
+    metrics.receivedFps - metrics.decodedFps > 3
+  ) {
+    return "decode_backlog"
+  }
+  if (
+    firstFinite(metrics.serverQueueDepth, 0) > 2 ||
+    firstFinite(metrics.serverLagMs, 0) > frameBudgetMs * 2
+  ) {
+    return "server_queue_lag"
+  }
+  return "receiver_or_display_pacing"
+}
+
+function maybeLogBrowserProfile(now = performance.now()) {
+  if (!connected || now - previousBrowserProfileLogAt < browserProfileLogIntervalMs) {
+    return
+  }
+  previousBrowserProfileLogAt = now
+
+  const browserFps = firstFinite(metrics.browserFps, metrics.browserRtpFps)
+  const serverFps = firstFinite(metrics.serverFps, metrics.targetFps)
+  const parts = [`diagnosis=${diagnoseBrowserProfile()}`]
+  if (browserFps !== null) {
+    parts.push(`browser_fps=${browserFps.toFixed(1)}`)
+  }
+  if (serverFps !== null) {
+    parts.push(`server_fps=${serverFps.toFixed(1)}`)
+  }
+  if (metrics.receivedFps !== null) {
+    parts.push(`recv_fps=${metrics.receivedFps.toFixed(1)}`)
+  }
+  if (metrics.decodedFps !== null) {
+    parts.push(`decoded_fps=${metrics.decodedFps.toFixed(1)}`)
+  }
+  if (metrics.presentedFps !== null) {
+    parts.push(`presented_fps=${metrics.presentedFps.toFixed(1)}`)
+  }
+  if (metrics.videoCallbackFps !== null) {
+    parts.push(`callback_fps=${metrics.videoCallbackFps.toFixed(1)}`)
+  }
+  if (metrics.droppedFps !== null) {
+    parts.push(`dropped_fps=${metrics.droppedFps.toFixed(1)}`)
+  }
+  if (metrics.jitterBufferMs !== null) {
+    parts.push(`jitter_buffer=${Math.round(metrics.jitterBufferMs)}ms`)
+  }
+  if (metrics.decodeMs !== null) {
+    parts.push(`decode=${metrics.decodeMs.toFixed(1)}ms`)
+  }
+  if (metrics.bitrateMbps !== null) {
+    parts.push(`bitrate=${metrics.bitrateMbps.toFixed(2)}Mb/s`)
+  }
+  if (metrics.serverQueueDepth !== null) {
+    parts.push(`server_queue=${metrics.serverQueueDepth}`)
+  }
+  if (metrics.serverLagMs !== null) {
+    parts.push(`server_lag=${Math.round(metrics.serverLagMs)}ms`)
+  }
+  if (
+    metrics.serverTrackDroppedPackets !== null &&
+    metrics.serverTrackDroppedPackets > 0
+  ) {
+    parts.push(`server_track_dropped=${metrics.serverTrackDroppedPackets}`)
+  }
+  if (metrics.decoder) {
+    parts.push(`decoder=${metrics.decoder}`)
+  }
+  logEvent(`browser_profile ${parts.join(", ")}`, {
+    source: "client",
+    dom: !document.body.classList.contains("has-video"),
+  })
+}
+
 async function pollWebRtcStats() {
   if (!peerConnection) {
     return
@@ -531,13 +1049,13 @@ async function pollWebRtcStats() {
       }
       if (
         report.type === "inbound-rtp" &&
-        (report.kind === "video" || report.mediaType === "video") &&
-        Number.isFinite(report.framesPerSecond)
+        (report.kind === "video" || report.mediaType === "video")
       ) {
-        metrics.fps = report.framesPerSecond
+        updateInboundVideoMetrics(report)
       }
     }
     renderMetrics()
+    maybeLogBrowserProfile()
   } catch (error) {
     logEvent(`stats unavailable: ${error.message}`, { source: "client" })
   }
@@ -557,6 +1075,52 @@ function stopStatsPolling() {
     window.clearInterval(statsTimer)
     statsTimer = null
   }
+}
+
+function resetBrowserProfileMetrics() {
+  videoFrameCallbackTimes.length = 0
+  presentedFrameSamples.length = 0
+  previousInboundVideoStats = null
+  previousBrowserProfileLogAt = 0
+  previousMetricsRenderAt = 0
+  if (metricsRenderTimer !== null) {
+    window.clearTimeout(metricsRenderTimer)
+    metricsRenderTimer = null
+  }
+  Object.assign(metrics, {
+    browserFps: null,
+    browserRtpFps: null,
+    receivedFps: null,
+    decodedFps: null,
+    presentedFps: null,
+    videoCallbackFps: null,
+    serverFps: null,
+    targetFps: null,
+    latencyMs: null,
+    rttMs: null,
+    droppedFrames: null,
+    droppedFps: null,
+    dropPercent: null,
+    jitterMs: null,
+    jitterBufferMs: null,
+    decodeMs: null,
+    processingMs: null,
+    bitrateMbps: null,
+    packetsLost: null,
+    packetsLostPerSec: null,
+    freezeCount: null,
+    nackCount: null,
+    decoder: null,
+    presentationDelayMs: null,
+    serverQueueDepth: null,
+    serverLagMs: null,
+    serverDeliveryMs: null,
+    serverEncodeMs: null,
+    serverTrackDroppedPackets: null,
+    resolution: null,
+    step: null,
+  })
+  renderMetrics({ force: true })
 }
 
 function resetPeerHandles(pc = peerConnection, channel = controlChannel) {
@@ -665,6 +1229,7 @@ async function connectSession() {
   setStatus("Connecting", "connecting")
   setFlow("creating peer connection")
   logEvent("connecting to server...", { source: "client" })
+  resetBrowserProfileMetrics()
   disconnecting = false
 
   try {
@@ -672,7 +1237,9 @@ async function connectSession() {
     const channel = pc.createDataChannel("controls")
     peerConnection = pc
     controlChannel = channel
-    pc.addTransceiver("video", { direction: "recvonly" })
+    const videoTransceiver = pc.addTransceiver("video", { direction: "recvonly" })
+    preferH264VideoCodec(videoTransceiver)
+    setLowLatencyReceiverHint(videoTransceiver.receiver)
 
     channel.onopen = () => {
       connected = true
@@ -705,6 +1272,8 @@ async function connectSession() {
         remoteVideo.srcObject = stream
         updateMetricsFromVideo()
       }
+      setLowLatencyReceiverHint(event.receiver)
+      applyLowLatencyReceiverHints(pc)
       setFlow("video track attached")
       logEvent("video track attached", { source: "client" })
     }
@@ -716,6 +1285,7 @@ async function connectSession() {
         connected = true
         setStatus("Waiting", "waiting")
         setFlow("connected; waiting for input")
+        applyLowLatencyReceiverHints(pc)
         startStatsPolling()
         return
       }
@@ -836,9 +1406,9 @@ function startVideoFrameMonitor() {
     }
     return
   }
-  const onFrame = (now) => {
+  const onFrame = (now, metadata) => {
     if (document.body.classList.contains("has-video")) {
-      recordFrame(now)
+      recordPresentedFrame(now, metadata)
       updateMetricsFromVideo()
     }
     remoteVideo.requestVideoFrameCallback(onFrame)
@@ -846,13 +1416,46 @@ function startVideoFrameMonitor() {
   remoteVideo.requestVideoFrameCallback(onFrame)
 }
 
+function getBrowserProfileSnapshot() {
+  return {
+    ...metrics,
+    connected,
+    inferenceInFlight,
+    activeKeys: Array.from(activeKeys),
+    diagnosis: diagnoseBrowserProfile(),
+  }
+}
+
+async function getPeerStatsSnapshot() {
+  if (!peerConnection) {
+    return []
+  }
+  const stats = await peerConnection.getStats()
+  return Array.from(stats.values()).map((report) => ({ ...report }))
+}
+
+function getRecentLogMessages(limit = 20) {
+  return Array.from(eventLog.querySelectorAll(".logEntry span"))
+    .slice(0, limit)
+    .map((entry) => entry.textContent)
+}
+
+function exposeBrowserProfile() {
+  window.omnidreamsWebRTCProfile = {
+    snapshot: getBrowserProfileSnapshot,
+    peerStats: getPeerStatsSnapshot,
+    logs: getRecentLogMessages,
+  }
+}
+
 function initialize() {
   document.body.dataset.status = "idle"
+  exposeBrowserProfile()
   logEvent("viewer ready", { source: "client" })
   setFlow("waiting")
   renderMetrics()
   attachPointerControls()
-  window.requestAnimationFrame(drawIdleScene)
+  startIdleAnimation()
   startVideoFrameMonitor()
 }
 

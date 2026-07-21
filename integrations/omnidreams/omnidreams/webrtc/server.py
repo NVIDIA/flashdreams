@@ -131,7 +131,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default="camera_front_wide_120fov",
     )
-    parser.add_argument(
+    encoder_group = parser.add_mutually_exclusive_group()
+    encoder_group.add_argument(
         "--prefer_sw_encoder",
         action="store_true",
         help=(
@@ -142,6 +143,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "the encoder is auto-selected at startup: NVENC when the "
             "driver reports support at the target resolution, aiortc's "
             "software encoder otherwise."
+        ),
+    )
+    encoder_group.add_argument(
+        "--require_nvenc",
+        action="store_true",
+        help=(
+            "Require the PyNvVideoCodec/NVENC H.264 path. Startup fails "
+            "instead of falling back to aiortc if the library, driver, "
+            "codec negotiation, or target resolution cannot use NVENC."
         ),
     )
     return parser.parse_args(argv)
@@ -238,7 +248,11 @@ def build_runtime_config(
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
         encoder_backend=(
-            "default" if getattr(args, "prefer_sw_encoder", False) else "auto"
+            "nvenc"
+            if getattr(args, "require_nvenc", False)
+            else "default"
+            if getattr(args, "prefer_sw_encoder", False)
+            else "auto"
         ),
     )
 

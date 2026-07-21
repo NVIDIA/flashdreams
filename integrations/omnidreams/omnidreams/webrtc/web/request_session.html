@@ -63,24 +63,44 @@ SPDX-License-Identifier: Apache-2.0
 
       <section class="metricsBar" aria-label="Session telemetry">
         <div class="metric">
-          <span>FPS</span>
-          <strong id="fpsValue">--</strong>
+          <span>Media FPS</span>
+          <strong id="browserFpsValue">--</strong>
         </div>
         <div class="metric">
+          <span>Presented</span>
+          <strong id="presentedFpsValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>Server FPS</span>
+          <strong id="serverFpsValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>Dropped</span>
+          <strong id="dropValue">--</strong>
+        </div>
+        <div class="metric metricDetail">
+          <span>Jitter</span>
+          <strong id="jitterValue">--</strong>
+        </div>
+        <div class="metric metricDetail">
+          <span>Decode</span>
+          <strong id="decodeValue">--</strong>
+        </div>
+        <div class="metric metricDetail">
+          <span>Bitrate</span>
+          <strong id="bitrateValue">--</strong>
+        </div>
+        <div class="metric metricLiveEnd">
           <span>Latency</span>
           <strong id="latencyValue">--</strong>
         </div>
-        <div class="metric">
+        <div class="metric metricDetail">
           <span>Resolution</span>
           <strong id="resolutionValue">--</strong>
         </div>
-        <div class="metric">
+        <div class="metric metricDetail">
           <span>Step</span>
           <strong id="stepValue">--</strong>
-        </div>
-        <div class="metric">
-          <span>World Model</span>
-          <strong id="modelValue">Omnidreams</strong>
         </div>
       </section>
     </section>

@@ -465,6 +465,7 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts: list[TextPrompt] | None = None
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
+        self._pending_finalization_state: dict | None = None
         self._next_timestamp_us: int = 0
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -831,6 +832,7 @@ class OmnidreamsInferenceRuntime:
         if self._initial_ego_pose is None or self._scene_data is None:
             raise OmnidreamsRuntimeError("Scene state is not initialized.")
 
+        self._finalize_pending_generation_sync()
         if self._state is not None and self._state.pipeline_cache is not None:
             del self._state.pipeline_cache
         self._state = None
@@ -845,6 +847,7 @@ class OmnidreamsInferenceRuntime:
         self._wrapper.set_rollout_seed(self.config.seed)
 
     def _close_sync(self) -> None:
+        self._finalize_pending_generation_sync()
         state = self._state
         wrapper = self._wrapper
         self._state = None
@@ -872,12 +875,32 @@ class OmnidreamsInferenceRuntime:
             torch.cuda.synchronize(device=self._device)
             torch.cuda.empty_cache()
 
+    def _finalize_pending_generation_sync(self) -> float:
+        finalization_state = self._pending_finalization_state
+        if finalization_state is None:
+            return 0.0
+        self._pending_finalization_state = None
+        if (
+            self._wrapper is None
+            or self._state is None
+            or self._state.pipeline_cache is None
+        ):
+            return 0.0
+
+        t_start = time.perf_counter()
+        self._wrapper.finalize_block_generation(
+            self._state.pipeline_cache,
+            finalization_state,
+        )
+        return (time.perf_counter() - t_start) * 1000.0
+
     def _generate_one_chunk_sync(
         self,
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> WebRTCStepResult:
+        t_start = time.perf_counter()
         if (
             self._wrapper is None
             or self._renderer is None
@@ -888,6 +911,9 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         if self._device is None:
             raise OmnidreamsRuntimeError("Runtime device is not initialized.")
+
+        prior_finalize_ms = self._finalize_pending_generation_sync()
+        t_after_prior_finalize = time.perf_counter()
 
         num_frames = self.peek_next_chunk_num_frames()
         if len(frame_times) != num_frames:
@@ -908,10 +934,12 @@ class OmnidreamsInferenceRuntime:
         )
         camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
         frame_timestamps_us = self._consume_timestamps(num_frames)
+        t_inputs_ready = time.perf_counter()
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
+        t_wrapper_start = time.perf_counter()
         if self._state is None:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
@@ -932,12 +960,8 @@ class OmnidreamsInferenceRuntime:
                 skip_video_generation=serve_hdmaps,
             )
             self._state = output.state
-
-        if self._state.pipeline_cache is not None:
-            self._wrapper.finalize_block_generation(
-                self._state.pipeline_cache,
-                output.finalization_state,
-            )
+        t_wrapper_done = time.perf_counter()
+        self._pending_finalization_state = output.finalization_state
 
         if serve_hdmaps:
             video_chunk = output.condition_frames
@@ -945,6 +969,7 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Omnidreams WebRTC received no RGB frames.")
         else:
             video_chunk = output.rgb_frames
+        t_video_selected = time.perf_counter()
 
         # Preserve the compute-stream sync barrier that the previous
         # ``.cpu()`` provided implicitly. The tensor stays on-device — the
@@ -952,14 +977,30 @@ class OmnidreamsInferenceRuntime:
         # software encoder path performs its own D2H copy inside
         # ``BufferedVideoTrack``'s worker thread. Either way, the model's
         # writes must be visible before those readers run.
+        t_sync_start = time.perf_counter()
         if self._device is not None and self._device.type == "cuda":
             torch.cuda.current_stream(self._device).synchronize()
+        t_synced = time.perf_counter()
+
+        stats: dict[str, float] = dict(getattr(output, "stats", None) or {})
+        stats.update(
+            {
+                "runtime_input_ms": (t_inputs_ready - t_after_prior_finalize)
+                * 1000.0,
+                "runtime_wrapper_ms": (t_wrapper_done - t_wrapper_start) * 1000.0,
+                "runtime_finalize_ms": prior_finalize_ms,
+                "runtime_prior_finalize_ms": prior_finalize_ms,
+                "runtime_select_ms": (t_video_selected - t_wrapper_done) * 1000.0,
+                "runtime_sync_ms": (t_synced - t_sync_start) * 1000.0,
+                "runtime_total_ms": (t_synced - t_start) * 1000.0,
+            }
+        )
 
         result = WebRTCStepResult(
             chunk_index=self.autoregressive_index,
             num_frames=int(video_chunk.shape[2]),
             video_chunk=video_chunk.detach(),
-            stats=None,
+            stats=stats,
         )
         self.autoregressive_index += 1
         return result
