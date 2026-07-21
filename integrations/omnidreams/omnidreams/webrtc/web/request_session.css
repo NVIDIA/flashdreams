@@ -34,6 +34,10 @@ body {
   color: var(--text);
 }
 
+body.has-video {
+  overflow: hidden;
+}
+
 button {
   font: inherit;
 }
@@ -85,16 +89,23 @@ select {
   object-fit: cover;
   opacity: 0;
   background: #050607;
+  transform: translateZ(0);
   transition: opacity 220ms ease;
+  will-change: opacity;
 }
 
 body.has-video .stageVideo {
   opacity: 1;
 }
 
+body.has-video .stage {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
 body.has-video .idleCanvas,
 body.has-video .stageBackdrop {
-  opacity: 0;
+  display: none;
 }
 
 .stageVignette {
@@ -122,6 +133,7 @@ body.has-video .stageBackdrop {
   background: var(--panel-bg);
   box-shadow: var(--panel-shadow);
   backdrop-filter: blur(18px) saturate(1.15);
+  contain: layout paint;
 }
 
 .brandOverlay {
@@ -416,31 +428,135 @@ body[data-status="generating"] .connectButton {
   left: 50%;
   bottom: clamp(20px, 4vh, 40px);
   display: grid;
-  grid-template-columns:
-    minmax(max-content, 0.7fr)
-    minmax(max-content, 1fr)
-    minmax(max-content, 1.15fr)
-    minmax(max-content, 0.7fr)
-    minmax(max-content, 1.45fr);
-  width: min(960px, calc(100vw - 36px));
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  width: min(1180px, calc(100vw - 36px));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   background: rgba(18, 20, 22, 0.74);
   box-shadow: 0 12px 38px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(16px) saturate(1.12);
+  contain: layout paint;
   transform: translateX(-50%);
+}
+
+body.has-video .overlayPanel,
+body.has-video .metricsBar {
+  background: rgba(5, 6, 7, 0.82);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+body.has-video .brandOverlay,
+body.has-video .logCard {
+  display: none;
+}
+
+body.has-video .statusCard {
+  top: 14px;
+  right: 14px;
+  width: auto;
+  min-width: 0;
+  padding: 7px 10px;
+  gap: 0;
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+body.has-video .statusCard .panelLabel,
+body.has-video .statusCard .flowLine {
+  display: none;
+}
+
+body.has-video .statusLine {
+  min-height: 20px;
+  gap: 7px;
+  font-size: 0.82rem;
+}
+
+body.has-video .statusDot {
+  width: 7px;
+  height: 7px;
+  box-shadow: none;
+}
+
+body.has-video .controlCard {
+  left: 14px;
+  bottom: 70px;
+  width: auto;
+  padding: 8px;
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+body.has-video .controlCard h2,
+body.has-video .controlRow > span {
+  display: none;
+}
+
+body.has-video .controlRow {
+  grid-template-columns: auto;
+  gap: 0;
+  min-height: 0;
+}
+
+body.has-video .keyCluster {
+  grid-auto-columns: 32px;
+  gap: 6px;
+}
+
+body.has-video .controlKey {
+  width: 32px;
+  height: 32px;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(5, 6, 7, 0.82);
+  box-shadow: none;
+  font-size: 0.78rem;
+}
+
+body.has-video .controlKey.is-active {
+  border-color: rgba(142, 240, 28, 0.68);
+  background: rgba(85, 156, 18, 0.42);
+  box-shadow: none;
+}
+
+body.has-video .metricsBar {
+  bottom: 14px;
+  width: min(560px, calc(100vw - 28px));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+body.has-video .metricDetail {
+  display: none;
+}
+
+body.has-video .metric {
+  min-height: 34px;
+  padding: 4px 8px;
+  border-bottom: 0;
+  font-size: 0.74rem;
+}
+
+body.has-video .metricLiveEnd {
+  border-right: 0;
+}
+
+body.has-video .metric strong {
+  font-size: 0.82rem;
+}
+
+body.has-video[data-status="generating"] .statusLine strong {
+  animation: none;
 }
 
 .metric {
   display: grid;
-  grid-template-columns: max-content max-content;
+  grid-template-columns: 1fr;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-width: max-content;
-  min-height: 42px;
-  padding: 0 16px;
+  gap: 3px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 7px 12px;
   border-right: 1px solid rgba(255, 255, 255, 0.11);
   font-size: 0.88rem;
   text-align: center;
@@ -452,11 +568,16 @@ body[data-status="generating"] .connectButton {
 
 .metric span {
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .metric strong {
-  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 760;
 }
@@ -481,7 +602,7 @@ body[data-status="generating"] .statusLine strong {
   }
 
   .stage {
-    min-height: max(100svh, 980px);
+    min-height: max(100svh, 1080px);
   }
 
   .brandOverlay {
@@ -504,11 +625,11 @@ body[data-status="generating"] .statusLine strong {
   }
 
   .controlCard {
-    bottom: 440px;
+    bottom: 520px;
   }
 
   .logCard {
-    bottom: 164px;
+    bottom: 230px;
   }
 
   .metricsBar {
@@ -529,7 +650,7 @@ body[data-status="generating"] .statusLine strong {
   }
 
   .metric:last-child {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 }
 
@@ -552,18 +673,20 @@ body[data-status="generating"] .statusLine strong {
     max-height: 150px;
   }
 
-  .metricsBar {
-    grid-template-columns: 1fr;
-  }
-
   .metric {
-    min-height: 36px;
+    min-height: 38px;
+    padding: 6px 8px;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.11);
+  }
+
+  .metric:nth-child(2n - 1) {
+    border-right: 1px solid rgba(255, 255, 255, 0.11);
   }
 
   .metric:last-child {
     grid-column: auto;
     border-bottom: 0;
+    border-right: 0;
   }
 }

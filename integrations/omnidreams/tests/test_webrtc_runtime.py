@@ -35,7 +35,7 @@ from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
     DefaultRTCEncoder,
 )
-from flashdreams.serving.webrtc.manager import WebRTCStepResult
+from flashdreams.serving.webrtc.manager import WebRTCStepResult, _sdp_video_codecs
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 
 pytestmark = pytest.mark.ci_cpu
@@ -217,7 +217,7 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.calls[0][2] == [1000, 34333]
     assert wrapper.calls[1][0] == "continue"
     assert wrapper.calls[1][1] == (3, 4, 4)
-    assert len(wrapper.finalized) == 2
+    assert wrapper.finalized == [{"autoregressive_index": 0}]
     assert wrapper.skip_video_generation_flags == [False, False]
 
 
@@ -538,6 +538,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         debug_serve_hdmaps=True,
         postprocess_preset="rtx-super-resolution",
         prefer_sw_encoder=False,
+        require_nvenc=False,
     )
 
     cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
@@ -557,18 +558,16 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "prefer_sw_encoder, expected_backend",
-    [(False, "auto"), (True, "default")],
+    "prefer_sw_encoder, require_nvenc, expected_backend",
+    [(False, False, "auto"), (True, False, "default"), (False, True, "nvenc")],
 )
 def test_build_runtime_config_maps_prefer_sw_encoder_to_backend(
     tmp_path: Path,
     prefer_sw_encoder: bool,
+    require_nvenc: bool,
     expected_backend: str,
 ) -> None:
-    """--prefer_sw_encoder is the single CLI switch that toggles between
-    the auto-probe path and the forced-software path. Any regression in
-    this mapping would silently disable the hardware encoder (or worse,
-    fail to disable it when explicitly asked)."""
+    """Encoder CLI switches map to the requested backend mode."""
     args = argparse.Namespace(
         pipeline_config_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
         scene_dir=tmp_path / "local-scene",
@@ -585,9 +584,15 @@ def test_build_runtime_config_maps_prefer_sw_encoder_to_backend(
         debug_serve_hdmaps=False,
         postprocess_preset="",
         prefer_sw_encoder=prefer_sw_encoder,
+        require_nvenc=require_nvenc,
     )
     cfg = webrtc_server.build_runtime_config(args)
     assert cfg.encoder_backend == expected_backend
+
+
+def test_parse_args_rejects_conflicting_encoder_modes() -> None:
+    with pytest.raises(SystemExit):
+        webrtc_server.parse_args(["--prefer_sw_encoder", "--require_nvenc"])
 
 
 def test_build_runtime_config_uses_manifest_perf_toggles() -> None:
@@ -1283,6 +1288,87 @@ def _sdp_fallback_managed_session(
     )
 
 
+def _video_offer_sdp(*codecs: str) -> str:
+    payload_types = list(range(96, 96 + len(codecs)))
+    lines = [
+        "v=0",
+        "o=- 1 2 IN IP4 127.0.0.1",
+        "s=-",
+        "t=0 0",
+        "m=video 9 UDP/TLS/RTP/SAVPF "
+        + " ".join(str(payload_type) for payload_type in payload_types),
+        "c=IN IP4 0.0.0.0",
+        "a=recvonly",
+    ]
+    for payload_type, codec in zip(payload_types, codecs, strict=True):
+        lines.append(f"a=rtpmap:{payload_type} {codec}/90000")
+    lines.extend(
+        [
+            "m=application 9 UDP/DTLS/SCTP webrtc-datachannel",
+            "c=IN IP4 0.0.0.0",
+            "a=sctp-port:5000",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def test_sdp_video_codecs_extracts_video_mime_types() -> None:
+    assert _sdp_video_codecs(_video_offer_sdp("VP8", "H264")) == (
+        "video/VP8",
+        "video/H264",
+    )
+
+
+def test_prepare_video_encoder_for_offer_keeps_hardware_when_h264_offered() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+
+    selected = manager._prepare_video_encoder_for_offer(
+        video_encoder=hw_encoder,
+        offer_sdp=_video_offer_sdp("VP8", "H264"),
+    )
+
+    assert selected is hw_encoder
+    assert not hw_encoder.closed
+
+
+def test_prepare_video_encoder_for_offer_falls_back_without_h264() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+
+    selected = manager._prepare_video_encoder_for_offer(
+        video_encoder=hw_encoder,
+        offer_sdp=_video_offer_sdp("VP8", "VP9"),
+    )
+
+    assert not hw_encoder.closed
+    assert isinstance(selected, DefaultRTCEncoder)
+
+
+def test_prepare_video_encoder_raises_without_h264_when_nvenc_required() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            encoder_backend="nvenc",
+        ),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+
+    with pytest.raises(RuntimeError, match="browser offer does not advertise H.264"):
+        manager._prepare_video_encoder_for_offer(
+            video_encoder=hw_encoder,
+            offer_sdp=_video_offer_sdp("VP8", "VP9"),
+        )
+
+    assert not hw_encoder.closed
+
+
 @pytest.mark.asyncio
 async def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> (
     None
@@ -1309,6 +1395,31 @@ async def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264
     assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
     assert isinstance(managed_session.video_track, BufferedVideoTrack)
     assert transceiver.sender.replaced_with is managed_session.video_track
+
+
+@pytest.mark.asyncio
+async def test_enforce_h264_or_fallback_raises_when_nvenc_required() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            encoder_backend="nvenc",
+        ),
+    )
+    hw_encoder = _HardwareEncoderStub(fps=30)
+    managed_session = _sdp_fallback_managed_session(hw_encoder)
+    transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/VP8")])
+
+    with pytest.raises(RuntimeError, match="encoder_backend='nvenc' requested"):
+        await manager._enforce_h264_or_fallback(
+            transceiver=transceiver,
+            managed_session=managed_session,
+            num_frames=4,
+        )
+
+    assert not hw_encoder.closed
+    assert managed_session.video_encoder is hw_encoder
+    assert transceiver.sender.replaced_with is None
 
 
 @pytest.mark.asyncio

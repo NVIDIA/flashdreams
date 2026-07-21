@@ -53,6 +53,14 @@ def make_chunk_done_payload(
     play_ms: float,
     queue_depth: int,
     lag_ms: float,
+    sample_ms: float | None = None,
+    runtime_call_ms: float | None = None,
+    delivery_ms: float | None = None,
+    delivery_encode_ms: float | None = None,
+    encoder_backend: str | None = None,
+    keyframes: int | None = None,
+    chunk_total_ms: float | None = None,
+    chunk_fps: float | None = None,
     control_latency_ms: float | None = None,
     consumed_actions: int | None = None,
     extra: Mapping[str, Any] | None = None,
@@ -71,6 +79,21 @@ def make_chunk_done_payload(
         "queue_depth": queue_depth,
         "lag_ms": round(lag_ms, 1),
     }
+    optional_numbers = {
+        "sample_ms": sample_ms,
+        "runtime_call_ms": runtime_call_ms,
+        "delivery_ms": delivery_ms,
+        "delivery_encode_ms": delivery_encode_ms,
+        "chunk_total_ms": chunk_total_ms,
+        "chunk_fps": chunk_fps,
+    }
+    for key, value in optional_numbers.items():
+        if value is not None:
+            payload[key] = round(value, 1)
+    if encoder_backend is not None:
+        payload["encoder_backend"] = encoder_backend
+    if keyframes is not None:
+        payload["keyframes"] = keyframes
     if extra is not None:
         payload.update(extra)
     if control_latency_ms is not None:

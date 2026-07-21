@@ -9,8 +9,11 @@ matters is that:
 - ``recv()`` returns exactly the enqueued :class:`av.Packet` (aiortc's
   ``H264Encoder.pack()`` reads ``payload``, ``pts`` and ``time_base``
   directly), and
-- overflow drops the *oldest* packet — a stale I-frame is more useful than
-  falling behind wall-clock on an interactive stream.
+- the async enqueue path applies backpressure instead of dropping packets,
+  preserving the 30 fps media timeline the browser receives.
+
+The legacy nonblocking helper is still tested separately because it is useful
+for diagnostics, but the production NVENC encoder path does not use it.
 """
 
 from __future__ import annotations
@@ -22,9 +25,9 @@ import pytest
 from aiortc.mediastreams import MediaStreamError
 from av.packet import Packet
 
-pytestmark = pytest.mark.ci_cpu
-
 from flashdreams.serving.webrtc.media import NVENCVideoTrack
+
+pytestmark = pytest.mark.ci_cpu
 
 
 def _mk_packet(pts: int, payload: bytes = b"\x00\x00\x00\x01\x67") -> Packet:
@@ -58,9 +61,44 @@ class TestEnqueue:
         assert track.qsize() == 1
 
     @pytest.mark.asyncio
+    async def test_async_enqueue_waits_for_queue_space(self) -> None:
+        track = NVENCVideoTrack(fps=30, maxsize=1)
+        assert await track.enqueue_encoded_packet(_mk_packet(0)) is True
+
+        enqueue_task = asyncio.create_task(track.enqueue_encoded_packet(_mk_packet(1)))
+        await asyncio.sleep(0)
+        assert not enqueue_task.done()
+
+        first = await asyncio.wait_for(track.recv(), timeout=1.0)
+        assert first.pts == 0
+        assert await asyncio.wait_for(enqueue_task, timeout=1.0) is True
+        assert track.qsize() == 1
+        assert track.dropped_packets == 0
+
+        second = await asyncio.wait_for(track.recv(), timeout=1.0)
+        assert second.pts == 1
+
+    @pytest.mark.asyncio
+    async def test_async_enqueue_many_preserves_order(self) -> None:
+        track = NVENCVideoTrack(fps=30, maxsize=2)
+        packets = [_mk_packet(pts=i) for i in range(4)]
+
+        enqueue_task = asyncio.create_task(track.enqueue_encoded_packets(packets))
+        seen_pts: list[int] = []
+        for _ in packets:
+            packet = await asyncio.wait_for(track.recv(), timeout=1.0)
+            assert packet.pts is not None
+            seen_pts.append(packet.pts)
+
+        assert await asyncio.wait_for(enqueue_task, timeout=1.0) == len(packets)
+        assert seen_pts == [0, 1, 2, 3]
+        assert track.dropped_packets == 0
+
+    @pytest.mark.asyncio
     async def test_enqueue_returns_false_on_closed_track(self) -> None:
         track = NVENCVideoTrack(fps=30, maxsize=8)
         await track.close()
+        assert await track.enqueue_encoded_packet(_mk_packet(0)) is False
         assert track.enqueue_encoded_packet_nowait(_mk_packet(0)) is False
 
 
@@ -86,11 +124,10 @@ class TestRecv:
 
 
 class TestOverflow:
-    """When the queue fills up, drop the oldest packet, not the newest.
+    """The explicit nowait helper drops the oldest packet on overflow.
 
-    Real-time streams tolerate a stale I-frame worse than they tolerate
-    stale motion, and aiortc will re-request a keyframe via PLI/FIR if
-    the oldest dropped packet was a keyframe.
+    The production async enqueue path above backpressures instead. This
+    branch exists for callers that deliberately choose nonblocking enqueue.
     """
 
     def test_full_queue_drops_oldest(self) -> None:

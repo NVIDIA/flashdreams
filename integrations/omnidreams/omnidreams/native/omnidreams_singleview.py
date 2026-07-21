@@ -26,10 +26,12 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Iterator
 
+from loguru import logger
 from omnidreams.native.acceleration import (
     NativeAccelerationConfig,
     NativeAvailabilityCheck,
@@ -528,6 +530,7 @@ def load_extension(
         if _extension is not None:
             return _extension
         _extension_load_error = None
+        build_started_s: float | None = None
 
         try:
             _ensure_windows_cuda13_toolkit()
@@ -554,6 +557,19 @@ def load_extension(
             _add_windows_cuda_dll_directories(cudnn_package_dir)
 
             with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
+                build_started_s = time.perf_counter()
+                logger.info(
+                    "Building/loading OmniDreams single-view native extension "
+                    "{}. First-time builds can take several minutes; seeing "
+                    "compiler processes such as cc1plus/nvcc is expected. "
+                    "build_directory={} MAX_JOBS={} TORCH_CUDA_ARCH_LIST={} "
+                    "verbose={}",
+                    extension_name,
+                    extension_build_dir,
+                    os.environ.get(_PYTORCH_MAX_JOBS_ENV, "<unset>"),
+                    os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV, "<unset>"),
+                    verbose,
+                )
                 _extension = load_torch_extension(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],
@@ -657,8 +673,20 @@ def load_extension(
                     with_cuda=True,
                     verbose=verbose,
                 )
+                logger.info(
+                    "OmniDreams single-view native extension {} ready in {:.1f}s.",
+                    extension_name,
+                    time.perf_counter() - build_started_s,
+                )
         except Exception as exc:  # pragma: no cover - environment-specific build path
             _extension_load_error = exc
+            if build_started_s is not None:
+                logger.warning(
+                    "OmniDreams single-view native extension build/load failed "
+                    "after {:.1f}s: {}",
+                    time.perf_counter() - build_started_s,
+                    exc,
+                )
             return None
         return _extension
 

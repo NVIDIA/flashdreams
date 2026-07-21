@@ -37,8 +37,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from av.packet import Packet
 
-pytestmark = pytest.mark.ci_cpu
-
 from flashdreams.serving.webrtc import encoders as enc_mod
 from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
@@ -48,6 +46,8 @@ from flashdreams.serving.webrtc.encoders import (
     select_encoder,
 )
 from flashdreams.serving.webrtc.media import NVENCVideoTrack
+
+pytestmark = pytest.mark.ci_cpu
 
 _SELECT_KW = dict(
     width=1280,
@@ -436,12 +436,12 @@ class TestCompatGuards:
 
 class _OrderingFakeEncoder:
     """Minimal encoder that mimics :class:`PyNvHardwareEncoder`'s async
-    marshaling contract without needing CUDA or PyNvVideoCodec.
+    encode-then-enqueue contract without needing CUDA or PyNvVideoCodec.
 
-    Encoding runs on an ``asyncio.to_thread`` worker and each emitted
-    packet is delivered to the track via ``loop.call_soon_threadsafe``,
-    exactly as the real hardware encoder does. This lets us assert the
-    end-to-end ordering property without any GPU dependency.
+    Encoding runs on an ``asyncio.to_thread`` worker, then the encoded
+    packets are enqueued through the track's backpressured async API.
+    This lets us assert the end-to-end ordering property without any GPU
+    dependency.
 
     The pts counter is guarded by a lock because the fire-and-forget
     test dispatches multiple ``deliver_chunk`` calls concurrently, and
@@ -469,13 +469,13 @@ class _OrderingFakeEncoder:
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
         del chunk, force_keyframe
-        loop = asyncio.get_running_loop()
         frames = self._frames_per_chunk
 
-        def _encode_worker() -> None:
+        def _encode_worker() -> list[Packet]:
             # One packet per frame, monotonically-increasing pts. The
-            # per-iteration call_soon_threadsafe hand-off mirrors what
-            # PyNvHardwareEncoder does with its on_packet callback.
+            # caller enqueues the collected packets after the worker
+            # returns, mirroring PyNvHardwareEncoder.deliver_chunk.
+            packets: list[Packet] = []
             for _ in range(frames):
                 packet = Packet(b"\x00\x00\x00\x01\x67")
                 with self._pts_counter_lock:
@@ -483,15 +483,14 @@ class _OrderingFakeEncoder:
                     self._pts_counter += 1
                 packet.pts = (pts_frame_index * 90_000) // self.fps
                 packet.time_base = self._time_base
-                loop.call_soon_threadsafe(
-                    track.enqueue_encoded_packet_nowait,
-                    packet,
-                )
+                packets.append(packet)
+            return packets
 
-        await asyncio.to_thread(_encode_worker)
+        packets = await asyncio.to_thread(_encode_worker)
+        enqueued = await track.enqueue_encoded_packets(packets)
         return ChunkDeliveryResult(
             backend=self.backend,
-            num_frames=frames,
+            num_frames=enqueued,
             num_keyframes=0,
             encode_ms=0.0,
         )

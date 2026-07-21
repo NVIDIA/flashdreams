@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -145,8 +145,9 @@ class NVENCVideoTrack(MediaStreamTrack):
     ``RTCRtpSender`` routes through ``H264Encoder.pack()`` for RTP
     fragmentation only. The encoder sets ``pts`` and ``time_base`` on
     each packet before enqueueing; this track only paces delivery to
-    ``fps`` and applies a drop-oldest overflow policy so a slow
-    consumer cannot stall the encode worker.
+    ``fps``. The async enqueue path applies backpressure so the browser
+    receives every frame in timestamp order instead of seeing silent
+    server-side drops.
     """
 
     kind = "video"
@@ -182,14 +183,28 @@ class NVENCVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._packets.qsize()
 
+    async def enqueue_encoded_packet(self, packet: Packet) -> bool:
+        """Enqueue one encoded packet, waiting for sender-side queue space."""
+        if self._closed:
+            return False
+        await self._packets.put(packet)
+        return True
+
+    async def enqueue_encoded_packets(self, packets: Sequence[Packet]) -> int:
+        """Enqueue encoded packets in order, applying backpressure if full."""
+        for i, packet in enumerate(packets):
+            if not await self.enqueue_encoded_packet(packet):
+                return i
+        return len(packets)
+
     def enqueue_encoded_packet_nowait(self, packet: Packet) -> bool:
         """Synchronously enqueue one packet on the loop thread.
 
-        Called from the encode worker via ``loop.call_soon_threadsafe`` so
-        packets become visible to :meth:`recv` as soon as they are
-        produced, without waiting for the whole chunk to finish encoding.
-        Drops the oldest queued packet on overflow so real-time streaming
-        does not stall behind a slow consumer.
+        This compatibility helper is intentionally lossy on overflow.
+        The production NVENC path uses :meth:`enqueue_encoded_packets`
+        so playback preserves every frame; tests and diagnostic probes
+        can still use this helper when they explicitly want nonblocking
+        enqueue semantics.
         """
         if self._closed:
             return False
