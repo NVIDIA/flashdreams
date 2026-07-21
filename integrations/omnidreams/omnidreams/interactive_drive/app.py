@@ -168,6 +168,10 @@ class InteractiveDriveApp:
         """``True`` once the model has produced its first generated chunk."""
         return self._pipeline.first_chunk_produced.is_set()
 
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Queue a local-display post-process toggle on the model worker."""
+        self._pipeline.set_postprocess_enabled(enabled)
+
     def load_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
     ) -> bool:

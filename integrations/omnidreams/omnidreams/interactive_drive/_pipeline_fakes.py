@@ -80,6 +80,7 @@ class FakeVideoModelBackend:
         self.warmup_model_calls = 0
         self.load_scene_calls = 0
         self.reset_calls = 0
+        self.postprocess_enabled_calls: list[bool] = []
 
     @property
     def can_prewarm(self) -> bool:
@@ -94,6 +95,9 @@ class FakeVideoModelBackend:
 
     def reset(self) -> None:
         self.reset_calls += 1
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        self.postprocess_enabled_calls.append(enabled)
 
     def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         frames = tuple(

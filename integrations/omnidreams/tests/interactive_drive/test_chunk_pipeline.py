@@ -217,6 +217,17 @@ def test_chunk_pipeline_reset_invokes_backend_reset() -> None:
     assert backend.reset_calls == 1
 
 
+def test_chunk_pipeline_toggles_postprocess_on_worker() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=1)
+    pipeline = ChunkPipeline(backend)
+
+    pipeline.set_postprocess_enabled(False)
+    pipeline.set_postprocess_enabled(True)
+    pipeline.shutdown()
+
+    assert backend.postprocess_enabled_calls == [False, True]
+
+
 def test_chunk_pipeline_reuses_model_across_scene_changes() -> None:
     backend = FakeVideoModelBackend(frames_per_render=1)
     pipeline = ChunkPipeline(backend)

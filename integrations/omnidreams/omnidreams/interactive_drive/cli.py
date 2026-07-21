@@ -7,6 +7,8 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.plugins.registry import discover_postprocess_presets
 from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
@@ -203,6 +205,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Precompute the flashdreams one-shot text/first-frame embeddings, "
             "free those encoders before the AR pipeline is built, and reuse "
             "the cached embeddings across world-model resets."
+        ),
+    )
+    parser.add_argument(
+        "--postprocess-preset",
+        "--postprocess_preset",
+        dest="postprocess_preset",
+        default="",
+        choices=sorted(discover_postprocess_presets()),
+        help=(
+            "Video post-process preset for generated frames. A configured "
+            "preset starts enabled and can be toggled in the local HUD."
         ),
     )
     parser.add_argument(
@@ -472,6 +485,7 @@ def prepare_config_and_backend(
             enabled=bool(args.profile_world_model),
         ),
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
+        postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
@@ -509,6 +523,7 @@ def prepare_config_and_backend(
             profile=config.world_model_profile,
             bev=config.bev,
             offload_text_encoder=config.world_model_offload_text_encoder,
+            postprocess=config.postprocess,
         )
     return config, backend
 
