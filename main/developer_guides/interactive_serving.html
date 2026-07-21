@@ -425,8 +425,36 @@ trying inference and serving side by side.</p></li>
 <li><p><a class="reference internal" href="../api/serving.html"><span class="doc">Serving</span></a> for serving API concepts and component mapping.</p></li>
 <li><p><a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> for runner/pipeline
 execution flow.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/webrtc</span></code> for the WebRTC serving stack.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">flashdreams.serving.webrtc</span></code> for the shared WebRTC server, session manager,
+runtime protocol, data-channel messages, packaged UI app factory, and
+distributed serve-loop helpers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/webrtc</span></code> and
+<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams/webrtc</span></code> for concrete WebRTC demos built
+on the shared serving stack.</p></li>
 </ul>
+</section>
+<section id="webrtc-demo-shape">
+<h2>WebRTC demo shape<a class="headerlink" href="#webrtc-demo-shape" title="Link to this heading">#</a></h2>
+<p>New realtime demos should use WebRTC as the primary browser transport. The
+shared package owns the reusable serving shell:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">runtime.WebRTCGenerationRuntime</span></code> describes the lifecycle a model runtime
+must provide: initialize, reset a rollout, generate one chunk, and close.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">manager.BaseWebRTCSessionManager</span></code> owns one active peer connection, control
+data-channel parsing, liveness, keyboard resampling, loopback warmup, and
+chunk scheduling.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">server.create_packaged_webrtc_app</span></code> builds the aiohttp app from packaged
+browser assets and keeps those resources alive until cleanup.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bootstrap.initialize_cuda_distributed</span></code> and <code class="docutils literal notranslate"><span class="pre">bootstrap.run_webrtc_server</span></code>
+provide the common CUDA/distributed launch and teardown path.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">messages</span></code> defines the common action, event, heartbeat, disconnect,
+<code class="docutils literal notranslate"><span class="pre">chunk_done</span></code>, <code class="docutils literal notranslate"><span class="pre">event_ack</span></code>, and error payload contracts.</p></li>
+</ul>
+<p>Model integrations should keep model-specific runtime code local: checkpoint
+setup, scene or prompt semantics, conditioning/rendering, cache math, and any
+custom HTTP routes that configure a session. The shared WebRTC layer should be
+enough for a new demo to provide a runtime, package its UI assets, add optional
+routes, and start serving without copying another demo’s bootstrap code.</p>
 </section>
 </section>
 
@@ -462,6 +490,7 @@ execution flow.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-models">Serving models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reference-integrations">Reference integrations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-implementation-references">Serving implementation references</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#webrtc-demo-shape">WebRTC demo shape</a></li>
 </ul>
   </nav></div>
 

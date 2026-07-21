@@ -421,26 +421,27 @@ SPDX-License-Identifier: Apache-2.0
                   
   <section id="serving">
 <h1>Serving<a class="headerlink" href="#serving" title="Link to this heading">#</a></h1>
-<p>Serving in FlashDreams is currently integration-driven: model-specific serving
-stacks wrap the same runner/pipeline abstractions used for offline inference.</p>
+<p>Serving in FlashDreams is integration-driven at the model/runtime layer, while
+WebRTC provides the shared browser-facing transport for realtime demos.</p>
 <section id="serving-building-blocks">
 <h2>Serving building blocks<a class="headerlink" href="#serving-building-blocks" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><strong>Runner config</strong> defines serving-relevant I/O fields (prompts, control
 tensors, image paths, output transport).</p></li>
 <li><p><strong>Pipeline</strong> manages model lifecycle and cached state across steps.</p></li>
-<li><p><strong>Integration transport</strong> (for example WebRTC in
-<a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a>) handles
-session I/O, request routing, and media responses.</p></li>
+<li><p><strong>Shared WebRTC transport</strong> handles browser session I/O, request routing,
+data-channel controls, and media responses for realtime demos.</p></li>
+<li><p><strong>Integration runtime</strong> owns model-specific checkpoint setup, conditioning,
+prompt/scene semantics, and chunk generation.</p></li>
 </ul>
 </section>
 <section id="reference-integration">
 <h2>Reference integration<a class="headerlink" href="#reference-integration" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> provides the canonical serving
-integration:</p>
+<p>The public WebRTC demos provide concrete examples of the shared serving stack:</p>
 <ul class="simple">
-<li><p>runner and pipeline wiring under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/</span></code>,</p></li>
-<li><p>interactive transport under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/webrtc/</span></code>.</p></li>
+<li><p>shared transport code under <code class="docutils literal notranslate"><span class="pre">flashdreams/flashdreams/serving/webrtc/</span></code>,</p></li>
+<li><p>LingBot runner and runtime wiring under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/</span></code>,</p></li>
+<li><p>OmniDreams WebRTC runtime wiring under <code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams/webrtc/</span></code>.</p></li>
 </ul>
 </section>
 <section id="launch-patterns">

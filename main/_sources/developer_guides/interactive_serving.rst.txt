@@ -60,4 +60,33 @@ Serving implementation references
 - :doc:`/api/serving` for serving API concepts and component mapping.
 - :doc:`/developer_guides/inference_pipeline_overview` for runner/pipeline
   execution flow.
-- ``integrations/lingbot/lingbot/webrtc`` for the WebRTC serving stack.
+- ``flashdreams.serving.webrtc`` for the shared WebRTC server, session manager,
+  runtime protocol, data-channel messages, packaged UI app factory, and
+  distributed serve-loop helpers.
+- ``integrations/lingbot/lingbot/webrtc`` and
+  ``integrations/omnidreams/omnidreams/webrtc`` for concrete WebRTC demos built
+  on the shared serving stack.
+
+WebRTC demo shape
+-----------------
+
+New realtime demos should use WebRTC as the primary browser transport. The
+shared package owns the reusable serving shell:
+
+- ``runtime.WebRTCGenerationRuntime`` describes the lifecycle a model runtime
+  must provide: initialize, reset a rollout, generate one chunk, and close.
+- ``manager.BaseWebRTCSessionManager`` owns one active peer connection, control
+  data-channel parsing, liveness, keyboard resampling, loopback warmup, and
+  chunk scheduling.
+- ``server.create_packaged_webrtc_app`` builds the aiohttp app from packaged
+  browser assets and keeps those resources alive until cleanup.
+- ``bootstrap.initialize_cuda_distributed`` and ``bootstrap.run_webrtc_server``
+  provide the common CUDA/distributed launch and teardown path.
+- ``messages`` defines the common action, event, heartbeat, disconnect,
+  ``chunk_done``, ``event_ack``, and error payload contracts.
+
+Model integrations should keep model-specific runtime code local: checkpoint
+setup, scene or prompt semantics, conditioning/rendering, cache math, and any
+custom HTTP routes that configure a session. The shared WebRTC layer should be
+enough for a new demo to provide a runtime, package its UI assets, add optional
+routes, and start serving without copying another demo's bootstrap code.

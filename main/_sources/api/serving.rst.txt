@@ -16,8 +16,8 @@
 Serving
 ===================================
 
-Serving in FlashDreams is currently integration-driven: model-specific serving
-stacks wrap the same runner/pipeline abstractions used for offline inference.
+Serving in FlashDreams is integration-driven at the model/runtime layer, while
+WebRTC provides the shared browser-facing transport for realtime demos.
 
 Serving building blocks
 -----------------------
@@ -25,18 +25,19 @@ Serving building blocks
 - **Runner config** defines serving-relevant I/O fields (prompts, control
   tensors, image paths, output transport).
 - **Pipeline** manages model lifecycle and cached state across steps.
-- **Integration transport** (for example WebRTC in
-  :doc:`LingBot-World </models/lingbot_world>`) handles
-  session I/O, request routing, and media responses.
+- **Shared WebRTC transport** handles browser session I/O, request routing,
+  data-channel controls, and media responses for realtime demos.
+- **Integration runtime** owns model-specific checkpoint setup, conditioning,
+  prompt/scene semantics, and chunk generation.
 
 Reference integration
 ---------------------
 
-:doc:`LingBot-World </models/lingbot_world>` provides the canonical serving
-integration:
+The public WebRTC demos provide concrete examples of the shared serving stack:
 
-- runner and pipeline wiring under ``integrations/lingbot/lingbot/``,
-- interactive transport under ``integrations/lingbot/lingbot/webrtc/``.
+- shared transport code under ``flashdreams/flashdreams/serving/webrtc/``,
+- LingBot runner and runtime wiring under ``integrations/lingbot/lingbot/``,
+- OmniDreams WebRTC runtime wiring under ``integrations/omnidreams/omnidreams/webrtc/``.
 
 Launch patterns
 ---------------
