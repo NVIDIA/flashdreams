@@ -38,6 +38,10 @@ button {
   font: inherit;
 }
 
+select {
+  font: inherit;
+}
+
 .appShell {
   min-height: 100vh;
 }
@@ -212,6 +216,32 @@ body[data-status="error"] .statusDot {
 }
 
 .connectButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.postprocessField {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.postprocessField select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(12, 14, 15, 0.86);
+  color: var(--text);
+  padding: 0 9px;
+  text-transform: none;
+}
+
+.postprocessField select:disabled {
   cursor: not-allowed;
   opacity: 0.52;
 }

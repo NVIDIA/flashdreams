@@ -8,6 +8,7 @@ import asyncio
 import sys
 import zipfile
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,6 +24,8 @@ from omnidreams.webrtc.session import (
     OmnidreamsWebRTCSessionManager,
 )
 
+import flashdreams.plugins.registry as plugin_registry
+from flashdreams.infra.postprocess import VideoPostProcessorConfig
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -167,6 +170,71 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
     assert wrapper.skip_video_generation_flags == [False, False]
 
 
+def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
+    class _FakePostprocessStream:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+        def process(
+            self, video_chunk: torch.Tensor, *, autoregressive_index: int
+        ) -> torch.Tensor:
+            self.calls.append(autoregressive_index)
+            return torch.full(
+                (1, 1, video_chunk.shape[2], 3, 8, 10),
+                0.5,
+                device=video_chunk.device,
+            )
+
+    runtime, _wrapper = _build_fake_runtime()
+    postprocess_stream = _FakePostprocessStream()
+    runtime._postprocess_stream = postprocess_stream  # ty:ignore[invalid-assignment]
+
+    result = runtime._generate_one_chunk_sync(
+        segments=[(0.0, 2 / 30, frozenset({"w"}))],
+        frame_times=[1 / 30, 2 / 30],
+    )
+
+    assert postprocess_stream.calls == [0]
+    assert result.video_chunk.device.type == "cpu"
+    assert result.video_chunk.shape == (1, 1, 2, 3, 8, 10)
+    assert result.video_chunk.unique().tolist() == [0.5]
+
+
+def test_session_postprocess_override_replaces_the_rollout_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_config = VideoPostProcessorConfig()
+    monkeypatch.setattr(
+        session,
+        "resolve_postprocess_preset",
+        lambda name: preset_config,
+    )
+    monkeypatch.setattr(
+        plugin_registry,
+        "resolve_postprocess_preset",
+        lambda name: preset_config,
+    )
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
+    )
+
+    runtime._reset_postprocess_stream(
+        session.OmnidreamsSessionInput(postprocess_preset="fake-preset")
+    )
+    first_stream = runtime._postprocess_stream
+
+    assert first_stream is not None
+    assert runtime.postprocess_preset == "fake-preset"
+
+    runtime._reset_postprocess_stream(
+        session.OmnidreamsSessionInput(postprocess_preset="")
+    )
+
+    assert first_stream._closed is True
+    assert runtime._postprocess_stream is None
+    assert runtime.postprocess_preset == ""
+
+
 def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
     runtime, wrapper = _build_fake_runtime()
     runtime.config.debug_serve_hdmaps = True
@@ -236,6 +304,26 @@ def test_prepare_clipgt_dir_stages_nested_unprefixed_parquets(tmp_path: Path) ->
     assert (staged / "clip.calibration_estimate.parquet").exists()
     assert (staged / "clip.egomotion_estimate.parquet").exists()
     assert (staged / "clip.lane.parquet").exists()
+
+
+def test_link_or_copy_file_falls_back_to_copy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.parquet"
+    target = tmp_path / "target.parquet"
+    source.write_bytes(b"parquet data")
+
+    def _raise_link_error(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("links unavailable")
+
+    monkeypatch.setattr(session.os, "symlink", _raise_link_error)
+    monkeypatch.setattr(session.os, "link", _raise_link_error)
+
+    session._link_or_copy_file(source, target)
+
+    assert target.read_bytes() == source.read_bytes()
+    assert not target.is_symlink()
 
 
 def test_hf_webrtc_scene_sync_requires_usdz_first_frame(
@@ -397,6 +485,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
         warmup_chunks=0,
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
+        postprocess_preset="rtx-super-resolution",
     )
 
     cfg = webrtc_server.build_runtime_config(args, device_override="cuda:7")
@@ -408,6 +497,7 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
     assert cfg.video_height == 360
     assert cfg.video_width == 640
     assert cfg.debug_serve_hdmaps is True
+    assert cfg.postprocess.preset == "rtx-super-resolution"
 
 
 def test_parse_args_omits_scene_dir_by_default(
@@ -427,6 +517,7 @@ def test_parse_args_omits_scene_dir_by_default(
     assert args.scene_dir is None
     assert args.scene_uuid is None
     assert args.debug_serve_hdmaps is True
+    assert args.postprocess_preset == ""
 
 
 def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
@@ -499,6 +590,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
         warmup_chunks=0,
         warmup_timeout_s=30.0,
         debug_serve_hdmaps=True,
+        postprocess_preset="",
     )
 
     cfg = webrtc_server.build_runtime_config(args)
@@ -506,6 +598,30 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
     assert cfg.scene_dir == tmp_path / "local-scene"
     assert cfg.scene_uuid is None
     assert cfg.scene_variant == "default"
+
+
+def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu")
+    )
+    session_input = session.OmnidreamsSessionInput(postprocess_preset="")
+
+    manager.set_pending_session_input(session_input)
+
+    assert manager._peek_pending_session_input() == session_input
+    manager._clear_pending_session_input()
+    assert manager._peek_pending_session_input() is None
+
+
+def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
+    web_dir = files("omnidreams.webrtc").joinpath("web")
+    html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
+    javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
+
+    assert 'id="postprocessSelect"' in html
+    assert 'fetch("/api/postprocess/options")' in javascript
+    assert 'fetch("/api/session/input"' in javascript
+    assert "postprocess_preset: postprocessPreset" in javascript
 
 
 @pytest.mark.asyncio
@@ -567,6 +683,7 @@ async def test_loopback_warmup_drives_session_generation(
             self.initialize_calls = 0
             self.reset_calls = 0
             self.close_calls = 0
+            self.postprocess_preset = config.postprocess.preset
             self.generated_segments: list[
                 list[tuple[float, float, frozenset[str]]]
             ] = []
@@ -574,7 +691,10 @@ async def test_loopback_warmup_drives_session_generation(
         async def initialize(self) -> None:
             self.initialize_calls += 1
 
-        async def reset_for_new_session(self) -> None:
+        async def reset_for_new_session(
+            self, session_input: session.OmnidreamsSessionInput | None = None
+        ) -> None:
+            del session_input
             self.reset_calls += 1
 
         def peek_steady_chunk_num_frames(self) -> int:

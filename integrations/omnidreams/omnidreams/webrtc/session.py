@@ -10,7 +10,7 @@ import tempfile
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import AbstractSet, Any, Callable, TypeVar
 
@@ -49,6 +49,11 @@ from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostprocessStream,
+)
+from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -61,6 +66,7 @@ from flashdreams.serving.webrtc.manager import (
     WebRTCControlSignal,
     WebRTCStepResult,
 )
+from flashdreams.serving.webrtc.server import SessionBusyError
 
 _T = TypeVar("_T")
 # Default scene (clear-weather base archive). Weather siblings are selected
@@ -396,6 +402,21 @@ def _summarize_sdp_candidates(sdp: str) -> str:
     )
 
 
+def _link_or_copy_file(source: Path, target: Path) -> None:
+    """Stage a file efficiently without requiring Windows symlink privileges."""
+    try:
+        os.symlink(source, target)
+        return
+    except OSError:
+        pass
+
+    try:
+        os.link(source, target)
+        return
+    except OSError:
+        shutil.copy2(source, target)
+
+
 class OmnidreamsRuntimeError(RuntimeError):
     """Raised when the Omnidreams WebRTC runtime is used incorrectly."""
 
@@ -422,6 +443,17 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
+    postprocess: VideoPostprocessChainConfig = field(
+        default_factory=VideoPostprocessChainConfig
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class OmnidreamsSessionInput:
+    """Browser-selectable settings applied to the next WebRTC rollout."""
+
+    postprocess_preset: str | None = None
+    """Preset override; ``None`` keeps the CLI default and ``""`` disables it."""
 
 
 class OmnidreamsInferenceRuntime:
@@ -451,6 +483,8 @@ class OmnidreamsInferenceRuntime:
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
         self._next_timestamp_us: int = 0
+        self._postprocess_stream: VideoPostprocessStream | None = None
+        self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
@@ -474,6 +508,11 @@ class OmnidreamsInferenceRuntime:
     def is_master(self) -> bool:
         return self.rank == self.MASTER_RANK
 
+    @property
+    def postprocess_preset(self) -> str:
+        """Preset active for the current rollout, or an empty string when off."""
+        return self._postprocess_preset
+
     def wait_for_termination(self) -> None:
         self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
 
@@ -486,12 +525,17 @@ class OmnidreamsInferenceRuntime:
             return
         await self._run_on_runtime_thread(self._initialize_sync_all_ranks)
 
-    async def reset_for_new_session(self) -> None:
+    async def reset_for_new_session(
+        self, session_input: OmnidreamsSessionInput | None = None
+    ) -> None:
         if self._closed:
             raise OmnidreamsRuntimeError("Runtime is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        await self._run_on_runtime_thread(self._reset_rollout_sync_all_ranks)
+        await self._run_on_runtime_thread(
+            self._reset_rollout_sync_all_ranks,
+            session_input,
+        )
 
     async def close(self) -> None:
         self._closed = True
@@ -562,8 +606,10 @@ class OmnidreamsInferenceRuntime:
         self._initialize_sync()
 
     @distributed_op(WebRTCControlSignal.RESET_SESSION)
-    def _reset_rollout_sync_all_ranks(self) -> None:
-        self._reset_rollout_sync()
+    def _reset_rollout_sync_all_ranks(
+        self, session_input: OmnidreamsSessionInput | None = None
+    ) -> None:
+        self._reset_rollout_sync(session_input=session_input)
 
     @distributed_op(WebRTCControlSignal.ACTION_STEP)
     def _generate_chunk_sync_all_ranks(
@@ -759,15 +805,18 @@ class OmnidreamsInferenceRuntime:
         staged = Path(self._clipgt_temp_dir.name)
         for source in parquet_source_dir.glob("*.parquet"):
             target = staged / f"clip.{source.name}"
-            os.symlink(source.resolve(), target)
+            _link_or_copy_file(source.resolve(), target)
         return staged
 
-    def _reset_rollout_sync(self) -> None:
+    def _reset_rollout_sync(
+        self, session_input: OmnidreamsSessionInput | None = None
+    ) -> None:
         if self._wrapper is None or self._renderer is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         if self._initial_ego_pose is None or self._scene_data is None:
             raise OmnidreamsRuntimeError("Scene state is not initialized.")
 
+        self._reset_postprocess_stream(session_input)
         if self._state is not None and self._state.pipeline_cache is not None:
             del self._state.pipeline_cache
         self._state = None
@@ -792,6 +841,7 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
+        self._close_postprocess_stream()
 
         if state is not None and wrapper is not None:
             wrapper.cleanup(state)
@@ -804,6 +854,52 @@ class OmnidreamsInferenceRuntime:
         if self._device is not None and self._device.type == "cuda":
             torch.cuda.synchronize(device=self._device)
             torch.cuda.empty_cache()
+
+    def _reset_postprocess_stream(
+        self, session_input: OmnidreamsSessionInput | None
+    ) -> None:
+        self._close_postprocess_stream()
+        configured = self.config.postprocess
+        preset = (
+            session_input.postprocess_preset
+            if session_input is not None
+            and session_input.postprocess_preset is not None
+            else configured.preset
+        )
+        if preset:
+            resolve_postprocess_preset(preset)
+        postprocess = VideoPostprocessChainConfig(
+            processors=configured.processors,
+            preset=preset,
+        )
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        postprocess.validate_execution(world_size=world_size)
+        self._postprocess_preset = preset
+        if not postprocess.is_enabled():
+            return
+        if not self.is_master and not postprocess.requires_all_ranks(
+            world_size=world_size
+        ):
+            return
+        self._postprocess_stream = VideoPostprocessStream(
+            postprocess=postprocess,
+            output_layout="bvtchw",
+            fps=self.config.fps,
+            per_view=False,
+            world_size=world_size,
+            collect_output=False,
+            move_to_cpu=False,
+        )
+        logger.info(
+            "Omnidreams WebRTC post-processing enabled with preset {!r}.",
+            preset,
+        )
+
+    def _close_postprocess_stream(self) -> None:
+        if self._postprocess_stream is None:
+            return
+        self._postprocess_stream.finish()
+        self._postprocess_stream = None
 
     def _generate_one_chunk_sync(
         self,
@@ -879,6 +975,12 @@ class OmnidreamsInferenceRuntime:
         else:
             video_chunk = output.rgb_frames
 
+        if not serve_hdmaps and self._postprocess_stream is not None:
+            video_chunk = self._postprocess_stream.process(
+                video_chunk,
+                autoregressive_index=self.autoregressive_index,
+            )
+
         result = WebRTCStepResult(
             chunk_index=self.autoregressive_index,
             num_frames=int(video_chunk.shape[2]),
@@ -924,12 +1026,35 @@ class OmnidreamsWebRTCSessionManager(
             fps=runtime_config.fps,
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
+        self._pending_session_input: OmnidreamsSessionInput | None = None
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
 
     def _chunk_done_extra(self) -> dict[str, Any]:
-        return {"stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb"}
+        return {
+            "stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb",
+            "postprocess_preset": self._runtime.postprocess_preset,
+        }
+
+    def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
+        return self._pending_session_input
+
+    def _clear_pending_session_input(self) -> None:
+        self._pending_session_input = None
+
+    async def _reset_runtime_for_session(
+        self, session_input: OmnidreamsSessionInput | None
+    ) -> None:
+        await self._runtime.reset_for_new_session(session_input=session_input)
+
+    def set_pending_session_input(self, session_input: OmnidreamsSessionInput) -> None:
+        if self.has_active_session():
+            raise SessionBusyError(self._busy_message)
+        preset = session_input.postprocess_preset
+        if preset:
+            resolve_postprocess_preset(preset)
+        self._pending_session_input = session_input
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         @peer_connection.on("iceconnectionstatechange")
