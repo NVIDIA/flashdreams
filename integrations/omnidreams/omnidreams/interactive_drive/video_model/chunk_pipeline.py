@@ -42,6 +42,8 @@ class VideoModelBackend(Protocol):
 
     def reset(self) -> None: ...
 
+    def set_postprocess_enabled(self, enabled: bool) -> None: ...
+
 
 @dataclass(frozen=True)
 class ChunkRequest:
@@ -308,6 +310,16 @@ class ChunkPipeline:
             return True
 
         self._command_queue.put(reset_command)
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Toggle post-processing on the model worker thread. Non-blocking."""
+        self._raise_worker_error_if_any()
+
+        def toggle_command(backend: VideoModelBackend) -> bool:
+            backend.set_postprocess_enabled(enabled)
+            return True
+
+        self._command_queue.put(toggle_command)
 
     def shutdown(self) -> None:
         self._command_queue.put(_shutdown_command)

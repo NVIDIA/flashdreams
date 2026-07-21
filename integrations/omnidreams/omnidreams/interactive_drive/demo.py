@@ -797,6 +797,11 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         close_presenter_on_exit=False,
     )
     presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
+    presenter.set_postprocess_control(
+        preset=config.postprocess.preset,
+        enabled=config.postprocess.is_enabled(),
+        callback=app.set_postprocess_enabled,
+    )
 
     # Attach the wheel up front, bound to the app's long-lived keyboard, so
     # the HUD's steering / pedal chrome reacts to the physical device during

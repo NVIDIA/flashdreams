@@ -26,7 +26,9 @@ from flashdreams.infra.postprocess.base import (
     to_bvtchw,
 )
 from flashdreams.infra.postprocess.rtx import (
+    POSTPROCESS_PRESET_RTX_DEBLUR_ULTRA,
     POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION,
+    POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION_ULTRA,
     RTXVideoSuperResolutionPostProcessor,
     RTXVideoSuperResolutionPostProcessorConfig,
     RTXVideoSuperResolutionQuality,
@@ -53,4 +55,6 @@ __all__ = [
     "RTXVideoSuperResolutionPostProcessorConfig",
     "RTXVideoSuperResolutionQuality",
     "POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION",
+    "POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION_ULTRA",
+    "POSTPROCESS_PRESET_RTX_DEBLUR_ULTRA",
 ]

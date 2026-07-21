@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import (
@@ -43,6 +44,7 @@ class WorldModelRenderBackend(RenderBackend):
         profile: WorldModelProfileConfig | None = None,
         bev: BevConfig | None = None,
         offload_text_encoder: bool = False,
+        postprocess: VideoPostprocessChainConfig | None = None,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
         self._manifest = manifest
@@ -51,6 +53,7 @@ class WorldModelRenderBackend(RenderBackend):
             manifest,
             profile=profile,
             offload_text_encoder=offload_text_encoder,
+            postprocess=postprocess,
         )
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
@@ -232,6 +235,9 @@ class WorldModelRenderBackend(RenderBackend):
     def reset_scene_conditioning(self) -> None:
         self._session.reset(clear_precomputed_embeddings=True)
         self._next_chunk_count = 0
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        self._session.set_postprocess_enabled(enabled)
 
     def close(self) -> None:
         self._session.close()

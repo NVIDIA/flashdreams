@@ -67,9 +67,12 @@ def test_rtx_super_resolution_rejects_non_rgb_input() -> None:
         config.output_spec(VideoSpec(height=8, width=8, channels=1))
 
 
-def test_rtx_super_resolution_rejects_scaled_same_resolution_quality() -> None:
+@pytest.mark.parametrize("quality", ["DENOISE_HIGH", "DEBLUR_ULTRA"])
+def test_rtx_super_resolution_rejects_scaled_same_resolution_quality(
+    quality: str,
+) -> None:
     config = RTXVideoSuperResolutionPostProcessorConfig(
-        quality="DENOISE_HIGH",
+        quality=quality,  # ty: ignore[invalid-argument-type]
         scale=2.0,
     )
 

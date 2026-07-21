@@ -354,4 +354,15 @@ def _synchronize_nonblocking_output(*, device: torch.device, enabled: bool) -> N
 
 
 POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION = RTXVideoSuperResolutionPostProcessorConfig()
-"""Default RTX Video Super Resolution post-processing preset."""
+"""Two-times RTX Video Super Resolution with ``HIGH`` quality."""
+
+POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION_ULTRA = (
+    RTXVideoSuperResolutionPostProcessorConfig(quality="ULTRA")
+)
+"""Two-times RTX Video Super Resolution with ``ULTRA`` quality."""
+
+POSTPROCESS_PRESET_RTX_DEBLUR_ULTRA = RTXVideoSuperResolutionPostProcessorConfig(
+    scale=1.0,
+    quality="DEBLUR_ULTRA",
+)
+"""Same-resolution RTX Video Deblur with ``ULTRA`` quality."""

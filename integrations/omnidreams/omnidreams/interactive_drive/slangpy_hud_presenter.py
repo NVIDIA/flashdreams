@@ -312,6 +312,11 @@ class SlangPyHudPresenter:
         # on the main thread, where it's safe to recreate Vulkan
         # resources.
         self._pending_resize: tuple[int, int] | None = None
+        # Last model-frame resolution that drove an automatic native-size
+        # window resize. User resizes at the same source resolution remain
+        # authoritative; a new source resolution (for example VSR on/off)
+        # triggers one fresh native-size request.
+        self._auto_sized_camera_src_size: tuple[int, int] | None = None
         self._window.on_resize = self._on_resize
         self._window.on_keyboard_event = self._on_keyboard_event
         self._window.on_mouse_event = self._on_mouse_event
@@ -376,6 +381,7 @@ class SlangPyHudPresenter:
         self._variant_dropdown_open = False
         self._scene_header_rect: tuple[int, int, int, int] | None = None
         self._variant_header_rect: tuple[int, int, int, int] | None = None
+        self._postprocess_rect: tuple[int, int, int, int] | None = None
         self._scene_item_rects: list[tuple[tuple[int, int, int, int], Any]] = []
         self._variant_item_rects: list[tuple[tuple[int, int, int, int], str]] = []
         self._hovered_scene_label: str | None = None
@@ -409,6 +415,9 @@ class SlangPyHudPresenter:
         # clicks and the placeholder shows a "Preloading scenes..." hint, so
         # the user can't pick a scene until every scene is cached.
         self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
+        self._postprocess_preset = ""
+        self._postprocess_enabled = False
+        self._postprocess_callback: Callable[[bool], None] = lambda enabled: None
 
         # Scene-change request set by the dropdown click handlers. The
         # outer demo loop checks this after each ``app.run_scene`` returns:
@@ -470,6 +479,15 @@ class SlangPyHudPresenter:
             self._apply_resize(new_size[0], new_size[1])
 
         rgb = self._select_view_rgb(frame, view_mode)
+        if (
+            view_mode == "model_rgb"
+            and frame.model_rgb_host_uint8 is not None
+            and self._resize_window_for_native_model_frame(rgb)
+        ):
+            # Window/swapchain resources are rebuilt at the start of the next
+            # presentation tick. Drop this transition frame instead of using
+            # old-size CUDA/Vulkan buffers against the newly resized window.
+            return
         try:
             if self._present_cuda_hud_frame(frame, rgb):
                 return
@@ -779,6 +797,52 @@ class SlangPyHudPresenter:
         # race with whatever frame is in flight.
         self._pending_resize = self._normalise_present_size(width, height)
 
+    def _resize_window_for_native_model_frame(self, rgb: object) -> bool:
+        """Grow the window when a model-frame resolution needs more room.
+
+        The camera region never upscales smaller frames: they remain centered
+        at native resolution while the existing canvas and HUD stay visible.
+        Larger frames grow only the dimensions required to fit the source plus
+        the fixed-width HUD column. Window-manager clamping and later user
+        resizes remain authoritative until the source resolution changes.
+
+        Returns:
+            ``True`` when a resize was requested and this frame should be
+            dropped while presentation resources are rebuilt.
+        """
+        source_size = _rgb_source_size(rgb)
+        if source_size is None or source_size == getattr(
+            self, "_auto_sized_camera_src_size", None
+        ):
+            return False
+        source_width, source_height = source_size
+        current_width, current_height = self._current_window_size()
+        target_size = (
+            max(current_width, source_width + HUD_PANEL_WIDTH),
+            max(current_height, source_height, MIN_WINDOW_H),
+        )
+        if target_size == (current_width, current_height):
+            self._auto_sized_camera_src_size = source_size
+            return False
+        try:
+            self._window.resize(*target_size)
+        except Exception as exc:
+            logger.warning(
+                "[presenter] native model-frame window resize failed "
+                f"source={source_size} target={target_size} ({exc})",
+            )
+            return False
+        # Some SDL/window-manager combinations deliver the resize callback
+        # asynchronously. Stash the request as well so the next frame always
+        # rebuilds resources before presenting at the new dimensions.
+        self._pending_resize = target_size
+        self._auto_sized_camera_src_size = source_size
+        logger.info(
+            "[presenter] native model-frame window resize "
+            f"source={source_size} target={target_size}",
+        )
+        return True
+
     def _submit_ready_cuda_hud(self) -> bool:
         interop = self._cuda_hud_interop
         if interop is None:
@@ -933,7 +997,7 @@ class SlangPyHudPresenter:
         cam_h = screen_h
         if src_w <= 0 or src_h <= 0:
             return None
-        scale = min(cam_w / src_w, cam_h / src_h)
+        scale = min(1.0, cam_w / src_w, cam_h / src_h)
         fit_w = max(1, int(src_w * scale))
         fit_h = max(1, int(src_h * scale))
         offset_x = (cam_w - fit_w) // 2
@@ -1162,7 +1226,7 @@ class SlangPyHudPresenter:
         fw, fh = camera.size
         if fw <= 0 or fh <= 0 or aw <= 0 or ah <= 0:
             return
-        scale = min(aw / fw, ah / fh)
+        scale = min(1.0, aw / fw, ah / fh)
         target_w = max(1, int(fw * scale))
         target_h = max(1, int(fh * scale))
         cache_key = (id(camera), target_w, target_h)
@@ -1296,6 +1360,7 @@ class SlangPyHudPresenter:
         header_w = panel_size[0] - margin * 2
         header_y = py + 8
         variant_y = header_y + bar_h + 4
+        postprocess_y = variant_y + bar_h + 4
         self._scene_header_rect = (
             header_x,
             header_y,
@@ -1308,6 +1373,12 @@ class SlangPyHudPresenter:
             header_x + header_w,
             variant_y + bar_h,
         )
+        self._postprocess_rect = (
+            header_x,
+            postprocess_y,
+            header_x + header_w,
+            postprocess_y + bar_h,
+        )
 
         center_x = px + panel_size[0] // 2
         # ``speed_y`` is the top of the speed-digit chip. PIL renders
@@ -1316,7 +1387,7 @@ class SlangPyHudPresenter:
         # bar would still land the visible glyph inside the bar. Add a
         # ~12 px clearance below ``variant_y + bar_h`` so the digit
         # never overlaps the headers.
-        speed_y = variant_y + bar_h + 12
+        speed_y = postprocess_y + bar_h + 12
         self._draw_speed(canvas, draw, center_x, speed_y, int(self._speed_mph))
 
         # Light the reverse indicator red when reverse is engaged; the cached
@@ -1380,6 +1451,8 @@ class SlangPyHudPresenter:
             # Scene header reads "Preloading scenes..." while locked, so the
             # lock state has to invalidate the cached chrome too.
             self._scene_selection_locked(),
+            self._postprocess_preset,
+            self._postprocess_enabled,
         )
         if key == self._panel_chrome_cache_key and self._panel_chrome_cache is not None:
             return self._panel_chrome_cache
@@ -1459,12 +1532,55 @@ class SlangPyHudPresenter:
                 font=self._font_small,
             )
 
+        # Post-processing is selected by CLI and can be switched live for the
+        # local window. An empty preset remains visible but disabled so users
+        # know which launch option unlocks the control.
+        postprocess_y = variant_y + bar_h + 4
+        postprocess_rect = (
+            margin,
+            postprocess_y,
+            margin + header_w,
+            postprocess_y + bar_h,
+        )
+        postprocess_available = bool(self._postprocess_preset)
+        postprocess_clickable = postprocess_available and not (
+            self._scene_dropdown_open or self._variant_dropdown_open
+        )
+        d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
+        d.text(
+            (margin + 10, postprocess_y + 6),
+            "Upsample 2x",
+            fill=TEXT_COLOR if postprocess_clickable else LABEL_COLOR,
+            font=self._font_small,
+        )
+        state_label = (
+            ("ON" if self._postprocess_enabled else "OFF")
+            if postprocess_available
+            else "N/A"
+        )
+        state_bbox = _measure_text(self._font_small, state_label)
+        state_w = state_bbox[2] - state_bbox[0]
+        state_fill = (
+            NVIDIA_GREEN
+            if self._postprocess_enabled and postprocess_clickable
+            else LABEL_COLOR
+        )
+        d.text(
+            (
+                margin + header_w - state_w - 10 - state_bbox[0],
+                postprocess_y + 6,
+            ),
+            state_label,
+            fill=state_fill,
+            font=self._font_small,
+        )
+
         # ``mph`` label baseline + reverse-indicator box. Speed-y must
         # match the live ``_draw_panel`` calculation; both place the
         # speed-digit chip-top ~12 px below the variant bar so PIL's
         # tight-bbox glyph chip clears the headers.
         center_x = panel_w // 2
-        speed_y = variant_y + bar_h + 12
+        speed_y = postprocess_y + bar_h + 12
         mbox = _measure_text(self._font_tiny, "mph")
         mw = mbox[2] - mbox[0]
         d.text(
@@ -2169,6 +2285,23 @@ class SlangPyHudPresenter:
                     break
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
+        dropdown_open = self._scene_dropdown_open or self._variant_dropdown_open
+        if (
+            not dropdown_open
+            and self._postprocess_rect
+            and _rect_contains(self._postprocess_rect, pos)
+        ):
+            if self._postprocess_preset:
+                self._postprocess_enabled = not self._postprocess_enabled
+                self._postprocess_callback(self._postprocess_enabled)
+                self._panel_chrome_cache_key = None
+                self._panel_chrome_cache = None
+                logger.info(
+                    "[demo] post-processing {} preset={!r}",
+                    "enabled" if self._postprocess_enabled else "disabled",
+                    self._postprocess_preset,
+                )
+            return
         # While scenes are still preloading, the scene/variant dropdowns are
         # locked (the only mouse-clickable HUD elements), so ignore clicks
         # until every scene is cached and selection is instant.
@@ -2316,6 +2449,20 @@ class SlangPyHudPresenter:
         """
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
+
+    def set_postprocess_control(
+        self,
+        *,
+        preset: str,
+        enabled: bool,
+        callback: Callable[[bool], None],
+    ) -> None:
+        """Bind the local HUD toggle to the model worker's post-process state."""
+        self._postprocess_preset = preset
+        self._postprocess_enabled = bool(enabled and preset)
+        self._postprocess_callback = callback
+        self._panel_chrome_cache_key = None
+        self._panel_chrome_cache = None
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
         """Lock scene/variant selection while ``probe()`` returns True (--preload-scenes).
@@ -2474,6 +2621,24 @@ def _prefetch_to_numpy(frame: object) -> None:
 
 def _has_cuda_tensor(frame: object) -> bool:
     return callable(getattr(frame, "to_cuda_tensor", None))
+
+
+def _rgb_source_size(frame: object) -> tuple[int, int] | None:
+    """Return an HWC RGB frame's ``(width, height)`` without a host copy."""
+    source = frame
+    to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
+    if callable(to_cuda_tensor):
+        try:
+            source = to_cuda_tensor()
+        except RuntimeError:
+            return None
+    shape = getattr(source, "shape", None)
+    if shape is None or len(shape) != 3:
+        return None
+    height, width = int(shape[0]), int(shape[1])
+    if width <= 0 or height <= 0:
+        return None
+    return (width, height)
 
 
 def _as_rgb_host_uint8(frame: object) -> np.ndarray:

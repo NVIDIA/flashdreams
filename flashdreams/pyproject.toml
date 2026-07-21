@@ -72,6 +72,8 @@ flashdreams-run = "flashdreams.scripts.cli:entrypoint"
 
 [project.entry-points."flashdreams.postprocess_presets"]
 "rtx-super-resolution" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION"
+"rtx-super-resolution-ultra" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION_ULTRA"
+"rtx-deblur-ultra" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_DEBLUR_ULTRA"
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/flashdreams"

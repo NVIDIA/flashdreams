@@ -452,6 +452,46 @@ def test_hud_resize_updates_presenter_texture_and_recreates_cuda_interop() -> No
     assert presenter._retired_cuda_hud_interops == [interop]
 
 
+def test_hud_postprocess_control_toggles_configured_preset() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[bool] = []
+    presenter._postprocess_rect = (10, 20, 110, 52)
+    presenter._panel_chrome_cache_key = object()
+    presenter._panel_chrome_cache = object()
+    presenter._scene_dropdown_open = False
+    presenter._variant_dropdown_open = False
+    presenter.set_postprocess_control(
+        preset="rtx-super-resolution",
+        enabled=True,
+        callback=calls.append,
+    )
+
+    presenter._handle_click((20, 30))
+    presenter._handle_click((20, 30))
+
+    assert calls == [False, True]
+    assert presenter._postprocess_enabled is True
+
+
+def test_hud_scene_dropdown_blocks_underlying_upsample_toggle() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[bool] = []
+    presenter._postprocess_rect = (10, 20, 110, 52)
+    presenter._postprocess_preset = "rtx-super-resolution-ultra"
+    presenter._postprocess_enabled = True
+    presenter._postprocess_callback = calls.append
+    presenter._scene_dropdown_open = True
+    presenter._variant_dropdown_open = False
+    presenter._scene_item_rects = []
+    presenter._scene_header_rect = None
+    presenter._scene_selection_locked_probe = lambda: False
+
+    presenter._handle_click((20, 30))
+
+    assert calls == []
+    assert presenter._postprocess_enabled is True
+
+
 def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> None:
     presenter = _hud_presenter_without_window()
     presenter._pending_resize = None
@@ -459,6 +499,55 @@ def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> 
     presenter._on_resize(320, 200)
 
     assert presenter._pending_resize == (320, 200)
+
+
+def test_hud_auto_sizes_window_to_native_model_frame_resolution() -> None:
+    presenter = _hud_presenter_without_window()
+    resize_calls: list[tuple[int, int]] = []
+    presenter._auto_sized_camera_src_size = None
+    presenter._pending_resize = None
+    presenter._window = SimpleNamespace(
+        size=SimpleNamespace(x=1000, y=600),
+        resize=lambda width, height: resize_calls.append((width, height)),
+    )
+
+    resized = presenter._resize_window_for_native_model_frame(
+        np.zeros((704, 1280, 3), dtype=np.uint8)
+    )
+
+    assert resized is True
+    assert resize_calls == [(1780, 704)]
+    assert presenter._pending_resize == (1780, 704)
+
+
+def test_hud_keeps_larger_canvas_when_model_resolution_shrinks() -> None:
+    presenter = _hud_presenter_without_window()
+    resize_calls: list[tuple[int, int]] = []
+    presenter._auto_sized_camera_src_size = (1280, 704)
+    presenter._pending_resize = None
+    presenter._window = SimpleNamespace(
+        size=SimpleNamespace(x=1500, y=800),
+        resize=lambda width, height: resize_calls.append((width, height)),
+    )
+
+    assert not presenter._resize_window_for_native_model_frame(
+        np.zeros((704, 1280, 3), dtype=np.uint8)
+    )
+    assert not presenter._resize_window_for_native_model_frame(
+        np.zeros((352, 640, 3), dtype=np.uint8)
+    )
+
+    assert resize_calls == []
+
+
+def test_hud_centers_smaller_camera_at_native_resolution() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._latest_camera_src_size = (640, 352)
+    presenter._configured_size = (1920, 1080)
+
+    fit = presenter._compute_camera_fit()
+
+    assert fit == (640, 352, 390, 364)
 
 
 def test_hud_cuda_submit_abandons_ready_buffer_if_resize_retires_interop() -> None:

@@ -11,6 +11,7 @@ import numpy as np
 import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
 import pytest
 import torch
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
@@ -274,6 +275,58 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
 
     session.close()
     assert fake_pipeline.finalize_calls == [(0, "cache"), (1, "cache")]
+
+
+def test_session_postprocesses_local_frames_and_supports_live_toggle(
+    monkeypatch,
+) -> None:
+    streams: list[object] = []
+
+    class _FakePostprocessStream:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            self.calls: list[int] = []
+            self.finished = False
+            streams.append(self)
+
+        def process(
+            self, output: torch.Tensor, *, autoregressive_index: int
+        ) -> torch.Tensor:
+            self.calls.append(autoregressive_index)
+            return output
+
+        def finish(self) -> None:
+            self.finished = True
+
+    monkeypatch.setattr(
+        adapter_module, "VideoPostprocessStream", _FakePostprocessStream
+    )
+    fake_pipeline = _FakePipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+        postprocess=VideoPostprocessChainConfig(preset="fake-preset"),
+    )
+    session.warmup_model()
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_conditions = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+    next_conditions = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(8)]
+
+    session.start(initial_rgb, first_conditions, "demo prompt")
+    first_stream = streams[0]
+    assert first_stream.calls == [0]
+    assert first_stream.kwargs["output_layout"] == "bvtchw"
+    assert first_stream.kwargs["collect_output"] is False
+
+    session.set_postprocess_enabled(False)
+    assert first_stream.finished is True
+    session.continue_generation(next_conditions)
+    assert len(streams) == 1
+
+    session.set_postprocess_enabled(True)
+    session.continue_generation(next_conditions)
+    assert len(streams) == 2
+    assert streams[1].calls == [2]
 
 
 def test_session_synthetic_model_initializes_cache_from_synthetic_embeddings() -> None:

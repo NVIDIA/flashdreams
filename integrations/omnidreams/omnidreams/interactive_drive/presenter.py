@@ -487,7 +487,9 @@ class _CudaRGBInterop:
         src_w = int(rgb_tensor.shape[1])
         if src_h <= 0 or src_w <= 0:
             return False
-        scale = min(area_w / src_w, area_h / src_h)
+        # Preserve native pixels for smaller frames; only downscale when the
+        # source exceeds the available camera area.
+        scale = min(1.0, area_w / src_w, area_h / src_h)
         target_w = max(1, int(src_w * scale))
         target_h = max(1, int(src_h * scale))
         target_x = int(ax) + (area_w - target_w) // 2

@@ -89,6 +89,14 @@ class RenderBackend(ABC):
         """
         self.reset()
 
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Enable or disable generated-video post-processing.
+
+        Pure raster backends have no generated-video post-process path, so the
+        default implementation intentionally does nothing.
+        """
+        del enabled
+
     @abstractmethod
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raise NotImplementedError
