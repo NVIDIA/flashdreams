@@ -405,6 +405,8 @@ class OmnidreamsRuntimeConfig:
     pipeline_config_name: str = (
         "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
     )
+    pipeline_config: Any | None = None
+    manifest_path: Path | None = None
     scene_dir: Path | None = None
     scene_uuid: str | None = None
     # Weather variant slug (default/rain/snow): picks the sibling USDZ + prompt.
@@ -607,14 +609,19 @@ class OmnidreamsInferenceRuntime:
             camera_name=cfg.camera_name,
             variant=cfg.scene_variant,
         )
-        if cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS:
+        if (
+            cfg.pipeline_config is None
+            and cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS
+        ):
             supported = ", ".join(sorted(OMNIDREAMS_CONFIGS))
             raise ValueError(
                 f"Unknown pipeline_config_name={cfg.pipeline_config_name!r}. "
                 f"Supported: {supported}"
             )
 
-        pipeline_cfg = OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
+        pipeline_cfg = cfg.pipeline_config or OMNIDREAMS_CONFIGS[
+            cfg.pipeline_config_name
+        ]
         transformer_cfg = pipeline_cfg.diffusion_model.transformer
         if not isinstance(transformer_cfg, CosmosTransformerConfig):
             raise TypeError(
@@ -696,6 +703,7 @@ class OmnidreamsInferenceRuntime:
         pipeline_t0 = time.perf_counter()
         self._wrapper = OmnidreamsConditioningWrapper(
             pipeline_config_name=cfg.pipeline_config_name,
+            pipeline_config=cfg.pipeline_config,
             resolution_wh=(cfg.video_width, cfg.video_height),
             seed_for_every_rollout=cfg.seed,
             device=self._device,

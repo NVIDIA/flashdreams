@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 import torch
 from omnidreams import scenes
+from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
 from omnidreams.webrtc.session import (
@@ -410,6 +411,82 @@ def test_build_runtime_config_threads_hf_scene_args(tmp_path: Path) -> None:
     assert cfg.debug_serve_hdmaps is True
 
 
+def test_build_runtime_config_uses_manifest_perf_toggles() -> None:
+    args = webrtc_server.parse_args(
+        [
+            "--manifest",
+            "example_world_model_perf.yaml",
+            "--warmup_chunks",
+            "0",
+        ]
+    )
+
+    cfg = webrtc_server.build_runtime_config(args)
+
+    assert cfg.manifest_path is not None
+    assert cfg.manifest_path.name == "example_world_model_perf.yaml"
+    assert cfg.pipeline_config is not None
+    assert (
+        cfg.pipeline_config_name
+        == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
+    )
+    assert cfg.video_width == 1168
+    assert cfg.video_height == 640
+    assert cfg.fps == 30
+    assert cfg.seed is None
+
+    transformer_cfg = cfg.pipeline_config.diffusion_model.transformer
+    scheduler_cfg = cfg.pipeline_config.diffusion_model.scheduler
+    assert transformer_cfg.skip_finalize_kv_cache is True
+    assert transformer_cfg.native_dit_acceleration == "required"
+    assert transformer_cfg.native_dit_backend == "fp8_kvcache_cudnn"
+    assert transformer_cfg.native_dit_attention_backend == "cudnn"
+    assert list(scheduler_cfg.denoising_timesteps) == [1000, 100]
+    assert scheduler_cfg.num_inference_steps == 2
+
+
+def test_build_runtime_config_manifest_allows_explicit_runtime_overrides() -> None:
+    args = webrtc_server.parse_args(
+        [
+            "--manifest",
+            "example_world_model_perf.yaml",
+            "--device",
+            "cuda:5",
+            "--seed",
+            "123",
+            "--fps",
+            "24",
+            "--video_width",
+            "640",
+            "--video_height",
+            "352",
+        ]
+    )
+
+    cfg = webrtc_server.build_runtime_config(args)
+
+    assert cfg.device == "cuda:5"
+    assert cfg.seed == 123
+    assert cfg.fps == 24
+    assert cfg.video_width == 640
+    assert cfg.video_height == 352
+    assert cfg.pipeline_config is not OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
+
+
+def test_build_runtime_config_rejects_manifest_config_name_conflict() -> None:
+    args = webrtc_server.parse_args(
+        [
+            "--manifest",
+            "example_world_model_perf.yaml",
+            "--pipeline_config_name",
+            "omnidreams-sv-2steps-chunk3-loc6-vae-vae",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="--manifest selects pipeline config"):
+        webrtc_server.build_runtime_config(args)
+
+
 def test_parse_args_omits_scene_dir_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -427,6 +504,83 @@ def test_parse_args_omits_scene_dir_by_default(
     assert args.scene_dir is None
     assert args.scene_uuid is None
     assert args.debug_serve_hdmaps is True
+
+
+def test_runtime_initialization_passes_manifest_pipeline_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest_args = webrtc_server.parse_args(
+        ["--manifest", "example_world_model_perf.yaml"]
+    )
+    cfg = webrtc_server.build_runtime_config(manifest_args)
+    cfg.scene_dir = tmp_path / "scene"
+    clipgt_dir = cfg.scene_dir / "clipgt"
+    clipgt_dir.mkdir(parents=True)
+    first_frame_path = clipgt_dir / "first_image.png"
+    prompt_path = clipgt_dir / "prompt.txt"
+    first_frame_path.write_text("fake image", encoding="utf-8")
+    prompt_path.write_text("test prompt", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class _FakePose:
+        transformation_matrix = torch.eye(4).numpy()
+        timestamp = 123
+
+    class _FakeSceneData:
+        ego_poses = [_FakePose()]
+        camera_models = {cfg.camera_name: object()}
+        camera_extrinsics = {cfg.camera_name: torch.eye(4).numpy()}
+
+    class _FakeConditioningWrapper:
+        initial_frame_chunk_size = 5
+        frame_chunk_size = 8
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def create_renderer(self, *_args: object) -> object:
+            return object()
+
+        def set_rollout_seed(self, seed: int | None) -> None:
+            captured["rollout_seed"] = seed
+
+    monkeypatch.setattr(
+        session,
+        "_extract_local_webrtc_scene_if_needed",
+        lambda scene_dir, **_kwargs: scene_dir,
+    )
+    monkeypatch.setattr(
+        session,
+        "_resolve_webrtc_scene_assets",
+        lambda scene_dir, **_kwargs: (clipgt_dir, first_frame_path, prompt_path),
+    )
+    monkeypatch.setattr(
+        session.cv2,
+        "imread",
+        lambda *_args, **_kwargs: torch.zeros((2, 2, 3), dtype=torch.uint8).numpy(),
+    )
+    monkeypatch.setattr(
+        session, "load_scene", lambda *_args, **_kwargs: _FakeSceneData()
+    )
+    monkeypatch.setattr(
+        session,
+        "load_and_attach_ludus_scene",
+        lambda _path, scene_data, **_kwargs: scene_data,
+    )
+    monkeypatch.setattr(
+        session,
+        "OmnidreamsConditioningWrapper",
+        _FakeConditioningWrapper,
+    )
+    runtime = OmnidreamsInferenceRuntime(config=cfg)
+
+    runtime._initialize_sync()
+
+    assert captured["pipeline_config_name"] == cfg.pipeline_config_name
+    assert captured["pipeline_config"] is cfg.pipeline_config
+    assert captured["resolution_wh"] == (cfg.video_width, cfg.video_height)
+    assert captured["seed_for_every_rollout"] is None
+    assert captured["rollout_seed"] is None
 
 
 def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
