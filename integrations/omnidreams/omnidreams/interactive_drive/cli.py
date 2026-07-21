@@ -20,9 +20,13 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+from omnidreams.interactive_drive.cli_args import ExplicitArgTrackingArgumentParser
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
-from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
+from omnidreams.interactive_drive.world_model.manifest import (
+    load_world_model_manifest,
+    resolve_world_model_manifest_path,
+)
 from omnidreams.scenes import local_scene_archive_path
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
@@ -53,28 +57,11 @@ def resolve_manifest_path(path: str | Path) -> Path:
     config directory, so ``--manifest example_world_model_perf.yaml`` works
     from a workspace root.
     """
-    raw_path = Path(path).expanduser()
-    if raw_path.is_absolute():
-        return raw_path
-
-    cwd_path = raw_path.resolve()
-    if cwd_path.exists():
-        return cwd_path
-
-    package_path = (_PACKAGE_ROOT / raw_path).resolve()
-    if package_path.exists():
-        return package_path
-
-    if len(raw_path.parts) == 1:
-        configs_path = (_CONFIGS_ROOT / raw_path).resolve()
-        if configs_path.exists():
-            return configs_path
-
-    return cwd_path
+    return resolve_world_model_manifest_path(path)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = ExplicitArgTrackingArgumentParser(
         description="Single-process flashdreams driving demo"
     )
     parser.add_argument(
