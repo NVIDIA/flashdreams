@@ -65,9 +65,9 @@ one with ``--postprocess.preset``:
        --postprocess.preset rtx-super-resolution
 
 The ``rtx-super-resolution`` preset wraps NVIDIA VFX Python bindings for RTX
-Video Super Resolution. Install ``nvidia-vfx`` from NVIDIA's Python package
-index in the active environment and run on a supported RTX GPU before selecting
-this preset.
+Video Super Resolution. Install the optional dependency with
+``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
+before selecting this preset.
 
 See also
 --------

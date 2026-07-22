@@ -113,6 +113,12 @@ runners = [
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
+# Optional NVIDIA VFX runtime used only by the RTX postprocess presets.
+# Kept out of the default install because it is proprietary and requires
+# supported NVIDIA RTX hardware.
+rtx-postprocess = [
+    "nvidia-vfx==0.1.0.1",
+]
 serving = [
     "aiohttp>=3.9",
     "aiortc>=1.9",

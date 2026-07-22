@@ -93,6 +93,18 @@ SpargeAttn             Apache-2.0   https://github.com/thu-ml/SpargeAttn
     bfd980b781784c04ad6a53e7ee657c0645d99171.
 
 ================================================================================
+Optional post-processing: RTX Video Super Resolution
+================================================================================
+
+nvidia-vfx             LicenseRef-NvidiaProprietary
+                                    https://pypi.org/project/nvidia-vfx/
+
+The ``rtx-postprocess`` extra installs NVIDIA's proprietary Python bindings
+for RTX Video Super Resolution and deblur. It is optional, dynamically loaded
+only when an RTX preset is selected, and is not redistributed as source in
+this repository.
+
+================================================================================
 Optional integration: integrations/lingbot
 ================================================================================
 
