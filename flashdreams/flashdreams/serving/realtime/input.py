@@ -135,21 +135,21 @@ class KeyboardResampler:
     def __init__(
         self,
         *,
-        fps: int,
+        fps: float,
         start_v: float = 0.0,
         supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be > 0")
-        self._fps = fps
-        self._dt = 1.0 / fps
+        self._fps = float(fps)
+        self._dt = 1.0 / self._fps
         self._supported_keys = supported_keys
         self.next_chunk_start_v = start_v
         self._event_log: deque[tuple[float, dict[str, str]]] = deque()
         self._carried_state = KeyboardState(supported_keys=supported_keys)
 
     @property
-    def fps(self) -> int:
+    def fps(self) -> float:
         return self._fps
 
     @property

@@ -91,20 +91,16 @@ class _NaiveKVCache:
                 self._cache_v[:, -length:] = v
             return
 
-        if self._cache_k.shape[1] == self.total_size:
-            tail_k = self._cache_k[:, self.sink_size + self.chunk_size :]
-            tail_v = self._cache_v[:, self.sink_size + self.chunk_size :]
-            window_k = torch.cat([tail_k, k], dim=1)[:, -self.window_size :]
-            window_v = torch.cat([tail_v, v], dim=1)[:, -self.window_size :]
-            self._cache_k = torch.cat(
-                [self._cache_k[:, : self.sink_size], window_k], dim=1
-            )
-            self._cache_v = torch.cat(
-                [self._cache_v[:, : self.sink_size], window_v], dim=1
-            )
-        else:
-            self._cache_k = torch.cat([self._cache_k, k], dim=1)
-            self._cache_v = torch.cat([self._cache_v, v], dim=1)
+        sink_k = self._cache_k[:, : self.sink_size]
+        sink_v = self._cache_v[:, : self.sink_size]
+        window_k = torch.cat([self._cache_k[:, self.sink_size :], k], dim=1)[
+            :, -self.window_size :
+        ]
+        window_v = torch.cat([self._cache_v[:, self.sink_size :], v], dim=1)[
+            :, -self.window_size :
+        ]
+        self._cache_k = torch.cat([sink_k, window_k], dim=1)
+        self._cache_v = torch.cat([sink_v, window_v], dim=1)
         self._prev_chunk_idx += 1
 
     def cached_k(self) -> torch.Tensor:
@@ -176,7 +172,9 @@ def dtype() -> torch.dtype:
 
 
 @pytest.mark.ci_cpu
-@pytest.mark.parametrize("sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21)])
+@pytest.mark.parametrize(
+    "sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21), (1, 16)]
+)
 def test_block_kvcache_matches_baseline(
     device: torch.device,
     dtype: torch.dtype,
@@ -350,7 +348,9 @@ def test_kvcache_relative_rope_cp_freqs_match_cache_chunks() -> None:
     not torch.cuda.is_available(), reason="CUDA required for cudagraph test"
 )
 @pytest.mark.ci_gpu
-@pytest.mark.parametrize("sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21)])
+@pytest.mark.parametrize(
+    "sink_size,window_size", [(0, 8), (0, 24), (3, 5), (3, 21), (1, 16)]
+)
 def test_block_kvcache_cudagraph_matches_baseline(
     dtype: torch.dtype,
     sink_size: int,

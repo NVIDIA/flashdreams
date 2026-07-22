@@ -36,14 +36,13 @@ class BlockKVCache:
     non-overlapping: each update adds one chunk of ``chunk_size`` tokens at the
     next logical position in the full sequence.
 
-    Note: Currently only supports ``total_size`` (``sink_size + window_size``) divisible by ``chunk_size``.
-
     Phases:
         - Filling: cache not yet full; tokens are written contiguously;
           ``cached_k()`` / ``cached_v()`` return only the valid prefix.
-        - Steady-state: cache full; each new chunk triggers a left-roll of the
-          local window and overwrites the rightmost positions;
-          ``cached_k()`` / ``cached_v()`` return the full buffer.
+        - Steady-state: if adding a chunk would exceed the fixed cache size, the
+          local window rolls left by the overflow amount and the new chunk
+          overwrites the rightmost positions; ``cached_k()`` / ``cached_v()``
+          return the full buffer.
 
     The argument ``chunk_idx`` (0, 1, 2, ...) is the index of the new chunk in the full
     sequence (not an index into the cache). If ``chunk_idx`` is greater than
@@ -150,10 +149,6 @@ class BlockKVCache:
             f"k_shape[seq_dim] ({self.k_shape[self.seq_dim]}) must equal sink_size + window_size ({expected_length})"
         )
 
-        assert (self.window_size + self.sink_size) % self.chunk_size == 0, (
-            f"window_size + sink_size ({self.window_size + self.sink_size}) must be divisible by chunk_size ({self.chunk_size})"
-        )
-
         self._k = torch.empty(self.k_shape, device=self.device, dtype=self.dtype)
         self._v = torch.empty(self.v_shape, device=self.device, dtype=self.dtype)
 
@@ -163,17 +158,19 @@ class BlockKVCache:
         idx[self.seq_dim] = slice(start, end)
         return tuple(idx)
 
-    def _roll_local_window_left(self) -> None:
-        """Shift the local window left by chunk_size tokens (steady-state only)."""
+    def _roll_local_window_left(self, shift_size: int) -> None:
+        """Shift valid local-window tokens left by ``shift_size`` tokens."""
         total_size = self._k.shape[self.seq_dim]
-        assert total_size == self._n_cached, (
-            f"Expected full cache: {total_size=} != {self._n_cached=}"
+        assert 0 < shift_size <= self.chunk_size, (
+            f"shift_size ({shift_size}) must be in (0, {self.chunk_size}]"
         )
-        tokens_to_keep = self.window_size - self.chunk_size
+        valid_end = min(self._n_cached, total_size)
+        valid_local_size = max(0, valid_end - self.sink_size)
+        tokens_to_keep = max(0, valid_local_size - shift_size)
 
         if tokens_to_keep > 0:
-            src_start = self.sink_size + self.chunk_size
-            src_end = total_size
+            src_start = self.sink_size + shift_size
+            src_end = src_start + tokens_to_keep
             dst_start = self.sink_size
             dst_end = self.sink_size + tokens_to_keep
 
@@ -181,6 +178,7 @@ class BlockKVCache:
             src_slice = self._seq_slice(src_start, src_end)
             self._k[dst_slice] = self._k[src_slice].clone()
             self._v[dst_slice] = self._v[src_slice].clone()
+        self._n_cached = total_size
 
     def _current_chunk_overlaps_sink(self) -> bool:
         assert self._curr_chunk_idx is not None, (
@@ -286,8 +284,11 @@ class BlockKVCache:
             "Expected the new chunk_idx to be +1 from the previous chunk_idx, "
             f"got {chunk_idx} != {self._prev_chunk_idx} + 1"
         )
-        if self.is_steady_state():
-            self._roll_local_window_left()
+        total_size = self._k.shape[self.seq_dim]
+        if not self._current_chunk_overlaps_sink():
+            overflow = self._n_cached + self.chunk_size - total_size
+            if overflow > 0:
+                self._roll_local_window_left(overflow)
 
     def update(self, k: Tensor, v: Tensor) -> None:
         """
@@ -332,7 +333,8 @@ class BlockKVCache:
             if self.is_steady_state():
                 pass
             else:
-                self._n_cached += self.chunk_size
+                total_size = self._k.shape[self.seq_dim]
+                self._n_cached = min(self._n_cached + self.chunk_size, total_size)
             self._prev_chunk_idx += 1
         elif self._curr_chunk_idx == self._prev_chunk_idx:
             pass

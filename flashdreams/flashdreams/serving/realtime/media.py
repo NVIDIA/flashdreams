@@ -141,6 +141,18 @@ def tensor_chunk_to_rgb_frames(
         "minus_one_one" if video_chunk.is_floating_point() else "uint8"
     )
     if video_chunk.ndim == 4:
+        if video_chunk.shape[-1] == 3:
+            return rgb_array_to_uint8_frames(
+                video_chunk,
+                layout="thwc",
+                value_range=value_range,
+                sync_device=sync_device,
+            )
+        if video_chunk.shape[1] != 3:
+            raise ValueError(
+                "Expected video chunk [T, C, H, W] or [T, H, W, C] with 3 RGB "
+                f"channels, got {tuple(video_chunk.shape)}"
+            )
         return rgb_array_to_uint8_frames(
             video_chunk,
             layout="tchw",
@@ -155,7 +167,8 @@ def tensor_chunk_to_rgb_frames(
             sync_device=sync_device,
         )
     raise ValueError(
-        "Expected video chunk [T, C, H, W] or [1, 1, T, 3, H, W], "
+        "Expected video chunk [T, C, H, W], [T, H, W, C], "
+        "or [1, 1, T, 3, H, W], "
         f"got {tuple(video_chunk.shape)}"
     )
 

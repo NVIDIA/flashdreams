@@ -19,6 +19,7 @@ class WebRTCStepResult:
     """One generated chunk handed back by a WebRTC model runtime."""
 
     chunk_index: int
+    # Number of output video frames in ``video_chunk``.
     num_frames: int
     video_chunk: torch.Tensor
     stats: dict[str, float] | None
@@ -39,6 +40,15 @@ class WebRTCGenerationRuntime(Protocol):
     Integrations keep their model-specific state, checkpoints, conditioning,
     and cache logic inside their concrete runtime. The shared manager only
     needs this lifecycle and chunk-generation surface.
+
+    By default, ``peek_next_chunk_num_frames`` and
+    ``peek_steady_chunk_num_frames`` are used for both input sampling and
+    output queue sizing. Runtimes whose model input clock differs from their
+    output video clock may also implement these optional methods:
+
+    - ``peek_input_fps() -> float`` for the control/input sampling clock.
+    - ``peek_next_input_num_frames() -> int`` for the length of ``frame_times``.
+    - ``peek_steady_output_num_frames() -> int`` for video queue sizing.
     """
 
     async def initialize(self) -> None: ...

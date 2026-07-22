@@ -53,9 +53,25 @@ DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 
 # How often the liveness watchdog wakes to re-check the elapsed-since-last-message.
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
+_DEFAULT_PERF_LOG_INTERVAL_CHUNKS = 5
 
 _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
+
+
+def _stat_float(stats: dict[str, float], name: str, default: float = 0.0) -> float:
+    value = stats.get(name)
+    if value is None:
+        return default
+    return float(value)
+
+
+def _stat_ms(stats: dict[str, float], name: str, default_ms: float = 0.0) -> float:
+    return _stat_float(stats, name, default_ms / 1e3) * 1e3
+
+
+def _stat_int(stats: dict[str, float], name: str) -> int:
+    return int(round(_stat_float(stats, name)))
 
 
 class WebRTCControlSignal(IntEnum):
@@ -123,6 +139,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     _runtime_error_types: tuple[type[Exception], ...] = (RuntimeError,)
     _close_session_on_generation_error: bool = False
     _resampler_supported_keys: AbstractSet[str] | None = None
+    _perf_log_interval_chunks: int = _DEFAULT_PERF_LOG_INTERVAL_CHUNKS
 
     def __init__(
         self,
@@ -160,12 +177,70 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         await self._runtime.reset_for_new_session()
 
     def _make_resampler(self, *, start_v: float) -> KeyboardResampler:
+        return self._make_resampler_at_fps(start_v=start_v, fps=self.fps)
+
+    def _make_resampler_at_fps(
+        self, *, start_v: float, fps: float
+    ) -> KeyboardResampler:
         if self._resampler_supported_keys is None:
-            return KeyboardResampler(fps=self.fps, start_v=start_v)
+            return KeyboardResampler(fps=fps, start_v=start_v)
         return KeyboardResampler(
-            fps=self.fps,
+            fps=fps,
             start_v=start_v,
             supported_keys=frozenset(self._resampler_supported_keys),
+        )
+
+    @staticmethod
+    def _positive_int_runtime_value(value: Any, *, label: str) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} must be an integer.") from exc
+        if parsed <= 0:
+            raise ValueError(f"{label} must be > 0.")
+        return parsed
+
+    @staticmethod
+    def _positive_float_runtime_value(value: Any, *, label: str) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} must be numeric.") from exc
+        if parsed <= 0.0:
+            raise ValueError(f"{label} must be > 0.")
+        return parsed
+
+    def _runtime_input_fps(self, runtime: Any) -> float:
+        method = getattr(runtime, "peek_input_fps", None)
+        if callable(method):
+            return self._positive_float_runtime_value(
+                method(),
+                label="peek_input_fps",
+            )
+        return float(self.fps)
+
+    def _runtime_next_input_num_frames(self, runtime: Any) -> int:
+        method = getattr(runtime, "peek_next_input_num_frames", None)
+        if callable(method):
+            return self._positive_int_runtime_value(
+                method(),
+                label="peek_next_input_num_frames",
+            )
+        return self._positive_int_runtime_value(
+            runtime.peek_next_chunk_num_frames(),
+            label="peek_next_chunk_num_frames",
+        )
+
+    def _runtime_steady_output_num_frames(self, runtime: Any) -> int:
+        method = getattr(runtime, "peek_steady_output_num_frames", None)
+        if callable(method):
+            return self._positive_int_runtime_value(
+                method(),
+                label="peek_steady_output_num_frames",
+            )
+        return self._positive_int_runtime_value(
+            runtime.peek_steady_chunk_num_frames(),
+            label="peek_steady_chunk_num_frames",
         )
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
@@ -289,13 +364,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # is throttled to the consumer's drain rate. AR step 0 emits fewer
         # frames than steady state; sizing to it would force a per-chunk
         # stall, so we size to the steady-state count.
-        num_frames = self._runtime.peek_steady_chunk_num_frames()
+        num_frames = self._runtime_steady_output_num_frames(self._runtime)
         video_track = BufferedVideoTrack(fps=self.fps, maxsize=num_frames)
         peer_connection.addTrack(video_track)
         # Start the resampler's virtual clock at 0; the real anchor is set
         # in the ``on_datachannel`` handler so chunk 0's window starts when
         # input can actually arrive.
-        resampler = self._make_resampler(start_v=0.0)
+        resampler = self._make_resampler_at_fps(
+            start_v=0.0,
+            fps=self._runtime_input_fps(self._runtime),
+        )
         loop = asyncio.get_running_loop()
         managed_session = ManagedWebRTCSession(
             runtime=self._runtime,
@@ -561,15 +639,19 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             "First action received; starting generation at start_v={:.3f}",
             resampler.next_chunk_start_v,
         )
+        perf_log_interval = max(0, int(self._perf_log_interval_chunks))
+        perf_window_start = loop.time()
+        perf_window_chunks = 0
+        perf_window_frames = 0
         try:
             while not managed_session.closed:
                 try:
-                    num_frames = runtime.peek_next_chunk_num_frames()
+                    input_num_frames = self._runtime_next_input_num_frames(runtime)
                 except self._runtime_error_types:
                     logger.exception("Runtime not ready; stopping generation worker.")
                     return
                 # Trigger when wallclock reaches the chunk's window end.
-                chunk_duration = num_frames * resampler.dt
+                chunk_duration = input_num_frames * resampler.dt
                 trigger_wall = resampler.next_chunk_start_v + chunk_duration
                 delay = trigger_wall - loop.time()
                 if delay > 0:
@@ -588,7 +670,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     resampler.next_chunk_start_v = now - chunk_duration
 
                 t_before_gen = loop.time()
-                segments, frame_times = resampler.sample_chunk(num_frames)
+                segments, frame_times = resampler.sample_chunk(input_num_frames)
                 chunk_end_v = resampler.next_chunk_start_v
                 consumed_action_arrivals: list[float] = []
                 while (
@@ -624,11 +706,65 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     if consumed_action_arrivals
                     else None
                 )
+                perf_window_chunks += 1
+                perf_window_frames += result.num_frames
+                if result.chunk_index == 0 or (
+                    perf_log_interval > 0
+                    and result.chunk_index % perf_log_interval == 0
+                ):
+                    interval_s = max(t_after_enqueue - perf_window_start, 1.0e-6)
+                    interval_fps = perf_window_frames / interval_s
+                    gen_fps = result.num_frames / max(
+                        t_after_gen - t_before_gen, 1.0e-6
+                    )
+                    stats = result.stats or {}
+                    logger.info(
+                        "WebRTC perf chunk={} interval_chunks={} frames={} "
+                        "gen_fps={:.1f} interval_fps={:.1f} playback_fps={} "
+                        "gen_ms={:.0f} enqueue_ms={:.0f} model_ms={:.0f} "
+                        "denoise_ms={:.0f} decode_ms={:.0f} pixel_post_ms={:.0f} "
+                        "copy_ms={:.0f} cache_ms={:.0f} "
+                        "cache_wait_ms={:.0f} cache_submit_ms={:.0f} "
+                        "queue_depth={} lag_ms={:.0f} control_latency_ms={} "
+                        "compile_active={} compile_start_step={} cuda_graph={} "
+                        "cache_frames={} cache_tokens={}",
+                        result.chunk_index,
+                        perf_window_chunks,
+                        perf_window_frames,
+                        gen_fps,
+                        interval_fps,
+                        video_track.fps,
+                        gen_ms,
+                        enqueue_ms,
+                        _stat_ms(stats, "model_step_s", gen_ms),
+                        _stat_ms(stats, "denoise_s"),
+                        _stat_ms(stats, "decode_s"),
+                        _stat_ms(stats, "pixel_post_s"),
+                        _stat_ms(stats, "gpu_to_cpu_copy_s"),
+                        _stat_ms(stats, "cache_seed_prune_s"),
+                        _stat_ms(stats, "cache_update_wait_s"),
+                        _stat_ms(stats, "cache_update_submit_s"),
+                        video_track.qsize(),
+                        lag_ms,
+                        "-"
+                        if control_latency_ms is None
+                        else f"{control_latency_ms:.0f}",
+                        _stat_int(stats, "compile_denoise_active"),
+                        _stat_int(stats, "compile_denoise_start_step"),
+                        _stat_int(stats, "cuda_graph_captured"),
+                        _stat_int(stats, "cache_frames"),
+                        _stat_int(stats, "cache_tokens"),
+                    )
+                    perf_window_start = t_after_enqueue
+                    perf_window_chunks = 0
+                    perf_window_frames = 0
                 logger.debug(
-                    "Chunk done chunk={} num_frames={} segments={} enqueued={} "
+                    "Chunk done chunk={} input_frames={} output_frames={} "
+                    "segments={} enqueued={} "
                     "gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} queue_depth={} "
                     "lag_ms={:.1f}",
                     result.chunk_index,
+                    input_num_frames,
                     result.num_frames,
                     len(segments),
                     enqueued,

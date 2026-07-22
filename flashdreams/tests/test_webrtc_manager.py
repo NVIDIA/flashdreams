@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
+from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -75,6 +76,11 @@ class _FakeResampler:
         return [(0.0, 0.0, frozenset({"w"}))], [0.0]
 
 
+class _CountingVideoTrack(_FakeVideoTrack):
+    async def enqueue_chunk(self, chunk: Any) -> int:
+        return int(chunk.shape[0])
+
+
 class _BaseTestManager(BaseWebRTCSessionManager):
     def _model_name(self) -> str:
         return "fake-model"
@@ -88,6 +94,45 @@ def _make_manager(
         runtime_config=_runtime_config(),
         fps=30,
     )
+
+
+def test_runtime_frame_timing_hooks_default_to_legacy_methods() -> None:
+    class _LegacyRuntime:
+        def peek_next_chunk_num_frames(self) -> int:
+            return 2
+
+        def peek_steady_chunk_num_frames(self) -> int:
+            return 3
+
+    runtime = _LegacyRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+
+    assert manager._runtime_input_fps(runtime) == pytest.approx(30.0)
+    assert manager._runtime_next_input_num_frames(runtime) == 2
+    assert manager._runtime_steady_output_num_frames(runtime) == 3
+
+
+def test_runtime_frame_timing_hooks_can_split_input_and_output() -> None:
+    class _SplitRuntime:
+        def peek_input_fps(self) -> float:
+            return 6.0
+
+        def peek_next_input_num_frames(self) -> int:
+            return 4
+
+        def peek_steady_output_num_frames(self) -> int:
+            return 16
+
+    runtime = _SplitRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    resampler = manager._make_resampler_at_fps(
+        start_v=0.0,
+        fps=manager._runtime_input_fps(runtime),
+    )
+
+    assert resampler.dt == pytest.approx(1.0 / 6.0)
+    assert manager._runtime_next_input_num_frames(runtime) == 4
+    assert manager._runtime_steady_output_num_frames(runtime) == 16
 
 
 def _managed_session(
@@ -229,6 +274,139 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
     assert payload["model"] == "fake-model"
     assert payload["stream"] == "rgb"
     assert payload["resolution"] == {"width": 8, "height": 4}
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_uses_split_input_and_output_frame_counts() -> None:
+    class _SplitResampler:
+        dt = 0.0
+        next_chunk_start_v = 0.0
+
+        def __init__(self) -> None:
+            self.sampled_num_frames: list[int] = []
+
+        def sample_chunk(
+            self, num_frames: int
+        ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+            self.sampled_num_frames.append(num_frames)
+            return (
+                [(0.0, 0.0, frozenset({"w"}))],
+                [float(index) for index in range(num_frames)],
+            )
+
+    class _SplitRuntime:
+        def __init__(self) -> None:
+            self.managed_session: ManagedWebRTCSession | None = None
+            self.frame_times: list[float] | None = None
+
+        def peek_input_fps(self) -> float:
+            return 6.0
+
+        def peek_next_input_num_frames(self) -> int:
+            return 2
+
+        async def generate_chunk(
+            self, *, segments: Any, frame_times: list[float]
+        ) -> WebRTCStepResult:
+            del segments
+            self.frame_times = frame_times
+            if self.managed_session is not None:
+                self.managed_session.closed = True
+            return WebRTCStepResult(
+                chunk_index=0,
+                num_frames=5,
+                video_chunk=torch.zeros((5, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats=None,
+            )
+
+    runtime = _SplitRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, channel = _managed_session(runtime)
+    resampler = _SplitResampler()
+    managed.video_track = _CountingVideoTrack()  # ty:ignore[invalid-assignment]
+    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    runtime.managed_session = managed
+    manager._active_session = managed
+
+    task = asyncio.create_task(manager._generation_worker(managed_session=managed))
+    managed.generation_task = task
+    await asyncio.wait_for(task, timeout=5.0)
+
+    assert resampler.sampled_num_frames == [2]
+    assert runtime.frame_times == [0.0, 1.0]
+    chunk_done = [
+        json.loads(message)
+        for message in channel.messages
+        if json.loads(message).get("type") == "chunk_done"
+    ]
+    assert len(chunk_done) == 1
+    assert chunk_done[0]["num_frames"] == 5
+    assert chunk_done[0]["enqueued_frames"] == 5
+    assert chunk_done[0]["play_ms"] == pytest.approx(5 * 1000 / 30, abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_logs_periodic_perf_stats(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    perf_logs: list[tuple[str, tuple[Any, ...]]] = []
+
+    def _record_info(message: str, *args: Any, **_kwargs: Any) -> None:
+        if message.startswith("WebRTC perf"):
+            perf_logs.append((message, args))
+
+    class _StatsRuntime:
+        def __init__(self) -> None:
+            self.managed_session: ManagedWebRTCSession | None = None
+            self.chunk_index = 0
+
+        def peek_next_chunk_num_frames(self) -> int:
+            return 1
+
+        async def generate_chunk(
+            self, *, segments: Any, frame_times: Any
+        ) -> WebRTCStepResult:
+            del segments, frame_times
+            chunk_index = self.chunk_index
+            self.chunk_index += 1
+            if chunk_index >= 2 and self.managed_session is not None:
+                self.managed_session.closed = True
+            return WebRTCStepResult(
+                chunk_index=chunk_index,
+                num_frames=4,
+                video_chunk=torch.zeros((4, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                stats={
+                    "model_step_s": 0.02,
+                    "denoise_s": 0.01,
+                    "decode_s": 0.004,
+                    "pixel_post_s": 0.003,
+                    "gpu_to_cpu_copy_s": 0.002,
+                    "compile_denoise_active": 1.0,
+                    "compile_denoise_start_step": 3.0,
+                    "cache_frames": 13.0,
+                    "cache_tokens": 512.0,
+                },
+            )
+
+    class _FrequentLogManager(_BaseTestManager):
+        _perf_log_interval_chunks = 2
+
+    monkeypatch.setattr(manager_module.logger, "info", _record_info)
+    runtime = _StatsRuntime()
+    manager = _make_manager(_FrequentLogManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    runtime.managed_session = managed
+    manager._active_session = managed
+
+    task = asyncio.create_task(manager._generation_worker(managed_session=managed))
+    managed.generation_task = task
+    await asyncio.wait_for(task, timeout=5.0)
+
+    assert [args[0] for _message, args in perf_logs] == [0, 2]
+    assert "compile_active" in perf_logs[0][0]
+    assert "pixel_post_ms" in perf_logs[0][0]
+    assert "copy_ms" in perf_logs[0][0]
+    assert perf_logs[0][1][-2:] == (13, 512)
 
 
 @pytest.mark.asyncio

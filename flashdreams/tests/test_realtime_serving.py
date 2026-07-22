@@ -144,6 +144,18 @@ def test_realtime_media_supports_omnidreams_uint8_layout() -> None:
     assert frames[1][0, 0, 0] == 255
 
 
+def test_realtime_media_supports_thwc_uint8_chunks() -> None:
+    chunk = torch.zeros((2, 4, 5, 3), dtype=torch.uint8)
+    chunk[1, 0, 0] = torch.tensor([10, 20, 30], dtype=torch.uint8)
+
+    frames = tensor_chunk_to_rgb_frames(chunk)
+
+    assert len(frames) == 2
+    assert frames[0].shape == (4, 5, 3)
+    assert frames[0].dtype == np.uint8
+    assert frames[1][0, 0].tolist() == [10, 20, 30]
+
+
 @pytest.mark.parametrize(
     "chunk",
     [
