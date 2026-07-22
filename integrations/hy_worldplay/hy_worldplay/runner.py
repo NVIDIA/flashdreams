@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,14 +29,7 @@ from torch import Tensor
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
-from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.infra.runner_io import (
-    ensure_output_dir,
-    resolve_prompt_value,
-    runner_artifact_path,
-    write_runner_stats,
-)
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
 __all__ = [
@@ -126,6 +120,16 @@ def _pil_to_numpy(img: object) -> object:
     return np.asarray(img)
 
 
+def _resolve_prompt(value: str | Path) -> str:
+    """Read an inline prompt or the first non-empty line of a prompt file."""
+    if isinstance(value, Path):
+        lines = [ln.strip() for ln in value.read_text().splitlines() if ln.strip()]
+        assert lines, f"prompt file {value} has no non-empty lines"
+        return lines[0]
+    assert value, "--prompt must be a non-empty string or a path to a .txt file"
+    return value
+
+
 def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
     """Persist a decoded video tensor as mp4.
 
@@ -204,9 +208,6 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
     fps: int = 16
     """Output video frame rate."""
 
-    postprocess_output_layout: VideoTensorLayout | None = "btchw"
-    """Pipeline output layout for streaming post-processing."""
-
     context_window_length: int = 16
     """Frame-count threshold below which the FOV-overlap memory selector
     is bypassed (AR steps with fewer accumulated frames emit
@@ -247,6 +248,19 @@ class HyWorldPlayWanI2VRunnerConfig(RunnerConfig):
 
     memory_points_radius: float = 8.0
     """Radius of the Monte-Carlo sphere."""
+
+    drift_corrector: Path | None = None
+    """Clean Forcing drift-corrector LoRA checkpoint (v2). ``None``
+    disables correction. When set, correction is keyed on the job's
+    trajectory content: static poses (all idle action labels) run the
+    untouched base weights — static scenes measure negative drift on this
+    host, so correction there is pure artifact cost — while
+    commanded-motion poses deploy the corrector at
+    ``alpha*(t) * drift_corrector_gain`` per denoise step."""
+
+    drift_corrector_gain: float = 0.5
+    """Global gain composed with the per-step ``alpha*(t)`` gate profile;
+    the shipped configuration (``corrgate050``) is 0.5."""
 
 
 class HyWorldPlayWanI2VRunner(
@@ -339,6 +353,14 @@ class HyWorldPlayWanI2VRunner(
         if not cfg.image_path.exists():
             raise FileNotFoundError(f"image_path {cfg.image_path} does not exist")
 
+        if cfg.drift_corrector is not None:
+            from hy_worldplay._drift_corrector import maybe_apply_drift_corrector
+
+            mode = maybe_apply_drift_corrector(
+                self, cfg.drift_corrector, cfg.drift_corrector_gain
+            )
+            logger.info(f"[{cfg.runner_name}] drift corrector: {mode}")
+
         first_param = next(self.pipeline.parameters())
         device = first_param.device
         # Cast to the pipeline's parameter dtype so the VAE encoder's
@@ -346,7 +368,7 @@ class HyWorldPlayWanI2VRunner(
         image = preprocess_first_frame(
             cfg.image_path, cfg.pixel_height, cfg.pixel_width
         ).to(device=device, dtype=first_param.dtype)
-        prompt = resolve_prompt_value(cfg.prompt)
+        prompt = _resolve_prompt(cfg.prompt)
 
         cache = self.pipeline.initialize_cache(
             text=[prompt],
@@ -371,38 +393,31 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
-        postprocess_stream = self.create_postprocess_stream(
-            fps=cfg.fps, move_to_cpu=False
-        )
+        chunks: list[Tensor] = []
         # Each ``finalize`` returns the per-stage ms dict for that AR
         # step; collect into ``stats_history`` and dump as JSON.
-        stats_history: list[dict[str, object]] = []
+        stats_history: list[dict[str, float]] = []
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
         with vendor_noise_ctx:
             for ar_idx in range(cfg.num_chunk):
                 chunk = self.pipeline.generate(ar_idx, cache)
+                chunks.append(chunk)
                 # ``finalize`` records the chunk's CUDA events and
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
-                postprocess_stream.process(chunk, autoregressive_index=ar_idx)
-                if postprocess_stream.collect_output and stats is not None:
-                    stats_history.append(
-                        {
-                            "autoregressive_index": ar_idx,
-                            **postprocess_stream.add_process_stats(stats),
-                        }
-                    )
-            video = postprocess_stream.finish()
+                if stats is not None:
+                    stats_history.append({"autoregressive_index": ar_idx, **stats})
         elapsed = time.time() - start_time
 
-        if video is None:
+        if not self.is_rank_zero:
             return
 
-        ensure_output_dir(cfg.output_dir)
-        out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
+        video = torch.cat(chunks, dim=-4)  # cat along T axis: [..., T, C, H, W]
+        cfg.output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = cfg.output_dir / f"{cfg.runner_name}.mp4"
         _write_mp4(video, out_path, fps=cfg.fps)
         logger.info(
             f"[{cfg.runner_name}] wrote video "
@@ -410,9 +425,8 @@ class HyWorldPlayWanI2VRunner(
         )
 
         if stats_history:
-            stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, stats_history
-            )
+            stats_path = cfg.output_dir / f"stats_{cfg.runner_name}.json"
+            stats_path.write_text(json.dumps(stats_history, indent=2))
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
             )
