@@ -256,6 +256,20 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         """Register optional extra peer-connection event handlers."""
 
+    def _resolve_video_encoder(self) -> VideoEncoder:
+        """Return the encoder to use for the next session.
+
+        Default: read ``runtime.video_encoder`` if the runtime provides
+        one (omnidreams does, via ``_initialize_video_encoder_sync``);
+        otherwise construct a session-scope :class:`DefaultRTCEncoder`.
+        Runtimes that do not participate in encoder selection
+        transparently get the software path without having to opt in.
+        """
+        encoder = getattr(self._runtime, "video_encoder", None)
+        if encoder is None:
+            encoder = DefaultRTCEncoder(fps=self.fps)
+        return encoder
+
     def _prefer_h264_video_codec(self, *, transceiver: Any) -> None:
         """Constrain the transceiver's codec preferences to H.264 variants.
 
@@ -444,7 +458,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # frames than steady state; sizing to it would force a per-chunk
         # stall, so we size to the steady-state count.
         num_frames = self._runtime_steady_output_num_frames(self._runtime)
-        video_encoder: VideoEncoder = self._runtime.video_encoder
+        video_encoder = self._resolve_video_encoder()
         video_track = video_encoder.create_track(maxsize=num_frames)
         # Use ``addTransceiver`` (not ``addTrack``) so we can constrain the
         # SDP m-line's codec list via ``setCodecPreferences`` when the

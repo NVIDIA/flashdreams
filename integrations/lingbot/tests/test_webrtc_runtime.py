@@ -448,6 +448,7 @@ async def test_event_message_dispatches_to_runtime_and_acknowledges(
     managed_session = session._ManagedLingbotSession(
         runtime=runtime,
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=channel,
@@ -498,6 +499,7 @@ async def test_clear_event_message_does_not_require_event_id_and_preserves_ack_f
     managed_session = session._ManagedLingbotSession(
         runtime=runtime,
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=channel,
@@ -544,6 +546,7 @@ async def test_event_message_without_id_is_rejected_for_trigger(
     managed_session = session._ManagedLingbotSession(
         runtime=runtime,
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
         resampler=object(),  # ty:ignore[invalid-argument-type]
         control_channel=channel,
