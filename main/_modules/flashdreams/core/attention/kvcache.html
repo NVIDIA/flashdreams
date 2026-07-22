@@ -425,14 +425,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    non-overlapping: each update adds one chunk of ``chunk_size`` tokens at the</span>
 <span class="sd">    next logical position in the full sequence.</span>
 
-<span class="sd">    Note: Currently only supports ``total_size`` (``sink_size + window_size``) divisible by ``chunk_size``.</span>
-
 <span class="sd">    Phases:</span>
 <span class="sd">        - Filling: cache not yet full; tokens are written contiguously;</span>
 <span class="sd">          ``cached_k()`` / ``cached_v()`` return only the valid prefix.</span>
-<span class="sd">        - Steady-state: cache full; each new chunk triggers a left-roll of the</span>
-<span class="sd">          local window and overwrites the rightmost positions;</span>
-<span class="sd">          ``cached_k()`` / ``cached_v()`` return the full buffer.</span>
+<span class="sd">        - Steady-state: if adding a chunk would exceed the fixed cache size, the</span>
+<span class="sd">          local window rolls left by the overflow amount and the new chunk</span>
+<span class="sd">          overwrites the rightmost positions; ``cached_k()`` / ``cached_v()``</span>
+<span class="sd">          return the full buffer.</span>
 
 <span class="sd">    The argument ``chunk_idx`` (0, 1, 2, ...) is the index of the new chunk in the full</span>
 <span class="sd">    sequence (not an index into the cache). If ``chunk_idx`` is greater than</span>
@@ -542,10 +541,6 @@ SPDX-License-Identifier: Apache-2.0
             <span class="sa">f</span><span class="s2">&quot;k_shape[seq_dim] (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span><span class="si">}</span><span class="s2">) must equal sink_size + window_size (</span><span class="si">{</span><span class="n">expected_length</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
 
-        <span class="k">assert</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">window_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;window_size + sink_size (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">window_size</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span><span class="si">}</span><span class="s2">) must be divisible by chunk_size (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">)&quot;</span>
-        <span class="p">)</span>
-
         <span class="bp">self</span><span class="o">.</span><span class="n">_k</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">k_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_v</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">v_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
@@ -555,17 +550,19 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">idx</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
         <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_roll_local_window_left</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shift the local window left by chunk_size tokens (steady-state only).&quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_roll_local_window_left</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">shift_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shift valid local-window tokens left by ``shift_size`` tokens.&quot;&quot;&quot;</span>
         <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
-        <span class="k">assert</span> <span class="n">total_size</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Expected full cache: </span><span class="si">{</span><span class="n">total_size</span><span class="si">=}</span><span class="s2"> != </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span><span class="si">=}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;</span> <span class="n">shift_size</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;shift_size (</span><span class="si">{</span><span class="n">shift_size</span><span class="si">}</span><span class="s2">) must be in (0, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">]&quot;</span>
         <span class="p">)</span>
-        <span class="n">tokens_to_keep</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_size</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
+        <span class="n">valid_end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span><span class="p">,</span> <span class="n">total_size</span><span class="p">)</span>
+        <span class="n">valid_local_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">valid_end</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span><span class="p">)</span>
+        <span class="n">tokens_to_keep</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">valid_local_size</span> <span class="o">-</span> <span class="n">shift_size</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="n">tokens_to_keep</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="n">src_start</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
-            <span class="n">src_end</span> <span class="o">=</span> <span class="n">total_size</span>
+            <span class="n">src_start</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">+</span> <span class="n">shift_size</span>
+            <span class="n">src_end</span> <span class="o">=</span> <span class="n">src_start</span> <span class="o">+</span> <span class="n">tokens_to_keep</span>
             <span class="n">dst_start</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span>
             <span class="n">dst_end</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">+</span> <span class="n">tokens_to_keep</span>
 
@@ -573,6 +570,10 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">src_slice</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="n">src_start</span><span class="p">,</span> <span class="n">src_end</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="n">dst_slice</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="n">src_slice</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">[</span><span class="n">dst_slice</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">[</span><span class="n">src_slice</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+        <span class="c1"># before_update() only rolls when the next contiguous chunk would overflow</span>
+        <span class="c1"># this fixed buffer; update() must immediately write that chunk into the</span>
+        <span class="c1"># newly freed right edge.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">=</span> <span class="n">total_size</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_current_chunk_overlaps_sink</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
@@ -683,8 +684,11 @@ SPDX-License-Identifier: Apache-2.0
             <span class="s2">&quot;Expected the new chunk_idx to be +1 from the previous chunk_idx, &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="n">chunk_idx</span><span class="si">}</span><span class="s2"> != </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="si">}</span><span class="s2"> + 1&quot;</span>
         <span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_steady_state</span><span class="p">():</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_roll_local_window_left</span><span class="p">()</span></div>
+        <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_chunk_overlaps_sink</span><span class="p">():</span>
+            <span class="n">overflow</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">-</span> <span class="n">total_size</span>
+            <span class="k">if</span> <span class="n">overflow</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_roll_local_window_left</span><span class="p">(</span><span class="n">overflow</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="BlockKVCache.update">
@@ -735,7 +739,8 @@ SPDX-License-Identifier: Apache-2.0
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_steady_state</span><span class="p">():</span>
                 <span class="k">pass</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
+                <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="n">total_size</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="p">:</span>
             <span class="k">pass</span>
