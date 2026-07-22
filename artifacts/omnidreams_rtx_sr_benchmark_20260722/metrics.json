@@ -1,0 +1,162 @@
+{
+  "inputs": {
+    "baseline_video": "baseline\\omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae.mp4",
+    "rtx_video": "rtx_super_resolution\\omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae.mp4",
+    "frame_count": 45,
+    "native_resolution": [
+      1280,
+      704
+    ],
+    "rtx_resolution": [
+      2560,
+      1408
+    ]
+  },
+  "performance": {
+    "warmup_chunks_excluded": 3,
+    "measured_chunk_indices": [
+      3,
+      4,
+      5
+    ],
+    "frames_per_measured_chunk": [
+      8,
+      8,
+      8
+    ],
+    "baseline_total_ms": {
+      "mean": 616.8819726308187,
+      "median": 600.6119976043701,
+      "p90": 640.620299911499,
+      "min": 599.4115447998047,
+      "max": 650.6223754882812
+    },
+    "rtx_model_total_ms": {
+      "mean": 620.5475743611654,
+      "median": 601.8074531555176,
+      "p90": 647.5436866760253,
+      "min": 600.8575248718262,
+      "max": 658.9777450561523
+    },
+    "rtx_postprocess_ms": {
+      "mean": 9.083850542704264,
+      "median": 8.939680099487305,
+      "p90": 9.327417373657227,
+      "min": 8.887519836425781,
+      "max": 9.424351692199707
+    },
+    "rtx_postprocess_ms_per_frame": {
+      "mean": 1.135481317838033,
+      "median": 1.117460012435913,
+      "p90": 1.1659271717071533,
+      "min": 1.1109399795532227,
+      "max": 1.1780439615249634
+    },
+    "rtx_effective_total_ms": {
+      "mean": 629.6314249038696,
+      "median": 610.6949729919434,
+      "p90": 656.8606719970703,
+      "min": 609.7972049713135,
+      "max": 668.402096748352
+    },
+    "baseline_effective_fps": {
+      "mean": 12.987363051233134,
+      "median": 13.319747244326095,
+      "p90": 13.341087811519733,
+      "min": 12.295918956055166,
+      "max": 13.346422953318143
+    },
+    "rtx_effective_fps": {
+      "mean": 12.72926279543359,
+      "median": 13.099829462826676,
+      "p90": 13.115258340324377,
+      "min": 11.968843363775285,
+      "max": 13.119115559698804
+    },
+    "median_effective_latency_overhead_percent": 1.6787835454154632,
+    "baseline_reserved_gib_median": 39.99609375,
+    "rtx_reserved_gib_median": 40.66796875
+  },
+  "quality": {
+    "rtx_vs_lanczos_2x_psnr_db": {
+      "mean": 37.75046208107898,
+      "median": 37.949422299309,
+      "p90": 40.839906507669326,
+      "min": 33.881354427566244,
+      "max": 41.326661026088146
+    },
+    "rtx_vs_lanczos_2x_ssim_luma": {
+      "mean": 0.9680843804187683,
+      "median": 0.9708244240381986,
+      "p90": 0.9759919513668417,
+      "min": 0.9542321939390148,
+      "max": 0.9792767150390136
+    },
+    "rtx_downsampled_vs_native_psnr_db": {
+      "mean": 38.48038505337243,
+      "median": 38.57697806670111,
+      "p90": 42.14527247466648,
+      "min": 34.10005700354234,
+      "max": 42.96949249882573
+    },
+    "rtx_downsampled_vs_native_ssim_luma": {
+      "mean": 0.9687672585781595,
+      "median": 0.9734474268544786,
+      "p90": 0.9797322969252614,
+      "min": 0.9469187013228201,
+      "max": 0.9827634073401451
+    },
+    "lanczos_2x_laplacian_variance": {
+      "mean": 6.06872050448464,
+      "median": 6.1007304788989725,
+      "p90": 6.598414250965528,
+      "min": 5.122824928907997,
+      "max": 6.852025256421693
+    },
+    "rtx_laplacian_variance": {
+      "mean": 19.324646255505755,
+      "median": 19.83603317574953,
+      "p90": 21.193172079397105,
+      "min": 15.68372074923454,
+      "max": 23.12173738235163
+    },
+    "lanczos_2x_sobel_energy": {
+      "mean": 9.387406645880805,
+      "median": 9.464920043945312,
+      "p90": 9.77283821105957,
+      "min": 8.72728443145752,
+      "max": 9.866048812866211
+    },
+    "rtx_sobel_energy": {
+      "mean": 10.69147506290012,
+      "median": 10.809677124023438,
+      "p90": 11.156242561340331,
+      "min": 9.57101058959961,
+      "max": 11.258916854858398
+    },
+    "lanczos_temporal_frame_delta_mae": {
+      "mean": 2.189612860029394,
+      "median": 2.2189478874206543,
+      "p90": 2.8599597692489627,
+      "min": 1.2239097356796265,
+      "max": 3.3097434043884277
+    },
+    "rtx_temporal_frame_delta_mae": {
+      "mean": 2.307418481870131,
+      "median": 2.3067214488983154,
+      "p90": 3.0299647092819217,
+      "min": 1.2991384267807007,
+      "max": 3.403806447982788
+    }
+  },
+  "visual_comparison": {
+    "frame_index": 36,
+    "timestamp_seconds": 1.2,
+    "crop_xywh_at_2x": [
+      0,
+      480,
+      1120,
+      720
+    ]
+  }
+}

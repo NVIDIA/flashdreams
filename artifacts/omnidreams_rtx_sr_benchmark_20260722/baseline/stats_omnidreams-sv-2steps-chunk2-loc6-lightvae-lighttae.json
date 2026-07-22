@@ -1,0 +1,74 @@
+[
+  {
+    "autoregressive_index": 0,
+    "encode_ms": 67.1394271850586,
+    "diffuse_ms": 33847.7734375,
+    "decode_ms": 4706.974609375,
+    "finalize_ms": 240.3902130126953,
+    "total_ms": 38862.277687072754,
+    "total_ms_wo_finalize": 38621.88747406006,
+    "mem_alloc_gib": 34.05487251281738,
+    "mem_reserved_gib": 39.91796875,
+    "mem_peak_gib": 37.451319217681885
+  },
+  {
+    "autoregressive_index": 1,
+    "encode_ms": 72.93411254882812,
+    "diffuse_ms": 26250.044921875,
+    "decode_ms": 17.809375762939453,
+    "finalize_ms": 137.64405822753906,
+    "total_ms": 26478.432468414307,
+    "total_ms_wo_finalize": 26340.788410186768,
+    "mem_alloc_gib": 34.05235481262207,
+    "mem_reserved_gib": 39.91796875,
+    "mem_peak_gib": 37.451319217681885
+  },
+  {
+    "autoregressive_index": 2,
+    "encode_ms": 108.8505630493164,
+    "diffuse_ms": 16927.638671875,
+    "decode_ms": 18.003936767578125,
+    "finalize_ms": 172.5747528076172,
+    "total_ms": 17227.06792449951,
+    "total_ms_wo_finalize": 17054.493171691895,
+    "mem_alloc_gib": 34.053194999694824,
+    "mem_reserved_gib": 39.4765625,
+    "mem_peak_gib": 37.451319217681885
+  },
+  {
+    "autoregressive_index": 3,
+    "encode_ms": 68.99951934814453,
+    "diffuse_ms": 344.0927429199219,
+    "decode_ms": 63.72345733642578,
+    "finalize_ms": 173.80665588378906,
+    "total_ms": 650.6223754882812,
+    "total_ms_wo_finalize": 476.8157196044922,
+    "mem_alloc_gib": 34.125569343566895,
+    "mem_reserved_gib": 39.9375,
+    "mem_peak_gib": 37.451319217681885
+  },
+  {
+    "autoregressive_index": 4,
+    "encode_ms": 68.80643463134766,
+    "diffuse_ms": 342.4020690917969,
+    "decode_ms": 17.16223907470703,
+    "finalize_ms": 171.04080200195312,
+    "total_ms": 599.4115447998047,
+    "total_ms_wo_finalize": 428.37074279785156,
+    "mem_alloc_gib": 34.125569343566895,
+    "mem_reserved_gib": 39.99609375,
+    "mem_peak_gib": 37.451319217681885
+  },
+  {
+    "autoregressive_index": 5,
+    "encode_ms": 69.33004760742188,
+    "diffuse_ms": 341.31768798828125,
+    "decode_ms": 17.279935836791992,
+    "finalize_ms": 172.684326171875,
+    "total_ms": 600.6119976043701,
+    "total_ms_wo_finalize": 427.9276714324951,
+    "mem_alloc_gib": 34.125569343566895,
+    "mem_reserved_gib": 39.99609375,
+    "mem_peak_gib": 37.451319217681885
+  }
+]

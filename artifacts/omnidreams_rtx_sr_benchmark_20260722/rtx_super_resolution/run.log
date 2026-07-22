@@ -1,0 +1,254 @@
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `_target` is annotated with type `type['OmnidreamsRunner']`, but the default value `<class 'omnidreams.runner.OmnidreamsRunner'>` has type `<class 'abc.ABCMeta'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `pipeline._target` is annotated with type `type['OmnidreamsPipeline']`, but the default value `<class 'omnidreams.pipeline.OmnidreamsPipeline'>` has type `<class 'type'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `pipeline.diffusion-model._target` is annotated with type `type['DiffusionModel']`, but the default value `<class 'flashdreams.infra.diffusion.model.base.DiffusionModel'>` has type `<class 'type'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `pipeline.diffusion-model.transformer._target` is annotated with type `type['CosmosTransformer']`, but the default value `<class 'omnidreams.transformer.CosmosTransformer'>` has type `<class 'abc.ABCMeta'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `pipeline.diffusion-model.transformer.network._target` is annotated with type `type['CosmosDiTNetwork']`, but the default value `<class 'omnidreams.transformer.impl.network.CosmosDiTNetwork'>` has type `<class 'type'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+C:\ai\flashdreams\.venv\lib\site-packages\tyro\_parsers.py:352: UserWarning: The field `pipeline.diffusion-model.scheduler._target` is annotated with type `type['FlowMatchScheduler']`, but the default value `<class 'flashdreams.infra.diffusion.scheduler.fm.FlowMatchScheduler'>` has type `<class 'abc.ABCMeta'>`. We'll try to handle this gracefully, but it may cause unexpected behavior.
+  warnings.warn(message)
+2026-07-22 11:02:01.451 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - Downloading checkpoint from Hugging Face: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth
+2026-07-22 11:02:01.596 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:527 - Checkpoint downloaded to local HF cache: C:\Users\gtong\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapshots\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lightvaew2_1.pth
+2026-07-22 11:02:01.659 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - Downloading checkpoint from Hugging Face: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth
+2026-07-22 11:02:01.764 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:527 - Checkpoint downloaded to local HF cache: C:\Users\gtong\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapshots\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lighttaew2_1.pth
+2026-07-22 11:02:11.671 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - Downloading checkpoint from Hugging Face: https://huggingface.co/nvidia/omni-dreams-models/resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt
+2026-07-22 11:02:11.796 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:527 - Checkpoint downloaded to local HF cache: C:\Users\gtong\.cache\huggingface\hub\models--nvidia--omni-dreams-models\snapshots\253701787e2f99efec31aaab665d0d9e0cc1eb4a\single_view\2b_res720p_30fps_i2v_hdmap_distilled.pt
+Resolved config for 'omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae':
+OmnidreamsRunnerConfig:
+    _target: <class 'omnidreams.runner.OmnidreamsRunner'>
+    runner_name: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+    description: Single-view 2-step distilled chunk2 (LightVAE + LightTAE).
+    pipeline: OmnidreamsPipelineConfig:
+        _target: <class 'omnidreams.pipeline.OmnidreamsPipeline'>
+        name: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+        diffusion_model: DiffusionModelConfig:
+            _target: <class 'flashdreams.infra.diffusion.model.base.DiffusionModel'>
+            transformer: CosmosTransformerConfig:
+                _target: <class 'omnidreams.transformer.CosmosTransformer'>
+                network: CosmosDiTNetworkConfig:
+                    _target: <class 'omnidreams.transformer.impl.network.CosmosDiTNetwork'>
+                    in_channels: 16
+                    out_channels: 16
+                    patch_spatial: 2
+                    patch_temporal: 1
+                    model_channels: 2048
+                    num_blocks: 28
+                    num_heads: 16
+                    mlp_ratio: 4.0
+                    concat_padding_mask: True
+                    use_adaln_lora: True
+                    adaln_lora_dim: 256
+                    use_crossattn_projection: True
+                    crossattn_proj_in_channels: 100352
+                    crossattn_emb_channels: 1024
+                    timestep_scale: 0.001
+                    additional_concat_ch: 16
+                    enable_cross_view_attn: False
+                    cp_method: ring
+                    view_condition_dim: 16
+                    n_cameras_emb: 7
+                dtype: torch.bfloat16
+                checkpoint_path: https://huggingface.co/nvidia/omni-dreams-models/resolve/main/single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt
+                state_dict_transform: None
+                batch_shape: [1]
+                num_views: 1
+                len_t: 2
+                h_extrapolation_ratio: 3.0
+                w_extrapolation_ratio: 3.0
+                window_size_t: 6
+                sink_size_t: 0
+                compile_network: True
+                use_cuda_graph: True
+                cuda_graph_warmup_iters: 2
+                skip_finalize_kv_cache: False
+                native_dit_acceleration: disabled
+                native_dit_build_root: None
+                native_dit_max_jobs: None
+                native_dit_verbose_build: False
+                native_dit_backend: fp8_kvcache_cudnn
+                native_dit_attention_backend: auto
+                native_dit_sparge_topk: None
+                native_dit_sparge_hybrid_period: None
+                native_dit_sparge_hybrid_phase: None
+                guidance_scale: 1.0
+            scheduler: FlowMatchSchedulerConfig:
+                _target: <class 'flashdreams.infra.diffusion.scheduler.fm.FlowMatchScheduler'>
+                num_inference_steps: 2
+                shift: 5.0
+                denoising_timesteps: [1000, 450]
+                warp_denoising_step: True
+                num_train_timesteps: 1000
+                sigma_max: 1.0
+                sigma_min: 0.0
+                extra_one_step: True
+                timestep_dtype: torch.float32
+                enable_tqdm: False
+            seed: 42
+            context_noise: 128
+            noise_in_unpatchified_shape: False
+        decoder: TeahvVAEDecoderConfig:
+            _target: <class 'flashdreams.recipes.taehv.TeahvVAEDecoder'>
+            checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth
+            state_dict_transform: <function compose.<locals>.composed at 0x0000023156BC0D30>
+            dtype: torch.bfloat16
+            use_cuda_graph: True
+            use_compile: True
+        encoder: OmnidreamsWanVAEEncoderConfig:
+            _target: <class 'omnidreams.vae_native.OmnidreamsWanVAEEncoder'>
+            checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth
+            dtype: torch.bfloat16
+            use_cuda_graph: True
+            use_compile: False
+            base_dim: 96
+            z_dim: 16
+            patch_size: 1
+            is_residual: False
+            latent_mean: [-0.7571
+            -0.7089
+            -0.9113
+            0.1075
+            -0.1745
+            0.9653
+            -0.1517
+            1.5508
+            0.4134
+            -0.0715
+            0.5517
+            -0.3632
+            -0.1922
+            -0.9497
+            0.2503
+            -0.2921]
+            latent_std: [2.8184
+            1.4541
+            2.3275
+            2.6558
+            1.2196
+            1.7708
+            2.6052
+            2.0743
+            3.2687
+            2.1526
+            2.8652
+            1.5579
+            1.6382
+            1.1253
+            2.8251
+            1.916]
+            state_dict_transform: None
+            native_vae_acceleration: disabled
+            native_vae_build_root: None
+            native_vae_max_jobs: None
+            native_vae_verbose_build: False
+            native_vae_backend: fp8
+            native_vae_fp8_state_path: None
+        enable_sync_and_profile: True
+        text_encoder: CosmosReason1TextEncoderConfig:
+            _target: <class 'flashdreams.infra.encoder.text.cosmos_reason1.CosmosReason1TextEncoder'>
+            model_name: nvidia/Cosmos-Reason1-7B
+            revision: 3210bec0495fdc7a8d3dbb8d58da5711eab4b423
+            max_length: 512
+            dtype: torch.bfloat16
+            embedding_concat_strategy: full_concat
+            n_layers_per_group: 5
+        image_encoder: OmnidreamsWanVAEEncoderConfig:
+            _target: <class 'omnidreams.vae_native.OmnidreamsWanVAEEncoder'>
+            checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth
+            dtype: torch.bfloat16
+            use_cuda_graph: True
+            use_compile: False
+            base_dim: 96
+            z_dim: 16
+            patch_size: 1
+            is_residual: False
+            latent_mean: [-0.7571
+            -0.7089
+            -0.9113
+            0.1075
+            -0.1745
+            0.9653
+            -0.1517
+            1.5508
+            0.4134
+            -0.0715
+            0.5517
+            -0.3632
+            -0.1922
+            -0.9497
+            0.2503
+            -0.2921]
+            latent_std: [2.8184
+            1.4541
+            2.3275
+            2.6558
+            1.2196
+            1.7708
+            2.6052
+            2.0743
+            3.2687
+            2.1526
+            2.8652
+            1.5579
+            1.6382
+            1.1253
+            2.8251
+            1.916]
+            state_dict_transform: None
+            native_vae_acceleration: disabled
+            native_vae_build_root: None
+            native_vae_max_jobs: None
+            native_vae_verbose_build: False
+            native_vae_backend: fp8
+            native_vae_fp8_state_path: None
+        synthetic_text_max_length: None
+    postprocess: VideoPostprocessChainConfig:
+        processors: []
+        preset: rtx-super-resolution
+    postprocess_output_layout: bvtchw
+    postprocess_per_view: True
+    output_dir: artifacts\omnidreams_rtx_sr_benchmark_20260722\rtx_super_resolution
+    device: cuda
+    offset_seed_by_global_rank: True
+    prompt: Driving scene from a front-facing car camera. Urban environment with roads, vehicles, pedestrians, traffic signs, and buildings. Clear visibility, realistic lighting, photorealistic quality. High resolution dashcam footage of city driving.
+    prompts: []
+    hdmap_video_paths: []
+    first_frame_paths: []
+    camera_names: []
+    total_blocks: 6
+    pixel_height: 704
+    pixel_width: 1280
+    output_fps: 30
+    save_embeddings_path: None
+    embeddings_path: None
+    example_data: True
+    example_data_uuid: 239560dc-33d1-11ef-9720-00044bcbccac
+Fetching 13 files:   0%|          | 0/13 [00:00<?, ?it/s]Fetching 13 files: 100%|##########| 13/13 [00:00<?, ?it/s]
+2026-07-22 11:02:14.470 | INFO     | flashdreams.infra.encoder.text.cosmos_reason1:__init__:103 - Loading Cosmos-Reason1 model from nvidia/Cosmos-Reason1-7B@3210bec0495fdc7a8d3dbb8d58da5711eab4b423
+Loading weights:   0%|          | 0/729 [00:00<?, ?it/s]Loading weights: 100%|##########| 729/729 [00:00<00:00, 10170.77it/s]
+2026-07-22 11:02:14.899 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - Downloading checkpoint from Hugging Face: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth
+2026-07-22 11:02:15.014 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:527 - Checkpoint downloaded to local HF cache: C:\Users\gtong\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapshots\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lightvaew2_1.pth
+2026-07-22 11:02:36.533 | INFO     | omnidreams.runner:_rollout_and_save:382 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] loaded hdmap_videos=(1, 1, 2451, 3, 704, 1280), num_views=1
+2026-07-22 11:02:36.578 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 0/6, num_frames=5, frames=[0, 5)
+2026-07-22 11:02:48.733 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 0 encode 67.776 ms diffuse 10513.333 ms decode 1392.293 ms finalize 185.127 ms | total(w/o finalize) 11973.402 ms total 12158.529 ms | GPU mem alloc 34.055 GiB reserved 39.918 GiB peak 37.451 GiB
+2026-07-22 11:02:50.338 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 0 1599.976 ms | input (1, 1, 5, 3, 704, 1280) output (1, 1, 5, 3, 1408, 2560) | buffering False
+2026-07-22 11:02:50.378 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 1/6, num_frames=8, frames=[5, 13)
+2026-07-22 11:03:08.847 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 1 encode 71.460 ms diffuse 18236.562 ms decode 17.589 ms finalize 139.100 ms | total(w/o finalize) 18325.611 ms total 18464.712 ms | GPU mem alloc 34.053 GiB reserved 39.918 GiB peak 37.451 GiB
+2026-07-22 11:03:08.857 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 1 8.587 ms | input (1, 1, 8, 3, 704, 1280) output (1, 1, 8, 3, 1408, 2560) | buffering False
+2026-07-22 11:03:08.923 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 2/6, num_frames=8, frames=[13, 21)
+2026-07-22 11:03:28.390 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 2 encode 109.874 ms diffuse 19163.730 ms decode 17.574 ms finalize 171.323 ms | total(w/o finalize) 19291.178 ms total 19462.502 ms | GPU mem alloc 34.053 GiB reserved 39.711 GiB peak 37.451 GiB
+2026-07-22 11:03:28.399 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 2 9.715 ms | input (1, 1, 8, 3, 704, 1280) output (1, 1, 8, 3, 1408, 2560) | buffering False
+2026-07-22 11:03:28.492 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 3/6, num_frames=8, frames=[21, 29)
+2026-07-22 11:03:29.159 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 3 encode 68.960 ms diffuse 344.553 ms decode 67.495 ms finalize 177.969 ms | total(w/o finalize) 481.009 ms total 658.978 ms | GPU mem alloc 34.126 GiB reserved 40.342 GiB peak 37.451 GiB
+2026-07-22 11:03:29.170 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 3 9.424 ms | input (1, 1, 8, 3, 704, 1280) output (1, 1, 8, 3, 1408, 2560) | buffering False
+2026-07-22 11:03:29.265 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 4/6, num_frames=8, frames=[29, 37)
+2026-07-22 11:03:29.867 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 4 encode 69.735 ms diffuse 341.336 ms decode 16.968 ms finalize 173.769 ms | total(w/o finalize) 428.039 ms total 601.807 ms | GPU mem alloc 34.126 GiB reserved 40.668 GiB peak 37.451 GiB
+2026-07-22 11:03:29.867 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 4 8.888 ms | input (1, 1, 8, 3, 704, 1280) output (1, 1, 8, 3, 1408, 2560) | buffering False
+2026-07-22 11:03:29.972 | INFO     | omnidreams.runner:_rollout_and_save:400 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] AR step 5/6, num_frames=8, frames=[37, 45)
+2026-07-22 11:03:30.577 | INFO     | flashdreams.infra.pipeline.base:finalize:334 - AR 5 encode 68.811 ms diffuse 342.515 ms decode 16.995 ms finalize 172.537 ms | total(w/o finalize) 428.321 ms total 600.858 ms | GPU mem alloc 34.126 GiB reserved 40.668 GiB peak 37.451 GiB
+2026-07-22 11:03:30.587 | INFO     | flashdreams.infra.postprocess.stream:process:154 - postprocess AR 5 8.940 ms | input (1, 1, 8, 3, 704, 1280) output (1, 1, 8, 3, 1408, 2560) | buffering False
+2026-07-22 11:03:30.713 | INFO     | flashdreams.infra.postprocess.stream:finish:195 - postprocess flush 35.035 ms | output None
+2026-07-22 11:03:32.765 | INFO     | omnidreams.runner:_rollout_and_save:440 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] wrote postprocessed RGB video (45, 1408, 2560, 3) from generated=(1, 1, 45, 3, 1408, 2560); wrote video (1, 1, 45, 3, 1408, 2560) -> C:\ai\flashdreams\artifacts\omnidreams_rtx_sr_benchmark_20260722\rtx_super_resolution\omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae.mp4
+2026-07-22 11:03:32.765 | INFO     | omnidreams.runner:_rollout_and_save:449 - [omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae] wrote per-AR-step stats -> C:\ai\flashdreams\artifacts\omnidreams_rtx_sr_benchmark_20260722\rtx_super_resolution\stats_omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae.json
