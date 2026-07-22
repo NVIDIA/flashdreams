@@ -9,7 +9,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import (
@@ -33,6 +32,7 @@ from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from PIL import Image
 
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 _FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
 

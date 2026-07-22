@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 import types
 from pathlib import Path
@@ -234,17 +235,22 @@ def test_read_video_fps_uses_lazy_mediapy_metadata(
     assert calls == ["clip.mp4"]
 
 
-def test_write_video_tensor_lazy_imports_mediapy(
+def test_write_video_tensor_streams_to_host_ffmpeg(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[tuple[str, np.ndarray, int]] = []
-    fake_media = types.ModuleType("mediapy")
+    commands: list[list[str]] = []
+    process = types.SimpleNamespace(
+        stdin=io.BytesIO(),
+        stderr=io.BytesIO(),
+        wait=lambda: 0,
+    )
 
-    def write_video(path: str, frames: np.ndarray, *, fps: int) -> None:
-        calls.append((path, frames, fps))
+    def popen(cmd: list[str], **_kwargs: Any) -> Any:
+        commands.append(cmd)
+        return process
 
-    setattr(fake_media, "write_video", write_video)
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "Popen", popen)
 
     out_path = tmp_path / "out.mp4"
     returned = write_video_tensor(
@@ -255,10 +261,9 @@ def test_write_video_tensor_lazy_imports_mediapy(
     )
 
     assert returned == out_path
-    assert calls[0][0] == str(out_path)
-    assert calls[0][1].shape == (1, 2, 2, 3)
-    assert calls[0][1].dtype == np.uint8
-    assert calls[0][2] == 16
+    assert commands[0][commands[0].index("-s") + 1] == "2x2"
+    assert commands[0][commands[0].index("-r") + 1] == "16"
+    assert commands[0][-1] == str(out_path)
 
 
 def test_load_first_frame_tensor_uses_requested_resize_interpolation(

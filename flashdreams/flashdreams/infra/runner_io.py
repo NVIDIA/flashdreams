@@ -18,6 +18,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
@@ -314,11 +316,86 @@ def write_video_tensor(
     layout: VideoTensorLayout,
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
 ) -> Path:
-    """Write a ``[-1, 1]`` video tensor as an MP4 and return the path."""
-    media = _import_mediapy("Writing videos", install_hint=install_hint)
+    """Write a ``[-1, 1]`` video tensor through the host FFmpeg executable."""
+    del install_hint  # Kept for API compatibility with existing runner call sites.
     path = Path(path)
-    media.write_video(str(path), video_tensor_to_uint8(video, layout=layout), fps=fps)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frames = video_tensor_to_uint8(video, layout=layout)
+    num_frames, height, width, channels = frames.shape
+    if channels != 3:
+        raise ValueError(
+            "expected video frames with shape [T, H, W, C=3], "
+            f"got {tuple(frames.shape)}"
+        )
+
+    cmd = [
+        _find_ffmpeg_binary(),
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-vcodec",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        str(fps),
+        "-i",
+        "-",
+        "-an",
+        "-vcodec",
+        "libx264",
+        "-vf",
+        "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "18",
+        "-preset",
+        "medium",
+        "-movflags",
+        "+faststart",
+        str(path),
+    ]
+    process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdin is not None
+    assert process.stderr is not None
+    write_error: BrokenPipeError | None = None
+    try:
+        for frame_index in range(num_frames):
+            process.stdin.write(frames[frame_index].tobytes())
+    except BrokenPipeError as exc:
+        write_error = exc
+    finally:
+        try:
+            process.stdin.close()
+        except BrokenPipeError as exc:
+            if write_error is None:
+                write_error = exc
+        stderr = process.stderr.read().decode("utf-8", errors="replace")
+        returncode = process.wait()
+
+    if write_error is not None:
+        raise RuntimeError(
+            f"ffmpeg closed while writing {path} (exit code {returncode}): {stderr}"
+        ) from write_error
+    if returncode != 0:
+        raise RuntimeError(f"ffmpeg failed while writing {path}: {stderr}")
     return path
+
+
+def _find_ffmpeg_binary() -> str:
+    """Find the host-provided FFmpeg executable or fail with installation guidance."""
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin is None:
+        raise RuntimeError(
+            "Writing the output video requires an ffmpeg executable installed "
+            "on the host and available on PATH."
+        )
+    return ffmpeg_bin
 
 
 def _import_mediapy(action: str, *, install_hint: str) -> Any:

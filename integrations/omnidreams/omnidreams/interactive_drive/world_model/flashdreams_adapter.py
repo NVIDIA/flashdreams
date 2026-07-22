@@ -11,10 +11,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from flashdreams.infra.postprocess import (
-    VideoPostprocessChainConfig,
-    VideoPostprocessStream,
-)
 from loguru import logger
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -32,6 +28,10 @@ from flashdreams.infra.acceleration.encoder_lifecycle import (
 )
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostprocessStream,
+)
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -120,9 +120,10 @@ def _build_pipeline_config(
     manifest: WorldModelManifest, profile: WorldModelProfileConfig
 ) -> Any:
     try:
+        from omnidreams.config import OMNIDREAMS_CONFIGS
+
         from flashdreams.infra.config import derive_config
         from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-        from omnidreams.config import OMNIDREAMS_CONFIGS
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "The flashdreams and flashdreams-omnidreams packages are required "

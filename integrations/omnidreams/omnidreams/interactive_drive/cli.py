@@ -7,8 +7,6 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
-from flashdreams.plugins.registry import discover_postprocess_presets
 from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
@@ -27,6 +25,8 @@ from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_t
 from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
 from omnidreams.scenes import local_scene_archive_path
 
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.serving.realtime.timing import TraceSink
 
 # Package root (from this file's location) so packaged-asset defaults below

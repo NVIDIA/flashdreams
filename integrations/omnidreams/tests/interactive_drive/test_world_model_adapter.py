@@ -11,7 +11,6 @@ import numpy as np
 import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
 import pytest
 import torch
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
@@ -23,6 +22,8 @@ from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
 from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     SyntheticWorldModelAssets,
 )
+
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 
 class _FakePipeline:
@@ -172,8 +173,8 @@ def test_build_pipeline_config_can_select_native_vae_encoder() -> None:
     )
     assert config.image_encoder.native_vae_acceleration == "required"
     assert config.image_encoder.native_vae_backend == "fp8"
-    assert (
-        config.image_encoder.native_vae_fp8_state_path == "/tmp/lightvae-fp8-state.pt"
+    assert Path(config.image_encoder.native_vae_fp8_state_path) == Path(
+        "/tmp/lightvae-fp8-state.pt"
     )
     assert config.encoder.native_vae_acceleration == "required"
     assert config.encoder.native_vae_backend == "fp8"
