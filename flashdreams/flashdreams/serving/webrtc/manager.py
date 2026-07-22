@@ -274,7 +274,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             return
         transceiver.setCodecPreferences(h264_codecs)
 
-    def _enforce_h264_or_fallback(
+    async def _enforce_h264_or_fallback(
         self,
         *,
         transceiver: Any,
@@ -308,10 +308,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             "streaming begins.",
             chosen,
         )
-        # Close the hardware encoder so its NVENC session is released
-        # promptly; the software adapter has no hardware resources to
-        # release itself.
-        managed_session.video_encoder.close()
+        # Close the pre-encoded track before overwriting the reference
+        # so its readyState transitions to "ended" and its packet queue
+        # is drained. Otherwise ``ManagedWebRTCSession.close()`` would
+        # only ever see the fallback track and never clean this one up.
+        # The hardware encoder itself is owned by the runtime (created
+        # once in ``_initialize_video_encoder_sync`` and reused across
+        # sessions), so it is intentionally NOT closed here — subsequent
+        # sessions read the same object via ``runtime.video_encoder``
+        # and expect it live. Runtime shutdown releases it.
+        await managed_session.video_track.close()
 
         fallback_encoder = DefaultRTCEncoder(fps=self.fps)
         fallback_track = fallback_encoder.create_track(maxsize=num_frames)
@@ -519,7 +525,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             await peer_connection.setLocalDescription(answer)
             await wait_for_ice_gathering_complete(peer_connection)
             if video_encoder.prefers_codec == "h264":
-                self._enforce_h264_or_fallback(
+                await self._enforce_h264_or_fallback(
                     transceiver=video_transceiver,
                     managed_session=managed_session,
                     num_frames=num_frames,

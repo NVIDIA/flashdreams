@@ -1088,7 +1088,10 @@ def _sdp_fallback_managed_session(
     )
 
 
-def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> None:
+@pytest.mark.asyncio
+async def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> (
+    None
+):
     manager = OmnidreamsWebRTCSessionManager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
@@ -1098,19 +1101,23 @@ def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> 
     managed_session.video_track = original_track  # ty:ignore[invalid-assignment]
     transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/VP8")])
 
-    manager._enforce_h264_or_fallback(
+    await manager._enforce_h264_or_fallback(
         transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
 
-    assert hw_encoder.closed, "hardware encoder should be closed on fallback"
+    assert not hw_encoder.closed, (
+        "runtime-owned hardware encoder must survive a session-scope fallback"
+    )
+    assert original_track.closed, "orphaned hardware track was not closed on fallback"
     assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
     assert isinstance(managed_session.video_track, BufferedVideoTrack)
     assert transceiver.sender.replaced_with is managed_session.video_track
 
 
-def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
+@pytest.mark.asyncio
+async def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
     manager = OmnidreamsWebRTCSessionManager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
@@ -1120,32 +1127,39 @@ def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
     managed_session.video_track = original_track  # ty:ignore[invalid-assignment]
     transceiver = _FakeTransceiver([_FakeSdpCodec(mimeType="video/H264")])
 
-    manager._enforce_h264_or_fallback(
+    await manager._enforce_h264_or_fallback(
         transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
 
     assert not hw_encoder.closed
+    assert not original_track.closed
     assert managed_session.video_encoder is hw_encoder
     assert managed_session.video_track is original_track
     assert transceiver.sender.replaced_with is None
 
 
-def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> None:
+@pytest.mark.asyncio
+async def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> None:
     manager = OmnidreamsWebRTCSessionManager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
     hw_encoder = _HardwareEncoderStub(fps=30)
+    original_track = _FakeCloseable()
     managed_session = _sdp_fallback_managed_session(hw_encoder)
+    managed_session.video_track = original_track  # ty:ignore[invalid-assignment]
     transceiver = _FakeTransceiver([])
 
-    manager._enforce_h264_or_fallback(
+    await manager._enforce_h264_or_fallback(
         transceiver=transceiver,
         managed_session=managed_session,
         num_frames=4,
     )
 
-    assert hw_encoder.closed
+    assert not hw_encoder.closed, (
+        "runtime-owned hardware encoder must survive a session-scope fallback"
+    )
+    assert original_track.closed
     assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
     assert isinstance(managed_session.video_track, BufferedVideoTrack)
