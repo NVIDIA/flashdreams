@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
+from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,

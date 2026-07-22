@@ -178,6 +178,9 @@ class BlockKVCache:
             src_slice = self._seq_slice(src_start, src_end)
             self._k[dst_slice] = self._k[src_slice].clone()
             self._v[dst_slice] = self._v[src_slice].clone()
+        # before_update() only rolls when the next contiguous chunk would overflow
+        # this fixed buffer; update() must immediately write that chunk into the
+        # newly freed right edge.
         self._n_cached = total_size
 
     def _current_chunk_overlaps_sink(self) -> bool:

@@ -156,6 +156,17 @@ def test_realtime_media_supports_thwc_uint8_chunks() -> None:
     assert frames[1][0, 0].tolist() == [10, 20, 30]
 
 
+def test_realtime_media_prefers_tchw_when_width_is_three() -> None:
+    chunk = torch.zeros((2, 3, 4, 3), dtype=torch.uint8)
+    chunk[1, :, 0, 0] = torch.tensor([10, 20, 30], dtype=torch.uint8)
+
+    frames = tensor_chunk_to_rgb_frames(chunk)
+
+    assert len(frames) == 2
+    assert frames[1].shape == (4, 3, 3)
+    assert frames[1][0, 0].tolist() == [10, 20, 30]
+
+
 @pytest.mark.parametrize(
     "chunk",
     [

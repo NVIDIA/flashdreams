@@ -141,7 +141,7 @@ def tensor_chunk_to_rgb_frames(
         "minus_one_one" if video_chunk.is_floating_point() else "uint8"
     )
     if video_chunk.ndim == 4:
-        if video_chunk.shape[-1] == 3:
+        if video_chunk.shape[-1] == 3 and video_chunk.shape[1] != 3:
             return rgb_array_to_uint8_frames(
                 video_chunk,
                 layout="thwc",
