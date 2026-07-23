@@ -1163,3 +1163,60 @@ async def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> Non
     assert original_track.closed
     assert isinstance(managed_session.video_encoder, DefaultRTCEncoder)
     assert isinstance(managed_session.video_track, BufferedVideoTrack)
+
+
+def test_initialize_video_encoder_sync_skips_on_non_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebRTC media is served only by the master rank, so worker ranks
+    must not reach ``select_encoder`` — allocating an NVENC session on a
+    worker would consume a local GPU concurrent-session slot without
+    ever encoding a frame, and could fail the worker's startup if the
+    pool cannot accommodate one allocation per rank."""
+
+    def _select_encoder_should_not_be_called(**_kw: Any) -> object:
+        raise AssertionError(
+            "_initialize_video_encoder_sync must not reach select_encoder "
+            "on non-master ranks"
+        )
+
+    monkeypatch.setattr(
+        session,
+        "select_encoder",
+        _select_encoder_should_not_be_called,
+    )
+
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
+    )
+    runtime.rank = 1  # simulate a worker rank
+    runtime._device = torch.device("cpu")
+
+    runtime._initialize_video_encoder_sync()
+
+    assert runtime._video_encoder is None
+
+
+def test_initialize_video_encoder_sync_runs_on_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Master rank still initializes the encoder normally."""
+    stub = _FakeVideoEncoder()
+    calls: list[dict[str, Any]] = []
+
+    def _fake_select_encoder(**kwargs: Any) -> _FakeVideoEncoder:
+        calls.append(kwargs)
+        return stub
+
+    monkeypatch.setattr(session, "select_encoder", _fake_select_encoder)
+
+    runtime = OmnidreamsInferenceRuntime(
+        config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
+    )
+    runtime.rank = 0
+    runtime._device = torch.device("cpu")
+
+    runtime._initialize_video_encoder_sync()
+
+    assert len(calls) == 1
+    assert runtime._video_encoder is stub

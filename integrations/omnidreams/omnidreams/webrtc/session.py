@@ -804,7 +804,16 @@ class OmnidreamsInferenceRuntime:
 
         Runs on the runtime executor thread so any GPU-side probe
         (``CreateEncoder``) sees the same CUDA context the model uses.
+
+        Non-master ranks skip encoder initialization. WebRTC media is
+        served only by the master rank, so allocating an NVENC session
+        on a worker would consume one of the local GPU's concurrent
+        session slots without ever encoding a frame — and could fail
+        the worker's startup if the pool cannot accommodate one
+        allocation per rank.
         """
+        if not self.is_master:
+            return
         if self._video_encoder is not None:
             self._video_encoder.close()
             self._video_encoder = None
