@@ -27,11 +27,24 @@ import torch
 
 pytestmark = pytest.mark.ci_gpu
 
-from flashdreams.serving.webrtc.encoders import (  # noqa: E402
-    _PYNVVIDEOCODEC_AVAILABLE,
-    PyNvHardwareEncoder,
-    _payload_contains_nal_type,
-)
+# ``PyNvVideoCodec`` probes for the NVIDIA driver library at import time
+# and raises ``RuntimeError`` when it is absent (e.g. CPU CI runners with
+# the package installed but no driver). ``pytestmark`` gates test
+# selection, not import, so guard collection here — otherwise
+# ``pytest -m ci_cpu`` aborts before the marker filter runs.
+try:
+    from flashdreams.serving.webrtc.encoders import (  # noqa: E402
+        _pynvvideocodec_installed,
+    )
+    from flashdreams.serving.webrtc.nvenc import (  # noqa: E402
+        PyNvHardwareEncoder,
+        _payload_contains_nal_type,
+    )
+except (ImportError, RuntimeError) as exc:
+    pytest.skip(
+        f"NVENC imports unavailable ({type(exc).__name__}: {exc})",
+        allow_module_level=True,
+    )
 
 _H264_NAL_TYPE_IDR = 5
 _H264_NAL_TYPE_SPS = 7
@@ -46,7 +59,7 @@ def _has_annex_b_start_code(payload: bytes) -> bool:
 
 @pytest.fixture(scope="module")
 def nvenc_available() -> None:
-    if not _PYNVVIDEOCODEC_AVAILABLE:
+    if not _pynvvideocodec_installed():
         pytest.skip("PyNvVideoCodec is not installed on this host")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available on this host")
