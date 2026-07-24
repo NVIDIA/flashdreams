@@ -39,7 +39,8 @@ _REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
 def _workspace_pyprojects() -> list[Path]:
-    root_config = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    root_pyproject = _ROOT / "pyproject.toml"
+    root_config = tomllib.loads(root_pyproject.read_text(encoding="utf-8"))
     member_patterns = root_config["tool"]["uv"]["workspace"]["members"]
     members = {
         member / "pyproject.toml"
@@ -47,7 +48,7 @@ def _workspace_pyprojects() -> list[Path]:
         for member in _ROOT.glob(pattern)
         if (member / "pyproject.toml").is_file()
     }
-    return sorted(members)
+    return [root_pyproject, *sorted(members)]
 
 
 def _requirement_strings(config: dict[str, Any]) -> Iterable[tuple[str, str]]:
@@ -87,7 +88,9 @@ def _normalized_requirement_name(requirement: str) -> str | None:
 
 def test_workspace_uses_only_headless_opencv() -> None:
     pyprojects = _workspace_pyprojects()
-    assert pyprojects, "expected at least one uv workspace member"
+    assert len(pyprojects) > 1, (
+        "expected the root project and at least one workspace member"
+    )
 
     violations: list[str] = []
     for pyproject in pyprojects:

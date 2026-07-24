@@ -2480,7 +2480,7 @@ requires-dist = [
     { name = "ninja", specifier = ">=1.13.0" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "nvidia-nvcomp-cu12", specifier = ">=4.0" },
-    { name = "opencv-python-headless", marker = "extra == 'dev'", specifier = ">=4.5" },
+    { name = "opencv-python-headless", marker = "extra == 'dev'", specifier = ">=4.5,<5" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pyarrow", specifier = ">=14.0" },
