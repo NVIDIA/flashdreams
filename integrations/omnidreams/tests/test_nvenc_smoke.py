@@ -28,7 +28,9 @@ import torch
 pytestmark = pytest.mark.ci_gpu
 
 from flashdreams.serving.webrtc.encoders import (  # noqa: E402
-    _PYNVVIDEOCODEC_AVAILABLE,
+    _pynvvideocodec_installed,
+)
+from flashdreams.serving.webrtc.nvenc import (  # noqa: E402
     PyNvHardwareEncoder,
     _payload_contains_nal_type,
 )
@@ -46,7 +48,7 @@ def _has_annex_b_start_code(payload: bytes) -> bool:
 
 @pytest.fixture(scope="module")
 def nvenc_available() -> None:
-    if not _PYNVVIDEOCODEC_AVAILABLE:
+    if not _pynvvideocodec_installed():
         pytest.skip("PyNvVideoCodec is not installed on this host")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available on this host")

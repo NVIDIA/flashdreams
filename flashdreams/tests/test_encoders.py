@@ -17,11 +17,18 @@ Covers:
   break this — see :class:`TestDeliverChunkOrdering`.
 - Compatibility guards for the two upstream libraries we couple to
   (``aiortc`` and ``PyNvVideoCodec``).
+
+The tests never import ``PyNvVideoCodec`` for real: :func:`_install_fake_nvc`
+injects a stand-in module into ``sys.modules`` so ``nvenc``'s top-level
+``import PyNvVideoCodec as nvc`` binds to the mock. That mirrors the split
+in production — any process that has not opted in to hardware encoding
+never loads the real library.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 from fractions import Fraction
 from types import SimpleNamespace
@@ -52,6 +59,25 @@ _SELECT_KW = dict(
 )
 
 
+def _install_fake_nvc(monkeypatch: pytest.MonkeyPatch, fake_nvc: MagicMock):
+    """Make ``nvenc`` importable with a fake ``PyNvVideoCodec`` and return
+    the ``nvenc`` module with its ``nvc`` symbol pointing at the fake.
+
+    Injecting the fake into ``sys.modules`` first ensures that if the
+    ``nvenc`` module has not been imported yet in this test session, its
+    top-level ``import PyNvVideoCodec as nvc`` binds to the mock rather
+    than requiring the real library. If ``nvenc`` was already imported
+    (a prior test), we still overwrite the ``nvc`` attribute directly so
+    every test sees the same fake.
+    """
+    monkeypatch.setitem(sys.modules, "PyNvVideoCodec", fake_nvc)
+    monkeypatch.setattr(enc_mod, "_pynvvideocodec_installed", lambda: True)
+    from flashdreams.serving.webrtc import nvenc as nvenc_mod
+
+    monkeypatch.setattr(nvenc_mod, "nvc", fake_nvc)
+    return nvenc_mod
+
+
 # ---------------------------------------------------------------------------
 # Protocol conformance
 # ---------------------------------------------------------------------------
@@ -80,24 +106,31 @@ class TestSelectDefaultBackend:
         assert isinstance(enc, DefaultRTCEncoder)
         assert enc.fps == 30
 
-    def test_does_not_call_getencodercaps(self) -> None:
-        # Even if the library exists, "default" must not touch it — this
-        # keeps the software path deterministic and safe on hosts where
-        # GetEncoderCaps might have side effects.
-        fake_nvc = MagicMock()
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
-            patch.object(enc_mod, "nvc", fake_nvc),
-        ):
-            select_encoder(backend="default", **_SELECT_KW)
-        fake_nvc.GetEncoderCaps.assert_not_called()
+    def test_does_not_probe_or_import_nvenc(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Even when the library exists, "default" must not probe it and
+        # must not import the sibling ``nvenc`` module — the whole point
+        # of the module split is that a process on the software path
+        # never loads ``PyNvVideoCodec``.
+        probe_calls: list[bool] = []
 
-    def test_works_even_when_library_missing(self) -> None:
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
-            patch.object(enc_mod, "nvc", None),
-        ):
-            enc = select_encoder(backend="default", **_SELECT_KW)
+        def _probe_spy() -> bool:
+            probe_calls.append(True)
+            return True
+
+        monkeypatch.setattr(enc_mod, "_pynvvideocodec_installed", _probe_spy)
+        select_encoder(backend="default", **_SELECT_KW)
+        assert probe_calls == [], (
+            "select_encoder(backend='default') must short-circuit before the "
+            "PyNvVideoCodec availability probe."
+        )
+
+    def test_works_even_when_library_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(enc_mod, "_pynvvideocodec_installed", lambda: False)
+        enc = select_encoder(backend="default", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
 
 
@@ -110,21 +143,19 @@ class TestSelectStage1Failure:
     """Stage 1 says "environment can't do this" — auto silently falls back;
     nvenc raises loudly."""
 
-    def test_library_missing_auto_falls_back(self, caplog) -> None:
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
-            patch.object(enc_mod, "nvc", None),
-        ):
-            enc = select_encoder(backend="auto", **_SELECT_KW)
+    def test_library_missing_auto_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(enc_mod, "_pynvvideocodec_installed", lambda: False)
+        enc = select_encoder(backend="auto", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
 
-    def test_library_missing_nvenc_raises(self) -> None:
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", False),
-            patch.object(enc_mod, "nvc", None),
-        ):
-            with pytest.raises(EncoderInitError, match="not installed"):
-                select_encoder(backend="nvenc", **_SELECT_KW)
+    def test_library_missing_nvenc_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(enc_mod, "_pynvvideocodec_installed", lambda: False)
+        with pytest.raises(EncoderInitError, match="not installed"):
+            select_encoder(backend="nvenc", **_SELECT_KW)
 
     @pytest.mark.parametrize(
         "caps_effect, expected_reason_frag",
@@ -154,6 +185,7 @@ class TestSelectStage1Failure:
     )
     def test_caps_failure_auto_falls_back(
         self,
+        monkeypatch: pytest.MonkeyPatch,
         caps_effect,
         expected_reason_frag,
     ) -> None:
@@ -162,24 +194,20 @@ class TestSelectStage1Failure:
             fake_nvc.GetEncoderCaps.side_effect = caps_effect
         else:
             fake_nvc.GetEncoderCaps.return_value = caps_effect
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
-            patch.object(enc_mod, "nvc", fake_nvc),
-        ):
-            enc = select_encoder(backend="auto", **_SELECT_KW)
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        enc = select_encoder(backend="auto", **_SELECT_KW)
         assert isinstance(enc, DefaultRTCEncoder)
         # ``CreateEncoder`` must not be reached when Stage 1 fails.
         fake_nvc.CreateEncoder.assert_not_called()
 
-    def test_caps_failure_nvenc_raises_with_reason(self) -> None:
+    def test_caps_failure_nvenc_raises_with_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_nvc = MagicMock()
         fake_nvc.GetEncoderCaps.side_effect = RuntimeError("driver comms error")
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
-            patch.object(enc_mod, "nvc", fake_nvc),
-        ):
-            with pytest.raises(EncoderInitError, match="driver comms error"):
-                select_encoder(backend="nvenc", **_SELECT_KW)
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        with pytest.raises(EncoderInitError, match="driver comms error"):
+            select_encoder(backend="nvenc", **_SELECT_KW)
 
 
 # ---------------------------------------------------------------------------
@@ -206,27 +234,25 @@ class TestSelectStage2HardError:
         fake.FORCEIDR = 0x1
         return fake
 
-    def test_construct_failure_reraises_under_auto(self) -> None:
+    def test_construct_failure_reraises_under_auto(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_nvc = self._fake_nvc_caps_ok()
         fake_nvc.CreateEncoder.side_effect = RuntimeError(
             "NVENC session pool exhausted"
         )
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
-            patch.object(enc_mod, "nvc", fake_nvc),
-        ):
-            with pytest.raises(RuntimeError, match="session pool exhausted"):
-                select_encoder(backend="auto", **_SELECT_KW)
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        with pytest.raises(RuntimeError, match="session pool exhausted"):
+            select_encoder(backend="auto", **_SELECT_KW)
 
-    def test_construct_failure_reraises_under_nvenc(self) -> None:
+    def test_construct_failure_reraises_under_nvenc(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_nvc = self._fake_nvc_caps_ok()
         fake_nvc.CreateEncoder.side_effect = RuntimeError("hardware fault")
-        with (
-            patch.object(enc_mod, "_PYNVVIDEOCODEC_AVAILABLE", True),
-            patch.object(enc_mod, "nvc", fake_nvc),
-        ):
-            with pytest.raises(RuntimeError, match="hardware fault"):
-                select_encoder(backend="nvenc", **_SELECT_KW)
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        with pytest.raises(RuntimeError, match="hardware fault"):
+            select_encoder(backend="nvenc", **_SELECT_KW)
 
 
 # ---------------------------------------------------------------------------
@@ -320,9 +346,12 @@ class TestCompatGuards:
         import aiortc.rtcrtpsender  # noqa: F401
 
     def test_getencodercaps_callable_when_library_available(self) -> None:
-        if not enc_mod._PYNVVIDEOCODEC_AVAILABLE:
-            pytest.skip("PyNvVideoCodec is not installed on this host")
-        assert callable(getattr(enc_mod.nvc, "GetEncoderCaps", None)), (
+        # This guard exercises the *real* PyNvVideoCodec surface, so it
+        # skips cleanly on hosts where the library is not installed.
+        pytest.importorskip("PyNvVideoCodec")
+        from flashdreams.serving.webrtc import nvenc as nvenc_mod
+
+        assert callable(getattr(nvenc_mod.nvc, "GetEncoderCaps", None)), (
             "PyNvVideoCodec.GetEncoderCaps renamed or removed — Stage 1 "
             "capability probe cannot function."
         )
