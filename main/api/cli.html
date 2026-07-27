@@ -447,6 +447,19 @@ SPDX-License-Identifier: Apache-2.0
 </pre></div>
 </div>
 </section>
+<section id="post-processing-presets">
+<h2>Post-processing presets<a class="headerlink" href="#post-processing-presets" title="Link to this heading">#</a></h2>
+<p>Post-processing presets run on decoded RGB frames from a video runner. Select
+one with <code class="docutils literal notranslate"><span class="pre">--postprocess.preset</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--postprocess.preset<span class="w"> </span>rtx-super-resolution
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">rtx-super-resolution</span></code> preset wraps NVIDIA VFX Python bindings for RTX
+Video Super Resolution. Install the optional dependency with
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">'flashdreams[rtx-postprocess]'</span></code> and run on a supported RTX GPU
+before selecting this preset.</p>
+</section>
 <section id="see-also">
 <h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <ul class="simple">
@@ -505,6 +518,7 @@ SPDX-License-Identifier: Apache-2.0
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-commands">Core commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#post-processing-presets">Post-processing presets</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
 </ul>
   </nav></div>

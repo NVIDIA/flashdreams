@@ -53,6 +53,22 @@ Resolve config only (no model instantiation):
 
    uv run flashdreams-run --no-instantiate self-forcing-wan2.1-t2v-1.3b-taehv
 
+Post-processing presets
+-----------------------
+
+Post-processing presets run on decoded RGB frames from a video runner. Select
+one with ``--postprocess.preset``:
+
+.. code-block:: bash
+
+   uv run flashdreams-run wan21-t2v-1.3b-480p \
+       --postprocess.preset rtx-super-resolution
+
+The ``rtx-super-resolution`` preset wraps NVIDIA VFX Python bindings for RTX
+Video Super Resolution. Install the optional dependency with
+``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
+before selecting this preset.
+
 See also
 --------
 
