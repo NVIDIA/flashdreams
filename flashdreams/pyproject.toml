@@ -69,6 +69,7 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+flashdreams-benchmark = "flashdreams.benchmarks.cli:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]
 "rtx-super-resolution" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION"

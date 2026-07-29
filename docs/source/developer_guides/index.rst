@@ -41,6 +41,13 @@ Developer Guides
       The entry-point surface a new method ships against: what to
       subclass, what to register, and where the parity tests live.
 
+   .. grid-item-card:: Local demo benchmarks
+      :link: local_benchmarks
+      :link-type: doc
+
+      How to run command-backed local benchmarks that capture logs, MP4s,
+      metrics, environment metadata, and an HTML report.
+
 Where these guides fit
 ----------------------
 
@@ -56,6 +63,7 @@ generated clip, see :doc:`/quickstart/index`.
    inference_pipeline_overview
    config_system
    new_integration
+   local_benchmarks
 
 ..
    Temporarily commented out for internal development:
