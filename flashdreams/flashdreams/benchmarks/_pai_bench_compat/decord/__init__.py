@@ -152,8 +152,11 @@ class VideoReader:
 
 
 def _normalize_indices(indices: Iterable[int] | Sequence[int]) -> list[int]:
-    if hasattr(indices, "tolist"):
-        indices = indices.tolist()
+    tolist = getattr(indices, "tolist", None)
+    if callable(tolist):
+        converted = tolist()
+        if isinstance(converted, Iterable):
+            return [int(index) for index in converted]
     return [int(index) for index in indices]
 
 

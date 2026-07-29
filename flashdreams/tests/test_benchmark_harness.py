@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -144,6 +145,17 @@ def test_stats_records_normalize_ms_to_seconds(tmp_path: Path) -> None:
     assert records[0].metrics["encode_s"] == pytest.approx(0.012)
     assert records[0].metrics["total_wo_finalize_s"] == pytest.approx(0.020)
     assert records[0].metrics["mem_peak_gib"] == pytest.approx(5.5)
+
+
+def test_malformed_stats_records_are_ignored(tmp_path: Path) -> None:
+    stats_path = tmp_path / "stats_demo.json"
+    stats_path.write_text("{", encoding="utf-8")
+
+    records = records_from_stats_file(
+        stats_path, scenario_id="demo", source_root=tmp_path
+    )
+
+    assert records == []
 
 
 def test_log_perf_summary_records_median_and_p90(tmp_path: Path) -> None:
@@ -394,6 +406,57 @@ def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
+def test_scenario_timeout_terminates_descendant_processes(tmp_path: Path) -> None:
+    child_marker = tmp_path / "child_survived.txt"
+    spawned_marker = tmp_path / "child_spawned.txt"
+    child_script = tmp_path / "child.py"
+    child_script.write_text(
+        "import signal, sys, time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "time.sleep(1.0)\n"
+        "Path(sys.argv[1]).write_text('alive', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    parent_script = tmp_path / "parent.py"
+    parent_script.write_text(
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])\n"
+        "Path(sys.argv[3]).write_text('spawned', encoding='utf-8')\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    scenario = BenchmarkScenario(
+        id="timeout-runner",
+        name="Timeout runner",
+        command=(
+            sys.executable,
+            str(parent_script),
+            str(child_script),
+            str(child_marker),
+            str(spawned_marker),
+        ),
+        output_dir_arg=None,
+        timeout_s=0.3,
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+    )
+
+    scenario_manifest = manifest["scenarios"][0]
+    assert scenario_manifest["status"] == "timeout"
+    assert scenario_manifest["timed_out"] is True
+    assert spawned_marker.is_file()
+    time.sleep(1.2)
+    assert not child_marker.exists()
+
+
 def test_quality_command_can_report_skipped_status(tmp_path: Path) -> None:
     script = (
         "from pathlib import Path; import sys; "
@@ -434,6 +497,51 @@ def test_quality_command_can_report_skipped_status(tmp_path: Path) -> None:
     assert scenario_manifest["quality_results"][0]["status"] == "skipped"
     assert "quality_score" not in scenario_manifest["metric_summary"]
     assert "pai_bench_long_score" not in scenario_manifest["metric_summary"]
+
+
+def test_malformed_quality_metrics_do_not_abort_reporting(tmp_path: Path) -> None:
+    script = (
+        "from pathlib import Path; import sys; "
+        "Path(sys.argv[1]).mkdir(parents=True, exist_ok=True)"
+    )
+    quality_script = (
+        "from pathlib import Path; import sys; "
+        "metrics = Path(sys.argv[1]); "
+        "metrics.parent.mkdir(parents=True, exist_ok=True); "
+        "metrics.write_text('{', encoding='utf-8')"
+    )
+    scenario = BenchmarkScenario(
+        id="bad-quality",
+        name="Bad quality",
+        command=(sys.executable, "-c", script, "{output_dir}"),
+        output_dir_arg=None,
+        quality_commands=(
+            QualityCommandConfig(
+                id="truncated-metrics",
+                command=(
+                    sys.executable,
+                    "-c",
+                    quality_script,
+                    "{quality_dir}/metrics.json",
+                ),
+                metrics_path="{quality_dir}/metrics.json",
+            ),
+        ),
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+    )
+
+    scenario_manifest = manifest["scenarios"][0]
+    assert scenario_manifest["status"] == "pass"
+    assert scenario_manifest["quality_results"][0]["status"] == "pass"
+    assert "quality_score" not in scenario_manifest["metric_summary"]
+    assert (tmp_path / "run" / "manifest.json").is_file()
+    assert (tmp_path / "run" / "report.html").is_file()
 
 
 def test_run_benchmark_suite_compares_mp4_to_quality_baseline(

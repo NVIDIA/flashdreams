@@ -30,6 +30,7 @@ _SCENARIO_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 _ENV_PLACEHOLDER_RE = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 _CONTEXT_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 CompareRegion = Literal["full", "bottom-half"]
+TimeoutStatus = Literal["fail", "pass"]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -85,7 +86,7 @@ class BenchmarkScenario:
     quality_commands: tuple[QualityCommandConfig, ...] = ()
     quality_compare_region: CompareRegion | None = None
     quality_baseline_compare: bool = True
-    timeout_status: Literal["fail", "pass"] = "fail"
+    timeout_status: TimeoutStatus = "fail"
 
     def __post_init__(self) -> None:
         _validate_id(self.id, "scenario id")
@@ -149,7 +150,7 @@ class BenchmarkScenario:
                 data.get("quality_baseline_compare", True),
                 "quality_baseline_compare",
             ),
-            timeout_status=str(data.get("timeout_status", "fail")),  # type: ignore[arg-type]
+            timeout_status=_timeout_status(data.get("timeout_status", "fail")),
         )
 
     def rendered_command(
@@ -369,11 +370,21 @@ def _optional_float(value: object, field_name: str) -> float | None:
 def _optional_compare_region(value: object) -> CompareRegion | None:
     if value is None:
         return None
-    if value not in ("full", "bottom-half"):
-        raise ValueError(
-            f"quality_compare_region must be 'full' or 'bottom-half', got {value!r}"
-        )
-    return value
+    if value == "full":
+        return "full"
+    if value == "bottom-half":
+        return "bottom-half"
+    raise ValueError(
+        f"quality_compare_region must be 'full' or 'bottom-half', got {value!r}"
+    )
+
+
+def _timeout_status(value: object) -> TimeoutStatus:
+    if value == "fail":
+        return "fail"
+    if value == "pass":
+        return "pass"
+    raise ValueError(f"timeout_status must be 'fail' or 'pass', got {value!r}")
 
 
 def _bool_field(value: object, field_name: str) -> bool:
@@ -395,7 +406,7 @@ def _mapping_sequence(value: object, field_name: str) -> tuple[Mapping[str, Any]
     for index, item in enumerate(value):
         if not isinstance(item, Mapping):
             raise ValueError(f"{field_name}[{index}] must be an object")
-        out.append(item)
+        out.append({str(key): item_value for key, item_value in item.items()})
     return tuple(out)
 
 

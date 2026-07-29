@@ -847,6 +847,13 @@ def _numeric_or_none(
     return fallback if isinstance(fallback, (int, float)) else None
 
 
+def _float_or_default(value: object, default: float) -> float:
+    numeric = _numeric_or_none(value, fallback=default)
+    if numeric is None:
+        return default
+    return float(numeric)
+
+
 def _metric_hint(metric: str) -> str:
     hints = {
         "command_wall_s": "Full scenario process time: startup, model work, quality hooks, and file writing.",
@@ -924,7 +931,7 @@ def _gpu_summary(environment: dict[str, Any]) -> str:
         return "<br>".join(
             html.escape(
                 f"{device.get('index')}: {device.get('name')} "
-                f"({float(device.get('total_memory_gib', 0.0)):.1f} GiB)"
+                f"({_float_or_default(device.get('total_memory_gib'), 0.0):.1f} GiB)"
             )
             for device in torch_devices
             if isinstance(device, dict)
@@ -1146,28 +1153,29 @@ def _format_metric_with_unit(value: float | int, display: MetricDisplay) -> str:
 
 
 def _format_scaled_number(value: float, unit: str) -> str:
-    if not unit and value.is_integer():
-        return str(int(value))
-    magnitude = abs(value)
+    numeric = float(value)
+    if not unit and numeric.is_integer():
+        return str(int(numeric))
+    magnitude = abs(numeric)
     if unit == "ms":
         if magnitude >= 100:
-            return f"{value:.1f}"
+            return f"{numeric:.1f}"
         if magnitude >= 10:
-            return f"{value:.2f}"
+            return f"{numeric:.2f}"
         if magnitude >= 1:
-            return f"{value:.3f}"
-        return f"{value:.4f}"
+            return f"{numeric:.3f}"
+        return f"{numeric:.4f}"
     if unit == "count":
-        return str(int(value)) if value.is_integer() else f"{value:.3f}"
+        return str(int(numeric)) if numeric.is_integer() else f"{numeric:.3f}"
     if unit in {"s", "GiB", "MiB", "fps", "score", "dB", "frames", "px"}:
         if magnitude >= 100:
-            return f"{value:.1f}"
+            return f"{numeric:.1f}"
         if magnitude >= 10:
-            return f"{value:.2f}"
+            return f"{numeric:.2f}"
         if magnitude >= 1:
-            return f"{value:.3f}"
-        return f"{value:.4f}"
-    return f"{value:.6g}"
+            return f"{numeric:.3f}"
+        return f"{numeric:.4f}"
+    return f"{numeric:.6g}"
 
 
 def _first_line(value: object) -> str:

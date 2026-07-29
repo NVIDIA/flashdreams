@@ -435,6 +435,7 @@ def _run_process(
             env=dict(env),
             stdout=log,
             stderr=subprocess.STDOUT,
+            start_new_session=os.name == "posix",
             text=True,
         )
         start = time.perf_counter()
@@ -475,12 +476,44 @@ def _run_process(
 def _terminate_process(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
+    _send_process_signal(process, signal.SIGTERM)
     try:
-        process.send_signal(signal.SIGTERM)
         process.wait(timeout=10)
-    except Exception:  # noqa: BLE001
+    except subprocess.TimeoutExpired:
+        pass
+
+    if os.name == "posix":
+        if not _send_process_group_signal(process.pid, signal.SIGKILL):
+            if process.poll() is None:
+                process.kill()
+    elif process.poll() is None:
         process.kill()
+    try:
         process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        return
+
+
+def _send_process_signal(process: subprocess.Popen[str], sig: signal.Signals) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        if _send_process_group_signal(process.pid, sig):
+            return
+    try:
+        process.send_signal(sig)
+    except ProcessLookupError:
+        return
+
+
+def _send_process_group_signal(pgid: int, sig: signal.Signals) -> bool:
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return False
+    return True
 
 
 def _collect_scenario_metrics(

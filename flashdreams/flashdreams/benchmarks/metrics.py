@@ -22,10 +22,10 @@ import json
 import math
 import re
 import statistics
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 _PERF_SUMMARY_RE = re.compile(
     r"^\[perf\]\[(?P<label>[^\]]+) summary\]\s+"
@@ -106,7 +106,9 @@ def records_from_stats_file(
     source_root: Path,
 ) -> list[MetricRecord]:
     """Read a runner stats JSON file and return normalized metric records."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _read_json(path)
+    if payload is None:
+        return []
     source = _relpath(path, source_root)
     if isinstance(payload, list):
         return _records_from_rows(payload, scenario_id=scenario_id, source=source)
@@ -163,10 +165,14 @@ def record_from_quality_metrics(
     """Convert a quality command's metrics JSON into one record."""
     if not metrics_path.exists():
         return None
-    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload = _read_json(metrics_path)
+    if payload is None:
+        return None
     metrics_payload = payload
-    if isinstance(payload, Mapping) and isinstance(payload.get("metrics"), Mapping):
-        metrics_payload = payload["metrics"]
+    if isinstance(payload, Mapping):
+        nested_metrics = payload.get("metrics")
+        if isinstance(nested_metrics, Mapping):
+            metrics_payload = nested_metrics
     metrics = flatten_numeric_metrics(metrics_payload)
     if not metrics:
         return None
@@ -284,7 +290,7 @@ def flatten_numeric_metrics(
 
 
 def _records_from_rows(
-    rows: list[object],
+    rows: Sequence[object],
     *,
     scenario_id: str,
     source: str,
@@ -409,7 +415,7 @@ def _summary_value_key(
     return f"{name}_{statistic}", value
 
 
-def _normalize_metrics(row: Mapping[str, object]) -> dict[str, float | int]:
+def _normalize_metrics(row: Mapping[Any, object]) -> dict[str, float | int]:
     metrics: dict[str, float | int] = {}
     for key, value in row.items():
         key_str = str(key)
@@ -431,7 +437,7 @@ def _normalize_metric(key: str, value: float | int) -> tuple[str, float | int]:
     return key, value
 
 
-def _metadata_fields(row: Mapping[str, object]) -> dict[str, object]:
+def _metadata_fields(row: Mapping[Any, object]) -> dict[str, object]:
     return {
         str(key): value
         for key, value in row.items()
@@ -439,7 +445,7 @@ def _metadata_fields(row: Mapping[str, object]) -> dict[str, object]:
     }
 
 
-def _record_index(row: Mapping[str, object], fallback: int) -> int:
+def _record_index(row: Mapping[Any, object], fallback: int) -> int:
     for field_name in _INDEX_FIELDS:
         value = row.get(field_name)
         if isinstance(value, bool):
@@ -482,8 +488,15 @@ def _flatten_record(record: MetricRecord) -> dict[str, object]:
     return row
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[float | int]:
     return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _read_json(path: Path) -> object | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _jsonable_scalar(value: object) -> bool:

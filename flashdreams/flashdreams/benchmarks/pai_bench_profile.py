@@ -30,7 +30,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 ProfileName = Literal["pai-bench-g", "pai-bench-long"]
 PaiBenchRunner = Literal["local", "upstream"]
@@ -476,12 +476,13 @@ def _stage_video_segments(
     segment_duration_s: int,
 ) -> tuple[str, ...]:
     try:
-        import cv2  # noqa: PLC0415
+        import cv2 as cv2_module  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "PAI-Bench-Long staging requires opencv-python-headless"
         ) from exc
 
+    cv2 = cast(Any, cv2_module)
     cap = cv2.VideoCapture(str(source))
     writer = None
     video_ids: list[str] = []
@@ -508,9 +509,12 @@ def _stage_video_segments(
                 height, width = frame.shape[:2]
                 target = videos_dir / f"{current_video_id}__0.mp4"
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(str(target), fourcc, fps, (width, height))
-                if not writer.isOpened():
+                new_writer = cv2.VideoWriter(str(target), fourcc, fps, (width, height))
+                if not new_writer.isOpened():
                     raise RuntimeError(f"failed to open video writer: {target}")
+                writer = new_writer
+            if writer is None:
+                raise RuntimeError("video writer was not initialized")
             writer.write(frame)
             frame_index += 1
     finally:
@@ -897,8 +901,11 @@ def _video_paths(value: object) -> set[str]:
         return set()
     videos: set[str] = set()
     for item in value[1]:
-        if isinstance(item, Mapping) and isinstance(item.get("video_path"), str):
-            videos.add(str(item["video_path"]))
+        if not isinstance(item, Mapping):
+            continue
+        video_path = item.get("video_path")
+        if isinstance(video_path, str):
+            videos.add(video_path)
     return videos
 
 
