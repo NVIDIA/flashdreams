@@ -27,13 +27,19 @@ import torch
 
 pytestmark = pytest.mark.ci_gpu
 
-from flashdreams.serving.webrtc.encoders import (  # noqa: E402
-    _pynvvideocodec_installed,
-)
-from flashdreams.serving.webrtc.nvenc import (  # noqa: E402
-    PyNvHardwareEncoder,
-    _payload_contains_nal_type,
-)
+try:
+    from flashdreams.serving.webrtc.encoders import (  # noqa: E402
+        _pynvvideocodec_installed,
+    )
+    from flashdreams.serving.webrtc.nvenc import (  # noqa: E402
+        PyNvHardwareEncoder,
+        _payload_contains_nal_type,
+    )
+except (ImportError, RuntimeError) as exc:
+    pytest.skip(
+        f"NVENC imports unavailable ({type(exc).__name__}: {exc})",
+        allow_module_level=True,
+    )
 
 _H264_NAL_TYPE_IDR = 5
 _H264_NAL_TYPE_SPS = 7
