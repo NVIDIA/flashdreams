@@ -241,8 +241,8 @@ class SlangPyPresenter:
             cuda_stream=cuda_stream,
         )
         self._cuda_rgb_interop.mark_submitted(rgba_buffer, submit_id)
-        del surface_texture
         self._surface.present()
+        del surface_texture
         return True
 
     def _present_array(self, rgb_host_uint8: np.ndarray) -> None:
@@ -259,8 +259,8 @@ class SlangPyPresenter:
         command_encoder = self._device.create_command_encoder()
         command_encoder.blit(surface_texture, self._display_texture)
         self._device.submit_command_buffer(command_encoder.finish())
-        del surface_texture
         self._surface.present()
+        del surface_texture
 
     def _choose_surface_format(self):
         linear_pairs = {

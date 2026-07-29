@@ -62,9 +62,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         pybind11::int_((int)CR::CudaRaster::RenderModeFlag_EnableDepthPeeling);
 
     // CUDA rendering ops
-    m.def("ludus_render_fwd_cuda", &ludus_render_fwd_cuda, "ludus f-theta CUDA rendering");
-    m.def("ludus_render_fwd_cuda_ts", &ludus_render_fwd_cuda_ts, "ludus f-theta CUDA rendering with timestamped cube pools");
-    m.def("ludus_render_fwd_cuda_timestamped", &ludus_render_fwd_cuda_timestamped, "ludus f-theta CUDA timestamped rendering from flat buffers");
+    // Rendering can wait behind world-model work on the same GPU. Keep those
+    // waits from blocking Python's presentation thread.
+    m.def("ludus_render_fwd_cuda", &ludus_render_fwd_cuda, "ludus f-theta CUDA rendering",
+          pybind11::call_guard<pybind11::gil_scoped_release>());
+    m.def("ludus_render_fwd_cuda_ts", &ludus_render_fwd_cuda_ts, "ludus f-theta CUDA rendering with timestamped cube pools",
+          pybind11::call_guard<pybind11::gil_scoped_release>());
+    m.def("ludus_render_fwd_cuda_timestamped", &ludus_render_fwd_cuda_timestamped, "ludus f-theta CUDA timestamped rendering from flat buffers",
+          pybind11::call_guard<pybind11::gil_scoped_release>());
 }
 
 //------------------------------------------------------------------------
