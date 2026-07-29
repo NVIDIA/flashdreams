@@ -119,8 +119,7 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
         if isinstance(scenario, dict)
     ]
     scenario_rows = "\n".join(
-        _scenario_row(scenario, output_root=output_root)
-        for scenario in scenarios
+        _scenario_row(scenario, output_root=output_root) for scenario in scenarios
     )
     chart_sections = _metric_charts(scenarios)
     metric_rows = "\n".join(_metric_summary_rows(scenario) for scenario in scenarios)
@@ -321,8 +320,8 @@ def _scenario_row(scenario: dict[str, Any], *, output_root: Path) -> str:
     return (
         "<tr>"
         f"<td><strong>{html.escape(scenario_id)}</strong><br>"
-        f"<span class=\"muted\">{html.escape(str(scenario.get('name', '')))}</span></td>"
-        f"<td class=\"status-{html.escape(status)}\">{html.escape(status)}</td>"
+        f'<span class="muted">{html.escape(str(scenario.get("name", "")))}</span></td>'
+        f'<td class="status-{html.escape(status)}">{html.escape(status)}</td>'
         f"<td>{wall_time}</td>"
         f"<td><code>{command}</code></td>"
         f"<td>{artifact_links}</td>"
@@ -366,12 +365,12 @@ def _metric_summary_rows(scenario: dict[str, Any]) -> str:
             f"<td>{html.escape(display.label)}<br>"
             f"<code>{html.escape(str(metric))}</code>{judgement}{hint}</td>"
             f"<td>{html.escape(display.unit or '')}</td>"
-            f"<td class=\"numeric\">{html.escape(str(stats.get('count', '')))}</td>"
-            f"<td class=\"numeric\">{_format_metric_value(stats.get('median'), display)}</td>"
-            f"<td class=\"numeric\">{_format_metric_value(stats.get('p90'), display)}</td>"
-            f"<td class=\"numeric\">{_format_metric_value(stats.get('mean'), display)}</td>"
-            f"<td class=\"numeric\">{_format_metric_value(stats.get('min'), display)}</td>"
-            f"<td class=\"numeric\">{_format_metric_value(stats.get('max'), display)}</td>"
+            f'<td class="numeric">{html.escape(str(stats.get("count", "")))}</td>'
+            f'<td class="numeric">{_format_metric_value(stats.get("median"), display)}</td>'
+            f'<td class="numeric">{_format_metric_value(stats.get("p90"), display)}</td>'
+            f'<td class="numeric">{_format_metric_value(stats.get("mean"), display)}</td>'
+            f'<td class="numeric">{_format_metric_value(stats.get("min"), display)}</td>'
+            f'<td class="numeric">{_format_metric_value(stats.get("max"), display)}</td>'
             "</tr>"
         )
     return "\n".join(rows)
@@ -393,9 +392,7 @@ def _scenario_highlights(scenarios: list[dict[str, Any]]) -> str:
             highlights.get("command_wall_s"),
             fallback=scenario.get("wall_time_s"),
         )
-        startup_step_total_s = _numeric_or_none(
-            highlights.get("startup_step_total_s")
-        )
+        startup_step_total_s = _numeric_or_none(highlights.get("startup_step_total_s"))
         steady_total_s = _numeric_or_none(
             highlights.get("total_s_median"),
             fallback=_summary_stat(summary, "total_s", "median"),
@@ -420,7 +417,7 @@ def _scenario_highlights(scenarios: list[dict[str, Any]]) -> str:
         items = [
             (
                 "Status",
-                f"<span class=\"status-{status}\">{status}</span>",
+                f'<span class="status-{status}">{status}</span>',
             )
         ]
         if command_wall_s is not None:
@@ -627,7 +624,7 @@ def _manual_video_review_card(result: dict[str, Any]) -> str:
     return (
         '<div class="comparison-card">'
         "<h4>Manual review</h4>"
-        "<p class=\"muted\">Baseline scoring was not run for this scenario."
+        '<p class="muted">Baseline scoring was not run for this scenario.'
         f"{suffix}</p>"
         "</div>"
     )
@@ -689,7 +686,7 @@ def _metric_charts(scenarios: list[dict[str, Any]]) -> str:
         scenario_id = html.escape(str(scenario.get("id", "")))
         sections.append(
             f"<section><h3>{scenario_id}</h3>"
-            f"<div class=\"chart-grid\">{''.join(charts)}</div></section>"
+            f'<div class="chart-grid">{"".join(charts)}</div></section>'
         )
     return "\n".join(sections)
 
@@ -773,11 +770,11 @@ def _value_bar(
     display: MetricDisplay,
 ) -> str:
     return (
-        "<div class=\"value-bar\">"
-        "<div class=\"bar-track\">"
-        f"<span class=\"bar-fill\" style=\"width: {percent:.1f}%\"></span>"
+        '<div class="value-bar">'
+        '<div class="bar-track">'
+        f'<span class="bar-fill" style="width: {percent:.1f}%"></span>'
         "</div>"
-        f"<span class=\"chart-value\">{_format_scaled_number(value, display.unit)}"
+        f'<span class="chart-value">{_format_scaled_number(value, display.unit)}'
         f"{' ' + html.escape(display.unit) if display.unit else ''}</span>"
         "</div>"
     )
@@ -966,7 +963,7 @@ def _quality_baseline_summary(value: object) -> str:
         details.append("flip=true")
     return (
         f"<code>{_escape(baseline_dir)}</code><br>"
-        f"<span class=\"muted\">{_escape(', '.join(details))}</span>"
+        f'<span class="muted">{_escape(", ".join(details))}</span>'
     )
 
 
@@ -1202,8 +1199,9 @@ def _empty_quality_comparisons() -> str:
 
 
 def _empty_metrics_row() -> str:
-    return '<tr><td colspan="9" class="muted">No numeric metrics were collected.</td></tr>'
-
+    return (
+        '<tr><td colspan="9" class="muted">No numeric metrics were collected.</td></tr>'
+    )
 
 
 def _escape(value: object) -> str:

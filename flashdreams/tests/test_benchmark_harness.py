@@ -352,21 +352,21 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert scenario_manifest["metric_summary"]["total_s"]["median"] == pytest.approx(
         0.080
     )
-    assert scenario_manifest["metric_summary"]["quality_score"]["median"] == pytest.approx(
-        0.9
-    )
+    assert scenario_manifest["metric_summary"]["quality_score"][
+        "median"
+    ] == pytest.approx(0.9)
     assert scenario_manifest["metric_summary"]["pai_bench_long_score"][
         "median"
     ] == pytest.approx(73.0)
-    assert scenario_manifest["metric_highlights"]["startup_step_total_s"] == pytest.approx(
-        0.100
-    )
+    assert scenario_manifest["metric_highlights"][
+        "startup_step_total_s"
+    ] == pytest.approx(0.100)
     assert scenario_manifest["metric_highlights"]["total_s_median"] == pytest.approx(
         0.080
     )
-    assert scenario_manifest["metric_highlights"]["quality_score_median"] == pytest.approx(
-        0.9
-    )
+    assert scenario_manifest["metric_highlights"][
+        "quality_score_median"
+    ] == pytest.approx(0.9)
     report_html = (run_root / "report.html").read_text(encoding="utf-8")
     assert "Scenario Highlights" in report_html
     assert "Startup step" in report_html
@@ -609,13 +609,14 @@ def test_run_benchmark_suite_compares_mp4_to_quality_baseline(
     assert scenario_manifest["status"] == "pass"
     assert scenario_manifest["quality_results"][0]["status"] == "pass"
     assert scenario_manifest["metric_summary"]["quality_score"]["median"] <= 1.0
-    assert scenario_manifest["metric_summary"]["quality_visual_sanity_score"][
-        "median"
-    ] <= 1.0
+    assert (
+        scenario_manifest["metric_summary"]["quality_visual_sanity_score"]["median"]
+        <= 1.0
+    )
     assert scenario_manifest["metric_summary"]["quality_rmse"]["median"] > 0.0
-    assert scenario_manifest["metric_summary"]["quality_similarity_score"][
-        "median"
-    ] <= 1.0
+    assert (
+        scenario_manifest["metric_summary"]["quality_similarity_score"]["median"] <= 1.0
+    )
     assert scenario_manifest["metric_summary"]["quality_ssim_score"]["median"] <= 1.0
     assert "schema_version" not in scenario_manifest["metric_summary"]
     metrics_path = (
@@ -712,9 +713,9 @@ def test_quality_baseline_uses_scenario_compare_region(
 
     scenario_manifest = manifest["scenarios"][0]
     assert manifest["quality_baseline"]["compare_region"] == "scenario-default"
-    assert scenario_manifest["metric_summary"]["quality_rmse"]["median"] == pytest.approx(
-        0.0
-    )
+    assert scenario_manifest["metric_summary"]["quality_rmse"][
+        "median"
+    ] == pytest.approx(0.0)
     quality_payload = json.loads(
         (
             tmp_path
@@ -842,8 +843,7 @@ def test_cli_quality_profile_adds_pai_bench_long_command() -> None:
     assert "paibench_metric.run_metric" not in quality.command
     assert "--dimensions" in quality.command
     assert (
-        "{repo_root}/.cache/flashdreams/evaluators/physical-ai-bench"
-        in quality.command
+        "{repo_root}/.cache/flashdreams/evaluators/physical-ai-bench" in quality.command
     )
     assert "--keep-staged-videos" not in quality.command
     assert "motion_smoothness" in quality.command
@@ -1008,9 +1008,10 @@ def test_pai_bench_preflight_reports_missing_import(tmp_path: Path) -> None:
     assert payload["status"] == "fail"
     assert payload["metrics"] == {}
     assert payload["metadata"]["preflight"]["returncode"] == 1
-    assert payload["metadata"]["preflight"]["payload"]["failures"][0][
-        "missing_import"
-    ] == "missing_clip_for_test"
+    assert (
+        payload["metadata"]["preflight"]["payload"]["failures"][0]["missing_import"]
+        == "missing_clip_for_test"
+    )
     assert "missing Python import 'missing_clip_for_test'" in payload["warnings"][0]
     assert (tmp_path / "quality" / "pai_bench_preflight.log").is_file()
     assert not (tmp_path / "quality" / "pai_bench_command.log").exists()
@@ -1096,9 +1097,10 @@ def test_pai_bench_profile_normalizes_public_evaluator_output(
     metrics = payload["metrics"]
     assert payload["status"] == "pass"
     assert payload["metadata"]["runner"] == "local"
-    assert "FLASHDREAMS_PAI_BENCH_LOCAL_RUNNER" in payload["metadata"][
-        "command_manifest"
-    ]["env"]
+    assert (
+        "FLASHDREAMS_PAI_BENCH_LOCAL_RUNNER"
+        in payload["metadata"]["command_manifest"]["env"]
+    )
     assert metrics["pai_bench_g_motion_smoothness_score"] == pytest.approx(80.0)
     assert metrics["pai_bench_g_imaging_quality_score"] == pytest.approx(82.0)
     assert metrics["pai_bench_g_score"] == pytest.approx(81.0)

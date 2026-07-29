@@ -97,9 +97,7 @@ class BenchmarkScenario:
         if self.timeout_status not in ("fail", "pass"):
             raise ValueError("timeout_status must be 'fail' or 'pass'")
         if self.quality_compare_region not in (None, "full", "bottom-half"):
-            raise ValueError(
-                "quality_compare_region must be 'full' or 'bottom-half'"
-            )
+            raise ValueError("quality_compare_region must be 'full' or 'bottom-half'")
         if not isinstance(self.quality_baseline_compare, bool):
             raise ValueError("quality_baseline_compare must be a boolean")
         if not self.command:
@@ -132,7 +130,9 @@ class BenchmarkScenario:
                 data.get("output_dir_arg", "--output-dir"), "output_dir_arg"
             ),
             artifact_globs=_string_tuple(
-                data.get("artifact_globs", ("*.mp4", "*.json", "*.pt", "*.png", "*.jpg")),
+                data.get(
+                    "artifact_globs", ("*.mp4", "*.json", "*.pt", "*.png", "*.jpg")
+                ),
                 "artifact_globs",
             ),
             video_globs=_string_tuple(
@@ -159,7 +159,9 @@ class BenchmarkScenario:
         context: Mapping[str, str],
         env: Mapping[str, str] | None = None,
     ) -> tuple[str, ...]:
-        command = tuple(render_template(value, context=context, env=env) for value in self.command)
+        command = tuple(
+            render_template(value, context=context, env=env) for value in self.command
+        )
         if self.output_dir_arg is None:
             return command
         if _has_output_dir_arg(command, self.output_dir_arg):
@@ -328,8 +330,7 @@ def render_template(
 
 def _has_output_dir_arg(command: Sequence[str], output_dir_arg: str) -> bool:
     return any(
-        arg == output_dir_arg or arg.startswith(f"{output_dir_arg}=")
-        for arg in command
+        arg == output_dir_arg or arg.startswith(f"{output_dir_arg}=") for arg in command
     )
 
 

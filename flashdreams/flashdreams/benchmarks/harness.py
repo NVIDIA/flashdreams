@@ -72,7 +72,9 @@ class ScenarioRunResult:
     wall_time_s: float
     artifacts: Mapping[str, tuple[str, ...]]
     metric_records: tuple[MetricRecord, ...] = ()
-    metric_summary: Mapping[str, Mapping[str, float | int]] = field(default_factory=dict)
+    metric_summary: Mapping[str, Mapping[str, float | int]] = field(
+        default_factory=dict
+    )
     quality_results: tuple[Mapping[str, Any], ...] = ()
 
     def to_manifest(self, *, output_root: Path) -> dict[str, Any]:
@@ -93,8 +95,7 @@ class ScenarioRunResult:
             "log_path": _relpath(self.log_path, output_root),
             "warmup_steps": self.scenario.warmup_steps,
             "artifacts": {
-                key: [path for path in values]
-                for key, values in self.artifacts.items()
+                key: [path for path in values] for key, values in self.artifacts.items()
             },
             "metric_summary": {
                 key: dict(value) for key, value in self.metric_summary.items()
@@ -366,7 +367,9 @@ def run_scenario(
             log_path=log_path,
         )
     )
-    artifacts = _collect_artifacts(scenario, scenario_output_dir, output_root=output_root)
+    artifacts = _collect_artifacts(
+        scenario, scenario_output_dir, output_root=output_root
+    )
     quality_results = _run_baseline_quality(
         scenario,
         output_root=output_root,
@@ -389,9 +392,15 @@ def run_scenario(
             progress_interval_s=progress_interval_s,
         )
     )
-    metric_records.extend(_quality_metric_records(quality_results, output_root=output_root))
-    artifacts = _collect_artifacts(scenario, scenario_output_dir, output_root=output_root)
-    metric_summary = summarize_records(metric_records, warmup_steps=scenario.warmup_steps)
+    metric_records.extend(
+        _quality_metric_records(quality_results, output_root=output_root)
+    )
+    artifacts = _collect_artifacts(
+        scenario, scenario_output_dir, output_root=output_root
+    )
+    metric_summary = summarize_records(
+        metric_records, warmup_steps=scenario.warmup_steps
+    )
 
     result = ScenarioRunResult(
         scenario=scenario,
@@ -954,7 +963,9 @@ def _write_command_log_header(
 
 def _write_json(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8")
+    path.write_text(
+        json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return path
 
 

@@ -65,9 +65,13 @@ def collect_environment(repo_root: Path) -> dict[str, Any]:
 
 def _git_metadata(repo_root: Path) -> dict[str, str | bool | None]:
     return {
-        "branch": _run_text(("git", "rev-parse", "--abbrev-ref", "HEAD"), cwd=repo_root),
+        "branch": _run_text(
+            ("git", "rev-parse", "--abbrev-ref", "HEAD"), cwd=repo_root
+        ),
         "commit": _run_text(("git", "rev-parse", "HEAD"), cwd=repo_root),
-        "describe": _run_text(("git", "describe", "--always", "--dirty"), cwd=repo_root),
+        "describe": _run_text(
+            ("git", "describe", "--always", "--dirty"), cwd=repo_root
+        ),
         "dirty": _git_dirty(repo_root),
         "remote": _run_text(("git", "remote", "get-url", "origin"), cwd=repo_root),
     }

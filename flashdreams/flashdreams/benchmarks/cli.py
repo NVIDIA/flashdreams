@@ -25,13 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flashdreams.benchmarks.harness import run_benchmark_suite
-from flashdreams.benchmarks.quality import (
-    QualityBaselineConfig,
-    parse_quality_frame_indices,
-)
 from flashdreams.benchmarks.pai_bench_profile import (
     DEFAULT_PAI_BENCH_REPO,
     DEFAULT_PAI_BENCH_REVISION,
+)
+from flashdreams.benchmarks.quality import (
+    QualityBaselineConfig,
+    parse_quality_frame_indices,
 )
 from flashdreams.benchmarks.scenarios import (
     BenchmarkScenario,
@@ -75,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         progress=None if args.quiet else _print_progress,
         progress_interval_s=args.progress_interval_s,
     )
-    print(f"benchmark report: {Path(manifest['output_root']) / manifest['report_path']}")
+    print(
+        f"benchmark report: {Path(manifest['output_root']) / manifest['report_path']}"
+    )
     print(f"benchmark manifest: {Path(manifest['output_root']) / 'manifest.json'}")
     failed = int(manifest.get("failed_scenario_count", 0))
     return 1 if failed else 0
@@ -343,7 +345,9 @@ def _selected_scenarios(
 ) -> list[BenchmarkScenario]:
     if all_scenarios:
         return list(scenarios.values())
-    missing = [scenario_id for scenario_id in scenario_ids if scenario_id not in scenarios]
+    missing = [
+        scenario_id for scenario_id in scenario_ids if scenario_id not in scenarios
+    ]
     if missing:
         available = ", ".join(sorted(scenarios))
         raise SystemExit(f"unknown scenario id(s): {missing}; available: {available}")
@@ -362,7 +366,9 @@ def _apply_quality_profiles(
     if "pai-bench-g" in profiles:
         extra_commands.append(_pai_bench_quality_command(args, profile="pai-bench-g"))
     if "pai-bench-long" in profiles:
-        extra_commands.append(_pai_bench_quality_command(args, profile="pai-bench-long"))
+        extra_commands.append(
+            _pai_bench_quality_command(args, profile="pai-bench-long")
+        )
     updated: list[BenchmarkScenario] = []
     for scenario in scenarios:
         existing_ids = {command.id for command in scenario.quality_commands}

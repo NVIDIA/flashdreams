@@ -369,7 +369,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("pai-bench-g", "pai-bench-long"), required=True)
+    parser.add_argument(
+        "--profile", choices=("pai-bench-g", "pai-bench-long"), required=True
+    )
     parser.add_argument(
         "--runner",
         choices=("local", "upstream"),
@@ -438,7 +440,9 @@ def _stage_video_and_prompt(
     videos_dir = staged_dir / "videos"
     videos_dir.mkdir(parents=True, exist_ok=True)
     safe_video_id = _safe_video_id(video_id or scenario_id)
-    prompt_text = prompt.strip() or f"FlashDreams local benchmark scenario {scenario_id}"
+    prompt_text = (
+        prompt.strip() or f"FlashDreams local benchmark scenario {scenario_id}"
+    )
 
     if profile == "pai-bench-long":
         video_ids = _stage_video_segments(
@@ -850,7 +854,11 @@ def _parse_paibench_result_payload(
 def _aggregate_score(value: object, *, dimension: str) -> float | None:
     raw_score: float | None = None
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        if value and isinstance(value[0], (int, float)) and not isinstance(value[0], bool):
+        if (
+            value
+            and isinstance(value[0], (int, float))
+            and not isinstance(value[0], bool)
+        ):
             raw_score = float(value[0])
     elif isinstance(value, Mapping):
         for key in ("average", "mean", "score", "overall", "aggregate"):

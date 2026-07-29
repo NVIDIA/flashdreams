@@ -44,9 +44,7 @@ _INTERACTIVE_DRIVE_SESSION_RE = re.compile(
     r"\s+total_ms=(?P<total_ms>-?\d+(?:\.\d+)?)"
 )
 _PROFILE_E2E_RE = re.compile(r"\[profile\]\s+e2e\s+(?P<body>.*)$")
-_KEY_VALUE_NUMBER_RE = re.compile(
-    r"(?P<key>[A-Za-z0-9_]+)=(?P<value>-?\d+(?:\.\d+)?)"
-)
+_KEY_VALUE_NUMBER_RE = re.compile(r"(?P<key>[A-Za-z0-9_]+)=(?P<value>-?\d+(?:\.\d+)?)")
 
 _INDEX_FIELDS = ("autoregressive_index", "step", "step_index", "chunk_index", "index")
 _NON_METRIC_FIELDS = frozenset(
@@ -334,7 +332,9 @@ def _record_from_perf_summary_line(
         p90 = float(metric_match.group("p90"))
         median_unit = metric_match.group("median_unit")
         p90_unit = metric_match.group("p90_unit")
-        median_key, median_value = _summary_value_key(name, median, median_unit, "median")
+        median_key, median_value = _summary_value_key(
+            name, median, median_unit, "median"
+        )
         p90_key, p90_value = _summary_value_key(name, p90, p90_unit, "p90")
         metrics[median_key] = median_value
         metrics[p90_key] = p90_value

@@ -207,7 +207,9 @@ def find_baseline_video(baseline_dir: Path, scenario_id: str) -> Path | None:
     """Find the MP4 for ``scenario_id`` in a previous run or flat baseline dir."""
 
     baseline_dir = baseline_dir.expanduser().resolve()
-    manifest_video = _baseline_from_manifest(baseline_dir / "manifest.json", scenario_id)
+    manifest_video = _baseline_from_manifest(
+        baseline_dir / "manifest.json", scenario_id
+    )
     if manifest_video is not None:
         return manifest_video
 
