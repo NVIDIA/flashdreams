@@ -54,6 +54,22 @@ from tools.benchmarks.scenarios import (
 
 _SCHEMA_VERSION = "0.1.0"
 ProgressCallback = Callable[[str], None]
+_WINDOWS_TERMINATE_TIMEOUT_S = 10.0
+_WINDOWS_PROCESS_TREE_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$rootPid = [int]$args[0]
+$seen = @{}
+function Stop-Tree([int]$processId) {
+    if ($seen.ContainsKey($processId)) {
+        return
+    }
+    $seen[$processId] = $true
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$processId" |
+        ForEach-Object { Stop-Tree ([int]$_.ProcessId) }
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+}
+Stop-Tree $rootPid
+"""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -523,17 +539,32 @@ def _process_group_popen_kwargs() -> dict[str, Any]:
 
 
 def _terminate_windows_process_tree(process: subprocess.Popen[str]) -> None:
-    _run_windows_taskkill(process.pid)
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        pass
+    if _run_windows_taskkill(process.pid) and _wait_for_process_exit(
+        process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S
+    ):
+        return
+
+    if _run_windows_powershell_stop_process_tree(
+        process.pid
+    ) and _wait_for_process_exit(process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S):
+        return
+
     if process.poll() is None:
         process.kill()
+        _wait_for_process_exit(process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S)
+    raise RuntimeError(
+        f"Failed to terminate Windows process tree rooted at PID {process.pid}. "
+        "The benchmark run was stopped to avoid starting later scenarios while "
+        "descendant workers may still be alive."
+    )
+
+
+def _wait_for_process_exit(process: subprocess.Popen[str], *, timeout_s: float) -> bool:
     try:
-        process.wait(timeout=10)
+        process.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
-        return
+        return False
+    return True
 
 
 def _run_windows_taskkill(pid: int) -> bool:
@@ -543,10 +574,37 @@ def _run_windows_taskkill(pid: int) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=_WINDOWS_TERMINATE_TIMEOUT_S,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
+
+
+def _run_windows_powershell_stop_process_tree(pid: int) -> bool:
+    for executable in ("powershell.exe", "pwsh"):
+        try:
+            result = subprocess.run(
+                [
+                    executable,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    _WINDOWS_PROCESS_TREE_SCRIPT,
+                    str(pid),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=_WINDOWS_TERMINATE_TIMEOUT_S,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
 
 
 def _send_process_signal(process: subprocess.Popen[str], sig: signal.Signals) -> None:

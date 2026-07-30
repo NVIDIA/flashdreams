@@ -606,6 +606,88 @@ def test_windows_timeout_uses_taskkill_process_tree(
     assert process.killed is False
 
 
+def test_windows_timeout_uses_powershell_when_taskkill_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeProcess:
+        pid = 1234
+        returncode: int | None = None
+        killed = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired("fake", timeout or 0.0)
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+    process = FakeProcess()
+    commands: list[list[str]] = []
+
+    def fake_run(
+        command: list[str],
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[0] == "taskkill":
+            return subprocess.CompletedProcess(command, 1)
+        process.returncode = 1
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
+    monkeypatch.setattr(benchmark_harness.subprocess, "run", fake_run)
+
+    benchmark_harness._terminate_process(cast(subprocess.Popen[str], process))
+
+    assert commands[0] == ["taskkill", "/F", "/T", "/PID", "1234"]
+    assert commands[1][0] == "powershell.exe"
+    assert "-Command" in commands[1]
+    assert commands[1][-1] == "1234"
+    assert process.killed is False
+
+
+def test_windows_timeout_cleanup_failure_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeProcess:
+        pid = 1234
+        returncode: int | None = None
+        killed = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired("fake", timeout or 0.0)
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+    process = FakeProcess()
+
+    def fake_run(
+        command: list[str],
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
+    monkeypatch.setattr(benchmark_harness.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="Failed to terminate Windows process tree"):
+        benchmark_harness._terminate_process(cast(subprocess.Popen[str], process))
+
+    assert process.killed is True
+
+
 def test_quality_command_can_report_skipped_status(tmp_path: Path) -> None:
     script = (
         "from pathlib import Path; import sys; "
