@@ -20,6 +20,8 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,15 @@ class MetricDisplay:
     unit: str = ""
     scale: float = 1.0
     chart_kind: str = "other"
+
+
+@dataclass(frozen=True)
+class ModelReportGroup:
+    """Scenarios grouped into one per-model detail report."""
+
+    slug: str
+    label: str
+    scenarios: tuple[dict[str, Any], ...]
 
 
 _LABEL_OVERRIDES = {
@@ -76,6 +87,35 @@ _LABEL_OVERRIDES = {
     "pai_bench_long_videos_evaluated": "PAI-Bench-Long videos",
     "returncode": "Return code",
 }
+_MODEL_GROUPS = (
+    ("lingbot", "LingBot"),
+    ("omnidreams", "Omnidreams"),
+    ("cosmos-interactive", "Cosmos Interactive"),
+    ("cosmos2", "Cosmos-Predict2"),
+    ("self-forcing", "Self-Forcing"),
+    ("wan21", "Wan2.1"),
+    ("wan22", "Wan2.2"),
+)
+_GENERIC_TAGS = frozenset(
+    {
+        "benchmark",
+        "deterministic",
+        "gpu",
+        "i2v",
+        "manual",
+        "one-minute",
+        "pai-bench",
+        "public",
+        "quality",
+        "quality-30s",
+        "real-demo",
+        "runner",
+        "seeded",
+        "streaming",
+        "t2v",
+        "world-model",
+    }
+)
 _CHART_ORDER = {
     "total_s": 0,
     "total_wo_finalize_s": 1,
@@ -107,183 +147,159 @@ _CHART_ORDER = {
 
 
 def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
-    """Write a compact self-contained HTML benchmark report."""
-    manifest_output_root = Path(str(manifest["output_root"]))
-    output_root = manifest_output_root
-    metrics_root = (
-        manifest_output_root if manifest_output_root.exists() else path.parent
-    )
+    """Write an index report plus per-model detail pages."""
+    manifest_output_root = Path(str(manifest.get("output_root", path.parent)))
+    asset_root = manifest_output_root if manifest_output_root.exists() else path.parent
     scenarios = [
         scenario
         for scenario in manifest.get("scenarios", [])
         if isinstance(scenario, dict)
     ]
+    groups = _model_report_groups(scenarios)
+    detail_dir = path.parent / "reports"
+    detail_hrefs_by_slug: dict[str, str] = {}
+    scenario_detail_hrefs: dict[str, str] = {}
+    for group in groups:
+        detail_path = detail_dir / f"{group.slug}.html"
+        detail_href = _file_href(detail_path, page_dir=path.parent)
+        detail_hrefs_by_slug[group.slug] = detail_href
+        for scenario in group.scenarios:
+            scenario_id = str(scenario.get("id", ""))
+            scenario_detail_hrefs[scenario_id] = (
+                f"{detail_href}#{_scenario_anchor(scenario_id)}"
+            )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    detail_dir.mkdir(parents=True, exist_ok=True)
+    for group in groups:
+        detail_path = detail_dir / f"{group.slug}.html"
+        detail_path.write_text(
+            _html_document(
+                f"{group.label} Benchmark Report",
+                _model_detail_body(
+                    manifest,
+                    group=group,
+                    manifest_output_root=manifest_output_root,
+                    asset_root=asset_root,
+                    page_dir=detail_path.parent,
+                    summary_href=_file_href(path, page_dir=detail_path.parent),
+                ),
+            ),
+            encoding="utf-8",
+        )
+
+    path.write_text(
+        _html_document(
+            "FlashDreams Benchmark Report",
+            _summary_body(
+                manifest,
+                scenarios=scenarios,
+                groups=groups,
+                detail_hrefs_by_slug=detail_hrefs_by_slug,
+                scenario_detail_hrefs=scenario_detail_hrefs,
+            ),
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _html_document(title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{html.escape(title)}</title>
+  <style>
+{_report_css()}
+  </style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+
+def _summary_body(
+    manifest: dict[str, Any],
+    *,
+    scenarios: list[dict[str, Any]],
+    groups: list[ModelReportGroup],
+    detail_hrefs_by_slug: Mapping[str, str],
+    scenario_detail_hrefs: Mapping[str, str],
+) -> str:
+    environment = manifest.get("environment", {})
+    environment = environment if isinstance(environment, dict) else {}
+    quality_baseline = manifest.get("quality_baseline")
+    return f"""
+  <h1>FlashDreams Benchmark Report</h1>
+  <p class="muted">Created {html.escape(str(manifest.get("created_at", "")))}.</p>
+
+  <h2>Run</h2>
+  {_run_table(manifest, environment=environment, quality_baseline=quality_baseline)}
+
+  <h2>Model Reports</h2>
+  {_model_report_cards(groups, detail_hrefs_by_slug) or _empty_model_reports()}
+
+  <h2>Scenario Highlights</h2>
+  {_scenario_highlights(scenarios, detail_hrefs=scenario_detail_hrefs) or _empty_highlights()}
+
+  <h2>Scenarios</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Scenario</th>
+        <th>Status</th>
+        <th>Wall Time</th>
+        <th>Quality</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {_scenario_index_rows(groups, detail_hrefs_by_slug)}
+    </tbody>
+  </table>
+
+  <h2>Quality Guide</h2>
+  {_quality_guide()}
+"""
+
+
+def _model_detail_body(
+    manifest: dict[str, Any],
+    *,
+    group: ModelReportGroup,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
+    summary_href: str,
+) -> str:
+    scenarios = list(group.scenarios)
     scenario_rows = "\n".join(
-        _scenario_row(scenario, output_root=output_root) for scenario in scenarios
+        _scenario_row(
+            scenario,
+            manifest_output_root=manifest_output_root,
+            asset_root=asset_root,
+            page_dir=page_dir,
+        )
+        for scenario in scenarios
     )
     chart_sections = _metric_charts(scenarios)
     metric_rows = "\n".join(_metric_summary_rows(scenario) for scenario in scenarios)
     highlight_sections = _scenario_highlights(scenarios)
     quality_comparisons = _quality_comparison_sections(
         scenarios,
-        output_root=output_root,
-        metrics_root=metrics_root,
+        manifest_output_root=manifest_output_root,
+        asset_root=asset_root,
+        page_dir=page_dir,
     )
-    environment = manifest.get("environment", {})
-    quality_baseline = manifest.get("quality_baseline")
-    html_text = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>FlashDreams Benchmark Report</title>
-  <style>
-    body {{
-      margin: 32px;
-      color: #161616;
-      background: #fafafa;
-      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }}
-    h1, h2, h3 {{ margin: 0 0 12px; }}
-    h2 {{ margin-top: 28px; }}
-    h3 {{ margin-top: 18px; }}
-    table {{ border-collapse: collapse; width: 100%; background: white; }}
-    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}
-    th {{ background: #f1f3f4; }}
-    td, th {{ overflow-wrap: anywhere; }}
-    code {{
-      background: #f0f0f0;
-      padding: 1px 4px;
-      border-radius: 3px;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }}
-    .numeric {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
-    .status-pass {{ color: #0b6e2b; font-weight: 600; }}
-    .status-fail, .status-timeout {{ color: #a32020; font-weight: 600; }}
-    .status-dry_run {{ color: #555; font-weight: 600; }}
-    .muted {{ color: #5f6368; }}
-    .highlight-grid, .comparison-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-      gap: 14px;
-      margin-bottom: 12px;
-    }}
-    .highlight-card, .guide-card, .comparison-card {{
-      min-width: 0;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 12px;
-    }}
-    .highlight-card h3, .guide-card h3, .comparison-card h4 {{
-      margin: 0 0 8px;
-      font-size: 14px;
-    }}
-    .highlight-list {{
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 6px 12px;
-      margin: 0;
-    }}
-    .highlight-list dt {{ color: #5f6368; }}
-    .highlight-list dd {{ margin: 0; font-variant-numeric: tabular-nums; }}
-    .highlight-list strong {{ font-size: 16px; }}
-    .metric-help {{ display: block; margin-top: 3px; color: #5f6368; }}
-    .metric-pill {{
-      display: inline-block;
-      margin-left: 6px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-    }}
-    .metric-pill.good {{ color: #0b6e2b; background: #e7f4ea; }}
-    .metric-pill.warn {{ color: #8a5a00; background: #fff4d8; }}
-    .metric-pill.bad {{ color: #a32020; background: #fce8e6; }}
-    .metric-pill.neutral {{ color: #3c4043; background: #f1f3f4; }}
-    .quality-score-list {{
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 6px 12px;
-      margin: 10px 0 0;
-    }}
-    .quality-score-list dt {{ color: #5f6368; }}
-    .quality-score-list dd {{ margin: 0; font-variant-numeric: tabular-nums; }}
-    .quality-guide-table td:first-child {{ white-space: nowrap; }}
-    .chart-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-      gap: 14px;
-      margin-bottom: 10px;
-    }}
-    .chart-card {{
-      min-width: 0;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 12px;
-    }}
-    .chart-card h4 {{ margin: 0 0 8px; font-size: 14px; }}
-    .chart-card table {{ background: transparent; }}
-    .chart-card th, .chart-card td {{ border: 0; border-bottom: 1px solid #eee; padding: 6px 4px; }}
-    .chart-card tr:last-child td {{ border-bottom: 0; }}
-    .value-bar {{
-      display: grid;
-      grid-template-columns: minmax(70px, 1fr) auto;
-      gap: 8px;
-      align-items: center;
-      min-width: 150px;
-    }}
-    .bar-track {{
-      height: 10px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: #e8edf3;
-    }}
-    .bar-fill {{ display: block; height: 100%; background: #2b6cb0; }}
-    .bar-fill.secondary {{ background: #b7791f; }}
-    .chart-value {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
-    video {{
-      width: min(100%, 320px);
-      height: auto;
-      max-height: 180px;
-      display: block;
-      margin-top: 6px;
-    }}
-    .comparison-card a {{ overflow-wrap: anywhere; }}
-    .comparison-card video {{ width: 100%; max-width: 520px; max-height: 300px; }}
-    @media (max-width: 700px) {{
-      body {{ margin: 16px; }}
-      th, td {{ padding: 6px; }}
-      .highlight-list, .quality-score-list {{ grid-template-columns: 1fr; }}
-      .metric-pill {{ margin-left: 0; margin-top: 3px; }}
-    }}
-  </style>
-</head>
-<body>
-  <h1>FlashDreams Benchmark Report</h1>
-  <p class="muted">Created {html.escape(str(manifest.get("created_at", "")))}.</p>
-
-  <h2>Run</h2>
-  <table>
-    <tbody>
-      <tr><th>Mode</th><td>{html.escape(str(manifest.get("mode", "")))}</td></tr>
-      <tr><th>Output Root</th><td><code>{_escape(manifest.get("output_root", ""))}</code></td></tr>
-      <tr><th>Quality Baseline</th><td>{_quality_baseline_summary(quality_baseline)}</td></tr>
-      <tr>
-        <th>Git Commit</th>
-        <td><code>{_escape(_dig(environment, "git", "commit") or "")}</code></td>
-      </tr>
-      <tr><th>Git Branch</th><td>{_escape(_dig(environment, "git", "branch") or "")}</td></tr>
-      <tr><th>Dirty</th><td>{html.escape(str(_dig(environment, "git", "dirty") or ""))}</td></tr>
-      <tr><th>GPU</th><td>{_gpu_summary(environment)}</td></tr>
-      <tr>
-        <th>Python</th>
-        <td>{_escape(_first_line(_dig(environment, "python", "version")))}</td>
-      </tr>
-      <tr><th>Torch</th><td>{_escape(_dig(environment, "torch", "version") or "")}</td></tr>
-    </tbody>
-  </table>
+    created_at = html.escape(str(manifest.get("created_at", "")))
+    return f"""
+  <nav class="top-nav"><a href="{html.escape(summary_href)}">Back to summary</a></nav>
+  <h1>{html.escape(group.label)} Benchmark Report</h1>
+  <p class="muted">Created {created_at}. {len(scenarios)} scenario(s).</p>
 
   <h2>Scenario Highlights</h2>
   {highlight_sections or _empty_highlights()}
@@ -325,25 +341,396 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
       {metric_rows or _empty_metrics_row()}
     </tbody>
   </table>
-</body>
-</html>
 """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html_text, encoding="utf-8")
-    return path
 
 
-def _scenario_row(scenario: dict[str, Any], *, output_root: Path) -> str:
+def _report_css() -> str:
+    return """
+    body {
+      margin: 32px;
+      color: #161616;
+      background: #fafafa;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    h1, h2, h3 { margin: 0 0 12px; }
+    h2 { margin-top: 28px; }
+    h3 { margin-top: 18px; }
+    a { color: #174ea6; }
+    table { border-collapse: collapse; width: 100%; background: white; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f1f3f4; }
+    td, th { overflow-wrap: anywhere; }
+    code {
+      background: #f0f0f0;
+      padding: 1px 4px;
+      border-radius: 3px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .top-nav { margin-bottom: 18px; }
+    .top-nav a { font-weight: 600; }
+    .detail-link { font-weight: 600; white-space: nowrap; }
+    .status-pass { color: #0b6e2b; font-weight: 600; }
+    .status-fail, .status-timeout { color: #a32020; font-weight: 600; }
+    .status-dry_run { color: #555; font-weight: 600; }
+    .muted { color: #5f6368; }
+    .highlight-grid, .comparison-grid, .model-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .highlight-card, .guide-card, .comparison-card, .model-card {
+      min-width: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .highlight-card h3, .guide-card h3, .comparison-card h4, .model-card h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .model-card p { margin: 6px 0; }
+    .highlight-list {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 12px;
+      margin: 0;
+    }
+    .highlight-list dt { color: #5f6368; }
+    .highlight-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .highlight-list strong { font-size: 16px; }
+    .metric-help { display: block; margin-top: 3px; color: #5f6368; }
+    .metric-pill {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .metric-pill.good { color: #0b6e2b; background: #e7f4ea; }
+    .metric-pill.warn { color: #8a5a00; background: #fff4d8; }
+    .metric-pill.bad { color: #a32020; background: #fce8e6; }
+    .metric-pill.neutral { color: #3c4043; background: #f1f3f4; }
+    .quality-score-list {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px 12px;
+      margin: 10px 0 0;
+    }
+    .quality-score-list dt { color: #5f6368; }
+    .quality-score-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .quality-guide-table td:first-child { white-space: nowrap; }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+    .chart-card {
+      min-width: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .chart-card h4 { margin: 0 0 8px; font-size: 14px; }
+    .chart-card table { background: transparent; }
+    .chart-card th, .chart-card td { border: 0; border-bottom: 1px solid #eee; padding: 6px 4px; }
+    .chart-card tr:last-child td { border-bottom: 0; }
+    .value-bar {
+      display: grid;
+      grid-template-columns: minmax(70px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-width: 150px;
+    }
+    .bar-track {
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e8edf3;
+    }
+    .bar-fill { display: block; height: 100%; background: #2b6cb0; }
+    .bar-fill.secondary { background: #b7791f; }
+    .chart-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    video {
+      width: min(100%, 320px);
+      height: auto;
+      max-height: 180px;
+      display: block;
+      margin-top: 6px;
+    }
+    .comparison-card a { overflow-wrap: anywhere; }
+    .comparison-card video { width: 100%; max-width: 520px; max-height: 300px; }
+    @media (max-width: 700px) {
+      body { margin: 16px; }
+      th, td { padding: 6px; }
+      .highlight-list, .quality-score-list { grid-template-columns: 1fr; }
+      .metric-pill { margin-left: 0; margin-top: 3px; }
+    }
+    """
+
+
+def _run_table(
+    manifest: dict[str, Any],
+    *,
+    environment: dict[str, Any],
+    quality_baseline: object,
+) -> str:
+    return f"""
+  <table>
+    <tbody>
+      <tr><th>Mode</th><td>{html.escape(str(manifest.get("mode", "")))}</td></tr>
+      <tr><th>Output Root</th><td><code>{_escape(manifest.get("output_root", ""))}</code></td></tr>
+      <tr><th>Quality Baseline</th><td>{_quality_baseline_summary(quality_baseline)}</td></tr>
+      <tr>
+        <th>Git Commit</th>
+        <td><code>{_escape(_dig(environment, "git", "commit") or "")}</code></td>
+      </tr>
+      <tr><th>Git Branch</th><td>{_escape(_dig(environment, "git", "branch") or "")}</td></tr>
+      <tr><th>Dirty</th><td>{html.escape(str(_dig(environment, "git", "dirty") or ""))}</td></tr>
+      <tr><th>GPU</th><td>{_gpu_summary(environment)}</td></tr>
+      <tr>
+        <th>Python</th>
+        <td>{_escape(_first_line(_dig(environment, "python", "version")))}</td>
+      </tr>
+      <tr><th>Torch</th><td>{_escape(_dig(environment, "torch", "version") or "")}</td></tr>
+    </tbody>
+  </table>
+"""
+
+
+def _model_report_groups(scenarios: list[dict[str, Any]]) -> list[ModelReportGroup]:
+    by_slug: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    order: list[str] = []
+    for scenario in scenarios:
+        slug, label = _scenario_group(scenario)
+        if slug not in by_slug:
+            by_slug[slug] = (label, [])
+            order.append(slug)
+        by_slug[slug][1].append(scenario)
+    return [
+        ModelReportGroup(
+            slug=slug,
+            label=by_slug[slug][0],
+            scenarios=tuple(by_slug[slug][1]),
+        )
+        for slug in order
+    ]
+
+
+def _scenario_group(scenario: dict[str, Any]) -> tuple[str, str]:
+    scenario_id = str(scenario.get("id", "")).lower()
+    tags = _scenario_tags(scenario)
+    for slug, label in _MODEL_GROUPS:
+        if slug in tags or slug in scenario_id:
+            return slug, label
+    for tag in sorted(tags):
+        if tag and tag not in _GENERIC_TAGS:
+            return _slugify(tag), _title_metric(tag.replace("-", "_"))
+    fallback = scenario_id.split("-", 1)[0] if scenario_id else "other"
+    return _slugify(fallback), _title_metric(fallback.replace("-", "_"))
+
+
+def _scenario_tags(scenario: dict[str, Any]) -> set[str]:
+    tags = scenario.get("tags", [])
+    if not isinstance(tags, (list, tuple, set)):
+        return set()
+    return {str(tag).lower() for tag in tags if str(tag)}
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "other"
+
+
+def _scenario_anchor(scenario_id: str) -> str:
+    return f"scenario-{_slugify(scenario_id)}"
+
+
+def _status_class(status: str) -> str:
+    css_class = re.sub(r"[^a-z0-9_-]+", "-", status.lower()).strip("-")
+    return css_class or "unknown"
+
+
+def _model_report_cards(
+    groups: list[ModelReportGroup],
+    detail_hrefs_by_slug: Mapping[str, str],
+) -> str:
+    cards: list[str] = []
+    for group in groups:
+        href = detail_hrefs_by_slug.get(group.slug, f"reports/{group.slug}.html")
+        row_values = [
+            ("Scenarios", str(len(group.scenarios))),
+            ("Status", _status_summary(group.scenarios)),
+        ]
+        wall_time_s = _group_metric_value(group.scenarios, "command_wall_s")
+        if wall_time_s is not None:
+            row_values.append(("Median wall time", _format_wall_time(wall_time_s)))
+        quality_score = _group_metric_value(group.scenarios, "quality_score")
+        if quality_score is not None:
+            display = _metric_display("quality_score")
+            row_values.append(
+                (
+                    "Median quality",
+                    f"{_format_metric_with_unit(quality_score, display)}"
+                    f"{_metric_judgement_html('quality_score', quality_score)}",
+                )
+            )
+        pai_score = _group_metric_value(group.scenarios, "pai_bench_long_score")
+        if pai_score is not None:
+            display = _metric_display("pai_bench_long_score")
+            row_values.append(
+                (
+                    "Median PAI-Bench-Long",
+                    f"{_format_metric_with_unit(pai_score, display)}"
+                    f"{_metric_judgement_html('pai_bench_long_score', pai_score)}",
+                )
+            )
+        rows = "".join(
+            f"<dt>{html.escape(label)}</dt><dd>{value}</dd>"
+            for label, value in row_values
+        )
+        scenario_list = ", ".join(
+            html.escape(str(scenario.get("id", ""))) for scenario in group.scenarios
+        )
+        cards.append(
+            '<div class="model-card">'
+            f'<h3><a href="{html.escape(href)}">{html.escape(group.label)}</a></h3>'
+            f'<dl class="highlight-list">{rows}</dl>'
+            f'<p class="muted">{scenario_list}</p>'
+            f'<p><a class="detail-link" href="{html.escape(href)}">View details</a></p>'
+            "</div>"
+        )
+    return f'<div class="model-grid">{"".join(cards)}</div>' if cards else ""
+
+
+def _scenario_index_rows(
+    groups: list[ModelReportGroup],
+    detail_hrefs_by_slug: Mapping[str, str],
+) -> str:
+    rows: list[str] = []
+    for group in groups:
+        detail_href = detail_hrefs_by_slug.get(group.slug, f"reports/{group.slug}.html")
+        for scenario in group.scenarios:
+            scenario_id = str(scenario.get("id", ""))
+            scenario_href = f"{detail_href}#{_scenario_anchor(scenario_id)}"
+            status = str(scenario.get("status", ""))
+            rows.append(
+                "<tr>"
+                f'<td><a href="{html.escape(detail_href)}">{html.escape(group.label)}</a></td>'
+                f'<td><a href="{html.escape(scenario_href)}">{html.escape(scenario_id)}</a><br>'
+                f'<span class="muted">{html.escape(str(scenario.get("name", "")))}</span></td>'
+                f'<td class="status-{_status_class(status)}">{html.escape(status)}</td>'
+                f"<td>{_format_wall_time(scenario.get('wall_time_s'))}</td>"
+                f"<td>{_scenario_quality_summary(scenario)}</td>"
+                f'<td><a class="detail-link" href="{html.escape(scenario_href)}">Open</a></td>'
+                "</tr>"
+            )
+    if not rows:
+        return '<tr><td colspan="6" class="muted">No scenarios were run.</td></tr>'
+    return "\n".join(rows)
+
+
+def _scenario_quality_summary(scenario: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for metric in (
+        "quality_score",
+        "quality_similarity_score",
+        "pai_bench_long_score",
+    ):
+        value = _scenario_metric_value(scenario, metric)
+        if value is None:
+            continue
+        display = _metric_display(metric)
+        parts.append(
+            f"{html.escape(display.label)}: "
+            f"{_format_metric_with_unit(value, display)}"
+            f"{_metric_judgement_html(metric, value)}"
+        )
+    return "<br>".join(parts) if parts else '<span class="muted">not available</span>'
+
+
+def _status_summary(scenarios: tuple[dict[str, Any], ...]) -> str:
+    counts: dict[str, int] = {}
+    for scenario in scenarios:
+        status = str(scenario.get("status", "unknown"))
+        counts[status] = counts.get(status, 0) + 1
+    return ", ".join(
+        f'<span class="status-{_status_class(status)}">{html.escape(status)}</span> '
+        f"{count}"
+        for status, count in sorted(counts.items())
+    )
+
+
+def _group_metric_value(
+    scenarios: tuple[dict[str, Any], ...],
+    metric: str,
+) -> float | None:
+    values = [
+        float(value)
+        for scenario in scenarios
+        if (value := _scenario_metric_value(scenario, metric)) is not None
+    ]
+    return _median(values)
+
+
+def _scenario_metric_value(scenario: dict[str, Any], metric: str) -> float | int | None:
+    highlights = scenario.get("metric_highlights", {})
+    if not isinstance(highlights, dict):
+        highlights = {}
+    summary = scenario.get("metric_summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+
+    if metric == "command_wall_s":
+        return _numeric_or_none(
+            highlights.get("command_wall_s"),
+            fallback=scenario.get("wall_time_s"),
+        )
+    return _numeric_or_none(
+        highlights.get(f"{metric}_median"),
+        fallback=_summary_stat(summary, metric, "median"),
+    )
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+
+
+def _scenario_row(
+    scenario: dict[str, Any],
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
+) -> str:
     scenario_id = str(scenario.get("id", ""))
     status = str(scenario.get("status", ""))
     wall_time = _format_wall_time(scenario.get("wall_time_s"))
     command = html.escape(str(scenario.get("command", "")))
-    artifact_links = _artifact_links(scenario, output_root=output_root)
+    artifact_links = _artifact_links(
+        scenario,
+        manifest_output_root=manifest_output_root,
+        asset_root=asset_root,
+        page_dir=page_dir,
+    )
     return (
         "<tr>"
-        f"<td><strong>{html.escape(scenario_id)}</strong><br>"
+        f'<td id="{html.escape(_scenario_anchor(scenario_id))}">'
+        f"<strong>{html.escape(scenario_id)}</strong><br>"
         f'<span class="muted">{html.escape(str(scenario.get("name", "")))}</span></td>'
-        f'<td class="status-{html.escape(status)}">{html.escape(status)}</td>'
+        f'<td class="status-{_status_class(status)}">{html.escape(status)}</td>'
         f"<td>{wall_time}</td>"
         f"<td><code>{command}</code></td>"
         f"<td>{artifact_links}</td>"
@@ -351,20 +738,40 @@ def _scenario_row(scenario: dict[str, Any], *, output_root: Path) -> str:
     )
 
 
-def _artifact_links(scenario: dict[str, Any], *, output_root: Path) -> str:
+def _artifact_links(
+    scenario: dict[str, Any],
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
+) -> str:
     artifacts = scenario.get("artifacts", {})
     if not isinstance(artifacts, dict):
         return '<span class="muted">none</span>'
     parts: list[str] = []
     videos = [str(path) for path in artifacts.get("videos", [])]
     for video in videos:
-        href = html.escape(video)
+        href = html.escape(
+            _artifact_href(
+                video,
+                manifest_output_root=manifest_output_root,
+                asset_root=asset_root,
+                page_dir=page_dir,
+            )
+        )
         parts.append(f'<a href="{href}">{html.escape(Path(video).name)}</a>')
         parts.append(f'<video controls preload="metadata" src="{href}"></video>')
     for kind in ("logs", "stats", "quality", "other"):
         for artifact in artifacts.get(kind, []):
             artifact_str = str(artifact)
-            href = html.escape(artifact_str)
+            href = html.escape(
+                _artifact_href(
+                    artifact_str,
+                    manifest_output_root=manifest_output_root,
+                    asset_root=asset_root,
+                    page_dir=page_dir,
+                )
+            )
             parts.append(f'<a href="{href}">{html.escape(Path(artifact_str).name)}</a>')
     return "<br>".join(parts) if parts else '<span class="muted">none</span>'
 
@@ -398,11 +805,24 @@ def _metric_summary_rows(scenario: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
-def _scenario_highlights(scenarios: list[dict[str, Any]]) -> str:
+def _scenario_highlights(
+    scenarios: list[dict[str, Any]],
+    *,
+    detail_hrefs: Mapping[str, str] | None = None,
+) -> str:
     cards: list[str] = []
     for scenario in scenarios:
-        scenario_id = html.escape(str(scenario.get("id", "")))
-        status = html.escape(str(scenario.get("status", "")))
+        scenario_id_raw = str(scenario.get("id", ""))
+        scenario_id = html.escape(scenario_id_raw)
+        detail_href = detail_hrefs.get(scenario_id_raw) if detail_hrefs else None
+        scenario_heading = (
+            f'<a href="{html.escape(detail_href)}">{scenario_id}</a>'
+            if detail_href
+            else scenario_id
+        )
+        status_raw = str(scenario.get("status", ""))
+        status = html.escape(status_raw)
+        status_class = _status_class(status_raw)
         highlights = scenario.get("metric_highlights", {})
         if not isinstance(highlights, dict):
             highlights = {}
@@ -439,7 +859,7 @@ def _scenario_highlights(scenarios: list[dict[str, Any]]) -> str:
         items = [
             (
                 "Status",
-                f'<span class="status-{status}">{status}</span>',
+                f'<span class="status-{status_class}">{status}</span>',
             )
         ]
         if command_wall_s is not None:
@@ -506,7 +926,7 @@ def _scenario_highlights(scenarios: list[dict[str, Any]]) -> str:
         rows = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in items)
         cards.append(
             '<div class="highlight-card">'
-            f"<h3>{scenario_id}</h3>"
+            f"<h3>{scenario_heading}</h3>"
             f'<dl class="highlight-list">{rows}</dl>'
             "</div>"
         )
@@ -553,8 +973,9 @@ def _quality_guide() -> str:
 def _quality_comparison_sections(
     scenarios: list[dict[str, Any]],
     *,
-    output_root: Path,
-    metrics_root: Path,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
 ) -> str:
     sections: list[str] = []
     for scenario in scenarios:
@@ -575,7 +996,11 @@ def _quality_comparison_sections(
                 str,
             ):
                 continue
-            payload = _quality_payload(result, output_root=metrics_root)
+            payload = _quality_payload(
+                result,
+                manifest_output_root=manifest_output_root,
+                asset_root=asset_root,
+            )
             metrics = payload.get("metrics") if isinstance(payload, dict) else None
             metrics = metrics if isinstance(metrics, dict) else {}
             metrics_card = (
@@ -583,12 +1008,26 @@ def _quality_comparison_sections(
                 if result_id == "baseline-video-review"
                 else _quality_metrics_card(metrics)
             )
+            baseline_card = _comparison_video_card(
+                "Baseline",
+                baseline_video,
+                manifest_output_root=manifest_output_root,
+                asset_root=asset_root,
+                page_dir=page_dir,
+            )
+            candidate_card = _comparison_video_card(
+                "Candidate",
+                candidate_video,
+                manifest_output_root=manifest_output_root,
+                asset_root=asset_root,
+                page_dir=page_dir,
+            )
             sections.append(
                 "<section>"
                 f"<h3>{scenario_id}</h3>"
                 '<div class="comparison-grid">'
-                f"{_comparison_video_card('Baseline', baseline_video, output_root)}"
-                f"{_comparison_video_card('Candidate', candidate_video, output_root)}"
+                f"{baseline_card}"
+                f"{candidate_card}"
                 f"{metrics_card}"
                 "</div>"
                 "</section>"
@@ -596,8 +1035,22 @@ def _quality_comparison_sections(
     return "\n".join(sections)
 
 
-def _comparison_video_card(label: str, path_value: str, output_root: Path) -> str:
-    href = _path_href(path_value, output_root=output_root)
+def _comparison_video_card(
+    label: str,
+    path_value: str,
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
+) -> str:
+    href = html.escape(
+        _artifact_href(
+            path_value,
+            manifest_output_root=manifest_output_root,
+            asset_root=asset_root,
+            page_dir=page_dir,
+        )
+    )
     name = html.escape(Path(path_value).name)
     return (
         '<div class="comparison-card">'
@@ -817,11 +1270,20 @@ def _bar_percent(value: float, scale_max: float) -> float:
     return max(0.0, min(100.0, 100.0 * value / scale_max))
 
 
-def _quality_payload(result: dict[str, Any], *, output_root: Path) -> dict[str, Any]:
+def _quality_payload(
+    result: dict[str, Any],
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+) -> dict[str, Any]:
     metrics_path = result.get("metrics_path")
     if not isinstance(metrics_path, str):
         return {}
-    path = output_root / metrics_path
+    path = _artifact_path(
+        metrics_path,
+        manifest_output_root=manifest_output_root,
+        asset_root=asset_root,
+    )
     if not path.is_file():
         return {}
     try:
@@ -831,11 +1293,41 @@ def _quality_payload(result: dict[str, Any], *, output_root: Path) -> dict[str, 
     return payload if isinstance(payload, dict) else {}
 
 
-def _path_href(path_value: str, *, output_root: Path) -> str:
+def _artifact_href(
+    path_value: str,
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+    page_dir: Path,
+) -> str:
+    path = _artifact_path(
+        path_value,
+        manifest_output_root=manifest_output_root,
+        asset_root=asset_root,
+    )
+    return _file_href(path, page_dir=page_dir)
+
+
+def _artifact_path(
+    path_value: str,
+    *,
+    manifest_output_root: Path,
+    asset_root: Path,
+) -> Path:
     path = Path(path_value)
     if path.is_absolute():
-        path_value = os.path.relpath(path, start=output_root)
-    return html.escape(Path(path_value).as_posix())
+        try:
+            return asset_root / path.relative_to(manifest_output_root)
+        except ValueError:
+            if asset_root != manifest_output_root:
+                rel_to_manifest = os.path.relpath(path, start=manifest_output_root)
+                return asset_root / rel_to_manifest
+            return path
+    return asset_root / path
+
+
+def _file_href(path: Path, *, page_dir: Path) -> str:
+    return Path(os.path.relpath(path, start=page_dir)).as_posix()
 
 
 def _summary_stat(
@@ -1211,6 +1703,10 @@ def _empty_charts() -> str:
 
 def _empty_highlights() -> str:
     return '<p class="muted">No scenario highlight metrics were available.</p>'
+
+
+def _empty_model_reports() -> str:
+    return '<p class="muted">No model detail reports were generated.</p>'
 
 
 def _empty_quality_comparisons() -> str:

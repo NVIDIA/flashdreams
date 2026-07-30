@@ -48,8 +48,9 @@ Each run writes:
 * ``environment.json`` with git, Python, Torch, CUDA, GPU, and selected env metadata.
 * ``metrics.ndjson`` with raw normalized metric records.
 * ``metrics.csv`` for spreadsheet inspection.
-* ``report.html`` with scenario status, unit-aware metric summaries, simple
-  median charts, startup/wall-time highlights, logs, video links, and
+* ``report.html`` with run metadata, model summary cards, scenario status, and
+  startup/wall-time highlights, plus ``reports/<model>.html`` detail pages with
+  unit-aware metric summaries, simple median charts, logs, video links, and
   side-by-side baseline/candidate MP4 previews when quality comparison is
   enabled.
 * ``scenarios/<id>/`` with command logs, MP4s, ``stats_*.json``, and compact quality outputs.
@@ -182,8 +183,8 @@ enabled and writes metrics under
 ``scenarios/<id>/quality/baseline-clip-compare/``. The one-minute review
 scenarios in the shipped quality suite disable baseline scoring so their known
 run-to-run drift does not pollute the quality summary; when a matching baseline
-MP4 exists, their baseline and candidate MP4s still appear side by side in
-``report.html`` for manual review.
+MP4 exists, their baseline and candidate MP4s still appear side by side in the
+relevant ``reports/<model>.html`` detail page for manual review.
 
 The report focuses on a small cross-demo set:
 

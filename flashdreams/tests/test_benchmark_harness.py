@@ -36,6 +36,7 @@ from tools.benchmarks.metrics import (
     records_from_stats_file,
 )
 from tools.benchmarks.quality import QualityBaselineConfig
+from tools.benchmarks.report import write_html_report
 from tools.benchmarks.scenarios import (
     BenchmarkScenario,
     QualityCommandConfig,
@@ -368,16 +369,78 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
         "quality_score_median"
     ] == pytest.approx(0.9)
     report_html = (run_root / "report.html").read_text(encoding="utf-8")
+    detail_report = run_root / "reports" / "fake.html"
+    assert detail_report.is_file()
+    detail_html = detail_report.read_text(encoding="utf-8")
+    assert "Model Reports" in report_html
+    assert 'href="reports/fake.html' in report_html
     assert "Scenario Highlights" in report_html
     assert "Startup step" in report_html
-    assert "Command wall time: median" in report_html
-    assert "Metric Charts" in report_html
-    assert "Timing: median" in report_html
-    assert "PAI-Bench scores: median" in report_html
-    assert "PAI-Bench-Long score" in report_html
-    assert "Timing: median vs P90" not in report_html
-    assert ">ms<" in report_html
-    assert "80.00" in report_html
+    assert "Metric Charts" not in report_html
+    assert "Quality Comparisons" not in report_html
+    assert "Back to summary" in detail_html
+    assert "Command wall time: median" in detail_html
+    assert "Metric Charts" in detail_html
+    assert "Timing: median" in detail_html
+    assert "PAI-Bench scores: median" in detail_html
+    assert "PAI-Bench-Long score" in detail_html
+    assert "Timing: median vs P90" not in detail_html
+    assert ">ms<" in detail_html
+    assert "80.00" in detail_html
+
+
+def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    manifest = {
+        "created_at": "2026-01-01T00:00:00Z",
+        "mode": "run",
+        "output_root": str(run_root),
+        "scenarios": [
+            {
+                "id": "lingbot-scenario",
+                "name": "LingBot scenario",
+                "tags": ["lingbot", "quality"],
+                "status": "pass",
+                "wall_time_s": 1.0,
+                "command": "python -m lingbot",
+                "artifacts": {"videos": ["scenarios/lingbot-scenario/demo.mp4"]},
+                "metric_summary": {
+                    "quality_score": {"count": 1, "median": 0.98},
+                },
+                "metric_highlights": {"quality_score_median": 0.98},
+            },
+            {
+                "id": "omnidreams-scenario",
+                "name": "Omnidreams scenario",
+                "tags": ["omnidreams", "quality"],
+                "status": "pass",
+                "wall_time_s": 2.0,
+                "command": "python -m omnidreams",
+                "artifacts": {"videos": ["scenarios/omnidreams-scenario/demo.mp4"]},
+                "metric_summary": {
+                    "quality_score": {"count": 1, "median": 0.97},
+                },
+                "metric_highlights": {"quality_score_median": 0.97},
+            },
+        ],
+    }
+
+    write_html_report(manifest, run_root / "report.html")
+
+    index_html = (run_root / "report.html").read_text(encoding="utf-8")
+    lingbot_html = (run_root / "reports" / "lingbot.html").read_text(encoding="utf-8")
+    omnidreams_html = (run_root / "reports" / "omnidreams.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'href="reports/lingbot.html' in index_html
+    assert 'href="reports/omnidreams.html' in index_html
+    assert "LingBot Benchmark Report" in lingbot_html
+    assert "Omnidreams Benchmark Report" in omnidreams_html
+    assert "lingbot-scenario" in lingbot_html
+    assert "omnidreams-scenario" not in lingbot_html
+    assert "omnidreams-scenario" in omnidreams_html
+    assert "lingbot-scenario" not in omnidreams_html
+    assert "../scenarios/lingbot-scenario/demo.mp4" in lingbot_html
 
 
 def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:
@@ -633,17 +696,21 @@ def test_run_benchmark_suite_compares_mp4_to_quality_baseline(
     assert "quality_max_frame_rmse" in quality_payload["diagnostics"]
     assert "quality_max_frame_rmse" not in quality_payload["metrics"]
     report_html = (tmp_path / "run" / "report.html").read_text(encoding="utf-8")
-    assert "Quality scores: median" in report_html
-    assert "Quality scores: median vs P90" not in report_html
+    detail_report = tmp_path / "run" / "reports" / "fake.html"
+    assert detail_report.is_file()
+    detail_html = detail_report.read_text(encoding="utf-8")
     assert "Quality Guide" in report_html
-    assert "Quality Comparisons" in report_html
-    assert "Baseline" in report_html
-    assert "Candidate" in report_html
-    assert "../baseline/scenarios/fake-runner/demo.mp4" in report_html
-    assert "quality_rmse" in report_html
-    assert "8-bit pixel RMSE against baseline" in report_html
-    assert "Quality score" in report_html
-    assert "Clip similarity score" in report_html
+    assert "Quality Comparisons" not in report_html
+    assert "Quality scores: median" in detail_html
+    assert "Quality scores: median vs P90" not in detail_html
+    assert "Quality Comparisons" in detail_html
+    assert "Baseline" in detail_html
+    assert "Candidate" in detail_html
+    assert "../../baseline/scenarios/fake-runner/demo.mp4" in detail_html
+    assert "quality_rmse" in detail_html
+    assert "8-bit pixel RMSE against baseline" in detail_html
+    assert "Quality score" in detail_html
+    assert "Clip similarity score" in detail_html
 
 
 def test_quality_baseline_uses_scenario_compare_region(
@@ -800,10 +867,14 @@ def test_quality_baseline_can_be_disabled_per_scenario(tmp_path: Path) -> None:
     ).exists()
     assert scenario_manifest["scenario"]["quality_baseline_compare"] is False
     report_html = (tmp_path / "run" / "report.html").read_text(encoding="utf-8")
-    assert "Manual review" in report_html
-    assert "Baseline scoring was not run for this scenario." in report_html
-    assert "../baseline/scenarios/review-runner/review.mp4" in report_html
-    assert "scenarios/review-runner/review.mp4" in report_html
+    detail_report = tmp_path / "run" / "reports" / "review.html"
+    assert detail_report.is_file()
+    detail_html = detail_report.read_text(encoding="utf-8")
+    assert "Manual review" not in report_html
+    assert "Manual review" in detail_html
+    assert "Baseline scoring was not run for this scenario." in detail_html
+    assert "../../baseline/scenarios/review-runner/review.mp4" in detail_html
+    assert "../scenarios/review-runner/review.mp4" in detail_html
 
 
 def test_cli_quality_profile_adds_pai_bench_long_command() -> None:
