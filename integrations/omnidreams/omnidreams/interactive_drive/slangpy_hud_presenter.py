@@ -898,7 +898,7 @@ class SlangPyHudPresenter:
         interop_frame = interop.ready_rgba_buffer()
         if interop_frame is None:
             return False
-        rgba_buffer, cuda_stream = interop_frame
+        rgba_buffer, _cuda_stream = interop_frame
         self._sync_window_size()
         if self._cuda_hud_interop is not interop:
             return False
@@ -931,10 +931,7 @@ class SlangPyHudPresenter:
                 [width, height, 1],
             )
             encoder.blit(surface_texture, self._display_texture)
-            submit_id = self._device.submit_command_buffer(
-                encoder.finish(),
-                cuda_stream=cuda_stream,
-            )
+            submit_id = self._device.submit_command_buffer(encoder.finish())
             interop.mark_submitted(rgba_buffer, submit_id)
             self._surface.present()
             del surface_texture

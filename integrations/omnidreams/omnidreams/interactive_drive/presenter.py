@@ -1,11 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-import ctypes
-import ctypes.util
-import glob
-import os
-import platform
 import time
 from typing import Any
 
@@ -109,11 +104,14 @@ class SlangPyPresenter:
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
-        enable_cuda_interop = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
-        if not enable_cuda_interop:
+        cuda_interop_requested = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        enable_cuda_interop = cuda_interop_requested and bool(existing_device_handles)
+        if not cuda_interop_requested:
             self._cuda_interop_unavailable_reason = (
                 f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
+        elif not existing_device_handles:
+            self._cuda_interop_unavailable_reason = "CUDA context unavailable"
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -615,83 +613,10 @@ class _CudaRGBFrame:
         self.ready = ready
 
 
-def get_python_arch():
-    machine = platform.machine().lower()
-    # Normalize naming variations
-    if machine in ("arm64", "aarch64", "arm"):
-        return "arm64"
-    elif machine in ("x86_64", "amd64", "x64"):
-        if ctypes.sizeof(ctypes.c_void_p) == 8:
-            return "x64"
-        else:
-            return "x86"  # 32-bit intel
-    return machine
-
-
-def find_in_path(libname, custom_dir):
-    pattern = os.path.join(custom_dir, f"*{libname}*")
-    matches = glob.glob(pattern)
-    return matches[0] if matches else None
-
-
 class _NonBlockingCudaStream:
     def __init__(self, torch_module: Any, device: Any) -> None:
-        from torch.utils.cpp_extension import (
-            CLIB_EXT,
-            IS_LINUX,
-            IS_MACOS,
-            IS_WINDOWS,
-            _join_cuda_home,
-            library_paths,
-        )
-
-        self._runtime = None
-        self._stream_ptr = 0
-        self._stream = None
-
-        cpu_arch = get_python_arch()
-        library_name = f"cudart"
-        os_name = platform.system()
-        # search PATH
-        paths = os.environ.get("PATH").split(os.path.pathsep)
-        # search CUDA_HOME
-        if IS_WINDOWS:
-            paths.append(_join_cuda_home("bin", cpu_arch))
-            library_name = "cudart64_13.dll"
-        elif IS_MACOS:
-            library_name = "cudart.dylib"
-            paths.append(_join_cuda_home("lib"))
-        else:
-            library_name = "cudart.so"
-            paths.append(_join_cuda_home("lib64"))
-        for library_path in paths:
-            if tmp_path := find_in_path(library_name, library_path):
-                library_name = tmp_path
-                break
-
-        runtime = ctypes.CDLL(library_name)
-        cuda_set_device = runtime.cudaSetDevice
-        cuda_set_device.argtypes = [ctypes.c_int]
-        cuda_set_device.restype = ctypes.c_int
-        cuda_stream_create = runtime.cudaStreamCreateWithFlags
-        cuda_stream_create.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint]
-        cuda_stream_create.restype = ctypes.c_int
-        cuda_get_error_string = runtime.cudaGetErrorString
-        cuda_get_error_string.argtypes = [ctypes.c_int]
-        cuda_get_error_string.restype = ctypes.c_char_p
-
-        device_index = 0 if device.index is None else int(device.index)
-        _check_cuda_runtime_result(cuda_set_device(device_index), cuda_get_error_string)
-        stream = ctypes.c_void_p()
-        cuda_stream_non_blocking = 1
-        _check_cuda_runtime_result(
-            cuda_stream_create(ctypes.byref(stream), cuda_stream_non_blocking),
-            cuda_get_error_string,
-        )
-
-        self._runtime = runtime
-        self._stream_ptr = int(stream.value or 0)
-        self._stream = torch_module.cuda.ExternalStream(self._stream_ptr, device=device)
+        self._stream = torch_module.cuda.Stream(device=device)
+        self._stream_ptr = int(self._stream.cuda_stream)
 
     @property
     def stream(self) -> Any:
@@ -702,17 +627,10 @@ class _NonBlockingCudaStream:
         return self._stream_ptr
 
     def close(self) -> None:
-        if self._runtime is None or self._stream_ptr == 0:
+        if self._stream is None:
             return
 
-        stream = self._stream
-        if stream is not None:
-            stream.synchronize()
-        cuda_stream_destroy = self._runtime.cudaStreamDestroy
-        cuda_stream_destroy.argtypes = [ctypes.c_void_p]
-        cuda_stream_destroy.restype = ctypes.c_int
-        cuda_stream_destroy(ctypes.c_void_p(self._stream_ptr))
-        self._runtime = None
+        self._stream.synchronize()
         self._stream_ptr = 0
         self._stream = None
 
@@ -734,18 +652,6 @@ class _SharedRGBABuffer:
         self.rgba_tensor = rgba_tensor
         self.copy_done_event = copy_done_event
         self.pending_submit_id = pending_submit_id
-
-
-def _check_cuda_runtime_result(result: int, get_error_string: Any) -> None:
-    if result == 0:
-        return
-    raw = get_error_string(int(result))
-    message = (
-        raw.decode("utf-8", errors="replace")
-        if raw is not None
-        else f"CUDA error {result}"
-    )
-    raise RuntimeError(message)
 
 
 def _cuda_event_ready(event: Any | None) -> bool:
