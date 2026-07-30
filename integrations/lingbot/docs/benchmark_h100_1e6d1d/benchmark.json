@@ -1,0 +1,2729 @@
+{
+  "environment": {
+    "command": "uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=8 -m lingbot.disagg.benchmark_replicated --dit-replicas 6 --model lingbot-world-fast-taehv-window15-sink3 --warmup-blocks 6 --measured-blocks 5 --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 --output-dir integrations/lingbot/docs/benchmark_h100_1e6d1d",
+    "commit": "08d4c6c159321221c9a2d213c5ebb1359f443ef0",
+    "worktree_dirty": true,
+    "hostname": "pool0-00205",
+    "slurm_job_id": "14628860",
+    "python": "3.12.13",
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+    "precision": "bfloat16",
+    "decoder_config": "TeahvVAEDecoderConfig",
+    "seed": 42,
+    "example_index": 0,
+    "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+    "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+    "resolution": [
+      464,
+      832
+    ],
+    "target_fps": 16,
+    "latent_frames_per_chunk": 3,
+    "window_size_t": 15,
+    "sink_size_t": 3,
+    "guidance_scale": 1.0,
+    "num_inference_steps": 4,
+    "compile_network": true,
+    "warmup_blocks": 6,
+    "measured_blocks": 5,
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "driver": "535.216.03",
+    "mooncake": "0.3.12.post1",
+    "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+    "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+    "gpus": [
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3"
+    ],
+    "rdma_device": null,
+    "allocation": {
+      "encoder": 1,
+      "dit": 6,
+      "decoder": 1,
+      "rank_roles": {
+        "encoder": [
+          0
+        ],
+        "dit": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "decoder": [
+          7
+        ]
+      }
+    },
+    "sessions_per_wave": 6,
+    "peak_memory_gib_by_rank": [
+      18.772661209106445,
+      56.50908803939819,
+      56.51177167892456,
+      56.33582067489624,
+      56.33582067489624,
+      56.50908803939819,
+      56.51177167892456,
+      2.6532506942749023
+    ]
+  },
+  "summary": {
+    "aggregate_fps": 27.198381414481183,
+    "per_session_fps": 4.5330635690801975,
+    "throughput_speedup": 5.073727277147145,
+    "gpu_normalized_speedup": 1.9026477289301793,
+    "wave_latency_ms": {
+      "median": 2657.061628997326,
+      "p90": 2671.0753187537193,
+      "min": 2595.9399454295635,
+      "max": 2678.1477704644203
+    },
+    "latency_vs_baseline": 1.1896047081286683,
+    "encoder_wave_ms": {
+      "median": 4.912608027458191,
+      "p90": 5.2090048551559445,
+      "min": 4.6869760155677795,
+      "max": 5.31222403049469
+    },
+    "dit_critical_path_ms": {
+      "median": 2185.8832397460938,
+      "p90": 2209.4816467285154,
+      "min": 2179.3236083984375,
+      "max": 2224.4627990722656
+    },
+    "dit_worker_total_ms": {
+      "median": 2168.326400756836,
+      "p90": 2211.0376068115233,
+      "min": 2137.8883361816406,
+      "max": 2224.4627990722656
+    },
+    "decoder_wave_ms": {
+      "median": 42.25612831115723,
+      "p90": 42.33598108291626,
+      "min": 42.21548795700073,
+      "max": 42.36956834793091
+    },
+    "encoder_to_dit": {
+      "payload_mib_each": 14.3583984375,
+      "copy_ms_each": {
+        "median": 1.1359388008713722,
+        "p90": 1.31047572940588,
+        "min": 1.0589156299829483,
+        "max": 1.3628657907247543
+      },
+      "handoff_ms_each": {
+        "median": 33.743989653885365,
+        "p90": 39.199621975421906,
+        "min": 31.6530279815197,
+        "max": 45.00754736363888
+      },
+      "aggregate_handoff_ms_per_wave": {
+        "median": 205.9357985854149,
+        "p90": 214.27173502743244,
+        "min": 197.3810624331236,
+        "max": 215.35456366837025
+      }
+    },
+    "dit_to_decoder": {
+      "payload_mib_each": 0.55224609375,
+      "copy_ms_each": {
+        "median": 19.954374991357327,
+        "p90": 23.790492117404938,
+        "min": 6.893867626786232,
+        "max": 35.75972095131874
+      },
+      "handoff_ms_each": {
+        "median": 31.50751441717148,
+        "p90": 41.58355575054885,
+        "min": 19.808784127235413,
+        "max": 47.63868823647499
+      },
+      "aggregate_handoff_ms_per_wave": {
+        "median": 184.62874926626682,
+        "p90": 210.51813438534737,
+        "min": 149.45011585950851,
+        "max": 213.1159007549286
+      }
+    },
+    "bandwidth_probe_gbps": {
+      "all_edges": {
+        "median": 41.22417133087569,
+        "p90": 42.27280309344343,
+        "min": 33.88831768133709,
+        "max": 42.486375597128884
+      },
+      "by_edge": {
+        "encoder_to_dit_1": {
+          "median": 41.20407098143717,
+          "p90": 41.24523356104776,
+          "min": 40.88172330666681,
+          "max": 41.250761906819704
+        },
+        "encoder_to_dit_2": {
+          "median": 41.1153298170234,
+          "p90": 41.208036839275344,
+          "min": 33.88831768133709,
+          "max": 41.22100513044626
+        },
+        "encoder_to_dit_3": {
+          "median": 41.15347778375615,
+          "p90": 41.26175209862822,
+          "min": 41.08912865895793,
+          "max": 41.284144799506784
+        },
+        "encoder_to_dit_4": {
+          "median": 41.71502625123036,
+          "p90": 41.87455345471129,
+          "min": 39.493816642451975,
+          "max": 42.164563169041266
+        },
+        "encoder_to_dit_5": {
+          "median": 42.420847111804804,
+          "p90": 42.477715592559804,
+          "min": 42.23524518063581,
+          "max": 42.486375597128884
+        },
+        "encoder_to_dit_6": {
+          "median": 41.55635369081118,
+          "p90": 41.59220801269506,
+          "min": 41.33382858217133,
+          "max": 41.62772619175502
+        },
+        "dit_1_to_decoder": {
+          "median": 42.25909268419748,
+          "p90": 42.34157330994636,
+          "min": 41.794954298903605,
+          "max": 42.35799167150823
+        },
+        "dit_2_to_decoder": {
+          "median": 41.42712402181323,
+          "p90": 41.48538846659678,
+          "min": 40.827763827879636,
+          "max": 41.526548710999016
+        },
+        "dit_3_to_decoder": {
+          "median": 41.44438939563786,
+          "p90": 41.498896048148026,
+          "min": 40.64272131333952,
+          "max": 41.524945355028485
+        },
+        "dit_4_to_decoder": {
+          "median": 40.947550965822124,
+          "p90": 41.07730217604183,
+          "min": 40.47969082389142,
+          "max": 41.109042173505195
+        },
+        "dit_5_to_decoder": {
+          "median": 41.02884266459423,
+          "p90": 41.118244776867236,
+          "min": 40.22953487886376,
+          "max": 41.19255104389842
+        },
+        "dit_6_to_decoder": {
+          "median": 41.08612508232443,
+          "p90": 41.180620312038585,
+          "min": 40.76362448463375,
+          "max": 41.18249841855751
+        }
+      }
+    },
+    "baseline": {
+      "fps": 5.360631332509123,
+      "latency_ms": 2233.5668401792645,
+      "topology": "1 encoder : 1 DiT : 1 decoder"
+    }
+  },
+  "records": [
+    {
+      "autoregressive_index": 0,
+      "warmup": true,
+      "encoder_times_ms": [
+        631.0217895507812,
+        128.63302612304688,
+        128.86831665039062,
+        129.03219604492188,
+        128.77296447753906,
+        128.4593963623047
+      ],
+      "encoder_wave_ms": 1274.7876892089844,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 12.924667447805405,
+          "transfer_ms": 1.4190319925546646,
+          "bandwidth_gbps": 10.609959520993684,
+          "handoff_ms": 33.3186537027359
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 12.5836580991745,
+          "transfer_ms": 1.357870176434517,
+          "bandwidth_gbps": 11.087858221861511,
+          "handoff_ms": 29.98587116599083
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 12.75598630309105,
+          "transfer_ms": 1.306215301156044,
+          "bandwidth_gbps": 11.526332593619944,
+          "handoff_ms": 32.153552398085594
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 15.905359759926796,
+          "transfer_ms": 1.268099993467331,
+          "bandwidth_gbps": 11.872779810394245,
+          "handoff_ms": 34.24675390124321
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 16.053514555096626,
+          "transfer_ms": 1.4264080673456192,
+          "bandwidth_gbps": 10.555094537580146,
+          "handoff_ms": 34.73745100200176
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 12.553848326206207,
+          "transfer_ms": 1.2946855276823044,
+          "bandwidth_gbps": 11.628979916808397,
+          "handoff_ms": 31.542843207716942
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.728944972157478,
+          "transfer_ms": 1.2201089411973953,
+          "bandwidth_gbps": 0.4746067998089646,
+          "handoff_ms": 14.355633407831192
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.042856395244598,
+          "transfer_ms": 1.162813976407051,
+          "bandwidth_gbps": 0.49799195034553995,
+          "handoff_ms": 12.248149141669273
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.898024722933769,
+          "transfer_ms": 1.003015786409378,
+          "bandwidth_gbps": 0.5773308933381567,
+          "handoff_ms": 14.710228890180588
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.719827324151993,
+          "transfer_ms": 0.7893107831478119,
+          "bandwidth_gbps": 0.7336425807976817,
+          "handoff_ms": 12.467645108699799
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.9111507833004,
+          "transfer_ms": 0.9794607758522034,
+          "bandwidth_gbps": 0.591215099447106,
+          "handoff_ms": 12.947460636496544
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.8171598464250565,
+          "transfer_ms": 0.9855479001998901,
+          "bandwidth_gbps": 0.5875635267271655,
+          "handoff_ms": 12.422783300280571
+        }
+      ],
+      "wave_latency_ms": 137820.007475093,
+      "decoder_times_ms": [
+        32914.04296875,
+        21.73094367980957,
+        21.409183502197266,
+        21.358463287353516,
+        21.36249542236328,
+        21.35683250427246
+      ],
+      "decoder_wave_ms": 33021.260887145996,
+      "output_frames": 54,
+      "dit_workers": [
+        {
+          "dit_ms": 101758.0546875,
+          "finalize_ms": 301.6978454589844,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 100733.5546875,
+          "finalize_ms": 296.3050537109375,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 99900.609375,
+          "finalize_ms": 294.6186218261719,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 99903.03125,
+          "finalize_ms": 295.212158203125,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 100432.4765625,
+          "finalize_ms": 294.6019592285156,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 102934.0078125,
+          "finalize_ms": 297.0594482421875,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 1,
+      "warmup": true,
+      "encoder_times_ms": [
+        184.1183319091797,
+        162.93174743652344,
+        162.5849609375,
+        162.46908569335938,
+        162.36204528808594,
+        162.39622497558594
+      ],
+      "encoder_wave_ms": 996.8623962402344,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.331158250570297,
+          "transfer_ms": 1.644585281610489,
+          "bandwidth_gbps": 9.154813780928572,
+          "handoff_ms": 43.95357519388199
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.058930799365044,
+          "transfer_ms": 1.4903955161571503,
+          "bandwidth_gbps": 10.101930552515483,
+          "handoff_ms": 35.85589490830898
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.150215312838554,
+          "transfer_ms": 1.4233868569135666,
+          "bandwidth_gbps": 10.577498258377025,
+          "handoff_ms": 48.42544533312321
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 13.922607526183128,
+          "transfer_ms": 1.2638680636882782,
+          "bandwidth_gbps": 11.912534569520854,
+          "handoff_ms": 39.987143129110336
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 13.879535719752312,
+          "transfer_ms": 1.2350156903266907,
+          "bandwidth_gbps": 12.190834592568915,
+          "handoff_ms": 32.19422325491905
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 13.89598660171032,
+          "transfer_ms": 1.4283768832683563,
+          "bandwidth_gbps": 10.540545829578074,
+          "handoff_ms": 35.77662818133831
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.805658012628555,
+          "transfer_ms": 1.5971045941114426,
+          "bandwidth_gbps": 0.36257612816032864,
+          "handoff_ms": 15.008462592959404
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.048822447657585,
+          "transfer_ms": 1.6164742410182953,
+          "bandwidth_gbps": 0.35823150490490624,
+          "handoff_ms": 12.2495386749506
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.929427057504654,
+          "transfer_ms": 13.455847278237343,
+          "bandwidth_gbps": 0.04303497119327115,
+          "handoff_ms": 26.756135746836662
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.424411967396736,
+          "transfer_ms": 9.507454931735992,
+          "bandwidth_gbps": 0.06090715172017814,
+          "handoff_ms": 23.0734683573246
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.326820373535156,
+          "transfer_ms": 9.08975675702095,
+          "bandwidth_gbps": 0.06370599516348151,
+          "handoff_ms": 24.202557280659676
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 6.363740190863609,
+          "transfer_ms": 9.803596884012222,
+          "bandwidth_gbps": 0.05906730018085045,
+          "handoff_ms": 23.352965712547302
+        }
+      ],
+      "wave_latency_ms": 85165.60726054013,
+      "decoder_times_ms": [
+        8.234496116638184,
+        7.6821441650390625,
+        22.41164779663086,
+        7.062079906463623,
+        7.018303871154785,
+        7.0386881828308105
+      ],
+      "decoder_wave_ms": 59.447360038757324,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 82974.953125,
+          "finalize_ms": 312.3064270019531,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 83423.875,
+          "finalize_ms": 310.3614196777344,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 83255.71875,
+          "finalize_ms": 311.4656066894531,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 81741.1328125,
+          "finalize_ms": 311.13555908203125,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 81733.1640625,
+          "finalize_ms": 309.6766662597656,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 81146.8984375,
+          "finalize_ms": 311.32684326171875,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 2,
+      "warmup": true,
+      "encoder_times_ms": [
+        163.10134887695312,
+        162.64492797851562,
+        162.41346740722656,
+        162.7038116455078,
+        162.38006591796875,
+        162.30572509765625
+      ],
+      "encoder_wave_ms": 975.5493469238281,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 15.930622816085815,
+          "transfer_ms": 1.440398395061493,
+          "bandwidth_gbps": 10.452574823479473,
+          "handoff_ms": 38.43693435192108
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.032278209924698,
+          "transfer_ms": 1.3814959675073624,
+          "bandwidth_gbps": 10.898238108624637,
+          "handoff_ms": 32.799992710351944
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.157861471176147,
+          "transfer_ms": 1.4112405478954315,
+          "bandwidth_gbps": 10.668536999204472,
+          "handoff_ms": 34.94852967560291
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.190837740898132,
+          "transfer_ms": 1.2358911335468292,
+          "bandwidth_gbps": 12.182199217492418,
+          "handoff_ms": 34.09750573337078
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.755478128790855,
+          "transfer_ms": 1.2002959847450256,
+          "bandwidth_gbps": 12.543466104486106,
+          "handoff_ms": 35.514894872903824
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.300039038062096,
+          "transfer_ms": 1.3662409037351608,
+          "bandwidth_gbps": 11.01992478693824,
+          "handoff_ms": 34.98373366892338
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.825718700885773,
+          "transfer_ms": 1.018887385725975,
+          "bandwidth_gbps": 0.5683375887389175,
+          "handoff_ms": 12.963667511940002
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.4388845562934875,
+          "transfer_ms": 12.119635939598083,
+          "bandwidth_gbps": 0.04777965302637658,
+          "handoff_ms": 23.137709125876427
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.843028262257576,
+          "transfer_ms": 10.622333735227585,
+          "bandwidth_gbps": 0.05451457414481182,
+          "handoff_ms": 25.98879486322403
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.64203767478466,
+          "transfer_ms": 8.036358281970024,
+          "bandwidth_gbps": 0.07205651859738227,
+          "handoff_ms": 19.288208335638046
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.314299672842026,
+          "transfer_ms": 8.220219984650612,
+          "bandwidth_gbps": 0.0704448300752638,
+          "handoff_ms": 19.162843003869057
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.163408815860748,
+          "transfer_ms": 20.271245390176773,
+          "bandwidth_gbps": 0.028566177797867912,
+          "handoff_ms": 33.20649266242981
+        }
+      ],
+      "wave_latency_ms": 3133.5156485438347,
+      "decoder_times_ms": [
+        7.1367998123168945,
+        7.032512187957764,
+        7.027167797088623,
+        7.018752098083496,
+        7.018303871154785,
+        7.004159927368164
+      ],
+      "decoder_wave_ms": 42.23769569396973,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1390.972412109375,
+          "finalize_ms": 335.7643127441406,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1378.6815185546875,
+          "finalize_ms": 333.1183166503906,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1362.6214599609375,
+          "finalize_ms": 328.4350280761719,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1372.42822265625,
+          "finalize_ms": 330.5821533203125,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1376.3056640625,
+          "finalize_ms": 331.93896484375,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1384.0992431640625,
+          "finalize_ms": 333.9122009277344,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 3,
+      "warmup": true,
+      "encoder_times_ms": [
+        163.8098602294922,
+        162.706298828125,
+        162.3319091796875,
+        162.5345001220703,
+        162.57286071777344,
+        162.98582458496094
+      ],
+      "encoder_wave_ms": 976.9412536621094,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.20489326119423,
+          "transfer_ms": 1.3157520443201065,
+          "bandwidth_gbps": 11.442788225178003,
+          "handoff_ms": 86.56103163957596
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 13.996100053191185,
+          "transfer_ms": 1.4198459684848785,
+          "bandwidth_gbps": 10.603876993830648,
+          "handoff_ms": 32.400140538811684
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.179455116391182,
+          "transfer_ms": 1.2699998915195465,
+          "bandwidth_gbps": 11.855018335462807,
+          "handoff_ms": 34.04638729989529
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.085663482546806,
+          "transfer_ms": 1.2874789535999298,
+          "bandwidth_gbps": 11.694072324756968,
+          "handoff_ms": 33.163150772452354
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.08047042787075,
+          "transfer_ms": 1.3766884803771973,
+          "bandwidth_gbps": 10.93629547613768,
+          "handoff_ms": 33.00353325903416
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 15.803102403879166,
+          "transfer_ms": 1.3296771794557571,
+          "bandwidth_gbps": 11.322952843458166,
+          "handoff_ms": 42.50502027571201
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.825839772820473,
+          "transfer_ms": 11.893494054675102,
+          "bandwidth_gbps": 0.04868813128740566,
+          "handoff_ms": 23.84888008236885
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.126455634832382,
+          "transfer_ms": 9.779980406165123,
+          "bandwidth_gbps": 0.05920993457563202,
+          "handoff_ms": 20.444951951503754
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.887504503130913,
+          "transfer_ms": 10.193319991230965,
+          "bandwidth_gbps": 0.05680896905994905,
+          "handoff_ms": 21.815160289406776
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.6175941824913025,
+          "transfer_ms": 9.433532133698463,
+          "bandwidth_gbps": 0.06138443075117527,
+          "handoff_ms": 20.498700439929962
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.375075921416283,
+          "transfer_ms": 8.865894749760628,
+          "bandwidth_gbps": 0.0653145583547148,
+          "handoff_ms": 19.79709416627884
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.968138411641121,
+          "transfer_ms": 8.350299671292305,
+          "bandwidth_gbps": 0.0693474513245082,
+          "handoff_ms": 19.7947658598423
+        }
+      ],
+      "wave_latency_ms": 3295.8768773823977,
+      "decoder_times_ms": [
+        7.147327899932861,
+        7.035488128662109,
+        7.015007972717285,
+        6.9999680519104,
+        7.036672115325928,
+        6.990911960601807
+      ],
+      "decoder_wave_ms": 42.22537612915039,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1509.4464111328125,
+          "finalize_ms": 365.5462951660156,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1499.294677734375,
+          "finalize_ms": 369.55841064453125,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1483.052490234375,
+          "finalize_ms": 358.6845397949219,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1498.6370849609375,
+          "finalize_ms": 362.59619140625,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1492.728759765625,
+          "finalize_ms": 363.17803955078125,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1505.5838623046875,
+          "finalize_ms": 368.54925537109375,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 4,
+      "warmup": true,
+      "encoder_times_ms": [
+        162.6070098876953,
+        163.00469970703125,
+        162.45033264160156,
+        162.49151611328125,
+        162.9448699951172,
+        166.07859802246094
+      ],
+      "encoder_wave_ms": 979.5770263671875,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.374008402228355,
+          "transfer_ms": 1.351144164800644,
+          "bandwidth_gbps": 11.143053711238457,
+          "handoff_ms": 39.2177514731884
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.262808486819267,
+          "transfer_ms": 1.4700740575790405,
+          "bandwidth_gbps": 10.241573832541768,
+          "handoff_ms": 36.08059696853161
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.34284821152687,
+          "transfer_ms": 1.2859497219324112,
+          "bandwidth_gbps": 11.70797873603905,
+          "handoff_ms": 34.426555037498474
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.2380241304636,
+          "transfer_ms": 1.2911055237054825,
+          "bandwidth_gbps": 11.661224991733857,
+          "handoff_ms": 43.33159141242504
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.174934476613998,
+          "transfer_ms": 1.3451240956783295,
+          "bandwidth_gbps": 11.192924168388723,
+          "handoff_ms": 32.659975811839104
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.05714824795723,
+          "transfer_ms": 1.3076215982437134,
+          "bandwidth_gbps": 11.513936463134115,
+          "handoff_ms": 35.60830466449261
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.79026697576046,
+          "transfer_ms": 10.369395837187767,
+          "bandwidth_gbps": 0.05584433356505438,
+          "handoff_ms": 22.792324423789978
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.098881036043167,
+          "transfer_ms": 9.963249787688255,
+          "bandwidth_gbps": 0.05812079515617167,
+          "handoff_ms": 21.107880398631096
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.875315353274345,
+          "transfer_ms": 25.770196691155434,
+          "bandwidth_gbps": 0.022470608468376292,
+          "handoff_ms": 36.9757916778326
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.595091566443443,
+          "transfer_ms": 16.17290824651718,
+          "bandwidth_gbps": 0.035805063082869,
+          "handoff_ms": 27.216577902436256
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.266144707798958,
+          "transfer_ms": 17.330363392829895,
+          "bandwidth_gbps": 0.03341372519860605,
+          "handoff_ms": 28.133375570178032
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.999438300728798,
+          "transfer_ms": 16.59962721168995,
+          "bandwidth_gbps": 0.0348846388304552,
+          "handoff_ms": 30.48177808523178
+        }
+      ],
+      "wave_latency_ms": 3462.1315710246563,
+      "decoder_times_ms": [
+        7.139776229858398,
+        7.04256010055542,
+        7.016863822937012,
+        7.002495765686035,
+        7.017375946044922,
+        7.060768127441406
+      ],
+      "decoder_wave_ms": 42.27983999252319,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1625.97314453125,
+          "finalize_ms": 411.241943359375,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1615.9259033203125,
+          "finalize_ms": 409.80328369140625,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1597.45263671875,
+          "finalize_ms": 399.94671630859375,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1619.6253662109375,
+          "finalize_ms": 402.7091369628906,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1606.3167724609375,
+          "finalize_ms": 403.0625,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1622.154052734375,
+          "finalize_ms": 406.8531799316406,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 5,
+      "warmup": true,
+      "encoder_times_ms": [
+        1.308575987815857,
+        1.0932159423828125,
+        0.8324800133705139,
+        0.8055679798126221,
+        0.8092799782752991,
+        0.8284800052642822
+      ],
+      "encoder_wave_ms": 5.677599906921387,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.534078538417816,
+          "transfer_ms": 1.4062989503145218,
+          "bandwidth_gbps": 10.706025199430549,
+          "handoff_ms": 40.827520191669464
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.196760952472687,
+          "transfer_ms": 1.1651013046503067,
+          "bandwidth_gbps": 12.922371591128607,
+          "handoff_ms": 32.26822055876255
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.273058623075485,
+          "transfer_ms": 1.1318475008010864,
+          "bandwidth_gbps": 13.302032287338996,
+          "handoff_ms": 33.697087317705154
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 17.810095101594925,
+          "transfer_ms": 1.1323317885398865,
+          "bandwidth_gbps": 13.296343132267063,
+          "handoff_ms": 41.02505184710026
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.133481308817863,
+          "transfer_ms": 1.3029277324676514,
+          "bandwidth_gbps": 11.555416025634255,
+          "handoff_ms": 32.19245560467243
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.081116765737534,
+          "transfer_ms": 1.1410079896450043,
+          "bandwidth_gbps": 13.195238014664781,
+          "handoff_ms": 33.94414484500885
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.237618461251259,
+          "transfer_ms": 18.08556169271469,
+          "bandwidth_gbps": 0.03201846919873461,
+          "handoff_ms": 30.2664153277874
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.077039659023285,
+          "transfer_ms": 27.521099895238876,
+          "bandwidth_gbps": 0.021041019516090595,
+          "handoff_ms": 37.93354332447052
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.871148616075516,
+          "transfer_ms": 10.235585272312164,
+          "bandwidth_gbps": 0.056574390676654554,
+          "handoff_ms": 23.736413568258286
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.625637084245682,
+          "transfer_ms": 7.984304800629616,
+          "bandwidth_gbps": 0.07252628932131151,
+          "handoff_ms": 19.229505211114883
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.297537729144096,
+          "transfer_ms": 9.728806093335152,
+          "bandwidth_gbps": 0.05952138365638729,
+          "handoff_ms": 20.67144773900509
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.9652159214019775,
+          "transfer_ms": 8.403722196817398,
+          "bandwidth_gbps": 0.06890660905227237,
+          "handoff_ms": 20.492931827902794
+        }
+      ],
+      "wave_latency_ms": 2626.0259561240673,
+      "decoder_times_ms": [
+        7.133024215698242,
+        7.034336090087891,
+        7.01632022857666,
+        7.0062079429626465,
+        7.030335903167725,
+        6.999263763427734
+      ],
+      "decoder_wave_ms": 42.2194881439209,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1748.7366943359375,
+          "finalize_ms": 448.4148864746094,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1739.1812744140625,
+          "finalize_ms": 439.6708068847656,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1719.5787353515625,
+          "finalize_ms": 439.2612609863281,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1731.141357421875,
+          "finalize_ms": 440.4485778808594,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1741.504150390625,
+          "finalize_ms": 441.9870910644531,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1744.4736328125,
+          "finalize_ms": 441.36785888671875,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 6,
+      "warmup": false,
+      "encoder_times_ms": [
+        1.0594559907913208,
+        0.8283200263977051,
+        0.8167999982833862,
+        0.8398399949073792,
+        0.948032021522522,
+        0.8197759985923767
+      ],
+      "encoder_wave_ms": 5.31222403049469,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.364119619131088,
+          "transfer_ms": 1.171741634607315,
+          "bandwidth_gbps": 12.849139738083698,
+          "handoff_ms": 33.94879028201103
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 18.70782859623432,
+          "transfer_ms": 1.127868890762329,
+          "bandwidth_gbps": 13.348955825728735,
+          "handoff_ms": 40.114378556609154
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 19.023790955543518,
+          "transfer_ms": 1.163853332400322,
+          "bandwidth_gbps": 12.936227942870506,
+          "handoff_ms": 39.49657268822193
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.136271551251411,
+          "transfer_ms": 1.3392921537160873,
+          "bandwidth_gbps": 11.241663708866655,
+          "handoff_ms": 35.39552353322506
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.097023755311966,
+          "transfer_ms": 1.3628657907247543,
+          "bandwidth_gbps": 11.047215435639838,
+          "handoff_ms": 32.44374319911003
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.09466378390789,
+          "transfer_ms": 1.3101845979690552,
+          "bandwidth_gbps": 11.491412754613682,
+          "handoff_ms": 33.95555540919304
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.8156119883060455,
+          "transfer_ms": 35.75972095131874,
+          "bandwidth_gbps": 0.016193414953889484,
+          "handoff_ms": 47.63868823647499
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.096759483218193,
+          "transfer_ms": 12.198098003864288,
+          "bandwidth_gbps": 0.04747231903011054,
+          "handoff_ms": 23.58475886285305
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.929840564727783,
+          "transfer_ms": 10.130221024155617,
+          "bandwidth_gbps": 0.05716281990483691,
+          "handoff_ms": 38.295913487672806
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.354747176170349,
+          "transfer_ms": 6.893867626786232,
+          "bandwidth_gbps": 0.08399813157856506,
+          "handoff_ms": 26.389088481664658
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.287254065275192,
+          "transfer_ms": 8.20172019302845,
+          "bandwidth_gbps": 0.0706037253614452,
+          "handoff_ms": 19.808784127235413
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.017247051000595,
+          "transfer_ms": 8.185800164937973,
+          "bandwidth_gbps": 0.07074103793546342,
+          "handoff_ms": 20.8461694419384
+        }
+      ],
+      "wave_latency_ms": 2678.1477704644203,
+      "decoder_times_ms": [
+        7.150047779083252,
+        7.061728000640869,
+        7.033664226531982,
+        7.024447917938232,
+        7.008768081665039,
+        7.006944179534912
+      ],
+      "decoder_wave_ms": 42.28560018539429,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1774.71240234375,
+          "finalize_ms": 448.3245849609375,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1762.305908203125,
+          "finalize_ms": 443.3638610839844,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1784.869384765625,
+          "finalize_ms": 439.5934143066406,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1771.6845703125,
+          "finalize_ms": 441.2993469238281,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1763.5460205078125,
+          "finalize_ms": 439.1201171875,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1765.5919189453125,
+          "finalize_ms": 445.22943115234375,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 7,
+      "warmup": false,
+      "encoder_times_ms": [
+        1.0465600490570068,
+        0.7767040133476257,
+        0.9567360281944275,
+        0.7522559762001038,
+        0.7503679990768433,
+        0.7715520262718201
+      ],
+      "encoder_wave_ms": 5.054176092147827,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.292668551206589,
+          "transfer_ms": 1.2981556355953217,
+          "bandwidth_gbps": 11.597894418180084,
+          "handoff_ms": 34.245479851961136
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 16.13219454884529,
+          "transfer_ms": 1.1743362993001938,
+          "bandwidth_gbps": 12.820749906966208,
+          "handoff_ms": 33.694472163915634
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.18815366923809,
+          "transfer_ms": 1.136263832449913,
+          "bandwidth_gbps": 13.250331102713918,
+          "handoff_ms": 33.61496888101101
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.03358019888401,
+          "transfer_ms": 1.1538118124008179,
+          "bandwidth_gbps": 13.048810766352082,
+          "handoff_ms": 33.70863199234009
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 16.80907793343067,
+          "transfer_ms": 1.2906957417726517,
+          "bandwidth_gbps": 11.664927304495594,
+          "handoff_ms": 35.059716552495956
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.061834663152695,
+          "transfer_ms": 1.116424798965454,
+          "bandwidth_gbps": 13.485791442425562,
+          "handoff_ms": 33.504536375403404
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.7867633402347565,
+          "transfer_ms": 9.996671229600906,
+          "bandwidth_gbps": 0.05792648239599234,
+          "handoff_ms": 21.9383854418993
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 9.046686813235283,
+          "transfer_ms": 10.411426424980164,
+          "bandwidth_gbps": 0.05561889181780423,
+          "handoff_ms": 29.666466638445854
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.896808415651321,
+          "transfer_ms": 10.435864329338074,
+          "bandwidth_gbps": 0.05548864777516031,
+          "handoff_ms": 21.829405799508095
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 9.015770629048347,
+          "transfer_ms": 7.982032373547554,
+          "bandwidth_gbps": 0.07254693703311,
+          "handoff_ms": 24.857282638549805
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.388023167848587,
+          "transfer_ms": 15.200864523649216,
+          "bandwidth_gbps": 0.0380946754113288,
+          "handoff_ms": 29.80240248143673
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.101105198264122,
+          "transfer_ms": 9.39272902905941,
+          "bandwidth_gbps": 0.061651091840130345,
+          "handoff_ms": 21.35617285966873
+        }
+      ],
+      "wave_latency_ms": 2595.9399454295635,
+      "decoder_times_ms": [
+        7.139743804931641,
+        7.014080047607422,
+        7.026879787445068,
+        7.011712074279785,
+        7.005152225494385,
+        7.017920017242432
+      ],
+      "decoder_wave_ms": 42.21548795700073,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1733.865966796875,
+          "finalize_ms": 449.26220703125,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1725.5482177734375,
+          "finalize_ms": 443.6260070800781,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1711.588623046875,
+          "finalize_ms": 435.9664306640625,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1714.28125,
+          "finalize_ms": 440.7195739746094,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1718.1455078125,
+          "finalize_ms": 437.8485107421875,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1732.28271484375,
+          "finalize_ms": 446.1881408691406,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 8,
+      "warmup": false,
+      "encoder_times_ms": [
+        0.9593920111656189,
+        0.7674559950828552,
+        0.7548800110816956,
+        0.7544000148773193,
+        0.9076160192489624,
+        0.7688639760017395
+      ],
+      "encoder_wave_ms": 4.912608027458191,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.243414625525475,
+          "transfer_ms": 1.1516641825437546,
+          "bandwidth_gbps": 13.073144262197275,
+          "handoff_ms": 45.00754736363888
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.113832265138626,
+          "transfer_ms": 1.1246632784605026,
+          "bandwidth_gbps": 13.387004171247822,
+          "handoff_ms": 31.6530279815197
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.23366367816925,
+          "transfer_ms": 1.0866131633520126,
+          "bandwidth_gbps": 13.855779138138962,
+          "handoff_ms": 33.39028172194958
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 15.89745283126831,
+          "transfer_ms": 1.1356137692928314,
+          "bandwidth_gbps": 13.25791603370183,
+          "handoff_ms": 34.44983996450901
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.162980020046234,
+          "transfer_ms": 1.0801292955875397,
+          "bandwidth_gbps": 13.938953476685688,
+          "handoff_ms": 32.13808685541153
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.133434742689133,
+          "transfer_ms": 1.0937117040157318,
+          "bandwidth_gbps": 13.765850675932274,
+          "handoff_ms": 36.00870817899704
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.837507382035255,
+          "transfer_ms": 9.807426482439041,
+          "bandwidth_gbps": 0.05904423561439623,
+          "handoff_ms": 21.44324779510498
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.157181829214096,
+          "transfer_ms": 10.267935693264008,
+          "bandwidth_gbps": 0.05639614595364909,
+          "handoff_ms": 24.083444848656654
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.913916811347008,
+          "transfer_ms": 24.672089144587517,
+          "bandwidth_gbps": 0.023470732316441673,
+          "handoff_ms": 40.415188297629356
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.312897264957428,
+          "transfer_ms": 20.074591040611267,
+          "bandwidth_gbps": 0.028846017277688332,
+          "handoff_ms": 34.6575602889061
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.441197961568832,
+          "transfer_ms": 20.095979794859886,
+          "bandwidth_gbps": 0.028815315596013587,
+          "handoff_ms": 31.322389841079712
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.974089562892914,
+          "transfer_ms": 20.98916843533516,
+          "bandwidth_gbps": 0.027589087284903353,
+          "handoff_ms": 32.70691819489002
+        }
+      ],
+      "wave_latency_ms": 2644.465768709779,
+      "decoder_times_ms": [
+        7.118207931518555,
+        7.026815891265869,
+        7.021056175231934,
+        7.032544136047363,
+        7.024928092956543,
+        7.1460161209106445
+      ],
+      "decoder_wave_ms": 42.36956834793091,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1741.7938232421875,
+          "finalize_ms": 445.2160949707031,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1724.51416015625,
+          "finalize_ms": 442.96441650390625,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1701.4180908203125,
+          "finalize_ms": 436.4702453613281,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1713.4537353515625,
+          "finalize_ms": 440.8396911621094,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1722.6947021484375,
+          "finalize_ms": 438.60516357421875,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1732.0794677734375,
+          "finalize_ms": 442.53387451171875,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 9,
+      "warmup": false,
+      "encoder_times_ms": [
+        0.8568959832191467,
+        0.7789760231971741,
+        0.7565119862556458,
+        0.7626559734344482,
+        0.7631040215492249,
+        0.7688320279121399
+      ],
+      "encoder_wave_ms": 4.6869760155677795,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.250962063670158,
+          "transfer_ms": 1.140505075454712,
+          "bandwidth_gbps": 13.201056552946353,
+          "handoff_ms": 33.826472237706184
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.106879010796547,
+          "transfer_ms": 1.1196192353963852,
+          "bandwidth_gbps": 13.447314519091558,
+          "handoff_ms": 31.795300543308258
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.168970286846161,
+          "transfer_ms": 1.0834354907274246,
+          "bandwidth_gbps": 13.89641757987031,
+          "handoff_ms": 33.61984342336655
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.100492000579834,
+          "transfer_ms": 1.1082515120506287,
+          "bandwidth_gbps": 13.585248327017123,
+          "handoff_ms": 32.527538016438484
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.14940319955349,
+          "transfer_ms": 1.0589156299829483,
+          "bandwidth_gbps": 14.218197912748199,
+          "handoff_ms": 31.93596377968788
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.051154255867004,
+          "transfer_ms": 1.103455200791359,
+          "bandwidth_gbps": 13.644298372242446,
+          "handoff_ms": 33.675944432616234
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.8334039747715,
+          "transfer_ms": 9.909860789775848,
+          "bandwidth_gbps": 0.058433918728448456,
+          "handoff_ms": 21.95270173251629
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.208503291010857,
+          "transfer_ms": 24.36334826052189,
+          "bandwidth_gbps": 0.023768161658564893,
+          "handoff_ms": 41.02863185107708
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 20.864687860012054,
+          "transfer_ms": 20.068103447556496,
+          "bandwidth_gbps": 0.028855342584478662,
+          "handoff_ms": 47.45940305292606
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.34147210419178,
+          "transfer_ms": 21.016493439674377,
+          "bandwidth_gbps": 0.027553216794331793,
+          "handoff_ms": 34.459641203284264
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.332359880208969,
+          "transfer_ms": 20.118704065680504,
+          "bandwidth_gbps": 0.028782768418360014,
+          "handoff_ms": 35.80939956009388
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.003131926059723,
+          "transfer_ms": 20.104166120290756,
+          "bandwidth_gbps": 0.028803582129952335,
+          "handoff_ms": 32.40612335503101
+        }
+      ],
+      "wave_latency_ms": 2657.061628997326,
+      "decoder_times_ms": [
+        7.125088214874268,
+        7.033631801605225,
+        7.018400192260742,
+        7.028895854949951,
+        7.0215678215026855,
+        7.004159927368164
+      ],
+      "decoder_wave_ms": 42.231743812561035,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1733.860107421875,
+          "finalize_ms": 444.21160888671875,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1720.5631103515625,
+          "finalize_ms": 439.8471984863281,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1709.021240234375,
+          "finalize_ms": 438.38226318359375,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1709.5009765625,
+          "finalize_ms": 440.72357177734375,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1722.126953125,
+          "finalize_ms": 441.9761962890625,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1734.1160888671875,
+          "finalize_ms": 445.20751953125,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 10,
+      "warmup": false,
+      "encoder_times_ms": [
+        0.9499199986457825,
+        0.7614719867706299,
+        0.7561280131340027,
+        0.7758079767227173,
+        0.7519040107727051,
+        0.8536959886550903
+      ],
+      "encoder_wave_ms": 4.848927974700928,
+      "encoder_to_dit": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.258474111557007,
+          "transfer_ms": 1.1504162102937698,
+          "bandwidth_gbps": 13.087326017559626,
+          "handoff_ms": 34.33205001056194
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 22.159012034535408,
+          "transfer_ms": 1.1064503341913223,
+          "bandwidth_gbps": 13.607363597575278,
+          "handoff_ms": 39.16662745177746
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.360159635543823,
+          "transfer_ms": 1.0927990078926086,
+          "bandwidth_gbps": 13.777347793382667,
+          "handoff_ms": 33.77934731543064
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.131084084510803,
+          "transfer_ms": 1.1116117238998413,
+          "bandwidth_gbps": 13.544182448148204,
+          "handoff_ms": 32.398153096437454
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.077415689826012,
+          "transfer_ms": 1.3130959123373032,
+          "bandwidth_gbps": 11.465934710893004,
+          "handoff_ms": 32.34328143298626
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 15055872,
+          "registration_ms": 14.123434200882912,
+          "transfer_ms": 1.1486038565635681,
+          "bandwidth_gbps": 13.107976186885415,
+          "handoff_ms": 33.91633927822113
+        }
+      ],
+      "dit_to_decoder": [
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 15.624841675162315,
+          "transfer_ms": 23.726841434836388,
+          "bandwidth_gbps": 0.024405776958992563,
+          "handoff_ms": 46.57787084579468
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.092097282409668,
+          "transfer_ms": 21.46412804722786,
+          "bandwidth_gbps": 0.02697859417936097,
+          "handoff_ms": 32.09282457828522
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.884099587798119,
+          "transfer_ms": 20.07398195564747,
+          "bandwidth_gbps": 0.02884689252383671,
+          "handoff_ms": 31.35775215923786
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 5.322568118572235,
+          "transfer_ms": 19.840646535158157,
+          "bandwidth_gbps": 0.02918614567190988,
+          "handoff_ms": 31.75538033246994
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.375739023089409,
+          "transfer_ms": 20.71194536983967,
+          "bandwidth_gbps": 0.027958358795366147,
+          "handoff_ms": 31.657276675105095
+        },
+        {
+          "backend": "mooncake-rdma",
+          "payload_bytes": 579072,
+          "registration_ms": 4.969332367181778,
+          "transfer_ms": 20.296961069107056,
+          "bandwidth_gbps": 0.02852998525387011,
+          "handoff_ms": 33.18038024008274
+        }
+      ],
+      "wave_latency_ms": 2660.466641187668,
+      "decoder_times_ms": [
+        7.133088111877441,
+        7.052864074707031,
+        7.023519992828369,
+        7.02236795425415,
+        7.013247966766357,
+        7.011040210723877
+      ],
+      "decoder_wave_ms": 42.25612831115723,
+      "output_frames": 72,
+      "dit_workers": [
+        {
+          "dit_ms": 1738.6453857421875,
+          "finalize_ms": 447.23785400390625,
+          "session_index": 0,
+          "rank": 1
+        },
+        {
+          "dit_ms": 1719.7462158203125,
+          "finalize_ms": 438.96905517578125,
+          "session_index": 1,
+          "rank": 2
+        },
+        {
+          "dit_ms": 1709.420654296875,
+          "finalize_ms": 439.6869201660156,
+          "session_index": 2,
+          "rank": 3
+        },
+        {
+          "dit_ms": 1706.7230224609375,
+          "finalize_ms": 440.58642578125,
+          "session_index": 3,
+          "rank": 4
+        },
+        {
+          "dit_ms": 1723.7269287109375,
+          "finalize_ms": 443.4239807128906,
+          "session_index": 4,
+          "rank": 5
+        },
+        {
+          "dit_ms": 1733.6558837890625,
+          "finalize_ms": 444.4276428222656,
+          "session_index": 5,
+          "rank": 6
+        }
+      ]
+    }
+  ],
+  "bandwidth_probe": {
+    "encoder_to_dit_1": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.004446133971214294,
+        "transfer_ms": 6.56614825129509,
+        "bandwidth_gbps": 40.88172330666681
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00194646418094635,
+        "transfer_ms": 6.51608407497406,
+        "bandwidth_gbps": 41.195824503088325
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0017639249563217163,
+        "transfer_ms": 6.5086521208286285,
+        "bandwidth_gbps": 41.24286427000265
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0021867454051971436,
+        "transfer_ms": 6.516415625810623,
+        "bandwidth_gbps": 41.19372848729356
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014808028936386108,
+        "transfer_ms": 6.551502272486687,
+        "bandwidth_gbps": 40.973114994908286
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00169314444065094,
+        "transfer_ms": 6.513476371765137,
+        "bandwidth_gbps": 41.212317459786014
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013355165719985962,
+        "transfer_ms": 6.507406011223793,
+        "bandwidth_gbps": 41.250761906819704
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001296401023864746,
+        "transfer_ms": 6.5111033618450165,
+        "bandwidth_gbps": 41.227337531305125
+      }
+    ],
+    "encoder_to_dit_2": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0028014183044433594,
+        "transfer_ms": 6.530014798045158,
+        "bandwidth_gbps": 41.10793992080378
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002125278115272522,
+        "transfer_ms": 6.5121036022901535,
+        "bandwidth_gbps": 41.22100513044626
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015459954738616943,
+        "transfer_ms": 6.527667865157127,
+        "bandwidth_gbps": 41.12271971324302
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001514330506324768,
+        "transfer_ms": 7.921179756522179,
+        "bandwidth_gbps": 33.88831768133709
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0023562461137771606,
+        "transfer_ms": 6.554935127496719,
+        "bandwidth_gbps": 40.95165715278612
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0017285346984863281,
+        "transfer_ms": 6.525227800011635,
+        "bandwidth_gbps": 41.13809727830826
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018086284399032593,
+        "transfer_ms": 6.515031680464745,
+        "bandwidth_gbps": 41.202479000202096
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0029262155294418335,
+        "transfer_ms": 6.537208333611488,
+        "bandwidth_gbps": 41.062704797064725
+      }
+    ],
+    "encoder_to_dit_3": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002518296241760254,
+        "transfer_ms": 6.513189524412155,
+        "bandwidth_gbps": 41.214132491289284
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018477439880371094,
+        "transfer_ms": 6.533004343509674,
+        "bandwidth_gbps": 41.08912865895793
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015739351511001587,
+        "transfer_ms": 6.5285321325063705,
+        "bandwidth_gbps": 41.1172757599563
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013336539268493652,
+        "transfer_ms": 6.518153473734856,
+        "bandwidth_gbps": 41.18274555542007
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016652047634124756,
+        "transfer_ms": 6.528481841087341,
+        "bandwidth_gbps": 41.11759250222424
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013262033462524414,
+        "transfer_ms": 6.527431309223175,
+        "bandwidth_gbps": 41.124210012092234
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013820827007293701,
+        "transfer_ms": 6.507186219096184,
+        "bandwidth_gbps": 41.25215522682312
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001300126314163208,
+        "transfer_ms": 6.502144038677216,
+        "bandwidth_gbps": 41.284144799506784
+      }
+    ],
+    "encoder_to_dit_4": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00478699803352356,
+        "transfer_ms": 6.366375833749771,
+        "bandwidth_gbps": 42.164563169041266
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0020917505025863647,
+        "transfer_ms": 6.546150892972946,
+        "bandwidth_gbps": 41.00660989775773
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.003164634108543396,
+        "transfer_ms": 6.436444818973541,
+        "bandwidth_gbps": 41.70554763534958
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016111880540847778,
+        "transfer_ms": 6.796898320317268,
+        "bandwidth_gbps": 39.493816642451975
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016968697309494019,
+        "transfer_ms": 6.458917632699013,
+        "bandwidth_gbps": 41.56043957597704
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015310943126678467,
+        "transfer_ms": 6.4295511692762375,
+        "bandwidth_gbps": 41.750263577141304
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001434236764907837,
+        "transfer_ms": 6.433520466089249,
+        "bandwidth_gbps": 41.72450486711114
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00155717134475708,
+        "transfer_ms": 6.429582834243774,
+        "bandwidth_gbps": 41.75005796181993
+      }
+    ],
+    "encoder_to_dit_5": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00278279185295105,
+        "transfer_ms": 6.35572150349617,
+        "bandwidth_gbps": 42.23524518063581
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001821666955947876,
+        "transfer_ms": 6.326209753751755,
+        "bandwidth_gbps": 42.43227247417848
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014156103134155273,
+        "transfer_ms": 6.335984915494919,
+        "bandwidth_gbps": 42.36680793597373
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013243407011032104,
+        "transfer_ms": 6.318153813481331,
+        "bandwidth_gbps": 42.486375597128884
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018477439880371094,
+        "transfer_ms": 6.323313340544701,
+        "bandwidth_gbps": 42.451708707649864
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016391277313232422,
+        "transfer_ms": 6.319994106888771,
+        "bandwidth_gbps": 42.4740041620302
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013150274753570557,
+        "transfer_ms": 6.33593462407589,
+        "bandwidth_gbps": 42.36714422209682
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015310943126678467,
+        "transfer_ms": 6.329618394374847,
+        "bandwidth_gbps": 42.40942174943113
+      }
+    ],
+    "encoder_to_dit_6": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002726912498474121,
+        "transfer_ms": 6.462186574935913,
+        "bandwidth_gbps": 41.53941593719183
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001950189471244812,
+        "transfer_ms": 6.4943283796310425,
+        "bandwidth_gbps": 41.33382858217133
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014640390872955322,
+        "transfer_ms": 6.456347182393074,
+        "bandwidth_gbps": 41.57698593595507
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0017266720533370972,
+        "transfer_ms": 6.458705291152,
+        "bandwidth_gbps": 41.5618059501397
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001339241862297058,
+        "transfer_ms": 6.448477506637573,
+        "bandwidth_gbps": 41.62772619175502
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.005323439836502075,
+        "transfer_ms": 6.458412855863571,
+        "bandwidth_gbps": 41.563687858122655
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014025717973709106,
+        "transfer_ms": 6.477518007159233,
+        "bandwidth_gbps": 41.44109760919437
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015087425708770752,
+        "transfer_ms": 6.460400298237801,
+        "bandwidth_gbps": 41.55090143148266
+      }
+    ],
+    "dit_1_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0031925737857818604,
+        "transfer_ms": 6.422676146030426,
+        "bandwidth_gbps": 41.794954298903605
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001994892954826355,
+        "transfer_ms": 6.3529908657073975,
+        "bandwidth_gbps": 42.253398702173335
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0027511268854141235,
+        "transfer_ms": 6.348870694637299,
+        "bandwidth_gbps": 42.28081952066521
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018514692783355713,
+        "transfer_ms": 6.337303668260574,
+        "bandwidth_gbps": 42.35799167150823
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015813857316970825,
+        "transfer_ms": 6.340814754366875,
+        "bandwidth_gbps": 42.334536869276995
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015106052160263062,
+        "transfer_ms": 6.351279094815254,
+        "bandwidth_gbps": 42.26478666622164
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0012833625078201294,
+        "transfer_ms": 6.358066573739052,
+        "bandwidth_gbps": 42.2196673920856
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013820827007293701,
+        "transfer_ms": 6.354004144668579,
+        "bandwidth_gbps": 42.24666051331344
+      }
+    ],
+    "dit_2_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0039637088775634766,
+        "transfer_ms": 6.574826315045357,
+        "bandwidth_gbps": 40.827763827879636
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018365681171417236,
+        "transfer_ms": 6.483161821961403,
+        "bandwidth_gbps": 41.405021711888736
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0024996697902679443,
+        "transfer_ms": 6.464188918471336,
+        "bandwidth_gbps": 41.526548710999016
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015851110219955444,
+        "transfer_ms": 6.47493451833725,
+        "bandwidth_gbps": 41.45763254281275
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014659017324447632,
+        "transfer_ms": 6.494257599115372,
+        "bandwidth_gbps": 41.33427907703653
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014919787645339966,
+        "transfer_ms": 6.473354995250702,
+        "bandwidth_gbps": 41.46774836185297
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0012926757335662842,
+        "transfer_ms": 6.476247683167458,
+        "bandwidth_gbps": 41.44922633173773
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.006020069122314453,
+        "transfer_ms": 6.494706496596336,
+        "bandwidth_gbps": 41.33142215751832
+      }
+    ],
+    "dit_3_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0040531158447265625,
+        "transfer_ms": 6.6047608852386475,
+        "bandwidth_gbps": 40.64272131333952
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0019278377294540405,
+        "transfer_ms": 6.478607654571533,
+        "bandwidth_gbps": 41.43412756452114
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0027213245630264282,
+        "transfer_ms": 6.472621113061905,
+        "bandwidth_gbps": 41.47245008027595
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016689300537109375,
+        "transfer_ms": 6.505731493234634,
+        "bandwidth_gbps": 41.26137948963131
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015255063772201538,
+        "transfer_ms": 6.470236927270889,
+        "bandwidth_gbps": 41.48773205948497
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013671815395355225,
+        "transfer_ms": 6.4754001796245575,
+        "bandwidth_gbps": 41.454651226754585
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013709068298339844,
+        "transfer_ms": 6.464438512921333,
+        "bandwidth_gbps": 41.524945355028485
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00155717134475708,
+        "transfer_ms": 6.51620514690876,
+        "bandwidth_gbps": 41.19505907933912
+      }
+    ],
+    "dit_4_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0031758099794387817,
+        "transfer_ms": 6.631361320614815,
+        "bandwidth_gbps": 40.47969082389142
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0017173588275909424,
+        "transfer_ms": 6.550529971718788,
+        "bandwidth_gbps": 40.979196669420844
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002469867467880249,
+        "transfer_ms": 6.567204371094704,
+        "bandwidth_gbps": 40.87514882002276
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015534460544586182,
+        "transfer_ms": 6.5928734838962555,
+        "bandwidth_gbps": 40.71600291673731
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.001341104507446289,
+        "transfer_ms": 6.539035588502884,
+        "bandwidth_gbps": 41.051230317811815
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013224780559539795,
+        "transfer_ms": 6.5606627613306046,
+        "bandwidth_gbps": 40.915905262223404
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.00130385160446167,
+        "transfer_ms": 6.529839709401131,
+        "bandwidth_gbps": 41.109042173505195
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0012759119272232056,
+        "transfer_ms": 6.537050008773804,
+        "bandwidth_gbps": 41.06369931998611
+      }
+    ],
+    "dit_5_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.006245449185371399,
+        "transfer_ms": 6.67259655892849,
+        "bandwidth_gbps": 40.22953487886376
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0026691704988479614,
+        "transfer_ms": 6.592424586415291,
+        "bandwidth_gbps": 40.71877538851984
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0028070062398910522,
+        "transfer_ms": 6.544835865497589,
+        "bandwidth_gbps": 41.01484919050624
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016409903764724731,
+        "transfer_ms": 6.559696048498154,
+        "bandwidth_gbps": 40.9219351042124
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013746321201324463,
+        "transfer_ms": 6.533438339829445,
+        "bandwidth_gbps": 41.08639923385387
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014137476682662964,
+        "transfer_ms": 6.540372967720032,
+        "bandwidth_gbps": 41.04283613868222
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014919787645339966,
+        "transfer_ms": 6.516601890325546,
+        "bandwidth_gbps": 41.19255104389842
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013243407011032104,
+        "transfer_ms": 6.5385326743125916,
+        "bandwidth_gbps": 41.05438779171064
+      }
+    ],
+    "dit_6_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.005111098289489746,
+        "transfer_ms": 6.5851714462041855,
+        "bandwidth_gbps": 40.76362448463375
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002508983016014099,
+        "transfer_ms": 6.547164171934128,
+        "bandwidth_gbps": 41.000263465319556
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0029001384973526,
+        "transfer_ms": 6.54309056699276,
+        "bandwidth_gbps": 41.02578945707218
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016838312149047852,
+        "transfer_ms": 6.5181925892829895,
+        "bandwidth_gbps": 41.18249841855751
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016521662473678589,
+        "transfer_ms": 6.534557789564133,
+        "bandwidth_gbps": 41.079360630752824
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014994293451309204,
+        "transfer_ms": 6.532406434416771,
+        "bandwidth_gbps": 41.09288953389603
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015124678611755371,
+        "transfer_ms": 6.518617272377014,
+        "bandwidth_gbps": 41.17981540924476
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0013504177331924438,
+        "transfer_ms": 6.53238408267498,
+        "bandwidth_gbps": 41.09303014070124
+      }
+    ]
+  }
+}

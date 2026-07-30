@@ -183,6 +183,24 @@ uv run --package flashdreams-lingbot torchrun \
   --output-dir outputs/lingbot_disagg
 ```
 
+Use all eight GPUs for concurrent sessions by keeping one encoder and one
+decoder worker and assigning the other six GPUs to session-affine DiT workers:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_replicated \
+  --dit-replicas 6 \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg_1e6d1d
+```
+
+The allocation is derived from the tracked 1:1:1 stage service times. It is a
+throughput topology: each DiT replica owns a distinct session and KV cache.
+It does not split one session's DiT computation over six GPUs.
+
 Validate the data plane without loading checkpoints:
 
 ```bash
@@ -192,7 +210,7 @@ uv run --package flashdreams-lingbot torchrun \
   --bandwidth-probe-mib 256 --bandwidth-probe-iters 8
 ```
 
-The benchmark writes `benchmark.json` and a Markdown summary. It reports:
+Both benchmarks write `benchmark.json` and a Markdown summary. They report:
 
 - median and p90 encoder, DiT, finalize, decoder, and end-to-end chunk latency;
 - generated FPS after excluding warmup;
@@ -205,7 +223,8 @@ The benchmark writes `benchmark.json` and a Markdown summary. It reports:
 See the
 [three-stage H100 experiment report](docs/disaggregated_inference_experiment.md)
 for the tested stack, measurement method, detailed findings, Slurm
-reproduction procedure, and acceptance limitations.
+reproduction procedure, 1:1:1 versus 1:6:1 results, component chart, and
+acceptance limitations.
 
 Mooncake is explicitly initialized with its `rdma` protocol. On a single node,
 the engine may select a topology-local GPU path; the measured effective GB/s

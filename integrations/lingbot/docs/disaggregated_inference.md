@@ -38,18 +38,24 @@ device-to-host-to-device staging in FlashDreams.
 
 ## Scheduling
 
-The current benchmark is a fixed 1 encoder : 1 DiT : 1 decoder topology. A
-production scheduler should replicate the DiT stage according to measured
-service times:
+The three-stage baseline is a fixed 1 encoder : 1 DiT : 1 decoder topology.
+The eight-GPU benchmark also implements a 1 encoder : 6 DiT : 1 decoder wave
+scheduler. It starts with one replica per stage, then assigns each remaining
+GPU to the stage with the largest measured service-time-per-replica:
 
 ```text
 stage capacity = replicas / median service time
 system capacity = minimum stage capacity
 ```
 
-As in LightX2V, the DiT is expected to dominate. Encoder and decoder workers
-can be shared across multiple session-pinned DiT workers once bounded queues,
-request IDs, cancellation, and buffer lifetime management are added.
+The tracked baseline assigns all five additional GPUs to DiT because denoising
+and cache finalization account for 97.58% of one-session latency. Each DiT
+replica owns a distinct session and resident KV cache; the shared encoder feeds
+six inputs, the DiTs execute concurrently, and the shared decoder drains six
+latents. This scales concurrent-session throughput rather than one session's
+latency. A production service still needs asynchronous bounded queues, request
+IDs, cancellation, and pooled registered buffers in place of benchmark-wide
+barriers.
 
 ## Measurement rules
 
@@ -88,6 +94,17 @@ opt-in: the stage boundaries and tensor round trips are covered by CPU tests
 and the real LingBot rollout completed, but a matched-seed decoded-output
 comparison with the original aggregated runner is still required before
 making it the default serving path.
+
+The eight-GPU follow-up ran in Slurm job `14628860` on `pool0-00205`. Five
+measured six-session waves produced **27.20 aggregate generated FPS**, a
+**5.07× throughput gain** over the tracked 1:1:1 result and **1.90× higher
+throughput per allocated GPU**. Median wave latency was 2657.06 ms, or 1.19×
+the single-session baseline latency; median per-session throughput was
+4.53 FPS. The twelve reusable 256 MiB Mooncake probes measured 41.22 GB/s
+median across all stage edges. Peak allocations were 18.77 GiB on the shared
+encoder, 56.34–56.51 GiB on each DiT, and 2.65 GiB on the shared decoder.
+See the [eight-GPU report](benchmark_h100_1e6d1d/README.md) and the
+[wall-time and memory chart](disaggregated_inference_breakdown.svg).
 
 The
 [full experiment record](disaggregated_inference_experiment.md)

@@ -35,8 +35,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch import Tensor
-
 from flashdreams.infra.transfer import (
     MooncakeTensorTransport,
     TensorBundle,
@@ -44,6 +42,8 @@ from flashdreams.infra.transfer import (
     TransferStats,
     describe_tensor_bundle,
 )
+from torch import Tensor
+
 from lingbot.config import PIPELINE_CONFIGS
 from lingbot.disagg.stages import (
     LingbotDecoderStage,
@@ -265,6 +265,8 @@ def _environment(
     args: argparse.Namespace,
     *,
     prompt: str | None,
+    world_size: int = 3,
+    module_name: str | None = None,
 ) -> dict[str, Any]:
     config = PIPELINE_CONFIGS[args.model]
     transformer = config.diffusion_model.transformer
@@ -299,7 +301,10 @@ def _environment(
         mooncake_version = importlib.metadata.version("mooncake-transfer-engine-cuda13")
     except importlib.metadata.PackageNotFoundError:
         mooncake_version = "unknown"
-    module_name = __spec__.name if __spec__ is not None else "lingbot.disagg.benchmark"
+    if module_name is None:
+        module_name = (
+            __spec__.name if __spec__ is not None else "lingbot.disagg.benchmark"
+        )
     command = shlex.join(
         [
             "uv",
@@ -308,7 +313,7 @@ def _environment(
             "flashdreams-lingbot",
             "torchrun",
             "--standalone",
-            "--nproc_per_node=3",
+            f"--nproc_per_node={world_size}",
             "-m",
             module_name,
             *sys.argv[1:],
@@ -346,7 +351,7 @@ def _environment(
         "mooncake": mooncake_version,
         "triton_cache_dir": os.environ.get("TRITON_CACHE_DIR"),
         "hf_home": os.environ.get("HF_HOME"),
-        "gpus": [torch.cuda.get_device_name(index) for index in range(3)],
+        "gpus": [torch.cuda.get_device_name(index) for index in range(world_size)],
         "rdma_device": args.rdma_device,
     }
 

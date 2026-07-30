@@ -9,14 +9,22 @@ SPDX-License-Identifier: Apache-2.0
 
 **Useful opt-in.** The experiment validates that encoder, DiT, and decoder
 components can run on separate H100 GPUs and exchange their real LingBot tensor
-payloads through Mooncake's RDMA transport. It does not establish output-quality
-equivalence with the aggregated runner, cross-node performance, or concurrent
-multi-session capacity, so it is not a new default serving path.
+payloads through Mooncake's RDMA transport. The eight-GPU follow-up validates
+six concurrent, session-affine DiT workers behind a shared encoder and decoder.
+It does not establish output-quality equivalence with the aggregated runner,
+cross-node performance, or production scheduler behavior, so it is not a new
+default serving path.
 
 The machine-readable measurements are in
 [`benchmark_h100_3stage/benchmark.json`](benchmark_h100_3stage/benchmark.json);
 the generated compact table is in
-[`benchmark_h100_3stage/README.md`](benchmark_h100_3stage/README.md).
+[`benchmark_h100_3stage/README.md`](benchmark_h100_3stage/README.md). The
+eight-GPU measurements are in
+[`benchmark_h100_1e6d1d/benchmark.json`](benchmark_h100_1e6d1d/benchmark.json)
+with its
+[`generated summary`](benchmark_h100_1e6d1d/README.md). The combined
+[wall-time and memory chart](disaggregated_inference_breakdown.svg) is generated
+from those two JSON files.
 
 ## Question and design
 
@@ -148,6 +156,104 @@ substantial unused capacity while the DiT GPU owns most weights and resident
 state. A production scheduler should allow encoder and decoder workers to serve
 multiple session-affine DiT workers.
 
+## Eight-GPU stage allocation
+
+### Allocation rule
+
+Starting with one GPU per stage, the scheduler repeatedly assigns an available
+GPU to the stage with the largest baseline service time divided by its current
+replica count. The baseline service-time inputs include stage compute and the
+handoff that feeds that stage:
+
+| Stage | Baseline service time | Replicas after each of five assignments | Final allocation |
+| --- | ---: | --- | ---: |
+| Encoder | 26.46 ms | 1, 1, 1, 1, 1 | 1 |
+| DiT + finalize | 2179.63 ms | 2, 3, 4, 5, 6 | 6 |
+| Decoder | 19.19 ms | 1, 1, 1, 1, 1 | 1 |
+
+This produces **1 encoder : 6 DiT : 1 decoder**. Each DiT GPU owns one
+independent session and persistent KV cache. The benchmark processes a wave by
+encoding six inputs on GPU 0, running the six DiTs concurrently on GPUs 1–6,
+and decoding six outputs on GPU 7. It measures throughput scaling for concurrent
+sessions; it does not tensor-parallelize a single DiT or reduce a single
+session's autoregressive dependency.
+
+### Eight-GPU tested configuration
+
+The follow-up used the same model, prompt, resolution, precision, scheduler,
+warmup policy, and transfer probe as the three-GPU baseline, with these
+differences:
+
+| Item | Value |
+| --- | --- |
+| Date | 2026-07-29 |
+| Slurm allocation | Job `14628860`, node `pool0-00205` |
+| Repository revision | `08d4c6c159321221c9a2d213c5ebb1359f443ef0` plus the replicated-benchmark worktree change |
+| GPUs used | 8 × NVIDIA H100 80 GB HBM3, one process per GPU |
+| Driver | 535.216.03 |
+| Topology | GPU 0 encoder; GPUs 1–6 DiT workers; GPU 7 decoder |
+| Sessions | Six independent sessions per wave |
+| Measurements | 6 warmup waves followed by 5 measured waves |
+
+### Throughput and latency
+
+| Metric | 1:1:1 baseline | 1:6:1 wave | Change |
+| --- | ---: | ---: | ---: |
+| Aggregate generated FPS | 5.36 | 27.20 | **5.07×** |
+| Generated FPS per allocated GPU | 1.79 | 3.40 | **1.90×** |
+| Session/wave median latency | 2233.57 ms | 2657.06 ms | 1.19× |
+| Session/wave p90 latency | 2250.79 ms | 2671.08 ms | 1.19× |
+| Per-session generated FPS | 5.36 | 4.53 | 0.85× |
+
+Six-way DiT replication converts the dominant serial service into concurrent
+capacity. Aggregate throughput scales to 84.6% of the ideal six-replica gain.
+The remaining gap is visible in the sequential wave scheduler: six
+encoder-to-DiT handoffs consume 205.94 ms per median wave and six
+DiT-to-decoder handoffs consume 184.63 ms. A production implementation should
+overlap those request-scoped transfers with DiT execution and reuse registered
+buffers.
+
+### Eight-GPU wall-time and memory
+
+![LingBot component wall-time and GPU-memory breakdown](disaggregated_inference_breakdown.svg)
+
+| Component | 1:1:1 median | 1:6:1 median wave |
+| --- | ---: | ---: |
+| Encoder compute | 1.08 ms | 4.91 ms |
+| Encoder → DiT handoff | 25.38 ms | 205.94 ms total |
+| DiT critical path | 2179.63 ms | 2185.88 ms |
+| DiT → decoder handoff | 12.05 ms | 184.63 ms total |
+| Decoder compute | 7.14 ms | 42.26 ms |
+| Coordination / residual | 8.29 ms | 33.40 ms |
+| End-to-end | 2233.57 ms | 2657.06 ms |
+
+| Rank and role | Peak allocated memory |
+| --- | ---: |
+| GPU 0, shared encoder | 18.77 GiB |
+| GPU 1–6, DiT workers | 56.34–56.51 GiB each |
+| GPU 7, shared decoder | 2.65 GiB |
+
+The shared encoder grows by about 5 GiB relative to the baseline because it
+owns six streaming encoder caches and participates in all six input edges. The
+DiT ranks remain near the baseline's 56.29 GiB, confirming that each session's
+resident state stays local rather than being copied between workers.
+
+### Eight-GPU transfer behavior
+
+All twelve 256 MiB probes—GPU 0 to each DiT and each DiT to GPU 7—completed
+through Mooncake's configured RDMA transport. The combined median was
+**41.22 GB/s**, p90 was **42.27 GB/s**, and the observed range was
+33.89–42.49 GB/s. The one low sample occurred on encoder → DiT rank 2; that
+edge's median remained 41.12 GB/s.
+
+During teardown after the successful report was written, Mooncake emitted
+non-fatal `remote access error` and rail-pause messages while registrations
+were being removed. `torchrun` exited with status 0 and every measured transfer
+call had returned success, but this is still a buffer-lifetime warning:
+production code must pool registrations and introduce an explicit drain before
+unregistering memory or closing endpoints. The current benchmark result should
+not be interpreted as failure-recovery validation.
+
 ## How to reproduce
 
 The commands below assume the repository is at
@@ -220,6 +326,18 @@ HCAs, completes RDMA-ready handshakes, and reports finite bandwidth in both
 directions. Protocol configuration alone is not evidence that bytes traversed
 the intended RDMA path.
 
+For the eight-GPU topology, probe all twelve stage edges:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_replicated \
+  --transport-only \
+  --dit-replicas 6 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8
+```
+
 ### 5. Run the model benchmark
 
 Keep the default persistent `TRITON_CACHE_DIR` supplied by `srun.sh`, then run:
@@ -246,6 +364,32 @@ without clearing `TRITON_CACHE_DIR`. For a cold-start study, use a new explicit
 cache directory and report startup/compile latency separately; do not mix it
 into the steady-state rows.
 
+Run the eight-GPU concurrent-session benchmark in the same allocation:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_replicated \
+  --dit-replicas 6 \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --pixel-width 832 \
+  --pixel-height 464 \
+  --fps 16 \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8 \
+  --baseline-json integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
+  --output-dir outputs/lingbot_disagg_1e6d1d
+```
+
+The command requires exactly `dit-replicas + 2` ranks. It rejects an allocation
+that disagrees with the greedy recommendation derived from `--baseline-json`.
+Model loading fans the DiT checkpoint out to six ranks and may take several
+minutes from shared storage; that cold-start time is not included in the
+steady-state throughput result.
+
 ### 6. Inspect and preserve results
 
 ```bash
@@ -259,13 +403,35 @@ The output directory contains the generated Markdown summary and raw per-block
 JSON. Check that exactly five records have `warmup=false`, that every measured
 block emits 12 frames, and that no measured latency contains a compile outlier.
 
+For the eight-GPU output, verify five measured records, 72 output frames per
+wave, six `dit_workers` per record, and eight memory entries:
+
+```bash
+jq '.environment.allocation, .environment.peak_memory_gib_by_rank, .summary' \
+  outputs/lingbot_disagg_1e6d1d/benchmark.json
+jq '.records[] | select(.warmup == false) |
+    {autoregressive_index, wave_latency_ms, output_frames,
+     dit_workers: (.dit_workers | length)}' \
+  outputs/lingbot_disagg_1e6d1d/benchmark.json
+```
+
+Regenerate the checked-in chart from the two raw result documents:
+
+```bash
+python integrations/lingbot/scripts/plot_disagg_breakdown.py \
+  integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
+  integrations/lingbot/docs/benchmark_h100_1e6d1d/benchmark.json \
+  integrations/lingbot/docs/disaggregated_inference_breakdown.svg
+```
+
 ### 7. Run focused CPU validation and release the node
 
 ```bash
 uv run --package flashdreams-lingbot pytest \
   flashdreams/tests/test_pipeline_stages.py \
   flashdreams/tests/test_transfer.py \
-  integrations/lingbot/tests/test_disagg_stages.py
+  integrations/lingbot/tests/test_disagg_stages.py \
+  integrations/lingbot/tests/test_disagg_replicated.py
 
 uv lock --check
 exit
@@ -277,10 +443,12 @@ exit
 | --- | --- | --- |
 | Three independent GPU stages | Useful opt-in | Real LingBot rollout completed with stage-local weights and state |
 | Mooncake RDMA data plane | Useful opt-in | RDMA transport/handshakes observed; 41 GB/s single-node probes |
+| Eight-GPU throughput scaling | Useful opt-in | Six concurrent DiTs reached 27.20 FPS, 5.07× the 1:1:1 result |
 | Default serving path | Deferred | Needs scheduler, bounded queues, cancellation, buffer pooling, and failure recovery |
 | Output-quality equivalence | Deferred | No matched-seed aggregated-vs-disaggregated decoded comparison yet |
 | Cross-node efficiency | Deferred | Only one eight-H100 node was measured |
-| Throughput improvement | Deferred | Single-session serial latency was measured; no aggregated baseline or concurrent-session load test |
+| Single-session acceleration | Not claimed | Replicas serve independent sessions; one session remains autoregressive |
+| Clean Mooncake teardown | Deferred | Post-report deregistration emitted non-fatal remote-access warnings |
 
 Results apply to this H100/CUDA 13/Mooncake stack and should not be generalized
 to other GPU, NIC, driver, topology, or model configurations without repeating
