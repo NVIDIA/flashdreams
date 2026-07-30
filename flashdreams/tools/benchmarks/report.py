@@ -87,35 +87,6 @@ _LABEL_OVERRIDES = {
     "pai_bench_long_videos_evaluated": "PAI-Bench-Long videos",
     "returncode": "Return code",
 }
-_MODEL_GROUPS = (
-    ("lingbot", "LingBot"),
-    ("omnidreams", "Omnidreams"),
-    ("cosmos-interactive", "Cosmos Interactive"),
-    ("cosmos2", "Cosmos-Predict2"),
-    ("self-forcing", "Self-Forcing"),
-    ("wan21", "Wan2.1"),
-    ("wan22", "Wan2.2"),
-)
-_GENERIC_TAGS = frozenset(
-    {
-        "benchmark",
-        "deterministic",
-        "gpu",
-        "i2v",
-        "manual",
-        "one-minute",
-        "pai-bench",
-        "public",
-        "quality",
-        "quality-30s",
-        "real-demo",
-        "runner",
-        "seeded",
-        "streaming",
-        "t2v",
-        "world-model",
-    }
-)
 _CHART_ORDER = {
     "total_s": 0,
     "total_wo_finalize_s": 1,
@@ -524,23 +495,49 @@ def _model_report_groups(scenarios: list[dict[str, Any]]) -> list[ModelReportGro
 
 
 def _scenario_group(scenario: dict[str, Any]) -> tuple[str, str]:
-    scenario_id = str(scenario.get("id", "")).lower()
-    tags = _scenario_tags(scenario)
-    for slug, label in _MODEL_GROUPS:
-        if slug in tags or slug in scenario_id:
-            return slug, label
-    for tag in sorted(tags):
-        if tag and tag not in _GENERIC_TAGS:
-            return _slugify(tag), _title_metric(tag.replace("-", "_"))
+    configured = _configured_report_group(scenario)
+    if configured is not None:
+        return configured
+    scenario_id = str(scenario.get("id", ""))
     fallback = scenario_id.split("-", 1)[0] if scenario_id else "other"
-    return _slugify(fallback), _title_metric(fallback.replace("-", "_"))
+    slug = _slugify(fallback)
+    return slug, _title_metric(slug.replace("-", "_"))
 
 
-def _scenario_tags(scenario: dict[str, Any]) -> set[str]:
-    tags = scenario.get("tags", [])
-    if not isinstance(tags, (list, tuple, set)):
-        return set()
-    return {str(tag).lower() for tag in tags if str(tag)}
+def _configured_report_group(scenario: dict[str, Any]) -> tuple[str, str] | None:
+    for value in (
+        scenario.get("report_group"),
+        _nested_scenario_value(scenario, "report_group"),
+    ):
+        parsed = _report_group_value(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _nested_scenario_value(scenario: dict[str, Any], key: str) -> object:
+    nested = scenario.get("scenario")
+    if not isinstance(nested, dict):
+        return None
+    return nested.get(key)
+
+
+def _report_group_value(value: object) -> tuple[str, str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value:
+        slug = _slugify(value)
+        return slug, _title_metric(slug.replace("-", "_"))
+    if not isinstance(value, dict):
+        return None
+    group_id = value.get("id")
+    if not isinstance(group_id, str) or not group_id:
+        return None
+    slug = _slugify(group_id)
+    label = value.get("name")
+    if isinstance(label, str) and label:
+        return slug, label
+    return slug, _title_metric(slug.replace("-", "_"))
 
 
 def _slugify(value: str) -> str:

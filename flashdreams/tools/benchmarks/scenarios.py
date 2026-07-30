@@ -62,6 +62,37 @@ class QualityCommandConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ReportGroupConfig:
+    """HTML report grouping metadata for one scenario."""
+
+    id: str
+    name: str | None = None
+
+    @classmethod
+    def from_value(cls, value: object) -> "ReportGroupConfig | None":
+        if value is None:
+            return None
+        if isinstance(value, str):
+            _validate_id(value, "report_group")
+            return cls(id=value)
+        if isinstance(value, Mapping):
+            data = {str(key): item for key, item in value.items()}
+            group_id = _required_str(data, "id")
+            _validate_id(group_id, "report_group id")
+            return cls(
+                id=group_id,
+                name=_optional_str(data.get("name"), "report_group.name"),
+            )
+        raise ValueError("report_group must be a string or object when provided")
+
+    def to_manifest(self) -> dict[str, str | None]:
+        return {
+            "id": self.id,
+            "name": self.name,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class BenchmarkScenario:
     """One command-backed local benchmark scenario.
 
@@ -75,6 +106,7 @@ class BenchmarkScenario:
     command: tuple[str, ...]
     description: str = ""
     tags: tuple[str, ...] = ()
+    report_group: ReportGroupConfig | None = None
     cwd: str | None = None
     env: Mapping[str, str] = field(default_factory=dict)
     timeout_s: float | None = None
@@ -121,6 +153,7 @@ class BenchmarkScenario:
             name=name,
             description=str(data.get("description") or ""),
             tags=_string_tuple(data.get("tags", ()), "tags"),
+            report_group=ReportGroupConfig.from_value(data.get("report_group")),
             command=_string_tuple(command_value, "command"),
             cwd=_optional_str(data.get("cwd"), "cwd"),
             env=_str_mapping(data.get("env", {}), "env"),
@@ -195,6 +228,9 @@ class BenchmarkScenario:
             "name": self.name,
             "description": self.description,
             "tags": list(self.tags),
+            "report_group": (
+                None if self.report_group is None else self.report_group.to_manifest()
+            ),
             "command": list(self.command),
             "cwd": self.cwd,
             "env": dict(self.env),

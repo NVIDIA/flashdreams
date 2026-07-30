@@ -6,6 +6,10 @@
       "id": "lingbot-world-fast-taehv-quality-smoke",
       "name": "LingBot-World Fast TAEHV seeded quality smoke",
       "description": "Roughly 30-second LingBot-World Fast rollout with explicit seed and strict PyTorch deterministic settings. This is a local quality signal; LingBot does not currently have the same public bitwise reproducibility CI guarantee as Omnidreams.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
       "tags": [
         "manual",
         "gpu",
@@ -51,6 +55,10 @@
       "id": "omnidreams-sv-ci-quality-smoke",
       "name": "Omnidreams single-view CI-style seeded quality smoke",
       "description": "Roughly 30-second Omnidreams single-view rollout aligned with the same-seed reproducibility CI path: non-perf runner, fixed example data, explicit seed, strict PyTorch deterministic settings, and 113 AR blocks.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
       "tags": [
         "manual",
         "gpu",
@@ -93,6 +101,10 @@
       "id": "lingbot-world-fast-taehv-one-minute-review",
       "name": "LingBot-World Fast TAEHV one-minute review rollout",
       "description": "Runs the LingBot-World Fast interactive preset for 81 AR blocks. This targets about 60.6 seconds of MP4 output for performance metrics and manual review when the selected pose stream has at least 969 frames.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
       "tags": [
         "manual",
         "gpu",
@@ -129,6 +141,10 @@
       "id": "omnidreams-sv-perf-one-minute-review",
       "name": "Omnidreams single-view perf one-minute review rollout",
       "description": "Runs the Omnidreams single-view perf runner for 226 AR blocks. This targets about 60.2 seconds of MP4 output for performance metrics and manual review when the selected HDMap clip is long enough.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
       "tags": [
         "manual",
         "gpu",

@@ -6,6 +6,10 @@
       "id": "lingbot-world-fast-taehv-one-minute",
       "name": "LingBot-World Fast TAEHV one-minute rollout",
       "description": "Runs the LingBot-World Fast interactive preset for 81 AR blocks. With len_t=3 and 16 fps this targets about 60.6 seconds of MP4 output when the selected pose stream has at least 969 frames.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
       "tags": [
         "manual",
         "gpu",
@@ -39,6 +43,10 @@
       "id": "omnidreams-sv-perf-one-minute",
       "name": "Omnidreams single-view perf one-minute rollout",
       "description": "Runs the Omnidreams single-view perf runner for 226 AR blocks. With chunk2 and 30 fps this targets about 60.2 seconds of MP4 output when the selected HDMap clip is long enough.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
       "tags": [
         "manual",
         "gpu",

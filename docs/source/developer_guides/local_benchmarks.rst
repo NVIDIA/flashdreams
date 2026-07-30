@@ -67,6 +67,11 @@ Use a JSON scenario file when a demo is not a public ``flashdreams-run`` preset
 or when a local command needs private checkpoint paths. Commands are argv lists,
 not shell strings. The harness expands ``{repo_root}``, ``{run_root}``,
 ``{output_dir}``, ``{scenario_id}``, ``{log_path}``, and ``{env:NAME}``.
+Set ``report_group`` to control which ``reports/<group>.html`` detail page a
+scenario appears on. It can be a string id, or an object with ``id`` and
+``name`` when the display name should differ from the filename.
+If ``report_group`` is omitted, the report falls back to the first ``-``
+separated segment of the scenario id.
 
 .. code-block:: json
 
@@ -76,6 +81,10 @@ not shell strings. The harness expands ``{repo_root}``, ``{run_root}``,
        {
          "id": "my-runner-smoke",
          "name": "My runner smoke",
+         "report_group": {
+           "id": "my-model",
+           "name": "My Model"
+         },
          "command": [
            "flashdreams-run",
            "self-forcing-wan2.1-t2v-1.3b-taehv",
@@ -378,6 +387,10 @@ GitLab-only cosmos-interactive MP4 renderer after this work is cherry-picked.
        {
          "id": "cosmos-interactive-mp4-12f",
          "name": "Cosmos interactive MP4 12-frame window",
+         "report_group": {
+           "id": "cosmos-interactive",
+           "name": "Cosmos Interactive"
+         },
          "command": [
            "uv",
            "run",

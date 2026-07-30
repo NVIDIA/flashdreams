@@ -83,6 +83,11 @@ class ScenarioRunResult:
             "name": self.scenario.name,
             "description": self.scenario.description,
             "tags": list(self.scenario.tags),
+            "report_group": (
+                None
+                if self.scenario.report_group is None
+                else self.scenario.report_group.to_manifest()
+            ),
             "status": self.status,
             "returncode": self.returncode,
             "timed_out": self.timed_out,

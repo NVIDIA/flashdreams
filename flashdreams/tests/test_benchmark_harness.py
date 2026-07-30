@@ -96,6 +96,10 @@ def test_load_scenario_file_supports_quality_commands(tmp_path: Path) -> None:
                     {
                         "id": "custom",
                         "name": "Custom",
+                        "report_group": {
+                            "id": "custom-model",
+                            "name": "Custom Model",
+                        },
                         "command": ["python", "-m", "demo", "{output_dir}"],
                         "output_dir_arg": None,
                         "quality_commands": [
@@ -119,6 +123,9 @@ def test_load_scenario_file_supports_quality_commands(tmp_path: Path) -> None:
     scenarios = load_scenario_file(path)
 
     assert scenarios["custom"].output_dir_arg is None
+    assert scenarios["custom"].report_group is not None
+    assert scenarios["custom"].report_group.id == "custom-model"
+    assert scenarios["custom"].report_group.name == "Custom Model"
     assert scenarios["custom"].quality_commands[0].id == "quality"
 
 
@@ -243,6 +250,9 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
         omnidreams.command
     )
+    assert omnidreams.report_group is not None
+    assert omnidreams.report_group.id == "omnidreams"
+    assert omnidreams.report_group.name == "Omnidreams"
     assert "--pipeline.diffusion-model.seed" in omnidreams.command
     assert _command_value(omnidreams.command, "--total-blocks") == "113"
     assert omnidreams.quality_compare_region == "bottom-half"
@@ -250,6 +260,9 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
 
     lingbot = scenarios["lingbot-world-fast-taehv-quality-smoke"]
     assert _command_value(lingbot.command, "--total-blocks") == "40"
+    assert lingbot.report_group is not None
+    assert lingbot.report_group.id == "lingbot"
+    assert lingbot.report_group.name == "LingBot"
     assert lingbot.quality_compare_region == "full"
     assert lingbot.quality_baseline_compare is True
 
@@ -397,26 +410,34 @@ def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:
         "output_root": str(run_root),
         "scenarios": [
             {
-                "id": "lingbot-scenario",
+                "id": "quality-smoke-a",
                 "name": "LingBot scenario",
-                "tags": ["lingbot", "quality"],
+                "tags": ["quality"],
+                "report_group": {
+                    "id": "lingbot",
+                    "name": "LingBot",
+                },
                 "status": "pass",
                 "wall_time_s": 1.0,
                 "command": "python -m lingbot",
-                "artifacts": {"videos": ["scenarios/lingbot-scenario/demo.mp4"]},
+                "artifacts": {"videos": ["scenarios/quality-smoke-a/demo.mp4"]},
                 "metric_summary": {
                     "quality_score": {"count": 1, "median": 0.98},
                 },
                 "metric_highlights": {"quality_score_median": 0.98},
             },
             {
-                "id": "omnidreams-scenario",
+                "id": "quality-smoke-b",
                 "name": "Omnidreams scenario",
-                "tags": ["omnidreams", "quality"],
+                "tags": ["quality"],
+                "report_group": {
+                    "id": "omnidreams",
+                    "name": "Omnidreams",
+                },
                 "status": "pass",
                 "wall_time_s": 2.0,
                 "command": "python -m omnidreams",
-                "artifacts": {"videos": ["scenarios/omnidreams-scenario/demo.mp4"]},
+                "artifacts": {"videos": ["scenarios/quality-smoke-b/demo.mp4"]},
                 "metric_summary": {
                     "quality_score": {"count": 1, "median": 0.97},
                 },
@@ -436,11 +457,11 @@ def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:
     assert 'href="reports/omnidreams.html' in index_html
     assert "LingBot Benchmark Report" in lingbot_html
     assert "Omnidreams Benchmark Report" in omnidreams_html
-    assert "lingbot-scenario" in lingbot_html
-    assert "omnidreams-scenario" not in lingbot_html
-    assert "omnidreams-scenario" in omnidreams_html
-    assert "lingbot-scenario" not in omnidreams_html
-    assert "../scenarios/lingbot-scenario/demo.mp4" in lingbot_html
+    assert "quality-smoke-a" in lingbot_html
+    assert "quality-smoke-b" not in lingbot_html
+    assert "quality-smoke-b" in omnidreams_html
+    assert "quality-smoke-a" not in omnidreams_html
+    assert "../scenarios/quality-smoke-a/demo.mp4" in lingbot_html
 
 
 def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:
