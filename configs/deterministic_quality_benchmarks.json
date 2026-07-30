@@ -138,9 +138,9 @@
       "timeout_s": 21600
     },
     {
-      "id": "omnidreams-sv-perf-one-minute-review",
-      "name": "Omnidreams single-view perf one-minute review rollout",
-      "description": "Runs the Omnidreams single-view perf runner for 226 AR blocks. This targets about 60.2 seconds of MP4 output for performance metrics and manual review when the selected HDMap clip is long enough.",
+      "id": "omnidreams-sv-one-minute-review",
+      "name": "Omnidreams single-view one-minute review rollout",
+      "description": "Runs the stable Omnidreams single-view runner for 226 AR blocks with an explicit seed. This targets about 60.2 seconds of MP4 output for performance metrics and manual review when the selected HDMap clip is long enough.",
       "report_group": {
         "id": "omnidreams",
         "name": "Omnidreams"
@@ -155,19 +155,28 @@
         "performance",
         "review"
       ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
       "command": [
         "uv",
         "run",
         "--project",
         "integrations/omnidreams",
-        "flashdreams-run",
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
         "--example-data",
         "True",
         "--example-data-uuid",
         "239560dc-33d1-11ef-9720-00044bcbccac",
         "--total-blocks",
-        "226"
+        "226",
+        "--pipeline.diffusion-model.seed",
+        "1"
       ],
       "warmup_steps": 1,
       "quality_baseline_compare": false,

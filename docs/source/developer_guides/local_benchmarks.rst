@@ -115,7 +115,7 @@ the real LingBot and Omnidreams demos. Run both:
    uv run flashdreams-benchmark \
      --scenario-file configs/one_minute_demo_benchmarks.json \
      --scenario lingbot-world-fast-taehv-one-minute \
-     --scenario omnidreams-sv-perf-one-minute \
+     --scenario omnidreams-sv-one-minute \
      --output-dir artifacts/benchmarks/one-minute-demos
 
 Or run one scenario at a time:
@@ -124,7 +124,7 @@ Or run one scenario at a time:
 
    uv run flashdreams-benchmark \
      --scenario-file configs/one_minute_demo_benchmarks.json \
-     --scenario omnidreams-sv-perf-one-minute
+     --scenario omnidreams-sv-one-minute
 
 The LingBot and Omnidreams runner scenarios request enough AR blocks for about
 one minute of MP4 output. Those runners stop early if the selected conditioned
@@ -162,7 +162,7 @@ First create the baseline:
      --scenario lingbot-world-fast-taehv-quality-smoke \
      --scenario omnidreams-sv-ci-quality-smoke \
      --scenario lingbot-world-fast-taehv-one-minute-review \
-     --scenario omnidreams-sv-perf-one-minute-review \
+     --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
      --output-dir artifacts/benchmarks/quality-and-review-baseline
 
@@ -175,7 +175,7 @@ Then compare a later candidate run against that baseline:
      --scenario lingbot-world-fast-taehv-quality-smoke \
      --scenario omnidreams-sv-ci-quality-smoke \
      --scenario lingbot-world-fast-taehv-one-minute-review \
-     --scenario omnidreams-sv-perf-one-minute-review \
+     --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
      --quality-baseline-dir artifacts/benchmarks/quality-and-review-baseline \
      --output-dir artifacts/benchmarks/quality-and-review-candidate
@@ -222,10 +222,11 @@ Determinism and Seeded Quality Checks
 
 The one-minute demo scenarios are performance and visual-inspection runs, not
 strict pixel-stability gates. A fixed diffusion seed is necessary but not
-sufficient for long generated MP4s: CUDA kernel choices, compile/perf paths,
-and long autoregressive accumulation can still produce visible drift. The
-Omnidreams one-minute perf scenario already inherits a seed, so rerunning that
-long perf clip is not expected to be byte-identical.
+sufficient for long generated MP4s: CUDA kernel choices, compile paths, and
+long autoregressive accumulation can still produce visible drift. The
+Omnidreams one-minute scenarios use the same stable non-perf runner as the
+quality smoke scenario because broader VAE compile/autotune paths can be
+hardware sensitive on local developer systems.
 
 For a stronger same-seed quality signal, use the 30-second quality scenarios in
 ``configs/deterministic_quality_benchmarks.json``. Its Omnidreams quality
@@ -325,7 +326,7 @@ for debugging, but they do not produce the standard baseline/candidate report:
    uv run --group pai-bench flashdreams-benchmark \
      --scenario-file configs/one_minute_demo_benchmarks.json \
      --scenario lingbot-world-fast-taehv-one-minute \
-     --scenario omnidreams-sv-perf-one-minute \
+     --scenario omnidreams-sv-one-minute \
      --quality-profile pai-bench-long \
      --output-dir artifacts/benchmarks/one-minute-pai-bench
 

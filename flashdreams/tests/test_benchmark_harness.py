@@ -223,7 +223,7 @@ def test_shipped_one_minute_demo_scenarios_load() -> None:
 
     assert set(scenarios) == {
         "lingbot-world-fast-taehv-one-minute",
-        "omnidreams-sv-perf-one-minute",
+        "omnidreams-sv-one-minute",
     }
 
 
@@ -237,7 +237,7 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
         "lingbot-world-fast-taehv-quality-smoke",
         "lingbot-world-fast-taehv-one-minute-review",
         "omnidreams-sv-ci-quality-smoke",
-        "omnidreams-sv-perf-one-minute-review",
+        "omnidreams-sv-one-minute-review",
     }
     omnidreams = scenarios["omnidreams-sv-ci-quality-smoke"]
     assert omnidreams.command[:7] == (
@@ -273,8 +273,16 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
     assert _command_value(lingbot_review.command, "--total-blocks") == "81"
     assert lingbot_review.quality_baseline_compare is False
 
-    omnidreams_review = scenarios["omnidreams-sv-perf-one-minute-review"]
+    omnidreams_review = scenarios["omnidreams-sv-one-minute-review"]
     assert _command_value(omnidreams_review.command, "--total-blocks") == "226"
+    assert (
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+        in omnidreams_review.command
+    )
+    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
+        omnidreams_review.command
+    )
+    assert "--pipeline.diffusion-model.seed" in omnidreams_review.command
     assert omnidreams_review.quality_baseline_compare is False
 
 
