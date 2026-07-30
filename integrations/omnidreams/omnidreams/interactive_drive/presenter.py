@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import glob
 import ctypes
 import ctypes.util
 import os
@@ -638,6 +639,7 @@ class _NonBlockingCudaStream:
         from torch.utils.cpp_extension import (
             CLIB_EXT,
             IS_LINUX,
+            IS_MACOS,
             IS_WINDOWS,
             _join_cuda_home,
             library_paths,
@@ -658,10 +660,10 @@ class _NonBlockingCudaStream:
             library_name = "cudart64_13.dll"
         elif IS_MACOS:
             library_name = "cudart.dylib"
-            paths.append(_join_cuda_home("lib", cpu_arch))
+            paths.append(_join_cuda_home("lib"))
         else:
             library_name = "cudart.so"
-            paths.append(_join_cuda_home("lib64", cpu_arch))
+            paths.append(_join_cuda_home("lib64"))
         for library_path in paths:
             if tmp_path := find_in_path(library_name, library_path):
                 library_name = tmp_path
