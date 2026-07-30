@@ -143,6 +143,83 @@ for i in range(total_blocks):
     generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
 ```
 
+## Three-stage disaggregated inference
+
+LingBot can load the encoder, DiT, and decoder on three independent GPUs:
+
+```text
+GPU 0: UMT5 + image/VAE/camera encoder
+         │ Mooncake GPU-memory transfer
+GPU 1: scheduler + DiT + session-pinned KV cache
+         │ Mooncake GPU-memory transfer
+GPU 2: streaming VAE or LightTAE decoder
+```
+
+This is pipeline-stage disaggregation, analogous to SGLang's independently
+scheduled prefill and decode pools but split at diffusion-native boundaries.
+The evolving autoregressive KV cache stays on the DiT worker. Only one-shot
+conditioning, per-step encoder features, and clean latents cross stage
+boundaries. Moving the KV cache every chunk would add a much larger transfer
+and break session affinity.
+
+Install the optional Mooncake transport:
+
+```bash
+uv sync --package flashdreams-lingbot --extra dev --extra disagg
+
+# The container/host runtime must also provide the RDMA userspace libraries.
+apt-get install libibverbs1 ibverbs-providers librdmacm1 ibverbs-utils
+```
+
+Run the reproducible three-GPU benchmark:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=3 \
+  -m lingbot.disagg.benchmark \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg
+```
+
+Validate the data plane without loading checkpoints:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=3 \
+  -m lingbot.disagg.benchmark --transport-only \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8
+```
+
+The benchmark writes `benchmark.json` and a Markdown summary. It reports:
+
+- median and p90 encoder, DiT, finalize, decoder, and end-to-end chunk latency;
+- generated FPS after excluding warmup;
+- payload bytes, sender registration time, transfer time, full handoff time,
+  and effective GB/s for encoder → DiT and DiT → decoder;
+- a reusable 256 MiB transfer probe to distinguish link bandwidth from
+  small-payload setup overhead;
+- per-stage peak GPU memory and the exact software/hardware environment.
+
+See the
+[three-stage H100 experiment report](docs/disaggregated_inference_experiment.md)
+for the tested stack, measurement method, detailed findings, Slurm
+reproduction procedure, and acceptance limitations.
+
+Mooncake is explicitly initialized with its `rdma` protocol. On a single node,
+the engine may select a topology-local GPU path; the measured effective GB/s
+is therefore authoritative for that allocation, while the protocol name alone
+must not be presented as proof that traffic traversed an InfiniBand NIC.
+Cross-node deployment additionally needs routable stage hostnames, RDMA-capable
+NICs, GPUDirect RDMA, and a control plane that forwards the opaque
+`TensorTransferTicket` between stage services.
+
+The design follows the
+[LightX2V three-stage disaggregation study](https://light-ai.top/LightX2V-BLOG/posts/Disaggregation/):
+control-plane messages carry only tensor metadata and registered destination
+addresses; Mooncake moves the tensor payload directly between device buffers.
+
 ## Run (WebRTC interactive demo)
 
 The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
