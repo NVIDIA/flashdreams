@@ -242,6 +242,31 @@ median per 12-frame chunk and 15.90 generated FPS, a 3.01× latency speedup over
 CP1. CP4 Ulysses reached 754.41 ms and 15.70 FPS. CP6 was 1.5% faster; CP4 had
 higher scaling efficiency and left two GPUs available for other work.
 
+For an aggregated baseline, put the complete pipeline on every GPU and use all
+eight ranks as the DiT context-parallel WORLD group:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_aggregated \
+  --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --pixel-width 832 --pixel-height 448 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_aggregated_cp8
+```
+
+The normal 832×464 grid has 4,524 tokens and cannot divide over CP8. The
+nearest valid height is 448, which produces 4,368 tokens. On eight H100s, the
+aggregated CP8 Ulysses run reached 393.33 ms median latency and 29.50 generated
+FPS. It is the fastest tested single-session topology, but it replicates
+encoder and decoder work and gives up independent stage placement. The
+[aggregated report](docs/benchmark_h100_aggregated_cp8/README.md) and
+[comparison chart](docs/aggregated_vs_disaggregated.svg) include the
+resolution-normalized throughput and node-wide HBM tradeoff.
+
 Validate the data plane without loading checkpoints:
 
 ```bash

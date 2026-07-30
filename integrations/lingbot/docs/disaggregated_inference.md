@@ -77,6 +77,21 @@ a compatible alternative, but it uses only six of the allocated GPUs after
 reserving separate encoder and decoder ranks. Ring rotation must use subgroup
 local ranks because the DiT subgroup is global ranks 1–6.
 
+The aggregated baseline instead constructs the entire pipeline on all eight
+ranks and makes WORLD the CP8 DiT group:
+
+```text
+GPU 0 full pipeline ═══════════════════════════════════╗
+GPU 1–7 full pipeline ══ NCCL CP8 Ulysses ════════════╣ one session
+each rank redundantly encodes and decodes; no RDMA stage handoffs ╝
+```
+
+This topology can use Ulysses because 40 heads divide over eight ranks. It also
+assigns all eight GPUs to DiT rather than reserving encoder and decoder ranks.
+The cost is eight copies of the complete pipeline and no independent stage
+scheduling. The 832×464 token grid is not CP8-compatible, so the tracked
+aggregated experiment uses 832×448 and reports token throughput alongside FPS.
+
 ## Measurement rules
 
 - Discard compilation, cache-fill, and connection warmup blocks.
@@ -136,6 +151,17 @@ versus 53.2%) and left two GPUs idle. See the
 [CP6 report](benchmark_h100_cp6_single_session/README.md),
 [CP4 report](benchmark_h100_cp4_single_session/README.md), and
 [single-session wall-time and memory chart](disaggregated_inference_single_session.svg).
+
+The aggregated follow-up ran in Slurm job `14652956` on `pool0-01714`. Eight
+full-pipeline replicas formed one CP8 Ulysses group. At 832×448, five measured
+blocks reached **393.33 ms median / 434.08 ms p90** and **29.50 generated FPS**.
+That is 1.89× lower latency and 1.79× higher DiT token throughput than the
+tracked stage-local CP6 run. Rollout peak allocation was 40.88 GiB per GPU and
+327.03 GiB node-wide; the one-shot initialization peak was 48.27 GiB per GPU.
+The NCCL probes measured 266.83 GB/s broadcast and 360.38 GB/s all-gather
+effective bandwidth. See the
+[aggregated report](benchmark_h100_aggregated_cp8/README.md) and
+[aggregated-versus-disaggregated chart](aggregated_vs_disaggregated.svg).
 
 The
 [full experiment record](disaggregated_inference_experiment.md)

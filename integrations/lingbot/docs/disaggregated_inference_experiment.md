@@ -29,7 +29,9 @@ from those two JSON files. The single-session CP4 and CP6 results are in
 and
 [`benchmark_h100_cp6_single_session`](benchmark_h100_cp6_single_session/README.md);
 their [comparison chart](disaggregated_inference_single_session.svg) is generated
-directly from the raw JSON documents.
+directly from the raw JSON documents. The full-pipeline CP8 baseline is in
+[`benchmark_h100_aggregated_cp8`](benchmark_h100_aggregated_cp8/README.md), with
+its [stage-local CP6 comparison chart](aggregated_vs_disaggregated.svg).
 
 ## Question and design
 
@@ -372,6 +374,111 @@ it, then destroys the Gloo control group. A subsequent one-block full-model
 smoke and a transport-only run both exited normally. This cleanup-only change
 does not affect the five-block timing samples above.
 
+## Aggregated eight-GPU baseline
+
+### Topology and resolution
+
+The next experiment removed the stage boundaries and constructed the complete
+encoder + DiT + decoder pipeline on every rank. WORLD is one CP8 Ulysses group:
+
+```text
+GPU 0–7: full encoder + full DiT weights + full decoder
+                         ║
+                  NCCL CP8 Ulysses
+                         ║
+                    one session
+```
+
+Every rank executes the encoder and decoder redundantly. There is no Mooncake
+or NIXL data path because no tensor crosses an independently deployed stage
+boundary; all inter-GPU movement is inside the DiT's NCCL context-parallel
+collectives. This is the conventional aggregated baseline against which the
+stage-local deployment should be compared.
+
+The original 832×464 resolution produces 4,524 post-patch tokens. CP8 requires
+an even split, and `4524 % 8 = 4`, so the benchmark rejects that shape. The
+closest valid height is 448: 832×448 produces 4,368 tokens, or 546 tokens per
+rank. This is 3.45% fewer tokens than the earlier experiments. FPS and latency
+are reported directly, while DiT token throughput is the resolution-normalized
+comparison.
+
+### Tested configuration
+
+| Item | Value |
+| --- | --- |
+| Date | 2026-07-29 |
+| Slurm allocation | Job `14652956`, node `pool0-01714` |
+| Repository base | `bb67d2868babea53cda7a9027831f26ee948293f` plus the aggregated-benchmark worktree change |
+| GPUs | 8 × NVIDIA H100 80 GB HBM3, all-to-all NV18 connectivity |
+| Driver / runtime | Driver 535.216.03; PyTorch 2.12.1+cu130; CUDA 13.0 |
+| Topology | Eight full-pipeline replicas; WORLD CP8 Ulysses |
+| Resolution / tokens | 832×448; 4,368 tokens per chunk; 546 tokens per rank |
+| Model / precision / scheduler | Same LingBot Fast + LightTAE, BF16, four-step configuration |
+| Compilation | Persistent Triton cache; `TORCHINDUCTOR_COMPILE_THREADS=4` |
+| Measurement | Six warmup blocks, then five measured 12-frame blocks |
+
+The first attempt completed all model measurements but hit a report-only
+missing comparison label and then blocked in distributed teardown. After adding
+the label fallback, the benchmark was rerun from a fresh `torchrun` process.
+Only the successful second run is recorded. Its warmup blocks include cached
+code loading and the block-5 cache-shape compilation; none of those times enter
+the headline.
+
+### Performance and resource comparison
+
+![Aggregated CP8 versus disaggregated CP6 wall time and HBM](aggregated_vs_disaggregated.svg)
+
+| Metric | Stage-local CP6 ring | Aggregated CP8 Ulysses | Change |
+| --- | ---: | ---: | ---: |
+| Resolution | 832×464 | 832×448 | 3.45% fewer tokens |
+| Median chunk latency | 743.27 ms | **393.33 ms** | **1.89× faster** |
+| P90 chunk latency | 780.60 ms | **434.08 ms** | **1.80× faster** |
+| Generated FPS | 15.90 | **29.50** | **1.86×** |
+| DiT token throughput | 5,995 token/s | **10,739 token/s** | **1.79×** |
+| FPS per allocated GPU | 1.99 | **3.69** | **1.86×** |
+| GPU-seconds per chunk | 5.95 | **3.15** | **47.1% lower** |
+| Rollout peak HBM, node total | 251.07 GiB | 327.03 GiB | **30.3% higher** |
+
+The aggregated run is the new measured minimum single-session latency. Two
+factors dominate the gain. First, it assigns all eight GPUs to DiT and can use
+Ulysses because `40 % 8 == 0`; stage-local CP6 reserves two ranks for encoder
+and decoder and must use ring attention. Second, it removes 43.81 ms of
+encoder-to-leader fanout and leader-to-decoder handoff from the CP6 critical
+path. The handoff removal alone is only 5.9% of CP6 latency, so most of the
+1.89× gain comes from the larger, Ulysses-compatible DiT group rather than
+from eliminating RDMA.
+
+| Component / probe | Stage-local CP6 | Aggregated CP8 |
+| --- | ---: | ---: |
+| Encoder critical-rank compute | 0.90 ms | 0.84 ms |
+| Encoder handoff + CP fanout | 31.21 ms | — |
+| DiT denoise | 547.88 ms | 309.14 ms |
+| KV-cache finalize | 135.25 ms | 76.06 ms |
+| Decoder compute | 7.13 ms | 6.88 ms |
+| Output handoff | 12.59 ms | — |
+| 256 MiB NCCL broadcast probe | 283.71 GB/s | 266.83 GB/s |
+| 256 MiB NCCL all-gather probe | 231.72 GB/s | 360.38 GB/s |
+
+Probe bandwidth is effective materialized bytes per rank divided by collective
+wall time, not raw NVLink wire bandwidth. It characterizes the allocation but
+does not directly measure every all-to-all used by Ulysses. The node was fully
+NVLink-connected; these numbers are not cross-node RDMA results.
+
+Each aggregated rank peaked at 40.88 GiB during the measured rollout and held
+38.80 GiB after it. Replicating that footprint eight times consumes 327.03 GiB
+of rollout peak allocation and 310.37 GiB steady allocation node-wide. The
+one-shot text/model initialization peak was higher at 48.27 GiB per rank, or
+386.13 GiB across the node. The stage-local CP6 layout uses only 251.07 GiB
+node-wide because encoder and decoder weights exist on one rank each.
+
+This is a latency topology, not a blanket serving winner. It dedicates the
+whole node to one session and cannot independently autoscale or place encoder,
+DiT, and decoder services. The 1:6:1 topology remains the concurrent-session
+choice: it serves six sessions at 27.20 aggregate FPS, while aggregated CP8
+serves one session at 29.50 FPS. Production scheduling can choose between
+replicated stage-local groups for capacity and aggregated CP groups for a
+premium low-latency class.
+
 ## How to reproduce
 
 The commands below assume the repository is at
@@ -572,6 +679,33 @@ The CP benchmark requires exactly `cp-ranks + 2` processes. Do not remove the
 six warmup blocks: block 5 changes the cache shape and can otherwise leave
 compile/autotune latency in the measured set.
 
+Run the eight-GPU aggregated baseline. The height must remain CP8-compatible
+unless another resolution is explicitly validated:
+
+```bash
+env TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_aggregated \
+  --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --pixel-width 832 \
+  --pixel-height 448 \
+  --fps 16 \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8 \
+  --comparison-json integrations/lingbot/docs/benchmark_h100_cp6_single_session/benchmark.json \
+  --output-dir outputs/lingbot_aggregated_cp8
+```
+
+All eight ranks instantiate the full pipeline, so expect eight simultaneous
+checkpoint reads and up to 48.27 GiB of initialization allocation per GPU.
+The harness requires exactly eight ranks and rejects token grids that do not
+divide over CP8. No Mooncake installation is needed for this command.
+
 ### 6. Inspect and preserve results
 
 ```bash
@@ -609,6 +743,19 @@ jq '.records[] | select(.warmup == false) |
   outputs/lingbot_disagg_cp6/benchmark.json
 ```
 
+For the aggregated result, verify five measured records, eight per-rank timing
+entries, the CP8 token layout, and both rollout and initialization memory:
+
+```bash
+jq '.environment.allocation, .environment.token_layout, .summary.memory,
+    .summary.cp_probe_gbps' \
+  outputs/lingbot_aggregated_cp8/benchmark.json
+jq '.records[] | select(.warmup == false) |
+    {autoregressive_index, end_to_end_ms, output_frames,
+     rank_records: (.per_rank | length)}' \
+  outputs/lingbot_aggregated_cp8/benchmark.json
+```
+
 Regenerate the checked-in chart from the two raw result documents:
 
 ```bash
@@ -622,6 +769,11 @@ python integrations/lingbot/scripts/plot_disagg_single_session.py \
   integrations/lingbot/docs/benchmark_h100_cp4_single_session/benchmark.json \
   integrations/lingbot/docs/benchmark_h100_cp6_single_session/benchmark.json \
   integrations/lingbot/docs/disaggregated_inference_single_session.svg
+
+python integrations/lingbot/scripts/plot_aggregated_comparison.py \
+  integrations/lingbot/docs/benchmark_h100_cp6_single_session/benchmark.json \
+  integrations/lingbot/docs/benchmark_h100_aggregated_cp8/benchmark.json \
+  integrations/lingbot/docs/aggregated_vs_disaggregated.svg
 ```
 
 ### 7. Run focused CPU validation and release the node
@@ -633,7 +785,8 @@ uv run --package flashdreams-lingbot pytest \
   flashdreams/tests/test_transfer.py \
   integrations/lingbot/tests/test_disagg_stages.py \
   integrations/lingbot/tests/test_disagg_replicated.py \
-  integrations/lingbot/tests/test_disagg_cp.py
+  integrations/lingbot/tests/test_disagg_cp.py \
+  integrations/lingbot/tests/test_disagg_aggregated.py
 
 uv lock --check
 exit
@@ -650,6 +803,7 @@ exit
 | Output-quality equivalence | Deferred | No matched-seed aggregated-vs-disaggregated decoded comparison yet |
 | Cross-node efficiency | Deferred | Only one eight-H100 node was measured |
 | Single-session acceleration | Useful opt-in | CP6 ring reached 15.90 FPS and 743.27 ms, a 3.01× latency speedup |
+| Aggregated CP8 baseline | Useful opt-in | 29.50 FPS and 393.33 ms at 832×448; 30.3% more node HBM than stage-local CP6 |
 | Clean CP teardown | Useful opt-in | Post-fix full-model and transport-only lifecycle smokes exited normally |
 
 Results apply to this H100/CUDA 13/Mooncake stack and should not be generalized

@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+<title id="title">LingBot disaggregated CP6 and aggregated CP8 performance comparison</title>
+<desc id="description">Median per-chunk component wall time and per-rank peak allocated HBM on eight H100 GPUs.</desc>
+<style>
+text{font-family:Inter,Arial,sans-serif;fill:#202124}
+.title{font-size:26px;font-weight:600}.subtitle{font-size:15px;fill:#5f6368}
+.axis{font-size:12px;fill:#5f6368}.label{font-size:14px;font-weight:600}
+.value{font-size:12px;font-weight:600}.grid{stroke:#dadce0;stroke-width:1}
+</style>
+<rect width="1200" height="720" fill="#ffffff"/>
+<text x="40" y="42" class="title">LingBot: stage-local CP6 vs full-pipeline CP8</text>
+<text x="40" y="68" class="subtitle">8× H100 80 GB · BF16 · six warmup + five measured blocks · CP6 832×464 · CP8 832×448</text>
+<text x="40" y="108" class="label">Median steady-state wall time</text>
+<line x1="245.0" y1="124" x2="245.0" y2="295" class="grid"/>
+<text x="245.0" y="315" class="axis" text-anchor="middle">0</text>
+<line x1="352.5" y1="124" x2="352.5" y2="295" class="grid"/>
+<text x="352.5" y="315" class="axis" text-anchor="middle">100</text>
+<line x1="460.0" y1="124" x2="460.0" y2="295" class="grid"/>
+<text x="460.0" y="315" class="axis" text-anchor="middle">200</text>
+<line x1="567.5" y1="124" x2="567.5" y2="295" class="grid"/>
+<text x="567.5" y="315" class="axis" text-anchor="middle">300</text>
+<line x1="675.0" y1="124" x2="675.0" y2="295" class="grid"/>
+<text x="675.0" y="315" class="axis" text-anchor="middle">400</text>
+<line x1="782.5" y1="124" x2="782.5" y2="295" class="grid"/>
+<text x="782.5" y="315" class="axis" text-anchor="middle">500</text>
+<line x1="890.0" y1="124" x2="890.0" y2="295" class="grid"/>
+<text x="890.0" y="315" class="axis" text-anchor="middle">600</text>
+<line x1="997.5" y1="124" x2="997.5" y2="295" class="grid"/>
+<text x="997.5" y="315" class="axis" text-anchor="middle">700</text>
+<line x1="1105.0" y1="124" x2="1105.0" y2="295" class="grid"/>
+<text x="1105.0" y="315" class="axis" text-anchor="middle">800</text>
+<text x="1155" y="315" class="axis" text-anchor="end">milliseconds</text>
+<text x="225" y="174.0" class="label" text-anchor="end">Disaggregated CP6 ring</text>
+<rect x="245.0" y="145.0" width="1.0" height="48.0" fill="#59a14f"/>
+<rect x="246.0" y="145.0" width="33.6" height="48.0" fill="#8cd17d"/>
+<rect x="279.5" y="145.0" width="589.0" height="48.0" fill="#4e79a7"/>
+<text x="574.0" y="174.0" class="value" text-anchor="middle">548</text>
+<rect x="868.5" y="145.0" width="145.4" height="48.0" fill="#b07aa1"/>
+<text x="941.2" y="174.0" class="value" text-anchor="middle">135</text>
+<rect x="1013.9" y="145.0" width="13.5" height="48.0" fill="#76b7b2"/>
+<rect x="1027.4" y="145.0" width="7.7" height="48.0" fill="#f28e2b"/>
+<rect x="1035.1" y="145.0" width="8.9" height="48.0" fill="#bab0ac"/>
+<text x="1052.0" y="174.0" class="value">743 ms</text>
+<text x="225" y="254.0" class="label" text-anchor="end">Aggregated CP8 Ulysses</text>
+<rect x="245.0" y="225.0" width="0.9" height="48.0" fill="#59a14f"/>
+<rect x="245.9" y="225.0" width="332.3" height="48.0" fill="#4e79a7"/>
+<text x="412.1" y="254.0" class="value" text-anchor="middle">309</text>
+<rect x="578.2" y="225.0" width="81.8" height="48.0" fill="#b07aa1"/>
+<text x="619.1" y="254.0" class="value" text-anchor="middle">76</text>
+<rect x="660.0" y="225.0" width="7.4" height="48.0" fill="#f28e2b"/>
+<rect x="667.4" y="225.0" width="0.4" height="48.0" fill="#bab0ac"/>
+<text x="675.8" y="254.0" class="value">393 ms</text>
+<rect x="75" y="340" width="12" height="12" fill="#59a14f"/>
+<text x="93" y="350" class="axis">Encoder</text>
+<rect x="229" y="340" width="12" height="12" fill="#8cd17d"/>
+<text x="247" y="350" class="axis">Input handoff</text>
+<rect x="383" y="340" width="12" height="12" fill="#4e79a7"/>
+<text x="401" y="350" class="axis">DiT denoise</text>
+<rect x="537" y="340" width="12" height="12" fill="#b07aa1"/>
+<text x="555" y="350" class="axis">KV finalize</text>
+<rect x="691" y="340" width="12" height="12" fill="#76b7b2"/>
+<text x="709" y="350" class="axis">Output handoff</text>
+<rect x="845" y="340" width="12" height="12" fill="#f28e2b"/>
+<text x="863" y="350" class="axis">Decoder</text>
+<rect x="999" y="340" width="12" height="12" fill="#bab0ac"/>
+<text x="1017" y="350" class="axis">Coordination</text>
+<text x="40" y="400" class="label">Peak allocated HBM by rank</text>
+<text x="40" y="423" class="subtitle">Stage-local CP6 totals 251.07 GiB; eight full-pipeline replicas total 327.03 GiB (+30.3%)</text>
+<line x1="75" y1="626.0" x2="1160" y2="626.0" class="grid"/>
+<text x="65" y="630.0" class="axis" text-anchor="end">0</text>
+<line x1="75" y1="590.4" x2="1160" y2="590.4" class="grid"/>
+<text x="65" y="594.4" class="axis" text-anchor="end">10</text>
+<line x1="75" y1="554.8" x2="1160" y2="554.8" class="grid"/>
+<text x="65" y="558.8" class="axis" text-anchor="end">20</text>
+<line x1="75" y1="519.2" x2="1160" y2="519.2" class="grid"/>
+<text x="65" y="523.2" class="axis" text-anchor="end">30</text>
+<line x1="75" y1="483.6" x2="1160" y2="483.6" class="grid"/>
+<text x="65" y="487.6" class="axis" text-anchor="end">40</text>
+<line x1="75" y1="448.0" x2="1160" y2="448.0" class="grid"/>
+<text x="65" y="452.0" class="axis" text-anchor="end">50</text>
+<text x="30" y="540" class="axis" text-anchor="middle" transform="rotate(-90 30 540)">GiB</text>
+<rect x="105.0" y="577.2" width="34" height="48.8" fill="#59a14f"/>
+<text x="122.0" y="571.2" class="axis" text-anchor="middle">13.7</text>
+<text x="122.0" y="645" class="axis" text-anchor="middle">G0</text>
+<rect x="158.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="175.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="175.0" y="645" class="axis" text-anchor="middle">G1</text>
+<rect x="211.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="228.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="228.0" y="645" class="axis" text-anchor="middle">G2</text>
+<rect x="264.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="281.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="281.0" y="645" class="axis" text-anchor="middle">G3</text>
+<rect x="317.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="334.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="334.0" y="645" class="axis" text-anchor="middle">G4</text>
+<rect x="370.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="387.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="387.0" y="645" class="axis" text-anchor="middle">G5</text>
+<rect x="423.0" y="486.5" width="34" height="139.5" fill="#4e79a7"/>
+<text x="440.0" y="480.5" class="axis" text-anchor="middle">39.2</text>
+<text x="440.0" y="645" class="axis" text-anchor="middle">G6</text>
+<rect x="476.0" y="617.8" width="34" height="8.2" fill="#f28e2b"/>
+<text x="493.0" y="611.8" class="axis" text-anchor="middle">2.3</text>
+<text x="493.0" y="645" class="axis" text-anchor="middle">G7</text>
+<text x="307.5" y="681" class="label" text-anchor="middle">Disaggregated CP6</text>
+<rect x="650.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="667.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="667.0" y="645" class="axis" text-anchor="middle">G0</text>
+<rect x="703.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="720.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="720.0" y="645" class="axis" text-anchor="middle">G1</text>
+<rect x="756.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="773.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="773.0" y="645" class="axis" text-anchor="middle">G2</text>
+<rect x="809.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="826.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="826.0" y="645" class="axis" text-anchor="middle">G3</text>
+<rect x="862.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="879.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="879.0" y="645" class="axis" text-anchor="middle">G4</text>
+<rect x="915.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="932.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="932.0" y="645" class="axis" text-anchor="middle">G5</text>
+<rect x="968.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="985.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="985.0" y="645" class="axis" text-anchor="middle">G6</text>
+<rect x="1021.0" y="480.5" width="34" height="145.5" fill="#4e79a7"/>
+<text x="1038.0" y="474.5" class="axis" text-anchor="middle">40.9</text>
+<text x="1038.0" y="645" class="axis" text-anchor="middle">G7</text>
+<text x="852.5" y="681" class="label" text-anchor="middle">Aggregated CP8</text>
+<text x="650" y="704" class="axis">Aggregated bars contain encoder + DiT + decoder on every GPU.</text>
+</svg>
