@@ -22,6 +22,7 @@ from typing import overload
 
 import torch
 from torch import Tensor
+from torch.distributed import ProcessGroup
 
 from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21Transformer,
@@ -70,7 +71,7 @@ class LingbotWorldTransformerConfig(Wan21TransformerConfig):
     :class:`Wan21TransformerConfig`).
     """
 
-    _target: type["LingbotWorldTransformer"] = field(
+    _target: type[LingbotWorldTransformer] = field(
         default_factory=lambda: LingbotWorldTransformer
     )
 
@@ -85,6 +86,33 @@ class LingbotWorldTransformer(Wan21Transformer):
 
     def __init__(self, config: LingbotWorldTransformerConfig) -> None:
         super().__init__(config)
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Bind a DiT-only context-parallel group before cache construction.
+
+        The normal runner uses the global process group that exists when the
+        transformer is constructed. A disaggregated deployment constructs the
+        stage-local weights first, then creates a subgroup containing only DiT
+        ranks. Rebinding is safe until a rollout cache or CUDA graph has bound
+        shapes and storage.
+
+        Args:
+            cp_group: DiT-only process group, or ``None`` to disable CP.
+
+        Raises:
+            RuntimeError: A rollout cache has already been initialized.
+        """
+        if self._output_height is not None or self._output_width is not None:
+            raise RuntimeError(
+                "Context parallelism must be configured before initializing "
+                "a LingBot rollout cache."
+            )
+        self._cp_group = cp_group
+        self._cp_size = cp_group.size() if cp_group is not None else 1
+        network = getattr(self.network, "_orig_mod", self.network)
+        network.set_context_parallel_group(cp_group)
+        if self._use_cuda_graph:
+            self._cuda_graph_dispatch.reset()
 
     @torch.no_grad()
     def replace_text_embeddings(

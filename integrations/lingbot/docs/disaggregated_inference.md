@@ -57,6 +57,26 @@ latency. A production service still needs asynchronous bounded queues, request
 IDs, cancellation, and pooled registered buffers in place of benchmark-wide
 barriers.
 
+The single-session topology uses the same physical allocation but groups ranks
+1–6 into one context-parallel DiT:
+
+```text
+GPU 0 encoder ── Mooncake ──▶ GPU 1 CP leader ══ NCCL CP6 ══ GPUs 2–6
+GPU 7 decoder ◀─ Mooncake ─── GPU 1 gathered clean latent
+```
+
+All six DiT ranks cooperate on every denoising step and retain their local
+shard of the session cache. This can reduce one session's latency, unlike six
+independent DiT replicas. The leader distributes full per-block input tensors
+within the subgroup; the DiT's existing context-parallel path shards token
+sequences and reconstructs its output before the decoder handoff.
+
+LingBot's 14B DiT has 40 attention heads. CP6 therefore uses ring attention:
+Ulysses requires `num_heads % cp_size == 0`, and `40 % 6 != 0`. CP4 Ulysses is
+a compatible alternative, but it uses only six of the allocated GPUs after
+reserving separate encoder and decoder ranks. Ring rotation must use subgroup
+local ranks because the DiT subgroup is global ranks 1–6.
+
 ## Measurement rules
 
 - Discard compilation, cache-fill, and connection warmup blocks.
@@ -105,6 +125,17 @@ median across all stage edges. Peak allocations were 18.77 GiB on the shared
 encoder, 56.34–56.51 GiB on each DiT, and 2.65 GiB on the shared decoder.
 See the [eight-GPU report](benchmark_h100_1e6d1d/README.md) and the
 [wall-time and memory chart](disaggregated_inference_breakdown.svg).
+
+The minimum-single-session experiment ran in Slurm job `14646820` on
+`pool0-01260`. One CP6 ring DiT group on GPUs 1–6 reduced median chunk latency
+to **743.27 ms** and raised one-session throughput to **15.90 generated FPS**:
+a **3.01× end-to-end speedup** and **3.19× DiT speedup** over CP1. The CP4
+Ulysses comparison reached 754.41 ms and 15.70 FPS. CP6 was 1.5% faster and
+used all eight GPUs; CP4 achieved higher per-DiT-GPU scaling efficiency (78.2%
+versus 53.2%) and left two GPUs idle. See the
+[CP6 report](benchmark_h100_cp6_single_session/README.md),
+[CP4 report](benchmark_h100_cp4_single_session/README.md), and
+[single-session wall-time and memory chart](disaggregated_inference_single_session.svg).
 
 The
 [full experiment record](disaggregated_inference_experiment.md)

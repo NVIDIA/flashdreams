@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="title description">
+<title id="title">LingBot single-session context-parallel wall time and GPU memory</title>
+<desc id="description">Median wall-time components and per-rank peak allocated memory for CP1, CP4 Ulysses, and CP6 ring.</desc>
+<style>
+text{font-family:Inter,Arial,sans-serif;fill:#202124}
+.title{font-size:26px;font-weight:600}.subtitle{font-size:15px;fill:#5f6368}
+.axis{font-size:12px;fill:#5f6368}.label{font-size:15px;font-weight:600}
+.value{font-size:12px;font-weight:600}.grid{stroke:#dadce0;stroke-width:1}
+</style>
+<rect width="1200" height="780" fill="#ffffff"/>
+<text x="40" y="42" class="title">LingBot minimum single-session latency</text>
+<text x="40" y="68" class="subtitle">H100 80 GB · BF16 · 832×464 · six warmup and five measured blocks</text>
+<text x="40" y="105" class="label">Median steady-state wall time</text>
+<line x1="170.0" y1="121" x2="170.0" y2="331" class="grid"/>
+<text x="170.0" y="350" class="axis" text-anchor="middle">0</text>
+<line x1="358.0" y1="121" x2="358.0" y2="331" class="grid"/>
+<text x="358.0" y="350" class="axis" text-anchor="middle">500</text>
+<line x1="546.0" y1="121" x2="546.0" y2="331" class="grid"/>
+<text x="546.0" y="350" class="axis" text-anchor="middle">1000</text>
+<line x1="734.0" y1="121" x2="734.0" y2="331" class="grid"/>
+<text x="734.0" y="350" class="axis" text-anchor="middle">1500</text>
+<line x1="922.0" y1="121" x2="922.0" y2="331" class="grid"/>
+<text x="922.0" y="350" class="axis" text-anchor="middle">2000</text>
+<line x1="1110.0" y1="121" x2="1110.0" y2="331" class="grid"/>
+<text x="1110.0" y="350" class="axis" text-anchor="middle">2500</text>
+<text x="1170" y="350" class="axis" text-anchor="end">milliseconds</text>
+<text x="150" y="162.0" class="label" text-anchor="end">CP1</text>
+<rect x="170.0" y="135.0" width="0.4" height="43.0" fill="#59a14f"/>
+<rect x="170.4" y="135.0" width="9.5" height="43.0" fill="#8cd17d"/>
+<rect x="180.0" y="135.0" width="819.5" height="43.0" fill="#4e79a7"/>
+<text x="589.7" y="161.0" class="value" text-anchor="middle">2180</text>
+<rect x="999.5" y="135.0" width="4.5" height="43.0" fill="#76b7b2"/>
+<rect x="1004.0" y="135.0" width="2.7" height="43.0" fill="#f28e2b"/>
+<rect x="1006.7" y="135.0" width="3.1" height="43.0" fill="#bab0ac"/>
+<text x="1017.8" y="162.0" class="value">2234 ms</text>
+<text x="150" y="234.0" class="label" text-anchor="end">CP4 Ulysses</text>
+<rect x="170.0" y="207.0" width="0.3" height="43.0" fill="#59a14f"/>
+<rect x="170.3" y="207.0" width="12.2" height="43.0" fill="#8cd17d"/>
+<rect x="182.5" y="207.0" width="262.0" height="43.0" fill="#4e79a7"/>
+<text x="313.5" y="233.0" class="value" text-anchor="middle">697</text>
+<rect x="444.5" y="207.0" width="4.7" height="43.0" fill="#76b7b2"/>
+<rect x="449.2" y="207.0" width="2.7" height="43.0" fill="#f28e2b"/>
+<rect x="451.8" y="207.0" width="1.8" height="43.0" fill="#bab0ac"/>
+<text x="461.7" y="234.0" class="value">754 ms</text>
+<text x="150" y="306.0" class="label" text-anchor="end">CP6 ring</text>
+<rect x="170.0" y="279.0" width="0.3" height="43.0" fill="#59a14f"/>
+<rect x="170.3" y="279.0" width="11.7" height="43.0" fill="#8cd17d"/>
+<rect x="182.1" y="279.0" width="256.9" height="43.0" fill="#4e79a7"/>
+<text x="310.5" y="305.0" class="value" text-anchor="middle">683</text>
+<rect x="438.9" y="279.0" width="4.7" height="43.0" fill="#76b7b2"/>
+<rect x="443.7" y="279.0" width="2.7" height="43.0" fill="#f28e2b"/>
+<rect x="446.4" y="279.0" width="3.1" height="43.0" fill="#bab0ac"/>
+<text x="457.5" y="306.0" class="value">743 ms</text>
+<rect x="170" y="370" width="12" height="12" fill="#59a14f"/>
+<text x="188" y="380" class="axis">Encoder</text>
+<rect x="326" y="370" width="12" height="12" fill="#8cd17d"/>
+<text x="344" y="380" class="axis">Input handoff</text>
+<rect x="482" y="370" width="12" height="12" fill="#4e79a7"/>
+<text x="500" y="380" class="axis">DiT</text>
+<rect x="638" y="370" width="12" height="12" fill="#76b7b2"/>
+<text x="656" y="380" class="axis">Output handoff</text>
+<rect x="794" y="370" width="12" height="12" fill="#f28e2b"/>
+<text x="812" y="380" class="axis">Decoder</text>
+<rect x="950" y="370" width="12" height="12" fill="#bab0ac"/>
+<text x="968" y="380" class="axis">Coordination</text>
+<text x="40" y="423" class="label">Peak allocated GPU memory by rank</text>
+<text x="40" y="446" class="subtitle">E = encoder, D = DiT, V = decoder; CP4 leaves two GPUs available for other work</text>
+<line x1="90" y1="701.0" x2="1160" y2="701.0" class="grid"/>
+<text x="78" y="706.0" class="axis" text-anchor="end">0</text>
+<line x1="90" y1="645.2" x2="1160" y2="645.2" class="grid"/>
+<text x="78" y="650.2" class="axis" text-anchor="end">20</text>
+<line x1="90" y1="589.5" x2="1160" y2="589.5" class="grid"/>
+<text x="78" y="594.5" class="axis" text-anchor="end">40</text>
+<line x1="90" y1="533.8" x2="1160" y2="533.8" class="grid"/>
+<text x="78" y="538.8" class="axis" text-anchor="end">60</text>
+<line x1="90" y1="478.0" x2="1160" y2="478.0" class="grid"/>
+<text x="78" y="483.0" class="axis" text-anchor="end">80</text>
+<text x="43" y="590" class="axis" text-anchor="middle" transform="rotate(-90 43 590)">GiB</text>
+<text x="198.5" y="748" class="label" text-anchor="middle">CP1</text>
+<rect x="125.0" y="662.8" width="31.0" height="38.2" fill="#59a14f"/>
+<text x="140.5" y="656.8" class="value" text-anchor="middle">13.7</text>
+<text x="140.5" y="721" class="axis" text-anchor="middle">E0</text>
+<rect x="183.0" y="544.1" width="31.0" height="156.9" fill="#4e79a7"/>
+<text x="198.5" y="538.1" class="value" text-anchor="middle">56.3</text>
+<text x="198.5" y="721" class="axis" text-anchor="middle">D1</text>
+<rect x="241.0" y="694.6" width="31.0" height="6.4" fill="#f28e2b"/>
+<text x="256.5" y="688.6" class="value" text-anchor="middle">2.3</text>
+<text x="256.5" y="721" class="axis" text-anchor="middle">V2</text>
+<text x="528.0" y="748" class="label" text-anchor="middle">CP4 Ulysses</text>
+<rect x="395.0" y="662.8" width="31.0" height="38.2" fill="#59a14f"/>
+<text x="410.5" y="656.8" class="value" text-anchor="middle">13.7</text>
+<text x="410.5" y="721" class="axis" text-anchor="middle">E0</text>
+<rect x="442.0" y="587.7" width="31.0" height="113.3" fill="#4e79a7"/>
+<text x="457.5" y="581.7" class="value" text-anchor="middle">40.6</text>
+<text x="457.5" y="721" class="axis" text-anchor="middle">D1</text>
+<rect x="489.0" y="587.7" width="31.0" height="113.3" fill="#4e79a7"/>
+<text x="504.5" y="581.7" class="value" text-anchor="middle">40.6</text>
+<text x="504.5" y="721" class="axis" text-anchor="middle">D2</text>
+<rect x="536.0" y="588.0" width="31.0" height="113.0" fill="#4e79a7"/>
+<text x="551.5" y="582.0" class="value" text-anchor="middle">40.5</text>
+<text x="551.5" y="721" class="axis" text-anchor="middle">D3</text>
+<rect x="583.0" y="587.7" width="31.0" height="113.3" fill="#4e79a7"/>
+<text x="598.5" y="581.7" class="value" text-anchor="middle">40.6</text>
+<text x="598.5" y="721" class="axis" text-anchor="middle">D4</text>
+<rect x="630.0" y="694.4" width="31.0" height="6.6" fill="#f28e2b"/>
+<text x="645.5" y="688.4" class="value" text-anchor="middle">2.4</text>
+<text x="645.5" y="721" class="axis" text-anchor="middle">V5</text>
+<text x="931.0" y="748" class="label" text-anchor="middle">CP6 ring</text>
+<rect x="765.0" y="662.8" width="31.0" height="38.2" fill="#59a14f"/>
+<text x="780.5" y="656.8" class="value" text-anchor="middle">13.7</text>
+<text x="780.5" y="721" class="axis" text-anchor="middle">E0</text>
+<rect x="808.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="823.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="823.5" y="721" class="axis" text-anchor="middle">D1</text>
+<rect x="851.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="866.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="866.5" y="721" class="axis" text-anchor="middle">D2</text>
+<rect x="894.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="909.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="909.5" y="721" class="axis" text-anchor="middle">D3</text>
+<rect x="937.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="952.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="952.5" y="721" class="axis" text-anchor="middle">D4</text>
+<rect x="980.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="995.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="995.5" y="721" class="axis" text-anchor="middle">D5</text>
+<rect x="1023.0" y="591.8" width="31.0" height="109.2" fill="#4e79a7"/>
+<text x="1038.5" y="585.8" class="value" text-anchor="middle">39.2</text>
+<text x="1038.5" y="721" class="axis" text-anchor="middle">D6</text>
+<rect x="1066.0" y="694.6" width="31.0" height="6.4" fill="#f28e2b"/>
+<text x="1081.5" y="688.6" class="value" text-anchor="middle">2.3</text>
+<text x="1081.5" y="721" class="axis" text-anchor="middle">V7</text>
+</svg>

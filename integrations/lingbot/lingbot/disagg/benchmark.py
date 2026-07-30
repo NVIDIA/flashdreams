@@ -35,6 +35,8 @@ from typing import Any
 
 import numpy as np
 import torch
+from torch import Tensor
+
 from flashdreams.infra.transfer import (
     MooncakeTensorTransport,
     TensorBundle,
@@ -42,8 +44,6 @@ from flashdreams.infra.transfer import (
     TransferStats,
     describe_tensor_bundle,
 )
-from torch import Tensor
-
 from lingbot.config import PIPELINE_CONFIGS
 from lingbot.disagg.stages import (
     LingbotDecoderStage,
@@ -305,20 +305,25 @@ def _environment(
         module_name = (
             __spec__.name if __spec__ is not None else "lingbot.disagg.benchmark"
         )
-    command = shlex.join(
-        [
-            "uv",
-            "run",
-            "--package",
-            "flashdreams-lingbot",
-            "torchrun",
-            "--standalone",
-            f"--nproc_per_node={world_size}",
-            "-m",
-            module_name,
-            *sys.argv[1:],
+    command_parts = [
+        "uv",
+        "run",
+        "--package",
+        "flashdreams-lingbot",
+        "torchrun",
+        "--standalone",
+        f"--nproc_per_node={world_size}",
+        "-m",
+        module_name,
+        *sys.argv[1:],
+    ]
+    compile_threads = os.environ.get("TORCHINDUCTOR_COMPILE_THREADS")
+    if compile_threads is not None:
+        command_parts[:0] = [
+            "env",
+            f"TORCHINDUCTOR_COMPILE_THREADS={compile_threads}",
         ]
-    )
+    command = shlex.join(command_parts)
     return {
         "command": command,
         "commit": commit,
@@ -350,6 +355,7 @@ def _environment(
         "driver": driver,
         "mooncake": mooncake_version,
         "triton_cache_dir": os.environ.get("TRITON_CACHE_DIR"),
+        "torchinductor_compile_threads": compile_threads,
         "hf_home": os.environ.get("HF_HOME"),
         "gpus": [torch.cuda.get_device_name(index) for index in range(world_size)],
         "rdma_device": args.rdma_device,

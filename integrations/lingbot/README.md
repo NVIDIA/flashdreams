@@ -201,6 +201,47 @@ The allocation is derived from the tracked 1:1:1 stage service times. It is a
 throughput topology: each DiT replica owns a distinct session and KV cache.
 It does not split one session's DiT computation over six GPUs.
 
+To minimize one session's latency instead, make ranks 1–6 one context-parallel
+DiT group. Rank 1 receives the Mooncake handoff, broadcasts the input within
+the NCCL subgroup, and sends the gathered clean latent to rank 7:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 6 --cp-method ring \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg_cp6
+```
+
+CP6 must use ring attention for this 40-head model. Ulysses requires the head
+count to be divisible by the context-parallel size, so CP6 Ulysses is rejected
+(`40 % 6 != 0`). A CP4 Ulysses comparison uses six processes and leaves two
+GPUs idle:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=6 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 4 --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --output-dir outputs/lingbot_disagg_cp4
+```
+
+Cap Inductor compilation parallelism when several compiled DiT ranks share a
+node. The default 32 workers per rank becomes 192 workers at CP6 and can
+overcommit the host during cold compilation.
+
+On the tested H100 node, CP6 ring was the minimum-latency allocation: 743.27 ms
+median per 12-frame chunk and 15.90 generated FPS, a 3.01× latency speedup over
+CP1. CP4 Ulysses reached 754.41 ms and 15.70 FPS. CP6 was 1.5% faster; CP4 had
+higher scaling efficiency and left two GPUs available for other work.
+
 Validate the data plane without loading checkpoints:
 
 ```bash
@@ -224,7 +265,7 @@ See the
 [three-stage H100 experiment report](docs/disaggregated_inference_experiment.md)
 for the tested stack, measurement method, detailed findings, Slurm
 reproduction procedure, 1:1:1 versus 1:6:1 results, component chart, and
-acceptance limitations.
+acceptance limitations, including the CP4/CP6 single-session comparison.
 
 Mooncake is explicitly initialized with its `rdma` protocol. On a single node,
 the engine may select a topology-local GPU path; the measured effective GB/s

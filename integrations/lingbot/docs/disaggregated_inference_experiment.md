@@ -24,7 +24,12 @@ eight-GPU measurements are in
 with its
 [`generated summary`](benchmark_h100_1e6d1d/README.md). The combined
 [wall-time and memory chart](disaggregated_inference_breakdown.svg) is generated
-from those two JSON files.
+from those two JSON files. The single-session CP4 and CP6 results are in
+[`benchmark_h100_cp4_single_session`](benchmark_h100_cp4_single_session/README.md)
+and
+[`benchmark_h100_cp6_single_session`](benchmark_h100_cp6_single_session/README.md);
+their [comparison chart](disaggregated_inference_single_session.svg) is generated
+directly from the raw JSON documents.
 
 ## Question and design
 
@@ -254,6 +259,119 @@ production code must pool registrations and introduce an explicit drain before
 unregistering memory or closing endpoints. The current benchmark result should
 not be interpreted as failure-recovery validation.
 
+## Minimum single-session latency
+
+### Topologies and compatibility
+
+The replicated 1:6:1 topology above cannot accelerate one session because each
+DiT rank owns a different request. The latency experiment instead made the DiT
+ranks one context-parallel group. The encoder sends one Mooncake handoff to the
+CP leader, the leader broadcasts the full step input within the NCCL subgroup,
+and the existing Wan context-parallel path splits the 4524-token sequence.
+Only the leader sends the reconstructed clean latent to the decoder.
+
+Two viable candidates were measured:
+
+| Candidate | Processes used | Compatibility |
+| --- | ---: | --- |
+| 1 encoder : CP4 DiT : 1 decoder | 6 of 8 | Ulysses; 40 heads and 4524 tokens are divisible by 4 |
+| 1 encoder : CP6 DiT : 1 decoder | 8 of 8 | Ring; 4524 tokens are divisible by 6 |
+
+CP6 Ulysses was rejected before measurement because LingBot has 40 attention
+heads and Ulysses requires `num_heads % cp_size == 0`; `40 % 6 != 0`. CP5 is
+also unsuitable at this resolution because `4524 % 5 != 0`. CP4 is therefore
+the largest configuration that satisfies both Ulysses head partitioning and
+the token-sharding constraint while reserving distinct encoder and decoder
+GPUs.
+
+The DiT subgroup occupies global ranks 1–6 for CP6, not ranks 0–5. The
+experiment exposed and fixed a ring-rotation bug that used global
+`DeviceMesh.get_rank()` to index subgroup all-gather output. Ring attention now
+uses `get_local_rank()`, so every rank visits each subgroup K/V shard exactly
+once.
+
+### Tested configuration
+
+Both trials ran in Slurm job `14646820` on `pool0-01260` with the same model,
+prompt, resolution, precision, scheduler, six warmup blocks, five measured
+blocks, and eight 256 MiB transfer probes as the baseline. CP6 used GPUs 0–7;
+CP4 used GPUs 0–5 and left GPUs 6–7 idle. The software stack was Python 3.12.13,
+PyTorch 2.12.1+cu130, CUDA 13.0, driver 535.216.03, and Mooncake
+0.3.12.post1. The repository base was
+`66bcd32ece1d03b3362d71a7340691a0687a4069` plus the worktree changes recorded
+by this report.
+
+Each DiT rank initially launched 32 Inductor compiler workers. At CP6 that
+created 192 workers and overcommitted the host during cold compilation. The
+reported runs set `TORCHINDUCTOR_COMPILE_THREADS=4`, limiting the six DiT ranks
+to 24 compiler workers. Compile/autotune time is excluded from the measured
+steady-state blocks.
+
+### Latency and throughput
+
+![LingBot single-session context-parallel wall-time and memory breakdown](disaggregated_inference_single_session.svg)
+
+| Metric | CP1 baseline | CP4 Ulysses | CP6 ring |
+| --- | ---: | ---: | ---: |
+| Median chunk latency | 2233.57 ms | 754.41 ms | **743.27 ms** |
+| P90 chunk latency | 2250.79 ms | 786.46 ms | **780.60 ms** |
+| Generated FPS | 5.36 | 15.70 | **15.90** |
+| End-to-end speedup | 1.00× | 2.96× | **3.01×** |
+| DiT critical path | 2179.63 ms | 696.76 ms | **683.16 ms** |
+| DiT speedup | 1.00× | 3.13× | **3.19×** |
+| CP efficiency | — | **78.2%** | 53.2% |
+
+CP6 ring is the measured minimum: it is 11.13 ms, or 1.5%, faster than CP4
+Ulysses and uses all eight GPUs. CP4 is substantially more efficient per DiT
+GPU and leaves two GPUs for other work, so it is the better capacity choice
+when an 11 ms latency reduction is not worth two additional GPUs. Neither
+configuration approaches ideal linear scaling because attention collectives,
+duplicated non-attention work, and synchronization remain on every diffusion
+step.
+
+The result answers the distinction behind the replicated experiment:
+**1 encoder : 6 independent DiTs : 1 decoder** reached 27.20 aggregate FPS but
+only 4.53 FPS per session, while **1 encoder : one CP6 DiT group : 1 decoder**
+reached 15.90 FPS for one session. Replication increases request capacity;
+context parallelism shortens the critical path of a single request.
+
+### Component, transfer, and memory breakdown
+
+| Component | CP1 | CP4 Ulysses | CP6 ring |
+| --- | ---: | ---: | ---: |
+| Encoder compute | 1.08 ms | 0.85 ms | 0.90 ms |
+| Encoder → leader handoff | 25.38 ms | 31.70 ms | 30.33 ms |
+| CP input fanout | — | 0.76 ms | 0.89 ms |
+| DiT + finalize | 2179.63 ms | 696.76 ms | 683.16 ms |
+| Leader → decoder handoff | 12.05 ms | 12.38 ms | 12.59 ms |
+| Decoder compute | 7.14 ms | 7.07 ms | 7.13 ms |
+
+| Probe / allocation | CP4 Ulysses | CP6 ring |
+| --- | ---: | ---: |
+| Mooncake encoder → leader, 256 MiB | 41.44 GB/s | 42.62 GB/s |
+| Mooncake leader → decoder, 256 MiB | 42.52 GB/s | 42.26 GB/s |
+| NCCL broadcast, 256 MiB effective per rank | 307.31 GB/s | 283.71 GB/s |
+| NCCL all-gather, 256 MiB effective per rank | 389.11 GB/s | 231.72 GB/s |
+| Encoder peak allocated memory | 13.72 GiB | 13.72 GiB |
+| DiT peak allocated memory per rank | 40.52–40.64 GiB | 39.18 GiB |
+| Decoder peak allocated memory | 2.37 GiB | 2.29 GiB |
+
+The Mooncake stage boundaries remain small relative to the DiT critical path.
+The CP probe values are effective materialized bytes per rank divided by
+collective wall time; they are not raw physical-link throughput. CP6's lower
+all-gather rate and lower scaling efficiency quantify the communication cost of
+using all six DiT ranks.
+
+The five measured blocks in each trial emitted 12 frames and excluded both
+initial compilation and the block-5 cache-shape transition. No decoded
+aggregated-versus-CP quality comparison was performed, so these are performance
+results, not output-parity evidence. The measured runs wrote their reports but
+then stalled during process-group teardown. The final implementation drains the
+NCCL subgroup with a CUDA synchronization and subgroup barrier before destroying
+it, then destroys the Gloo control group. A subsequent one-block full-model
+smoke and a transport-only run both exited normally. This cleanup-only change
+does not affect the five-block timing samples above.
+
 ## How to reproduce
 
 The commands below assume the repository is at
@@ -286,16 +404,21 @@ Inside the container shell:
 ```bash
 hostname
 pwd
+git rev-parse --show-toplevel
 git rev-parse HEAD
+git status --short
 nvidia-smi -L
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 nvidia-smi topo -m
 ibv_devices
 ```
 
-`pwd` must be `/workspace/flashdreams`, the Git revision must match the intended
-checkout, and at least three GPUs must be visible. Preserve the driver and
-topology output with the benchmark artifacts.
+The Git toplevel and revision must match the intended checkout, and at least
+three GPUs must be visible. In job `14646820`, `/workspace/flashdreams` pointed
+at a different checkout; the experiment explicitly changed to the canonical
+Lustre checkout before running. Do not assume a convenient container mount is
+the requested branch. Preserve the driver and topology output with the
+benchmark artifacts.
 
 ### 3. Install RDMA userspace support and the optional transport
 
@@ -334,6 +457,19 @@ uv run --package flashdreams-lingbot torchrun \
   -m lingbot.disagg.benchmark_replicated \
   --transport-only \
   --dit-replicas 6 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8
+```
+
+For the single-session CP6 topology, probe both Mooncake edges and the NCCL
+subgroup collectives:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_cp \
+  --transport-only \
+  --cp-ranks 6 --cp-method ring \
   --bandwidth-probe-mib 256 \
   --bandwidth-probe-iters 8
 ```
@@ -390,6 +526,52 @@ Model loading fans the DiT checkpoint out to six ranks and may take several
 minutes from shared storage; that cold-start time is not included in the
 steady-state throughput result.
 
+Run the all-eight-GPU, minimum-latency candidate:
+
+```bash
+env TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 6 --cp-method ring \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --pixel-width 832 \
+  --pixel-height 464 \
+  --fps 16 \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8 \
+  --baseline-json integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
+  --output-dir outputs/lingbot_disagg_cp6
+```
+
+Run the largest Ulysses-compatible comparison:
+
+```bash
+env TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=6 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 4 --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --pixel-width 832 \
+  --pixel-height 464 \
+  --fps 16 \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8 \
+  --baseline-json integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
+  --output-dir outputs/lingbot_disagg_cp4
+```
+
+The CP benchmark requires exactly `cp-ranks + 2` processes. Do not remove the
+six warmup blocks: block 5 changes the cache shape and can otherwise leave
+compile/autotune latency in the measured set.
+
 ### 6. Inspect and preserve results
 
 ```bash
@@ -415,6 +597,18 @@ jq '.records[] | select(.warmup == false) |
   outputs/lingbot_disagg_1e6d1d/benchmark.json
 ```
 
+For a CP result, verify the subgroup allocation, five measured records, one
+worker record per CP rank, and one 12-frame output per block:
+
+```bash
+jq '.environment.allocation, .environment.peak_memory_gib_by_rank, .summary' \
+  outputs/lingbot_disagg_cp6/benchmark.json
+jq '.records[] | select(.warmup == false) |
+    {autoregressive_index, end_to_end_ms, output_frames,
+     cp_workers: (.cp_workers | length)}' \
+  outputs/lingbot_disagg_cp6/benchmark.json
+```
+
 Regenerate the checked-in chart from the two raw result documents:
 
 ```bash
@@ -422,16 +616,24 @@ python integrations/lingbot/scripts/plot_disagg_breakdown.py \
   integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
   integrations/lingbot/docs/benchmark_h100_1e6d1d/benchmark.json \
   integrations/lingbot/docs/disaggregated_inference_breakdown.svg
+
+python integrations/lingbot/scripts/plot_disagg_single_session.py \
+  integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json \
+  integrations/lingbot/docs/benchmark_h100_cp4_single_session/benchmark.json \
+  integrations/lingbot/docs/benchmark_h100_cp6_single_session/benchmark.json \
+  integrations/lingbot/docs/disaggregated_inference_single_session.svg
 ```
 
 ### 7. Run focused CPU validation and release the node
 
 ```bash
 uv run --package flashdreams-lingbot pytest \
+  flashdreams/tests/test_cp_attention_subgroup.py \
   flashdreams/tests/test_pipeline_stages.py \
   flashdreams/tests/test_transfer.py \
   integrations/lingbot/tests/test_disagg_stages.py \
-  integrations/lingbot/tests/test_disagg_replicated.py
+  integrations/lingbot/tests/test_disagg_replicated.py \
+  integrations/lingbot/tests/test_disagg_cp.py
 
 uv lock --check
 exit
@@ -447,8 +649,8 @@ exit
 | Default serving path | Deferred | Needs scheduler, bounded queues, cancellation, buffer pooling, and failure recovery |
 | Output-quality equivalence | Deferred | No matched-seed aggregated-vs-disaggregated decoded comparison yet |
 | Cross-node efficiency | Deferred | Only one eight-H100 node was measured |
-| Single-session acceleration | Not claimed | Replicas serve independent sessions; one session remains autoregressive |
-| Clean Mooncake teardown | Deferred | Post-report deregistration emitted non-fatal remote-access warnings |
+| Single-session acceleration | Useful opt-in | CP6 ring reached 15.90 FPS and 743.27 ms, a 3.01× latency speedup |
+| Clean CP teardown | Useful opt-in | Post-fix full-model and transport-only lifecycle smokes exited normally |
 
 Results apply to this H100/CUDA 13/Mooncake stack and should not be generalized
 to other GPU, NIC, driver, topology, or model configurations without repeating

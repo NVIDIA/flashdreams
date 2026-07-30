@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.distributed import ProcessGroup
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.pipeline import DecoderStage, DiffusionStage, DiffusionStageCache
@@ -38,6 +39,7 @@ from lingbot.encoder.camctrl import (
 )
 from lingbot.pipeline import LingbotWorldInferencePipelineConfig
 from lingbot.transformer import (
+    LingbotWorldTransformer,
     LingbotWorldTransformerCache,
     LingbotWorldTransformerConfig,
 )
@@ -233,6 +235,12 @@ class LingbotDiTStage(DiffusionStage[LingbotWorldTransformerCache]):
 
     def __init__(self, config: LingbotWorldInferencePipelineConfig) -> None:
         super().__init__(config.diffusion_model)
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Bind a DiT-only context-parallel group before cache construction."""
+        transformer = self.diffusion_model.transformer
+        assert isinstance(transformer, LingbotWorldTransformer)
+        transformer.set_context_parallel_group(cp_group)
 
     def initialize_cache(
         self,
