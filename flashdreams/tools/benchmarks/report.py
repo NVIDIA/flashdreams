@@ -149,7 +149,14 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
     table {{ border-collapse: collapse; width: 100%; background: white; }}
     th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}
     th {{ background: #f1f3f4; }}
-    code {{ background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }}
+    td, th {{ overflow-wrap: anywhere; }}
+    code {{
+      background: #f0f0f0;
+      padding: 1px 4px;
+      border-radius: 3px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }}
     .numeric {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
     .status-pass {{ color: #0b6e2b; font-weight: 600; }}
     .status-fail, .status-timeout {{ color: #a32020; font-weight: 600; }}
@@ -157,11 +164,12 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
     .muted {{ color: #5f6368; }}
     .highlight-grid, .comparison-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
       gap: 14px;
       margin-bottom: 12px;
     }}
     .highlight-card, .guide-card, .comparison-card {{
+      min-width: 0;
       background: white;
       border: 1px solid #ddd;
       border-radius: 6px;
@@ -195,7 +203,7 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
     .metric-pill.neutral {{ color: #3c4043; background: #f1f3f4; }}
     .quality-score-list {{
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 6px 12px;
       margin: 10px 0 0;
     }}
@@ -204,11 +212,12 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
     .quality-guide-table td:first-child {{ white-space: nowrap; }}
     .chart-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
       gap: 14px;
       margin-bottom: 10px;
     }}
     .chart-card {{
+      min-width: 0;
       background: white;
       border: 1px solid #ddd;
       border-radius: 6px;
@@ -234,8 +243,21 @@ def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
     .bar-fill {{ display: block; height: 100%; background: #2b6cb0; }}
     .bar-fill.secondary {{ background: #b7791f; }}
     .chart-value {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
-    video {{ max-width: 320px; max-height: 180px; display: block; margin-top: 6px; }}
+    video {{
+      width: min(100%, 320px);
+      height: auto;
+      max-height: 180px;
+      display: block;
+      margin-top: 6px;
+    }}
+    .comparison-card a {{ overflow-wrap: anywhere; }}
     .comparison-card video {{ width: 100%; max-width: 520px; max-height: 300px; }}
+    @media (max-width: 700px) {{
+      body {{ margin: 16px; }}
+      th, td {{ padding: 6px; }}
+      .highlight-list, .quality-score-list {{ grid-template-columns: 1fr; }}
+      .metric-pill {{ margin-left: 0; margin-top: 3px; }}
+    }}
   </style>
 </head>
 <body>

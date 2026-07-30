@@ -24,16 +24,16 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flashdreams.benchmarks.harness import run_benchmark_suite
-from flashdreams.benchmarks.pai_bench_profile import (
+from tools.benchmarks.harness import run_benchmark_suite
+from tools.benchmarks.pai_bench_profile import (
     DEFAULT_PAI_BENCH_REPO,
     DEFAULT_PAI_BENCH_REVISION,
 )
-from flashdreams.benchmarks.quality import (
+from tools.benchmarks.quality import (
     QualityBaselineConfig,
     parse_quality_frame_indices,
 )
-from flashdreams.benchmarks.scenarios import (
+from tools.benchmarks.scenarios import (
     BenchmarkScenario,
     QualityCommandConfig,
     built_in_scenarios,
@@ -410,7 +410,7 @@ def _pai_bench_quality_command(
     command = [
         sys.executable,
         "-m",
-        "flashdreams.benchmarks.pai_bench_profile",
+        "tools.benchmarks.pai_bench_profile",
         "--profile",
         profile,
         "--runner",

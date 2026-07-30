@@ -27,16 +27,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flashdreams.benchmarks import cli as benchmark_cli
-from flashdreams.benchmarks import pai_bench_profile
-from flashdreams.benchmarks import quality as benchmark_quality
-from flashdreams.benchmarks.harness import run_benchmark_suite
-from flashdreams.benchmarks.metrics import (
+from tools.benchmarks import cli as benchmark_cli
+from tools.benchmarks import pai_bench_profile
+from tools.benchmarks import quality as benchmark_quality
+from tools.benchmarks.harness import run_benchmark_suite
+from tools.benchmarks.metrics import (
     records_from_log,
     records_from_stats_file,
 )
-from flashdreams.benchmarks.quality import QualityBaselineConfig
-from flashdreams.benchmarks.scenarios import (
+from tools.benchmarks.quality import QualityBaselineConfig
+from tools.benchmarks.scenarios import (
     BenchmarkScenario,
     QualityCommandConfig,
     built_in_scenarios,
@@ -236,7 +236,7 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
         "integrations/omnidreams",
         "python",
         "-m",
-        "flashdreams.benchmarks.strict_run",
+        "tools.benchmarks.strict_run",
     )
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" in omnidreams.command
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
@@ -833,7 +833,7 @@ def test_cli_quality_profile_adds_pai_bench_long_command() -> None:
     quality = updated[0].quality_commands[0]
     assert quality.id == "pai-bench-long"
     assert quality.metrics_path == "{quality_dir}/metrics.json"
-    assert "flashdreams.benchmarks.pai_bench_profile" in quality.command
+    assert "tools.benchmarks.pai_bench_profile" in quality.command
     assert "--runner" in quality.command
     assert "local" in quality.command
     assert "--pai-bench-root" in quality.command
@@ -1117,7 +1117,7 @@ def test_pai_bench_profile_normalizes_public_evaluator_output(
 def test_pai_bench_decord_compat_reads_video_batches(tmp_path: Path) -> None:
     cv2 = pytest.importorskip("cv2")
     torch = pytest.importorskip("torch")
-    from flashdreams.benchmarks._pai_bench_compat import decord
+    from tools.benchmarks._pai_bench_compat import decord
 
     video_path = tmp_path / "tiny.mp4"
     writer = cv2.VideoWriter(
@@ -1148,7 +1148,7 @@ def test_pai_bench_decord_compat_reads_video_batches(tmp_path: Path) -> None:
 def test_strict_run_sets_deterministic_env_and_forwards_args(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from flashdreams.benchmarks import strict_run
+    from tools.benchmarks import strict_run
 
     deterministic_calls: list[tuple[bool, bool]] = []
     forwarded_argv: list[str] = []

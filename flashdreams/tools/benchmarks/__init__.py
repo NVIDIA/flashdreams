@@ -15,9 +15,9 @@
 
 """Local-first benchmark harness for FlashDreams runners and demos."""
 
-from flashdreams.benchmarks.harness import ScenarioRunResult, run_benchmark_suite
-from flashdreams.benchmarks.quality import QualityBaselineConfig
-from flashdreams.benchmarks.scenarios import (
+from tools.benchmarks.harness import ScenarioRunResult, run_benchmark_suite
+from tools.benchmarks.quality import QualityBaselineConfig
+from tools.benchmarks.scenarios import (
     BenchmarkScenario,
     QualityCommandConfig,
     built_in_scenarios,

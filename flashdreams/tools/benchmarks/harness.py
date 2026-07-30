@@ -29,8 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flashdreams.benchmarks.environment import collect_environment
-from flashdreams.benchmarks.metrics import (
+from tools.benchmarks.environment import collect_environment
+from tools.benchmarks.metrics import (
     MetricRecord,
     lifecycle_record,
     record_from_quality_metrics,
@@ -40,13 +40,13 @@ from flashdreams.benchmarks.metrics import (
     write_metrics_csv,
     write_metrics_ndjson,
 )
-from flashdreams.benchmarks.quality import (
+from tools.benchmarks.quality import (
     QualityBaselineConfig,
     find_baseline_video,
     run_baseline_clip_compare,
 )
-from flashdreams.benchmarks.report import write_html_report
-from flashdreams.benchmarks.scenarios import (
+from tools.benchmarks.report import write_html_report
+from tools.benchmarks.scenarios import (
     BenchmarkScenario,
     QualityCommandConfig,
     render_template,

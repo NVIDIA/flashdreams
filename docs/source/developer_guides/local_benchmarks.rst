@@ -284,7 +284,7 @@ The adapter follows the same external-evaluator pattern as WorldLens: it owns
 the checkout/staging/summary glue, while PAI-Bench itself remains an external
 checkout. By default it clones
 ``https://github.com/SHI-Labs/physical-ai-bench.git`` at the pinned revision
-declared in ``flashdreams.benchmarks.pai_bench_profile`` under
+declared in ``tools.benchmarks.pai_bench_profile`` under
 ``<repo-root>/.cache/flashdreams/evaluators/physical-ai-bench`` when the
 checkout is missing, so syncing ``artifacts/`` does not include the evaluator
 checkout or its environment.
