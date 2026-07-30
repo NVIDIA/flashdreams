@@ -449,8 +449,8 @@ def _run_process(
             env=dict(env),
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=os.name == "posix",
             text=True,
+            **_process_group_popen_kwargs(),
         )
         start = time.perf_counter()
         deadline = None if timeout_s is None else start + timeout_s
@@ -490,6 +490,10 @@ def _run_process(
 def _terminate_process(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
+    if os.name == "nt":
+        _terminate_windows_process_tree(process)
+        return
+
     _send_process_signal(process, signal.SIGTERM)
     try:
         process.wait(timeout=10)
@@ -506,6 +510,43 @@ def _terminate_process(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         return
+
+
+def _process_group_popen_kwargs() -> dict[str, Any]:
+    if os.name == "posix":
+        return {"start_new_session": True}
+    if os.name == "nt":
+        return {
+            "creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        }
+    return {}
+
+
+def _terminate_windows_process_tree(process: subprocess.Popen[str]) -> None:
+    _run_windows_taskkill(process.pid)
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    if process.poll() is None:
+        process.kill()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        return
+
+
+def _run_windows_taskkill(pid: int) -> bool:
+    try:
+        result = subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def _send_process_signal(process: subprocess.Popen[str], sig: signal.Signals) -> None:
