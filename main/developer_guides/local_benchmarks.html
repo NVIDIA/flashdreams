@@ -1,0 +1,928 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Local Demo Benchmarks &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=5486ef98" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
+
+    <script src="../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=fd10adb8"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+            </script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer_guides/local_benchmarks';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CLI and API Reference" href="../api/index.html" />
+    <link rel="prev" title="Add a new method" href="new_integration.html" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  <link rel="icon" type="image/svg+xml" href="../_static/logo-light.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="../_static/logo-dark.svg" media="(prefers-color-scheme: dark)">
+
+  </head>
+  
+  
+  
+  <body data-default-mode="light">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="../_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="../_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../community/index.html">
+    Contribute
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../community/index.html">
+    Contribute
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Local Demo Benchmarks</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/cli.html">CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Local Demo Benchmarks</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="local-demo-benchmarks">
+<h1>Local Demo Benchmarks<a class="headerlink" href="#local-demo-benchmarks" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">flashdreams-benchmark</span></code> is the local-first harness for repeatable demo and
+runner measurements. It launches existing commands, captures logs, keeps MP4s
+and runner stats in one run directory, normalizes metrics to JSON/CSV, and
+writes a simple HTML report. It does not gate CI yet.</p>
+<p>List available scenarios:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span>--list-scenarios
+</pre></div>
+</div>
+<p>Run one scenario:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>self-forcing-taehv-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/self-forcing-taehv
+</pre></div>
+</div>
+<p>The scenario command still owns its runtime requirements. Public runner
+scenarios need the usual runner extras, host FFmpeg for MP4 writing, GPU access,
+and any checkpoints or input assets that runner would normally resolve.</p>
+<section id="artifacts">
+<h2>Artifacts<a class="headerlink" href="#artifacts" title="Link to this heading">#</a></h2>
+<p>Each run writes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> with scenarios, commands, artifacts, and environment data.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">environment.json</span></code> with git, Python, Torch, CUDA, GPU, and selected env metadata.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metrics.ndjson</span></code> with raw normalized metric records.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code> for spreadsheet inspection.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">report.html</span></code> with run metadata, model summary cards, scenario status, and
+startup/wall-time highlights, plus <code class="docutils literal notranslate"><span class="pre">reports/&lt;model&gt;.html</span></code> detail pages with
+unit-aware metric summaries, simple median charts, logs, video links, and
+side-by-side baseline/candidate MP4 previews when quality comparison is
+enabled.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/</span></code> with command logs, MP4s, <code class="docutils literal notranslate"><span class="pre">stats_*.json</span></code>, and compact quality outputs.</p></li>
+</ul>
+<p>The CLI prints the scenario id, command, log path, and a periodic heartbeat
+while a command is still running. Child process stdout/stderr is still written
+to <code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/command.log</span></code> so long runs remain easy to inspect without
+mixing model logs into the terminal.</p>
+</section>
+<section id="custom-scenarios">
+<h2>Custom Scenarios<a class="headerlink" href="#custom-scenarios" title="Link to this heading">#</a></h2>
+<p>Use a JSON scenario file when a demo is not a public <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> preset
+or when a local command needs private checkpoint paths. Commands are argv lists,
+not shell strings. The harness expands <code class="docutils literal notranslate"><span class="pre">{repo_root}</span></code>, <code class="docutils literal notranslate"><span class="pre">{run_root}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{output_dir}</span></code>, <code class="docutils literal notranslate"><span class="pre">{scenario_id}</span></code>, <code class="docutils literal notranslate"><span class="pre">{log_path}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{env:NAME}</span></code>.
+Set <code class="docutils literal notranslate"><span class="pre">report_group</span></code> to control which <code class="docutils literal notranslate"><span class="pre">reports/&lt;group&gt;.html</span></code> detail page a
+scenario appears on. It can be a string id, or an object with <code class="docutils literal notranslate"><span class="pre">id</span></code> and
+<code class="docutils literal notranslate"><span class="pre">name</span></code> when the display name should differ from the filename.
+If <code class="docutils literal notranslate"><span class="pre">report_group</span></code> is omitted, the report falls back to the first <code class="docutils literal notranslate"><span class="pre">-</span></code>
+separated segment of the scenario id.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;scenarios&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-runner-smoke&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My runner smoke&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;report_group&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-model&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My Model&quot;</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">&quot;flashdreams-run&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;self-forcing-wan2.1-t2v-1.3b-taehv&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--total-blocks&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;8&quot;</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;warmup_steps&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Run it with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>local_scenarios.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>my-runner-smoke
+</pre></div>
+</div>
+</section>
+<section id="one-minute-demo-suite">
+<h2>One-Minute Demo Suite<a class="headerlink" href="#one-minute-demo-suite" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">configs/one_minute_demo_benchmarks.json</span></code> contains manual GPU scenarios for
+the real LingBot and Omnidreams demos. Run both:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/one-minute-demos
+</pre></div>
+</div>
+<p>Or run one scenario at a time:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute
+</pre></div>
+</div>
+<p>The LingBot and Omnidreams runner scenarios request enough AR blocks for about
+one minute of MP4 output. Those runners stop early if the selected conditioned
+input stream is shorter than the requested duration. <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> is
+left out of this shipped MP4 suite for now because its public CLI is a live
+presenter rather than a file-writing runner.</p>
+</section>
+<section id="quality-hooks">
+<h2>Quality Hooks<a class="headerlink" href="#quality-hooks" title="Link to this heading">#</a></h2>
+<p>For local MP4 regression checks, first keep a known-good benchmark run. The
+recommended suite includes 30-second seeded clips for quality comparison and
+one-minute clips for performance metrics plus manual video review. The commands
+below intentionally list scenario ids instead of using <code class="docutils literal notranslate"><span class="pre">--all</span></code>; <code class="docutils literal notranslate"><span class="pre">--all</span></code>
+also includes built-in smoke scenarios that are not part of this LingBot and
+Omnidreams quality workflow.</p>
+<section id="standard-quality-and-review-run">
+<h3>Standard Quality And Review Run<a class="headerlink" href="#standard-quality-and-review-run" title="Link to this heading">#</a></h3>
+<p>Use this four-scenario run for standard local LingBot and Omnidreams benchmark
+results: 30-second seeded clips for baseline quality metrics, one-minute clips
+for performance and manual review, and PAI-Bench-Long scores using the default
+PAI-Bench dimension set. PAI-Bench profiles are only attached to selected
+scenarios tagged <code class="docutils literal notranslate"><span class="pre">one-minute</span></code> or <code class="docutils literal notranslate"><span class="pre">pai-bench</span></code>; in this standard suite the
+30-second seeded quality clips run baseline comparison only, while the
+one-minute review clips get PAI-Bench scores.</p>
+<p>First create the baseline:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/deterministic_quality_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-quality-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-ci-quality-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute-review<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute-review<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-baseline
+</pre></div>
+</div>
+<p>Then compare a later candidate run against that baseline:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/deterministic_quality_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-quality-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-ci-quality-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute-review<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute-review<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--quality-baseline-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-baseline<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-candidate
+</pre></div>
+</div>
+<p>The two-scenario one-minute suite in
+<code class="docutils literal notranslate"><span class="pre">configs/one_minute_demo_benchmarks.json</span></code> remains useful for
+performance-only or manual-review runs, but it is not recommended as the
+baseline quality comparison workflow because long generated clips drift more.</p>
+<p>The built-in comparison is non-gating in this local-developer version: it
+does not change the scenario pass/fail status. It compares the first MP4
+artifact for each matching scenario id that has <code class="docutils literal notranslate"><span class="pre">quality_baseline_compare</span></code>
+enabled and writes metrics under
+<code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/quality/baseline-clip-compare/</span></code>. The one-minute review
+scenarios in the shipped quality suite disable baseline scoring so their known
+run-to-run drift does not pollute the quality summary; when a matching baseline
+MP4 exists, their baseline and candidate MP4s still appear side by side in the
+relevant <code class="docutils literal notranslate"><span class="pre">reports/&lt;model&gt;.html</span></code> detail page for manual review.</p>
+<p>The report focuses on a small cross-demo set:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">quality_score</span></code>: 0-1 blended score combining baseline similarity with
+visual sanity checks. Higher is better.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quality_similarity_score</span></code>: 0-1 score for closeness to the baseline MP4,
+using SSIM, RMSE, PSNR, and frame-count agreement. Higher is better.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quality_visual_sanity_score</span></code>: 0-1 no-reference guardrail for obvious
+blank, flat, heavily striped, or unstable clips. Higher is better.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quality_temporal_score</span></code>: 0-1 frame-to-frame stability proxy. Higher is
+better.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quality_ssim_score</span></code>, <code class="docutils literal notranslate"><span class="pre">quality_rmse</span></code>, <code class="docutils literal notranslate"><span class="pre">quality_mean_abs</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">quality_psnr_db</span></code>: supporting comparison metrics. RMSE and mean absolute
+difference are in 8-bit pixel units; PSNR is in dB.</p></li>
+</ul>
+<p>The HTML report includes rough interpretation bands for the common comparison
+metrics. They are meant for local debugging, not pass/fail decisions: score
+metrics near 1.0 are better, RMSE or mean absolute difference near 0 is better,
+RMSE below about 15 is usually a small pixel-space difference, RMSE above about
+40 is usually large visual drift, PSNR above about 30 dB is usually close, and
+PSNR below about 20 dB is usually a large difference. Always compare runs with
+the same scenario, seed, input assets, and <code class="docutils literal notranslate"><span class="pre">--quality-compare-region</span></code>.</p>
+</section>
+</section>
+<section id="determinism-and-seeded-quality-checks">
+<h2>Determinism and Seeded Quality Checks<a class="headerlink" href="#determinism-and-seeded-quality-checks" title="Link to this heading">#</a></h2>
+<p>The one-minute demo scenarios are performance and visual-inspection runs, not
+strict pixel-stability gates. A fixed diffusion seed is necessary but not
+sufficient for long generated MP4s: CUDA kernel choices, compile paths, and
+long autoregressive accumulation can still produce visible drift. The
+Omnidreams one-minute scenarios use the same stable non-perf runner as the
+quality smoke scenario because broader VAE compile/autotune paths can be
+hardware sensitive on local developer systems.</p>
+<p>For a stronger same-seed quality signal, use the 30-second quality scenarios in
+<code class="docutils literal notranslate"><span class="pre">configs/deterministic_quality_benchmarks.json</span></code>. Its Omnidreams quality
+scenario mirrors the existing same-seed CI setup: non-perf runner, fixed
+example input, explicit seed, deterministic cuBLAS workspace, stable CUDA
+allocator behavior, <code class="docutils literal notranslate"><span class="pre">torch.use_deterministic_algorithms(...,</span> <span class="pre">warn_only=True)</span></code>,
+and a roughly 30-second rollout. The LingBot quality scenario uses the same
+local strict launcher and explicit seed, but it is currently a local signal
+rather than a CI-backed bitwise reproducibility guarantee.</p>
+<p>Scenario duration is approximate and comes from the runner command’s
+<code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> value in the JSON file, not from a separate duration field.
+The runner can still stop early if the selected conditioning stream is shorter
+than the requested block count.</p>
+<p>The CLI’s default <code class="docutils literal notranslate"><span class="pre">--quality-compare-region</span> <span class="pre">scenario-default</span></code> uses each
+quality scenario’s configured compare region. In this suite LingBot compares
+the full generated MP4, while Omnidreams compares the generated lower half of
+its HDMap/RGB stacked output. Pass <code class="docutils literal notranslate"><span class="pre">--quality-compare-region</span> <span class="pre">full</span></code> or
+<code class="docutils literal notranslate"><span class="pre">--quality-compare-region</span> <span class="pre">bottom-half</span></code> only when you want to override those
+scenario defaults.</p>
+<p>Detailed component values and per-sampled-frame measurements remain in the
+quality JSON under <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> for debugging, but they are not promoted as
+top-level report metrics. Use <code class="docutils literal notranslate"><span class="pre">--quality-frame-indices</span></code> for an explicit frame
+list or <code class="docutils literal notranslate"><span class="pre">--quality-sample-count</span></code> for evenly spaced samples. For stacked MP4s
+where only the generated lower half should be compared outside a shipped
+scenario default, pass <code class="docutils literal notranslate"><span class="pre">--quality-compare-region</span> <span class="pre">bottom-half</span></code>. The comparison
+reads MP4s through the existing clip-comparison utilities, so run it from an
+environment with the runner/dev media dependencies installed.
+<code class="docutils literal notranslate"><span class="pre">--quality-compute-flip</span></code> adds FLIP metrics when <code class="docutils literal notranslate"><span class="pre">flip-evaluator</span></code> is
+installed; if it is missing, the hook logs a warning and still reports the
+other quality metrics.</p>
+<p>Quality evaluators are optional command hooks. They run after the scenario and
+do not change the scenario pass/fail status in this local-developer version.
+Write a JSON metrics file and point <code class="docutils literal notranslate"><span class="pre">metrics_path</span></code> at it.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;generated-quality&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">&quot;python&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;-m&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;my_quality_tool&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;--video&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;{first_video}&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;--out&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;{quality_dir}/metrics.json&quot;</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;metrics_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{quality_dir}/metrics.json&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="optional-pai-bench-long-profile">
+<h2>Optional PAI-Bench-Long Profile<a class="headerlink" href="#optional-pai-bench-long-profile" title="Link to this heading">#</a></h2>
+<p>The benchmark CLI can also append a named PAI-Bench-Long quality profile to the
+selected scenarios. This is intended for longer MP4 review clips, such as the
+one-minute LingBot and Omnidreams scenarios. It stages the first generated MP4,
+splits it into local segments, runs public PAI-Bench-G on those segments, and
+reports 0-100 <code class="docutils literal notranslate"><span class="pre">pai_bench_long_*</span></code> metrics in the HTML report. These metrics
+are non-gating and separate from the baseline similarity metrics.</p>
+<p>The adapter follows the same external-evaluator pattern as WorldLens: it owns
+the checkout/staging/summary glue, while PAI-Bench itself remains an external
+checkout. By default it clones
+<code class="docutils literal notranslate"><span class="pre">https://github.com/SHI-Labs/physical-ai-bench.git</span></code> at the pinned revision
+declared in <code class="docutils literal notranslate"><span class="pre">tools.benchmarks.pai_bench_profile</span></code> under
+<code class="docutils literal notranslate"><span class="pre">&lt;repo-root&gt;/.cache/flashdreams/evaluators/physical-ai-bench</span></code> when the
+checkout is missing, so syncing <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> does not include the evaluator
+checkout or its environment.</p>
+<p>The default <code class="docutils literal notranslate"><span class="pre">--pai-bench-runner</span> <span class="pre">local</span></code> mode runs the public PAI-Bench
+entrypoint with the benchmark Python and injects a FlashDreams OpenCV-backed
+<code class="docutils literal notranslate"><span class="pre">decord</span></code> compatibility shim. This avoids the upstream <code class="docutils literal notranslate"><span class="pre">decord</span></code> wheel
+resolution failure on aarch64. Use <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">--group</span> <span class="pre">pai-bench</span></code> for the
+standard local evaluator environment. That group includes the Python packages
+needed by the default public PAI-Bench dimensions, including OpenAI CLIP and
+PyIQA, without making them normal FlashDreams runtime dependencies.</p>
+<p>Before launching <code class="docutils literal notranslate"><span class="pre">torch.distributed.run</span></code>, the adapter imports the requested
+PAI-Bench dimension modules with the same Python and <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> that the
+evaluator will use. Missing imports are reported in
+<code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/quality/&lt;profile&gt;/pai_bench_preflight.log</span></code> and in the hook’s
+<code class="docutils literal notranslate"><span class="pre">metrics.json</span></code>. For example, a missing <code class="docutils literal notranslate"><span class="pre">clip</span></code> import means the command was
+not run with the <code class="docutils literal notranslate"><span class="pre">pai-bench</span></code> dependency group or <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> does
+not point at a prepared evaluator environment.</p>
+<p>For baseline/candidate copy-paste commands that include PAI-Bench, use the
+<code class="docutils literal notranslate"><span class="pre">Quality</span> <span class="pre">Hooks</span></code> section above. For ad hoc one-off evaluation, run one-minute
+local clips with the PAI-Bench-Long profile. These ad hoc commands are useful
+for debugging, but they do not produce the standard baseline/candidate report:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/one-minute-pai-bench
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> to point at a curated evaluator Python when the
+benchmark environment does not contain the dependencies for the requested
+dimensions. On aarch64, avoid <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span> <span class="pre">&quot;uv</span> <span class="pre">run</span> <span class="pre">python&quot;</span></code> with the
+upstream PAI-Bench checkout unless that checkout has already been patched or
+locked for aarch64-compatible dependencies.</p>
+<p>For one-off checks, the profile also supports public PAI-Bench-G on the full
+MP4 without local segmentation. This is also not the standard local benchmark
+workflow:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-g<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/lingbot-pai-bench-g
+</pre></div>
+</div>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">--pai-bench-runner</span> <span class="pre">upstream</span></code> only when you intentionally want the old
+upstream execution mode, for example on an x86_64 machine with a working
+PAI-Bench environment.</p>
+<p>By default, the adapter removes copied or segmented MP4 inputs from
+<code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/quality/&lt;profile&gt;/staged/videos</span></code> after PAI-Bench finishes.
+The durable benchmark artifacts are the original scenario MP4s, logs,
+<code class="docutils literal notranslate"><span class="pre">metrics.json</span></code>, <code class="docutils literal notranslate"><span class="pre">staged_inputs.json</span></code>, the prompt JSON, and parsed evaluator
+result JSON. Pass <code class="docutils literal notranslate"><span class="pre">--pai-bench-keep-staged-videos</span></code> only when debugging the
+external evaluator input staging.</p>
+<p>The default dimensions are the non-I2V PAI-Bench quality dimensions:
+<code class="docutils literal notranslate"><span class="pre">aesthetic_quality</span></code>, <code class="docutils literal notranslate"><span class="pre">background_consistency</span></code>, <code class="docutils literal notranslate"><span class="pre">imaging_quality</span></code>,
+<code class="docutils literal notranslate"><span class="pre">motion_smoothness</span></code>, <code class="docutils literal notranslate"><span class="pre">overall_consistency</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">subject_consistency</span></code>. Pass <code class="docutils literal notranslate"><span class="pre">--pai-bench-dimension</span></code> multiple times to run a
+smaller or custom dimension set for local triage only; doing so changes the
+reported PAI-Bench metric set, so those results should not be compared against
+standard runs. <code class="docutils literal notranslate"><span class="pre">--pai-bench-segment-duration-s</span></code> controls the local long-video
+segment size; it defaults to 10 seconds. Pass <code class="docutils literal notranslate"><span class="pre">--no-pai-bench-fetch</span></code> to
+avoid fetching an existing git checkout.</p>
+<p>Custom scenarios can opt into PAI-Bench profiles by including either
+<code class="docutils literal notranslate"><span class="pre">one-minute</span></code> or <code class="docutils literal notranslate"><span class="pre">pai-bench</span></code> in their <code class="docutils literal notranslate"><span class="pre">tags</span></code> list. This keeps PAI-Bench
+off short deterministic quality-smoke scenarios, where short or stacked clips
+can produce noisy evaluator failures and crowded reports.</p>
+</section>
+<section id="internal-cosmos-interactive-example">
+<h2>Internal Cosmos-Interactive Example<a class="headerlink" href="#internal-cosmos-interactive-example" title="Link to this heading">#</a></h2>
+<p>The public harness does not import <code class="docutils literal notranslate"><span class="pre">internal/</span></code> modules, but it can run the
+GitLab-only cosmos-interactive MP4 renderer after this work is cherry-picked.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;scenarios&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cosmos-interactive-mp4-12f&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Cosmos interactive MP4 12-frame window&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;report_group&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cosmos-interactive&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Cosmos Interactive&quot;</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">&quot;uv&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;run&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--no-sync&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;python&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;-m&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;cosmos_interactive_internal.generate_native_video&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{env:CAMERA_CKPT}&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--t2v-checkpoint&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{env:T2V_CKPT}&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--init-image&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{env:DAYDREAM_INIT_IMAGE}&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--out&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{output_dir}/cosmos-interactive.mp4&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--stats-out&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{output_dir}/stats_cosmos_interactive.json&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--num-chunks&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;8&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--chunk-size&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;4&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--window-frames&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;12&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--kv-cache-mode&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;block&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--overlap-cache-update&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--compile-denoise&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--auto-compile-prewarm&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--cuda-graph-denoise&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--perf-summary&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--perf-warmup-steps&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--perf-summary-window&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;4&quot;</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;output_dir_arg&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;warmup_steps&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;timeout_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7200</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="new_integration.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Add a new method</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../api/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">CLI and API Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifacts">Artifacts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-scenarios">Custom Scenarios</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-minute-demo-suite">One-Minute Demo Suite</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quality-hooks">Quality Hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#standard-quality-and-review-run">Standard Quality And Review Run</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#determinism-and-seeded-quality-checks">Determinism and Seeded Quality Checks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-pai-bench-long-profile">Optional PAI-Bench-Long Profile</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#internal-cosmos-interactive-example">Internal Cosmos-Interactive Example</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
