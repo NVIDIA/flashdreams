@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import ctypes
+import ctypes.util
+import os
+import platform
 import time
 from typing import Any
 
@@ -142,7 +146,12 @@ class SlangPyPresenter:
             return []
         try:
             if not torch.cuda.is_initialized():
-                return []
+                torch.cuda.init()
+            # Force the primary context to be current on this thread before
+            # asking slangpy for its native handles. This presenter is
+            # intentionally constructed before the model backend, so CUDA is
+            # otherwise still lazy at this point.
+            torch.cuda.current_stream()
         except Exception:
             return []
 
@@ -605,16 +614,59 @@ class _CudaRGBFrame:
         self.ready = ready
 
 
+def get_python_arch():
+    machine = platform.machine().lower()
+    # Normalize naming variations
+    if machine in ("arm64", "aarch64", "arm"):
+        return "arm64"
+    elif machine in ("x86_64", "amd64", "x64"):
+        if ctypes.sizeof(ctypes.c_void_p) == 8:
+            return "x64"
+        else:
+            return "x86"  # 32-bit intel
+    return machine
+
+
+def find_in_path(libname, custom_dir):
+    pattern = os.path.join(custom_dir, f"*{libname}*")
+    matches = glob.glob(pattern)
+    return matches[0] if matches else None
+
+
 class _NonBlockingCudaStream:
     def __init__(self, torch_module: Any, device: Any) -> None:
-        import ctypes
-        import ctypes.util
+        from torch.utils.cpp_extension import (
+            CLIB_EXT,
+            IS_LINUX,
+            IS_WINDOWS,
+            _join_cuda_home,
+            library_paths,
+        )
 
         self._runtime = None
         self._stream_ptr = 0
         self._stream = None
 
-        library_name = ctypes.util.find_library("cudart") or "libcudart.so"
+        cpu_arch = get_python_arch()
+        library_name = f"cudart"
+        os_name = platform.system()
+        # search PATH
+        paths = os.environ.get("PATH").split(os.path.pathsep)
+        # search CUDA_HOME
+        if IS_WINDOWS:
+            paths.append(_join_cuda_home("bin", cpu_arch))
+            library_name = "cudart64_13.dll"
+        elif IS_MACOS:
+            library_name = "cudart.dylib"
+            paths.append(_join_cuda_home("lib", cpu_arch))
+        else:
+            library_name = "cudart.so"
+            paths.append(_join_cuda_home("lib64", cpu_arch))
+        for library_path in paths:
+            if tmp_path := find_in_path(library_name, library_path):
+                library_name = tmp_path
+                break
+
         runtime = ctypes.CDLL(library_name)
         cuda_set_device = runtime.cudaSetDevice
         cuda_set_device.argtypes = [ctypes.c_int]
@@ -650,7 +702,6 @@ class _NonBlockingCudaStream:
     def close(self) -> None:
         if self._runtime is None or self._stream_ptr == 0:
             return
-        import ctypes
 
         stream = self._stream
         if stream is not None:

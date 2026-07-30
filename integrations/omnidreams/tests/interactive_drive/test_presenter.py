@@ -14,6 +14,7 @@ from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
     _CudaRGBFrame,
     _CudaRGBInterop,
+    _NonBlockingCudaStream,
 )
 from omnidreams.interactive_drive.slangpy_hud_presenter import SlangPyHudPresenter
 from omnidreams.interactive_drive.types import PresentedFrame
@@ -52,12 +53,60 @@ def test_cuda_existing_device_handles_uses_current_context_by_default(
         def get_cuda_current_context_native_handles() -> list[object]:
             return handles
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     assert presenter._cuda_existing_device_handles() == handles
+
+
+@pytest.mark.parametrize(
+    "presenter_factory",
+    [_presenter_without_window, _hud_presenter_without_window],
+)
+def test_cuda_existing_device_handles_initializes_lazy_cuda_context(
+    monkeypatch, presenter_factory
+) -> None:
+    presenter = presenter_factory()
+    handles = [object()]
+    initialized = False
+    calls: list[str] = []
+
+    class _Spy:
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            assert initialized
+            assert calls == ["init", "current_stream"]
+            return handles
+
+    def init() -> None:
+        nonlocal initialized
+        calls.append("init")
+        initialized = True
+
+    def current_stream() -> object:
+        calls.append("current_stream")
+        return object()
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: initialized,
+            init=init,
+            current_stream=current_stream,
+        )
+    )
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    assert presenter._cuda_existing_device_handles() == handles
+    assert calls == ["init", "current_stream"]
 
 
 def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
@@ -68,7 +117,12 @@ def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
         def get_cuda_current_context_native_handles() -> list[object]:
             raise AssertionError("native handle query should be disabled")
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
@@ -97,7 +151,12 @@ def test_create_device_enables_cuda_interop_with_current_context_by_default(
             created_kwargs.append(kwargs)
             return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
@@ -106,6 +165,48 @@ def test_create_device_enables_cuda_interop_with_current_context_by_default(
 
     assert created_kwargs[0]["enable_cuda_interop"] is True
     assert created_kwargs[0]["existing_device_handles"] == ["cuda-context"]
+
+
+@pytest.mark.parametrize(
+    "presenter_factory",
+    [_presenter_without_window, _hud_presenter_without_window],
+)
+def test_create_device_disables_cuda_interop_without_a_cuda_context(
+    monkeypatch, presenter_factory
+) -> None:
+    presenter = presenter_factory()
+    presenter._cuda_interop_unavailable_reason = None
+    created_kwargs: list[dict[str, object]] = []
+
+    class _DeviceType:
+        vulkan = object()
+
+    class _Spy:
+        DeviceType = _DeviceType
+
+        @staticmethod
+        def Device(**kwargs):
+            created_kwargs.append(kwargs)
+            return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
+
+    def fail_cuda_init() -> None:
+        raise RuntimeError("CUDA unavailable")
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: False,
+            init=fail_cuda_init,
+        )
+    )
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    presenter._create_device()
+
+    assert created_kwargs[0]["enable_cuda_interop"] is False
+    assert "existing_device_handles" not in created_kwargs[0]
+    assert presenter._cuda_interop_unavailable_reason == "CUDA context unavailable"
 
 
 def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
@@ -137,6 +238,37 @@ def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
     assert "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP" in (
         presenter._cuda_interop_unavailable_reason or ""
     )
+
+
+def test_non_blocking_cuda_stream_uses_pytorch_native_stream_handle() -> None:
+    device = SimpleNamespace(index=0)
+    synchronize_calls = 0
+
+    class _Stream:
+        cuda_stream = 12345
+
+        def synchronize(self) -> None:
+            nonlocal synchronize_calls
+            synchronize_calls += 1
+
+    pytorch_stream = _Stream()
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            Stream=lambda *, device: pytorch_stream,
+        )
+    )
+
+    stream = _NonBlockingCudaStream(fake_torch, device)
+
+    assert stream.stream is pytorch_stream
+    assert stream.cuda_stream == 12345
+
+    stream.close()
+    stream.close()
+
+    assert synchronize_calls == 1
+    assert stream.stream is None
+    assert stream.cuda_stream == 0
 
 
 def test_prepare_frame_prefetches_host_fallback_model_rgb() -> None:

@@ -594,6 +594,8 @@ def load_extension(
                         *([] if cudnn_include is None else [str(cudnn_include)]),
                     ],
                     extra_cflags=[
+                        # Assume MSVC for Windows
+                        *(["/Zc:preprocessor"] if os.name == "nt" else []),
                         "-O3",
                         "-std=c++20",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
@@ -620,6 +622,8 @@ def load_extension(
                         f'\\"{_effective_cuda_arch_list()}\\"',
                     ],
                     extra_cuda_cflags=[
+                        # Assume MSVC for Windows
+                        *(["-Xcompiler=/Zc:preprocessor"] if os.name == "nt" else []),
                         "-O3",
                         "-std=c++20",
                         "--expt-relaxed-constexpr",

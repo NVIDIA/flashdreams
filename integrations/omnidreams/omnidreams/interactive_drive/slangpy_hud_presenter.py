@@ -662,11 +662,14 @@ class SlangPyHudPresenter:
 
     def _create_device(self) -> Any:
         existing_device_handles = self._cuda_existing_device_handles()
-        enable_cuda_interop = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
-        if not enable_cuda_interop:
+        cuda_interop_requested = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        enable_cuda_interop = cuda_interop_requested and bool(existing_device_handles)
+        if not cuda_interop_requested:
             self._cuda_interop_unavailable_reason = (
                 f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
+        elif not existing_device_handles:
+            self._cuda_interop_unavailable_reason = "CUDA context unavailable"
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -700,7 +703,11 @@ class SlangPyHudPresenter:
             return []
         try:
             if not torch.cuda.is_initialized():
-                return []
+                torch.cuda.init()
+            # The HUD is constructed before the model backend. Materialize
+            # the primary CUDA context on this thread so slangpy can bind
+            # Vulkan interop to the same device the backend will use.
+            torch.cuda.current_stream()
         except Exception:
             return []
 

@@ -240,6 +240,8 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "src/vae_streaming/vae_streaming_bindings.h",
     }.issubset(fingerprint_sources)
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cflags"]
+    if os.name == "nt":
+        assert "/Zc:preprocessor" in captured["extra_cflags"]
     assert (
         '-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA=\\"cutlass-test-sha\\"'
         in captured["extra_cflags"]
@@ -273,6 +275,8 @@ def test_load_extension_uses_build_root_for_torch_cache(
         '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"12.0a\\"' in captured["extra_cflags"]
     )
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cuda_cflags"]
+    if os.name == "nt":
+        assert "-Xcompiler=/Zc:preprocessor" in captured["extra_cuda_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1" in captured["extra_cuda_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cuda_cflags"]
     assert captured["with_cuda"] is True
