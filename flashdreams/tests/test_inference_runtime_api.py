@@ -7,8 +7,8 @@ import pytest
 
 from flashdreams.runtime import (
     IdentityInputMapping,
-    InMemoryMetricsRecorder,
     InferenceConfig,
+    InMemoryMetricsRecorder,
     InputField,
     ModelInputs,
     ModelInputSchema,
@@ -61,8 +61,12 @@ def test_model_input_schema_validates_initial_and_step_payloads() -> None:
 def test_user_inputs_filter_timestamped_event_windows() -> None:
     inputs = UserInputs(
         events=(
-            UserInputEvent(timestamp_s=0.1, kind="keyboard.keydown", payload={"key": "w"}),
-            UserInputEvent(timestamp_s=0.4, kind="keyboard.keyup", payload={"key": "w"}),
+            UserInputEvent(
+                timestamp_s=0.1, kind="keyboard.keydown", payload={"key": "w"}
+            ),
+            UserInputEvent(
+                timestamp_s=0.4, kind="keyboard.keyup", payload={"key": "w"}
+            ),
             UserInputEvent(timestamp_s=0.8, kind="reset"),
         )
     )
@@ -79,6 +83,22 @@ def test_user_input_schema_declares_event_capabilities() -> None:
 
     assert schema.supports_event_kinds(["keyboard.keydown", "reset"])
     assert not schema.supports_event_kinds(["prompt.update"])
+
+
+def test_user_input_schema_validates_required_snapshot_fields() -> None:
+    schema = UserInputSchema(
+        snapshot_fields=(
+            InputField(name="pressed_keys"),
+            InputField(name="prompt", required=False),
+        )
+    )
+    inputs = UserInputs(snapshot={"pressed_keys": frozenset({"w"})})
+
+    schema.require_snapshot(inputs)
+    assert schema.missing_snapshot(UserInputs()) == ("pressed_keys",)
+
+    with pytest.raises(ValueError, match="pressed_keys"):
+        schema.require_snapshot(UserInputs())
 
 
 def test_identity_input_mapping_leaves_model_inputs_unchanged() -> None:
@@ -116,6 +136,21 @@ def test_null_output_target_counts_and_optionally_stores_results() -> None:
     assert target.results == [result]
     with pytest.raises(RuntimeError, match="closed output target"):
         target.write(StepResult(step_index=1))
+
+
+def test_null_output_target_open_resets_per_run_state() -> None:
+    target = NullOutputTarget(store_results=True)
+
+    target.open()
+    target.write(StepResult(step_index=0, output=b"first"))
+    target.close()
+    target.open()
+
+    assert target.output_count == 0
+    assert target.results == []
+    target.write(StepResult(step_index=0, output=b"second"))
+    assert target.output_count == 1
+    assert target.results == [StepResult(step_index=0, output=b"second")]
 
 
 def test_in_memory_metrics_recorder_uses_seconds_for_timing() -> None:

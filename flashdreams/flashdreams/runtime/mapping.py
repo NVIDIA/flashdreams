@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from flashdreams.runtime.inputs import ModelInputs, ModelInputSchema, UserInputs, UserInputSchema
+from flashdreams.runtime.inputs import (
+    ModelInputs,
+    ModelInputSchema,
+    UserInputs,
+    UserInputSchema,
+)
 from flashdreams.runtime.interfaces import StepRequest
 
 

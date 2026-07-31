@@ -54,6 +54,8 @@ class NullOutputTarget:
 
     def open(self) -> None:
         self.closed = False
+        self.output_count = 0
+        self.results.clear()
 
     def write(self, result: StepResult) -> None:
         if self.closed:

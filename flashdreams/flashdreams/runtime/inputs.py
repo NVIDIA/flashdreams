@@ -59,6 +59,16 @@ class UserInputSchema:
             return True
         return requested.issubset(self.event_kinds)
 
+    def missing_snapshot(self, inputs: "UserInputs") -> tuple[str, ...]:
+        """Return required snapshot fields absent from ``inputs``."""
+        return _missing_required(self.snapshot_fields, inputs.snapshot)
+
+    def require_snapshot(self, inputs: "UserInputs") -> None:
+        """Raise if required snapshot fields are absent."""
+        missing = self.missing_snapshot(inputs)
+        if missing:
+            raise ValueError(f"Missing required user snapshot field(s): {missing}")
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ModelInputSchema:
@@ -118,7 +128,9 @@ class UserInputs:
         """Return inputs with events filtered to ``time_window``."""
         return UserInputs(
             events=tuple(
-                event for event in self.events if time_window.contains(event.timestamp_s)
+                event
+                for event in self.events
+                if time_window.contains(event.timestamp_s)
             ),
             snapshot=self.snapshot,
             metadata=self.metadata,
@@ -141,4 +153,6 @@ class ModelInputs:
 def _missing_required(
     fields: tuple[InputField, ...], payload: Mapping[str, Any]
 ) -> tuple[str, ...]:
-    return tuple(field.name for field in fields if field.required and field.name not in payload)
+    return tuple(
+        field.name for field in fields if field.required and field.name not in payload
+    )
