@@ -1,0 +1,3846 @@
+{
+  "environment": {
+    "command": "uv run --package flashdreams-lingbot python -m lingbot.disagg.benchmark_independent --replicas 8 --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --pixel-width 832 --pixel-height 464 --fps 16 --warmup-blocks 6 --measured-blocks 5 --compile-threads-per-replica 4 --timeout-s 3600 --output-dir outputs/lingbot_aggregated_8xcp1",
+    "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+    "worktree_dirty": true,
+    "hostname": "pool0-01151",
+    "slurm_job_id": "14793417",
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "resolution": [
+      464,
+      832
+    ],
+    "warmup_blocks": 6,
+    "measured_blocks": 5,
+    "replicas": 8,
+    "gpus": [
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3"
+    ],
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "driver": "535.216.03",
+    "precision": "bfloat16",
+    "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+    "worker_commands": [
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 0 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-0",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 1 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-1",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 2 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-2",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 3 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-3",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 4 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-4",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 5 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-5",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 6 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-6",
+      "/lustre/fsw/portfolios/healthcareeng/users/gtong/venvs/flashdreams/bin/python3 -m torch.distributed.run --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 7 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-7"
+    ]
+  },
+  "summary": {
+    "aggregate_fps": 43.43749180420828,
+    "sum_of_worker_fps": 44.344999148883396,
+    "total_output_frames": 480,
+    "measurement_wall_s": 11.050361797213554,
+    "measurement_start_skew_ms": 0.3231372684240341,
+    "measurement_finish_skew_ms": 329.84739169478416,
+    "per_session_fps": {
+      "median": 5.544989798538596,
+      "p90": 5.59244924622212,
+      "min": 5.431233201432407,
+      "max": 5.5984819295074555
+    },
+    "per_session_median_latency_ms": {
+      "median": 2163.28211594373,
+      "p90": 2183.3966828882694,
+      "min": 2141.4667814970016,
+      "max": 2209.239514544606
+    },
+    "all_chunk_latency_ms": {
+      "median": 2163.643025793135,
+      "p90": 2205.5334428325295,
+      "min": 2137.736974284053,
+      "max": 2213.644528761506
+    },
+    "memory": {
+      "rollout_peak_gib_by_gpu": [
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447,
+        59.35440921783447
+      ],
+      "rollout_peak_gib_per_gpu": {
+        "median": 59.35440921783447,
+        "p90": 59.35440921783447,
+        "min": 59.35440921783447,
+        "max": 59.35440921783447
+      },
+      "rollout_peak_gib_node_total": 474.8352737426758,
+      "initialization_peak_gib_by_gpu": [
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949,
+        66.54739189147949
+      ],
+      "initialization_peak_gib_per_gpu": {
+        "median": 66.54739189147949,
+        "p90": 66.54739189147949,
+        "min": 66.54739189147949,
+        "max": 66.54739189147949
+      },
+      "initialization_peak_gib_node_total": 532.3791351318359,
+      "steady_allocated_gib_by_gpu": [
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171,
+        57.14538335800171
+      ],
+      "steady_allocated_gib_node_total": 457.1630668640137
+    }
+  },
+  "workers": [
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 0 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-0",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 0,
+        "measurement_window": {
+          "started_at": 11145874.429103078,
+          "finished_at": 11145885.29418634,
+          "elapsed_s": 10.865083262324333
+        }
+      },
+      "summary": {
+        "fps": 5.523946310994633,
+        "latency_ms": {
+          "median": 2171.0722651332617,
+          "p90": 2176.1993937194347,
+          "min": 2168.278167024255,
+          "max": 2177.5269210338593
+        },
+        "encoder_ms": {
+          "median": 0.8008639812469482,
+          "p90": 1.000268816947937,
+          "min": 0.7934079766273499,
+          "max": 1.0645760297775269
+        },
+        "dit_ms": {
+          "median": 1736.72607421875,
+          "p90": 1738.9442626953125,
+          "min": 1726.501708984375,
+          "max": 1740.3426513671875
+        },
+        "decoder_ms": {
+          "median": 7.425727844238281,
+          "p90": 7.530271911621094,
+          "min": 7.380095958709717,
+          "max": 7.582431793212891
+        },
+        "finalize_ms": {
+          "median": 428.4263916015625,
+          "p90": 433.63258056640626,
+          "min": 425.04583740234375,
+          "max": 437.065673828125
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2082.5277592449766,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 20.301848368903027,
+            "p90": 20.301848368903027,
+            "min": 20.301848368903027,
+            "max": 20.301848368903027
+          },
+          "all_gather": {
+            "median": 34.04184274181,
+            "p90": 34.04184274181,
+            "min": 34.04184274181,
+            "max": 34.04184274181
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 138200.74504986405,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 590.80517578125,
+            "diffuse_ms": 92299.890625,
+            "decode_ms": 45043.6328125,
+            "finalize_ms": 265.7388916015625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 590.80517578125,
+              "diffuse_ms": 92299.890625,
+              "decode_ms": 45043.6328125,
+              "finalize_ms": 265.7388916015625,
+              "total_ms": 138200.0675048828,
+              "total_ms_wo_finalize": 137934.32861328125,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 138200.74504986405,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 80273.97294715047,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 181.9831085205078,
+            "diffuse_ms": 79769.765625,
+            "decode_ms": 8.339455604553223,
+            "finalize_ms": 312.95416259765625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 181.9831085205078,
+              "diffuse_ms": 79769.765625,
+              "decode_ms": 8.339455604553223,
+              "finalize_ms": 312.95416259765625,
+              "total_ms": 80273.04235172272,
+              "total_ms_wo_finalize": 79960.08818912506,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 80273.97294715047,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1890.9110315144062,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.99746704101562,
+            "diffuse_ms": 1380.8189697265625,
+            "decode_ms": 7.524799823760986,
+            "finalize_ms": 337.9274597167969
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.99746704101562,
+              "diffuse_ms": 1380.8189697265625,
+              "decode_ms": 7.524799823760986,
+              "finalize_ms": 337.9274597167969,
+              "total_ms": 1890.268696308136,
+              "total_ms_wo_finalize": 1552.341236591339,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1890.9110315144062,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2051.9016850739717,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.3020477294922,
+            "diffuse_ms": 1499.044921875,
+            "decode_ms": 19.27168083190918,
+            "finalize_ms": 368.6894226074219
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.3020477294922,
+              "diffuse_ms": 1499.044921875,
+              "decode_ms": 19.27168083190918,
+              "finalize_ms": 368.6894226074219,
+              "total_ms": 2051.3080730438232,
+              "total_ms_wo_finalize": 1682.6186504364014,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.423828125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2051.9016850739717,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2200.6694059818983,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 165.09075927734375,
+            "diffuse_ms": 1614.4637451171875,
+            "decode_ms": 7.398752212524414,
+            "finalize_ms": 413.0950927734375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 165.09075927734375,
+              "diffuse_ms": 1614.4637451171875,
+              "decode_ms": 7.398752212524414,
+              "finalize_ms": 413.0950927734375,
+              "total_ms": 2200.048349380493,
+              "total_ms_wo_finalize": 1786.9532566070557,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2200.6694059818983,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 2192.485436797142,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0230079889297485,
+            "diffuse_ms": 1742.4036865234375,
+            "decode_ms": 7.463903903961182,
+            "finalize_ms": 440.8986511230469
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0230079889297485,
+              "diffuse_ms": 1742.4036865234375,
+              "decode_ms": 7.463903903961182,
+              "finalize_ms": 440.8986511230469,
+              "total_ms": 2191.7892495393753,
+              "total_ms_wo_finalize": 1750.8905984163284,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2192.485436797142,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2174.208102747798,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0645760297775269,
+            "diffuse_ms": 1726.501708984375,
+            "decode_ms": 7.382016181945801,
+            "finalize_ms": 437.065673828125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0645760297775269,
+              "diffuse_ms": 1726.501708984375,
+              "decode_ms": 7.382016181945801,
+              "finalize_ms": 437.065673828125,
+              "total_ms": 2172.0139750242233,
+              "total_ms_wo_finalize": 1734.9483011960983,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2174.208102747798,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2168.278167024255,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9038079977035522,
+            "diffuse_ms": 1730.7530517578125,
+            "decode_ms": 7.582431793212891,
+            "finalize_ms": 428.4829406738281
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9038079977035522,
+              "diffuse_ms": 1730.7530517578125,
+              "decode_ms": 7.582431793212891,
+              "finalize_ms": 428.4829406738281,
+              "total_ms": 2167.722232222557,
+              "total_ms_wo_finalize": 1739.239291548729,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2168.278167024255,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2170.7145366817713,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7939199805259705,
+            "diffuse_ms": 1736.8466796875,
+            "decode_ms": 7.452032089233398,
+            "finalize_ms": 425.04583740234375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7939199805259705,
+              "diffuse_ms": 1736.8466796875,
+              "decode_ms": 7.452032089233398,
+              "finalize_ms": 425.04583740234375,
+              "total_ms": 2170.138469159603,
+              "total_ms_wo_finalize": 1745.0926317572594,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2170.7145366817713,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2171.0722651332617,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8008639812469482,
+            "diffuse_ms": 1736.72607421875,
+            "decode_ms": 7.425727844238281,
+            "finalize_ms": 425.5943908691406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8008639812469482,
+              "diffuse_ms": 1736.72607421875,
+              "decode_ms": 7.425727844238281,
+              "finalize_ms": 425.5943908691406,
+              "total_ms": 2170.547056913376,
+              "total_ms_wo_finalize": 1744.9526660442352,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2171.0722651332617,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2177.5269210338593,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7934079766273499,
+            "diffuse_ms": 1740.3426513671875,
+            "decode_ms": 7.380095958709717,
+            "finalize_ms": 428.4263916015625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7934079766273499,
+              "diffuse_ms": 1740.3426513671875,
+              "decode_ms": 7.380095958709717,
+              "finalize_ms": 428.4263916015625,
+              "total_ms": 2176.942546904087,
+              "total_ms_wo_finalize": 1748.5161553025246,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2177.5269210338593,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.05164928734302521,
+            "bandwidth_gbps": 20.301848368903027
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.030802562832832336,
+            "bandwidth_gbps": 34.04184274181
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 1 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-1",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 1,
+        "measurement_window": {
+          "started_at": 11145874.429260097,
+          "finished_at": 11145885.479436684,
+          "elapsed_s": 11.050176586955786
+        }
+      },
+      "summary": {
+        "fps": 5.431233201432407,
+        "latency_ms": {
+          "median": 2209.239514544606,
+          "p90": 2213.0047027021646,
+          "min": 2205.3810749202967,
+          "max": 2213.644528761506
+        },
+        "encoder_ms": {
+          "median": 0.8197439908981323,
+          "p90": 0.9503488302230835,
+          "min": 0.7971839904785156,
+          "max": 1.0180480480194092
+        },
+        "dit_ms": {
+          "median": 1763.7745361328125,
+          "p90": 1765.95751953125,
+          "min": 1756.140869140625,
+          "max": 1766.673095703125
+        },
+        "decoder_ms": {
+          "median": 7.529024124145508,
+          "p90": 7.707660865783692,
+          "min": 7.421440124511719,
+          "max": 7.752384185791016
+        },
+        "finalize_ms": {
+          "median": 436.60076904296875,
+          "p90": 443.597265625,
+          "min": 431.5830078125,
+          "max": 447.26544189453125
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2047.5749169400176,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 15.300463496352894,
+            "p90": 15.300463496352894,
+            "min": 15.300463496352894,
+            "max": 15.300463496352894
+          },
+          "all_gather": {
+            "median": 28.054916446791186,
+            "p90": 28.054916446791186,
+            "min": 28.054916446791186,
+            "max": 28.054916446791186
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 175426.7371315509,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 613.5792236328125,
+            "diffuse_ms": 99693.546875,
+            "decode_ms": 74844.7734375,
+            "finalize_ms": 272.13897705078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 613.5792236328125,
+              "diffuse_ms": 99693.546875,
+              "decode_ms": 74844.7734375,
+              "finalize_ms": 272.13897705078125,
+              "total_ms": 175424.0385131836,
+              "total_ms_wo_finalize": 175151.8995361328,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 175426.7371315509,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 79537.70590759814,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 182.7596435546875,
+            "diffuse_ms": 79028.9453125,
+            "decode_ms": 8.16988754272461,
+            "finalize_ms": 316.3579406738281
+          },
+          "per_rank": [
+            {
+              "encode_ms": 182.7596435546875,
+              "diffuse_ms": 79028.9453125,
+              "decode_ms": 8.16988754272461,
+              "finalize_ms": 316.3579406738281,
+              "total_ms": 79536.23278427124,
+              "total_ms_wo_finalize": 79219.87484359741,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 79537.70590759814,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1914.4557267427444,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.57635498046875,
+            "diffuse_ms": 1402.1595458984375,
+            "decode_ms": 7.56006383895874,
+            "finalize_ms": 339.5437316894531
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.57635498046875,
+              "diffuse_ms": 1402.1595458984375,
+              "decode_ms": 7.56006383895874,
+              "finalize_ms": 339.5437316894531,
+              "total_ms": 1913.8396964073181,
+              "total_ms_wo_finalize": 1574.295964717865,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1914.4557267427444,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2084.323525428772,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.3065643310547,
+            "diffuse_ms": 1524.3265380859375,
+            "decode_ms": 19.166112899780273,
+            "finalize_ms": 375.96490478515625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.3065643310547,
+              "diffuse_ms": 1524.3265380859375,
+              "decode_ms": 19.166112899780273,
+              "finalize_ms": 375.96490478515625,
+              "total_ms": 2083.7641201019287,
+              "total_ms_wo_finalize": 1707.7992153167725,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.423828125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2084.323525428772,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2230.1153894513845,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.94998168945312,
+            "diffuse_ms": 1638.8804931640625,
+            "decode_ms": 7.443647861480713,
+            "finalize_ms": 418.2716979980469
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.94998168945312,
+              "diffuse_ms": 1638.8804931640625,
+              "decode_ms": 7.443647861480713,
+              "finalize_ms": 418.2716979980469,
+              "total_ms": 2229.545820713043,
+              "total_ms_wo_finalize": 1811.2741227149963,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2230.1153894513845,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 2257.7255573123693,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9730240106582642,
+            "diffuse_ms": 1801.062255859375,
+            "decode_ms": 7.568543910980225,
+            "finalize_ms": 447.5612487792969
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9730240106582642,
+              "diffuse_ms": 1801.062255859375,
+              "decode_ms": 7.568543910980225,
+              "finalize_ms": 447.5612487792969,
+              "total_ms": 2257.1650725603104,
+              "total_ms_wo_finalize": 1809.6038237810135,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2257.7255573123693,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2213.644528761506,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0180480480194092,
+            "diffuse_ms": 1756.140869140625,
+            "decode_ms": 7.752384185791016,
+            "finalize_ms": 447.26544189453125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0180480480194092,
+              "diffuse_ms": 1756.140869140625,
+              "decode_ms": 7.752384185791016,
+              "finalize_ms": 447.26544189453125,
+              "total_ms": 2212.1767432689667,
+              "total_ms_wo_finalize": 1764.9113013744354,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2213.644528761506,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2206.9047540426254,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.848800003528595,
+            "diffuse_ms": 1763.7745361328125,
+            "decode_ms": 7.640575885772705,
+            "finalize_ms": 434.0928955078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.848800003528595,
+              "diffuse_ms": 1763.7745361328125,
+              "decode_ms": 7.640575885772705,
+              "finalize_ms": 434.0928955078125,
+              "total_ms": 2206.3568075299263,
+              "total_ms_wo_finalize": 1772.2639120221138,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2206.9047540426254,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2205.3810749202967,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8197439908981323,
+            "diffuse_ms": 1764.8841552734375,
+            "decode_ms": 7.529024124145508,
+            "finalize_ms": 431.5830078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8197439908981323,
+              "diffuse_ms": 1764.8841552734375,
+              "decode_ms": 7.529024124145508,
+              "finalize_ms": 431.5830078125,
+              "total_ms": 2204.815931200981,
+              "total_ms_wo_finalize": 1773.2329233884811,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2205.3810749202967,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2212.0449636131525,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8001919984817505,
+            "diffuse_ms": 1766.673095703125,
+            "decode_ms": 7.421440124511719,
+            "finalize_ms": 436.60076904296875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8001919984817505,
+              "diffuse_ms": 1766.673095703125,
+              "decode_ms": 7.421440124511719,
+              "finalize_ms": 436.60076904296875,
+              "total_ms": 2211.495496869087,
+              "total_ms_wo_finalize": 1774.8947278261185,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2212.0449636131525,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2209.239514544606,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7971839904785156,
+            "diffuse_ms": 1762.2459716796875,
+            "decode_ms": 7.487936019897461,
+            "finalize_ms": 438.0950012207031
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7971839904785156,
+              "diffuse_ms": 1762.2459716796875,
+              "decode_ms": 7.487936019897461,
+              "finalize_ms": 438.0950012207031,
+              "total_ms": 2208.6260929107666,
+              "total_ms_wo_finalize": 1770.5310916900635,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2209.239514544606,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.0685323029756546,
+            "bandwidth_gbps": 15.300463496352894
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.037375837564468384,
+            "bandwidth_gbps": 28.054916446791186
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 2 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-2",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 2,
+        "measurement_window": {
+          "started_at": 11145874.429111755,
+          "finished_at": 11145885.16577754,
+          "elapsed_s": 10.736665785312653
+        }
+      },
+      "summary": {
+        "fps": 5.589863810528405,
+        "latency_ms": {
+          "median": 2144.325716421008,
+          "p90": 2151.1040780693293,
+          "min": 2143.3675326406956,
+          "max": 2151.623649522662
+        },
+        "encoder_ms": {
+          "median": 0.8196160197257996,
+          "p90": 0.9688384056091309,
+          "min": 0.7701759934425354,
+          "max": 1.058784008026123
+        },
+        "dit_ms": {
+          "median": 1712.18017578125,
+          "p90": 1718.5796875,
+          "min": 1706.93115234375,
+          "max": 1720.412841796875
+        },
+        "decoder_ms": {
+          "median": 7.421631813049316,
+          "p90": 7.495385646820068,
+          "min": 7.307648181915283,
+          "max": 7.505280017852783
+        },
+        "finalize_ms": {
+          "median": 423.29205322265625,
+          "p90": 431.4473022460937,
+          "min": 418.8133850097656,
+          "max": 434.0836181640625
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2107.3786565692085,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 24.04741364465237,
+            "p90": 24.04741364465237,
+            "min": 24.04741364465237,
+            "max": 24.04741364465237
+          },
+          "all_gather": {
+            "median": 33.40156363007666,
+            "p90": 33.40156363007666,
+            "min": 33.40156363007666,
+            "max": 33.40156363007666
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 124731.86967894435,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 583.7667236328125,
+            "diffuse_ms": 96032.53125,
+            "decode_ms": 27845.583984375,
+            "finalize_ms": 263.0707092285156
+          },
+          "per_rank": [
+            {
+              "encode_ms": 583.7667236328125,
+              "diffuse_ms": 96032.53125,
+              "decode_ms": 27845.583984375,
+              "finalize_ms": 263.0707092285156,
+              "total_ms": 124724.95266723633,
+              "total_ms_wo_finalize": 124461.88195800781,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 124731.86967894435,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 81199.26889054477,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 181.4916534423828,
+            "diffuse_ms": 80695.2421875,
+            "decode_ms": 8.290847778320312,
+            "finalize_ms": 312.3619689941406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 181.4916534423828,
+              "diffuse_ms": 80695.2421875,
+              "decode_ms": 8.290847778320312,
+              "finalize_ms": 312.3619689941406,
+              "total_ms": 81197.38665771484,
+              "total_ms_wo_finalize": 80885.0246887207,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 81199.26889054477,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1861.066561192274,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.9847412109375,
+            "diffuse_ms": 1364.094970703125,
+            "decode_ms": 7.538112163543701,
+            "finalize_ms": 324.8186950683594
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.9847412109375,
+              "diffuse_ms": 1364.094970703125,
+              "decode_ms": 7.538112163543701,
+              "finalize_ms": 324.8186950683594,
+              "total_ms": 1860.4365191459656,
+              "total_ms_wo_finalize": 1535.6178240776062,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1861.066561192274,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2014.5772360265255,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.66934204101562,
+            "diffuse_ms": 1473.288330078125,
+            "decode_ms": 19.154176712036133,
+            "finalize_ms": 357.7861633300781
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.66934204101562,
+              "diffuse_ms": 1473.288330078125,
+              "decode_ms": 19.154176712036133,
+              "finalize_ms": 357.7861633300781,
+              "total_ms": 2013.8980121612549,
+              "total_ms_wo_finalize": 1656.1118488311768,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.423828125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2014.5772360265255,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2168.692423030734,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.9001922607422,
+            "diffuse_ms": 1592.3995361328125,
+            "decode_ms": 7.360960006713867,
+            "finalize_ms": 403.35052490234375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.9001922607422,
+              "diffuse_ms": 1592.3995361328125,
+              "decode_ms": 7.360960006713867,
+              "finalize_ms": 403.35052490234375,
+              "total_ms": 2168.0112133026123,
+              "total_ms_wo_finalize": 1764.6606884002686,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2168.692423030734,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 2178.6916963756084,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9667199850082397,
+            "diffuse_ms": 1732.883056640625,
+            "decode_ms": 7.317311763763428,
+            "finalize_ms": 436.9365234375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9667199850082397,
+              "diffuse_ms": 1732.883056640625,
+              "decode_ms": 7.317311763763428,
+              "finalize_ms": 436.9365234375,
+              "total_ms": 2178.1036118268967,
+              "total_ms_wo_finalize": 1741.1670883893967,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2178.6916963756084,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2151.623649522662,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.058784008026123,
+            "diffuse_ms": 1706.93115234375,
+            "decode_ms": 7.307648181915283,
+            "finalize_ms": 434.0836181640625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.058784008026123,
+              "diffuse_ms": 1706.93115234375,
+              "decode_ms": 7.307648181915283,
+              "finalize_ms": 434.0836181640625,
+              "total_ms": 2149.381202697754,
+              "total_ms_wo_finalize": 1715.2975845336914,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2151.623649522662,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2144.0724804997444,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8339200019836426,
+            "diffuse_ms": 1707.73046875,
+            "decode_ms": 7.480544090270996,
+            "finalize_ms": 427.4928283691406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8339200019836426,
+              "diffuse_ms": 1707.73046875,
+              "decode_ms": 7.480544090270996,
+              "finalize_ms": 427.4928283691406,
+              "total_ms": 2143.5377612113953,
+              "total_ms_wo_finalize": 1716.0449328422546,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2144.0724804997444,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2144.325716421008,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7915840148925781,
+            "diffuse_ms": 1712.18017578125,
+            "decode_ms": 7.505280017852783,
+            "finalize_ms": 423.29205322265625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7915840148925781,
+              "diffuse_ms": 1712.18017578125,
+              "decode_ms": 7.505280017852783,
+              "finalize_ms": 423.29205322265625,
+              "total_ms": 2143.7690930366516,
+              "total_ms_wo_finalize": 1720.4770398139954,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2144.325716421008,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2150.32472088933,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8196160197257996,
+            "diffuse_ms": 1720.412841796875,
+            "decode_ms": 7.421631813049316,
+            "finalize_ms": 421.1144714355469
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8196160197257996,
+              "diffuse_ms": 1720.412841796875,
+              "decode_ms": 7.421631813049316,
+              "finalize_ms": 421.1144714355469,
+              "total_ms": 2149.768561065197,
+              "total_ms_wo_finalize": 1728.6540896296501,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2150.32472088933,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2143.3675326406956,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7701759934425354,
+            "diffuse_ms": 1715.8299560546875,
+            "decode_ms": 7.379551887512207,
+            "finalize_ms": 418.8133850097656
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7701759934425354,
+              "diffuse_ms": 1715.8299560546875,
+              "decode_ms": 7.379551887512207,
+              "finalize_ms": 418.8133850097656,
+              "total_ms": 2142.793068945408,
+              "total_ms_wo_finalize": 1723.9796839356422,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2143.3675326406956,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.043604522943496704,
+            "bandwidth_gbps": 24.04741364465237
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.03139302134513855,
+            "bandwidth_gbps": 33.40156363007666
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 3 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-3",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 3,
+        "measurement_window": {
+          "started_at": 11145874.429096408,
+          "finished_at": 11145885.149589293,
+          "elapsed_s": 10.720492884516716
+        }
+      },
+      "summary": {
+        "fps": 5.5984819295074555,
+        "latency_ms": {
+          "median": 2141.4667814970016,
+          "p90": 2148.58845025301,
+          "min": 2137.736974284053,
+          "max": 2149.8332284390926
+        },
+        "encoder_ms": {
+          "median": 0.8732479810714722,
+          "p90": 1.1013311862945556,
+          "min": 0.8052160143852234,
+          "max": 1.227295994758606
+        },
+        "dit_ms": {
+          "median": 1709.76220703125,
+          "p90": 1713.335693359375,
+          "min": 1701.818603515625,
+          "max": 1715.22412109375
+        },
+        "decoder_ms": {
+          "median": 7.462048053741455,
+          "p90": 7.494681549072266,
+          "min": 7.314432144165039,
+          "max": 7.5155839920043945
+        },
+        "finalize_ms": {
+          "median": 427.0291442871094,
+          "p90": 429.3756530761719,
+          "min": 422.11553955078125,
+          "max": 429.9440612792969
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2110.627687424311,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 19.97764127262543,
+            "p90": 19.97764127262543,
+            "min": 19.97764127262543,
+            "max": 19.97764127262543
+          },
+          "all_gather": {
+            "median": 32.44294337375011,
+            "p90": 32.44294337375011,
+            "min": 32.44294337375011,
+            "max": 32.44294337375011
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 191956.83398284018,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 630.0097045898438,
+            "diffuse_ms": 92541.125,
+            "decode_ms": 98508.3203125,
+            "finalize_ms": 271.2525329589844
+          },
+          "per_rank": [
+            {
+              "encode_ms": 630.0097045898438,
+              "diffuse_ms": 92541.125,
+              "decode_ms": 98508.3203125,
+              "finalize_ms": 271.2525329589844,
+              "total_ms": 191950.70755004883,
+              "total_ms_wo_finalize": 191679.45501708984,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 191956.83398284018,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 16647.290909662843,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 183.00636291503906,
+            "diffuse_ms": 16145.9697265625,
+            "decode_ms": 8.30463981628418,
+            "finalize_ms": 308.3145751953125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 183.00636291503906,
+              "diffuse_ms": 16145.9697265625,
+              "decode_ms": 8.30463981628418,
+              "finalize_ms": 308.3145751953125,
+              "total_ms": 16645.595304489136,
+              "total_ms_wo_finalize": 16337.280729293823,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.8515625,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 16647.290909662843,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1868.4289250522852,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.72274780273438,
+            "diffuse_ms": 1366.1490478515625,
+            "decode_ms": 7.524960041046143,
+            "finalize_ms": 330.417236328125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.72274780273438,
+              "diffuse_ms": 1366.1490478515625,
+              "decode_ms": 7.524960041046143,
+              "finalize_ms": 330.417236328125,
+              "total_ms": 1867.813992023468,
+              "total_ms_wo_finalize": 1537.396755695343,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.8515625,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1868.4289250522852,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2023.038288578391,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.7052459716797,
+            "diffuse_ms": 1482.0423583984375,
+            "decode_ms": 19.439231872558594,
+            "finalize_ms": 357.0379943847656
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.7052459716797,
+              "diffuse_ms": 1482.0423583984375,
+              "decode_ms": 19.439231872558594,
+              "finalize_ms": 357.0379943847656,
+              "total_ms": 2022.2248306274414,
+              "total_ms_wo_finalize": 1665.1868362426758,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.47265625,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2023.038288578391,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2178.171617910266,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.34169006347656,
+            "diffuse_ms": 1600.6512451171875,
+            "decode_ms": 7.3787522315979,
+            "finalize_ms": 405.10858154296875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.34169006347656,
+              "diffuse_ms": 1600.6512451171875,
+              "decode_ms": 7.3787522315979,
+              "finalize_ms": 405.10858154296875,
+              "total_ms": 2177.4802689552307,
+              "total_ms_wo_finalize": 1772.371687412262,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.474609375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2178.171617910266,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 23423.814419656992,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9950079917907715,
+            "diffuse_ms": 22997.19921875,
+            "decode_ms": 7.346911907196045,
+            "finalize_ms": 417.6161804199219
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9950079917907715,
+              "diffuse_ms": 22997.19921875,
+              "decode_ms": 7.346911907196045,
+              "finalize_ms": 417.6161804199219,
+              "total_ms": 23423.15731906891,
+              "total_ms_wo_finalize": 23005.541138648987,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.474609375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 23423.814419656992,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2149.8332284390926,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.227295994758606,
+            "diffuse_ms": 1709.76220703125,
+            "decode_ms": 7.314432144165039,
+            "finalize_ms": 429.9440612792969
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.227295994758606,
+              "diffuse_ms": 1709.76220703125,
+              "decode_ms": 7.314432144165039,
+              "finalize_ms": 429.9440612792969,
+              "total_ms": 2148.2479964494705,
+              "total_ms_wo_finalize": 1718.3039351701736,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2149.8332284390926,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2137.736974284053,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8732479810714722,
+            "diffuse_ms": 1701.818603515625,
+            "decode_ms": 7.462048053741455,
+            "finalize_ms": 427.0291442871094
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8732479810714722,
+              "diffuse_ms": 1701.818603515625,
+              "decode_ms": 7.462048053741455,
+              "finalize_ms": 427.0291442871094,
+              "total_ms": 2137.1830438375473,
+              "total_ms_wo_finalize": 1710.153899550438,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2137.736974284053,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2141.4327062666416,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8181440234184265,
+            "diffuse_ms": 1704.036376953125,
+            "decode_ms": 7.422719955444336,
+            "finalize_ms": 428.5230407714844
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8181440234184265,
+              "diffuse_ms": 1704.036376953125,
+              "decode_ms": 7.422719955444336,
+              "finalize_ms": 428.5230407714844,
+              "total_ms": 2140.800281703472,
+              "total_ms_wo_finalize": 1712.2772409319878,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2141.4327062666416,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2146.7212829738855,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9123839735984802,
+            "diffuse_ms": 1715.22412109375,
+            "decode_ms": 7.463327884674072,
+            "finalize_ms": 422.5871276855469
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9123839735984802,
+              "diffuse_ms": 1715.22412109375,
+              "decode_ms": 7.463327884674072,
+              "finalize_ms": 422.5871276855469,
+              "total_ms": 2146.1869606375694,
+              "total_ms_wo_finalize": 1723.5998329520226,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2146.7212829738855,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2141.4667814970016,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8052160143852234,
+            "diffuse_ms": 1710.5030517578125,
+            "decode_ms": 7.5155839920043945,
+            "finalize_ms": 422.11553955078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8052160143852234,
+              "diffuse_ms": 1710.5030517578125,
+              "decode_ms": 7.5155839920043945,
+              "finalize_ms": 422.11553955078125,
+              "total_ms": 2140.9393913149834,
+              "total_ms_wo_finalize": 1718.8238517642021,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2141.4667814970016,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.05248747766017914,
+            "bandwidth_gbps": 19.97764127262543
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.032320618629455566,
+            "bandwidth_gbps": 32.44294337375011
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 4 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-4",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 4,
+        "measurement_window": {
+          "started_at": 11145874.429111345,
+          "finished_at": 11145885.253132468,
+          "elapsed_s": 10.824021123349667
+        }
+      },
+      "summary": {
+        "fps": 5.54487966051973,
+        "latency_ms": {
+          "median": 2166.7757872492075,
+          "p90": 2167.4971897155046,
+          "min": 2157.7277276664972,
+          "max": 2167.676465585828
+        },
+        "encoder_ms": {
+          "median": 0.856544017791748,
+          "p90": 1.0044992208480834,
+          "min": 0.7843199968338013,
+          "max": 1.0886080265045166
+        },
+        "dit_ms": {
+          "median": 1725.0692138671875,
+          "p90": 1734.29072265625,
+          "min": 1718.1109619140625,
+          "max": 1735.802978515625
+        },
+        "decoder_ms": {
+          "median": 7.404543876647949,
+          "p90": 7.512204837799072,
+          "min": 7.3921918869018555,
+          "max": 7.547520160675049
+        },
+        "finalize_ms": {
+          "median": 425.2576599121094,
+          "p90": 434.6324096679688,
+          "min": 422.6251220703125,
+          "max": 439.471435546875
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2090.4196320159385,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 19.047536911565285,
+            "p90": 19.047536911565285,
+            "min": 19.047536911565285,
+            "max": 19.047536911565285
+          },
+          "all_gather": {
+            "median": 28.24777728041106,
+            "p90": 28.24777728041106,
+            "min": 28.24777728041106,
+            "max": 28.24777728041106
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 204641.40384458005,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 614.59423828125,
+            "diffuse_ms": 92576.8046875,
+            "decode_ms": 111181.4765625,
+            "finalize_ms": 266.4762268066406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 614.59423828125,
+              "diffuse_ms": 92576.8046875,
+              "decode_ms": 111181.4765625,
+              "finalize_ms": 266.4762268066406,
+              "total_ms": 204639.3517150879,
+              "total_ms_wo_finalize": 204372.87548828125,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 204641.40384458005,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 13033.618155866861,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 182.26185607910156,
+            "diffuse_ms": 12527.947265625,
+            "decode_ms": 8.210687637329102,
+            "finalize_ms": 314.601318359375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 182.26185607910156,
+              "diffuse_ms": 12527.947265625,
+              "decode_ms": 8.210687637329102,
+              "finalize_ms": 314.601318359375,
+              "total_ms": 13033.021127700806,
+              "total_ms_wo_finalize": 12718.41980934143,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.984375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 13033.618155866861,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1881.8960543721914,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.98851013183594,
+            "diffuse_ms": 1375.63525390625,
+            "decode_ms": 7.641823768615723,
+            "finalize_ms": 334.04876708984375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.98851013183594,
+              "diffuse_ms": 1375.63525390625,
+              "decode_ms": 7.641823768615723,
+              "finalize_ms": 334.04876708984375,
+              "total_ms": 1881.3143548965454,
+              "total_ms_wo_finalize": 1547.2655878067017,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.984375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1881.8960543721914,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2042.4561835825443,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.9012451171875,
+            "diffuse_ms": 1495.1202392578125,
+            "decode_ms": 19.154144287109375,
+            "finalize_ms": 363.7153625488281
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.9012451171875,
+              "diffuse_ms": 1495.1202392578125,
+              "decode_ms": 19.154144287109375,
+              "finalize_ms": 363.7153625488281,
+              "total_ms": 2041.8909912109375,
+              "total_ms_wo_finalize": 1678.1756286621094,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.46875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2042.4561835825443,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2196.0909999907017,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 165.92530822753906,
+            "diffuse_ms": 1614.0648193359375,
+            "decode_ms": 7.3546881675720215,
+            "finalize_ms": 408.1500549316406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 165.92530822753906,
+              "diffuse_ms": 1614.0648193359375,
+              "decode_ms": 7.3546881675720215,
+              "finalize_ms": 408.1500549316406,
+              "total_ms": 2195.494870662689,
+              "total_ms_wo_finalize": 1787.3448157310486,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.470703125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2196.0909999907017,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 23326.71902887523,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9790400266647339,
+            "diffuse_ms": 22897.310546875,
+            "decode_ms": 7.355807781219482,
+            "finalize_ms": 420.5391540527344
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9790400266647339,
+              "diffuse_ms": 22897.310546875,
+              "decode_ms": 7.355807781219482,
+              "finalize_ms": 420.5391540527344,
+              "total_ms": 23326.18454873562,
+              "total_ms_wo_finalize": 22905.645394682884,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.470703125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 23326.71902887523,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2167.676465585828,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0886080265045166,
+            "diffuse_ms": 1718.1109619140625,
+            "decode_ms": 7.394752025604248,
+            "finalize_ms": 439.471435546875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0886080265045166,
+              "diffuse_ms": 1718.1109619140625,
+              "decode_ms": 7.394752025604248,
+              "finalize_ms": 439.471435546875,
+              "total_ms": 2166.0657575130463,
+              "total_ms_wo_finalize": 1726.5943219661713,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2167.676465585828,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2161.385642364621,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.856544017791748,
+            "diffuse_ms": 1725.0692138671875,
+            "decode_ms": 7.547520160675049,
+            "finalize_ms": 427.3738708496094
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.856544017791748,
+              "diffuse_ms": 1725.0692138671875,
+              "decode_ms": 7.547520160675049,
+              "finalize_ms": 427.3738708496094,
+              "total_ms": 2160.8471488952637,
+              "total_ms_wo_finalize": 1733.4732780456543,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2161.385642364621,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2157.7277276664972,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8032320141792297,
+            "diffuse_ms": 1724.963623046875,
+            "decode_ms": 7.459231853485107,
+            "finalize_ms": 423.8592529296875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8032320141792297,
+              "diffuse_ms": 1724.963623046875,
+              "decode_ms": 7.459231853485107,
+              "finalize_ms": 423.8592529296875,
+              "total_ms": 2157.085339844227,
+              "total_ms_wo_finalize": 1733.2260869145393,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2157.7277276664972,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2167.22827591002,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8783360123634338,
+            "diffuse_ms": 1735.802978515625,
+            "decode_ms": 7.404543876647949,
+            "finalize_ms": 422.6251220703125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8783360123634338,
+              "diffuse_ms": 1735.802978515625,
+              "decode_ms": 7.404543876647949,
+              "finalize_ms": 422.6251220703125,
+              "total_ms": 2166.710980474949,
+              "total_ms_wo_finalize": 1744.0858584046364,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2167.22827591002,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2166.7757872492075,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7843199968338013,
+            "diffuse_ms": 1732.0223388671875,
+            "decode_ms": 7.3921918869018555,
+            "finalize_ms": 425.2576599121094
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7843199968338013,
+              "diffuse_ms": 1732.0223388671875,
+              "decode_ms": 7.3921918869018555,
+              "finalize_ms": 425.2576599121094,
+              "total_ms": 2165.4565106630325,
+              "total_ms_wo_finalize": 1740.1988507509232,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2166.7757872492075,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.055050477385520935,
+            "bandwidth_gbps": 19.047536911565285
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.03712065517902374,
+            "bandwidth_gbps": 28.24777728041106
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 5 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-5",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 5,
+        "measurement_window": {
+          "started_at": 11145874.429121751,
+          "finished_at": 11145885.288201544,
+          "elapsed_s": 10.859079793095589
+        }
+      },
+      "summary": {
+        "fps": 5.526838929943354,
+        "latency_ms": {
+          "median": 2172.3211836069822,
+          "p90": 2173.0400942265987,
+          "min": 2165.900409221649,
+          "max": 2173.2870899140835
+        },
+        "encoder_ms": {
+          "median": 0.8277760148048401,
+          "p90": 0.9301823973655701,
+          "min": 0.8144639730453491,
+          "max": 0.9792320132255554
+        },
+        "dit_ms": {
+          "median": 1733.2933349609375,
+          "p90": 1736.2165771484374,
+          "min": 1730.846435546875,
+          "max": 1736.8795166015625
+        },
+        "decoder_ms": {
+          "median": 7.442975997924805,
+          "p90": 7.5361793518066404,
+          "min": 7.399968147277832,
+          "max": 7.574848175048828
+        },
+        "finalize_ms": {
+          "median": 429.31097412109375,
+          "p90": 430.79743041992185,
+          "min": 426.1729736328125,
+          "max": 431.2060852050781
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2083.6182765886447,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 22.004845148001095,
+            "p90": 22.004845148001095,
+            "min": 22.004845148001095,
+            "max": 22.004845148001095
+          },
+          "all_gather": {
+            "median": 34.167877726469534,
+            "p90": 34.167877726469534,
+            "min": 34.167877726469534,
+            "max": 34.167877726469534
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 179743.6931002885,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 602.4649047851562,
+            "diffuse_ms": 92286.421875,
+            "decode_ms": 86584.2265625,
+            "finalize_ms": 268.6270751953125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 602.4649047851562,
+              "diffuse_ms": 92286.421875,
+              "decode_ms": 86584.2265625,
+              "finalize_ms": 268.6270751953125,
+              "total_ms": 179741.74041748047,
+              "total_ms_wo_finalize": 179473.11334228516,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 179743.6931002885,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 85268.3373503387,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 183.08604431152344,
+            "diffuse_ms": 84764.8359375,
+            "decode_ms": 8.193632125854492,
+            "finalize_ms": 310.8353271484375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 183.08604431152344,
+              "diffuse_ms": 84764.8359375,
+              "decode_ms": 8.193632125854492,
+              "finalize_ms": 310.8353271484375,
+              "total_ms": 85266.95094108582,
+              "total_ms_wo_finalize": 84956.11561393738,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 85268.3373503387,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1873.354883864522,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.9582061767578,
+            "diffuse_ms": 1372.1710205078125,
+            "decode_ms": 7.503200054168701,
+            "finalize_ms": 329.1710205078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.9582061767578,
+              "diffuse_ms": 1372.1710205078125,
+              "decode_ms": 7.503200054168701,
+              "finalize_ms": 329.1710205078125,
+              "total_ms": 1872.8034472465515,
+              "total_ms_wo_finalize": 1543.632426738739,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1873.354883864522,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2037.762951105833,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.39071655273438,
+            "diffuse_ms": 1489.8067626953125,
+            "decode_ms": 18.76563262939453,
+            "finalize_ms": 364.2565002441406
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.39071655273438,
+              "diffuse_ms": 1489.8067626953125,
+              "decode_ms": 18.76563262939453,
+              "finalize_ms": 364.2565002441406,
+              "total_ms": 2037.219612121582,
+              "total_ms_wo_finalize": 1672.9631118774414,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.423828125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2037.762951105833,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2178.1770400702953,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 166.12477111816406,
+            "diffuse_ms": 1598.2432861328125,
+            "decode_ms": 7.306079864501953,
+            "finalize_ms": 405.9862365722656
+          },
+          "per_rank": [
+            {
+              "encode_ms": 166.12477111816406,
+              "diffuse_ms": 1598.2432861328125,
+              "decode_ms": 7.306079864501953,
+              "finalize_ms": 405.9862365722656,
+              "total_ms": 2177.660373687744,
+              "total_ms_wo_finalize": 1771.6741371154785,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2178.1770400702953,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 2168.7360797077417,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8688639998435974,
+            "diffuse_ms": 1722.0150146484375,
+            "decode_ms": 7.41596794128418,
+            "finalize_ms": 437.7752380371094
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8688639998435974,
+              "diffuse_ms": 1722.0150146484375,
+              "decode_ms": 7.41596794128418,
+              "finalize_ms": 437.7752380371094,
+              "total_ms": 2168.0750846266747,
+              "total_ms_wo_finalize": 1730.2998465895653,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2168.7360797077417,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2171.936895698309,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9792320132255554,
+            "diffuse_ms": 1730.888916015625,
+            "decode_ms": 7.574848175048828,
+            "finalize_ms": 431.2060852050781
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9792320132255554,
+              "diffuse_ms": 1730.888916015625,
+              "decode_ms": 7.574848175048828,
+              "finalize_ms": 431.2060852050781,
+              "total_ms": 2170.6490814089775,
+              "total_ms_wo_finalize": 1739.4429962038994,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2171.936895698309,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2165.900409221649,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.856607973575592,
+            "diffuse_ms": 1730.846435546875,
+            "decode_ms": 7.478176116943359,
+            "finalize_ms": 426.1729736328125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.856607973575592,
+              "diffuse_ms": 1730.846435546875,
+              "decode_ms": 7.478176116943359,
+              "finalize_ms": 426.1729736328125,
+              "total_ms": 2165.3541932702065,
+              "total_ms_wo_finalize": 1739.181219637394,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2165.900409221649,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2172.6696006953716,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8150079846382141,
+            "diffuse_ms": 1736.8795166015625,
+            "decode_ms": 7.401760101318359,
+            "finalize_ms": 427.0155944824219
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8150079846382141,
+              "diffuse_ms": 1736.8795166015625,
+              "decode_ms": 7.401760101318359,
+              "finalize_ms": 427.0155944824219,
+              "total_ms": 2172.111879169941,
+              "total_ms_wo_finalize": 1745.096284687519,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2172.6696006953716,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2173.2870899140835,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8144639730453491,
+            "diffuse_ms": 1735.22216796875,
+            "decode_ms": 7.399968147277832,
+            "finalize_ms": 429.31097412109375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8144639730453491,
+              "diffuse_ms": 1735.22216796875,
+              "decode_ms": 7.399968147277832,
+              "finalize_ms": 429.31097412109375,
+              "total_ms": 2172.747574210167,
+              "total_ms_wo_finalize": 1743.4366000890732,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2173.2870899140835,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2172.3211836069822,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8277760148048401,
+            "diffuse_ms": 1733.2933349609375,
+            "decode_ms": 7.442975997924805,
+            "finalize_ms": 430.1844482421875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8277760148048401,
+              "diffuse_ms": 1733.2933349609375,
+              "decode_ms": 7.442975997924805,
+              "finalize_ms": 430.1844482421875,
+              "total_ms": 2171.7485352158546,
+              "total_ms_wo_finalize": 1741.5640869736671,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2172.3211836069822,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.047652050852775574,
+            "bandwidth_gbps": 22.004845148001095
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.030688941478729248,
+            "bandwidth_gbps": 34.167877726469534
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 6 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-6",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 6,
+        "measurement_window": {
+          "started_at": 11145874.429398024,
+          "finished_at": 11145885.253023999,
+          "elapsed_s": 10.823625974357128
+        }
+      },
+      "summary": {
+        "fps": 5.545099936557462,
+        "latency_ms": {
+          "median": 2159.7884446382523,
+          "p90": 2171.7981200665236,
+          "min": 2158.867284655571,
+          "max": 2173.339394852519
+        },
+        "encoder_ms": {
+          "median": 0.8133440017700195,
+          "p90": 0.999020791053772,
+          "min": 0.7985600233078003,
+          "max": 1.0879679918289185
+        },
+        "dit_ms": {
+          "median": 1724.6712646484375,
+          "p90": 1736.9388427734375,
+          "min": 1710.7734375,
+          "max": 1737.7554931640625
+        },
+        "decoder_ms": {
+          "median": 7.494592189788818,
+          "p90": 7.506969451904297,
+          "min": 7.348320007324219,
+          "max": 7.512127876281738
+        },
+        "finalize_ms": {
+          "median": 426.65533447265625,
+          "p90": 435.1299621582031,
+          "min": 424.867431640625,
+          "max": 438.1396789550781
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2090.5026760821634,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 22.40329327528303,
+            "p90": 22.40329327528303,
+            "min": 22.40329327528303,
+            "max": 22.40329327528303
+          },
+          "all_gather": {
+            "median": 32.5592801284738,
+            "p90": 32.5592801284738,
+            "min": 32.5592801284738,
+            "max": 32.5592801284738
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 194030.51247261465,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 583.8138427734375,
+            "diffuse_ms": 92297.609375,
+            "decode_ms": 100880.5,
+            "finalize_ms": 264.7221984863281
+          },
+          "per_rank": [
+            {
+              "encode_ms": 583.8138427734375,
+              "diffuse_ms": 92297.609375,
+              "decode_ms": 100880.5,
+              "finalize_ms": 264.7221984863281,
+              "total_ms": 194026.64541625977,
+              "total_ms_wo_finalize": 193761.92321777344,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 194030.51247261465,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 15083.65355990827,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 182.58604431152344,
+            "diffuse_ms": 14577.419921875,
+            "decode_ms": 8.33779239654541,
+            "finalize_ms": 313.6082458496094
+          },
+          "per_rank": [
+            {
+              "encode_ms": 182.58604431152344,
+              "diffuse_ms": 14577.419921875,
+              "decode_ms": 8.33779239654541,
+              "finalize_ms": 313.6082458496094,
+              "total_ms": 15081.952004432678,
+              "total_ms_wo_finalize": 14768.343758583069,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.984375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 15083.65355990827,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1872.1758779138327,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.10211181640625,
+            "diffuse_ms": 1370.0150146484375,
+            "decode_ms": 7.51907205581665,
+            "finalize_ms": 329.8470764160156
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.10211181640625,
+              "diffuse_ms": 1370.0150146484375,
+              "decode_ms": 7.51907205581665,
+              "finalize_ms": 329.8470764160156,
+              "total_ms": 1871.483274936676,
+              "total_ms_wo_finalize": 1541.6361985206604,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.984375,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1872.1758779138327,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2037.8571413457394,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.83395385742188,
+            "diffuse_ms": 1482.5743408203125,
+            "decode_ms": 27.436864852905273,
+            "finalize_ms": 363.39678955078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.83395385742188,
+              "diffuse_ms": 1482.5743408203125,
+              "decode_ms": 27.436864852905273,
+              "finalize_ms": 363.39678955078125,
+              "total_ms": 2037.241949081421,
+              "total_ms_wo_finalize": 1673.8451595306396,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.46875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2037.8571413457394,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2179.8755042254925,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.06253051757812,
+            "diffuse_ms": 1599.4937744140625,
+            "decode_ms": 7.367199897766113,
+            "finalize_ms": 407.2137451171875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.06253051757812,
+              "diffuse_ms": 1599.4937744140625,
+              "decode_ms": 7.367199897766113,
+              "finalize_ms": 407.2137451171875,
+              "total_ms": 2178.1372499465942,
+              "total_ms_wo_finalize": 1770.9235048294067,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.470703125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2179.8755042254925,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 23413.542149588466,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0579520463943481,
+            "diffuse_ms": 22986.931640625,
+            "decode_ms": 7.357728004455566,
+            "finalize_ms": 417.3621826171875
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0579520463943481,
+              "diffuse_ms": 22986.931640625,
+              "decode_ms": 7.357728004455566,
+              "finalize_ms": 417.3621826171875,
+              "total_ms": 23412.709503293037,
+              "total_ms_wo_finalize": 22995.34732067585,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.470703125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 23413.542149588466,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2158.8827166706324,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0879679918289185,
+            "diffuse_ms": 1710.7734375,
+            "decode_ms": 7.348320007324219,
+            "finalize_ms": 438.1396789550781
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0879679918289185,
+              "diffuse_ms": 1710.7734375,
+              "decode_ms": 7.348320007324219,
+              "finalize_ms": 438.1396789550781,
+              "total_ms": 2157.3494044542313,
+              "total_ms_wo_finalize": 1719.2097254991531,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2158.8827166706324,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2159.7884446382523,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8655999898910522,
+            "diffuse_ms": 1720.193115234375,
+            "decode_ms": 7.499231815338135,
+            "finalize_ms": 430.6153869628906
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8655999898910522,
+              "diffuse_ms": 1720.193115234375,
+              "decode_ms": 7.499231815338135,
+              "finalize_ms": 430.6153869628906,
+              "total_ms": 2159.173334002495,
+              "total_ms_wo_finalize": 1728.5579470396042,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2159.7884446382523,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2158.867284655571,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8133440017700195,
+            "diffuse_ms": 1724.6712646484375,
+            "decode_ms": 7.512127876281738,
+            "finalize_ms": 425.1802978515625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8133440017700195,
+              "diffuse_ms": 1724.6712646484375,
+              "decode_ms": 7.512127876281738,
+              "finalize_ms": 425.1802978515625,
+              "total_ms": 2158.1770343780518,
+              "total_ms_wo_finalize": 1732.9967365264893,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2158.867284655571,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2169.4862078875303,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.810368001461029,
+            "diffuse_ms": 1735.7138671875,
+            "decode_ms": 7.494592189788818,
+            "finalize_ms": 424.867431640625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.810368001461029,
+              "diffuse_ms": 1735.7138671875,
+              "decode_ms": 7.494592189788818,
+              "finalize_ms": 424.867431640625,
+              "total_ms": 2168.886259019375,
+              "total_ms_wo_finalize": 1744.0188273787498,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2169.4862078875303,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2173.339394852519,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7985600233078003,
+            "diffuse_ms": 1737.7554931640625,
+            "decode_ms": 7.436384201049805,
+            "finalize_ms": 426.65533447265625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7985600233078003,
+              "diffuse_ms": 1737.7554931640625,
+              "decode_ms": 7.436384201049805,
+              "finalize_ms": 426.65533447265625,
+              "total_ms": 2172.6457718610764,
+              "total_ms_wo_finalize": 1745.99043738842,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2173.339394852519,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.04680454730987549,
+            "bandwidth_gbps": 22.40329327528303
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.03220513463020325,
+            "bandwidth_gbps": 32.5592801284738
+          }
+        ]
+      }
+    },
+    {
+      "environment": {
+        "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --warmup-blocks 6 --measured-blocks 5 --pixel-height 464 --pixel-width 832 --fps 16 --cp-method ulysses --bandwidth-probe-mib 1 --bandwidth-probe-iters 1 --comparison-json /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/no-comparison.json --replica-id 7 --measurement-barrier-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/barrier --output-dir /lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_computervision/users/gtong/flashdreams-dist/outputs/lingbot_aggregated_8xcp1/worker-7",
+        "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+        "worktree_dirty": true,
+        "hostname": "pool0-01151",
+        "slurm_job_id": "14793417",
+        "python": "3.12.13",
+        "model": "lingbot-world-fast-taehv-window15-sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16",
+        "decoder_config": "TeahvVAEDecoderConfig",
+        "seed": 42,
+        "example_index": 0,
+        "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+        "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+        "resolution": [
+          464,
+          832
+        ],
+        "target_fps": 16,
+        "latent_frames_per_chunk": 3,
+        "window_size_t": 15,
+        "sink_size_t": 3,
+        "guidance_scale": 1.0,
+        "num_inference_steps": 4,
+        "compile_network": true,
+        "warmup_blocks": 6,
+        "measured_blocks": 5,
+        "torch": "2.12.1+cu130",
+        "cuda": "13.0",
+        "cudnn": 92000,
+        "driver": "535.216.03",
+        "mooncake": "0.3.12.post1",
+        "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+        "torchinductor_compile_threads": "4",
+        "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+        "gpus": [
+          "NVIDIA H100 80GB HBM3"
+        ],
+        "rdma_device": null,
+        "allocation": {
+          "full_pipeline_replicas": [
+            0
+          ],
+          "dit_cp_group": [
+            0
+          ],
+          "cp_size": 1,
+          "cp_method": "ulysses"
+        },
+        "token_layout": {
+          "latent_height": 58,
+          "latent_width": 104,
+          "tokens_per_chunk": 4524,
+          "tokens_per_rank": 4524
+        },
+        "transport": {
+          "stage_handoffs": "none",
+          "dit_collectives": "NCCL"
+        },
+        "noise_seed_by_rank": [
+          42
+        ],
+        "replica_id": 7,
+        "measurement_window": {
+          "started_at": 11145874.429074887,
+          "finished_at": 11145885.175903356,
+          "elapsed_s": 10.746828468516469
+        }
+      },
+      "summary": {
+        "fps": 5.584655369399949,
+        "latency_ms": {
+          "median": 2148.4167370945215,
+          "p90": 2151.7272770404816,
+          "min": 2144.309898838401,
+          "max": 2151.90726518631
+        },
+        "encoder_ms": {
+          "median": 0.8322880268096924,
+          "p90": 1.0315904140472412,
+          "min": 0.7863680124282837,
+          "max": 1.0977280139923096
+        },
+        "dit_ms": {
+          "median": 1717.7955322265625,
+          "p90": 1720.198095703125,
+          "min": 1704.934814453125,
+          "max": 1721.02099609375
+        },
+        "decoder_ms": {
+          "median": 7.437119960784912,
+          "p90": 7.498579216003418,
+          "min": 7.367008209228516,
+          "max": 7.50710391998291
+        },
+        "finalize_ms": {
+          "median": 424.7770690917969,
+          "p90": 431.455810546875,
+          "min": 420.665771484375,
+          "max": 432.703369140625
+        },
+        "tokens_per_chunk": 4524,
+        "token_throughput_per_second": 2105.4150742637808,
+        "cp_probe_gbps": {
+          "broadcast": {
+            "median": 23.612682077988,
+            "p90": 23.612682077988,
+            "min": 23.612682077988,
+            "max": 23.612682077988
+          },
+          "all_gather": {
+            "median": 27.606411995945077,
+            "p90": 27.606411995945077,
+            "min": 27.606411995945077,
+            "max": 27.606411995945077
+          }
+        },
+        "memory": {
+          "peak_gib_by_rank": [
+            59.35440921783447
+          ],
+          "steady_allocated_gib_by_rank": [
+            57.14538335800171
+          ],
+          "initialization_peak_gib_by_rank": [
+            66.54739189147949
+          ],
+          "node_peak_gib": 59.35440921783447,
+          "node_steady_allocated_gib": 57.14538335800171,
+          "per_rank_peak_gib": {
+            "median": 59.35440921783447,
+            "p90": 59.35440921783447,
+            "min": 59.35440921783447,
+            "max": 59.35440921783447
+          }
+        }
+      },
+      "records": [
+        {
+          "autoregressive_index": 0,
+          "warmup": true,
+          "end_to_end_ms": 162844.9953533709,
+          "output_frames": 9,
+          "critical_rank": {
+            "encode_ms": 592.1774291992188,
+            "diffuse_ms": 101462.015625,
+            "decode_ms": 60524.4921875,
+            "finalize_ms": 264.7309875488281
+          },
+          "per_rank": [
+            {
+              "encode_ms": 592.1774291992188,
+              "diffuse_ms": 101462.015625,
+              "decode_ms": 60524.4921875,
+              "finalize_ms": 264.7309875488281,
+              "total_ms": 162843.41622924805,
+              "total_ms_wo_finalize": 162578.68524169922,
+              "mem_alloc_gib": 57.087345123291016,
+              "mem_reserved_gib": 61.439453125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 162844.9953533709,
+              "output_frames": 9,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 1,
+          "warmup": true,
+          "end_to_end_ms": 79477.71265730262,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 181.90762329101562,
+            "diffuse_ms": 78975.09375,
+            "decode_ms": 8.219840049743652,
+            "finalize_ms": 311.2512512207031
+          },
+          "per_rank": [
+            {
+              "encode_ms": 181.90762329101562,
+              "diffuse_ms": 78975.09375,
+              "decode_ms": 8.219840049743652,
+              "finalize_ms": 311.2512512207031,
+              "total_ms": 79476.47246456146,
+              "total_ms_wo_finalize": 79165.22121334076,
+              "mem_alloc_gib": 57.08803939819336,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 79477.71265730262,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 2,
+          "warmup": true,
+          "end_to_end_ms": 1865.990050137043,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 163.68588256835938,
+            "diffuse_ms": 1364.6890869140625,
+            "decode_ms": 7.480703830718994,
+            "finalize_ms": 329.5069580078125
+          },
+          "per_rank": [
+            {
+              "encode_ms": 163.68588256835938,
+              "diffuse_ms": 1364.6890869140625,
+              "decode_ms": 7.480703830718994,
+              "finalize_ms": 329.5069580078125,
+              "total_ms": 1865.3626313209534,
+              "total_ms_wo_finalize": 1535.8556733131409,
+              "mem_alloc_gib": 57.08770561218262,
+              "mem_reserved_gib": 61.857421875,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 1865.990050137043,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 3,
+          "warmup": true,
+          "end_to_end_ms": 2023.2099127024412,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.17910766601562,
+            "diffuse_ms": 1482.314208984375,
+            "decode_ms": 19.14019203186035,
+            "finalize_ms": 356.9726257324219
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.17910766601562,
+              "diffuse_ms": 1482.314208984375,
+              "decode_ms": 19.14019203186035,
+              "finalize_ms": 356.9726257324219,
+              "total_ms": 2022.6061344146729,
+              "total_ms_wo_finalize": 1665.633508682251,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.423828125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2023.2099127024412,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 4,
+          "warmup": true,
+          "end_to_end_ms": 2183.0479446798563,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 164.3009033203125,
+            "diffuse_ms": 1606.981689453125,
+            "decode_ms": 7.380767822265625,
+            "finalize_ms": 403.021240234375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 164.3009033203125,
+              "diffuse_ms": 1606.981689453125,
+              "decode_ms": 7.380767822265625,
+              "finalize_ms": 403.021240234375,
+              "total_ms": 2181.684600830078,
+              "total_ms_wo_finalize": 1778.6633605957031,
+              "mem_alloc_gib": 57.144843101501465,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2183.0479446798563,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 5,
+          "warmup": true,
+          "end_to_end_ms": 2164.208112284541,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9376959800720215,
+            "diffuse_ms": 1718.5064697265625,
+            "decode_ms": 7.4245758056640625,
+            "finalize_ms": 436.6324157714844
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9376959800720215,
+              "diffuse_ms": 1718.5064697265625,
+              "decode_ms": 7.4245758056640625,
+              "finalize_ms": 436.6324157714844,
+              "total_ms": 2163.501157283783,
+              "total_ms_wo_finalize": 1726.8687415122986,
+              "mem_alloc_gib": 57.14517688751221,
+              "mem_reserved_gib": 62.42578125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2164.208112284541,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 6,
+          "warmup": false,
+          "end_to_end_ms": 2147.633533924818,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 1.0977280139923096,
+            "diffuse_ms": 1704.934814453125,
+            "decode_ms": 7.367008209228516,
+            "finalize_ms": 432.703369140625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 1.0977280139923096,
+              "diffuse_ms": 1704.934814453125,
+              "decode_ms": 7.367008209228516,
+              "finalize_ms": 432.703369140625,
+              "total_ms": 2146.102919816971,
+              "total_ms_wo_finalize": 1713.3995506763458,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2147.633533924818,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 7,
+          "warmup": false,
+          "end_to_end_ms": 2144.309898838401,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.9323840141296387,
+            "diffuse_ms": 1705.7056884765625,
+            "decode_ms": 7.50710391998291,
+            "finalize_ms": 429.58447265625
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.9323840141296387,
+              "diffuse_ms": 1705.7056884765625,
+              "decode_ms": 7.50710391998291,
+              "finalize_ms": 429.58447265625,
+              "total_ms": 2143.729649066925,
+              "total_ms_wo_finalize": 1714.145176410675,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2144.309898838401,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 8,
+          "warmup": false,
+          "end_to_end_ms": 2151.457294821739,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8322880268096924,
+            "diffuse_ms": 1717.7955322265625,
+            "decode_ms": 7.48579216003418,
+            "finalize_ms": 424.7770690917969
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8322880268096924,
+              "diffuse_ms": 1717.7955322265625,
+              "decode_ms": 7.48579216003418,
+              "finalize_ms": 424.7770690917969,
+              "total_ms": 2150.8906815052032,
+              "total_ms_wo_finalize": 1726.1136124134064,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2151.457294821739,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 9,
+          "warmup": false,
+          "end_to_end_ms": 2148.4167370945215,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.8064320087432861,
+            "diffuse_ms": 1718.9637451171875,
+            "decode_ms": 7.437119960784912,
+            "finalize_ms": 420.665771484375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.8064320087432861,
+              "diffuse_ms": 1718.9637451171875,
+              "decode_ms": 7.437119960784912,
+              "finalize_ms": 420.665771484375,
+              "total_ms": 2147.8730685710907,
+              "total_ms_wo_finalize": 1727.2072970867157,
+              "mem_alloc_gib": 57.14571714401245,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2148.4167370945215,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        },
+        {
+          "autoregressive_index": 10,
+          "warmup": false,
+          "end_to_end_ms": 2151.90726518631,
+          "output_frames": 12,
+          "critical_rank": {
+            "encode_ms": 0.7863680124282837,
+            "diffuse_ms": 1721.02099609375,
+            "decode_ms": 7.382271766662598,
+            "finalize_ms": 422.1673583984375
+          },
+          "per_rank": [
+            {
+              "encode_ms": 0.7863680124282837,
+              "diffuse_ms": 1721.02099609375,
+              "decode_ms": 7.382271766662598,
+              "finalize_ms": 422.1673583984375,
+              "total_ms": 2151.3569942712784,
+              "total_ms_wo_finalize": 1729.1896358728409,
+              "mem_alloc_gib": 57.14538335800171,
+              "mem_reserved_gib": 62.580078125,
+              "mem_peak_gib": 59.35440921783447,
+              "wall_ms": 2151.90726518631,
+              "output_frames": 12,
+              "rank": 0
+            }
+          ]
+        }
+      ],
+      "cp_probe": {
+        "broadcast": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.04440732300281525,
+            "bandwidth_gbps": 23.612682077988
+          }
+        ],
+        "all_gather": [
+          {
+            "payload_bytes": 1048576.0,
+            "transfer_ms": 0.037983059883117676,
+            "bandwidth_gbps": 27.606411995945077
+          }
+        ]
+      }
+    }
+  ]
+}

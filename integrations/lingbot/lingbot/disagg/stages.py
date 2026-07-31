@@ -299,6 +299,31 @@ class LingbotDiTStage(DiffusionStage[LingbotWorldTransformerCache]):
         assert isinstance(transformer, LingbotWorldTransformer)
         transformer.set_context_parallel_group(cp_group)
 
+    def configure_pipeline_parallel(
+        self,
+        *,
+        stage_index: int,
+        stage_count: int,
+        group: ProcessGroup,
+        ranks: tuple[int, ...],
+    ) -> None:
+        """Partition the DiT and bind its ordered NCCL rank group.
+
+        Args:
+            stage_index: Zero-based position inside the pipeline group.
+            stage_count: Number of pipeline stages.
+            group: NCCL process group containing the pipeline ranks.
+            ranks: Global ranks ordered from input to output stage.
+        """
+        transformer = self.diffusion_model.transformer
+        assert isinstance(transformer, LingbotWorldTransformer)
+        transformer.configure_pipeline_parallel(
+            stage_index=stage_index,
+            stage_count=stage_count,
+            group=group,
+            ranks=ranks,
+        )
+
     def initialize_cache(
         self,
         conditioning: LingbotConditioning,

@@ -114,6 +114,42 @@ class LingbotWorldTransformer(Wan21Transformer):
         if self._use_cuda_graph:
             self._cuda_graph_dispatch.reset()
 
+    def configure_pipeline_parallel(
+        self,
+        *,
+        stage_index: int,
+        stage_count: int,
+        group: ProcessGroup,
+        ranks: tuple[int, ...],
+    ) -> None:
+        """Partition DiT layers and bind a fixed NCCL pipeline group.
+
+        Args:
+            stage_index: Zero-based position inside the pipeline group.
+            stage_count: Number of pipeline stages.
+            group: NCCL process group containing the pipeline ranks.
+            ranks: Global ranks ordered from input to output stage.
+
+        Raises:
+            RuntimeError: A rollout cache exists or CUDA graphs are enabled.
+        """
+        if self._output_height is not None or self._output_width is not None:
+            raise RuntimeError(
+                "Pipeline parallelism must be configured before cache initialization."
+            )
+        if self._use_cuda_graph:
+            raise RuntimeError(
+                "Pipeline-parallel DiT stages do not support CUDA graph capture."
+            )
+        network = getattr(self.network, "_orig_mod", self.network)
+        assert isinstance(network, LingbotWorldDiTNetwork)
+        network.configure_pipeline_parallel(
+            stage_index=stage_index,
+            stage_count=stage_count,
+            group=group,
+            ranks=ranks,
+        )
+
     @torch.no_grad()
     def replace_text_embeddings(
         self,

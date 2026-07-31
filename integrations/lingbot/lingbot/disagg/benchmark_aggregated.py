@@ -73,6 +73,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bandwidth-probe-mib", type=int, default=256)
     parser.add_argument("--bandwidth-probe-iters", type=int, default=8)
     parser.add_argument("--rdma-device", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--replica-id", type=int, default=0)
+    parser.add_argument(
+        "--measurement-barrier-dir",
+        type=Path,
+        default=None,
+        help="Optional shared directory that synchronizes independent replicas after warmup.",
+    )
     parser.add_argument("--comparison-json", type=Path, default=_DEFAULT_COMPARISON)
     parser.add_argument(
         "--output-dir",
@@ -80,6 +87,35 @@ def _parse_args() -> argparse.Namespace:
         default=Path("outputs/lingbot_aggregated_cp8"),
     )
     return parser.parse_args()
+
+
+def _wait_for_measurement_release(
+    barrier_dir: Path,
+    *,
+    replica_id: int,
+    timeout_s: float = 3600.0,
+) -> None:
+    """Advertise readiness and wait for the independent-replica release file.
+
+    Args:
+        barrier_dir: Shared directory containing readiness and release files.
+        replica_id: Unique independent-replica index.
+        timeout_s: Maximum time to wait for the coordinator.
+
+    Raises:
+        TimeoutError: The coordinator does not release measurement in time.
+    """
+    barrier_dir.mkdir(parents=True, exist_ok=True)
+    (barrier_dir / f"ready-{replica_id}").write_text("ready\n")
+    release = barrier_dir / "release"
+    deadline = time.monotonic() + timeout_s
+    while not release.is_file():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Replica {replica_id} did not receive measurement release within "
+                f"{timeout_s:.0f} seconds."
+            )
+        time.sleep(0.001)
 
 
 def _token_layout(
@@ -223,7 +259,7 @@ def _write_report(
     )
     memory = summary["memory"]
     comparison = summary.get("comparison")
-    comparison_rows = ""
+    comparison_section = ""
     if comparison is not None:
         comparison_rows = "\n".join(
             (
@@ -242,6 +278,17 @@ def _write_report(
                 f"{comparison['node_peak_memory_ratio']:.2f}× |",
             )
         )
+        comparison_section = f"""\
+## Comparison with disaggregated CP
+
+| Metric | {comparison["topology"]} | Aggregated CP{environment["allocation"]["cp_size"]} | Change |
+| --- | ---: | ---: | ---: |
+{comparison_rows}
+
+The resolutions may differ when the token grid cannot divide evenly over both
+CP groups. Token throughput is the fairest compute-rate comparison in that
+case.
+"""
     markdown = f"""# LingBot aggregated CP{environment["allocation"]["cp_size"]} benchmark
 
 All ranks own the complete encoder, DiT, and decoder pipeline. The DiT token
@@ -266,15 +313,7 @@ boundaries in this topology.
 - Peak allocated HBM: **{memory["per_rank_peak_gib"]["min"]:.2f}–{memory["per_rank_peak_gib"]["max"]:.2f} GiB per rank**, **{memory["node_peak_gib"]:.2f} GiB node total**
 - Steady allocated HBM after rollout: **{memory["node_steady_allocated_gib"]:.2f} GiB node total**
 
-## Comparison with disaggregated CP
-
-| Metric | Disaggregated CP6 | Aggregated CP8 | Change |
-| --- | ---: | ---: | ---: |
-{comparison_rows}
-
-The resolutions differ because the tracked 832×464 grid has 4,524 tokens,
-which is not divisible by eight. CP8 uses 832×448 and 4,368 tokens (3.45%
-fewer). Token throughput is therefore the fairest compute-rate comparison.
+{comparison_section}
 
 ## Reproduction
 
@@ -301,10 +340,6 @@ def main() -> None:
     rank = torch.distributed.get_rank()
     world_size = torch.distributed.get_world_size()
     local_rank = int(os.environ.get("LOCAL_RANK", str(rank)))
-    if world_size != 8:
-        raise ValueError(
-            f"Aggregated baseline requires exactly 8 ranks; got {world_size}."
-        )
     device = torch.device(f"cuda:{local_rank}")
 
     base_config = PIPELINE_CONFIGS[args.model]
@@ -357,7 +392,21 @@ def main() -> None:
     records: list[dict[str, Any]] = []
     frame_start = 0
     total_blocks = args.warmup_blocks + args.measured_blocks
+    measurement_started_at: float | None = None
     for autoregressive_index in range(total_blocks):
+        if autoregressive_index == args.warmup_blocks:
+            torch.cuda.synchronize(device)
+            if args.measurement_barrier_dir is not None:
+                if world_size != 1:
+                    raise ValueError(
+                        "The independent-replica measurement barrier requires CP1."
+                    )
+                _wait_for_measurement_release(
+                    args.measurement_barrier_dir,
+                    replica_id=args.replica_id,
+                )
+            measurement_started_at = time.perf_counter()
+
         num_input_frames = pipeline.get_num_input_frames(autoregressive_index)
         frame_end = frame_start + num_input_frames
         if frame_end > poses.shape[0]:
@@ -413,6 +462,9 @@ def main() -> None:
                 }
             )
 
+    torch.cuda.synchronize(device)
+    measurement_finished_at = time.perf_counter()
+    assert measurement_started_at is not None
     peak_memory = torch.cuda.max_memory_allocated(device) / 2**30
     steady_memory = torch.cuda.memory_allocated(device) / 2**30
     resource_record = {
@@ -445,6 +497,12 @@ def main() -> None:
             None if base_seed is None else base_seed + local_rank
             for local_rank in range(world_size)
         ]
+        environment["replica_id"] = args.replica_id
+        environment["measurement_window"] = {
+            "started_at": measurement_started_at,
+            "finished_at": measurement_finished_at,
+            "elapsed_s": measurement_finished_at - measurement_started_at,
+        }
         summary = _summarize(
             records=records,
             tokens_per_chunk=layout["tokens_per_chunk"],

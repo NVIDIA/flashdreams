@@ -377,6 +377,52 @@ it, then destroys the Gloo control group. A subsequent one-block full-model
 smoke and a transport-only run both exited normally. This cleanup-only change
 does not affect the five-block timing samples above.
 
+## Fully aggregated single-H100 baseline
+
+The complete encoder, DiT, and LightTAE decoder were also measured in one
+process on one H100 80 GB at the original 832×464 resolution. The run used six
+warmup chunks followed by five measured 12-frame chunks.
+
+| Metric | Fully aggregated CP1 |
+| --- | ---: |
+| Generated FPS | **5.56** |
+| Median / p90 chunk latency | **2157.51 / 2166.25 ms** |
+| Initialization peak allocated HBM | **66.55 GiB** |
+| Rollout peak allocated HBM | **59.36 GiB** |
+| Steady allocated HBM | **57.15 GiB** |
+
+This proves the tested LingBot Fast configuration fits on one H100. Against the
+same-resolution three-GPU stage-disaggregated CP1 result, aggregation improved
+FPS by 3.6% and reduced median latency by 76.05 ms, or 3.4%. The small change
+confirms that DiT compute and cache finalization, rather than stage handoffs,
+dominate CP1 latency. See the
+[single-H100 report](benchmark_h100_aggregated_cp1/README.md) and
+[raw result](benchmark_h100_aggregated_cp1/benchmark.json).
+
+## Eight independent aggregated workers
+
+The next capacity experiment ran eight complete CP1 pipelines concurrently,
+one per H100 and one per session. A coordinator held every worker after six
+warmup chunks and released all eight into the same five-chunk measurement
+window. The start skew was 0.32 ms.
+
+| Metric | Eight independent full pipelines |
+| --- | ---: |
+| Aggregate generated FPS | **43.44** |
+| Median per-session FPS | **5.54** |
+| Median / p90 chunk latency | **2163.64 / 2205.53 ms** |
+| Rollout / initialization peak HBM per GPU | **59.35 / 66.55 GiB** |
+| Rollout / initialization peak HBM node total | **474.84 / 532.38 GiB** |
+
+The shared-window result is 97.7% of linear scaling from the single-H100 run.
+It is 23.6% faster in aggregate than 1 I/O + 7 DiTs, but uses 14.4% more
+rollout peak node HBM because every GPU owns the encoder, full DiT, decoder, and
+session cache. This makes full replication the best measured capacity topology
+when every complete pipeline fits in one GPU. Disaggregation remains relevant
+when it does not fit, or when stages need independent placement and scaling.
+See the [eight-replica report](benchmark_h100_aggregated_8xcp1/README.md) and
+[raw result](benchmark_h100_aggregated_8xcp1/benchmark.json).
+
 ## Aggregated eight-GPU baseline
 
 ### Topology and resolution
@@ -631,6 +677,114 @@ is claimed. NVIDIA's
 recommends independently checking GPU-to-GPU bandwidth and verifying that the
 NIXL/UCX backend is instantiated rather than silently accepting TCP; the same
 acceptance rule is encoded by the scheduler.
+
+## Two-stage pipeline-parallel DiT follow-up
+
+### Implementation and topology
+
+The next prototype partitions each 40-block DiT across a fixed two-GPU group.
+The first rank retains blocks 0–19 and the input patch embedding; the second
+retains blocks 20–39 and the output head. Each rank constructs only its local
+autoregressive cache. Unowned blocks and endpoint modules are removed before
+the module moves to CUDA, so this is model-state sharding rather than a full
+DiT replica on both ranks.
+
+```text
+GPU 0      shared encoder + decoder
+GPU 1–2    DiT group A: blocks 0–19 -> blocks 20–39
+GPU 3–4    DiT group B: blocks 0–19 -> blocks 20–39
+GPU 5–6    DiT group C: blocks 0–19 -> blocks 20–39
+GPU 7      spare
+```
+
+GPU 0 sends each group's batched encoder payload to the group leader through
+the pooled asynchronous Mooncake path. The two ranks fan out the small common
+input with NCCL, then exchange the DiT boundary activation directly through
+NCCL point-to-point operations over NVLink/NVSwitch. At batch size two the
+forward activation is 88.36 MiB and the returned output is 1.10 MiB per denoise
+step. The clean latent returns from each leader to GPU 0 through Mooncake.
+Large mutable KV state never crosses a rank boundary.
+
+`LingbotDiTStage.configure_pipeline_parallel()` exposes the stage contract,
+and the transformer rejects configuration after cache initialization or while
+CUDA graph capture is enabled. TorchInductor compilation remains supported;
+NCCL calls form graph breaks. The benchmark fixes session placement for the
+whole rollout and reuses registered receive buffers and transfer tickets.
+
+### Six-session result
+
+The main trial assigned two sessions to each of the three DiT groups. It used
+six warmup chunks so all cache-shape-specific compilation completed before the
+five measured chunks.
+
+| Metric | Three two-rank groups, batch 1 | Three two-rank groups, batch 2 | 1 I/O + 7 full DiTs |
+| --- | ---: | ---: | ---: |
+| Concurrent sessions | 3 | 6 | 7 |
+| Aggregate generated FPS | 16.80 | **17.24** | **35.15** |
+| Generated FPS per session | **5.60** | 2.87 | 5.02 |
+| Median / p90 wave latency | **2140.73 / 2147.37 ms** | 4177.56 / 4183.50 ms | 2358.51 / 2454.10 ms |
+| Median DiT denoise / finalization | **1647.70 / 408.37 ms** | 3249.23 / 803.66 ms | 1718.78 / 426.45 ms |
+| Maximum DiT-rank required HBM | **28.70 GiB** | 39.55 GiB | 56.51 GiB |
+| I/O-rank required HBM | **16.30 GiB** | 19.63 GiB | 20.59 GiB |
+| Median 256 MiB intra-pair P2P bandwidth | 345.43 GB/s | 344.64 GB/s | — |
+
+The new topology reduces the largest DiT-rank allocation by **30.0%**, and its
+six sessions consume **256.91 GiB** of peak allocated HBM node-wide, or 42.82
+GiB per session. Six independent full pipelines would require 399.30 GiB at
+their measured 66.55 GiB initialization peak, so model and cache sharding saves
+**35.7%** for that equal-session comparison. The rollout peak, not the slightly
+lower 38.75 GiB cache-initialization peak, determines this topology's minimum
+GPU capacity.
+
+This is not a throughput win. The six-session result is 51.0% slower in
+aggregate than the seven-replica result and 42.8% slower per session. Doubling
+the group batch from one to two raises aggregate throughput by only **2.6%**
+while latency rises **95.1%** and the largest rank grows from 28.70 to 39.55
+GiB. It does reduce allocated HBM per session from 62.81 to 42.82 GiB because
+the two sessions share one weight copy.
+
+NVLink bandwidth is not the bottleneck: an isolated 256 MiB point-to-point
+probe sustained 344.64 GB/s, and input fanout took only 0.34 ms median. The
+current execution sends a complete microbatch through stage 0 and then stage
+1; stage 0 cannot start another session while it waits for stage 1. Batch size
+two therefore nearly doubles DiT work and cache finalization without hiding
+the pipeline bubble.
+
+GPU 7 was intentionally left spare. Moving encoder or decoder work to it would
+not materially improve this result because their combined measured work is
+only about 46 ms of a 4.18-second wave. Useful next work is a double-buffered
+microbatch schedule that overlaps stage-0 session N+1 with stage-1 session N,
+plus per-session cache gather/scatter. Until that exists, use this topology to
+fit memory-constrained GPUs, not to maximize an H100 node's throughput.
+
+### Reproduction
+
+The experiment reused Slurm job `14799647` on `pool0-01062`, with eight H100
+80 GB GPUs and all GPU pairs reported as NV18. The same RDMA userspace packages
+listed above were installed, and Mooncake discovered nine HCAs and installed
+its RDMA transport. From the mounted repository checkout, run:
+
+```bash
+env GLOG_minloglevel=2 \
+  TORCHINDUCTOR_COMPILE_THREADS=1 \
+  TORCH_NCCL_SHOW_EAGER_INIT_P2P_SERIALIZATION_WARNING=0 \
+uv run --no-sync --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_pipeline \
+  --sessions-per-group 2 \
+  --compile-network \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 10 \
+  --output-dir outputs/lingbot_disagg_pipeline_3x2_microbatch2
+```
+
+The output must contain five non-warmup records, 72 decoded frames per wave,
+six nonzero DiT-rank memory records, and three P2P probe pairs (`1->2`, `3->4`,
+and `5->6`). See the tracked
+[pipeline-parallel benchmark report](benchmark_h100_pipeline_3x2/README.md)
+and [summary](benchmark_h100_pipeline_3x2/summary.json).
 
 ### Deployment decision and remaining work
 
@@ -998,13 +1152,16 @@ uv run --package flashdreams-lingbot pytest \
   integrations/lingbot/tests/test_disagg_scheduler.py \
   integrations/lingbot/tests/test_disagg_replicated.py \
   integrations/lingbot/tests/test_disagg_cp.py \
-  integrations/lingbot/tests/test_disagg_aggregated.py
+  integrations/lingbot/tests/test_disagg_aggregated.py \
+  integrations/lingbot/tests/test_disagg_independent.py
 
 uv lock --check
 exit
 ```
 
-The focused validation completed with 17 passing tests. A repository-wide
+The original focused validation completed with 17 passing tests; the later
+aggregated CP1 and independent-replica harness validation completed with six
+passing tests. A repository-wide
 ``pytest -m ci_cpu`` collection was also attempted, but the local environment
 lacked the unrelated Omnidreams optional dependencies ``pyvirtualdisplay`` and
 ``flip_evaluator``. The changed LingBot and transport modules had already
@@ -1022,6 +1179,7 @@ completed collection and passed in the focused run above.
 | Cross-node efficiency | Deferred | Only one eight-H100 node was measured |
 | Single-session acceleration | Useful opt-in | CP6 ring reached 15.90 FPS and 743.27 ms, a 3.01× latency speedup |
 | Aggregated CP8 baseline | Useful opt-in | 29.50 FPS and 393.33 ms at 832×448; 30.3% more node HBM than stage-local CP6 |
+| Eight independent full pipelines | Useful opt-in | Eight sessions reached 43.44 aggregate FPS and 5.54 median FPS/session at 59.35 GiB rollout peak per GPU |
 | Clean CP teardown | Useful opt-in | Post-fix full-model and transport-only lifecycle smokes exited normally |
 | Co-located 1IO:7DiT topology | Useful opt-in | 35.15 aggregate FPS, 5.02 FPS/session, and 20.59 GiB on the I/O GPU |
 | Pooled async Mooncake | Useful opt-in | 11.4% faster than same-topology synchronous control; no RDMA access errors |

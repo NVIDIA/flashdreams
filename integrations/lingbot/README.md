@@ -242,8 +242,20 @@ median per 12-frame chunk and 15.90 generated FPS, a 3.01× latency speedup over
 CP1. CP4 Ulysses reached 754.41 ms and 15.70 FPS. CP6 was 1.5% faster; CP4 had
 higher scaling efficiency and left two GPUs available for other work.
 
-For an aggregated baseline, put the complete pipeline on every GPU and use all
-eight ranks as the DiT context-parallel WORLD group:
+The complete pipeline also fits on one H100 80 GB. At 832×464, the measured
+single-GPU aggregated run reached **5.56 FPS** and **2157.51 ms median / 2166.25
+ms p90** latency per 12-frame chunk. Initialization peaked at **66.55 GiB**
+allocated HBM; rollout peaked at **59.36 GiB**. See the
+[single-H100 report](docs/benchmark_h100_aggregated_cp1/README.md).
+
+Running one complete CP1 pipeline and one session independently on each of
+eight H100s reached **43.44 aggregate FPS**, **5.54 median FPS per session**,
+and **2163.64 ms median** chunk latency. Rollout peak allocation was **59.35
+GiB per GPU / 474.84 GiB node-wide**. See the
+[eight-replica report](docs/benchmark_h100_aggregated_8xcp1/README.md).
+
+For the eight-GPU aggregated baseline, put the complete pipeline on every GPU
+and use all ranks as the DiT context-parallel WORLD group:
 
 ```bash
 TORCHINDUCTOR_COMPILE_THREADS=4 \

@@ -11,6 +11,23 @@ from lingbot.disagg.benchmark_aggregated import _summarize, _token_layout
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_cp1_layout_accepts_tracked_464_height() -> None:
+    layout = _token_layout(
+        pixel_height=464,
+        pixel_width=832,
+        len_t=3,
+        patch_size=(1, 2, 2),
+        cp_size=1,
+    )
+
+    assert layout == {
+        "latent_height": 58,
+        "latent_width": 104,
+        "tokens_per_chunk": 4524,
+        "tokens_per_rank": 4524,
+    }
+
+
 def test_cp8_layout_uses_nearest_valid_height() -> None:
     layout = _token_layout(
         pixel_height=448,
