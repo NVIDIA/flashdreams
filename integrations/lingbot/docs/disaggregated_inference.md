@@ -23,15 +23,21 @@ the transfer protocol.
 
 ## Data plane
 
-`MooncakeTensorTransport` uses receiver-owned buffers:
+`MooncakeTensorTransport` and `NixlTensorTransport` share a receiver-owned
+buffer contract:
 
 1. The sender publishes tensor names, shapes, dtypes, and byte counts.
-2. The receiver allocates contiguous device tensors and registers their VRAM.
-3. The receiver returns an opaque ticket containing its Mooncake session and
-   registered addresses.
-4. The sender registers its source allocations and performs one batched
-   synchronous write.
-5. The control plane waits for completion before dispatching the consumer.
+2. The receiver leases a fixed-shape contiguous device buffer from
+   `RegisteredTensorPool`; allocation and VRAM registration happen only when a
+   bucket is first created.
+3. The receiver returns a reusable ticket. Mooncake tickets contain a session
+   and registered addresses; NIXL tickets contain agent metadata and serialized
+   transfer descriptors.
+4. The producer records a CUDA event, submits a batched asynchronous write,
+   and retains the source storage until the transfer completes.
+5. The consumer waits only at its dependency boundary. In the replicated
+   benchmark, encoder request N+1 overlaps encoder-to-DiT transfer N, and DiT
+   cache finalization overlaps clean-latent transfer to the decoder.
 
 No tensor is serialized into the Python control message and there is no
 device-to-host-to-device staging in FlashDreams.
@@ -39,7 +45,7 @@ device-to-host-to-device staging in FlashDreams.
 ## Scheduling
 
 The three-stage baseline is a fixed 1 encoder : 1 DiT : 1 decoder topology.
-The eight-GPU benchmark also implements a 1 encoder : 6 DiT : 1 decoder wave
+The first eight-GPU benchmark implemented a 1 encoder : 6 DiT : 1 decoder wave
 scheduler. It starts with one replica per stage, then assigns each remaining
 GPU to the stage with the largest measured service-time-per-replica:
 
@@ -54,8 +60,28 @@ replica owns a distinct session and resident KV cache; the shared encoder feeds
 six inputs, the DiTs execute concurrently, and the shared decoder drains six
 latents. This scales concurrent-session throughput rather than one session's
 latency. A production service still needs asynchronous bounded queues, request
-IDs, cancellation, and pooled registered buffers in place of benchmark-wide
-barriers.
+IDs, cancellation, and failure recovery in place of benchmark-wide barriers;
+the optimized benchmark now supplies the pooled registered-buffer and
+transfer-ticket data path.
+
+The optimized eight-GPU topology co-locates encoder and decoder on GPU 0 and
+uses GPUs 1–7 for seven session-affine DiT replicas. The measured I/O-stage
+footprint fits safely on one H100, and each DiT retains its own cache. A
+`SessionAwareScheduler` supplies the production placement policy: it filters by
+service pool, shape, CP compatibility, free HBM, and verified RDMA support,
+then scores compatible workers by predicted queue delay and topology locality.
+Once placed, a session remains sticky; a missing resident worker is an explicit
+recovery event, not permission to route a later chunk to a different cache.
+
+The scheduler separates two fixed pools:
+
+- `aggregated-cp8` for the minimum-latency service class;
+- `io-plus-7-dit` for concurrent-session throughput.
+
+It also forms shape- and CP-compatible microbatch plans. Actual fused LingBot
+DiT execution is intentionally not claimed yet: the model runtime still needs
+batched cache gather/scatter and HBM/latency admission control before those
+plans can share one kernel launch.
 
 The single-session topology uses the same physical allocation but groups ranks
 1–6 into one context-parallel DiT:
@@ -167,6 +193,17 @@ The
 [full experiment record](disaggregated_inference_experiment.md)
 documents the tested stack, warmup behavior, stage and transfer breakdowns,
 Slurm reproduction procedure, interpretation, and deferred validation.
+
+The optimized follow-up ran in Slurm job `14761875` on `pool0-01924`. With the
+encoder and decoder co-located, seven independent DiTs, pooled registrations,
+reusable tickets, asynchronous Mooncake writes, and clean-latent transfer
+overlapped with cache finalization, it reached **35.15 aggregate generated
+FPS** and **5.02 FPS per session**. That is 29.2% above the tracked 1:6:1
+result and 11.4% above the same 1:7 topology using per-request synchronous
+handoffs. The fourteen 256 MiB stage-edge probes measured **41.97 GB/s**
+median. GPU 0 peaked at 20.59 GiB and the DiT GPUs at 56.29–56.51 GiB. See the
+[optimized report](benchmark_h100_1io7dit_optimized/README.md) and
+[optimization chart](disaggregated_inference_optimized.svg).
 
 ## References
 

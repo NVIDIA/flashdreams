@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import pytest
 import torch
+from einops import rearrange
 from lingbot.disagg.stages import (
     LingbotConditioning,
     conditioning_from_bundle,
     conditioning_to_bundle,
     encoder_output_from_bundle,
     encoder_output_to_bundle,
+    encoder_output_to_cp_bundles,
 )
 from lingbot.encoder.camctrl import I2VCamCtrlEmbeddings
 
@@ -69,3 +71,54 @@ def test_encoder_output_round_trips_without_crossing_patchify_boundary() -> None
     torch.testing.assert_close(restored.i2v.latent, output.i2v.latent)
     torch.testing.assert_close(restored.i2v.mask, output.i2v.mask)
     torch.testing.assert_close(restored.plucker, output.plucker)
+
+
+def test_encoder_output_direct_cp_shards_match_global_patchify() -> None:
+    output = I2VCamCtrlEmbeddings(
+        i2v=I2VCtrl(
+            latent=torch.arange(4 * 2 * 4 * 6).reshape(4, 2, 4, 6),
+            mask=torch.ones(4, 2, 4, 6),
+        ),
+        plucker=torch.arange(4 * 3 * 4 * 6).reshape(4, 3, 4, 6),
+    )
+
+    shards = encoder_output_to_cp_bundles(
+        output,
+        cp_size=3,
+        patch_size=(2, 2, 2),
+    )
+    restored = [
+        encoder_output_from_bundle(bundle, patchified=True) for bundle in shards
+    ]
+
+    assert len(restored) == 3
+    assert all(item._is_patchified and item.i2v._is_patchified for item in restored)
+    assert all(item.i2v.latent.shape == (4, 16) for item in restored)
+    expected = rearrange(
+        output.i2v.latent,
+        "... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)",
+        kt=2,
+        kh=2,
+        kw=2,
+    )
+    torch.testing.assert_close(
+        torch.cat([item.i2v.latent for item in restored], dim=-2),
+        expected,
+    )
+
+
+def test_encoder_output_direct_cp_shards_reject_uneven_tokens() -> None:
+    output = I2VCamCtrlEmbeddings(
+        i2v=I2VCtrl(
+            latent=torch.randn(2, 2, 2, 2),
+            mask=torch.ones(2, 2, 2, 2),
+        ),
+        plucker=torch.randn(2, 3, 2, 2),
+    )
+
+    with pytest.raises(ValueError, match="not divisible by CP3"):
+        encoder_output_to_cp_bundles(
+            output,
+            cp_size=3,
+            patch_size=(1, 1, 1),
+        )

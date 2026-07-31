@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from torch import Tensor, nn
 from torch.distributed import ProcessGroup
 
@@ -116,14 +117,70 @@ def encoder_output_to_bundle(output: I2VCamCtrlEmbeddings) -> TensorBundle:
     }
 
 
-def encoder_output_from_bundle(bundle: TensorBundle) -> I2VCamCtrlEmbeddings:
+def encoder_output_from_bundle(
+    bundle: TensorBundle,
+    *,
+    patchified: bool = False,
+) -> I2VCamCtrlEmbeddings:
     """Reconstruct per-step LingBot encoder output after transport."""
     return I2VCamCtrlEmbeddings(
         i2v=I2VCtrl(
             latent=bundle["i2v.latent"],
             mask=bundle["i2v.mask"],
+            _is_patchified=patchified,
         ),
         plucker=bundle["plucker"],
+        _is_patchified=patchified,
+    )
+
+
+def encoder_output_to_cp_bundles(
+    output: I2VCamCtrlEmbeddings,
+    *,
+    cp_size: int,
+    patch_size: tuple[int, int, int],
+) -> tuple[TensorBundle, ...]:
+    """Patchify once on the encoder and return one direct-transfer shard per rank.
+
+    This removes the DiT leader's input broadcast/fan-out. Each destination
+    rank receives only its token shard and reconstructs the payload with
+    ``patchified=True``.
+    """
+    if cp_size < 1:
+        raise ValueError(f"cp_size must be positive, got {cp_size}.")
+    if output._is_patchified or output.i2v._is_patchified:
+        raise ValueError("Expected raw encoder output before patchification.")
+
+    def patchify(tensor: Tensor) -> Tensor:
+        kt, kh, kw = patch_size
+        return rearrange(
+            tensor,
+            "... (t kt) c (h kh) (w kw) -> ... (t h w) (c kt kh kw)",
+            kt=kt,
+            kh=kh,
+            kw=kw,
+        ).contiguous()
+
+    patched = {
+        "i2v.latent": patchify(output.i2v.latent),
+        "i2v.mask": patchify(output.i2v.mask),
+        "plucker": patchify(output.plucker),
+    }
+    token_counts = {name: tensor.shape[-2] for name, tensor in patched.items()}
+    if len(set(token_counts.values())) != 1:
+        raise ValueError(f"Patchified token counts do not match: {token_counts}.")
+    token_count = next(iter(token_counts.values()))
+    if token_count % cp_size:
+        raise ValueError(
+            f"Patchified token count {token_count} is not divisible by CP{cp_size}."
+        )
+
+    per_field = {
+        name: tensor.chunk(cp_size, dim=-2) for name, tensor in patched.items()
+    }
+    return tuple(
+        {name: shards[rank].contiguous() for name, shards in per_field.items()}
+        for rank in range(cp_size)
     )
 
 

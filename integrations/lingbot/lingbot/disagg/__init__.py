@@ -24,6 +24,7 @@ from lingbot.disagg.stages import (
     conditioning_to_bundle,
     encoder_output_from_bundle,
     encoder_output_to_bundle,
+    encoder_output_to_cp_bundles,
 )
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "conditioning_to_bundle",
     "encoder_output_from_bundle",
     "encoder_output_to_bundle",
+    "encoder_output_to_cp_bundles",
 ]

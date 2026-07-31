@@ -28,8 +28,16 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from flashdreams.infra.transfer import TransferStats
 
+from flashdreams.infra.transfer import (
+    PooledTensorBuffer,
+    RegisteredTensorPool,
+    TensorBundle,
+    TensorTransferHandle,
+    TensorTransferTicket,
+    TransferStats,
+    describe_tensor_bundle,
+)
 from lingbot.config import PIPELINE_CONFIGS
 from lingbot.disagg.benchmark import (
     _bandwidth_probe,
@@ -74,6 +82,16 @@ class StageAllocation:
     def total_gpus(self) -> int:
         """Return the total number of stage GPUs."""
         return self.encoder_replicas + self.dit_replicas + self.decoder_replicas
+
+
+@dataclass(kw_only=True)
+class _TransferChannel:
+    """One fixed-shape receiver allocation and reusable remote ticket."""
+
+    source: int
+    destination: int
+    ticket: TensorTransferTicket
+    receiver: PooledTensorBuffer | None
 
 
 def allocate_stage_replicas(
@@ -146,6 +164,21 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pixel-width", type=int, default=832)
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--dit-replicas", type=int, default=6)
+    parser.add_argument(
+        "--co-locate-io",
+        action="store_true",
+        help="Host encoder and decoder on rank 0, leaving seven GPUs for DiTs.",
+    )
+    parser.add_argument(
+        "--pooled-async",
+        action="store_true",
+        help="Reuse receiver registrations/tickets and submit non-blocking writes.",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("mooncake", "nixl"),
+        default="mooncake",
+    )
     parser.add_argument("--rdma-device", default=None)
     parser.add_argument("--bandwidth-probe-mib", type=int, default=256)
     parser.add_argument("--bandwidth-probe-iters", type=int, default=8)
@@ -167,6 +200,77 @@ def _read_baseline(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"Baseline benchmark not found: {path}")
     return json.loads(path.read_text())
+
+
+def _create_transport(args: argparse.Namespace, *, rank: int) -> Any:
+    """Construct the selected optional tensor transport."""
+    if args.transport == "nixl":
+        from flashdreams.infra.transfer import NixlTensorTransport
+
+        return NixlTensorTransport(agent_name=f"lingbot-rank-{rank}")
+    from flashdreams.infra.transfer import MooncakeTensorTransport
+
+    return MooncakeTensorTransport(device_name=args.rdma_device)
+
+
+def _setup_channel(
+    transport: Any,
+    pool: RegisteredTensorPool,
+    *,
+    source: int,
+    destination: int,
+    source_bundle: TensorBundle | None,
+    device: torch.device,
+) -> _TransferChannel:
+    """Allocate/register one receiver bucket and exchange its ticket once."""
+    rank = torch.distributed.get_rank()
+    descriptors = _broadcast_object(
+        describe_tensor_bundle(source_bundle)
+        if rank == source and source_bundle is not None
+        else None,
+        source=source,
+    )
+    receiver = pool.acquire(descriptors, device=device) if rank == destination else None
+    ticket = _broadcast_object(
+        receiver.ticket if receiver is not None else None,
+        source=destination,
+    )
+    return _TransferChannel(
+        source=source,
+        destination=destination,
+        ticket=ticket,
+        receiver=receiver,
+    )
+
+
+def _submit_channel(
+    transport: Any,
+    channel: _TransferChannel,
+    source_bundle: TensorBundle | None,
+) -> tuple[TensorTransferHandle | None, float]:
+    """Submit one channel write without introducing a process-group barrier."""
+    started = time.perf_counter()
+    if torch.distributed.get_rank() != channel.source:
+        return None, started
+    assert source_bundle is not None
+    return transport.send_async(source_bundle, channel.ticket), started
+
+
+def _finish_channel(
+    transport: Any,
+    channel: _TransferChannel,
+    handle: TensorTransferHandle | None,
+    started: float,
+) -> tuple[TransferStats, float]:
+    """Wait on the source and share transfer telemetry with every rank."""
+    rank = torch.distributed.get_rank()
+    stats = transport.wait(handle) if rank == channel.source and handle else None
+    handoff_ms = (
+        (time.perf_counter() - started) * 1000.0 if rank == channel.source else None
+    )
+    stats = _broadcast_object(stats, source=channel.source)
+    handoff_ms = _broadcast_object(handoff_ms, source=channel.source)
+    return stats, handoff_ms
 
 
 def _probe_edges(
@@ -207,6 +311,7 @@ def _summarize(
     probes: dict[str, list[TransferStats]],
     baseline: dict[str, Any],
     dit_replicas: int,
+    total_gpus: int,
 ) -> dict[str, Any]:
     measured = [record for record in records if not record["warmup"]]
     frame_count = sum(record["output_frames"] for record in measured)
@@ -232,8 +337,7 @@ def _summarize(
         "aggregate_fps": aggregate_fps,
         "per_session_fps": aggregate_fps / dit_replicas,
         "throughput_speedup": aggregate_fps / baseline_fps,
-        "gpu_normalized_speedup": (aggregate_fps / (dit_replicas + 2))
-        / (baseline_fps / 3),
+        "gpu_normalized_speedup": (aggregate_fps / total_gpus) / (baseline_fps / 3),
         "wave_latency_ms": _metric_summary(
             [record["wave_latency_ms"] for record in measured]
         ),
@@ -315,6 +419,7 @@ def _write_report(
         probes=probes,
         baseline=baseline,
         dit_replicas=args.dit_replicas,
+        total_gpus=len(environment["peak_memory_gib_by_rank"]),
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "benchmark.json").write_text(
@@ -334,7 +439,27 @@ def _write_report(
     )
     allocation = environment["allocation"]
     peak_memory = environment["peak_memory_gib_by_rank"]
-    dit_memory = peak_memory[1:-1]
+    dit_ranks = allocation["rank_roles"]["dit"]
+    dit_memory = [peak_memory[index] for index in dit_ranks]
+    io_rank = allocation["rank_roles"]["encoder"][0]
+    co_located = (
+        allocation["rank_roles"]["encoder"] == allocation["rank_roles"]["decoder"]
+    )
+    io_role = "Co-located encoder + decoder" if co_located else "Shared encoder"
+    handoff_label = (
+        "submission → wait window" if environment["pooled_async"] else "handoff"
+    )
+    async_note = ""
+    if environment["pooled_async"]:
+        async_note = """
+The asynchronous submission-to-wait windows include useful work performed
+before the delayed wait. They are not isolated copy times and must not be added
+to the wave latency. Use the 256 MiB probes for link bandwidth.
+"""
+    decoder_memory_row = ""
+    if not co_located:
+        decoder_rank = allocation["rank_roles"]["decoder"][0]
+        decoder_memory_row = f"| Shared decoder | {peak_memory[decoder_rank]:.2f} GiB |"
     markdown = f"""# LingBot replicated-DiT disaggregation benchmark
 
 ## Result
@@ -348,8 +473,8 @@ Each DiT worker owns one concurrent session and its resident autoregressive KV c
 | Encoder wave | {summary["encoder_wave_ms"]["median"]:.2f} ms | {summary["encoder_wave_ms"]["p90"]:.2f} ms |
 | DiT critical path | {summary["dit_critical_path_ms"]["median"]:.2f} ms | {summary["dit_critical_path_ms"]["p90"]:.2f} ms |
 | Decoder wave | {summary["decoder_wave_ms"]["median"]:.2f} ms | {summary["decoder_wave_ms"]["p90"]:.2f} ms |
-| Encoder → DiT handoff, each | {summary["encoder_to_dit"]["handoff_ms_each"]["median"]:.2f} ms | {summary["encoder_to_dit"]["handoff_ms_each"]["p90"]:.2f} ms |
-| DiT → decoder handoff, each | {summary["dit_to_decoder"]["handoff_ms_each"]["median"]:.2f} ms | {summary["dit_to_decoder"]["handoff_ms_each"]["p90"]:.2f} ms |
+| Encoder → DiT {handoff_label}, each | {summary["encoder_to_dit"]["handoff_ms_each"]["median"]:.2f} ms | {summary["encoder_to_dit"]["handoff_ms_each"]["p90"]:.2f} ms |
+| DiT → decoder {handoff_label}, each | {summary["dit_to_decoder"]["handoff_ms_each"]["median"]:.2f} ms | {summary["dit_to_decoder"]["handoff_ms_each"]["p90"]:.2f} ms |
 | 256 MiB RDMA probes, all edges | {summary["bandwidth_probe_gbps"]["all_edges"]["median"]:.2f} GB/s | {summary["bandwidth_probe_gbps"]["all_edges"]["p90"]:.2f} GB/s |
 
 - Aggregate throughput: **{summary["aggregate_fps"]:.2f} generated FPS**
@@ -361,14 +486,15 @@ Each DiT worker owns one concurrent session and its resident autoregressive KV c
 The headline excludes {args.warmup_blocks} warmup waves and measures
 {args.measured_blocks} waves. It represents {args.dit_replicas} concurrent, session-affine
 rollouts, not acceleration of one autoregressive session.
+{async_note}
 
 ## Peak allocated memory
 
 | Role | Peak |
 | --- | ---: |
-| Shared encoder | {peak_memory[0]:.2f} GiB |
+| {io_role} | {peak_memory[io_rank]:.2f} GiB |
 | DiT workers | {min(dit_memory):.2f}–{max(dit_memory):.2f} GiB each |
-| Shared decoder | {peak_memory[-1]:.2f} GiB |
+{decoder_memory_row}
 
 ## Reproduction
 
@@ -390,11 +516,11 @@ def main() -> None:
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", str(rank)))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    expected_world_size = args.dit_replicas + 2
+    expected_world_size = args.dit_replicas + (1 if args.co_locate_io else 2)
     if world_size != expected_world_size:
         raise ValueError(
-            f"Launch with {expected_world_size} processes for one encoder, "
-            f"{args.dit_replicas} DiTs, and one decoder; got {world_size}."
+            f"Launch with {expected_world_size} processes for the selected topology; "
+            f"got {world_size}."
         )
     if args.dit_replicas < 1:
         raise ValueError("dit-replicas must be positive.")
@@ -402,21 +528,22 @@ def main() -> None:
         raise ValueError("warmup-blocks must be >= 0 and measured-blocks must be > 0.")
 
     baseline = _read_baseline(args.baseline_json)
-    allocation = allocation_from_baseline(baseline, total_gpus=world_size)
-    expected = StageAllocation(
-        encoder_replicas=1,
-        dit_replicas=args.dit_replicas,
-        decoder_replicas=1,
-    )
-    if allocation != expected:
-        raise ValueError(
-            f"Measured service times recommend {allocation}, but the launch requests "
-            f"{expected}."
+    if not args.co_locate_io:
+        allocation = allocation_from_baseline(baseline, total_gpus=world_size)
+        expected = StageAllocation(
+            encoder_replicas=1,
+            dit_replicas=args.dit_replicas,
+            decoder_replicas=1,
         )
+        if allocation != expected:
+            raise ValueError(
+                f"Measured service times recommend {allocation}, but the launch "
+                f"requests {expected}."
+            )
 
     encoder_rank = 0
     dit_ranks = tuple(range(1, 1 + args.dit_replicas))
-    decoder_rank = world_size - 1
+    decoder_rank = encoder_rank if args.co_locate_io else world_size - 1
     session_count = len(dit_ranks)
 
     torch.cuda.set_device(local_rank)
@@ -425,9 +552,7 @@ def main() -> None:
 
     if args.transport_only:
         torch.distributed.init_process_group("gloo")
-        from flashdreams.infra.transfer import MooncakeTensorTransport
-
-        transport = MooncakeTensorTransport(device_name=args.rdma_device)
+        transport = _create_transport(args, rank=rank)
         probes = _probe_edges(
             transport,
             encoder_rank=encoder_rank,
@@ -463,9 +588,8 @@ def main() -> None:
     )
 
     torch.distributed.init_process_group("gloo")
-    from flashdreams.infra.transfer import MooncakeTensorTransport
-
-    transport = MooncakeTensorTransport(device_name=args.rdma_device)
+    transport = _create_transport(args, rank=rank)
+    pool = RegisteredTensorPool(transport, max_buffers_per_bucket=16)
 
     encoder_caches: list[Any] = []
     conditioning_bundle = None
@@ -524,6 +648,8 @@ def main() -> None:
     total_blocks = args.warmup_blocks + args.measured_blocks
     frame_starts = [0] * session_count
     records: list[dict[str, Any]] = []
+    encoder_channels: list[_TransferChannel | None] = [None] * session_count
+    decoder_channels: list[_TransferChannel | None] = [None] * session_count
     for autoregressive_index in range(total_blocks):
         torch.distributed.barrier()
         wave_started = time.perf_counter()
@@ -531,6 +657,14 @@ def main() -> None:
         encoder_times: list[float] = []
         encoder_transfers: list[dict[str, Any]] = []
         received_encoded = None
+        pending_encoder: list[
+            tuple[
+                _TransferChannel,
+                TensorTransferHandle | None,
+                float,
+                TensorBundle | None,
+            ]
+        ] = []
 
         for session_index, dit_rank in enumerate(dit_ranks):
             encoded_bundle = None
@@ -565,19 +699,59 @@ def main() -> None:
                 encoder_times.append(encoder_ms)
                 frame_starts[session_index] = frame_end
 
-            received, stats, handoff_ms = _transfer_bundle(
-                transport,
-                source=encoder_rank,
-                destination=dit_rank,
-                source_bundle=encoded_bundle,
-                device=device,
-            )
-            if rank == dit_rank:
-                received_encoded = received
-            if rank == encoder_rank:
-                transfer_record = dict(vars(stats))
-                transfer_record["handoff_ms"] = handoff_ms
-                encoder_transfers.append(transfer_record)
+            if args.pooled_async:
+                channel = encoder_channels[session_index]
+                if channel is None:
+                    channel = _setup_channel(
+                        transport,
+                        pool,
+                        source=encoder_rank,
+                        destination=dit_rank,
+                        source_bundle=encoded_bundle,
+                        device=device,
+                    )
+                    encoder_channels[session_index] = channel
+                handle, transfer_started = _submit_channel(
+                    transport,
+                    channel,
+                    encoded_bundle,
+                )
+                pending_encoder.append(
+                    (channel, handle, transfer_started, encoded_bundle)
+                )
+                if rank == dit_rank:
+                    assert channel.receiver is not None
+                    received_encoded = channel.receiver.bundle
+            else:
+                received, stats, handoff_ms = _transfer_bundle(
+                    transport,
+                    source=encoder_rank,
+                    destination=dit_rank,
+                    source_bundle=encoded_bundle,
+                    device=device,
+                )
+                if rank == dit_rank:
+                    received_encoded = received
+                if rank == encoder_rank:
+                    transfer_record = dict(vars(stats))
+                    transfer_record["handoff_ms"] = handoff_ms
+                    encoder_transfers.append(transfer_record)
+
+        if args.pooled_async:
+            for channel, handle, transfer_started, source_bundle in pending_encoder:
+                stats, handoff_ms = _finish_channel(
+                    transport,
+                    channel,
+                    handle,
+                    transfer_started,
+                )
+                if rank == encoder_rank:
+                    assert source_bundle is not None
+                    transport.unregister(source_bundle)
+                    transfer_record = dict(vars(stats))
+                    transfer_record["handoff_ms"] = handoff_ms
+                    encoder_transfers.append(transfer_record)
+            torch.distributed.barrier()
 
         clean_bundle = None
         if rank in dit_ranks:
@@ -593,36 +767,102 @@ def main() -> None:
                     input=encoded,
                 )
             )
-            _, local["finalize_ms"] = _timed_cuda(
-                partial(
-                    dit_stage.finalize,
-                    autoregressive_index=autoregressive_index,
-                    cache=dit_cache,
+            if not args.pooled_async:
+                _, local["finalize_ms"] = _timed_cuda(
+                    partial(
+                        dit_stage.finalize,
+                        autoregressive_index=autoregressive_index,
+                        cache=dit_cache,
+                    )
                 )
-            )
             local["session_index"] = dit_ranks.index(rank)
             local["rank"] = rank
             clean_bundle = {"clean_latent": clean_latent.contiguous()}
-            transport.unregister(received_encoded)
+            if not args.pooled_async:
+                transport.unregister(received_encoded)
 
         torch.distributed.barrier()
         decoder_inputs: list[Any] = []
         decoder_transfers: list[dict[str, Any]] = []
-        for dit_rank in dit_ranks:
-            received_clean, stats, handoff_ms = _transfer_bundle(
-                transport,
-                source=dit_rank,
-                destination=decoder_rank,
-                source_bundle=clean_bundle if rank == dit_rank else None,
-                device=device,
-            )
-            if rank == decoder_rank:
-                assert received_clean is not None
-                decoder_inputs.append(received_clean)
-            if rank == encoder_rank:
-                transfer_record = dict(vars(stats))
-                transfer_record["handoff_ms"] = handoff_ms
-                decoder_transfers.append(transfer_record)
+        pending_decoder: list[
+            tuple[
+                _TransferChannel,
+                TensorTransferHandle | None,
+                float,
+                TensorBundle | None,
+            ]
+        ] = []
+        for session_index, dit_rank in enumerate(dit_ranks):
+            if args.pooled_async:
+                channel = decoder_channels[session_index]
+                if channel is None:
+                    channel = _setup_channel(
+                        transport,
+                        pool,
+                        source=dit_rank,
+                        destination=decoder_rank,
+                        source_bundle=clean_bundle if rank == dit_rank else None,
+                        device=device,
+                    )
+                    decoder_channels[session_index] = channel
+                handle, transfer_started = _submit_channel(
+                    transport,
+                    channel,
+                    clean_bundle if rank == dit_rank else None,
+                )
+                pending_decoder.append(
+                    (
+                        channel,
+                        handle,
+                        transfer_started,
+                        clean_bundle if rank == dit_rank else None,
+                    )
+                )
+                if rank == dit_rank:
+                    assert dit_stage is not None
+                    assert dit_cache is not None
+                    _, local["finalize_ms"] = _timed_cuda(
+                        partial(
+                            dit_stage.finalize,
+                            autoregressive_index=autoregressive_index,
+                            cache=dit_cache,
+                        )
+                    )
+                if rank == decoder_rank:
+                    assert channel.receiver is not None
+                    decoder_inputs.append(channel.receiver.bundle)
+            else:
+                received_clean, stats, handoff_ms = _transfer_bundle(
+                    transport,
+                    source=dit_rank,
+                    destination=decoder_rank,
+                    source_bundle=clean_bundle if rank == dit_rank else None,
+                    device=device,
+                )
+                if rank == decoder_rank:
+                    assert received_clean is not None
+                    decoder_inputs.append(received_clean)
+                if rank == encoder_rank:
+                    transfer_record = dict(vars(stats))
+                    transfer_record["handoff_ms"] = handoff_ms
+                    decoder_transfers.append(transfer_record)
+
+        if args.pooled_async:
+            for channel, handle, transfer_started, source_bundle in pending_decoder:
+                stats, handoff_ms = _finish_channel(
+                    transport,
+                    channel,
+                    handle,
+                    transfer_started,
+                )
+                if rank == channel.source:
+                    assert source_bundle is not None
+                    transport.unregister(source_bundle)
+                if rank == encoder_rank:
+                    transfer_record = dict(vars(stats))
+                    transfer_record["handoff_ms"] = handoff_ms
+                    decoder_transfers.append(transfer_record)
+            torch.distributed.barrier()
 
         if decoder_stage is not None:
             decoder_times: list[float] = []
@@ -638,7 +878,8 @@ def main() -> None:
                 )
                 decoder_times.append(decoder_ms)
                 output_frames += decoded.shape[-4]
-                transport.unregister(received_clean)
+                if not args.pooled_async:
+                    transport.unregister(received_clean)
             local["decoder_times_ms"] = decoder_times
             local["decoder_wave_ms"] = sum(decoder_times)
             local["output_frames"] = output_frames
@@ -688,12 +929,16 @@ def main() -> None:
             "encoder": 1,
             "dit": args.dit_replicas,
             "decoder": 1,
+            "physical_gpus": world_size,
+            "co_located_io": args.co_locate_io,
             "rank_roles": {
                 "encoder": [encoder_rank],
                 "dit": list(dit_ranks),
                 "decoder": [decoder_rank],
             },
         }
+        environment["transport"] = args.transport
+        environment["pooled_async"] = args.pooled_async
         environment["sessions_per_wave"] = session_count
         environment["peak_memory_gib_by_rank"] = peak_memory_by_rank
         _write_report(
@@ -704,6 +949,10 @@ def main() -> None:
             environment=environment,
         )
 
+    for channel in (*encoder_channels, *decoder_channels):
+        if channel is not None and channel.receiver is not None:
+            pool.release(channel.receiver)
+    pool.close()
     transport.close()
     torch.distributed.destroy_process_group()
 

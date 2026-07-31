@@ -31,7 +31,10 @@ and
 their [comparison chart](disaggregated_inference_single_session.svg) is generated
 directly from the raw JSON documents. The full-pipeline CP8 baseline is in
 [`benchmark_h100_aggregated_cp8`](benchmark_h100_aggregated_cp8/README.md), with
-its [stage-local CP6 comparison chart](aggregated_vs_disaggregated.svg).
+its [stage-local CP6 comparison chart](aggregated_vs_disaggregated.svg). The
+optimized co-located 1-I/O : 7-DiT result is in
+[`benchmark_h100_1io7dit_optimized`](benchmark_h100_1io7dit_optimized/README.md),
+with its [wall-time and memory chart](disaggregated_inference_optimized.svg).
 
 ## Question and design
 
@@ -479,6 +482,187 @@ serves one session at 29.50 FPS. Production scheduling can choose between
 replicated stage-local groups for capacity and aggregated CP groups for a
 premium low-latency class.
 
+## Disaggregation optimization follow-up
+
+### Scope and implementation
+
+The next experiment implemented the highest-value changes behind the earlier
+recommendations:
+
+1. Encoder and decoder are co-located on GPU 0; GPUs 1–7 become seven
+   independent, session-affine DiT replicas.
+2. Mooncake exposes `send_async` and an explicit transfer handle. A CUDA event
+   waits for only the producer stream, replacing the previous device-wide
+   synchronization.
+3. `RegisteredTensorPool` allocates and registers fixed-shape receiver buckets
+   once. Their transfer tickets are exchanged once and reused for all blocks.
+4. The encoder submits a transfer after each session's encode and continues
+   encoding later sessions before waiting. A DiT submits its clean latent
+   before cache finalization, then the decoder waits at its actual dependency.
+5. The CP benchmark can patchify once on the encoder and RDMA the corresponding
+   token shard directly to each DiT rank, removing leader-mediated input
+   broadcast and its full-input materialization on every rank.
+6. An interchangeable `NixlTensorTransport` implements the same
+   descriptor/ticket/handle contract. Its real backend remains optional.
+7. `SessionAwareScheduler` adds fixed latency/throughput pools, sticky cache
+   placement, predicted queue-time scoring, shape/CP/HBM compatibility,
+   rack/NIC locality, and mandatory RDMA capability.
+8. Compatible-session microbatch formation is implemented at the scheduler
+   layer. Fused model execution is not: LingBot still needs cache
+   gather/scatter, mask batching, and latency/HBM admission inside DiT.
+
+This follows the design principle reported by the
+[LightX2V disaggregation study](https://light-ai.top/LightX2V-BLOG/posts/Disaggregation/):
+retain large mutable state at its compute stage, transfer boundary tensors
+instead of model state, and recover utilization by independently scaling the
+dominant stage. The transport design also follows
+[NIXL's recommendation](https://github.com/ai-dynamo/nixl/blob/main/docs/nixl.md)
+to register transfer memory during initialization and reuse its metadata.
+
+### Reused allocation and method
+
+All follow-up trials reused Slurm job `14761875` on `pool0-01924`; no second
+node was allocated. The node exposed eight H100 80 GB HBM3 GPUs and nine
+`mlx5` HCAs. The container was missing `libibverbs.so.1`, so `libibverbs1`,
+`ibverbs-providers`, and `rdma-core` were installed in its writable layer.
+Mooncake then discovered all nine HCAs, installed `type=rdma`, completed
+RDMA-ready handshakes, and did not fall back to TCP.
+
+The model, 832×464 input, seed, four-step scheduler, six warmup waves, five
+measured waves, and 256 MiB eight-iteration probes match the tracked
+disaggregated workload. The base revision was
+`b762d079245681e1db70f1ffc5728753ce2a90b8` plus the changes recorded here.
+`TORCHINDUCTOR_COMPILE_THREADS=1` limited host oversubscription.
+
+### Throughput result
+
+![Optimized LingBot component wall-time and HBM breakdown](disaggregated_inference_optimized.svg)
+
+| Metric | Tracked 1E:6DiT:1D | 1IO:7DiT synchronous | 1IO:7DiT pooled async |
+| --- | ---: | ---: | ---: |
+| Aggregate generated FPS | 27.20 | 31.57 | **35.15** |
+| Per-session generated FPS | 4.53 | 4.51 | **5.02** |
+| Median seven-session wave | — | 2671.78 ms | **2358.51 ms** |
+| P90 seven-session wave | — | 2705.95 ms | **2454.10 ms** |
+| Median DiT critical path | 2185.88 ms | 2177.66 ms | 2178.39 ms |
+| Median encoder wave | 4.91 ms for six | 5.92 ms | 5.91 ms |
+| Median decoder wave | 42.26 ms for six | 49.20 ms | 49.06 ms |
+| Median 256 MiB stage-edge probe | 41.22 GB/s | 42.28 GB/s | 41.97 GB/s |
+
+Co-location plus the seventh DiT raises aggregate throughput 29.2% over the
+tracked 1:6:1 result. Pooling and overlap then raise throughput 11.4% over the
+same 1:7 topology's synchronous path. The optimized result is 10.9% above the
+earlier 31.7 FPS linear projection. The stable five-wave range was
+2354.46–2514.78 ms; p90 includes one slower 2.51 s measured wave.
+
+The DiT critical path did not become faster; it remains about 2.18 seconds.
+The gain comes from removing serialized handoff work from the wave's critical
+path and adding one independent session. This result therefore increases
+concurrent interactive-session capacity, not one session's FPS. The aggregated
+CP8 topology remains the measured one-session latency winner.
+
+| Optimized component | Median | P90 |
+| --- | ---: | ---: |
+| Encoder compute, seven inputs | 5.91 ms | 6.08 ms |
+| DiT denoise, per-worker samples | 1718.78 ms | 1816.21 ms |
+| DiT cache finalization, per-worker samples | 426.45 ms | 436.32 ms |
+| DiT critical path, slowest worker | 2178.39 ms | 2256.77 ms |
+| Decoder compute, seven outputs | 49.06 ms | 49.11 ms |
+| End-to-end wave | 2358.51 ms | 2454.10 ms |
+
+GPU 0 peaked at 20.59 GiB with both I/O stages and seven pairs of streaming
+caches. DiT ranks peaked at 56.29–56.51 GiB each. Co-location therefore fits
+with about 59 GiB of HBM headroom on the I/O GPU while keeping every DiT below
+57 GiB.
+
+### Transfer interpretation and correctness
+
+The optimized fourteen-edge large-buffer probe measured 41.97 GB/s median,
+42.66 GB/s p90, and 39.66–42.79 GB/s range. This is the reliable link
+measurement. For asynchronous model transfers, `transfer_ms` spans submission
+until the later wait. Useful encoder work or cache finalization happens inside
+that interval, so it is an in-flight residency window, not isolated byte-copy
+time or an additive latency component. The 0.55 MiB output's roughly 442 ms
+window, for example, intentionally contains roughly 426 ms of finalization.
+
+The synchronous control emitted repeated Mooncake `remote access error`,
+`local access violation`, rail-pause, and rail-recovery messages when
+per-request registered buffers were quickly unregistered and their addresses
+reused. It still wrote a report and exited with status zero, but it is not a
+production-safe control. The pooled run completed without those errors.
+Persistent registration is therefore both the performance optimization and
+the required receiver-buffer lifetime fix.
+
+### Direct CP shard result
+
+The direct CP6 input contract also completed all model measurements. The
+encoder patchified once, split 4,524 tokens into six 754-token bundles, and
+each CP rank consumed its own bundle without a leader broadcast. DiT compute
+was unchanged, confirming the sharded tensor contract:
+
+| CP6 ring metric | Leader handoff + NCCL fanout | Six direct Mooncake shards |
+| --- | ---: | ---: |
+| Median chunk latency | **743.27 ms** | 939.36 ms |
+| Generated FPS | **15.90** | 12.70 |
+| Encoder input handoff | **30.33 ms** | 174.23 ms |
+| NCCL input fanout | 0.89 ms | **0.00 ms** |
+| DiT critical path | 683.16 ms | 683.19 ms |
+| DiT peak HBM per rank | 39.18 GiB | **39.16 GiB** |
+
+The direct layout saves a full input replica and 0.89 ms of NCCL fanout, but
+six separately allocated, registered, ticketed, and synchronized 2.39 MiB
+Mooncake handoffs cost 174.23 ms. It regresses latency by 26.4% and throughput
+by 20.2%, so `--direct-cp-input` is an experimental correctness path, not a
+recommended optimization on Mooncake 0.3.12.
+
+The full direct run wrote its five-wave report, then stalled in distributed
+teardown and was manually terminated. Attempts to reuse registered destination
+shards—both concurrent and sequential, including an explicit
+post-registration barrier—failed with Mooncake status `-1`, `remote access
+error`, and `local access violation`. That attempted pooling code was not kept.
+A production direct-shard path needs a transport with reliable long-lived
+multi-destination registrations, or a Mooncake fix, before it can outperform
+the leader + NCCL path.
+
+The allocated image did not contain NIXL, so the adapter was validated with a
+fake-agent CPU round trip but not benchmarked on H100. No NIXL bandwidth result
+is claimed. NVIDIA's
+[Dynamo communication guide](https://docs.nvidia.com/dynamo/kubernetes-deployment/operate/disagg-communication)
+recommends independently checking GPU-to-GPU bandwidth and verifying that the
+NIXL/UCX backend is instantiated rather than silently accepting TCP; the same
+acceptance rule is encoded by the scheduler.
+
+### Deployment decision and remaining work
+
+Use disaggregation when enough simultaneous interactive sessions exist to keep
+multiple DiTs occupied, I/O and DiT need independent scaling, cache-affine
+routing or stage fault isolation matters, and a verified fast data plane is
+available. Use aggregated CP8 when a single session needs minimum latency,
+traffic is sparse, or operational simplicity outweighs independent stage
+placement. Mixed deployments should keep two warm pools: `aggregated-cp8` for
+premium latency and `io-plus-7-dit` for throughput. Do not hot-repartition a
+node between requests because weight loading, compilation, cache construction,
+and warmup are expensive.
+
+The next optimization items, in order, are:
+
+1. Replace the benchmark's wave barriers with request-scoped bounded queues so
+   encoder N+1, DiT N, and decoder N−1 overlap across whole stage invocations.
+2. Add completion timestamps from Mooncake/NIXL rather than treating delayed
+   waits as copy latency.
+3. Implement real DiT microbatches with cache gather/scatter and shape-aware
+   CUDA graph buckets.
+4. Remove remaining cache-layout materialization inside LingBot finalization;
+   its 426 ms median is still 18% of the optimized wave.
+5. Complete direct rank-to-rank CP output shards where the decoder layout
+   permits it, instead of gathering the clean latent on a leader.
+6. Install and benchmark NIXL/UCX with registration caching, multi-rail
+   selection, GPUDirect RDMA verification, and telemetry.
+7. Feed measured GPU/NIC affinity and topology domains into the production
+   worker snapshots, rather than relying on benchmark-wide HCA autodiscovery.
+8. Add cancellation drain, worker-loss cache recovery, bounded backpressure,
+   and matched-seed decoded-output quality regression.
+
 ## How to reproduce
 
 The commands below assume the repository is at
@@ -633,6 +817,29 @@ Model loading fans the DiT checkpoint out to six ranks and may take several
 minutes from shared storage; that cold-start time is not included in the
 steady-state throughput result.
 
+Run the optimized co-located topology in the same allocation:
+
+```bash
+env GLOG_minloglevel=2 TORCHINDUCTOR_COMPILE_THREADS=1 \
+uv run --no-sync --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_replicated \
+  --dit-replicas 7 \
+  --co-locate-io \
+  --pooled-async \
+  --transport mooncake \
+  --warmup-blocks 6 \
+  --measured-blocks 5 \
+  --bandwidth-probe-mib 256 \
+  --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg_1io7dit_optimized
+```
+
+Use `--transport-only` first on a new node and reject the run unless the logs
+show an RDMA transport and the fourteen edge probes complete. The
+`--transport nixl` option selects the NIXL adapter, but requires a separately
+installed compatible NIXL release.
+
 Run the all-eight-GPU, minimum-latency candidate:
 
 ```bash
@@ -678,6 +885,10 @@ uv run --package flashdreams-lingbot torchrun \
 The CP benchmark requires exactly `cp-ranks + 2` processes. Do not remove the
 six warmup blocks: block 5 changes the cache shape and can otherwise leave
 compile/autotune latency in the measured set.
+
+To reproduce the direct-shard diagnostic, add `--direct-cp-input` and use a
+different output directory. Expect lower performance on Mooncake 0.3.12 as
+reported above; do not use that flag as the production default.
 
 Run the eight-GPU aggregated baseline. The height must remain CP8-compatible
 unless another resolution is explicitly validated:
@@ -784,6 +995,7 @@ uv run --package flashdreams-lingbot pytest \
   flashdreams/tests/test_pipeline_stages.py \
   flashdreams/tests/test_transfer.py \
   integrations/lingbot/tests/test_disagg_stages.py \
+  integrations/lingbot/tests/test_disagg_scheduler.py \
   integrations/lingbot/tests/test_disagg_replicated.py \
   integrations/lingbot/tests/test_disagg_cp.py \
   integrations/lingbot/tests/test_disagg_aggregated.py
@@ -791,6 +1003,12 @@ uv run --package flashdreams-lingbot pytest \
 uv lock --check
 exit
 ```
+
+The focused validation completed with 17 passing tests. A repository-wide
+``pytest -m ci_cpu`` collection was also attempted, but the local environment
+lacked the unrelated Omnidreams optional dependencies ``pyvirtualdisplay`` and
+``flip_evaluator``. The changed LingBot and transport modules had already
+completed collection and passed in the focused run above.
 
 ## Acceptance and limitations
 
@@ -805,6 +1023,11 @@ exit
 | Single-session acceleration | Useful opt-in | CP6 ring reached 15.90 FPS and 743.27 ms, a 3.01× latency speedup |
 | Aggregated CP8 baseline | Useful opt-in | 29.50 FPS and 393.33 ms at 832×448; 30.3% more node HBM than stage-local CP6 |
 | Clean CP teardown | Useful opt-in | Post-fix full-model and transport-only lifecycle smokes exited normally |
+| Co-located 1IO:7DiT topology | Useful opt-in | 35.15 aggregate FPS, 5.02 FPS/session, and 20.59 GiB on the I/O GPU |
+| Pooled async Mooncake | Useful opt-in | 11.4% faster than same-topology synchronous control; no RDMA access errors |
+| NIXL backend | Experimental | Contract and fake-agent CPU round trip pass; no NIXL package or H100 result on the allocated image |
+| Session-aware scheduler | Experimental | Placement, affinity, compatibility, topology, and TCP-rejection tests pass; not wired to a production request frontend |
+| Fused DiT microbatch | Deferred | Scheduler forms compatible groups; model/cache batch execution is not implemented |
 
 Results apply to this H100/CUDA 13/Mooncake stack and should not be generalized
 to other GPU, NIC, driver, topology, or model configurations without repeating

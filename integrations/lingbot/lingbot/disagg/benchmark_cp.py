@@ -53,8 +53,10 @@ from lingbot.disagg.stages import (
     conditioning_to_bundle,
     encoder_output_from_bundle,
     encoder_output_to_bundle,
+    encoder_output_to_cp_bundles,
 )
 from lingbot.encoder.camctrl import CamCtrlInput
+from lingbot.transformer import LingbotWorldTransformerConfig
 
 _DEFAULT_BASELINE = Path(
     "integrations/lingbot/docs/benchmark_h100_3stage/benchmark.json"
@@ -82,6 +84,11 @@ def _parse_args() -> argparse.Namespace:
         help="DiT attention collective; CP6 requires ring for the 40-head model.",
     )
     parser.add_argument("--rdma-device", default=None)
+    parser.add_argument(
+        "--direct-cp-input",
+        action="store_true",
+        help="Patchify on the encoder and RDMA each token shard to its CP rank.",
+    )
     parser.add_argument("--bandwidth-probe-mib", type=int, default=256)
     parser.add_argument("--bandwidth-probe-iters", type=int, default=8)
     parser.add_argument(
@@ -624,7 +631,8 @@ def main() -> None:
         step_started = time.perf_counter()
         local: dict[str, Any] = {}
 
-        encoded_bundle = None
+        encoded_bundle: TensorBundle | None = None
+        encoded_cp_bundles: tuple[TensorBundle, ...] | None = None
         if encoder_stage is not None and encoder_cache is not None:
             assert intrinsics is not None
             assert poses is not None
@@ -649,34 +657,86 @@ def main() -> None:
                     input=control,
                 )
             )
-            encoded_bundle = encoder_output_to_bundle(encoded)
+            if args.direct_cp_input:
+                transformer_config = base_config.diffusion_model.transformer
+                assert isinstance(
+                    transformer_config,
+                    LingbotWorldTransformerConfig,
+                )
+                encoded_cp_bundles = encoder_output_to_cp_bundles(
+                    encoded,
+                    cp_size=args.cp_ranks,
+                    patch_size=transformer_config.network.patch_size,
+                )
+            else:
+                encoded_bundle = encoder_output_to_bundle(encoded)
             frame_start = frame_end
 
-        received_encoded, encoder_transfer, encoder_handoff_ms = _transfer_bundle(
-            transport,
-            source=encoder_rank,
-            destination=cp_leader,
-            source_bundle=encoded_bundle,
-            device=device,
-        )
-        if rank == encoder_rank:
-            local["encoder_to_cp_leader"] = dict(vars(encoder_transfer))
-            local["encoder_to_cp_leader_handoff_ms"] = encoder_handoff_ms
-        cp_encoded, fanout_ms = _fanout_bundle_to_cp(
-            source_bundle=received_encoded,
-            source=cp_leader,
-            cp_ranks=cp_ranks,
-            cp_group=cp_group,
-            device=device,
-        )
-        if rank in cp_ranks:
-            assert fanout_ms is not None
-            local["cp_input_fanout_ms"] = fanout_ms
+        cp_encoded = None
+        if args.direct_cp_input:
+            direct_transfers: list[TransferStats] = []
+            direct_handoff_ms = 0.0
+            for cp_index, cp_rank in enumerate(cp_ranks):
+                received_shard, transfer, handoff_ms = _transfer_bundle(
+                    transport,
+                    source=encoder_rank,
+                    destination=cp_rank,
+                    source_bundle=(
+                        encoded_cp_bundles[cp_index]
+                        if rank == encoder_rank and encoded_cp_bundles is not None
+                        else None
+                    ),
+                    device=device,
+                )
+                if rank == cp_rank:
+                    cp_encoded = received_shard
+                if rank == encoder_rank:
+                    direct_transfers.append(transfer)
+                    direct_handoff_ms += handoff_ms
+            if rank == encoder_rank:
+                total_payload = sum(item.payload_bytes for item in direct_transfers)
+                total_transfer_ms = sum(item.transfer_ms for item in direct_transfers)
+                local["encoder_to_cp_leader"] = {
+                    **vars(direct_transfers[0]),
+                    "payload_bytes": total_payload,
+                    "transfer_ms": total_transfer_ms,
+                    "bandwidth_gbps": (
+                        total_payload / (total_transfer_ms / 1000.0) / 1e9
+                    ),
+                    "direct_shards": args.cp_ranks,
+                }
+                local["encoder_to_cp_leader_handoff_ms"] = direct_handoff_ms
+            if rank in cp_ranks:
+                local["cp_input_fanout_ms"] = 0.0
+        else:
+            received_encoded, encoder_transfer, encoder_handoff_ms = _transfer_bundle(
+                transport,
+                source=encoder_rank,
+                destination=cp_leader,
+                source_bundle=encoded_bundle,
+                device=device,
+            )
+            if rank == encoder_rank:
+                local["encoder_to_cp_leader"] = dict(vars(encoder_transfer))
+                local["encoder_to_cp_leader_handoff_ms"] = encoder_handoff_ms
+            cp_encoded, fanout_ms = _fanout_bundle_to_cp(
+                source_bundle=received_encoded,
+                source=cp_leader,
+                cp_ranks=cp_ranks,
+                cp_group=cp_group,
+                device=device,
+            )
+            if rank in cp_ranks:
+                assert fanout_ms is not None
+                local["cp_input_fanout_ms"] = fanout_ms
         torch.distributed.barrier()
 
         clean_bundle = None
         if dit_stage is not None and dit_cache is not None and cp_encoded is not None:
-            encoded = encoder_output_from_bundle(cp_encoded)
+            encoded = encoder_output_from_bundle(
+                cp_encoded,
+                patchified=args.direct_cp_input,
+            )
             clean_latent, local["dit_ms"] = _timed_cuda(
                 partial(
                     dit_stage.generate,
@@ -693,9 +753,12 @@ def main() -> None:
                 )
             )
             local["cp_rank"] = rank - cp_leader
+            if args.direct_cp_input:
+                transport.unregister(cp_encoded)
             if rank == cp_leader:
                 clean_bundle = {"clean_latent": clean_latent.contiguous()}
-                transport.unregister(cp_encoded)
+                if not args.direct_cp_input:
+                    transport.unregister(cp_encoded)
 
         received_clean, decoder_transfer, decoder_handoff_ms = _transfer_bundle(
             transport,
@@ -766,6 +829,7 @@ def main() -> None:
             "decoder": [decoder_rank],
             "cp_size": args.cp_ranks,
             "cp_method": args.cp_method,
+            "direct_cp_input": args.direct_cp_input,
         }
         environment["noise_seed_by_cp_rank"] = [
             None

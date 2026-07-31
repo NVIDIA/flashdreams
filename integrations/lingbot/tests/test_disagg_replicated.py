@@ -20,13 +20,14 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from flashdreams.infra.transfer import TransferStats
 from lingbot.disagg.benchmark_replicated import (
     StageAllocation,
     _summarize,
     allocate_stage_replicas,
     allocation_from_baseline,
 )
+
+from flashdreams.infra.transfer import TransferStats
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -104,6 +105,7 @@ def test_replicated_summary_reports_aggregate_and_gpu_normalized_scaling() -> No
         probes={"encoder_to_dit_1": [probe]},
         baseline=_baseline(),
         dit_replicas=6,
+        total_gpus=8,
     )
 
     assert summary["aggregate_fps"] == pytest.approx(30.0)
