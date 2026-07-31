@@ -3,16 +3,26 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
+from typing import Any, cast
+
 import pytest
 
 from flashdreams.runtime import (
     IdentityInputMapping,
     InferenceConfig,
+    InferenceRuntime,
+    InferenceSession,
     InMemoryMetricsRecorder,
     InputField,
+    InputMapping,
+    MetricsRecorder,
+    ModelAdapter,
     ModelInputs,
     ModelInputSchema,
     NullOutputTarget,
+    OutputTarget,
+    RuntimeMetricSample,
     StepRequest,
     StepResult,
     TimeWindow,
@@ -25,6 +35,7 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def test_inference_config_keeps_runtime_settings_separate() -> None:
+    denied_app_fields = {"prompt", "output_dir", "browser_settings"}
     config = InferenceConfig(
         model_id="lingbot-world",
         preset_id="fast-taehv",
@@ -37,8 +48,14 @@ def test_inference_config_keeps_runtime_settings_separate() -> None:
     assert config.model_id == "lingbot-world"
     assert config.preset_id == "fast-taehv"
     assert config.runtime_options["chunk_size"] == 3
-    assert not hasattr(config, "prompt")
-    assert not hasattr(config, "output_dir")
+    assert denied_app_fields.isdisjoint(field.name for field in fields(InferenceConfig))
+    with pytest.raises(TypeError):
+        cast(Any, config.runtime_options)["chunk_size"] = 4
+
+
+def test_inference_config_rejects_empty_model_id() -> None:
+    with pytest.raises(ValueError, match="model_id"):
+        InferenceConfig(model_id=" ")
 
 
 def test_model_input_schema_validates_initial_and_step_payloads() -> None:
@@ -74,6 +91,16 @@ def test_user_inputs_filter_timestamped_event_windows() -> None:
     windowed = inputs.window(TimeWindow(start_s=0.25, end_s=0.75))
 
     assert [event.kind for event in windowed.events] == ["keyboard.keyup"]
+
+
+def test_user_inputs_require_sorted_events() -> None:
+    with pytest.raises(ValueError, match="non-decreasing"):
+        UserInputs(
+            events=(
+                UserInputEvent(timestamp_s=1.0, kind="late"),
+                UserInputEvent(timestamp_s=0.5, kind="early"),
+            )
+        )
 
 
 def test_user_input_schema_declares_event_capabilities() -> None:
@@ -127,6 +154,9 @@ def test_null_output_target_counts_and_optionally_stores_results() -> None:
     target = NullOutputTarget(store_results=True)
     result = StepResult(step_index=0, output=b"frame")
 
+    with pytest.raises(RuntimeError, match="closed output target"):
+        target.write(result)
+
     target.open()
     target.write(result)
     artifacts = target.close()
@@ -165,3 +195,173 @@ def test_in_memory_metrics_recorder_uses_seconds_for_timing() -> None:
     assert sample.unit == "s"
     assert sample.category == "timing"
     assert sample.step_index == 2
+
+
+def test_timing_metric_samples_must_use_seconds() -> None:
+    with pytest.raises(ValueError, match="unit='s'"):
+        RuntimeMetricSample(
+            name="model_step",
+            value=12.5,
+            unit="ms",
+            category="timing",
+        )
+
+
+def test_runtime_api_components_compose_for_sequential_session() -> None:
+    adapter = _FakeAdapter()
+    config = InferenceConfig(model_id="fake-model")
+    user_inputs = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.25,
+                kind="keyboard.keydown",
+                payload={"key": "w"},
+            ),
+        )
+    )
+    model_inputs = ModelInputs(initial={"prompt": "drive forward"})
+    output = NullOutputTarget(store_results=True)
+    metrics = InMemoryMetricsRecorder()
+
+    adapter.validate_config(config)
+    mapping = adapter.default_input_mapping()
+    assert mapping is not None
+    _drive_two_step_session(
+        adapter=adapter,
+        config=config,
+        mapping=mapping,
+        user_inputs=user_inputs,
+        model_inputs=model_inputs,
+        output=output,
+        metrics=metrics,
+    )
+
+    assert output.output_count == 2
+    assert [result.output for result in output.results] == ["chunk-0", "chunk-1"]
+    assert [result.frame_count for result in output.results] == [3, 3]
+    assert output.results[0].output_window == TimeWindow(start_s=0.0, end_s=0.5)
+    assert [sample.step_index for sample in metrics.samples] == [0, 1]
+    assert metrics.closed
+
+
+def _drive_two_step_session(
+    *,
+    adapter: ModelAdapter,
+    config: InferenceConfig,
+    mapping: InputMapping,
+    user_inputs: UserInputs,
+    model_inputs: ModelInputs,
+    output: OutputTarget,
+    metrics: MetricsRecorder,
+) -> None:
+    runtime = adapter.create_runtime(config)
+    mapping.validate(
+        user_schema=adapter.user_input_schema,
+        model_schema=adapter.model_input_schema,
+    )
+    initial_inputs = mapping.map_initial_inputs(
+        user_inputs=user_inputs,
+        model_inputs=model_inputs,
+    )
+    session = runtime.start_session(initial_inputs)
+    output.open()
+    try:
+        while (request := session.next_step_request()) is not None:
+            step_inputs = mapping.map_step_inputs(
+                user_inputs=(
+                    user_inputs.window(request.user_input_window)
+                    if request.user_input_window is not None
+                    else user_inputs
+                ),
+                model_inputs=ModelInputs(
+                    initial=initial_inputs.initial,
+                    step={"chunk_index": request.step_index},
+                ),
+                request=request,
+            )
+            result = session.step(step_inputs)
+            output.write(result)
+            metrics.record_timing(
+                "model_step",
+                float(result.metrics["model_step_s"]),
+                step_index=result.step_index,
+            )
+    finally:
+        output.close()
+        session.close()
+        runtime.close()
+        metrics.close()
+
+
+class _FakeAdapter:
+    model_id = "fake-model"
+    model_input_schema = ModelInputSchema(
+        initial_fields=(InputField(name="prompt"),),
+        step_fields=(InputField(name="chunk_index"),),
+    )
+    user_input_schema = UserInputSchema(event_kinds=frozenset({"keyboard.keydown"}))
+
+    def default_input_mapping(self) -> InputMapping:
+        return IdentityInputMapping()
+
+    def validate_config(self, config: InferenceConfig) -> None:
+        if config.model_id != self.model_id:
+            raise ValueError(f"Unsupported model_id={config.model_id!r}.")
+
+    def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
+        self.validate_config(config)
+        return _FakeRuntime(model_input_schema=self.model_input_schema)
+
+
+class _FakeRuntime:
+    def __init__(self, *, model_input_schema: ModelInputSchema) -> None:
+        self._model_input_schema = model_input_schema
+        self.closed = False
+
+    def start_session(self, inputs: ModelInputs) -> InferenceSession:
+        self._model_input_schema.require_initial(inputs)
+        return _FakeSession(model_input_schema=self._model_input_schema)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeSession:
+    def __init__(self, *, model_input_schema: ModelInputSchema) -> None:
+        self._model_input_schema = model_input_schema
+        self.step_index = 0
+        self.closed = False
+
+    def next_step_request(self) -> StepRequest | None:
+        if self.step_index >= 2:
+            return None
+        return StepRequest(
+            step_index=self.step_index,
+            model_input_schema=self._model_input_schema,
+            user_input_window=TimeWindow(
+                start_s=0.5 * self.step_index,
+                end_s=0.5 * (self.step_index + 1),
+            ),
+        )
+
+    def step(self, inputs: ModelInputs) -> StepResult:
+        self._model_input_schema.require_step(inputs)
+        result = StepResult(
+            step_index=self.step_index,
+            output=f"chunk-{self.step_index}",
+            frame_count=3,
+            output_window=TimeWindow(
+                start_s=0.5 * self.step_index,
+                end_s=0.5 * (self.step_index + 1),
+            ),
+            metrics={"model_step_s": 0.01},
+        )
+        self.step_index += 1
+        return result
+
+    def reset(self, inputs: ModelInputs | None = None) -> None:
+        del inputs
+        self.step_index = 0
+
+    def close(self) -> None:
+        self.closed = True

@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
+
+from flashdreams.runtime._utils import freeze_mapping
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -16,6 +19,8 @@ class RuntimeMetricSample:
 
     Timing samples should use seconds as their canonical unit.
     """
+
+    __hash__ = None
 
     name: str
     value: float | int
@@ -33,6 +38,11 @@ class RuntimeMetricSample:
             raise ValueError("RuntimeMetricSample.value must be finite.")
         if self.step_index is not None and self.step_index < 0:
             raise ValueError("RuntimeMetricSample.step_index must be >= 0.")
+        if not self.unit.strip():
+            raise ValueError("RuntimeMetricSample.unit must be non-empty.")
+        if self.category == "timing" and self.unit != "s":
+            raise ValueError("Timing metric samples must use unit='s'.")
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
 @runtime_checkable

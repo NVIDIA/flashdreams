@@ -21,8 +21,6 @@ from flashdreams.runtime.interfaces import (
     InferenceRuntime,
     InferenceSession,
     ModelAdapter,
-    StepRequest,
-    StepResult,
 )
 from flashdreams.runtime.mapping import IdentityInputMapping, InputMapping
 from flashdreams.runtime.metrics import (
@@ -32,6 +30,7 @@ from flashdreams.runtime.metrics import (
     RuntimeMetricSample,
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
+from flashdreams.runtime.types import StepRequest, StepResult
 
 __all__ = [
     "ExecutionBackend",

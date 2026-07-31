@@ -6,13 +6,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
+
+from flashdreams.runtime._utils import freeze_mapping
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class TimeWindow:
-    """Half-open time window in canonical seconds."""
+    """Half-open time window in seconds since session start."""
 
     start_s: float
     end_s: float
@@ -101,7 +104,9 @@ class ModelInputSchema:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UserInputEvent:
-    """Timestamped user-facing input event."""
+    """User-facing input event timestamped in seconds since session start."""
+
+    __hash__ = None
 
     timestamp_s: float
     kind: str
@@ -114,15 +119,32 @@ class UserInputEvent:
             raise ValueError("UserInputEvent.timestamp_s must be finite and >= 0.")
         if not self.kind.strip():
             raise ValueError("UserInputEvent.kind must be non-empty.")
+        object.__setattr__(self, "payload", freeze_mapping(self.payload))
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UserInputs:
-    """Transport-neutral user inputs for live, replayed, synthetic, or no-op runs."""
+    """Transport-neutral user inputs.
+
+    Events must be in non-decreasing timestamp order.
+    """
+
+    __hash__ = None
 
     events: tuple[UserInputEvent, ...] = ()
     snapshot: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        previous_timestamp_s = -math.inf
+        for event in self.events:
+            if event.timestamp_s < previous_timestamp_s:
+                raise ValueError(
+                    "UserInputs.events must be sorted by non-decreasing timestamp_s."
+                )
+            previous_timestamp_s = event.timestamp_s
+        object.__setattr__(self, "snapshot", freeze_mapping(self.snapshot))
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
     def window(self, time_window: TimeWindow) -> "UserInputs":
         """Return inputs with events filtered to ``time_window``."""
@@ -141,9 +163,16 @@ class UserInputs:
 class ModelInputs:
     """Model-facing input payloads split by initial and per-step use."""
 
+    __hash__ = None
+
     initial: Mapping[str, Any] = field(default_factory=dict)
     step: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "initial", freeze_mapping(self.initial))
+        object.__setattr__(self, "step", freeze_mapping(self.step))
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
     def with_step(self, step: Mapping[str, Any]) -> "ModelInputs":
         """Return a copy with replaced per-step payload."""
@@ -154,5 +183,7 @@ def _missing_required(
     fields: tuple[InputField, ...], payload: Mapping[str, Any]
 ) -> tuple[str, ...]:
     return tuple(
-        field.name for field in fields if field.required and field.name not in payload
+        input_field.name
+        for input_field in fields
+        if input_field.required and input_field.name not in payload
     )

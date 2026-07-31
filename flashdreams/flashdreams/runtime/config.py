@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
+
+from flashdreams.runtime._utils import freeze_mapping
 
 ExecutionBackend = Literal["local", "local-distributed", "external", "hosted"]
 """Execution backend families the v0 envelope leaves room for."""
@@ -21,8 +24,12 @@ class InferenceConfig:
     """Model/runtime execution settings.
 
     Prompts, user controls, browser settings, output paths, and benchmark
-    directories intentionally live outside this object.
+    directories intentionally live outside this object. The typed optimization
+    fields cover common cross-backend knobs; adapter-specific choices belong in
+    :attr:`runtime_options`.
     """
+
+    __hash__ = None
 
     model_id: str
     """Stable model or adapter identity."""
@@ -63,3 +70,7 @@ class InferenceConfig:
     def __post_init__(self) -> None:
         if not self.model_id.strip():
             raise ValueError("InferenceConfig.model_id must be non-empty.")
+        object.__setattr__(
+            self, "runtime_options", freeze_mapping(self.runtime_options)
+        )
+        object.__setattr__(self, "resource_hints", freeze_mapping(self.resource_hints))

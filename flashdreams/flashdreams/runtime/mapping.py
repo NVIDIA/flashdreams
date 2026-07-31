@@ -13,7 +13,7 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
-from flashdreams.runtime.interfaces import StepRequest
+from flashdreams.runtime.types import StepRequest
 
 
 @runtime_checkable
