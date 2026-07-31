@@ -28,7 +28,11 @@ from flashdreams.core.attention.rope import (
     KVCacheRelativeRotaryPositionEmbedding3D,
     RotaryPositionEmbedding3D,
 )
-from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.core.checkpoint.load import (
+    can_stream_sharded_safetensors_checkpoint,
+    load_checkpoint,
+    load_sharded_safetensors_checkpoint_into_model,
+)
 from flashdreams.infra.acceleration.cuda_graph_dispatch import (
     CUDAGraphDispatch,
     cuda_graph_capture_ar_index,
@@ -153,6 +157,15 @@ class Wan21TransformerConfig(TransformerConfig):
     with ``FLASHDREAMS_MIN_CACHE_FREE_GB``.
     """
 
+    checkpoint_map_location: str = "cpu"
+    """Initial device for checkpoint tensor materialization.
+
+    ``"cpu"`` preserves the historical load-then-``.to(device)`` behavior.
+    Large GPU-only integrations can set this to ``"cuda"`` / ``"cuda:N"``
+    for streamed sharded safetensors to avoid staging full weights in host RAM.
+    ``"auto"`` resolves to CUDA when available, otherwise CPU.
+    """
+
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
     """Pre-load state-dict remap (e.g. Self-Forcing's
     ``generator_ema.model.…`` layout)."""
@@ -226,6 +239,12 @@ class Wan21TransformerConfig(TransformerConfig):
     """
 
 
+def _resolve_checkpoint_map_location(map_location: str) -> str:
+    if map_location == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return map_location
+
+
 class Wan21Transformer(Transformer[Wan21TransformerCache]):
     """Wan 2.1 DiT adapted to the infra Transformer interface."""
 
@@ -272,20 +291,41 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         )
         self._output_height: int | None = None
         self._output_width: int | None = None
+        checkpoint_map_location = _resolve_checkpoint_map_location(
+            config.checkpoint_map_location
+        )
 
-        self.network = config.network.setup()
-        self.network = self.network.to(dtype=config.dtype)
-        self.network.eval()
-        self.network.set_context_parallel_group(cp_group=self._cp_group)
+        stream_sharded_checkpoint = (
+            config.checkpoint_path is not None
+            and config.state_dict_transform is None
+            and can_stream_sharded_safetensors_checkpoint(config.checkpoint_path)
+        )
+        if stream_sharded_checkpoint:
+            with torch.device("meta"):
+                self.network = config.network.setup()
+            load_sharded_safetensors_checkpoint_into_model(
+                self.network,
+                config.checkpoint_path,
+                map_location=checkpoint_map_location,
+                checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+                assign=True,
+            )
+            self.network = self.network.to(dtype=config.dtype)
+        else:
+            self.network = config.network.setup()
+            self.network = self.network.to(dtype=config.dtype)
 
-        if config.checkpoint_path is not None:
+        if config.checkpoint_path is not None and not stream_sharded_checkpoint:
             state_dict = load_checkpoint(
                 config.checkpoint_path,
+                map_location=checkpoint_map_location,
                 checkpoint_min_free_gb=config.checkpoint_min_free_gb,
             )
             if config.state_dict_transform is not None:
                 state_dict = config.state_dict_transform(state_dict)
             self.network.load_state_dict(state_dict)
+        self.network.eval()
+        self.network.set_context_parallel_group(cp_group=self._cp_group)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:

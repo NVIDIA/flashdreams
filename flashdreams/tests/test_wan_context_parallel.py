@@ -1,12 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import types
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import torch
+from safetensors.torch import save_file
+from torch import Tensor
 
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
@@ -44,6 +48,20 @@ class _DummyNetwork(torch.nn.Module):
         self.parameters_updated = True
 
 
+class _CheckpointNetwork(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.proj = torch.nn.Linear(2, 2)
+        self.cp_group = None
+        self.parameters_updated = False
+
+    def set_context_parallel_group(self, cp_group=None) -> None:
+        self.cp_group = cp_group
+
+    def update_parameters_after_loading_checkpoint(self) -> None:
+        self.parameters_updated = True
+
+
 class _IdentityAttention(torch.nn.Module):
     def forward(self, q, k, v):
         return q
@@ -57,6 +75,16 @@ class _DummyNetworkConfig:
 
     def setup(self) -> _DummyNetwork:
         return _DummyNetwork()
+
+
+@dataclass
+class _CheckpointNetworkConfig:
+    patch_size: tuple[int, int, int] = (1, 1, 1)
+    in_dim: int = 16
+    apply_rope_before_kvcache: bool = True
+
+    def setup(self) -> _CheckpointNetwork:
+        return _CheckpointNetwork()
 
 
 def _mock_distributed(
@@ -73,6 +101,28 @@ def _mock_distributed(
         raising=False,
     )
     return fake_group
+
+
+def _write_checkpoint_network_index(tmp_path: Path) -> tuple[Path, dict[str, Tensor]]:
+    state = {
+        "proj.weight": torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        "proj.bias": torch.tensor([5.0, 6.0]),
+    }
+    shard = tmp_path / "model-00001-of-00001.safetensors"
+    save_file(state, shard)
+    index_path = tmp_path / "model.safetensors.index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "total_size": sum(tensor.nbytes for tensor in state.values())
+                },
+                "weight_map": {key: shard.name for key in state},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return index_path, state
 
 
 def test_wan21_uses_world_cp_group_when_distributed(monkeypatch) -> None:
@@ -93,6 +143,34 @@ def test_wan21_uses_world_cp_group_when_distributed(monkeypatch) -> None:
     assert isinstance(transformer.network, _DummyNetwork)
     assert transformer.network.cp_group is fake_group
     assert transformer.network.parameters_updated
+
+
+def test_wan21_streams_sharded_safetensors_checkpoint_from_meta(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+    index_path, expected = _write_checkpoint_network_index(tmp_path)
+
+    transformer = Wan21Transformer(
+        Wan21TransformerConfig(
+            network=cast(WanDiTNetworkConfig, _CheckpointNetworkConfig()),
+            checkpoint_path=str(index_path),
+            dtype=torch.float32,
+            batch_shape=(1,),
+            len_t=1,
+            window_size_t=1,
+            sink_size_t=0,
+            compile_network=False,
+        )
+    )
+
+    assert isinstance(transformer.network, _CheckpointNetwork)
+    assert transformer.network.parameters_updated
+    assert transformer.network.cp_group is None
+    for key, tensor in transformer.network.state_dict().items():
+        assert not tensor.is_meta
+        torch.testing.assert_close(tensor, expected[key])
 
 
 def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:

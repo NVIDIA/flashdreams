@@ -70,6 +70,7 @@ class CLIPImageEncoder(Encoder):
             config.model_id_or_local_path,
             subfolder="image_encoder",
             dtype=config.dtype,
+            low_cpu_mem_usage=True,
             local_files_only=True,
         )
         self.image_encoder.eval().requires_grad_(False)

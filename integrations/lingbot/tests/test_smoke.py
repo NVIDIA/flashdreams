@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import tomli as tomllib
+import torch
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 from lingbot import config as config_mod
 from lingbot import runner as runner_mod
 from lingbot.config import (
@@ -193,6 +197,35 @@ def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
         assert (
             transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
         )
+
+
+def test_lingbot_configs_stream_checkpoint_to_runner_device() -> None:
+    """LingBot resolves its large DiT checkpoint load device at runner setup."""
+    for cfg in RUNNER_CONFIGS.values():
+        transformer = cfg.pipeline.diffusion_model.transformer
+        assert isinstance(transformer, LingbotWorldTransformerConfig)
+        assert transformer.checkpoint_map_location == "auto"
+
+
+def test_lingbot_runner_resolves_auto_checkpoint_map_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Map the streamed DiT checkpoint to the same CUDA target as the runner."""
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+    monkeypatch.delenv("RANK", raising=False)
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    cfg = cast(
+        LingbotWorldRunnerConfig,
+        derive_config(RUNNER_CONFIGS["lingbot-world-fast"], device="cuda:3"),
+    )
+
+    resolved = runner_mod._resolve_checkpoint_map_location_config(cfg)
+
+    transformer = resolved.pipeline.diffusion_model.transformer
+    assert isinstance(transformer, LingbotWorldTransformerConfig)
+    assert transformer.checkpoint_map_location == "cuda:3"
+    assert cfg.pipeline.diffusion_model.transformer.checkpoint_map_location == "auto"
 
 
 def test_v2_only_replaces_the_v1_checkpoint() -> None:

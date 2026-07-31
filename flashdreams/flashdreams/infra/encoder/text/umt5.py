@@ -80,6 +80,8 @@ class UMT5TextEncoder(Encoder):
             UMT5EncoderModel.from_pretrained(
                 config.model_id_or_local_path,
                 subfolder="text_encoder",
+                dtype=config.dtype,
+                low_cpu_mem_usage=True,
                 local_files_only=True,
             ),
         )

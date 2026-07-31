@@ -17,11 +17,12 @@
 
 from __future__ import annotations
 
+import gc
 import io
 import json
 import os
 from collections.abc import Callable, Mapping
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, overload
 from urllib.parse import unquote, urlparse
 
@@ -212,6 +213,13 @@ def _is_sharded_safetensors_index_checkpoint(path: str) -> bool:
     return basename.endswith(".safetensors.index.json")
 
 
+def can_stream_sharded_safetensors_checkpoint(path: str) -> bool:
+    """Return whether ``path`` can be streamed into a module shard by shard."""
+    return not path.startswith("s3://") and _is_sharded_safetensors_index_checkpoint(
+        path
+    )
+
+
 def _sharded_safetensors_merge_cache_path(
     checkpoint_path: str, local_cache_dir: str
 ) -> str:
@@ -239,7 +247,7 @@ def _safetensors_device(map_location: str | torch.device) -> str:
 def _hf_hub_download_shard_task(
     args: tuple[str, str, str | None, str],
 ) -> tuple[str, str]:
-    """Picklable worker: download one shard; used by ProcessPoolExecutor."""
+    """Download one Hugging Face checkpoint shard."""
     repo_id, shard_file, subfolder, revision = args
     settings: dict[str, object] = {
         "repo": repo_id,
@@ -275,7 +283,7 @@ def _parallel_hf_hub_download_shards(
     subfolder: str | None,
     revision: str,
 ) -> dict[str, str]:
-    """Download unique shard files in parallel processes; returns shard -> local path."""
+    """Download unique shard files in parallel threads; returns shard -> local path."""
     if not shard_files:
         return {}
     if len(shard_files) == 1:
@@ -297,10 +305,10 @@ def _parallel_hf_hub_download_shards(
     work = [(repo_id, s, subfolder, revision) for s in shard_files]
     logger.info(
         f"Downloading {len(shard_files)} Hugging Face safetensors shards "
-        f"with up to {max_workers} parallel processes"
+        f"with up to {max_workers} parallel threads"
     )
     shard_to_path: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=max_workers) as pool:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for shard_file, path in pool.map(_hf_hub_download_shard_task, work):
             shard_to_path[shard_file] = path
     return shard_to_path
@@ -331,29 +339,40 @@ def _merge_sharded_safetensors_from_index(
     return merged
 
 
-def _load_sharded_safetensors_index_checkpoint(
-    checkpoint_path: str,
-    local_cache_dir: str,
-    map_location: str | torch.device,
-    checkpoint_min_free_gb: float | None = None,
-) -> dict[str, torch.Tensor]:
-    """Load HF-style sharded safetensors (index.json + shards) into one state dict."""
-    if local_cache_dir is None:
+def _read_sharded_safetensors_weight_map(index_path: str) -> dict[str, str]:
+    with open(index_path) as f:
+        index = json.load(f)
+    weight_map = index.get("weight_map")
+    if not isinstance(weight_map, dict) or not weight_map:
         raise ValueError(
-            "local_cache_dir is required to cache merged sharded safetensors"
+            f"Invalid or empty weight_map in safetensors index: {index_path}"
         )
-    cache_path = _sharded_safetensors_merge_cache_path(checkpoint_path, local_cache_dir)
-    if os.path.exists(cache_path):
-        logger.info(f"Loading merged sharded checkpoint from cache: {cache_path}")
-        return _load_checkpoint_from_local(cache_path, ".safetensors", map_location)
+    invalid_entries = [
+        key
+        for key, shard_file in weight_map.items()
+        if not isinstance(key, str) or not isinstance(shard_file, str)
+    ]
+    if invalid_entries:
+        raise ValueError(
+            f"Invalid weight_map entries in safetensors index: {index_path}. "
+            f"First invalid key: {invalid_entries[0]!r}"
+        )
+    return dict(weight_map)
 
+
+def _prepare_sharded_safetensors_index(
+    checkpoint_path: str,
+    *,
+    checkpoint_min_free_gb: float | None = None,
+    local_cache_path: str | None = None,
+) -> tuple[dict[str, str], Callable[[str], str]]:
+    """Resolve an HF-style sharded safetensors index and its shard paths."""
     is_hf_url = _is_huggingface_checkpoint_url(checkpoint_path)
 
     if is_hf_url:
         repo_id, index_filename, subfolder, revision = (
             _parse_huggingface_checkpoint_url(checkpoint_path)
         )
-        logger.info(f"Merging sharded safetensors from Hugging Face: {checkpoint_path}")
         settings: dict[str, object] = {
             "repo": repo_id,
             "filename": index_filename,
@@ -363,7 +382,7 @@ def _load_sharded_safetensors_index_checkpoint(
             label="Hugging Face sharded checkpoint cache",
             min_free_gb=checkpoint_min_free_gb,
             settings=settings,
-            local_cache_path=cache_path,
+            local_cache_path=local_cache_path,
         )
         min_bytes = _preflight_hf_cache(
             label="Hugging Face checkpoint index cache",
@@ -384,14 +403,8 @@ def _load_sharded_safetensors_index_checkpoint(
                 settings=settings,
             )
             raise
-        with open(index_local) as f:
-            index = json.load(f)
-        weight_map = index.get("weight_map")
-        if not isinstance(weight_map, dict) or not weight_map:
-            raise ValueError(
-                f"Invalid or empty weight_map in safetensors index: {index_local}"
-            )
 
+        weight_map = _read_sharded_safetensors_weight_map(index_local)
         unique_shards = sorted(set(weight_map.values()))
         shard_to_path = _parallel_hf_hub_download_shards(
             repo_id=repo_id,
@@ -403,34 +416,47 @@ def _load_sharded_safetensors_index_checkpoint(
         def resolve_shard_path(shard_file: str) -> str:
             return shard_to_path[shard_file]
 
-        merged = _merge_sharded_safetensors_from_index(
-            weight_map=weight_map,
-            resolve_shard_path=resolve_shard_path,
-            map_location=map_location,
-        )
-    else:
-        if not os.path.isfile(checkpoint_path):
-            raise FileNotFoundError(
-                f"Sharded safetensors index not found: {checkpoint_path}"
-            )
-        logger.info(f"Merging sharded safetensors from local index: {checkpoint_path}")
-        with open(checkpoint_path) as f:
-            index = json.load(f)
-        weight_map = index.get("weight_map")
-        if not isinstance(weight_map, dict) or not weight_map:
-            raise ValueError(
-                f"Invalid or empty weight_map in safetensors index: {checkpoint_path}"
-            )
-        base_dir = os.path.dirname(os.path.abspath(checkpoint_path))
+        return weight_map, resolve_shard_path
 
-        def resolve_shard_path(shard_file: str) -> str:
-            return os.path.join(base_dir, shard_file)
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"Sharded safetensors index not found: {checkpoint_path}")
 
-        merged = _merge_sharded_safetensors_from_index(
-            weight_map=weight_map,
-            resolve_shard_path=resolve_shard_path,
-            map_location=map_location,
+    weight_map = _read_sharded_safetensors_weight_map(checkpoint_path)
+    base_dir = os.path.dirname(os.path.abspath(checkpoint_path))
+
+    def resolve_shard_path(shard_file: str) -> str:
+        return os.path.join(base_dir, shard_file)
+
+    return weight_map, resolve_shard_path
+
+
+def _load_sharded_safetensors_index_checkpoint(
+    checkpoint_path: str,
+    local_cache_dir: str,
+    map_location: str | torch.device,
+    checkpoint_min_free_gb: float | None = None,
+) -> dict[str, torch.Tensor]:
+    """Load HF-style sharded safetensors (index.json + shards) into one state dict."""
+    if local_cache_dir is None:
+        raise ValueError(
+            "local_cache_dir is required to cache merged sharded safetensors"
         )
+    cache_path = _sharded_safetensors_merge_cache_path(checkpoint_path, local_cache_dir)
+    if os.path.exists(cache_path):
+        logger.info(f"Loading merged sharded checkpoint from cache: {cache_path}")
+        return _load_checkpoint_from_local(cache_path, ".safetensors", map_location)
+
+    logger.info(f"Merging sharded safetensors from: {checkpoint_path}")
+    weight_map, resolve_shard_path = _prepare_sharded_safetensors_index(
+        checkpoint_path,
+        checkpoint_min_free_gb=checkpoint_min_free_gb,
+        local_cache_path=cache_path,
+    )
+    merged = _merge_sharded_safetensors_from_index(
+        weight_map=weight_map,
+        resolve_shard_path=resolve_shard_path,
+        map_location=map_location,
+    )
 
     _save_to_local_cache(
         merged,
@@ -440,6 +466,113 @@ def _load_sharded_safetensors_index_checkpoint(
     )
     logger.info(f"Saved merged sharded checkpoint to: {cache_path}")
     return merged
+
+
+def _keys_by_shard(weight_map: Mapping[str, str]) -> dict[str, list[str]]:
+    keys_by_shard: dict[str, list[str]] = {}
+    for tensor_name, shard_file in weight_map.items():
+        keys_by_shard.setdefault(shard_file, []).append(tensor_name)
+    return keys_by_shard
+
+
+def _format_state_dict_key_list(keys: list[str]) -> str:
+    preview = ", ".join(keys[:20])
+    if len(keys) > 20:
+        preview += " ..."
+    return preview
+
+
+def load_sharded_safetensors_checkpoint_into_model(
+    model: torch.nn.Module,
+    checkpoint_path: str,
+    *,
+    map_location: str | torch.device = "cpu",
+    checkpoint_min_free_gb: float | None = None,
+    strict: bool = True,
+    assign: bool = False,
+) -> torch.nn.Module:
+    """Load an HF-style sharded safetensors checkpoint without a merged state dict.
+
+    Each shard is loaded, applied to ``model``, and released before the next
+    shard is opened. This is useful for large checkpoints on machines where
+    holding both a fully materialized CPU module and a fully materialized CPU
+    state dict would exceed host RAM.
+    """
+    if checkpoint_path.startswith("s3://"):
+        raise ValueError(
+            "Streaming sharded safetensors checkpoints are not supported on S3; "
+            "use a Hugging Face file URL or a local index path."
+        )
+    if not _is_sharded_safetensors_index_checkpoint(checkpoint_path):
+        raise ValueError(
+            "Streaming checkpoint load requires a *.safetensors.index.json path."
+        )
+
+    logger.info(f"Streaming sharded safetensors into model: {checkpoint_path}")
+    weight_map, resolve_shard_path = _prepare_sharded_safetensors_index(
+        checkpoint_path,
+        checkpoint_min_free_gb=checkpoint_min_free_gb,
+    )
+    keys_by_shard = _keys_by_shard(weight_map)
+    model_keys = set(model.state_dict())
+    loaded_keys: set[str] = set()
+    unexpected_keys: set[str] = set()
+    device = _safetensors_device(map_location)
+
+    logger.info(f"Loading {len(keys_by_shard)} safetensors shards one at a time")
+    for shard_file in sorted(keys_by_shard):
+        shard_path = resolve_shard_path(shard_file)
+        shard_sd = load_safetensors_file(shard_path, device=device)
+        shard_state: dict[str, torch.Tensor] = {}
+        for key in keys_by_shard[shard_file]:
+            if key not in shard_sd:
+                raise KeyError(
+                    f"Key {key!r} missing from shard {shard_file!r} "
+                    f"(path {shard_path!r})"
+                )
+            shard_state[key] = shard_sd[key]
+        loaded_keys.update(shard_state)
+        incompatible = model.load_state_dict(
+            shard_state,
+            strict=False,
+            assign=assign,
+        )
+        unexpected_keys.update(incompatible.unexpected_keys)
+        del shard_state
+        del shard_sd
+        gc.collect()
+
+    if strict:
+        current_state_dict = model.state_dict()
+        missing_keys = sorted(set(current_state_dict) - loaded_keys)
+        unexpected_keys.update(loaded_keys - model_keys)
+        meta_keys = sorted(
+            key for key, tensor in current_state_dict.items() if tensor.is_meta
+        )
+        error_msgs: list[str] = []
+        if missing_keys:
+            error_msgs.append(
+                "Missing key(s) in state_dict: "
+                f"{_format_state_dict_key_list(missing_keys)}"
+            )
+        if unexpected_keys:
+            error_msgs.append(
+                "Unexpected key(s) in state_dict: "
+                f"{_format_state_dict_key_list(sorted(unexpected_keys))}"
+            )
+        if meta_keys:
+            error_msgs.append(
+                "Meta tensor(s) remain after streamed checkpoint load: "
+                f"{_format_state_dict_key_list(meta_keys)}"
+            )
+        if error_msgs:
+            raise RuntimeError(
+                f"Error(s) in loading streamed state_dict for "
+                f"{model.__class__.__name__}:\n\t" + "\n\t".join(error_msgs)
+            )
+
+    logger.info(f"Loaded streamed sharded checkpoint into model: {checkpoint_path}")
+    return model
 
 
 def _parse_huggingface_checkpoint_url(
@@ -737,8 +870,7 @@ def _load_checkpoint_from_local(
 ) -> dict[str, torch.Tensor]:
     """Load checkpoint from local filesystem."""
     if ext == ".safetensors":
-        with open(path, "rb") as f:
-            return load_safetensors(f.read())
+        return load_safetensors_file(path, device=_safetensors_device(map_location))
     else:
         return torch.load(path, map_location=map_location, weights_only=False)
 

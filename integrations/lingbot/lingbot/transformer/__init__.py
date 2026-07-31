@@ -78,6 +78,8 @@ class LingbotWorldTransformerConfig(Wan21TransformerConfig):
         default_factory=LingbotWorldDiTNetwork14BConfig
     )
     checkpoint_min_free_gb: float | None = LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
+    checkpoint_map_location: str = "auto"
+    """Runner-resolved device for streaming the large DiT checkpoint."""
 
 
 class LingbotWorldTransformer(Wan21Transformer):

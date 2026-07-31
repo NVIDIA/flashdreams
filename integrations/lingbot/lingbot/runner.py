@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from loguru import logger
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
@@ -174,12 +176,41 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     """Example folder index under ``.../examples/``; allowed: ``0`` through ``5``."""
 
 
+def _runner_checkpoint_map_location(config: LingbotWorldRunnerConfig) -> str:
+    if torch.distributed.is_initialized():
+        return f"cuda:{torch.cuda.current_device()}"
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        return f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
+    return config.device
+
+
+def _resolve_checkpoint_map_location_config(
+    config: LingbotWorldRunnerConfig,
+) -> LingbotWorldRunnerConfig:
+    transformer = config.pipeline.diffusion_model.transformer
+    if getattr(transformer, "checkpoint_map_location", "cpu") != "auto":
+        return config
+    return derive_config(
+        config,
+        pipeline=dict(
+            diffusion_model=dict(
+                transformer=dict(
+                    checkpoint_map_location=_runner_checkpoint_map_location(config)
+                )
+            )
+        ),
+    )
+
+
 class LingbotWorldRunner(
     Runner[LingbotWorldRunnerConfig, LingbotWorldInferencePipeline]
 ):
     """Streaming camera-control I2V driver."""
 
     config: LingbotWorldRunnerConfig
+
+    def __init__(self, config: LingbotWorldRunnerConfig) -> None:
+        super().__init__(_resolve_checkpoint_map_location_config(config))
 
     def _resolve_prompt(self) -> str:
         """Pick the prompt: non-empty ``--prompt`` wins, else ``--prompt-path``."""
