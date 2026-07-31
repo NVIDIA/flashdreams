@@ -53,22 +53,26 @@ class NullOutputTarget:
     """Output target for headless runs and throughput measurements."""
 
     store_results: bool = False
-    closed: bool = True
-    output_count: int = 0
-    results: list[StepResult] = field(default_factory=list)
+    output_count: int = field(default=0, init=False)
+    results: list[StepResult] = field(default_factory=list, init=False)
+    _opened: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def closed(self) -> bool:
+        return not self._opened
 
     def open(self) -> None:
-        self.closed = False
+        self._opened = True
         self.output_count = 0
         self.results.clear()
 
     def write(self, result: StepResult) -> None:
-        if self.closed:
+        if not self._opened:
             raise RuntimeError("Cannot write to a closed output target.")
         self.output_count += 1
         if self.store_results:
             self.results.append(result)
 
     def close(self) -> Sequence[OutputArtifact]:
-        self.closed = True
+        self._opened = False
         return ()

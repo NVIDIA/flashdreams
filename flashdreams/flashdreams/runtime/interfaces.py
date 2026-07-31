@@ -51,6 +51,8 @@ class InferenceRuntime(Protocol):
         ...
 
 
+# Do not mark ModelAdapter runtime-checkable: properties make issubclass()
+# unreliable, and isinstance() would only verify attribute presence.
 class ModelAdapter(Protocol):
     """Model-specific boundary that connects FlashDreams to a model runtime."""
 

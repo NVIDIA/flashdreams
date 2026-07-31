@@ -21,6 +21,7 @@ from flashdreams.runtime import (
     ModelInputs,
     ModelInputSchema,
     NullOutputTarget,
+    OutputArtifact,
     OutputTarget,
     RuntimeMetricSample,
     StepRequest,
@@ -56,6 +57,34 @@ def test_inference_config_keeps_runtime_settings_separate() -> None:
 def test_inference_config_rejects_empty_model_id() -> None:
     with pytest.raises(ValueError, match="model_id"):
         InferenceConfig(model_id=" ")
+
+
+@pytest.mark.parametrize(
+    ("factory", "match"),
+    [
+        (lambda: InputField(name=" "), "InputField.name"),
+        (lambda: TimeWindow(start_s=1.0, end_s=0.0), "end_s"),
+        (lambda: TimeWindow(start_s=-1.0, end_s=0.0), "non-negative"),
+        (lambda: TimeWindow(start_s=0.0, end_s=float("nan")), "finite"),
+        (lambda: UserInputEvent(timestamp_s=-1.0, kind="keydown"), "timestamp_s"),
+        (lambda: UserInputEvent(timestamp_s=0.0, kind=" "), "kind"),
+        (lambda: StepRequest(step_index=-1), "step_index"),
+        (lambda: StepResult(step_index=-1), "step_index"),
+        (lambda: StepResult(step_index=0, frame_count=-1), "frame_count"),
+        (lambda: RuntimeMetricSample(name=" ", value=1.0), "name"),
+        (lambda: RuntimeMetricSample(name="sample", value=float("nan")), "finite"),
+        (lambda: OutputArtifact(kind=" ", uri="artifact://demo"), "kind"),
+        (lambda: OutputArtifact(kind="mp4", uri=" "), "uri"),
+    ],
+)
+def test_runtime_envelopes_reject_invalid_values(factory: object, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        cast(Any, factory)()
+
+
+def test_runtime_metric_sample_rejects_bool_values() -> None:
+    with pytest.raises(TypeError, match="numeric"):
+        RuntimeMetricSample(name="sample", value=True)
 
 
 def test_model_input_schema_validates_initial_and_step_payloads() -> None:
@@ -154,13 +183,16 @@ def test_null_output_target_counts_and_optionally_stores_results() -> None:
     target = NullOutputTarget(store_results=True)
     result = StepResult(step_index=0, output=b"frame")
 
+    assert target.closed
     with pytest.raises(RuntimeError, match="closed output target"):
         target.write(result)
 
     target.open()
+    assert not target.closed
     target.write(result)
     artifacts = target.close()
 
+    assert target.closed
     assert artifacts == ()
     assert target.output_count == 1
     assert target.results == [result]
@@ -244,6 +276,46 @@ def test_runtime_api_components_compose_for_sequential_session() -> None:
     assert metrics.closed
 
 
+def test_reference_loop_validates_mapping_before_runtime_creation() -> None:
+    mapping = _OrderCheckingMapping()
+    adapter = _OrderCheckingAdapter(mapping=mapping)
+
+    _drive_two_step_session(
+        adapter=adapter,
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=mapping,
+        user_inputs=UserInputs(),
+        model_inputs=ModelInputs(initial={"prompt": "drive forward"}),
+        output=NullOutputTarget(),
+        metrics=InMemoryMetricsRecorder(),
+    )
+
+    assert mapping.validated
+    assert adapter.created_runtime_after_validate
+
+
+def test_reference_loop_closes_runtime_when_session_start_fails() -> None:
+    adapter = _FailingStartAdapter()
+    output = NullOutputTarget()
+    metrics = InMemoryMetricsRecorder()
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        _drive_two_step_session(
+            adapter=adapter,
+            config=InferenceConfig(model_id="fake-model"),
+            mapping=IdentityInputMapping(),
+            user_inputs=UserInputs(),
+            model_inputs=ModelInputs(initial={"prompt": "drive forward"}),
+            output=output,
+            metrics=metrics,
+        )
+
+    assert adapter.runtime is not None
+    assert adapter.runtime.closed
+    assert output.closed
+    assert metrics.closed
+
+
 def _drive_two_step_session(
     *,
     adapter: ModelAdapter,
@@ -254,7 +326,6 @@ def _drive_two_step_session(
     output: OutputTarget,
     metrics: MetricsRecorder,
 ) -> None:
-    runtime = adapter.create_runtime(config)
     mapping.validate(
         user_schema=adapter.user_input_schema,
         model_schema=adapter.model_input_schema,
@@ -263,9 +334,13 @@ def _drive_two_step_session(
         user_inputs=user_inputs,
         model_inputs=model_inputs,
     )
-    session = runtime.start_session(initial_inputs)
-    output.open()
+    runtime = adapter.create_runtime(config)
+    session: InferenceSession | None = None
+    output_opened = False
     try:
+        session = runtime.start_session(initial_inputs)
+        output.open()
+        output_opened = True
         while (request := session.next_step_request()) is not None:
             step_inputs = mapping.map_step_inputs(
                 user_inputs=(
@@ -287,8 +362,10 @@ def _drive_two_step_session(
                 step_index=result.step_index,
             )
     finally:
-        output.close()
-        session.close()
+        if output_opened:
+            output.close()
+        if session is not None:
+            session.close()
         runtime.close()
         metrics.close()
 
@@ -324,6 +401,12 @@ class _FakeRuntime:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _FailingRuntime(_FakeRuntime):
+    def start_session(self, inputs: ModelInputs) -> InferenceSession:
+        del inputs
+        raise RuntimeError("start failed")
 
 
 class _FakeSession:
@@ -365,3 +448,38 @@ class _FakeSession:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _OrderCheckingMapping(IdentityInputMapping):
+    def __init__(self) -> None:
+        self.validated = False
+
+    def validate(
+        self,
+        *,
+        user_schema: UserInputSchema | None = None,
+        model_schema: ModelInputSchema | None = None,
+    ) -> None:
+        super().validate(user_schema=user_schema, model_schema=model_schema)
+        self.validated = True
+
+
+class _OrderCheckingAdapter(_FakeAdapter):
+    def __init__(self, *, mapping: _OrderCheckingMapping) -> None:
+        self._mapping = mapping
+        self.created_runtime_after_validate = False
+
+    def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
+        self.validate_config(config)
+        self.created_runtime_after_validate = self._mapping.validated
+        return _FakeRuntime(model_input_schema=self.model_input_schema)
+
+
+class _FailingStartAdapter(_FakeAdapter):
+    def __init__(self) -> None:
+        self.runtime: _FailingRuntime | None = None
+
+    def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
+        self.validate_config(config)
+        self.runtime = _FailingRuntime(model_input_schema=self.model_input_schema)
+        return self.runtime
