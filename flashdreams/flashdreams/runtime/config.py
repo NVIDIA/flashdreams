@@ -53,7 +53,7 @@ class InferenceConfig:
     """Optional - Whether model compilation is requested or disabled. `None` means left to the adapter to decide."""
 
     cuda_graph: bool | None = None
-    """Whether CUDA graph capture is requested, disabled, or left to the adapter."""
+    """Optional - Whether CUDA graph capture is requested or disabled. `None` means left to the adapter to decide."""
 
     attention_backend: str | None = None
     """Optional attention implementation selector."""
