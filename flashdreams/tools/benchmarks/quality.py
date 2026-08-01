@@ -569,8 +569,6 @@ def _write_log(path: Path, lines: list[str]) -> None:
 
 
 def _is_missing_video_decoder_error(exc: BaseException) -> bool:
-    if isinstance(exc, ImportError):
-        return True
     message = str(exc).lower()
     return (
         "program 'ffmpeg' is not found" in message

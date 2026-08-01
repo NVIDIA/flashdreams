@@ -946,6 +946,68 @@ def test_quality_baseline_skips_when_video_decoder_is_missing(
     assert "quality_score" not in scenario_manifest["metric_summary"]
 
 
+def test_quality_baseline_fails_non_decoder_import_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    baseline_video = baseline_root / "scenarios" / "fake-runner" / "demo.mp4"
+    baseline_video.parent.mkdir(parents=True)
+    baseline_video.write_bytes(b"baseline mp4")
+    (baseline_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "scenarios": [
+                    {
+                        "id": "fake-runner",
+                        "artifacts": {
+                            "videos": ["scenarios/fake-runner/demo.mp4"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    video = _quality_test_video(frames=4, height=12, width=16)
+    monkeypatch.setattr(benchmark_quality, "_read_video_rgb", lambda _path: video)
+
+    def broken_compare(*_args: object, **_kwargs: object) -> object:
+        raise ImportError("comparison backend import failed")
+
+    monkeypatch.setattr(benchmark_quality, "_compare_video_arrays", broken_compare)
+
+    script = (
+        "import sys; "
+        "from pathlib import Path; "
+        "out = Path(sys.argv[1]); "
+        "out.mkdir(parents=True, exist_ok=True); "
+        "(out / 'demo.mp4').write_bytes(b'candidate mp4')"
+    )
+    scenario = BenchmarkScenario(
+        id="fake-runner",
+        name="Fake runner",
+        command=(sys.executable, "-c", script, "{output_dir}"),
+        output_dir_arg=None,
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+        quality_baseline=QualityBaselineConfig(
+            baseline_dir=baseline_root,
+            sample_count=2,
+        ),
+    )
+
+    quality_result = manifest["scenarios"][0]["quality_results"][0]
+    assert quality_result["status"] == "fail"
+    assert quality_result["reason"] == "comparison backend import failed"
+
+
 def test_quality_baseline_uses_scenario_compare_region(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
