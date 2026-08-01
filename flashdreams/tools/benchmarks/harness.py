@@ -269,6 +269,7 @@ def _metric_summary_metadata(
     records: Iterable[MetricRecord],
 ) -> dict[str, dict[str, list[str]]]:
     record_types_by_metric: dict[str, set[str]] = {}
+    parsers_by_metric: dict[str, set[str]] = {}
     sources_by_metric: dict[str, set[str]] = {}
     for record in records:
         for key, value in record.metrics.items():
@@ -276,12 +277,18 @@ def _metric_summary_metadata(
                 continue
             metric = str(key)
             record_types_by_metric.setdefault(metric, set()).add(record.record_type)
+            parser = record.metadata.get("parser")
+            if isinstance(parser, str):
+                parsers_by_metric.setdefault(metric, set()).add(parser)
             if record.source:
                 sources_by_metric.setdefault(metric, set()).add(record.source)
 
     metadata: dict[str, dict[str, list[str]]] = {}
     for metric, record_types in sorted(record_types_by_metric.items()):
         entry = {"record_types": sorted(record_types)}
+        parsers = parsers_by_metric.get(metric)
+        if parsers:
+            entry["parsers"] = sorted(parsers)
         sources = sources_by_metric.get(metric)
         if sources:
             entry["sources"] = sorted(sources)

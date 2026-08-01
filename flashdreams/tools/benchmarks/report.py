@@ -1469,6 +1469,12 @@ def _foldable_derived_summary_metric(
     normalized_record_types = {str(record_type) for record_type in record_types}
     if normalized_record_types != {"log_summary"}:
         return None
+    parsers = metric_metadata.get("parsers")
+    if not isinstance(parsers, list):
+        return None
+    normalized_parsers = {str(parser) for parser in parsers}
+    if normalized_parsers != {"perf_summary"}:
+        return None
     return derived
 
 

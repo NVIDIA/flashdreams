@@ -184,7 +184,24 @@ def test_log_perf_summary_records_median_and_p90(tmp_path: Path) -> None:
     assert records[0].metrics["chunk_total_s_median_s"] == pytest.approx(0.012)
     assert records[0].metrics["chunk_total_s_p90_s"] == pytest.approx(0.020)
     assert records[0].metrics["pixel_fps_median_fps"] == pytest.approx(24.0)
+    assert records[0].metadata["parser"] == "perf_summary"
     assert records[0].metadata["label"] == "chunk"
+
+
+def test_profile_e2e_log_summary_records_parser_provenance(tmp_path: Path) -> None:
+    log_path = tmp_path / "command.log"
+    log_path.write_text(
+        "[profile] e2e latency_median_s=0.25 samples=1\n",
+        encoding="utf-8",
+    )
+
+    records = records_from_log(log_path, scenario_id="demo", source_root=tmp_path)
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.record_type == "log_summary"
+    assert record.metrics["latency_median_s"] == pytest.approx(0.25)
+    assert record.metadata["parser"] == "profile_e2e"
 
 
 def test_log_interactive_drive_records_session_and_e2e_metrics(tmp_path: Path) -> None:
@@ -212,6 +229,7 @@ def test_log_interactive_drive_records_session_and_e2e_metrics(tmp_path: Path) -
     assert records[2].record_type == "log_summary"
     assert records[2].metrics["wall_present_fps"] == pytest.approx(30.0)
     assert records[2].metrics["avg_adj_control_to_present_s"] == pytest.approx(0.1105)
+    assert records[2].metadata["parser"] == "profile_e2e"
     assert records[2].metadata["samples"] == 150
 
 
@@ -386,6 +404,9 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert scenario_manifest["metric_summary_metadata"]["chunk_total_s_median_s"][
         "record_types"
     ] == ["log_summary"]
+    assert scenario_manifest["metric_summary_metadata"]["chunk_total_s_median_s"][
+        "parsers"
+    ] == ["perf_summary"]
     assert scenario_manifest["metric_highlights"][
         "startup_step_total_s"
     ] == pytest.approx(0.100)
@@ -514,10 +535,22 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
                 },
                 "metric_summary_metadata": {
                     "model_step_s": {"record_types": ["step"]},
-                    "model_step_s_median_s": {"record_types": ["log_summary"]},
-                    "model_step_s_p90_s": {"record_types": ["log_summary"]},
-                    "chunk_total_s_median_s": {"record_types": ["log_summary"]},
-                    "chunk_total_s_p90_s": {"record_types": ["log_summary"]},
+                    "model_step_s_median_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["perf_summary"],
+                    },
+                    "model_step_s_p90_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["perf_summary"],
+                    },
+                    "chunk_total_s_median_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["perf_summary"],
+                    },
+                    "chunk_total_s_p90_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["perf_summary"],
+                    },
                 },
             }
         ],
@@ -560,6 +593,48 @@ def test_write_html_report_preserves_custom_derived_like_metric_names(
                 "metric_summary_metadata": {
                     "latency": {"record_types": ["summary"]},
                     "latency_median_s": {"record_types": ["summary"]},
+                },
+            }
+        ],
+    }
+
+    write_html_report(manifest, run_root / "report.html")
+
+    detail_html = (run_root / "reports" / "demo.html").read_text(encoding="utf-8")
+    assert "<code>latency</code>" in detail_html
+    assert "<code>latency_median_s</code>" in detail_html
+
+
+def test_write_html_report_preserves_profile_e2e_suffix_metrics(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    manifest = {
+        "created_at": "2026-01-01T00:00:00Z",
+        "mode": "run",
+        "output_root": str(run_root),
+        "scenarios": [
+            {
+                "id": "profile-demo",
+                "name": "Profile demo",
+                "report_group": {"id": "demo", "name": "Demo"},
+                "status": "pass",
+                "wall_time_s": 1.0,
+                "command": "python -m demo",
+                "artifacts": {},
+                "metric_summary": {
+                    "latency": {"count": 1, "median": 0.31},
+                    "latency_median_s": {"count": 1, "median": 0.25},
+                },
+                "metric_summary_metadata": {
+                    "latency": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["profile_e2e"],
+                    },
+                    "latency_median_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["profile_e2e"],
+                    },
                 },
             }
         ],

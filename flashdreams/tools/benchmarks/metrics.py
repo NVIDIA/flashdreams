@@ -346,6 +346,7 @@ def _record_from_perf_summary_line(
         source=source,
         metrics=metrics,
         metadata={
+            "parser": "perf_summary",
             "label": match.group("label"),
             "samples": int(match.group("samples")),
             "warmup": int(match.group("warmup")),
@@ -385,7 +386,7 @@ def _record_from_profile_e2e_line(
     if match is None:
         return None
     metrics: dict[str, float | int] = {}
-    metadata: dict[str, object] = {"label": "e2e"}
+    metadata: dict[str, object] = {"parser": "profile_e2e", "label": "e2e"}
     for item in _KEY_VALUE_NUMBER_RE.finditer(match.group("body")):
         key = item.group("key")
         value = float(item.group("value"))
