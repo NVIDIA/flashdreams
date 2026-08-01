@@ -281,8 +281,11 @@ native app, replay trace, synthetic benchmark driver, or no-op source.
 
 User inputs should primarily be represented as timestamped events. This gives
 live apps, replay traces, and benchmarks the same basic shape, and lets
-FlashDreams resample or window those events when a model session asks for the
-next chunk of inputs.
+FlashDreams route, drain, or window those events when a model session asks for
+the next chunk of inputs. Resampling and interpolation should remain
+input-specific mapping or helper behavior, because controls such as rotations,
+poses, or controller state may need semantics that generic runtime code cannot
+infer safely.
 
 Initial supported user input types should stay close to what FlashDreams already
 uses:
@@ -468,6 +471,11 @@ The session should expose what it needs for the next step rather than requiring
 the app or output layer to guess. This matters because AR step 0 can differ from
 steady-state steps, and encoder/decoder temporal compression can produce
 different input and output frame windows.
+
+Input and output timing should share a session timeline even when raw capture
+rates and presentation rates differ. A session can request a user-input window
+for mapping, then return an output window or equivalent metadata so an output
+target can present the generated chunk at the intended cadence.
 
 ## Output Targets
 
