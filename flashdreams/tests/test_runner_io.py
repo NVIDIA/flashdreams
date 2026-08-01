@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import sys
+import threading
 import types
 from pathlib import Path
 from typing import Any
@@ -264,6 +265,42 @@ def test_write_video_tensor_streams_to_host_ffmpeg(
     assert commands[0][commands[0].index("-s") + 1] == "2x2"
     assert commands[0][commands[0].index("-r") + 1] == "16"
     assert commands[0][-1] == str(out_path)
+
+
+def test_write_video_tensor_drains_ffmpeg_stderr_while_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    drain_started = threading.Event()
+
+    class RecordingStderr:
+        def __init__(self) -> None:
+            self._chunks = [b"ffmpeg diagnostic", b""]
+
+        def read(self, _size: int = -1) -> bytes:
+            drain_started.set()
+            return self._chunks.pop(0)
+
+    class GuardedStdin(io.BytesIO):
+        def write(self, data: bytes) -> int:
+            assert drain_started.wait(timeout=1.0)
+            return super().write(data)
+
+    process = types.SimpleNamespace(
+        stdin=GuardedStdin(),
+        stderr=RecordingStderr(),
+        wait=lambda: 0,
+    )
+
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "Popen", lambda *_args, **_kwargs: process)
+
+    write_video_tensor(
+        torch.zeros((2, 3, 2, 2), dtype=torch.float32),
+        tmp_path / "out.mp4",
+        fps=16,
+        layout="tchw",
+    )
 
 
 def test_load_first_frame_tensor_uses_requested_resize_interpolation(

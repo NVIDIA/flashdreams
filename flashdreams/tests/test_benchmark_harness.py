@@ -408,6 +408,9 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert "Timing: median" in detail_html
     assert "PAI-Bench scores: median" in detail_html
     assert "PAI-Bench-Long score" in detail_html
+    assert 'class="scenario-table"' in detail_html
+    assert '<summary>Show command</summary>' in detail_html
+    assert 'class="command-text"' in detail_html
     assert "Timing: median vs P90" not in detail_html
     assert ">ms<" in detail_html
     assert "80.00" in detail_html
@@ -473,6 +476,54 @@ def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:
     assert "quality-smoke-b" in omnidreams_html
     assert "quality-smoke-a" not in omnidreams_html
     assert "../scenarios/quality-smoke-a/demo.mp4" in lingbot_html
+
+
+def test_write_html_report_folds_derived_perf_summary_metrics(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    manifest = {
+        "created_at": "2026-01-01T00:00:00Z",
+        "mode": "run",
+        "output_root": str(run_root),
+        "scenarios": [
+            {
+                "id": "perf-demo",
+                "name": "Perf demo",
+                "report_group": {"id": "demo", "name": "Demo"},
+                "status": "pass",
+                "wall_time_s": 1.0,
+                "command": "python -m demo",
+                "artifacts": {},
+                "metric_summary": {
+                    "model_step_s": {
+                        "count": 2,
+                        "median": 0.10,
+                        "p90": 0.12,
+                        "mean": 0.10,
+                        "min": 0.08,
+                        "max": 0.12,
+                    },
+                    "model_step_s_median_s": {"count": 1, "median": 0.10},
+                    "model_step_s_p90_s": {"count": 1, "median": 0.12},
+                    "chunk_total_s_median_s": {"count": 1, "median": 0.20},
+                    "chunk_total_s_p90_s": {"count": 1, "median": 0.24},
+                },
+            }
+        ],
+    }
+
+    write_html_report(manifest, run_root / "report.html")
+
+    detail_html = (run_root / "reports" / "demo.html").read_text(encoding="utf-8")
+    assert "<code>model_step_s</code>" in detail_html
+    assert "model_step_s_median_s" not in detail_html
+    assert "model_step_s_p90_s" not in detail_html
+    assert "<code>chunk_total_s</code>" in detail_html
+    assert "chunk_total_s_median_s" not in detail_html
+    assert "chunk_total_s_p90_s" not in detail_html
+    assert "<th>P90</th>" not in detail_html
+    assert "<th>Mean</th>" not in detail_html
 
 
 def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:

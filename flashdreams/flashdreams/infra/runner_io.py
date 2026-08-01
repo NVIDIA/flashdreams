@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
@@ -363,6 +364,13 @@ def write_video_tensor(
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     assert process.stdin is not None
     assert process.stderr is not None
+    stderr_chunks: list[bytes] = []
+    stderr_thread = threading.Thread(
+        target=_drain_ffmpeg_stderr,
+        args=(process.stderr, stderr_chunks),
+        daemon=True,
+    )
+    stderr_thread.start()
     write_error: BrokenPipeError | None = None
     try:
         for frame_index in range(num_frames):
@@ -375,8 +383,9 @@ def write_video_tensor(
         except BrokenPipeError as exc:
             if write_error is None:
                 write_error = exc
-        stderr = process.stderr.read().decode("utf-8", errors="replace")
         returncode = process.wait()
+        stderr_thread.join()
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
 
     if write_error is not None:
         raise RuntimeError(
@@ -385,6 +394,15 @@ def write_video_tensor(
     if returncode != 0:
         raise RuntimeError(f"ffmpeg failed while writing {path}: {stderr}")
     return path
+
+
+def _drain_ffmpeg_stderr(stream: Any, chunks: list[bytes]) -> None:
+    """Drain FFmpeg stderr while stdin is still being written."""
+    while True:
+        chunk = stream.read(8192)
+        if not chunk:
+            return
+        chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode())
 
 
 def _find_ffmpeg_binary() -> str:
