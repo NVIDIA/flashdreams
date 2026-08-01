@@ -15,7 +15,11 @@ from flashdreams.runtime.inputs import ModelInputSchema, TimeWindow
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class StepRequest:
-    """Model-session request for the next step's inputs."""
+    """Model-session request for the next step's inputs.
+
+    ``user_input_window`` lets a runner drain or slice timestamped user events for
+    the current step before invoking the selected ``InputMapping``.
+    """
 
     __hash__ = None
 

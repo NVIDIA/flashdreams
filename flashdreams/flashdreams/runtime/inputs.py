@@ -49,7 +49,7 @@ class InputField:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UserInputSchema:
-    """Minimal metadata for controls an app, transport, or trace can provide."""
+    """Minimal metadata for user events a source or mapping can provide."""
 
     event_kinds: frozenset[str] = field(default_factory=frozenset)
     snapshot_fields: tuple[InputField, ...] = ()
@@ -104,7 +104,12 @@ class ModelInputSchema:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UserInputEvent:
-    """User-facing input event timestamped in seconds since session start."""
+    """User-facing input event timestamped in seconds since session start.
+
+    Live runtimes, transports, replay loaders, or benchmark drivers stamp events
+    before queuing them for input mapping. Payload schema is intentionally minimal
+    in T1; concrete event catalogs belong to follow-up input-mapping work.
+    """
 
     __hash__ = None
 
@@ -124,9 +129,11 @@ class UserInputEvent:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UserInputs:
-    """Transport-neutral user inputs.
+    """Transport-neutral user input batch or window.
 
-    Events must be in non-decreasing timestamp order.
+    Events must be in non-decreasing timestamp order. Runtimes can pass the full
+    input history, a drained queue batch, or a session-requested time window to an
+    ``InputMapping``.
     """
 
     __hash__ = None
@@ -161,7 +168,7 @@ class UserInputs:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ModelInputs:
-    """Model-facing input payloads split by initial and per-step use."""
+    """Model-facing payloads split by initial and per-step use."""
 
     __hash__ = None
 

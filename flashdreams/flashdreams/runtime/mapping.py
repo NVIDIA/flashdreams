@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Input mapping boundary for user inputs to model inputs."""
+"""Input mapping boundary from user input windows to model inputs."""
 
 from __future__ import annotations
 
@@ -18,7 +18,12 @@ from flashdreams.runtime.types import StepRequest
 
 @runtime_checkable
 class InputMapping(Protocol):
-    """Convert user-facing inputs into model-facing inputs."""
+    """Convert user-facing inputs into model-facing inputs.
+
+    A mapping may be supplied by the model adapter as a default or by an
+    application/runtime override. Step mappings usually receive a timestamped
+    event window selected by the runner for the current model step or chunk.
+    """
 
     def validate(
         self,
@@ -26,7 +31,7 @@ class InputMapping(Protocol):
         user_schema: UserInputSchema | None = None,
         model_schema: ModelInputSchema | None = None,
     ) -> None:
-        """Fail early for obvious app/model incompatibilities."""
+        """Fail early for obvious app, event-source, and model mismatches."""
         ...
 
     def map_initial_inputs(
@@ -45,7 +50,7 @@ class InputMapping(Protocol):
         model_inputs: ModelInputs,
         request: StepRequest,
     ) -> ModelInputs:
-        """Build the model inputs for one session step."""
+        """Build model inputs for one session step from the current input window."""
         ...
 
 

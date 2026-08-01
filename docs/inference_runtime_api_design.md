@@ -182,7 +182,7 @@ local model implementation, a Dynamo-like backend, or a hosted service.
 | Model/preset registry | Lists what can run: model/preset slugs, scenarios, capabilities, resource hints, and supported output modes. | Must remain cheap to query and must not load checkpoints. |
 | App / integration / benchmark / transport | Owns the user-facing mode: CLI, native integration, WebRTC, benchmark, hosted request, or replay. | Supplies run setup, user inputs, model inputs, and output target selection. |
 | User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image updates, traces, and future scalar controls. |
-| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | Owned by model/application code; may be a no-op for simple runs. |
+| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
 | ModelRunner / standard loop | Orchestrates one run from setup through runtime initialization, stepping, output, metrics, and teardown. | Shared orchestration layer used by CLIs, benchmarks, MP4 runs, and simple realtime flows. |
 | InferenceRuntime | Owns heavyweight lifecycle: distributed init, model construction, checkpoint loading, compile/capture, warmup, hosted-service connection, and teardown. | Long-lived reusable runtime created from `InferenceConfig`; lets FlashDreams load/warm once and create sessions sequentially unless the backend supports concurrency. |
 | InferenceSession | Owns one rollout or stream: initial inputs, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
@@ -359,8 +359,8 @@ shapes or architecture details, but it usually does not fully define:
 - preprocessing, encoder, decoder, mask, prompt, or cache rules.
 
 Therefore, a FlashDreams-supported model should have an adapter or integration
-layer that declares its model input requirements and prepares inputs for the
-underlying model implementation.
+layer that declares its model input requirements, declares any user inputs it can
+map by default, and prepares inputs for the underlying model implementation.
 
 Users running an existing FlashDreams-supported model should not need to write
 that adapter. Developers bringing a new world model to FlashDreams should expect
@@ -407,21 +407,25 @@ unless the checkpoint already matches a supported generic adapter.
 ## Input Mapping
 
 Input mapping is required whenever `UserInputs` need to become per-step
-`ModelInputs`. The exact implementation does not need to be a required top-level
-object. It could be:
-
-- a method on the model adapter;
-- a method on an app/runtime adapter;
-- a separate mapper object;
-- a default no-op or identity mapping for simple T2V/I2V/fixed-input runs.
+`ModelInputs`. In the T1 envelope this boundary is represented by a separate
+`InputMapping` protocol. A model adapter may provide the default mapper because
+it knows how its supported user controls affect model-facing inputs. Applications,
+benchmarks, replay tools, or hosted runtimes may replace that mapper when they
+need a different wire surface or aggregation policy.
 
 There are two separate moments to keep clear:
 
 - before runtime initialization, FlashDreams should select the mapping and check
   obvious compatibility between the app event source and the model;
-- during the standard loop, the runner uses the mapping to build initial or
-  per-step `ModelInputs` from the relevant event window, often after the session
-  reports what it needs next.
+- during the standard loop, the runtime or runner queues and timestamps user
+  events, then uses the selected mapping to build initial or per-step
+  `ModelInputs` from the relevant event window, often after the session reports
+  what it needs next.
+
+This keeps the Reactor-style contract intact: the model-side integration can
+declare user inputs, declare model inputs, and provide a default mapping, while
+the runtime owns transport, event validation, timestamping, input queue/window
+selection, output delivery, and optional overrides.
 
 Examples:
 
@@ -615,8 +619,9 @@ registry, standard loop, concrete output modes, or model migrations:
   declare supported event kinds and required named fields for early validation,
   not a full type system.
 - Input mapping is represented by a separate `InputMapping` protocol. Model
-  adapters may provide a default mapping, and simple fixed-input runs can use
-  `IdentityInputMapping`.
+  adapters may provide a default mapping; runtimes and applications may override
+  it while preserving the `UserInputs` to `ModelInputs` boundary. Simple
+  fixed-input runs can use `IdentityInputMapping`.
 - Output handling is represented by `OutputTarget`; `NullOutputTarget` is the
   initial headless implementation.
 - Metrics collection is represented by `MetricsRecorder`; timing samples use
