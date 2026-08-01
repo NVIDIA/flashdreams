@@ -433,7 +433,7 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert "PAI-Bench scores: median" in detail_html
     assert "PAI-Bench-Long score" in detail_html
     assert 'class="scenario-table"' in detail_html
-    assert '<summary>Show command</summary>' in detail_html
+    assert "<summary>Show command</summary>" in detail_html
     assert 'class="command-text"' in detail_html
     assert "Timing: median vs P90" not in detail_html
     assert ">ms<" in detail_html
@@ -532,6 +532,8 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
                     "model_step_s_p90_s": {"count": 1, "median": 0.12},
                     "chunk_total_s_median_s": {"count": 1, "median": 0.20},
                     "chunk_total_s_p90_s": {"count": 1, "median": 0.24},
+                    "generate_s": {"count": 2, "median": 0.777},
+                    "generate_s_median_s": {"count": 1, "median": 0.333},
                 },
                 "metric_summary_metadata": {
                     "model_step_s": {"record_types": ["step"]},
@@ -551,6 +553,11 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
                         "record_types": ["log_summary"],
                         "parsers": ["perf_summary"],
                     },
+                    "generate_s": {"record_types": ["step"]},
+                    "generate_s_median_s": {
+                        "record_types": ["log_summary"],
+                        "parsers": ["perf_summary"],
+                    },
                 },
             }
         ],
@@ -565,6 +572,10 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
     assert "<code>chunk_total_s</code>" in detail_html
     assert "chunk_total_s_median_s" not in detail_html
     assert "chunk_total_s_p90_s" not in detail_html
+    assert "<code>generate_s</code>" in detail_html
+    assert "generate_s_median_s" not in detail_html
+    assert "777.0" in detail_html
+    assert "333.0" not in detail_html
     assert "<th>P90</th>" not in detail_html
     assert "<th>Mean</th>" not in detail_html
 

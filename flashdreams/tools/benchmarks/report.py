@@ -1424,6 +1424,7 @@ def _display_metric_summary(
         for metric, stats in summary.items()
         if isinstance(stats, dict) and str(metric) in base_metrics
     }
+    derived_folded_metrics: set[str] = set()
 
     for metric, stats in summary.items():
         if not isinstance(stats, dict):
@@ -1435,12 +1436,16 @@ def _display_metric_summary(
                 display[metric] = dict(stats)
             continue
         base_metric, statistic = derived
-        if base_metric in base_metrics:
+        if base_metric in display and base_metric not in derived_folded_metrics:
             continue
         value = stats.get("median")
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue
-        folded = display.setdefault(base_metric, {})
+        folded = display.get(base_metric)
+        if folded is None:
+            folded = {}
+            display[base_metric] = folded
+            derived_folded_metrics.add(base_metric)
         folded[statistic] = value
         count = stats.get("count")
         if isinstance(count, int) and not isinstance(count, bool):

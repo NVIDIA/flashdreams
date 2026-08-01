@@ -293,7 +293,9 @@ def test_write_video_tensor_drains_ffmpeg_stderr_while_streaming(
     )
 
     monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
-    monkeypatch.setattr(runner_io.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        runner_io.subprocess, "Popen", lambda *_args, **_kwargs: process
+    )
 
     write_video_tensor(
         torch.zeros((2, 3, 2, 2), dtype=torch.float32),
