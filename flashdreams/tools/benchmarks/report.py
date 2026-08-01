@@ -840,7 +840,10 @@ def _metric_summary_rows(scenario: dict[str, Any]) -> str:
     summary = scenario.get("metric_summary", {})
     if not isinstance(summary, dict):
         return ""
-    summary = _display_metric_summary(summary)
+    summary = _display_metric_summary(
+        summary,
+        metadata=_metric_summary_metadata(scenario),
+    )
     rows: list[str] = []
     for metric, stats in sorted(summary.items()):
         if not isinstance(stats, dict):
@@ -1167,7 +1170,10 @@ def _metric_charts(scenarios: list[dict[str, Any]]) -> str:
         summary = scenario.get("metric_summary", {})
         if not isinstance(summary, dict):
             continue
-        summary = _display_metric_summary(summary)
+        summary = _display_metric_summary(
+            summary,
+            metadata=_metric_summary_metadata(scenario),
+        )
         charts = [
             _chart_for_kind(
                 summary,
@@ -1401,12 +1407,17 @@ def _summary_stat(
     return value
 
 
-def _display_metric_summary(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _display_metric_summary(
+    summary: dict[str, Any],
+    *,
+    metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
     """Fold parsed log-summary metrics into base metrics for HTML presentation."""
     base_metrics = {
         str(metric)
         for metric, stats in summary.items()
-        if isinstance(stats, dict) and _derived_summary_metric(str(metric)) is None
+        if isinstance(stats, dict)
+        and _foldable_derived_summary_metric(str(metric), metadata) is None
     }
     display: dict[str, dict[str, Any]] = {
         str(metric): dict(stats)
@@ -1417,8 +1428,11 @@ def _display_metric_summary(summary: dict[str, Any]) -> dict[str, dict[str, Any]
     for metric, stats in summary.items():
         if not isinstance(stats, dict):
             continue
-        derived = _derived_summary_metric(str(metric))
+        metric = str(metric)
+        derived = _foldable_derived_summary_metric(metric, metadata)
         if derived is None:
+            if metric not in display:
+                display[metric] = dict(stats)
             continue
         base_metric, statistic = derived
         if base_metric in base_metrics:
@@ -1432,6 +1446,30 @@ def _display_metric_summary(summary: dict[str, Any]) -> dict[str, dict[str, Any]
         if isinstance(count, int) and not isinstance(count, bool):
             folded["count"] = max(int(folded.get("count", 0)), count)
     return display
+
+
+def _metric_summary_metadata(scenario: dict[str, Any]) -> Mapping[str, Any]:
+    metadata = scenario.get("metric_summary_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _foldable_derived_summary_metric(
+    metric: str,
+    metadata: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    derived = _derived_summary_metric(metric)
+    if derived is None:
+        return None
+    metric_metadata = metadata.get(metric)
+    if not isinstance(metric_metadata, dict):
+        return None
+    record_types = metric_metadata.get("record_types")
+    if not isinstance(record_types, list):
+        return None
+    normalized_record_types = {str(record_type) for record_type in record_types}
+    if normalized_record_types != {"log_summary"}:
+        return None
+    return derived
 
 
 def _derived_summary_metric(metric: str) -> tuple[str, str] | None:

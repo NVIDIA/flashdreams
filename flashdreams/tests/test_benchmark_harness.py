@@ -383,6 +383,9 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert scenario_manifest["metric_summary"]["pai_bench_long_score"][
         "median"
     ] == pytest.approx(73.0)
+    assert scenario_manifest["metric_summary_metadata"]["chunk_total_s_median_s"][
+        "record_types"
+    ] == ["log_summary"]
     assert scenario_manifest["metric_highlights"][
         "startup_step_total_s"
     ] == pytest.approx(0.100)
@@ -509,6 +512,13 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
                     "chunk_total_s_median_s": {"count": 1, "median": 0.20},
                     "chunk_total_s_p90_s": {"count": 1, "median": 0.24},
                 },
+                "metric_summary_metadata": {
+                    "model_step_s": {"record_types": ["step"]},
+                    "model_step_s_median_s": {"record_types": ["log_summary"]},
+                    "model_step_s_p90_s": {"record_types": ["log_summary"]},
+                    "chunk_total_s_median_s": {"record_types": ["log_summary"]},
+                    "chunk_total_s_p90_s": {"record_types": ["log_summary"]},
+                },
             }
         ],
     }
@@ -524,6 +534,42 @@ def test_write_html_report_folds_derived_perf_summary_metrics(
     assert "chunk_total_s_p90_s" not in detail_html
     assert "<th>P90</th>" not in detail_html
     assert "<th>Mean</th>" not in detail_html
+
+
+def test_write_html_report_preserves_custom_derived_like_metric_names(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    manifest = {
+        "created_at": "2026-01-01T00:00:00Z",
+        "mode": "run",
+        "output_root": str(run_root),
+        "scenarios": [
+            {
+                "id": "custom-demo",
+                "name": "Custom demo",
+                "report_group": {"id": "demo", "name": "Demo"},
+                "status": "pass",
+                "wall_time_s": 1.0,
+                "command": "python -m demo",
+                "artifacts": {},
+                "metric_summary": {
+                    "latency": {"count": 1, "median": 0.31},
+                    "latency_median_s": {"count": 1, "median": 0.25},
+                },
+                "metric_summary_metadata": {
+                    "latency": {"record_types": ["summary"]},
+                    "latency_median_s": {"record_types": ["summary"]},
+                },
+            }
+        ],
+    }
+
+    write_html_report(manifest, run_root / "report.html")
+
+    detail_html = (run_root / "reports" / "demo.html").read_text(encoding="utf-8")
+    assert "<code>latency</code>" in detail_html
+    assert "<code>latency_median_s</code>" in detail_html
 
 
 def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:
