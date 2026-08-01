@@ -65,7 +65,7 @@ class InferenceConfig:
     """Adapter/backend-specific runtime options."""
 
     resource_hints: Mapping[str, Any] = field(default_factory=dict)
-    """Cheap resource hints for launchers, schedulers, or hosted backends."""
+    """Resource hints for launchers, schedulers, or hosted backends."""
 
     def __post_init__(self) -> None:
         if not self.model_id.strip():
