@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import sys
+import threading
 import types
 from pathlib import Path
 from typing import Any
@@ -264,6 +265,49 @@ def test_write_video_tensor_streams_to_host_ffmpeg(
     assert commands[0][commands[0].index("-s") + 1] == "2x2"
     assert commands[0][commands[0].index("-r") + 1] == "16"
     assert commands[0][-1] == str(out_path)
+
+
+def test_write_video_tensor_drains_ffmpeg_stderr_while_writing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stderr_read_started = threading.Event()
+
+    class NoticingStdin(io.BytesIO):
+        def write(self, data: bytes) -> int:
+            assert stderr_read_started.wait(timeout=1.0)
+            return super().write(data)
+
+    class NoticingStderr:
+        def read(self, _size: int = -1) -> bytes:
+            stderr_read_started.set()
+            return b""
+
+    process = types.SimpleNamespace(
+        stdin=NoticingStdin(),
+        stderr=NoticingStderr(),
+        wait=lambda: 0,
+    )
+
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "Popen", lambda *_args, **_kwargs: process)
+
+    write_video_tensor(
+        torch.zeros((2, 3, 2, 2), dtype=torch.float32),
+        tmp_path / "out.mp4",
+        fps=16,
+        layout="tchw",
+    )
+
+
+def test_find_ffmpeg_binary_falls_back_to_imageio_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_imageio_ffmpeg = types.ModuleType("imageio_ffmpeg")
+    setattr(fake_imageio_ffmpeg, "get_ffmpeg_exe", lambda: "/tmp/packaged-ffmpeg")
+    monkeypatch.setattr(runner_io.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", fake_imageio_ffmpeg)
+
+    assert runner_io._find_ffmpeg_binary() == "/tmp/packaged-ffmpeg"
 
 
 def test_load_first_frame_tensor_uses_requested_resize_interpolation(

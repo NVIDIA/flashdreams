@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
@@ -316,7 +317,7 @@ def write_video_tensor(
     layout: VideoTensorLayout,
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
 ) -> Path:
-    """Write a ``[-1, 1]`` video tensor through the host FFmpeg executable."""
+    """Write a ``[-1, 1]`` video tensor through an FFmpeg executable."""
     del install_hint  # Kept for API compatibility with existing runner call sites.
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -363,6 +364,13 @@ def write_video_tensor(
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     assert process.stdin is not None
     assert process.stderr is not None
+    stderr_chunks: list[bytes] = []
+    stderr_thread = threading.Thread(
+        target=_drain_binary_pipe,
+        args=(process.stderr, stderr_chunks),
+        daemon=True,
+    )
+    stderr_thread.start()
     write_error: BrokenPipeError | None = None
     try:
         for frame_index in range(num_frames):
@@ -375,8 +383,9 @@ def write_video_tensor(
         except BrokenPipeError as exc:
             if write_error is None:
                 write_error = exc
-        stderr = process.stderr.read().decode("utf-8", errors="replace")
         returncode = process.wait()
+        stderr_thread.join()
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
 
     if write_error is not None:
         raise RuntimeError(
@@ -387,15 +396,37 @@ def write_video_tensor(
     return path
 
 
+def _drain_binary_pipe(pipe: Any, chunks: list[bytes]) -> None:
+    while True:
+        chunk = pipe.read(8192)
+        if not chunk:
+            return
+        chunks.append(chunk)
+
+
 def _find_ffmpeg_binary() -> str:
-    """Find the host-provided FFmpeg executable or fail with installation guidance."""
+    """Find a host or Python-packaged FFmpeg executable."""
     ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin is None:
+    if ffmpeg_bin is not None:
+        return ffmpeg_bin
+
+    try:
+        import imageio_ffmpeg  # noqa: PLC0415
+    except ImportError as exc:
         raise RuntimeError(
-            "Writing the output video requires an ffmpeg executable installed "
-            "on the host and available on PATH."
-        )
-    return ffmpeg_bin
+            "Writing the output video requires an ffmpeg executable. Install "
+            "ffmpeg on the host or install the runner extras so "
+            "imageio-ffmpeg can provide a packaged binary."
+        ) from exc
+
+    try:
+        return str(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception as exc:  # noqa: BLE001 - preserve imageio-ffmpeg diagnostics.
+        raise RuntimeError(
+            "Writing the output video requires a usable ffmpeg executable. "
+            "The host ffmpeg was not on PATH and imageio-ffmpeg could not "
+            "provide one."
+        ) from exc
 
 
 def _import_mediapy(action: str, *, install_hint: str) -> Any:

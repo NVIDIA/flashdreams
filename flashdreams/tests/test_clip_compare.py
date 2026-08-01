@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import sys
+import types
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -11,6 +15,7 @@ from flashdreams.quality.clip_compare import (
     assert_clip_within_thresholds,
     bottom_half,
     parse_frame_indices,
+    read_video_rgb,
     select_frame_indices,
 )
 
@@ -97,3 +102,33 @@ def test_bottom_half_extracts_generated_region() -> None:
 
     assert generated.shape == (2, 3, 4, 3)
     assert np.all(generated == 255)
+
+
+def test_read_video_rgb_falls_back_to_imageio_ffmpeg_without_host_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_media = types.ModuleType("mediapy")
+
+    def read_video(_path: str) -> np.ndarray:
+        raise RuntimeError(
+            "Program 'ffmpeg' is not found; perhaps install ffmpeg using "
+            "'apt install ffmpeg'."
+        )
+
+    def read_frames(path: str, *, pix_fmt: str) -> object:
+        assert path == "clip.mp4"
+        assert pix_fmt == "rgb24"
+        yield {"size": (2, 1)}
+        yield bytes([1, 2, 3, 4, 5, 6])
+
+    fake_imageio_ffmpeg = types.ModuleType("imageio_ffmpeg")
+    setattr(fake_media, "read_video", read_video)
+    setattr(fake_imageio_ffmpeg, "read_frames", read_frames)
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", fake_imageio_ffmpeg)
+
+    video = read_video_rgb(Path("clip.mp4"))
+
+    assert video.shape == (1, 1, 2, 3)
+    assert video.dtype == np.uint8
+    assert video.tolist() == [[[[1, 2, 3], [4, 5, 6]]]]

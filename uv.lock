@@ -1226,6 +1226,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "imageio-ffmpeg" },
     { name = "mediapy" },
     { name = "pytest" },
     { name = "pytest-manual-marker" },
@@ -1233,6 +1234,7 @@ dev = [
     { name = "transformer-engine", extra = ["core-cu13", "pytorch"], marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 examples = [
+    { name = "imageio-ffmpeg" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1243,6 +1245,7 @@ rtx-postprocess = [
     { name = "nvidia-vfx" },
 ]
 runners = [
+    { name = "imageio-ffmpeg" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1278,6 +1281,9 @@ requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "ftfy", specifier = ">=6.0" },
     { name = "huggingface-hub", specifier = ">=0.33" },
+    { name = "imageio-ffmpeg", marker = "extra == 'dev'", specifier = ">=0.5" },
+    { name = "imageio-ffmpeg", marker = "extra == 'examples'", specifier = ">=0.5" },
+    { name = "imageio-ffmpeg", marker = "extra == 'runners'", specifier = ">=0.5" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "mediapy", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'examples'", specifier = ">=1.1" },

@@ -157,6 +157,12 @@ def run_baseline_clip_compare(
                 compute_flip=False,
             )
     except Exception as exc:  # noqa: BLE001 - report quality errors without masking runs.
+        if _is_missing_video_decoder_error(exc):
+            result["status"] = "skipped"
+            result["reason"] = _missing_video_decoder_reason(exc)
+            log_lines.append(f"skipped: {result['reason']}")
+            _write_log(log_path, log_lines)
+            return result
         result["status"] = "fail"
         result["reason"] = str(exc)
         log_lines.append(f"failed: {exc}")
@@ -560,3 +566,24 @@ def _as_uint8_rgb(video: Any) -> RGBVideo:
 
 def _write_log(path: Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _is_missing_video_decoder_error(exc: BaseException) -> bool:
+    if isinstance(exc, ImportError):
+        return True
+    message = str(exc).lower()
+    return (
+        "program 'ffmpeg' is not found" in message
+        or 'program "ffmpeg" is not found' in message
+        or "no such file or directory: 'ffmpeg'" in message
+        or 'no such file or directory: "ffmpeg"' in message
+        or "needs either mediapy with ffmpeg on path or imageio-ffmpeg" in message
+    )
+
+
+def _missing_video_decoder_reason(exc: BaseException) -> str:
+    return (
+        "baseline quality comparison needs a video decoder. Install ffmpeg on "
+        "PATH or install the runner extras so imageio-ffmpeg is available. "
+        f"Original error: {exc}"
+    )

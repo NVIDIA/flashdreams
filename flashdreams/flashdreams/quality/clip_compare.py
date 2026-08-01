@@ -78,6 +78,17 @@ class ClipComparisonResult:
 def read_video_rgb(path: Path | str) -> RGBVideo:
     """Read an RGB video file as ``uint8 [T, H, W, 3]``."""
     try:
+        return _read_video_rgb_mediapy(path)
+    except ImportError as exc:
+        return _read_video_rgb_imageio_ffmpeg(path, exc)
+    except RuntimeError as exc:
+        if not _is_missing_host_ffmpeg_error(exc):
+            raise
+        return _read_video_rgb_imageio_ffmpeg(path, exc)
+
+
+def _read_video_rgb_mediapy(path: Path | str) -> RGBVideo:
+    try:
         import mediapy as media  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - import-time gate
         raise ImportError(
@@ -89,6 +100,55 @@ def read_video_rgb(path: Path | str) -> RGBVideo:
     if video.ndim != 4 or video.shape[-1] < 3:
         raise ValueError(f"Expected RGB/RGBA video [T,H,W,C], got shape {video.shape}")
     return _as_uint8_rgb(video[..., :3])
+
+
+def _read_video_rgb_imageio_ffmpeg(
+    path: Path | str,
+    original_error: BaseException,
+) -> RGBVideo:
+    try:
+        import imageio_ffmpeg  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - import-time gate
+        raise ImportError(
+            "Clip comparison needs either mediapy with ffmpeg on PATH or "
+            "imageio-ffmpeg. Install the runner extras before running quality "
+            "regression tests."
+        ) from original_error
+
+    reader = imageio_ffmpeg.read_frames(str(path), pix_fmt="rgb24")
+    try:
+        metadata = next(reader)
+        size = metadata.get("size") if isinstance(metadata, dict) else None
+        if (
+            not isinstance(size, tuple)
+            or len(size) != 2
+            or not all(isinstance(value, int) for value in size)
+        ):
+            raise ValueError(f"Could not determine video size for {path}")
+        width, height = size
+        frames = [
+            np.frombuffer(frame, dtype=np.uint8).reshape(height, width, 3).copy()
+            for frame in reader
+        ]
+    except StopIteration as exc:
+        raise ValueError(f"video has no frames: {path}") from exc
+    finally:
+        close = getattr(reader, "close", None)
+        if callable(close):
+            close()
+    if not frames:
+        raise ValueError(f"video has no frames: {path}")
+    return np.stack(frames, axis=0)
+
+
+def _is_missing_host_ffmpeg_error(exc: RuntimeError) -> bool:
+    message = str(exc).lower()
+    return (
+        "program 'ffmpeg' is not found" in message
+        or 'program "ffmpeg" is not found' in message
+        or "no such file or directory: 'ffmpeg'" in message
+        or 'no such file or directory: "ffmpeg"' in message
+    )
 
 
 def parse_frame_indices(value: str | None) -> tuple[int, ...] | None:

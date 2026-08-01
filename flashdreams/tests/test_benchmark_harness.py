@@ -881,6 +881,71 @@ def test_run_benchmark_suite_compares_mp4_to_quality_baseline(
     assert "Clip similarity score" in detail_html
 
 
+def test_quality_baseline_skips_when_video_decoder_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    baseline_video = baseline_root / "scenarios" / "fake-runner" / "demo.mp4"
+    baseline_video.parent.mkdir(parents=True)
+    baseline_video.write_bytes(b"baseline mp4")
+    (baseline_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "scenarios": [
+                    {
+                        "id": "fake-runner",
+                        "artifacts": {
+                            "videos": ["scenarios/fake-runner/demo.mp4"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_read_video_rgb(_path: Path) -> np.ndarray:
+        raise RuntimeError(
+            "Program 'ffmpeg' is not found; perhaps install ffmpeg using "
+            "'apt install ffmpeg'."
+        )
+
+    monkeypatch.setattr(benchmark_quality, "_read_video_rgb", fake_read_video_rgb)
+
+    script = (
+        "import sys; "
+        "from pathlib import Path; "
+        "out = Path(sys.argv[1]); "
+        "out.mkdir(parents=True, exist_ok=True); "
+        "(out / 'demo.mp4').write_bytes(b'candidate mp4')"
+    )
+    scenario = BenchmarkScenario(
+        id="fake-runner",
+        name="Fake runner",
+        command=(sys.executable, "-c", script, "{output_dir}"),
+        output_dir_arg=None,
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+        quality_baseline=QualityBaselineConfig(
+            baseline_dir=baseline_root,
+            sample_count=2,
+        ),
+    )
+
+    scenario_manifest = manifest["scenarios"][0]
+    quality_result = scenario_manifest["quality_results"][0]
+    assert scenario_manifest["status"] == "pass"
+    assert quality_result["status"] == "skipped"
+    assert "video decoder" in quality_result["reason"]
+    assert "quality_score" not in scenario_manifest["metric_summary"]
+
+
 def test_quality_baseline_uses_scenario_compare_region(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
