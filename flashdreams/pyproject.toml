@@ -84,7 +84,6 @@ Repository = "https://github.com/NVIDIA/flashdreams"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "imageio-ffmpeg>=0.5",
     "mediapy>=1.1",
     # 2.0 rewrote the plugin for pytest 8+ (older versions use the removed
     # ``Item.get_marker`` API).
@@ -102,7 +101,6 @@ dev = [
 # Legacy alias kept around so the lock file resolves identically to
 # main; the canonical extra is ``runners`` (same package set).
 examples = [
-    "imageio-ffmpeg>=0.5",
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
@@ -112,7 +110,6 @@ examples = [
 # off the core install so a serving deployment that uses the bare
 # pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
-    "imageio-ffmpeg>=0.5",
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
