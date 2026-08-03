@@ -154,13 +154,34 @@ scenarios tagged ``one-minute`` or ``pai-bench``; in this standard suite the
 one-minute review clips get PAI-Bench scores.
 
 PAI-Bench and its Python dependencies are not FlashDreams dependencies. Before
-running the PAI-Bench quality profile, point ``PAI_BENCH_PYTHON`` at a
-separately prepared evaluator environment whose dependencies and licenses have
-been reviewed for your use case:
+running the PAI-Bench quality profile, create or select a separate evaluator
+environment whose dependencies and licenses have been reviewed for your use
+case.
+
+The following setup was used for the local PAI-Bench runs. Run it from the
+FlashDreams repository root. If the virtual environment already exists, ``uv
+venv`` asks whether to replace it:
 
 .. code-block:: bash
 
-   export PAI_BENCH_PYTHON=/path/to/pai-bench-env/bin/python
+   uv sync --python 3.12 \
+     --package flashdreams \
+     --no-dev \
+     --group cuda13 \
+     --extra runners
+
+   uv venv --python 3.12 ~/.venvs/flashdreams-paibench
+
+   export PAI_BENCH_PYTHON="$HOME/.venvs/flashdreams-paibench/bin/python"
+
+   uv pip install --python "$PAI_BENCH_PYTHON" \
+     torch torchvision \
+     opencv-python-headless \
+     omegaconf \
+     openai-clip \
+     "pyiqa>=0.1.15,<0.1.16" \
+     "setuptools<81"
+
    "$PAI_BENCH_PYTHON" -c "import clip, cv2, omegaconf, pyiqa, torch; print('PAI-Bench environment OK')"
 
 First create the baseline:
