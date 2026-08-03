@@ -28,14 +28,15 @@ real-time interactive image-to-video (I2V) world model with action + camera-traj
 reconstituted-context memory. FlashDreams ships a native port of the distilled WAN-5B variant (Wan 2.2
 TI2V-5B backbone, 4-step distilled Euler).
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-1.avif" alt="HY-WorldPlay WAN-5B sample clip.">
-   </div>
-   <p class="model-footnote">
-     Generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
-   </p>
+   .. image:: /_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-1.avif
+      :alt: HY-WorldPlay WAN-5B sample clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
 
 Installation
 ------------

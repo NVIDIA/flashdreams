@@ -42,15 +42,16 @@ OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <img class="model-video-player" src="../_static/model_clips/omnidreams/omnidreams-teaser.avif" alt="OmniDreams teaser clip.">
-   </div>
-   <p class="model-footnote">
-     Teaser video source:
-     <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
-   </p>
+   .. image:: /_static/model_clips/omnidreams/omnidreams-teaser.avif
+      :alt: OmniDreams teaser clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Teaser video source:
+`OmniDreams project page <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
 Requirements
 ------------
@@ -352,11 +353,11 @@ Here, ``<server-ip>`` is the server IP address you are connecting to
 
 Once successfully connected, the browser-based UI looks like this:
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-  <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-    <img class="model-video-player" src="../_static/model_clips/omnidreams/omnidreams-webrtc-recording-0529.avif" alt="OmniDreams browser UI recording.">
-  </div>
+   .. image:: /_static/model_clips/omnidreams/omnidreams-webrtc-recording-0529.avif
+      :alt: OmniDreams browser UI recording.
+      :class: model-video-player
 
 .. note::
 

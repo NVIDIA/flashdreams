@@ -62,9 +62,9 @@ uses, and the settings you can tune.
       :link: /models/omnidreams
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="OmniDreams FlashDreams sample clip.">
+      .. image:: /_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif
+         :alt: OmniDreams FlashDreams sample clip.
+         :class: fd-card-video
 
       Interactive world simulator for autonomous vehicles.
 
@@ -73,9 +73,9 @@ uses, and the settings you can tune.
       :link: /models/self_forcing
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.avif" alt="Self-Forcing FlashDreams sample clip.">
+      .. image:: /_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.avif
+         :alt: Self-Forcing FlashDreams sample clip.
+         :class: fd-card-video
 
       Autoregressive text-to-video based on Wan 2.1.
 
@@ -84,9 +84,9 @@ uses, and the settings you can tune.
       :link: /models/causal_forcing
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="Causal-Forcing FlashDreams sample clip.">
+      .. image:: /_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif
+         :alt: Causal-Forcing FlashDreams sample clip.
+         :class: fd-card-video
 
       Autoregressive text/image-to-video based on Wan 2.1.
 
@@ -95,9 +95,9 @@ uses, and the settings you can tune.
       :link: /models/causal_wan22
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.avif" alt="Causal Wan 2.2 FlashDreams sample clip.">
+      .. image:: /_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.avif
+         :alt: Causal Wan 2.2 FlashDreams sample clip.
+         :class: fd-card-video
 
       Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
@@ -120,9 +120,9 @@ uses, and the settings you can tune.
       :link: /models/hy_worldplay
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/hy_worldplay/hy-worldplay-hero.avif" alt="HY-WorldPlay FlashDreams sample clip.">
+      .. image:: /_static/model_clips/hy_worldplay/hy-worldplay-hero.avif
+         :alt: HY-WorldPlay FlashDreams sample clip.
+         :class: fd-card-video
 
       Action- and camera-controllable image-to-video world model.
 
@@ -150,9 +150,9 @@ uses, and the settings you can tune.
       :link: /models/wan21
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="Wan 2.1 FlashDreams sample clip.">
+      .. image:: /_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif
+         :alt: Wan 2.1 FlashDreams sample clip.
+         :class: fd-card-video
 
       Bidirectional video generation model that supports both
       text-to-video and image-to-video.
@@ -162,9 +162,9 @@ uses, and the settings you can tune.
       :link: /models/cosmos_predict2
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif" alt="Cosmos-Predict2.5 FlashDreams sample clip.">
+      .. image:: /_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif
+         :alt: Cosmos-Predict2.5 FlashDreams sample clip.
+         :class: fd-card-video
 
       Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
 
@@ -192,9 +192,9 @@ uses, and the settings you can tune.
       :link: /models/flashvsr
       :link-type: doc
 
-      .. raw:: html
-
-         <img class="fd-card-video" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="FlashVSR FlashDreams sample clip.">
+      .. image:: /_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif
+         :alt: FlashVSR FlashDreams sample clip.
+         :class: fd-card-video
 
       Streaming video super-resolution.
 

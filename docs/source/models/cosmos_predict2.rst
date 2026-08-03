@@ -46,15 +46,16 @@ reasoning vision language model - as its text encoder. The model is shipped in
 through a curated 200M-clip pre-training corpus, model merging, and a new RL
 algorithm.
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <img class="model-video-player" src="../_static/model_clips/cosmos_predict2/cosmos-predict.avif" alt="Cosmos-Predict2.5 teaser clip.">
-   </div>
-   <p class="model-footnote">
-     Teaser video source:
-     <a href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/">Cosmos-Predict2.5 project page</a>.
-   </p>
+   .. image:: /_static/model_clips/cosmos_predict2/cosmos-predict.avif
+      :alt: Cosmos-Predict2.5 teaser clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Teaser video source:
+`Cosmos-Predict2.5 project page <https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/>`_.
 
 Requirements
 ------------

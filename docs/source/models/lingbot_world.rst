@@ -33,15 +33,16 @@ Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a
 `LingBot-World v1 <https://github.com/robbyant/lingbot-world>`_ and the newer 14B causal-fast
 `LingBot-World v2 <https://github.com/Robbyant/lingbot-world-v2>`_ checkpoints.
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <img class="model-video-player" src="../_static/model_clips/lingbot_world/lingbot-world-teaser.avif" alt="LingBot-World teaser clip.">
-   </div>
-   <p class="model-footnote">
-     Teaser video source:
-     <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
-   </p>
+   .. image:: /_static/model_clips/lingbot_world/lingbot-world-teaser.avif
+      :alt: LingBot-World teaser clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Teaser video source:
+`LingBot-World project page <https://technology.robbyant.com/lingbot-world>`_.
 
 Requirements
 ------------
@@ -246,11 +247,11 @@ first launch, much faster afterwards. When ready the server prints
 
 When successfully connected, the browser-based UI looks like this:
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-  <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-    <img class="model-video-player" src="../_static/model_clips/lingbot_world/lingbot-world-webrtc-recording-0529.avif" alt="LingBot-World browser UI recording.">
-  </div>
+   .. image:: /_static/model_clips/lingbot_world/lingbot-world-webrtc-recording-0529.avif
+      :alt: LingBot-World browser UI recording.
+      :class: model-video-player
 
 Profiling benchmark
 -------------------
