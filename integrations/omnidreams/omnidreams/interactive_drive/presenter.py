@@ -104,11 +104,14 @@ class SlangPyPresenter:
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
-        enable_cuda_interop = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
-        if not enable_cuda_interop:
+        cuda_interop_requested = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        enable_cuda_interop = cuda_interop_requested and bool(existing_device_handles)
+        if not cuda_interop_requested:
             self._cuda_interop_unavailable_reason = (
                 f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
+        elif not existing_device_handles:
+            self._cuda_interop_unavailable_reason = "CUDA context unavailable"
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -142,7 +145,12 @@ class SlangPyPresenter:
             return []
         try:
             if not torch.cuda.is_initialized():
-                return []
+                torch.cuda.init()
+            # Force the primary context to be current on this thread before
+            # asking slangpy for its native handles. This presenter is
+            # intentionally constructed before the model backend, so CUDA is
+            # otherwise still lazy at this point.
+            torch.cuda.current_stream()
         except Exception:
             return []
 
@@ -241,8 +249,8 @@ class SlangPyPresenter:
             cuda_stream=cuda_stream,
         )
         self._cuda_rgb_interop.mark_submitted(rgba_buffer, submit_id)
-        del surface_texture
         self._surface.present()
+        del surface_texture
         return True
 
     def _present_array(self, rgb_host_uint8: np.ndarray) -> None:
@@ -259,8 +267,8 @@ class SlangPyPresenter:
         command_encoder = self._device.create_command_encoder()
         command_encoder.blit(surface_texture, self._display_texture)
         self._device.submit_command_buffer(command_encoder.finish())
-        del surface_texture
         self._surface.present()
+        del surface_texture
 
     def _choose_surface_format(self):
         linear_pairs = {
@@ -607,37 +615,8 @@ class _CudaRGBFrame:
 
 class _NonBlockingCudaStream:
     def __init__(self, torch_module: Any, device: Any) -> None:
-        import ctypes
-        import ctypes.util
-
-        self._runtime = None
-        self._stream_ptr = 0
-        self._stream = None
-
-        library_name = ctypes.util.find_library("cudart") or "libcudart.so"
-        runtime = ctypes.CDLL(library_name)
-        cuda_set_device = runtime.cudaSetDevice
-        cuda_set_device.argtypes = [ctypes.c_int]
-        cuda_set_device.restype = ctypes.c_int
-        cuda_stream_create = runtime.cudaStreamCreateWithFlags
-        cuda_stream_create.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_uint]
-        cuda_stream_create.restype = ctypes.c_int
-        cuda_get_error_string = runtime.cudaGetErrorString
-        cuda_get_error_string.argtypes = [ctypes.c_int]
-        cuda_get_error_string.restype = ctypes.c_char_p
-
-        device_index = 0 if device.index is None else int(device.index)
-        _check_cuda_runtime_result(cuda_set_device(device_index), cuda_get_error_string)
-        stream = ctypes.c_void_p()
-        cuda_stream_non_blocking = 1
-        _check_cuda_runtime_result(
-            cuda_stream_create(ctypes.byref(stream), cuda_stream_non_blocking),
-            cuda_get_error_string,
-        )
-
-        self._runtime = runtime
-        self._stream_ptr = int(stream.value or 0)
-        self._stream = torch_module.cuda.ExternalStream(self._stream_ptr, device=device)
+        self._stream = torch_module.cuda.Stream(device=device)
+        self._stream_ptr = int(self._stream.cuda_stream)
 
     @property
     def stream(self) -> Any:
@@ -648,18 +627,10 @@ class _NonBlockingCudaStream:
         return self._stream_ptr
 
     def close(self) -> None:
-        if self._runtime is None or self._stream_ptr == 0:
+        if self._stream is None:
             return
-        import ctypes
 
-        stream = self._stream
-        if stream is not None:
-            stream.synchronize()
-        cuda_stream_destroy = self._runtime.cudaStreamDestroy
-        cuda_stream_destroy.argtypes = [ctypes.c_void_p]
-        cuda_stream_destroy.restype = ctypes.c_int
-        cuda_stream_destroy(ctypes.c_void_p(self._stream_ptr))
-        self._runtime = None
+        self._stream.synchronize()
         self._stream_ptr = 0
         self._stream = None
 
@@ -681,18 +652,6 @@ class _SharedRGBABuffer:
         self.rgba_tensor = rgba_tensor
         self.copy_done_event = copy_done_event
         self.pending_submit_id = pending_submit_id
-
-
-def _check_cuda_runtime_result(result: int, get_error_string: Any) -> None:
-    if result == 0:
-        return
-    raw = get_error_string(int(result))
-    message = (
-        raw.decode("utf-8", errors="replace")
-        if raw is not None
-        else f"CUDA error {result}"
-    )
-    raise RuntimeError(message)
 
 
 def _cuda_event_ready(event: Any | None) -> bool:

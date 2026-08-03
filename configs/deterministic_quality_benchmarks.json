@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "description": "Local quality and performance-review scenarios for LingBot and Omnidreams. The quality scenarios use roughly 30-second seeded rollouts for baseline/candidate MP4 comparisons. The one-minute review scenarios collect performance metrics and embed longer MP4s in the HTML report, but intentionally skip baseline quality scoring.",
+  "scenarios": [
+    {
+      "id": "lingbot-world-fast-taehv-quality-smoke",
+      "name": "LingBot-World Fast TAEHV seeded quality smoke",
+      "description": "Roughly 30-second LingBot-World Fast rollout with explicit seed and strict PyTorch deterministic settings. This is a local quality signal; LingBot does not currently have the same public bitwise reproducibility CI guarantee as Omnidreams.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "lingbot",
+        "i2v",
+        "quality",
+        "seeded",
+        "quality-30s"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--",
+        "lingbot-world-fast-taehv-window15-sink3",
+        "--example-data",
+        "True",
+        "--example-idx",
+        "0",
+        "--pixel-height",
+        "464",
+        "--pixel-width",
+        "832",
+        "--total-blocks",
+        "40",
+        "--pipeline.diffusion-model.seed",
+        "1"
+      ],
+      "warmup_steps": 1,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    },
+    {
+      "id": "omnidreams-sv-ci-quality-smoke",
+      "name": "Omnidreams single-view CI-style seeded quality smoke",
+      "description": "Roughly 30-second Omnidreams single-view rollout aligned with the same-seed reproducibility CI path: non-perf runner, fixed example data, explicit seed, strict PyTorch deterministic settings, and 113 AR blocks.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "omnidreams",
+        "i2v",
+        "quality",
+        "seeded",
+        "deterministic",
+        "quality-30s"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "--example-data",
+        "True",
+        "--example-data-uuid",
+        "239560dc-33d1-11ef-9720-00044bcbccac",
+        "--total-blocks",
+        "113",
+        "--pipeline.diffusion-model.seed",
+        "1"
+      ],
+      "warmup_steps": 1,
+      "quality_compare_region": "bottom-half",
+      "timeout_s": 7200
+    },
+    {
+      "id": "lingbot-world-fast-taehv-one-minute-review",
+      "name": "LingBot-World Fast TAEHV one-minute review rollout",
+      "description": "Runs the LingBot-World Fast interactive preset for 81 AR blocks. This targets about 60.6 seconds of MP4 output for performance metrics and manual review when the selected pose stream has at least 969 frames.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "lingbot",
+        "i2v",
+        "one-minute",
+        "performance",
+        "review"
+      ],
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "flashdreams-run",
+        "lingbot-world-fast-taehv-window15-sink3",
+        "--example-data",
+        "True",
+        "--example-idx",
+        "0",
+        "--pixel-height",
+        "464",
+        "--pixel-width",
+        "832",
+        "--total-blocks",
+        "81"
+      ],
+      "warmup_steps": 1,
+      "quality_baseline_compare": false,
+      "timeout_s": 21600
+    },
+    {
+      "id": "omnidreams-sv-one-minute-review",
+      "name": "Omnidreams single-view one-minute review rollout",
+      "description": "Runs the stable Omnidreams single-view runner for 226 AR blocks with an explicit seed. This targets about 60.2 seconds of MP4 output for performance metrics and manual review when the selected HDMap clip is long enough.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "omnidreams",
+        "i2v",
+        "one-minute",
+        "performance",
+        "review"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "--example-data",
+        "True",
+        "--example-data-uuid",
+        "239560dc-33d1-11ef-9720-00044bcbccac",
+        "--total-blocks",
+        "226",
+        "--pipeline.diffusion-model.seed",
+        "1"
+      ],
+      "warmup_steps": 1,
+      "quality_baseline_compare": false,
+      "timeout_s": 21600
+    }
+  ]
+}

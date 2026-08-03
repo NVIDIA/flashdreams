@@ -10,6 +10,8 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextlib
 import json
 import shutil
 import subprocess
@@ -549,6 +551,11 @@ class MJPEGStreamingPresenter:
         # clients of /bev_stream can paginate at a different rate than
         # /stream (e.g. if the HUD process throttles).
         self._bev_frame_bus = LatestFrameBus[bytes]()
+        self._bev_publish_exec = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="interactive_drive-bev-publish",
+        )
+        self._bev_publish_future: concurrent.futures.Future[None] | None = None
         # Scene options surfaced to the browser dropdown via /scenes.
         # Each entry is a dict with ``label``, ``path``, ``variants``;
         # the demo wrapper builds these from its scene-discovery layer
@@ -716,6 +723,14 @@ class MJPEGStreamingPresenter:
         # cadence regardless of how often the browser posts /control events.
         self._keyboard_drive.update()
 
+    def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+            _prefetch_to_numpy(frame.model_rgb_host_uint8)
+        else:
+            _prefetch_to_numpy(frame.rgb_host_uint8)
+        if frame.bev_host_uint8 is not None:
+            _prefetch_to_numpy(frame.bev_host_uint8)
+
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
@@ -728,10 +743,15 @@ class MJPEGStreamingPresenter:
                 _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
             )
         if frame.bev_host_uint8 is not None:
-            self._publish_bev(frame.bev_host_uint8)
+            self._submit_bev_publish(frame.bev_host_uint8)
 
     def close(self) -> None:
         self._stop_event.set()
+        future = self._bev_publish_future
+        if future is not None:
+            with contextlib.suppress(Exception):
+                future.result(timeout=1.0)
+        self._bev_publish_exec.shutdown(wait=True, cancel_futures=True)
         self._frame_bus.close()
         self._bev_frame_bus.close()
         self._server.shutdown()
@@ -748,6 +768,18 @@ class MJPEGStreamingPresenter:
             value_range="uint8",
         )
         _publish_if_open(self._frame_bus, jpeg, stop_event=self._stop_event)
+
+    def _submit_bev_publish(self, bev_rgb_host_uint8: object) -> None:
+        future = self._bev_publish_future
+        if future is not None:
+            if not future.done():
+                return
+            with contextlib.suppress(Exception):
+                future.result()
+        self._bev_publish_future = self._bev_publish_exec.submit(
+            self._publish_bev,
+            bev_rgb_host_uint8,
+        )
 
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
@@ -1080,6 +1112,12 @@ def _wait_for_bus_frame(
         if bus.closed:
             return None
     return None
+
+
+def _prefetch_to_numpy(frame: object) -> None:
+    prefetch = getattr(frame, "prefetch_to_numpy", None)
+    if callable(prefetch):
+        prefetch()
 
 
 def _with_status_overlay(rgb_host_uint8: object, message: str | None) -> np.ndarray:

@@ -12,6 +12,7 @@ handled by the demo's outer loop over this same long-lived window.
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import math as _math
 import time
@@ -77,6 +78,8 @@ MPS_TO_MPH = 2.2369362920544
 # :class:`SlangPyHudPresenter`.
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
 
+_BevPanelKey = tuple[int, int, int, int]
+
 
 def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
     """Allocate the chrome buffer and a PIL Image view sharing its memory.
@@ -92,6 +95,28 @@ def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
     img = Image.frombuffer("RGBA", (width, height), buf, "raw", "RGBA", 0, 1)
     img.readonly = 0
     return buf, img
+
+
+def _build_bev_panel_image(
+    key: _BevPanelKey,
+    bev_source: object,
+    target_size: tuple[int, int],
+    apply_filter: Callable[[Image.Image], Image.Image],
+) -> tuple[_BevPanelKey, Image.Image]:
+    """Materialize, resize, and recolor BEV away from presentation."""
+    bev_rgb = _as_rgb_host_uint8(bev_source)
+    bev = Image.fromarray(bev_rgb, mode="RGB")
+    target_w, target_h = target_size
+    scale = max(target_w / bev.width, target_h / bev.height)
+    scaled_w = max(1, int(bev.width * scale))
+    scaled_h = max(1, int(bev.height * scale))
+    scaled = bev.resize((scaled_w, scaled_h), Image.Resampling.BILINEAR)
+    crop_left = (scaled_w - target_w) // 2
+    crop_top = (scaled_h - target_h) // 2
+    cropped = scaled.crop(
+        (crop_left, crop_top, crop_left + target_w, crop_top + target_h)
+    )
+    return key, apply_filter(cropped)
 
 
 class _LRUCache(OrderedDict):
@@ -338,11 +363,21 @@ class SlangPyHudPresenter:
         self._pedal_cache: _LRUCache = _LRUCache(maxsize=16)
         self._scene_thumb_cache: dict[Any, Image.Image | None] = {}
         self._variant_thumb_cache: dict[tuple[Any, str], Image.Image | None] = {}
-        self._bev_panel_cache_key: tuple[int, int, int] | None = None
+        self._bev_panel_cache_key: _BevPanelKey | None = None
         self._bev_panel_cache: Image.Image | None = None
+        self._bev_panel_epoch = 0
+        self._bev_panel_exec = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="interactive-drive-bev-panel",
+        )
+        self._bev_panel_future: (
+            concurrent.futures.Future[tuple[_BevPanelKey, Image.Image]] | None
+        ) = None
 
         self._latest_camera_pil: Image.Image | None = None
-        self._latest_bev_pil: Image.Image | None = None
+        self._latest_bev_source: object | None = None
+        self._prepared_bev_source_key: object | None = None
+        self._bev_source_generation = 0
         # Numpy view of the latest world-model frame (RGBA8 with alpha
         # padded to 255) used by the GPU camera path. Lazily filled on
         # demand from ``_latest_camera_pil`` so we don't pay for the
@@ -469,7 +504,15 @@ class SlangPyHudPresenter:
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
             _prefetch_to_numpy(rgb)
         if frame.bev_host_uint8 is not None:
-            _prefetch_to_numpy(frame.bev_host_uint8)
+            source_group_key = getattr(frame.bev_host_uint8, "source_group_key", None)
+            source_key = (
+                source_group_key()
+                if callable(source_group_key)
+                else id(frame.bev_host_uint8)
+            )
+            if source_key != getattr(self, "_prepared_bev_source_key", None):
+                _prefetch_to_numpy(frame.bev_host_uint8)
+                self._prepared_bev_source_key = source_key
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
         # Apply any pending resize before touching the display texture
@@ -552,6 +595,10 @@ class SlangPyHudPresenter:
 
     def close(self) -> None:
         self._should_close_flag = True
+        bev_panel_exec = getattr(self, "_bev_panel_exec", None)
+        if bev_panel_exec is not None:
+            bev_panel_exec.shutdown(wait=True, cancel_futures=True)
+            self._bev_panel_exec = None
         if self._cuda_hud_interop is not None:
             with contextlib.suppress(Exception):
                 self._cuda_hud_interop.close()
@@ -606,28 +653,23 @@ class SlangPyHudPresenter:
         self._has_camera_frame = True
 
     def _update_bev_pil(self, bev_rgb: object) -> None:
-        bev_rgb = _as_rgb_host_uint8(bev_rgb)
-        # Wrap the raw BEV; the GoogleMaps recolour runs in
-        # :meth:`_get_bev_panel_image` *after* the panel-sized resize so the
-        # float32 pipeline processes ~0.22 MP instead of 1 MP.
-        if not bev_rgb.flags["C_CONTIGUOUS"]:
-            bev_rgb = np.ascontiguousarray(bev_rgb)
-        try:
-            self._latest_bev_pil = Image.fromarray(bev_rgb, mode="RGB")
-        except (ValueError, OSError):
-            return
-        self._bev_panel_cache_key = None
-        self._bev_panel_cache = None
+        # Keep CUDA event synchronization and host materialization off the
+        # presentation thread. The panel worker consumes this lazy source.
+        self._latest_bev_source = bev_rgb
+        self._bev_source_generation += 1
 
     # -- Vulkan / surface plumbing ---------------------------------
 
     def _create_device(self) -> Any:
         existing_device_handles = self._cuda_existing_device_handles()
-        enable_cuda_interop = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
-        if not enable_cuda_interop:
+        cuda_interop_requested = not _env_truthy(DISABLE_CUDA_INTEROP_ENV)
+        enable_cuda_interop = cuda_interop_requested and bool(existing_device_handles)
+        if not cuda_interop_requested:
             self._cuda_interop_unavailable_reason = (
                 f"disabled by {DISABLE_CUDA_INTEROP_ENV}"
             )
+        elif not existing_device_handles:
+            self._cuda_interop_unavailable_reason = "CUDA context unavailable"
         device_kwargs = {
             "type": self._spy.DeviceType.vulkan,
             "enable_debug_layers": False,
@@ -661,7 +703,11 @@ class SlangPyHudPresenter:
             return []
         try:
             if not torch.cuda.is_initialized():
-                return []
+                torch.cuda.init()
+            # The HUD is constructed before the model backend. Materialize
+            # the primary CUDA context on this thread so slangpy can bind
+            # Vulkan interop to the same device the backend will use.
+            torch.cuda.current_stream()
         except Exception:
             return []
 
@@ -852,7 +898,7 @@ class SlangPyHudPresenter:
         interop_frame = interop.ready_rgba_buffer()
         if interop_frame is None:
             return False
-        rgba_buffer, cuda_stream = interop_frame
+        rgba_buffer, _cuda_stream = interop_frame
         self._sync_window_size()
         if self._cuda_hud_interop is not interop:
             return False
@@ -885,13 +931,10 @@ class SlangPyHudPresenter:
                 [width, height, 1],
             )
             encoder.blit(surface_texture, self._display_texture)
-            submit_id = self._device.submit_command_buffer(
-                encoder.finish(),
-                cuda_stream=cuda_stream,
-            )
+            submit_id = self._device.submit_command_buffer(encoder.finish())
             interop.mark_submitted(rgba_buffer, submit_id)
-            del surface_texture
             self._surface.present()
+            del surface_texture
         except RuntimeError as exc:
             logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
@@ -937,8 +980,8 @@ class SlangPyHudPresenter:
                 self._composite_camera_gpu(encoder)
             encoder.blit(surface_texture, self._display_texture)
             self._device.submit_command_buffer(encoder.finish())
-            del surface_texture
             self._surface.present()
+            del surface_texture
         except RuntimeError as exc:
             logger.warning(
                 f"[presenter] swapchain present failed ({exc}); reconfiguring",
@@ -1883,8 +1926,9 @@ class SlangPyHudPresenter:
         inner = (bev_rect[0] + 4, bev_rect[1] + 4, bev_rect[2] - 4, bev_rect[3] - 4)
         inner_w = inner[2] - inner[0]
         inner_h = inner[3] - inner[1]
+        self._bev_panel_target_size = (inner_w, inner_h)
 
-        if self._latest_bev_pil is None:
+        if self._latest_bev_source is None:
             text = "WAITING FOR BEV..."
             tbox = _measure_text(self._font_tiny, text)
             tw = tbox[2] - tbox[0]
@@ -1909,37 +1953,47 @@ class SlangPyHudPresenter:
         self._draw_bev_marker(draw, marker_cx, marker_cy, marker_size)
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
-        if self._latest_bev_pil is None:
+        if self._latest_bev_source is None:
             return None
         target_w, target_h = target_size
         if target_w <= 0 or target_h <= 0:
             return None
-        key = (id(self._latest_bev_pil), target_w, target_h)
-        if key == self._bev_panel_cache_key and self._bev_panel_cache is not None:
-            return self._bev_panel_cache
-        from omnidreams.interactive_drive.demo import _apply_googlemaps_filter
-
-        bev = self._latest_bev_pil
-        # Cover-fit + crop, then GoogleMaps filter. Two ordering choices keep
-        # this cheap (~10 ms vs ~57 ms / tick at 1024 -> ~470 panel):
-        #   1) Resize before filtering so the per-pixel float32 filter runs on
-        #      ~0.22 MP not 1 MP; it commutes with bilinear resampling to
-        #      within ~2 channel units (visually identical).
-        #   2) BILINEAR not LANCZOS -- far cheaper, and the tint blend masks
-        #      the sharpness difference at minimap scale.
-        scale = max(target_w / bev.width, target_h / bev.height)
-        scaled_w = max(1, int(bev.width * scale))
-        scaled_h = max(1, int(bev.height * scale))
-        scaled = bev.resize((scaled_w, scaled_h), Image.Resampling.BILINEAR)
-        crop_left = (scaled_w - target_w) // 2
-        crop_top = (scaled_h - target_h) // 2
-        cropped = scaled.crop(
-            (crop_left, crop_top, crop_left + target_w, crop_top + target_h)
+        key = (
+            self._bev_panel_epoch,
+            self._bev_source_generation,
+            target_w,
+            target_h,
         )
-        filtered = _apply_googlemaps_filter(cropped)
-        self._bev_panel_cache = filtered
-        self._bev_panel_cache_key = key
-        return filtered
+        future = self._bev_panel_future
+        if future is not None and future.done():
+            try:
+                completed_key, completed_image = future.result()
+            except Exception as exc:
+                logger.warning(f"[presenter] BEV panel processing failed: {exc}")
+            else:
+                self._bev_panel_cache_key = completed_key
+                self._bev_panel_cache = completed_image
+            self._bev_panel_future = None
+
+        if key != self._bev_panel_cache_key and self._bev_panel_future is None:
+            from omnidreams.interactive_drive.demo import _apply_googlemaps_filter
+
+            self._bev_panel_future = self._bev_panel_exec.submit(
+                _build_bev_panel_image,
+                key,
+                self._latest_bev_source,
+                target_size,
+                _apply_googlemaps_filter,
+            )
+
+        cache_key = self._bev_panel_cache_key
+        if (
+            cache_key is not None
+            and cache_key[0] == self._bev_panel_epoch
+            and cache_key[2:] == target_size
+        ):
+            return self._bev_panel_cache
+        return None
 
     @staticmethod
     def _draw_bev_marker(
@@ -2564,7 +2618,14 @@ class SlangPyHudPresenter:
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
         self._latest_camera_pil = None
-        self._latest_bev_pil = None
+        self._latest_bev_source = None
+        self._prepared_bev_source_key = None
+        self._bev_source_generation = 0
+        self._bev_panel_epoch = getattr(self, "_bev_panel_epoch", 0) + 1
+        bev_panel_future = getattr(self, "_bev_panel_future", None)
+        if bev_panel_future is not None:
+            bev_panel_future.cancel()
+            self._bev_panel_future = None
         self._bev_panel_cache_key = None
         self._bev_panel_cache = None
         # Panel chrome shows the scene label, so its cache key changes

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import sys
 from types import SimpleNamespace
 
@@ -13,9 +14,11 @@ from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
     _CudaRGBFrame,
     _CudaRGBInterop,
+    _NonBlockingCudaStream,
 )
 from omnidreams.interactive_drive.slangpy_hud_presenter import SlangPyHudPresenter
 from omnidreams.interactive_drive.types import PresentedFrame
+from PIL import Image
 
 
 class _LazyFrame:
@@ -50,12 +53,60 @@ def test_cuda_existing_device_handles_uses_current_context_by_default(
         def get_cuda_current_context_native_handles() -> list[object]:
             return handles
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
 
     assert presenter._cuda_existing_device_handles() == handles
+
+
+@pytest.mark.parametrize(
+    "presenter_factory",
+    [_presenter_without_window, _hud_presenter_without_window],
+)
+def test_cuda_existing_device_handles_initializes_lazy_cuda_context(
+    monkeypatch, presenter_factory
+) -> None:
+    presenter = presenter_factory()
+    handles = [object()]
+    initialized = False
+    calls: list[str] = []
+
+    class _Spy:
+        @staticmethod
+        def get_cuda_current_context_native_handles() -> list[object]:
+            assert initialized
+            assert calls == ["init", "current_stream"]
+            return handles
+
+    def init() -> None:
+        nonlocal initialized
+        calls.append("init")
+        initialized = True
+
+    def current_stream() -> object:
+        calls.append("current_stream")
+        return object()
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: initialized,
+            init=init,
+            current_stream=current_stream,
+        )
+    )
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    assert presenter._cuda_existing_device_handles() == handles
+    assert calls == ["init", "current_stream"]
 
 
 def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
@@ -66,7 +117,12 @@ def test_cuda_existing_device_handles_can_be_disabled(monkeypatch) -> None:
         def get_cuda_current_context_native_handles() -> list[object]:
             raise AssertionError("native handle query should be disabled")
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.setenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", "1")
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
@@ -95,7 +151,12 @@ def test_create_device_enables_cuda_interop_with_current_context_by_default(
             created_kwargs.append(kwargs)
             return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
 
-    fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_initialized=lambda: True))
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: True,
+            current_stream=lambda: object(),
+        )
+    )
     monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     presenter._spy = _Spy()
@@ -104,6 +165,48 @@ def test_create_device_enables_cuda_interop_with_current_context_by_default(
 
     assert created_kwargs[0]["enable_cuda_interop"] is True
     assert created_kwargs[0]["existing_device_handles"] == ["cuda-context"]
+
+
+@pytest.mark.parametrize(
+    "presenter_factory",
+    [_presenter_without_window, _hud_presenter_without_window],
+)
+def test_create_device_disables_cuda_interop_without_a_cuda_context(
+    monkeypatch, presenter_factory
+) -> None:
+    presenter = presenter_factory()
+    presenter._cuda_interop_unavailable_reason = None
+    created_kwargs: list[dict[str, object]] = []
+
+    class _DeviceType:
+        vulkan = object()
+
+    class _Spy:
+        DeviceType = _DeviceType
+
+        @staticmethod
+        def Device(**kwargs):
+            created_kwargs.append(kwargs)
+            return SimpleNamespace(info=SimpleNamespace(adapter_name="fake"))
+
+    def fail_cuda_init() -> None:
+        raise RuntimeError("CUDA unavailable")
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_initialized=lambda: False,
+            init=fail_cuda_init,
+        )
+    )
+    monkeypatch.delenv("INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    presenter._spy = _Spy()
+
+    presenter._create_device()
+
+    assert created_kwargs[0]["enable_cuda_interop"] is False
+    assert "existing_device_handles" not in created_kwargs[0]
+    assert presenter._cuda_interop_unavailable_reason == "CUDA context unavailable"
 
 
 def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
@@ -135,6 +238,37 @@ def test_create_device_disables_cuda_interop_when_cuda_interop_is_disabled(
     assert "INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP" in (
         presenter._cuda_interop_unavailable_reason or ""
     )
+
+
+def test_non_blocking_cuda_stream_uses_pytorch_native_stream_handle() -> None:
+    device = SimpleNamespace(index=0)
+    synchronize_calls = 0
+
+    class _Stream:
+        cuda_stream = 12345
+
+        def synchronize(self) -> None:
+            nonlocal synchronize_calls
+            synchronize_calls += 1
+
+    pytorch_stream = _Stream()
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(
+            Stream=lambda *, device: pytorch_stream,
+        )
+    )
+
+    stream = _NonBlockingCudaStream(fake_torch, device)
+
+    assert stream.stream is pytorch_stream
+    assert stream.cuda_stream == 12345
+
+    stream.close()
+    stream.close()
+
+    assert synchronize_calls == 1
+    assert stream.stream is None
+    assert stream.cuda_stream == 0
 
 
 def test_prepare_frame_prefetches_host_fallback_model_rgb() -> None:
@@ -351,6 +485,80 @@ def test_hud_prepare_frame_keeps_cuda_model_rgb_lazy() -> None:
     assert model.prefetch_calls == 0
     assert model.numpy_calls == 0
     assert bev.prefetch_calls == 1
+
+
+def test_hud_prepare_frame_prefetches_one_bev_per_raster_batch() -> None:
+    presenter = _hud_presenter_without_window()
+    first = _LazyFrame()
+    second = _LazyFrame()
+    batch_key = object()
+    first.source_group_key = lambda: batch_key  # type: ignore[attr-defined]
+    second.source_group_key = lambda: batch_key  # type: ignore[attr-defined]
+    presenter._cuda_hud_interop = object()
+
+    for bev in (first, second):
+        presenter.prepare_frame(
+            PresentedFrame(
+                timestamp_us=0,
+                rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+                depth_host_f32=None,
+                bev_host_uint8=bev,
+            ),
+            view_mode="rgb",
+        )
+
+    assert first.prefetch_calls == 1
+    assert second.prefetch_calls == 0
+
+
+def test_hud_bev_panel_reuses_completed_image_while_refresh_is_in_flight() -> None:
+    presenter = _hud_presenter_without_window()
+    pending: concurrent.futures.Future[object] = concurrent.futures.Future()
+    cached = Image.new("RGB", (4, 3), (1, 2, 3))
+    presenter._latest_bev_source = np.full((8, 8, 3), 5, dtype=np.uint8)
+    presenter._bev_source_generation = 4
+    presenter._bev_panel_epoch = 2
+    presenter._bev_panel_future = pending
+    presenter._bev_panel_cache_key = (2, 123, 4, 3)
+    presenter._bev_panel_cache = cached
+
+    assert presenter._get_bev_panel_image((4, 3)) is cached
+    assert not pending.done()
+
+
+def test_hud_bev_panel_build_runs_outside_draw_path() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._latest_bev_source = np.zeros((8, 8, 3), dtype=np.uint8)
+    presenter._bev_source_generation = 1
+    presenter._bev_panel_epoch = 0
+    presenter._bev_panel_future = None
+    presenter._bev_panel_cache_key = None
+    presenter._bev_panel_cache = None
+    presenter._bev_panel_exec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        assert presenter._get_bev_panel_image((4, 3)) is None
+        assert presenter._bev_panel_future is not None
+        presenter._bev_panel_future.result(timeout=2.0)
+
+        panel = presenter._get_bev_panel_image((4, 3))
+
+        assert panel is not None
+        assert panel.size == (4, 3)
+    finally:
+        presenter._bev_panel_exec.shutdown(wait=True, cancel_futures=True)
+
+
+def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
+    presenter = _hud_presenter_without_window()
+    lazy = _LazyFrame()
+    presenter._latest_bev_source = None
+    presenter._bev_source_generation = 0
+
+    presenter._update_bev_pil(lazy)
+
+    assert presenter._latest_bev_source is lazy
+    assert presenter._bev_source_generation == 1
+    assert lazy.numpy_calls == 0
 
 
 def test_hud_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None:
@@ -574,6 +782,69 @@ def test_hud_cuda_submit_abandons_ready_buffer_if_resize_retires_interop() -> No
     assert mark_calls == 0
 
 
+def test_hud_cuda_submit_does_not_forward_copy_stream() -> None:
+    submitted_kwargs: list[dict[str, object]] = []
+    marked: list[tuple[object, int]] = []
+    surface_events: list[str] = []
+    buffer = SimpleNamespace(
+        buffer=object(),
+        size_bytes=16,
+        row_pitch=8,
+    )
+
+    class _Interop:
+        def ready_rgba_buffer(self) -> tuple[object, object]:
+            return buffer, object()
+
+        def mark_submitted(self, submitted_buffer: object, submit_id: int) -> None:
+            marked.append((submitted_buffer, submit_id))
+
+    class _Encoder:
+        def copy_buffer_to_texture(self, *args: object) -> None:
+            del args
+
+        def blit(self, *args: object) -> None:
+            del args
+
+        def finish(self) -> object:
+            return object()
+
+    class _Device:
+        def create_command_encoder(self) -> _Encoder:
+            return _Encoder()
+
+        def submit_command_buffer(self, command: object, **kwargs: object) -> int:
+            del command
+            submitted_kwargs.append(kwargs)
+            return 7
+
+    class _Surface:
+        config = object()
+
+        def acquire_next_image(self) -> object:
+            class _SurfaceTexture:
+                def __del__(self) -> None:
+                    surface_events.append("release")
+
+            return _SurfaceTexture()
+
+        def present(self) -> None:
+            surface_events.append("present")
+
+    presenter = _hud_presenter_without_window()
+    presenter._cuda_hud_interop = _Interop()
+    presenter._sync_window_size = lambda: None
+    presenter._configured_size = (2, 2)
+    presenter._surface = _Surface()
+    presenter._device = _Device()
+    presenter._display_texture = object()
+
+    assert presenter._submit_ready_cuda_hud()
+    assert submitted_kwargs == [{}]
+    assert marked == [(buffer, 7)]
+    assert surface_events == ["present", "release"]
+
+
 def test_hud_model_rgb_falls_back_to_host_when_cuda_path_declines() -> None:
     presenter = _hud_presenter_without_window()
     lazy = _LazyFrame()
@@ -668,7 +939,8 @@ def _hud_presenter_for_exit(selected_variant: str) -> SlangPyHudPresenter:
     presenter._camera_resize_cache_key = object()
     presenter._camera_resize_cache = object()
     presenter._latest_camera_pil = object()
-    presenter._latest_bev_pil = object()
+    presenter._latest_bev_source = object()
+    presenter._bev_source_generation = 1
     presenter._bev_panel_cache_key = object()
     presenter._bev_panel_cache = object()
     presenter._panel_chrome_cache_key = object()

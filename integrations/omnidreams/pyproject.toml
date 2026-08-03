@@ -22,7 +22,7 @@ name = "flashdreams-omnidreams"
 version = "0.1.0"
 description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     # Core inference / serving deps (consumed by ``omnidreams.webrtc``,
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop

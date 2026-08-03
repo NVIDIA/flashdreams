@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from omnidreams.interactive_drive.rasterizer import (
+    LudusConditionRasterizer,
     _LoadedSceneData,
     _LudusConditionRasterizerImpl,
     _RenderedCameraFrames,
 )
+
+pytestmark = pytest.mark.ci_cpu
 
 
 class _Event:
@@ -72,3 +77,59 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert isinstance(first, np.ndarray)
     assert not callable(getattr(first, "to_cuda_tensor", None))
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
+
+
+def test_lagged_bev_poll_does_not_wait_for_in_flight_render() -> None:
+    rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
+    pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
+        concurrent.futures.Future()
+    )
+    latest = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.zeros((1, 1, 1, 3), dtype=torch.uint8),
+        ready_event=None,
+    )
+    rasterizer._pending_bev = pending
+    rasterizer._latest_bev = latest
+
+    assert rasterizer._poll_ready_bev() is latest
+    assert rasterizer._pending_bev is pending
+
+
+def test_lagged_bev_poll_promotes_completed_render() -> None:
+    rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
+    pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
+        concurrent.futures.Future()
+    )
+    rendered = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.ones((1, 1, 1, 3), dtype=torch.uint8),
+        ready_event=None,
+    )
+    pending.set_result(rendered)
+    rasterizer._pending_bev = pending
+    rasterizer._latest_bev = None
+
+    assert rasterizer._poll_ready_bev() is rendered
+    assert rasterizer._pending_bev is None
+
+
+def test_build_chunk_resamples_lagged_bev_with_different_frame_count() -> None:
+    impl = _impl_for_render_chunk(use_cuda_frames=True)
+    rgb_frames = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.zeros((7, 1, 1, 3), dtype=torch.uint8),
+        ready_event=None,
+    )
+    bev_frames = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.arange(5, dtype=torch.uint8).reshape(5, 1, 1, 1),
+        ready_event=None,
+    )
+
+    chunk = impl.build_chunk(
+        timestamps_us=np.arange(7, dtype=np.int64),
+        rgb_frames=rgb_frames,
+        bev_frames=bev_frames,
+    )
+
+    bev_values = [
+        int(frame.bev_host_uint8.to_cuda_tensor()[0, 0, 0]) for frame in chunk.frames
+    ]
+    assert bev_values == [0, 1, 1, 2, 3, 3, 4]

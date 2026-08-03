@@ -34,6 +34,7 @@ seed_for_every_rollout:
 
 # Native acceleration uses the OmniDreams single-view extension. Before the
 # first native DiT/VAE run on a fresh checkout, sync third-party sources:
+#   git config --system core.longpaths true
 #   uv run --package flashdreams-omnidreams python integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py sync
 #
 # The required mode fails loudly if the extension cannot build/load.

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "description": "Manual local benchmark scenarios targeting about one minute of generated MP4 output for the real LingBot and Omnidreams demos. Runner-backed scenarios can stop early when their input condition clip is shorter than the requested duration.",
+  "scenarios": [
+    {
+      "id": "lingbot-world-fast-taehv-one-minute",
+      "name": "LingBot-World Fast TAEHV one-minute rollout",
+      "description": "Runs the LingBot-World Fast interactive preset for 81 AR blocks. With len_t=3 and 16 fps this targets about 60.6 seconds of MP4 output when the selected pose stream has at least 969 frames.",
+      "report_group": {
+        "id": "lingbot",
+        "name": "LingBot"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "lingbot",
+        "i2v",
+        "one-minute"
+      ],
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "flashdreams-run",
+        "lingbot-world-fast-taehv-window15-sink3",
+        "--example-data",
+        "True",
+        "--example-idx",
+        "0",
+        "--pixel-height",
+        "464",
+        "--pixel-width",
+        "832",
+        "--total-blocks",
+        "81"
+      ],
+      "warmup_steps": 1,
+      "timeout_s": 21600
+    },
+    {
+      "id": "omnidreams-sv-one-minute",
+      "name": "Omnidreams single-view one-minute rollout",
+      "description": "Runs the stable Omnidreams single-view runner for 226 AR blocks with an explicit seed. With chunk2 and 30 fps this targets about 60.2 seconds of MP4 output when the selected HDMap clip is long enough.",
+      "report_group": {
+        "id": "omnidreams",
+        "name": "Omnidreams"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "omnidreams",
+        "i2v",
+        "one-minute"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "--example-data",
+        "True",
+        "--example-data-uuid",
+        "239560dc-33d1-11ef-9720-00044bcbccac",
+        "--total-blocks",
+        "226",
+        "--pipeline.diffusion-model.seed",
+        "1"
+      ],
+      "warmup_steps": 1,
+      "timeout_s": 21600
+    }
+  ]
+}
