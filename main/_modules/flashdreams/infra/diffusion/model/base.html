@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../../../../../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=5486ef98" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=4b493ea1" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../../../../../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
@@ -570,19 +570,19 @@ SPDX-License-Identifier: Apache-2.0
                 <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
             <span class="p">)</span>
             <span class="n">dummy_latent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">unpatchify_and_maybe_gather_cp</span><span class="p">(</span><span class="n">dummy_latent</span><span class="p">)</span>
-            <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
-                <span class="n">dummy_latent</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
-                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-                <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+            <span class="n">initial_noise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">initial_noise</span><span class="p">(</span>
+                <span class="n">latent_shape</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">dummy_latent</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+                <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+                <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
+                <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">initial_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span>
-                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-                <span class="n">generator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+            <span class="n">initial_noise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">initial_noise</span><span class="p">(</span>
+                <span class="n">latent_shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">latent_shape</span><span class="p">,</span>
+                <span class="n">rng</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">,</span>
+                <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span>
+                <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">predict_flow</span><span class="p">(</span><span class="n">noisy_latent</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">timestep</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>

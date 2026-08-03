@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
     <link rel="stylesheet" type="text/css" href="../../../../../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../../../../../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=5486ef98" />
+    <link rel="stylesheet" type="text/css" href="../../../../../_static/custom.css?v=4b493ea1" />
   
   <!-- So that users can add custom icons -->
   <script defer src="../../../../../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
@@ -574,6 +574,40 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">            Fresh AR cache.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;TransformerCacheT&quot;</span><span class="p">,</span> <span class="n">TransformerAutoregressiveCache</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="Transformer.initial_noise">
+<a class="viewcode-back" href="../../../../../api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.initial_noise">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initial_noise</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">latent_shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">rng</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">cache</span><span class="p">:</span> <span class="n">TransformerCacheT</span><span class="p">,</span>
+        <span class="nb">input</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Draw the starting latent for one denoising loop.</span>
+
+<span class="sd">        Default is Gaussian noise in ``latent_shape``. Model integrations can</span>
+<span class="sd">        override this to seed from encoder outputs, pin I2V frames, or attach</span>
+<span class="sd">        per-step state to the cache while still using ``DiffusionModel``.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            latent_shape: Shape requested by the diffusion model.</span>
+<span class="sd">            rng: Per-model generator on ``self.device``, or ``None``.</span>
+<span class="sd">            cache: Per-rollout AR cache.</span>
+<span class="sd">            input: Same patchified encoder output passed to ``predict_flow``.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Initial latent tensor for scheduler sampling.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">del</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
+            <span class="n">latent_shape</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">,</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Transformer.postprocess_clean_latent">

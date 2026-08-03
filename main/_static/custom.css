@@ -977,6 +977,11 @@ div.admonition.note > .admonition-title::after {
     background: #101214;
 }
 
+.model-hero-media {
+    width: 100%;
+    margin: 10px auto 14px;
+}
+
 .model-video-placeholder {
     display: flex;
     align-items: center;
