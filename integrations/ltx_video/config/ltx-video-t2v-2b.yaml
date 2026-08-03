@@ -1,0 +1,17 @@
+# LTX-Video 2B T2V — streaming only (native pipe() per chunk)
+runner: ltx-video-t2v-2b
+pipeline:
+  _target_: ltx_video.pipeline.LTXVideoStreamingPipeline
+checkpoint: Lightricks/LTX-Video
+generation:
+  chunk_frames: 25
+  chunk_overlap: 1
+  total_blocks: 7
+  num_inference_steps: 50
+  width: 768
+  height: 512
+  fps: 24
+  kv_cache: false
+  compile: false
+  cuda_graphs: false
+  flash_attention: true

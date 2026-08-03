@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-ltx-video"
+version = "0.2.0"
+description = "LTX-Video full FlashDreams optimization integration."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "mediapy>=1.1",
+    "diffusers>=0.31.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "sentencepiece",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+    "tomli>=2.0",
+]
+
+[project.entry-points."flashdreams.runner_configs"]
+"ltx-video-t2v-2b" = "ltx_video.config:RUNNER_LTX_T2V_2B"
+"ltx-video-t2v-2b-optimized" = "ltx_video.config:RUNNER_LTX_T2V_2B_OPTIMIZED"
+"ltx-video-t2v-2b-taehv" = "ltx_video.config:RUNNER_LTX_T2V_2B_TAEHV"
+
+[tool.setuptools.packages.find]
+include = ["ltx_video*"]
+exclude = ["tests"]
+
+[tool.uv]
+managed = true
