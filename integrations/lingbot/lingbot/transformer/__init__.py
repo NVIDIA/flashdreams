@@ -18,7 +18,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import overload
+from collections.abc import Callable
+from typing import cast, overload
 
 import torch
 from torch import Tensor
@@ -86,6 +87,9 @@ class LingbotWorldTransformer(Wan21Transformer):
 
     def __init__(self, config: LingbotWorldTransformerConfig) -> None:
         super().__init__(config)
+        self._pipeline_double_buffer_call: (
+            Callable[..., tuple[Tensor, Tensor]] | None
+        ) = None
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
         """Bind a DiT-only context-parallel group before cache construction.
@@ -149,6 +153,16 @@ class LingbotWorldTransformer(Wan21Transformer):
             group=group,
             ranks=ranks,
         )
+        double_buffer_call = network.forward_pipeline_double_buffered
+        if self.config.compile_network:
+            double_buffer_call = torch.compile(
+                double_buffer_call,
+                mode="max-autotune-no-cudagraphs",
+            )
+        self._pipeline_double_buffer_call = cast(
+            Callable[..., tuple[Tensor, Tensor]],
+            double_buffer_call,
+        )
 
     @torch.no_grad()
     def replace_text_embeddings(
@@ -176,6 +190,70 @@ class LingbotWorldTransformer(Wan21Transformer):
             cache=cache,
             input=input.i2v,
             network_extra_kwargs={"plucker": input.plucker},
+        )
+
+    def predict_flow_double_buffered(
+        self,
+        *,
+        noisy_latents: tuple[Tensor, Tensor],
+        timesteps: tuple[Tensor, Tensor],
+        caches: tuple[LingbotWorldTransformerCache, LingbotWorldTransformerCache],
+        inputs: tuple[I2VCamCtrlEmbeddings, I2VCamCtrlEmbeddings],
+    ) -> tuple[Tensor, Tensor]:
+        """Predict two session flows with a fill-and-drain pipeline schedule.
+
+        Args:
+            noisy_latents: Per-session noisy latent tokens.
+            timesteps: Per-session diffusion timesteps.
+            caches: Per-session transformer caches.
+            inputs: Per-session patchified I2V and camera-control payloads.
+
+        Returns:
+            Per-session flow predictions in input order.
+
+        Raises:
+            RuntimeError: Pipeline parallelism is not configured or CFG is enabled.
+        """
+        if self._pipeline_double_buffer_call is None:
+            raise RuntimeError("Double buffering requires pipeline parallelism.")
+        if any(cache.network_cache_uncond is not None for cache in caches):
+            raise RuntimeError(
+                "Double-buffered LingBot inference does not support CFG."
+            )
+
+        autoregressive_indices = tuple(cache.autoregressive_index for cache in caches)
+        if autoregressive_indices[0] != autoregressive_indices[1]:
+            raise RuntimeError(
+                "Double-buffered sessions must have the same autoregressive index."
+            )
+        autoregressive_index = autoregressive_indices[0]
+        if autoregressive_index < 0:
+            raise RuntimeError("Call cache.start() before predicting flow.")
+
+        network_inputs = tuple(
+            self._build_network_input(noisy_latent, input.i2v)
+            for noisy_latent, input in zip(noisy_latents, inputs)
+        )
+        network_timesteps = tuple(
+            self._maybe_build_per_token_timestep(
+                timestep=timestep,
+                input=input.i2v,
+                autoregressive_index=autoregressive_index,
+            )
+            for timestep, input in zip(timesteps, inputs)
+        )
+        rope_freqs = tuple(cache.rope_freqs for cache in caches)
+        if any(value is None for value in rope_freqs):
+            raise RuntimeError("cache.start() must populate RoPE frequencies.")
+
+        return self._pipeline_double_buffer_call(
+            pluckers=(inputs[0].plucker, inputs[1].plucker),
+            xs=(network_inputs[0], network_inputs[1]),
+            timesteps=(network_timesteps[0], network_timesteps[1]),
+            caches=(caches[0].network_cache, caches[1].network_cache),
+            rope_freqs=cast(tuple[Tensor, Tensor], rope_freqs),
+            current_chunk_idx=autoregressive_index,
+            eager_mode=False,
         )
 
     @overload

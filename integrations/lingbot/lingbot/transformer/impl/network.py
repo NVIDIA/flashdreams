@@ -232,8 +232,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
         batch_shape = x.shape[:-2]
         token_count = x.shape[-2]
         per_token_timestep = (
-            timesteps.ndim > len(batch_shape)
-            and timesteps.shape[-1] == token_count
+            timesteps.ndim > len(batch_shape) and timesteps.shape[-1] == token_count
         )
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x)
@@ -247,10 +246,14 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             ).unsqueeze(-2)
         else:
             block_e_shape = batch_shape + (6, self.dim)
-            head_e = torch.broadcast_to(
-                e,
-                batch_shape + (self.dim,),
-            ).unsqueeze(-2).unsqueeze(-2)
+            head_e = (
+                torch.broadcast_to(
+                    e,
+                    batch_shape + (self.dim,),
+                )
+                .unsqueeze(-2)
+                .unsqueeze(-2)
+            )
         block_e = torch.broadcast_to(e0, block_e_shape)
 
         plucker_embedding = self.patch_embedding_wancamctrl(plucker)
@@ -258,6 +261,60 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             F.silu(self.c2ws_hidden_states_layer1(plucker_embedding))
         )
         return plucker_embedding + plucker_hidden_states, block_e, head_e
+
+    def _pipeline_output_buffer(self, x: Tensor) -> Tensor:
+        return torch.empty(
+            *x.shape[:-1],
+            self.out_dim * prod(self.patch_size),
+            dtype=x.dtype,
+            device=x.device,
+        )
+
+    def _pipeline_local_forward(
+        self,
+        *,
+        plucker: Tensor,
+        x: Tensor,
+        timesteps: Tensor,
+        cache: LingbotWorldDiTNetworkCache,
+        rope_freqs: Tensor,
+        current_chunk_idx: int,
+        eager_mode: bool,
+        hidden: Tensor | None,
+    ) -> tuple[Tensor, Tensor]:
+        plucker_embedding, block_e, head_e = self._pipeline_embeddings(
+            x=x,
+            plucker=plucker,
+            timesteps=timesteps,
+        )
+        if self._pipeline_stage_index == 0:
+            assert hidden is None
+            if self.patch_embedding_type == "linear":
+                hidden = self.patch_embedding(x)
+            elif self.patch_embedding_type == "conv3d":
+                weight = self.patch_embedding.weight.reshape(self.dim, -1)
+                hidden = F.linear(x, weight, self.patch_embedding.bias)
+            else:
+                raise ValueError(
+                    f"Invalid patch embedding type: {self.patch_embedding_type}"
+                )
+        else:
+            assert hidden is not None
+
+        if eager_mode:
+            cache.before_update(current_chunk_idx)
+        for block_idx, block in enumerate(self.blocks):
+            assert isinstance(block, Block)
+            hidden = block(
+                x=hidden,
+                e=block_e,
+                rope_freqs=rope_freqs,
+                cache=cache[block_idx],
+                plucker_embedding=plucker_embedding,
+            )
+        if eager_mode:
+            cache.after_update(current_chunk_idx)
+        return hidden, head_e
 
     def _forward_pipeline(
         self,
@@ -275,21 +332,8 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
         assert self._pipeline_group is not None
         peer_rank = self._pipeline_ranks[1 - self._pipeline_stage_index]
 
-        plucker_embedding, block_e, head_e = self._pipeline_embeddings(
-            x=x,
-            plucker=plucker,
-            timesteps=timesteps,
-        )
         if self._pipeline_stage_index == 0:
-            if self.patch_embedding_type == "linear":
-                hidden = self.patch_embedding(x)
-            elif self.patch_embedding_type == "conv3d":
-                weight = self.patch_embedding.weight.reshape(self.dim, -1)
-                hidden = F.linear(x, weight, self.patch_embedding.bias)
-            else:
-                raise ValueError(
-                    f"Invalid patch embedding type: {self.patch_embedding_type}"
-                )
+            hidden = None
         else:
             hidden = torch.empty(
                 *x.shape[:-1],
@@ -303,19 +347,16 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
                 group=self._pipeline_group,
             )
 
-        if eager_mode:
-            cache.before_update(current_chunk_idx)
-        for block_idx, block in enumerate(self.blocks):
-            assert isinstance(block, Block)
-            hidden = block(
-                x=hidden,
-                e=block_e,
-                rope_freqs=rope_freqs,
-                cache=cache[block_idx],
-                plucker_embedding=plucker_embedding,
-            )
-        if eager_mode:
-            cache.after_update(current_chunk_idx)
+        hidden, head_e = self._pipeline_local_forward(
+            plucker=plucker,
+            x=x,
+            timesteps=timesteps,
+            cache=cache,
+            rope_freqs=rope_freqs,
+            current_chunk_idx=current_chunk_idx,
+            eager_mode=eager_mode,
+            hidden=hidden,
+        )
 
         if self._pipeline_stage_index == 0:
             torch.distributed.send(
@@ -323,12 +364,7 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
                 dst=peer_rank,
                 group=self._pipeline_group,
             )
-            output = torch.empty(
-                *x.shape[:-1],
-                self.out_dim * prod(self.patch_size),
-                dtype=x.dtype,
-                device=x.device,
-            )
+            output = self._pipeline_output_buffer(x)
             torch.distributed.recv(
                 output,
                 src=peer_rank,
@@ -343,6 +379,144 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             group=self._pipeline_group,
         )
         return output
+
+    def forward_pipeline_double_buffered(
+        self,
+        *,
+        pluckers: tuple[Tensor, Tensor],
+        xs: tuple[Tensor, Tensor],
+        timesteps: tuple[Tensor, Tensor],
+        caches: tuple[
+            LingbotWorldDiTNetworkCache,
+            LingbotWorldDiTNetworkCache,
+        ],
+        rope_freqs: tuple[Tensor, Tensor],
+        current_chunk_idx: int,
+        eager_mode: bool = False,
+    ) -> tuple[Tensor, Tensor]:
+        """Pipeline two session microbatches through both layer partitions.
+
+        Stage 0 computes the second microbatch while stage 1 processes the
+        first. A bidirectional NCCL exchange then hands off the second hidden
+        state and returns the first output before the pipeline drains.
+
+        Args:
+            pluckers: Per-session camera-control token tensors.
+            xs: Per-session DiT input token tensors.
+            timesteps: Per-session diffusion timesteps.
+            caches: Per-session local network caches.
+            rope_freqs: Per-session RoPE frequency tensors.
+            current_chunk_idx: Current autoregressive chunk index.
+            eager_mode: Whether to run cache update hooks inside the network.
+
+        Returns:
+            Two output tensors in the same order as ``xs``.
+
+        Raises:
+            RuntimeError: Pipeline parallelism is not configured.
+        """
+        if self._pipeline_stage_index is None or self._pipeline_group is None:
+            raise RuntimeError("Double buffering requires pipeline parallelism.")
+        peer_rank = self._pipeline_ranks[1 - self._pipeline_stage_index]
+
+        def local_forward(index: int, hidden: Tensor | None) -> tuple[Tensor, Tensor]:
+            return self._pipeline_local_forward(
+                plucker=pluckers[index],
+                x=xs[index],
+                timesteps=timesteps[index],
+                cache=caches[index],
+                rope_freqs=rope_freqs[index],
+                current_chunk_idx=current_chunk_idx,
+                eager_mode=eager_mode,
+                hidden=hidden,
+            )
+
+        if self._pipeline_stage_index == 0:
+            hidden_0, _ = local_forward(0, None)
+            torch.distributed.send(
+                hidden_0.contiguous(),
+                dst=peer_rank,
+                group=self._pipeline_group,
+            )
+            del hidden_0
+
+            hidden_1, _ = local_forward(1, None)
+            hidden_1 = hidden_1.contiguous()
+            output_0 = self._pipeline_output_buffer(xs[0])
+            requests = torch.distributed.batch_isend_irecv(
+                [
+                    torch.distributed.P2POp(
+                        torch.distributed.isend,
+                        hidden_1,
+                        peer_rank,
+                        self._pipeline_group,
+                    ),
+                    torch.distributed.P2POp(
+                        torch.distributed.irecv,
+                        output_0,
+                        peer_rank,
+                        self._pipeline_group,
+                    ),
+                ]
+            )
+            for request in requests:
+                request.wait()
+
+            output_1 = self._pipeline_output_buffer(xs[1])
+            torch.distributed.recv(
+                output_1,
+                src=peer_rank,
+                group=self._pipeline_group,
+            )
+            return output_0, output_1
+
+        hidden_0 = torch.empty(
+            *xs[0].shape[:-1],
+            self.dim,
+            dtype=xs[0].dtype,
+            device=xs[0].device,
+        )
+        torch.distributed.recv(
+            hidden_0,
+            src=peer_rank,
+            group=self._pipeline_group,
+        )
+        hidden_0, head_e_0 = local_forward(0, hidden_0)
+        output_0 = self.head(hidden_0, head_e_0).contiguous()
+
+        hidden_1 = torch.empty(
+            *xs[1].shape[:-1],
+            self.dim,
+            dtype=xs[1].dtype,
+            device=xs[1].device,
+        )
+        requests = torch.distributed.batch_isend_irecv(
+            [
+                torch.distributed.P2POp(
+                    torch.distributed.irecv,
+                    hidden_1,
+                    peer_rank,
+                    self._pipeline_group,
+                ),
+                torch.distributed.P2POp(
+                    torch.distributed.isend,
+                    output_0,
+                    peer_rank,
+                    self._pipeline_group,
+                ),
+            ]
+        )
+        for request in requests:
+            request.wait()
+
+        hidden_1, head_e_1 = local_forward(1, hidden_1)
+        output_1 = self.head(hidden_1, head_e_1)
+        torch.distributed.send(
+            output_1.contiguous(),
+            dst=peer_rank,
+            group=self._pipeline_group,
+        )
+        return output_0, output_1
 
     def forward(
         self,

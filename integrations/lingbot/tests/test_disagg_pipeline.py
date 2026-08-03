@@ -11,8 +11,11 @@ from flashdreams.recipes.wan.autoencoder.i2v import I2VCtrl
 from lingbot.disagg.benchmark_pipeline import (
     _summarize,
     build_pipeline_topology,
+    split_conditioning,
+    split_encoder_outputs,
     stack_conditioning,
     stack_encoder_outputs,
+    validate_double_buffered_schedule,
 )
 from lingbot.disagg.stages import LingbotConditioning
 from lingbot.encoder.camctrl import I2VCamCtrlEmbeddings
@@ -39,11 +42,14 @@ def test_pipeline_partition_splits_lingbot_layers_evenly(
     stage_index: int,
     expected: tuple[int, int],
 ) -> None:
-    assert pipeline_partition_bounds(
-        40,
-        stage_index=stage_index,
-        stage_count=2,
-    ) == expected
+    assert (
+        pipeline_partition_bounds(
+            40,
+            stage_index=stage_index,
+            stage_count=2,
+        )
+        == expected
+    )
 
 
 def test_stack_conditioning_preserves_session_batch() -> None:
@@ -82,6 +88,56 @@ def test_stack_encoder_outputs_preserves_session_batch() -> None:
     assert result.i2v.latent[:, 0, 0, 0, 0, 0].tolist() == [0.0, 1.0]
 
 
+def test_split_conditioning_restores_two_batch_one_sessions() -> None:
+    batched = stack_conditioning(
+        [
+            LingbotConditioning(
+                height=58,
+                width=104,
+                text_embeddings=torch.full((1, 2, 3), float(index)),
+            )
+            for index in range(2)
+        ]
+    )
+
+    sessions = split_conditioning(batched)
+
+    assert [item.text_embeddings.shape for item in sessions] == [(1, 2, 3)] * 2
+    assert [item.text_embeddings[0, 0, 0].item() for item in sessions] == [0.0, 1.0]
+
+
+def test_split_encoder_outputs_restores_two_batch_one_sessions() -> None:
+    batched = stack_encoder_outputs(
+        [
+            I2VCamCtrlEmbeddings(
+                i2v=I2VCtrl(
+                    latent=torch.full((1, 3, 2, 2, 2), float(index)),
+                    mask=torch.ones(1, 3, 1, 2, 2),
+                    _is_patchified=False,
+                ),
+                plucker=torch.zeros(1, 3, 6, 2, 2),
+                _is_patchified=False,
+            )
+            for index in range(2)
+        ]
+    )
+
+    sessions = split_encoder_outputs(batched)
+
+    assert [item.i2v.latent.shape for item in sessions] == [(1, 1, 3, 2, 2, 2)] * 2
+    assert [item.i2v.latent[0, 0, 0, 0, 0, 0].item() for item in sessions] == [
+        0.0,
+        1.0,
+    ]
+
+
+def test_double_buffered_schedule_requires_two_sessions() -> None:
+    validate_double_buffered_schedule(sessions_per_group=2)
+
+    with pytest.raises(ValueError, match="exactly two"):
+        validate_double_buffered_schedule(sessions_per_group=1)
+
+
 def test_summary_reports_required_capacity_and_pair_bandwidth() -> None:
     topology = build_pipeline_topology(world_size=8, sessions_per_group=2)
     records = [
@@ -92,10 +148,7 @@ def test_summary_reports_required_capacity_and_pair_bandwidth() -> None:
             "encoder_wave_ms": 20.0,
             "decoder_wave_ms": 30.0,
             "pair_fanout_ms": [1.0, 1.1, 1.2],
-            "dit_group_leaders": [
-                {"dit_ms": 1800.0, "finalize_ms": 100.0}
-            ]
-            * 3,
+            "dit_group_leaders": [{"dit_ms": 1800.0, "finalize_ms": 100.0}] * 3,
         }
     ]
     memory = {

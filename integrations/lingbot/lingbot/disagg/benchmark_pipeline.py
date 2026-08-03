@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import torch
+from torch import Tensor
 from torch.distributed import ProcessGroup
 
 from flashdreams.infra.config import derive_config
@@ -191,6 +192,98 @@ def stack_encoder_outputs(
     )
 
 
+def split_conditioning(
+    conditioning: LingbotConditioning,
+) -> tuple[LingbotConditioning, LingbotConditioning]:
+    """Split one batch-two conditioning record into session records.
+
+    Args:
+        conditioning: Conditioning whose leading batch dimension is two.
+
+    Returns:
+        Two batch-one conditioning records.
+
+    Raises:
+        ValueError: A conditioning tensor does not have batch size two.
+    """
+
+    def split_optional(name: str) -> tuple[Tensor | None, Tensor | None]:
+        value = getattr(conditioning, name)
+        if value is None:
+            return None, None
+        if value.shape[0] != 2:
+            raise ValueError(f"Conditioning field {name} must have batch size two.")
+        return value.narrow(0, 0, 1), value.narrow(0, 1, 1)
+
+    if conditioning.text_embeddings.shape[0] != 2:
+        raise ValueError("Text conditioning must have batch size two.")
+    negative = split_optional("negative_text_embeddings")
+    image = split_optional("image_embeddings")
+    return (
+        LingbotConditioning(
+            height=conditioning.height,
+            width=conditioning.width,
+            text_embeddings=conditioning.text_embeddings.narrow(0, 0, 1),
+            negative_text_embeddings=negative[0],
+            image_embeddings=image[0],
+        ),
+        LingbotConditioning(
+            height=conditioning.height,
+            width=conditioning.width,
+            text_embeddings=conditioning.text_embeddings.narrow(0, 1, 1),
+            negative_text_embeddings=negative[1],
+            image_embeddings=image[1],
+        ),
+    )
+
+
+def split_encoder_outputs(
+    output: I2VCamCtrlEmbeddings,
+) -> tuple[I2VCamCtrlEmbeddings, I2VCamCtrlEmbeddings]:
+    """Split one batch-two encoder payload into session payloads.
+
+    Args:
+        output: Unpatchified encoder payload with leading batch size two.
+
+    Returns:
+        Two batch-one payloads.
+
+    Raises:
+        ValueError: The payload is patchified or does not have batch size two.
+    """
+    if output._is_patchified or output.i2v._is_patchified:
+        raise ValueError("Double buffering requires unpatchified encoder output.")
+    tensors = (output.i2v.latent, output.i2v.mask, output.plucker)
+    if any(tensor.shape[0] != 2 for tensor in tensors):
+        raise ValueError("Encoder payload fields must have batch size two.")
+
+    def session(index: int) -> I2VCamCtrlEmbeddings:
+        return I2VCamCtrlEmbeddings(
+            i2v=I2VCtrl(
+                latent=output.i2v.latent.narrow(0, index, 1),
+                mask=output.i2v.mask.narrow(0, index, 1),
+                _is_patchified=False,
+            ),
+            plucker=output.plucker.narrow(0, index, 1),
+            _is_patchified=False,
+        )
+
+    return session(0), session(1)
+
+
+def validate_double_buffered_schedule(*, sessions_per_group: int) -> None:
+    """Validate the two-slot pipeline scheduling contract.
+
+    Args:
+        sessions_per_group: Number of session slots assigned to each DiT pair.
+
+    Raises:
+        ValueError: The session count is not exactly two.
+    """
+    if sessions_per_group != 2:
+        raise ValueError("Double buffering requires exactly two sessions per group.")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -205,6 +298,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pixel-width", type=int, default=832)
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--sessions-per-group", type=int, default=2)
+    parser.add_argument(
+        "--double-buffered",
+        action="store_true",
+        help=(
+            "Split batch-two input into session-affine microbatches and overlap "
+            "the two DiT stages."
+        ),
+    )
     parser.add_argument(
         "--compile-network",
         action=argparse.BooleanOptionalAction,
@@ -286,9 +387,7 @@ def _fanout_bundle(
         return None, None
     assert group is not None
     local_bundle = (
-        source_bundle
-        if rank == leader
-        else _empty_bundle(descriptors, device=device)
+        source_bundle if rank == leader else _empty_bundle(descriptors, device=device)
     )
     assert local_bundle is not None
 
@@ -396,9 +495,7 @@ def _summarize(
     total_wall_s = sum(record["wave_latency_ms"] for record in measured) / 1000.0
     aggregate_fps = total_frames / total_wall_s
     probe_bandwidth = [
-        sample["bandwidth_gbps"]
-        for samples in p2p_probe.values()
-        for sample in samples
+        sample["bandwidth_gbps"] for samples in p2p_probe.values() for sample in samples
     ]
     return {
         "aggregate_fps": aggregate_fps,
@@ -427,18 +524,12 @@ def _summarize(
             [record["decoder_wave_ms"] for record in measured]
         ),
         "pair_fanout_ms": _metric_summary(
-            [
-                value
-                for record in measured
-                for value in record["pair_fanout_ms"]
-            ]
+            [value for record in measured for value in record["pair_fanout_ms"]]
         ),
         "p2p_probe_gbps": {
             "all_pairs": _metric_summary(probe_bandwidth),
             "by_pair": {
-                pair: _metric_summary(
-                    [sample["bandwidth_gbps"] for sample in samples]
-                )
+                pair: _metric_summary([sample["bandwidth_gbps"] for sample in samples])
                 for pair, samples in p2p_probe.items()
             },
         },
@@ -496,7 +587,8 @@ GPU 5–6    DiT group C
 GPU 7      spare
 ```
 
-Each DiT group holds {args.sessions_per_group} sessions in one fixed microbatch.
+Each DiT group holds {args.sessions_per_group} sessions using the
+{("double-buffered fill/drain schedule" if args.double_buffered else "fixed batched schedule")}.
 The first rank owns layers 0–19; the second owns layers 20–39 and the output
 head. CUDA graph capture is disabled because the graph boundary contains NCCL
 point-to-point operations.
@@ -527,15 +619,18 @@ def main() -> None:
     )
     if args.warmup_blocks < 0 or args.measured_blocks <= 0:
         raise ValueError("warmup-blocks must be >= 0 and measured-blocks must be > 0.")
+    if args.double_buffered:
+        validate_double_buffered_schedule(sessions_per_group=args.sessions_per_group)
 
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda", local_rank)
     base_config = PIPELINE_CONFIGS[args.model]
+    dit_batch_size = 1 if args.double_buffered else args.sessions_per_group
     dit_config = derive_config(
         base_config,
         diffusion_model=dict(
             transformer=dict(
-                batch_shape=(args.sessions_per_group,),
+                batch_shape=(dit_batch_size,),
                 compile_network=args.compile_network,
                 use_cuda_graph=False,
             )
@@ -554,9 +649,7 @@ def main() -> None:
     )
     dit_stage = LingbotDiTStage(dit_config) if rank in topology.dit_ranks else None
     encoder_inputs = (
-        _load_encoder_inputs(args, device=device)
-        if rank == topology.io_rank
-        else None
+        _load_encoder_inputs(args, device=device) if rank == topology.io_rank else None
     )
 
     torch.distributed.init_process_group("gloo")
@@ -610,7 +703,7 @@ def main() -> None:
         else None
     )
     height_width = _broadcast_object(height_width, source=topology.io_rank)
-    dit_cache = None
+    dit_caches: list[Any] = []
     for group_index, ranks in enumerate(topology.dit_groups):
         leader = ranks[0]
         received_context, _, _ = _transfer_bundle(
@@ -618,9 +711,7 @@ def main() -> None:
             source=topology.io_rank,
             destination=leader,
             source_bundle=(
-                conditioning_bundles[group_index]
-                if rank == topology.io_rank
-                else None
+                conditioning_bundles[group_index] if rank == topology.io_rank else None
             ),
             device=device,
         )
@@ -638,7 +729,13 @@ def main() -> None:
                 height=height_width[0],
                 width=height_width[1],
             )
-            dit_cache = dit_stage.initialize_cache(conditioning)
+            if args.double_buffered:
+                dit_caches.extend(
+                    dit_stage.initialize_cache(session_conditioning)
+                    for session_conditioning in split_conditioning(conditioning)
+                )
+            else:
+                dit_caches.append(dit_stage.initialize_cache(conditioning))
         if rank == leader and received_context is not None:
             transport.unregister(received_context)
 
@@ -661,12 +758,8 @@ def main() -> None:
 
     total_blocks = args.warmup_blocks + args.measured_blocks
     frame_starts = [0] * topology.session_count
-    encoder_channels: list[_TransferChannel | None] = [
-        None
-    ] * len(topology.dit_groups)
-    decoder_channels: list[_TransferChannel | None] = [
-        None
-    ] * len(topology.dit_groups)
+    encoder_channels: list[_TransferChannel | None] = [None] * len(topology.dit_groups)
+    decoder_channels: list[_TransferChannel | None] = [None] * len(topology.dit_groups)
     records: list[dict[str, Any]] = []
     for autoregressive_index in range(total_blocks):
         torch.distributed.barrier()
@@ -719,9 +812,7 @@ def main() -> None:
         for group_index, ranks in enumerate(topology.dit_groups):
             leader = ranks[0]
             source_bundle = (
-                group_encoder_bundles[group_index]
-                if rank == topology.io_rank
-                else None
+                group_encoder_bundles[group_index] if rank == topology.io_rank else None
             )
             channel = encoder_channels[group_index]
             if channel is None:
@@ -751,16 +842,12 @@ def main() -> None:
             if rank == topology.io_rank:
                 assert source_bundle is not None
                 transport.unregister(source_bundle)
-                encoder_transfers.append(
-                    {**vars(stats), "handoff_ms": handoff_ms}
-                )
+                encoder_transfers.append({**vars(stats), "handoff_ms": handoff_ms})
 
         received_encoded = None
         for ranks in topology.dit_groups:
             fanned, fanout_ms = _fanout_bundle(
-                source_bundle=(
-                    received_leader_bundle if rank == ranks[0] else None
-                ),
+                source_bundle=(received_leader_bundle if rank == ranks[0] else None),
                 ranks=ranks,
                 group=local_groups.get(ranks),
                 device=device,
@@ -772,18 +859,36 @@ def main() -> None:
 
         clean_bundle = None
         if dit_stage is not None:
-            assert dit_cache is not None and received_encoded is not None
-            clean_latent, local["dit_ms"] = _timed_cuda(
-                partial(
-                    dit_stage.generate,
-                    autoregressive_index=autoregressive_index,
-                    cache=dit_cache,
-                    input=encoder_output_from_bundle(received_encoded),
+            assert received_encoded is not None
+            encoded_batch = encoder_output_from_bundle(received_encoded)
+            if args.double_buffered:
+                assert len(dit_caches) == 2
+                session_inputs = split_encoder_outputs(encoded_batch)
+                clean_latents, local["dit_ms"] = _timed_cuda(
+                    partial(
+                        dit_stage.generate_double_buffered,
+                        autoregressive_index=autoregressive_index,
+                        caches=(dit_caches[0], dit_caches[1]),
+                        inputs=session_inputs,
+                    )
                 )
-            )
+                clean_latent = torch.cat(clean_latents, dim=0)
+            else:
+                assert len(dit_caches) == 1
+                clean_latent, local["dit_ms"] = _timed_cuda(
+                    partial(
+                        dit_stage.generate,
+                        autoregressive_index=autoregressive_index,
+                        cache=dit_caches[0],
+                        input=encoded_batch,
+                    )
+                )
             assert local_group_ranks is not None
             local["group"] = list(local_group_ranks)
             local["stage_index"] = local_group_ranks.index(rank)
+            local["schedule"] = (
+                "double-buffered" if args.double_buffered else "fixed-batch"
+            )
             if rank == local_group_ranks[0]:
                 clean_bundle = {"clean_latent": clean_latent.contiguous()}
 
@@ -816,14 +921,24 @@ def main() -> None:
                 decoder_inputs.append(channel.receiver.bundle)
 
         if dit_stage is not None:
-            assert dit_cache is not None
-            _, local["finalize_ms"] = _timed_cuda(
-                partial(
-                    dit_stage.finalize,
-                    autoregressive_index=autoregressive_index,
-                    cache=dit_cache,
+            if args.double_buffered:
+                assert len(dit_caches) == 2
+                _, local["finalize_ms"] = _timed_cuda(
+                    partial(
+                        dit_stage.finalize_double_buffered,
+                        autoregressive_index=autoregressive_index,
+                        caches=(dit_caches[0], dit_caches[1]),
+                    )
                 )
-            )
+            else:
+                assert len(dit_caches) == 1
+                _, local["finalize_ms"] = _timed_cuda(
+                    partial(
+                        dit_stage.finalize,
+                        autoregressive_index=autoregressive_index,
+                        cache=dit_caches[0],
+                    )
+                )
 
         decoder_transfers = []
         for channel, handle, started, source_bundle in pending_decoder:
@@ -837,9 +952,7 @@ def main() -> None:
                 assert source_bundle is not None
                 transport.unregister(source_bundle)
             if rank == topology.io_rank:
-                decoder_transfers.append(
-                    {**vars(stats), "handoff_ms": handoff_ms}
-                )
+                decoder_transfers.append({**vars(stats), "handoff_ms": handoff_ms})
 
         if decoder_stage is not None:
             decoder_times: list[float] = []
@@ -910,7 +1023,9 @@ def main() -> None:
     if rank == topology.io_rank:
         baseline = json.loads(args.baseline_json.read_text())
         memory = {
-            key + "_by_rank": [cast(dict[str, float], item)[key] for item in gathered_memory]
+            key + "_by_rank": [
+                cast(dict[str, float], item)[key] for item in gathered_memory
+            ]
             for key in memory_records
         }
         summary = _summarize(
@@ -935,6 +1050,9 @@ def main() -> None:
                 },
                 "sessions": topology.session_count,
                 "sessions_per_group": topology.sessions_per_group,
+                "schedule": (
+                    "double-buffered" if args.double_buffered else "fixed-batch"
+                ),
                 "compile_network": args.compile_network,
                 "cuda_graph": False,
                 "pipeline_layers": [[0, 20], [20, 40]],

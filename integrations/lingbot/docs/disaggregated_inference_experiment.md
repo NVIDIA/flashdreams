@@ -700,10 +700,11 @@ GPU 7      spare
 GPU 0 sends each group's batched encoder payload to the group leader through
 the pooled asynchronous Mooncake path. The two ranks fan out the small common
 input with NCCL, then exchange the DiT boundary activation directly through
-NCCL point-to-point operations over NVLink/NVSwitch. At batch size two the
-forward activation is 88.36 MiB and the returned output is 1.10 MiB per denoise
-step. The clean latent returns from each leader to GPU 0 through Mooncake.
-Large mutable KV state never crosses a rank boundary.
+NCCL point-to-point operations over NVLink/NVSwitch. The fixed batch-two path
+sends an 88.36 MiB forward activation; each double-buffer slot sends 44.18 MiB.
+The returned output is 0.55 MiB per slot. The clean latent returns from each
+leader to GPU 0 through Mooncake. Large mutable KV state never crosses a rank
+boundary.
 
 `LingbotDiTStage.configure_pipeline_parallel()` exposes the stage contract,
 and the transformer rejects configuration after cache initialization or while
@@ -711,58 +712,61 @@ CUDA graph capture is enabled. TorchInductor compilation remains supported;
 NCCL calls form graph breaks. The benchmark fixes session placement for the
 whole rollout and reuses registered receive buffers and transfer tickets.
 
-### Six-session result
+### Double-buffered six-session result
 
-The main trial assigned two sessions to each of the three DiT groups. It used
-six warmup chunks so all cache-shape-specific compilation completed before the
-five measured chunks.
+The new schedule keeps two independent, session-affine batch-one caches in
+each DiT group. For every DiT forward, stage 0 computes session 0 and sends its
+hidden activation. It then computes session 1 while stage 1 processes session
+0. A bidirectional NCCL exchange hands session 1 to stage 1 while returning the
+session-0 output, after which the pipeline drains session 1. The same schedule
+also overlaps the final cache-update forward.
 
-| Metric | Three two-rank groups, batch 1 | Three two-rank groups, batch 2 | 1 I/O + 7 full DiTs |
+| Metric | Fixed batch 2 | Double-buffered batch 2 | 1 I/O + 7 full DiTs |
 | --- | ---: | ---: | ---: |
-| Concurrent sessions | 3 | 6 | 7 |
-| Aggregate generated FPS | 16.80 | **17.24** | **35.15** |
-| Generated FPS per session | **5.60** | 2.87 | 5.02 |
-| Median / p90 wave latency | **2140.73 / 2147.37 ms** | 4177.56 / 4183.50 ms | 2358.51 / 2454.10 ms |
-| Median DiT denoise / finalization | **1647.70 / 408.37 ms** | 3249.23 / 803.66 ms | 1718.78 / 426.45 ms |
-| Maximum DiT-rank required HBM | **28.70 GiB** | 39.55 GiB | 56.51 GiB |
-| I/O-rank required HBM | **16.30 GiB** | 19.63 GiB | 20.59 GiB |
-| Median 256 MiB intra-pair P2P bandwidth | 345.43 GB/s | 344.64 GB/s | — |
+| Concurrent sessions | 6 | 6 | 7 |
+| Aggregate generated FPS | 16.77 | **21.16** | **35.15** |
+| Generated FPS per session | 2.79 | **3.53** | 5.02 |
+| Median / p90 wave latency | 4286.95 / 4313.83 ms | **3401.46 / 3406.93 ms** | 2358.51 / 2454.10 ms |
+| Median DiT denoise / finalization | 3307.89 / 819.46 ms | **2615.76 / 646.98 ms** | 1718.78 / 426.45 ms |
+| Maximum DiT-rank required HBM | 39.63 GiB | **39.47 GiB** | 56.51 GiB |
+| I/O-rank required HBM | 19.63 GiB | 19.63 GiB | 20.59 GiB |
+| Node-wide required HBM | 257.29 GiB | **256.21 GiB** | 415.02 GiB |
+| Median 256 MiB intra-pair P2P bandwidth | 345.33 GB/s | 344.40 GB/s | — |
 
-The new topology reduces the largest DiT-rank allocation by **30.0%**, and its
-six sessions consume **256.91 GiB** of peak allocated HBM node-wide, or 42.82
-GiB per session. Six independent full pipelines would require 399.30 GiB at
-their measured 66.55 GiB initialization peak, so model and cache sharding saves
-**35.7%** for that equal-session comparison. The rollout peak, not the slightly
-lower 38.75 GiB cache-initialization peak, determines this topology's minimum
+Against the matched fixed run on the same node, double buffering improves
+aggregate and per-session FPS by **26.2%** and reduces median wave latency by
+**20.7%**. Median denoise and finalization times fall **20.9%** and **21.0%**,
+respectively. Peak memory is effectively unchanged: the maximum DiT rank drops
+from 39.63 to 39.47 GiB and node-wide required HBM drops 0.4%.
+
+The double-buffered topology requires **256.21 GiB** node-wide, or 42.70 GiB
+per session. Six independent full pipelines require 399.30 GiB at the measured
+66.55 GiB initialization peak, so the equal-session memory saving is **35.8%**.
+The largest DiT rank uses **30.1%** less HBM than a full-DiT replica. The
+rollout peak, not the 38.81 GiB cache-initialization peak, determines minimum
 GPU capacity.
 
-This is not a throughput win. The six-session result is 51.0% slower in
-aggregate than the seven-replica result and 42.8% slower per session. Doubling
-the group batch from one to two raises aggregate throughput by only **2.6%**
-while latency rises **95.1%** and the largest rank grows from 28.70 to 39.55
-GiB. It does reduce allocated HBM per session from 62.81 to 42.82 GiB because
-the two sessions share one weight copy.
-
-NVLink bandwidth is not the bottleneck: an isolated 256 MiB point-to-point
-probe sustained 344.64 GB/s, and input fanout took only 0.34 ms median. The
-current execution sends a complete microbatch through stage 0 and then stage
-1; stage 0 cannot start another session while it waits for stage 1. Batch size
-two therefore nearly doubles DiT work and cache finalization without hiding
-the pipeline bubble.
+This remains a memory/placement tradeoff, not the fastest H100-node layout.
+Double buffering is 39.8% below the seven-full-DiT aggregate reference and
+29.8% below it per session. The reference also serves one more session. The
+schedule hides the middle pipeline bubble but every four-step denoise and the
+final cache update still require a fill and drain. An isolated 256 MiB P2P
+probe remained at 344.40 GB/s and input fanout remained 0.33 ms, so NVLink is
+not the limiting resource.
 
 GPU 7 was intentionally left spare. Moving encoder or decoder work to it would
 not materially improve this result because their combined measured work is
-only about 46 ms of a 4.18-second wave. Useful next work is a double-buffered
-microbatch schedule that overlaps stage-0 session N+1 with stage-1 session N,
-plus per-session cache gather/scatter. Until that exists, use this topology to
-fit memory-constrained GPUs, not to maximize an H100 node's throughput.
+only about 46 ms of a 3.40-second wave. Use this topology to fit memory-limited
+GPUs; use full replicas when the model fits and maximum node throughput is the
+goal.
 
 ### Reproduction
 
-The experiment reused Slurm job `14799647` on `pool0-01062`, with eight H100
-80 GB GPUs and all GPU pairs reported as NV18. The same RDMA userspace packages
-listed above were installed, and Mooncake discovered nine HCAs and installed
-its RDMA transport. From the mounted repository checkout, run:
+The matched experiment reused Slurm job `15002340` on `pool0-01858`, with eight
+H100 80 GB GPUs and all GPU pairs reported as NV18. The same RDMA userspace
+packages listed above were installed, and Mooncake discovered nine HCAs and
+installed its RDMA transport. From revision
+`542190c0ae4134cf5e0da24342687a5328e93ac9` plus this worktree change, run:
 
 ```bash
 env GLOG_minloglevel=2 \
@@ -772,17 +776,21 @@ uv run --no-sync --package flashdreams-lingbot torchrun \
   --standalone --nproc_per_node=8 \
   -m lingbot.disagg.benchmark_pipeline \
   --sessions-per-group 2 \
+  --double-buffered \
   --compile-network \
   --warmup-blocks 6 \
   --measured-blocks 5 \
   --bandwidth-probe-mib 256 \
   --bandwidth-probe-iters 10 \
-  --output-dir outputs/lingbot_disagg_pipeline_3x2_microbatch2
+  --output-dir outputs/lingbot_disagg_pipeline_3x2_double_buffered
 ```
 
-The output must contain five non-warmup records, 72 decoded frames per wave,
-six nonzero DiT-rank memory records, and three P2P probe pairs (`1->2`, `3->4`,
-and `5->6`). See the tracked
+Remove `--double-buffered` and write to
+`outputs/lingbot_disagg_pipeline_3x2_fixed_rerun` for the matched control. Six
+warmup blocks cover the cache-shape transition at block 5. Each output must
+contain five non-warmup records, 72 decoded frames per measured wave, six
+nonzero DiT-rank memory records, and three P2P probe pairs (`1->2`, `3->4`, and
+`5->6`). See the tracked
 [pipeline-parallel benchmark report](benchmark_h100_pipeline_3x2/README.md)
 and [summary](benchmark_h100_pipeline_3x2/summary.json).
 
@@ -804,8 +812,8 @@ The next optimization items, in order, are:
    encoder N+1, DiT N, and decoder N−1 overlap across whole stage invocations.
 2. Add completion timestamps from Mooncake/NIXL rather than treating delayed
    waits as copy latency.
-3. Implement real DiT microbatches with cache gather/scatter and shape-aware
-   CUDA graph buckets.
+3. Generalize the two-slot schedule to bounded, shape-compatible session
+   queues without combining their session-affine caches.
 4. Remove remaining cache-layout materialization inside LingBot finalization;
    its 426 ms median is still 18% of the optimized wave.
 5. Complete direct rank-to-rank CP output shards where the decoder layout
