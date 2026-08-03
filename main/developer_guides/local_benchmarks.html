@@ -539,25 +539,55 @@ PAI-Bench dimension set. PAI-Bench profiles are only attached to selected
 scenarios tagged <code class="docutils literal notranslate"><span class="pre">one-minute</span></code> or <code class="docutils literal notranslate"><span class="pre">pai-bench</span></code>; in this standard suite the
 30-second seeded quality clips run baseline comparison only, while the
 one-minute review clips get PAI-Bench scores.</p>
+<p>PAI-Bench and its Python dependencies are not FlashDreams dependencies. Before
+running the PAI-Bench quality profile, create or select a separate evaluator
+environment whose dependencies and licenses have been reviewed for your use
+case.</p>
+<p>The following setup was used for the local PAI-Bench runs. Run it from the
+FlashDreams repository root. If the virtual environment already exists, <code class="docutils literal notranslate"><span class="pre">uv</span>
+<span class="pre">venv</span></code> asks whether to replace it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--package<span class="w"> </span>flashdreams<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--no-dev<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--group<span class="w"> </span>cuda13<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--extra<span class="w"> </span>runners
+
+uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>~/.venvs/flashdreams-paibench
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">PAI_BENCH_PYTHON</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.venvs/flashdreams-paibench/bin/python&quot;</span>
+
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>torch<span class="w"> </span>torchvision<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>opencv-python-headless<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>omegaconf<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>openai-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;pyiqa&gt;=0.1.15,&lt;0.1.16&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;setuptools&lt;81&quot;</span>
+
+<span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import clip, cv2, omegaconf, pyiqa, torch; print(&#39;PAI-Bench environment OK&#39;)&quot;</span>
+</pre></div>
+</div>
 <p>First create the baseline:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario-file<span class="w"> </span>configs/deterministic_quality_benchmarks.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-quality-smoke<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-ci-quality-smoke<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute-review<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute-review<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-baseline
 </pre></div>
 </div>
 <p>Then compare a later candidate run against that baseline:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario-file<span class="w"> </span>configs/deterministic_quality_benchmarks.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-quality-smoke<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-ci-quality-smoke<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute-review<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute-review<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--quality-baseline-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-baseline<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/quality-and-review-candidate
 </pre></div>
@@ -672,43 +702,45 @@ declared in <code class="docutils literal notranslate"><span class="pre">tools.b
 checkout is missing, so syncing <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> does not include the evaluator
 checkout or its environment.</p>
 <p>The default <code class="docutils literal notranslate"><span class="pre">--pai-bench-runner</span> <span class="pre">local</span></code> mode runs the public PAI-Bench
-entrypoint with the benchmark Python and injects a FlashDreams OpenCV-backed
-<code class="docutils literal notranslate"><span class="pre">decord</span></code> compatibility shim. This avoids the upstream <code class="docutils literal notranslate"><span class="pre">decord</span></code> wheel
-resolution failure on aarch64. Use <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">--group</span> <span class="pre">pai-bench</span></code> for the
-standard local evaluator environment. That group includes the Python packages
-needed by the default public PAI-Bench dimensions, including OpenAI CLIP and
-PyIQA, without making them normal FlashDreams runtime dependencies.</p>
+entrypoint with the selected evaluator Python and injects a FlashDreams
+OpenCV-backed <code class="docutils literal notranslate"><span class="pre">decord</span></code> compatibility shim. This avoids the upstream
+<code class="docutils literal notranslate"><span class="pre">decord</span></code> wheel resolution failure on aarch64. Pass <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> to
+point at a separately prepared evaluator environment; PAI-Bench dependencies are
+not declared in FlashDreams because they are evaluator-only and have separate
+license terms.</p>
 <p>Before launching <code class="docutils literal notranslate"><span class="pre">torch.distributed.run</span></code>, the adapter imports the requested
 PAI-Bench dimension modules with the same Python and <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> that the
 evaluator will use. Missing imports are reported in
 <code class="docutils literal notranslate"><span class="pre">scenarios/&lt;id&gt;/quality/&lt;profile&gt;/pai_bench_preflight.log</span></code> and in the hook’s
 <code class="docutils literal notranslate"><span class="pre">metrics.json</span></code>. For example, a missing <code class="docutils literal notranslate"><span class="pre">clip</span></code> import means the command was
-not run with the <code class="docutils literal notranslate"><span class="pre">pai-bench</span></code> dependency group or <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> does
-not point at a prepared evaluator environment.</p>
+not run with an evaluator Python that contains the requested PAI-Bench
+dependencies.</p>
 <p>For baseline/candidate copy-paste commands that include PAI-Bench, use the
 <code class="docutils literal notranslate"><span class="pre">Quality</span> <span class="pre">Hooks</span></code> section above. For ad hoc one-off evaluation, run one-minute
 local clips with the PAI-Bench-Long profile. These ad hoc commands are useful
 for debugging, but they do not produce the standard baseline/candidate report:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-one-minute<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/one-minute-pai-bench
 </pre></div>
 </div>
-<p>Use <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> to point at a curated evaluator Python when the
-benchmark environment does not contain the dependencies for the requested
-dimensions. On aarch64, avoid <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span> <span class="pre">&quot;uv</span> <span class="pre">run</span> <span class="pre">python&quot;</span></code> with the
-upstream PAI-Bench checkout unless that checkout has already been patched or
-locked for aarch64-compatible dependencies.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span></code> to point at a curated evaluator Python that contains
+the dependencies for the requested dimensions. On aarch64, avoid
+<code class="docutils literal notranslate"><span class="pre">--pai-bench-python</span> <span class="pre">&quot;uv</span> <span class="pre">run</span> <span class="pre">python&quot;</span></code> with the upstream PAI-Bench checkout
+unless that checkout has already been patched or locked for aarch64-compatible
+dependencies.</p>
 <p>For one-off checks, the profile also supports public PAI-Bench-G on the full
 MP4 without local segmentation. This is also not the standard local benchmark
 workflow:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>pai-bench<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario-file<span class="w"> </span>configs/one_minute_demo_benchmarks.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario<span class="w"> </span>lingbot-world-fast-taehv-one-minute<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--quality-profile<span class="w"> </span>pai-bench-g<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/lingbot-pai-bench-g
 </pre></div>
 </div>
