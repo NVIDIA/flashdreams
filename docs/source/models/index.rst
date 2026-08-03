@@ -64,9 +64,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="OmniDreams FlashDreams sample clip.">
 
       Interactive world simulator for autonomous vehicles.
 
@@ -77,9 +75,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash_1.avif" alt="Self-Forcing FlashDreams sample clip.">
 
       Autoregressive text-to-video based on Wan 2.1.
 
@@ -90,9 +86,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="Causal-Forcing FlashDreams sample clip.">
 
       Autoregressive text/image-to-video based on Wan 2.1.
 
@@ -103,9 +97,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b_1.avif" alt="Causal Wan 2.2 FlashDreams sample clip.">
 
       Autoregressive text-to-video based on Wan 2.2 from FastVideo.
 
@@ -117,12 +109,8 @@ uses, and the settings you can tune.
       .. raw:: html
 
          <div class="fd-card-video-wrap">
-           <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-             <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
-           </video>
-           <video class="fd-card-video-pip" autoplay muted loop playsinline preload="metadata">
-             <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
-           </video>
+           <img class="fd-card-video" src="../_static/model_clips/lingbot_world/lingbot-world-fast-01.avif" alt="LingBot-World FlashDreams sample clip.">
+           <img class="fd-card-video-pip" src="../_static/model_clips/lingbot_world/lingbot-world-traj-01.avif" alt="LingBot-World camera trajectory overlay.">
          </div>
 
       Camera-controllable image-to-video world model.
@@ -134,9 +122,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-hero.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/hy_worldplay/hy-worldplay-hero.avif" alt="HY-WorldPlay FlashDreams sample clip.">
 
       Action- and camera-controllable image-to-video world model.
 
@@ -166,9 +152,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="Wan 2.1 FlashDreams sample clip.">
 
       Bidirectional video generation model that supports both
       text-to-video and image-to-video.
@@ -180,9 +164,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif" alt="Cosmos-Predict2.5 FlashDreams sample clip.">
 
       Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
 
@@ -212,9 +194,7 @@ uses, and the settings you can tune.
 
       .. raw:: html
 
-         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
-           <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-         </video>
+         <img class="fd-card-video" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="FlashVSR FlashDreams sample clip.">
 
       Streaming video super-resolution.
 

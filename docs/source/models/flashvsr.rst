@@ -123,14 +123,8 @@ A generated sample from the above commands:
 .. raw:: html
 
    <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-       Your browser does not support the video tag.
-     </video>
-     <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
-       Your browser does not support the video tag.
-     </video>
+     <img class="model-video-player" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="FlashVSR output sample clip.">
+     <img src="../_static/model_clips/flashvsr/example1.avif" alt="FlashVSR low-resolution input inset." style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
      <div class="model-video-overlay">
        FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
        low-resolution input (672x384) inset at bottom-left.

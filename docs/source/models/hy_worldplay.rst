@@ -31,10 +31,7 @@ TI2V-5B backbone, 4-step distilled Euler).
 .. raw:: html
 
    <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-1.mp4" type="video/mp4">
-       Your browser does not support the video tag.
-     </video>
+     <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-1.avif" alt="HY-WorldPlay WAN-5B sample clip.">
    </div>
    <p class="model-footnote">
      Generated with FlashDreams' native HY-WorldPlay WAN-5B I2V pipeline.
@@ -90,37 +87,25 @@ Some generated samples from the above commands:
 
    <div class="model-video-grid">
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-2.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="HY-WorldPlay walking sample clip.">
        <div class="model-video-overlay">
          a person walking
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-4.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-4.avif" alt="HY-WorldPlay seaside village sample clip.">
        <div class="model-video-overlay">
          Walking through a seaside village
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-8.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-8.avif" alt="HY-WorldPlay snowy forest sample clip.">
        <div class="model-video-overlay">
          Walking through a snowy forest
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-9.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-9.avif" alt="HY-WorldPlay castle sample clip.">
        <div class="model-video-overlay">
          Walking toward a castle
        </div>
