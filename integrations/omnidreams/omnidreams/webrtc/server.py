@@ -133,8 +133,8 @@ def parse_args() -> argparse.Namespace:
         default="",
         choices=sorted(discover_postprocess_presets()),
         help=(
-            "Default video post-process preset for WebRTC sessions. The browser "
-            "can override this selection before connecting."
+            "Video post-process preset for WebRTC sessions. The browser can "
+            "only toggle this launched preset before connecting."
         ),
     )
     parser.add_argument(
@@ -159,10 +159,11 @@ def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
 
 async def _postprocess_options(request: web.Request) -> web.StreamResponse:
     manager = _get_omnidreams_manager(request.app)
-    presets = sorted(discover_postprocess_presets())
+    configured_preset = manager.runtime_config.postprocess.preset
+    presets = [configured_preset] if configured_preset else []
     return web.json_response(
         {
-            "default_preset": manager.runtime_config.postprocess.preset,
+            "default_preset": configured_preset,
             "presets": presets,
         }
     )

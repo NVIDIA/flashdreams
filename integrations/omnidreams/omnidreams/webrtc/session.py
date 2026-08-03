@@ -466,7 +466,23 @@ class OmnidreamsSessionInput:
     """Browser-selectable settings applied to the next WebRTC rollout."""
 
     postprocess_preset: str | None = None
-    """Preset override; ``None`` keeps the CLI default and ``""`` disables it."""
+    """Launched preset selection; ``None`` keeps the CLI default and ``""`` disables it."""
+
+
+def _validate_requested_postprocess_preset(
+    *, requested_preset: str, configured_preset: str
+) -> None:
+    if not configured_preset:
+        raise ValueError(
+            "Post-processing is not enabled for this server; restart with "
+            "--postprocess-preset to make a preset available."
+        )
+    if requested_preset != configured_preset:
+        raise ValueError(
+            "Post-processing preset must match the launched preset "
+            f"{configured_preset!r}; got {requested_preset!r}."
+        )
+    resolve_postprocess_preset(requested_preset)
 
 
 class OmnidreamsInferenceRuntime:
@@ -934,7 +950,10 @@ class OmnidreamsInferenceRuntime:
             else configured.preset
         )
         if preset:
-            resolve_postprocess_preset(preset)
+            _validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=configured.preset,
+            )
         postprocess = VideoPostprocessChainConfig(
             processors=configured.processors,
             preset=preset,
@@ -1129,7 +1148,10 @@ class OmnidreamsWebRTCSessionManager(
             raise SessionBusyError(self._busy_message)
         preset = session_input.postprocess_preset
         if preset:
-            resolve_postprocess_preset(preset)
+            _validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=self.runtime_config.postprocess.preset,
+            )
         self._pending_session_input = session_input
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from typing import Any
 
 import pytest
 import torch
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 from omnidreams import scenes
 from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
@@ -25,7 +28,10 @@ from omnidreams.webrtc.session import (
 )
 
 import flashdreams.plugins.registry as plugin_registry
-from flashdreams.infra.postprocess import VideoPostProcessorConfig
+from flashdreams.infra.postprocess import (
+    VideoPostProcessorConfig,
+    VideoPostprocessChainConfig,
+)
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -36,6 +42,7 @@ from flashdreams.serving.webrtc.encoders import (
 )
 from flashdreams.serving.webrtc.manager import WebRTCStepResult
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
+from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -265,7 +272,11 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
         lambda name: preset_config,
     )
     runtime = OmnidreamsInferenceRuntime(
-        config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
+        config=OmnidreamsRuntimeConfig(
+            device="cpu",
+            fps=30,
+            postprocess=VideoPostprocessChainConfig(preset="fake-preset"),
+        )
     )
 
     runtime._reset_postprocess_stream(
@@ -703,14 +714,87 @@ def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
     assert manager._peek_pending_session_input() is None
 
 
+def test_session_manager_rejects_unlaunched_postprocess_preset() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu")
+    )
+
+    with pytest.raises(ValueError, match="not enabled for this server"):
+        manager.set_pending_session_input(
+            session.OmnidreamsSessionInput(postprocess_preset="fake-preset")
+        )
+
+
+def test_session_manager_rejects_non_launched_postprocess_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_config = VideoPostProcessorConfig()
+    monkeypatch.setattr(
+        session,
+        "resolve_postprocess_preset",
+        lambda name: preset_config,
+    )
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cpu",
+            postprocess=VideoPostprocessChainConfig(preset="launched-preset"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="must match the launched preset"):
+        manager.set_pending_session_input(
+            session.OmnidreamsSessionInput(postprocess_preset="other-preset")
+        )
+
+
+@pytest.mark.asyncio
+async def test_postprocess_options_hide_unlaunched_presets() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu")
+    )
+    app = web.Application()
+    app[SESSION_MANAGER_KEY] = manager
+    request = make_mocked_request("GET", "/api/postprocess/options", app=app)
+
+    response = await webrtc_server._postprocess_options(request)
+    payload = json.loads(response.text)
+
+    assert payload == {"default_preset": "", "presets": []}
+
+
+@pytest.mark.asyncio
+async def test_postprocess_options_exposes_only_launch_preset() -> None:
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(
+            device="cpu",
+            postprocess=VideoPostprocessChainConfig(preset="launched-preset"),
+        )
+    )
+    app = web.Application()
+    app[SESSION_MANAGER_KEY] = manager
+    request = make_mocked_request("GET", "/api/postprocess/options", app=app)
+
+    response = await webrtc_server._postprocess_options(request)
+    payload = json.loads(response.text)
+
+    assert payload == {
+        "default_preset": "launched-preset",
+        "presets": ["launched-preset"],
+    }
+
+
 def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
     web_dir = files("omnidreams.webrtc").joinpath("web")
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
+    assert 'id="postprocessField"' in html
+    assert "hidden" in html
     assert 'id="postprocessSelect"' in html
     assert 'fetch("/api/postprocess/options")' in javascript
     assert 'fetch("/api/session/input"' in javascript
+    assert "postprocessControlAvailable" in javascript
+    assert "postprocessField.hidden = !postprocessControlAvailable" in javascript
     assert "postprocess_preset: postprocessPreset" in javascript
 
 
