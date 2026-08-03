@@ -371,11 +371,10 @@ def test_load_extension_caches_separate_sage3_modes(
         extensions.append(extension)
         return extension
 
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(
-        native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
-    )
+    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
