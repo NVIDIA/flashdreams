@@ -173,19 +173,19 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                 self.latent_shape, device=self.device, dtype=self.dtype
             )
             dummy_latent = self.transformer.unpatchify_and_maybe_gather_cp(dummy_latent)
-            initial_noise = torch.randn(
-                dummy_latent.shape,
-                device=self.device,
-                dtype=self.dtype,
-                generator=self.rng,
+            initial_noise = self.transformer.initial_noise(
+                latent_shape=tuple(dummy_latent.shape),
+                rng=self.rng,
+                cache=cache,
+                input=input,
             )
 
         else:
-            initial_noise = torch.randn(
-                self.latent_shape,
-                device=self.device,
-                dtype=self.dtype,
-                generator=self.rng,
+            initial_noise = self.transformer.initial_noise(
+                latent_shape=self.latent_shape,
+                rng=self.rng,
+                cache=cache,
+                input=input,
             )
 
         def predict_flow(noisy_latent: Tensor, timestep: Tensor) -> Tensor:

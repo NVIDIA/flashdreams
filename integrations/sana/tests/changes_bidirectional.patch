@@ -1,0 +1,251 @@
+--- a/inference_video_scripts/wm/inference_sana_wm.py
++++ b/inference_video_scripts/wm/inference_sana_wm.py
+@@ -937,6 +937,101 @@
+     return video_path
+ 
+ 
++def write_json(path: Path, payload: dict[str, object]) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
++
++
++def apply_backend_defaults() -> None:
++    torch.backends.cudnn.benchmark = True
++    torch.set_float32_matmul_precision("high")
++    if torch.cuda.is_available():
++        torch.backends.cuda.enable_flash_sdp(False)
++        torch.backends.cuda.enable_math_sdp(True)
++        torch.backends.cuda.enable_mem_efficient_sdp(False)
++        torch.backends.cuda.enable_cudnn_sdp(True)
++    try:
++        import torch._inductor.config as inductor_config
++
++        inductor_config.coordinate_descent_tuning = True
++        inductor_config.epilogue_fusion = True
++    except Exception:
++        pass
++
++
++def apply_precision_args(args: argparse.Namespace, logger: logging.Logger) -> None:
++    stage1_precision = args.stage1_precision
++    refiner_precision = "bf16" if args.no_refiner else args.refiner_precision
++
++    if stage1_precision == "bf16":
++        os.environ.pop("SANA_WM_STAGE1_NVFP4", None)
++        os.environ.pop("SANA_WM_STAGE1_NVFP4_MODE", None)
++        os.environ.pop("SANA_WM_STAGE1_NVFP4_SCOPE", None)
++        os.environ.pop("SANA_WM_STAGE1_LINEARIZE_FFN", None)
++        os.environ.pop("SANA_WM_STAGE1_QUANT", None)
++    else:
++        os.environ["SANA_WM_STAGE1_NVFP4"] = "1"
++        os.environ["SANA_WM_STAGE1_NVFP4_MODE"] = "self_attn+cross+ffn"
++        os.environ["SANA_WM_STAGE1_NVFP4_SCOPE"] = "block"
++        os.environ["SANA_WM_STAGE1_LINEARIZE_FFN"] = "1"
++        os.environ["SANA_WM_STAGE1_QUANT"] = (
++            "fp8block" if stage1_precision == "fp8" else "nvfp4"
++        )
++
++    if refiner_precision == "bf16":
++        os.environ.pop("SANA_WM_REFINER_NVFP4", None)
++        os.environ.pop("SANA_WM_REFINER_QUANT", None)
++    else:
++        os.environ["SANA_WM_REFINER_NVFP4"] = "1"
++        os.environ["SANA_WM_REFINER_QUANT"] = (
++            "fp8block" if refiner_precision == "fp8" else "nvfp4"
++        )
++
++    if stage1_precision != "bf16" or refiner_precision != "bf16":
++        need = (
++            "NVFP4BlockScaling"
++            if "fp4" in (stage1_precision, refiner_precision)
++            else "Float8BlockScaling"
++        )
++        try:
++            import transformer_engine.common.recipe as te_recipe
++            import transformer_engine.pytorch  # noqa: F401
++
++            if not hasattr(te_recipe, need):
++                raise ImportError(f"installed Transformer Engine lacks {need}")
++        except Exception as exc:
++            raise SystemExit(
++                "--stage1_precision/--refiner_precision fp8/fp4 require NVIDIA "
++                f"Transformer Engine >= 2.x for {need} ({exc})."
++            )
++
++    if "fp4" in (stage1_precision, refiner_precision) and torch.cuda.is_available():
++        major, minor = torch.cuda.get_device_capability()
++        if major < 10:
++            logger.warning(
++                "fp4 (NVFP4) requires a Blackwell GPU (sm_100+); detected sm_%d%d.",
++                major,
++                minor,
++            )
++    logger.info("[precision] stage1=%s refiner=%s", stage1_precision, refiner_precision)
++
++
++def time_bound_method(obj: object, name: str, timing_key: str, timings: dict[str, float]) -> None:
++    original = getattr(obj, name)
++
++    def wrapped(*args, **kwargs):
++        if torch.cuda.is_available():
++            torch.cuda.synchronize()
++        t0 = time.perf_counter()
++        result = original(*args, **kwargs)
++        if torch.cuda.is_available():
++            torch.cuda.synchronize()
++        timings[timing_key] = time.perf_counter() - t0
++        return result
++
++    setattr(obj, name, wrapped)
++
++
+ # ============================================================================
+ # Pipeline
+ # ============================================================================
+@@ -2132,6 +2227,32 @@
+         action="store_true",
+         help="Skip rendering the WASD + joystick overlay on the output video.",
+     )
++    p.add_argument("--dump_frames", type=Path, default=None, help="Optional .npy path for decoded uint8 frames.")
++    p.add_argument("--stats_json", type=Path, default=None, help="Optional JSON path for timing and memory stats.")
++    p.add_argument(
++        "--force_cudnn_sdpa",
++        action="store_true",
++        help="Force PyTorch scaled_dot_product_attention to use the cuDNN backend.",
++    )
++    p.add_argument(
++        "--compile_stage1",
++        action="store_true",
++        help="Wrap the Stage-1 DiT with torch.compile(mode='max-autotune-no-cudagraphs').",
++    )
++    p.add_argument(
++        "--stage1_precision",
++        choices=["bf16", "fp8", "fp4"],
++        default="bf16",
++        help="Stage-1 DiT precision for benchmark parity.",
++    )
++    p.add_argument(
++        "--refiner_precision",
++        choices=["bf16", "fp8", "fp4"],
++        default="bf16",
++        help="LTX-2 refiner precision for benchmark parity.",
++    )
++    p.add_argument("--warmup_generations", type=int, default=0)
++    p.add_argument("--measured_generations", type=int, default=1)
+ 
+     # Weights and config.
+     p.add_argument(
+@@ -2222,7 +2343,15 @@
+ def main() -> None:
+     args = _build_parser().parse_args()
+ 
++    if args.force_cudnn_sdpa:
++        apply_backend_defaults()
++    if args.warmup_generations < 0:
++        raise ValueError("--warmup_generations must be >= 0")
++    if args.measured_generations < 1:
++        raise ValueError("--measured_generations must be >= 1")
++
+     logger = get_root_logger()
++    apply_precision_args(args, logger)
+     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+ 
+     image = Image.open(args.image).convert("RGB")
+@@ -2276,6 +2405,15 @@
+         offload_refiner=args.offload_refiner,
+         logger=logger,
+     )
++    if args.compile_stage1:
++        pipeline.model = torch.compile(pipeline.model, mode="max-autotune-no-cudagraphs")
++
++    timings: dict[str, float] = {}
++    time_bound_method(pipeline, "_sample_stage1", "stage1_sample_s", timings)
++    time_bound_method(pipeline, "_dispatch_solver", "stage1_dit_s", timings)
++    time_bound_method(pipeline, "_decode_with_sana_vae", "vae_decode_s", timings)
++    if refiner is not None:
++        time_bound_method(pipeline, "_refine", "refiner_s", timings)
+ 
+     denoising_step_list: list[int] | None = None
+     if args.denoising_step_list:
+@@ -2308,14 +2446,79 @@
+         save_stage1=args.save_stage1,
+     )
+ 
+-    out = pipeline.generate(cropped, prompt, c2w, intrinsics_vec4, params)
++    generation_records: list[dict[str, object]] = []
++    final_out: dict[str, object] | None = None
++    final_record: dict[str, object] | None = None
++    total_generations = args.warmup_generations + args.measured_generations
++    for generation_index in range(total_generations):
++        warmup = generation_index < args.warmup_generations
++        timings.clear()
++        if torch.cuda.is_available():
++            torch.cuda.reset_peak_memory_stats(device)
++            torch.cuda.synchronize(device)
++        wall_start = time.perf_counter()
++        out = pipeline.generate(cropped, prompt, c2w, intrinsics_vec4, params)
++        if torch.cuda.is_available():
++            torch.cuda.synchronize(device)
++        wall_s = time.perf_counter() - wall_start
++        record: dict[str, object] = {
++            "generation_index": generation_index,
++            "warmup": warmup,
++            "wall_s": wall_s,
++            "timings_s": dict(timings),
++            "num_frames": num_frames,
++            "seed": args.seed,
++        }
++        if torch.cuda.is_available():
++            record["mem_peak_gib"] = torch.cuda.max_memory_allocated(device) / (1024**3)
++        generation_records.append(record)
++        if not warmup:
++            final_out = out
++            final_record = record
++
++    if final_out is None or final_record is None:
++        raise RuntimeError("bidirectional benchmark produced no measured generations")
++
++    out = final_out
+     video_hwc = out["video"]
+ 
+     if not args.no_action_overlay:
+         logger.info("Compositing action overlay onto the output video.")
+         video_hwc = apply_overlay(video_hwc, out["c2w"])
+ 
+-    write_video(args.output_dir, args.name, video_hwc, params.fps, logger)
++    video_path = write_video(args.output_dir, args.name, video_hwc, params.fps, logger)
++    final_record["video_path"] = str(video_path)
++    final_record["video_shape"] = list(np.asarray(video_hwc).shape)
++
++    if args.dump_frames is not None:
++        args.dump_frames.parent.mkdir(parents=True, exist_ok=True)
++        np.save(args.dump_frames, np.asarray(video_hwc, dtype=np.uint8))
++
++    if args.stats_json is not None:
++        stats: dict[str, object] = {
++            "backend": "upstream",
++            "entrypoint": "inference_video_scripts/wm/inference_sana_wm.py",
++            "video_path": str(video_path),
++            "video_shape": list(np.asarray(video_hwc).shape),
++            "timings_s": final_record["timings_s"],
++            "num_frames": num_frames,
++            "seed": args.seed,
++            "fps": params.fps,
++            "step": params.step,
++            "cfg_scale": params.cfg_scale,
++            "no_refiner": args.no_refiner,
++            "stage1_precision": args.stage1_precision,
++            "refiner_precision": args.refiner_precision,
++            "compile_stage1": args.compile_stage1,
++            "force_cudnn_sdpa": args.force_cudnn_sdpa,
++            "warmup_generations": args.warmup_generations,
++            "measured_generations": args.measured_generations,
++            "wall_s": final_record["wall_s"],
++            "generation_records": generation_records,
++        }
++        if torch.cuda.is_available():
++            stats["mem_peak_gib"] = final_record.get("mem_peak_gib")
++        write_json(args.stats_json, stats)
+ 
+     stage1_video = out.get("stage1_video")
+     if stage1_video is not None:
