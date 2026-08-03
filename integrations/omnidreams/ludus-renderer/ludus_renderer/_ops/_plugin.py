@@ -23,7 +23,7 @@ import time
 import torch
 import torch.utils.cpp_extension
 
-from .._logging import logger
+from ludus_renderer._logging import logger
 
 _cached_plugin = None
 _dll_directory_handles = []
