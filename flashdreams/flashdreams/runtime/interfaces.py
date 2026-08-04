@@ -64,7 +64,7 @@ class ModelAdapter(Protocol):
 
     @property
     def model_id(self) -> str:
-        """Stable model or adapter identity."""
+        """Stable identity for the model adapter or runtime integration."""
         ...
 
     @property

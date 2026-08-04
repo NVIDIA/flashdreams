@@ -13,7 +13,7 @@ from typing import Any, Literal
 from flashdreams.runtime._utils import freeze_mapping
 
 ExecutionBackend = Literal["local", "local-distributed", "external", "hosted"]
-"""Execution backend families the v0 envelope leaves room for."""
+"""Where and how inference compute is run."""
 
 Precision = Literal["auto", "fp32", "fp16", "bf16"]
 """Coarse runtime precision choices."""
@@ -21,18 +21,18 @@ Precision = Literal["auto", "fp32", "fp16", "bf16"]
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class InferenceConfig:
-    """Model/runtime execution settings.
+    """Runtime settings that affect model execution.
 
     Prompts, user controls, browser settings, output paths, and benchmark
     directories intentionally live outside this object. The typed optimization
-    fields cover common cross-backend knobs; adapter-specific choices belong in
-    :attr:`runtime_options`.
+    fields cover common cross-backend knobs; open-ended adapter-specific choices
+    can use :attr:`runtime_options`.
     """
 
     __hash__ = None
 
     model_id: str
-    """Stable model or adapter identity."""
+    """Stable identity for the model adapter or runtime integration."""
 
     preset_id: str | None = None
     """Optional preset identity under :attr:`model_id`."""
@@ -41,10 +41,10 @@ class InferenceConfig:
     """Optional checkpoint or model-asset selector understood by the adapter."""
 
     backend: ExecutionBackend = "local"
-    """Runtime backend family."""
+    """Execution placement and backend family for inference compute."""
 
     device: str | None = None
-    """Optional device selector such as ``cuda`` or ``cuda:0``."""
+    """Optional device selector such as ``cuda`` or ``cuda:0``; ``None`` leaves placement to the adapter/backend."""
 
     precision: Precision = "auto"
     """Preferred compute precision."""
@@ -56,10 +56,10 @@ class InferenceConfig:
     """Optional - Whether CUDA graph capture is requested or disabled. `None` means left to the adapter to decide."""
 
     attention_backend: str | None = None
-    """Optional attention implementation selector."""
+    """Optional attention implementation selector; ``None`` leaves the choice to the adapter."""
 
     cache_policy: str | None = None
-    """Optional cache policy selector."""
+    """Optional cache policy selector; ``None`` leaves the choice to the adapter."""
 
     runtime_options: Mapping[str, Any] = field(default_factory=dict)
     """Adapter/backend-specific runtime options."""

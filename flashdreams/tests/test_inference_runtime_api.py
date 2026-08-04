@@ -66,8 +66,11 @@ def test_inference_config_rejects_empty_model_id() -> None:
         (lambda: TimeWindow(start_s=1.0, end_s=0.0), "end_s"),
         (lambda: TimeWindow(start_s=-1.0, end_s=0.0), "non-negative"),
         (lambda: TimeWindow(start_s=0.0, end_s=float("nan")), "finite"),
-        (lambda: UserInputEvent(timestamp_s=-1.0, kind="keydown"), "timestamp_s"),
-        (lambda: UserInputEvent(timestamp_s=0.0, kind=" "), "kind"),
+        (
+            lambda: UserInputEvent(timestamp_s=-1.0, event_type="keydown"),
+            "timestamp_s",
+        ),
+        (lambda: UserInputEvent(timestamp_s=0.0, event_type=" "), "event_type"),
         (lambda: StepRequest(step_index=-1), "step_index"),
         (lambda: StepResult(step_index=-1), "step_index"),
         (lambda: StepResult(step_index=0, frame_count=-1), "frame_count"),
@@ -108,37 +111,41 @@ def test_user_inputs_filter_timestamped_event_windows() -> None:
     inputs = UserInputs(
         events=(
             UserInputEvent(
-                timestamp_s=0.1, kind="keyboard.keydown", payload={"key": "w"}
+                timestamp_s=0.1,
+                event_type="keyboard.keydown",
+                payload={"key": "w"},
             ),
             UserInputEvent(
-                timestamp_s=0.4, kind="keyboard.keyup", payload={"key": "w"}
+                timestamp_s=0.4,
+                event_type="keyboard.keyup",
+                payload={"key": "w"},
             ),
-            UserInputEvent(timestamp_s=0.8, kind="reset"),
+            UserInputEvent(timestamp_s=0.8, event_type="reset"),
         )
     )
 
     windowed = inputs.window(TimeWindow(start_s=0.25, end_s=0.75))
 
-    assert [event.kind for event in windowed.events] == ["keyboard.keyup"]
+    assert [event.event_type for event in windowed.events] == ["keyboard.keyup"]
 
 
 def test_user_inputs_require_sorted_events() -> None:
     with pytest.raises(ValueError, match="non-decreasing"):
         UserInputs(
             events=(
-                UserInputEvent(timestamp_s=1.0, kind="late"),
-                UserInputEvent(timestamp_s=0.5, kind="early"),
+                UserInputEvent(timestamp_s=1.0, event_type="late"),
+                UserInputEvent(timestamp_s=0.5, event_type="early"),
             )
         )
 
 
 def test_user_input_schema_declares_event_capabilities() -> None:
     schema = UserInputSchema(
-        event_kinds=frozenset({"keyboard.keydown", "keyboard.keyup", "reset"})
+        event_types=frozenset({"keyboard.keydown", "keyboard.keyup", "reset"})
     )
 
-    assert schema.supports_event_kinds(["keyboard.keydown", "reset"])
-    assert not schema.supports_event_kinds(["prompt.update"])
+    assert schema.supports_event_types(["keyboard.keydown", "reset"])
+    assert not schema.supports_event_types(["prompt.update"])
 
 
 def test_user_input_schema_validates_required_snapshot_fields() -> None:
@@ -246,7 +253,7 @@ def test_runtime_api_components_compose_for_sequential_session() -> None:
         events=(
             UserInputEvent(
                 timestamp_s=0.25,
-                kind="keyboard.keydown",
+                event_type="keyboard.keydown",
                 payload={"key": "w"},
             ),
         )
@@ -376,7 +383,7 @@ class _FakeAdapter:
         initial_fields=(InputField(name="prompt"),),
         step_fields=(InputField(name="chunk_index"),),
     )
-    user_input_schema = UserInputSchema(event_kinds=frozenset({"keyboard.keydown"}))
+    user_input_schema = UserInputSchema(event_types=frozenset({"keyboard.keydown"}))
 
     def default_input_mapping(self) -> InputMapping:
         return IdentityInputMapping()

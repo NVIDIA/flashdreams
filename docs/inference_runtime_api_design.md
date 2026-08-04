@@ -624,7 +624,7 @@ registry, standard loop, concrete output modes, or model migrations:
 - User-facing inputs use `UserInputs`; model-facing inputs use `ModelInputs`.
   Both remain lightweight payload envelopes with shallow read-only mappings.
 - `UserInputSchema` and `ModelInputSchema` stay intentionally small: they
-  declare supported event kinds and required named fields for early validation,
+  declare supported event types and required named fields for early validation,
   not a full type system.
 - Input mapping is represented by a separate `InputMapping` protocol. Model
   adapters may provide a default mapping; runtimes and applications may override
@@ -635,7 +635,7 @@ registry, standard loop, concrete output modes, or model migrations:
 - Metrics collection is represented by `MetricsRecorder`; timing samples use
   seconds as the canonical unit.
 - The minimum v0 user input shape is timestamped `UserInputEvent` records plus
-  optional snapshot data. Concrete event-kind catalogs are left to T2 and demo
+  optional snapshot data. Concrete event-type catalogs are left to T2 and demo
   migrations.
 
 ## Remaining Decisions

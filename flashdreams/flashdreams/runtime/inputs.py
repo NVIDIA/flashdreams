@@ -51,16 +51,16 @@ class InputField:
 class UserInputSchema:
     """Minimal metadata for user events a source or mapping can provide."""
 
-    event_kinds: frozenset[str] = field(default_factory=frozenset)
+    event_types: frozenset[str] = field(default_factory=frozenset)
     snapshot_fields: tuple[InputField, ...] = ()
     description: str = ""
 
-    def supports_event_kinds(self, kinds: Iterable[str]) -> bool:
-        """Return whether every requested event kind is declared supported."""
-        requested = frozenset(kinds)
+    def supports_event_types(self, event_types: Iterable[str]) -> bool:
+        """Return whether every requested event type is declared supported."""
+        requested = frozenset(event_types)
         if not requested:
             return True
-        return requested.issubset(self.event_kinds)
+        return requested.issubset(self.event_types)
 
     def missing_snapshot(self, inputs: "UserInputs") -> tuple[str, ...]:
         """Return required snapshot fields absent from ``inputs``."""
@@ -78,7 +78,11 @@ class ModelInputSchema:
     """Minimal metadata for model-facing initial and per-step inputs."""
 
     initial_fields: tuple[InputField, ...] = ()
+    """Model inputs required before starting the initial generation/session."""
+
     step_fields: tuple[InputField, ...] = ()
+    """Per-step model inputs required after the session starts."""
+
     description: str = ""
 
     def missing_initial(self, inputs: "ModelInputs") -> tuple[str, ...]:
@@ -114,16 +118,16 @@ class UserInputEvent:
     __hash__ = None
 
     timestamp_s: float
-    kind: str
+    event_type: str
     payload: Mapping[str, Any] = field(default_factory=dict)
     source: str | None = None
-    event_id: str | None = None
+    source_event_id: str | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.timestamp_s) or self.timestamp_s < 0:
             raise ValueError("UserInputEvent.timestamp_s must be finite and >= 0.")
-        if not self.kind.strip():
-            raise ValueError("UserInputEvent.kind must be non-empty.")
+        if not self.event_type.strip():
+            raise ValueError("UserInputEvent.event_type must be non-empty.")
         object.__setattr__(self, "payload", freeze_mapping(self.payload))
 
 
