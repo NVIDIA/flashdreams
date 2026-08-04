@@ -60,6 +60,7 @@ generated clip, see :doc:`/quickstart/index`.
    :hidden:
    :maxdepth: 1
 
+   flashdreams_runtime
    inference_pipeline_overview
    config_system
    new_integration
