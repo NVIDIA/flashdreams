@@ -77,6 +77,11 @@ ludus-renderer = { workspace = true }
 interactive-drive = [
     "slangpy==0.42.0",
 ]
+# Optional NVIDIA VFX runtime for selecting RTX postprocess presets such as
+# ``--postprocess-preset rtx-super-resolution`` in the WebRTC or local demo.
+rtx-postprocess = [
+    "flashdreams[rtx-postprocess]",
+]
 dev = [
     "pytest>=8.0",
     "pytest-manual-marker>=2.0",
