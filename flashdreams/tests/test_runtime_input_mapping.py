@@ -36,7 +36,7 @@ from flashdreams.runtime import (
     check_mapping_compatibility,
     check_mapping_set_compatibility,
     combine_mapping_schemas,
-    undeclared_inference_input,
+    undeclared_inference_inputs,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -253,7 +253,7 @@ def test_metadata_is_excluded_from_field_equality() -> None:
 def test_compatible_source_model_and_mapping_can_drive() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, FRAME_MAPPING, STEERING_MAPPING),
     )
 
@@ -270,7 +270,7 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
 def test_missing_required_model_field_blocks_the_run() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING,),
     )
 
@@ -285,7 +285,7 @@ def test_missing_source_capability_is_reported_when_it_blocks() -> None:
 
     compatibility = check_mapping_set_compatibility(
         canonical_schema=prompt_only,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING),
     )
 
@@ -302,7 +302,7 @@ def test_unfeedable_optional_mapping_degrades_instead_of_vetoing() -> None:
 
     compatibility = check_mapping_set_compatibility(
         canonical_schema=no_frame_source,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, FRAME_MAPPING, STEERING_MAPPING),
     )
 
@@ -315,7 +315,7 @@ def test_unfeedable_optional_mapping_degrades_instead_of_vetoing() -> None:
 def test_optional_field_needs_mapping_support_to_be_available() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING),
     )
 
@@ -334,7 +334,9 @@ def test_lifecycle_disagreement_blocks_a_field_match() -> None:
     )
 
     compatibility = check_mapping_compatibility(
-        canonical_schema=CANONICAL_ALL, model_schema=model, mapping_schema=mapping
+        canonical_schema=CANONICAL_ALL,
+        inference_input_schema=model,
+        mapping_schema=mapping,
     )
 
     assert not compatibility.can_drive
@@ -345,7 +347,7 @@ def test_unspecified_lifecycle_stays_permissive() -> None:
 
     compatibility = check_mapping_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=model,
+        inference_input_schema=model,
         mapping_schema=PROMPT_MAPPING,
     )
 
@@ -355,7 +357,7 @@ def test_unspecified_lifecycle_stays_permissive() -> None:
 def test_raise_if_incompatible_names_both_failure_kinds() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CanonicalInputSchema(modalities=(CONDITIONING_PROMPT,)),
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING),
     )
 
@@ -370,7 +372,7 @@ def test_raise_if_incompatible_names_both_failure_kinds() -> None:
 def test_raise_if_incompatible_is_a_no_op_when_compatible() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, FRAME_MAPPING, STEERING_MAPPING),
     )
 
@@ -383,7 +385,7 @@ def test_check_mapping_compatibility_rejects_a_non_schema() -> None:
     with pytest.raises(TypeError, match="InputMappingSchema"):
         check_mapping_compatibility(
             canonical_schema=CANONICAL_ALL,
-            model_schema=DRIVING_MODEL,
+            inference_input_schema=DRIVING_MODEL,
             mapping_schema=not_a_schema,
         )
 
@@ -437,7 +439,7 @@ def test_undeclared_inference_input_catches_schema_drift() -> None:
         global_conditioning={"prompt": "drive"}, step={"steering": 0.0}
     )
 
-    undeclared = undeclared_inference_input(produced, PROMPT_MAPPING)
+    undeclared = undeclared_inference_inputs(produced, PROMPT_MAPPING)
 
     assert undeclared == (("step", "steering"),)
 
@@ -448,7 +450,7 @@ def test_declared_outputs_report_no_drift() -> None:
         global_conditioning={"prompt": "drive"}, step={"steering": 0.0}
     )
 
-    assert undeclared_inference_input(produced, combined) == ()
+    assert undeclared_inference_inputs(produced, combined) == ()
 
 
 # --- interoperability with the T1 envelope ------------------------------
@@ -473,7 +475,7 @@ def test_identity_mapping_needs_no_declared_surface() -> None:
 def test_empty_mapping_set_cannot_satisfy_a_required_field() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
-        model_schema=DRIVING_MODEL,
+        inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(),
     )
 
@@ -484,7 +486,7 @@ def test_empty_mapping_set_cannot_satisfy_a_required_field() -> None:
 def test_model_with_no_requirements_is_always_drivable() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CanonicalInputSchema(),
-        model_schema=InferenceInputSchema(),
+        inference_input_schema=InferenceInputSchema(),
         mapping_schemas=(),
     )
 

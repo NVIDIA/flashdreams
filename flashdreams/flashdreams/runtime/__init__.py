@@ -49,7 +49,7 @@ from flashdreams.runtime.mapping import (
     check_mapping_compatibility,
     check_mapping_set_compatibility,
     combine_mapping_schemas,
-    undeclared_inference_input,
+    undeclared_inference_inputs,
 )
 from flashdreams.runtime.metrics import (
     InMemoryMetricsRecorder,
@@ -102,7 +102,7 @@ __all__ = [
     "StepRequest",
     "StepResult",
     "TimeWindow",
-    "undeclared_inference_input",
+    "undeclared_inference_inputs",
     "UserInputCapability",
     "UserInputEvent",
     "UserInputs",

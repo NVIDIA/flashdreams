@@ -262,7 +262,7 @@ def test_mapping_written_against_a_modality_accepts_a_keyboard() -> None:
 
     compatibility = check_mapping_compatibility(
         canonical_schema=canonicalizer.canonical_schema(KEYBOARD_SOURCE),
-        model_schema=STEERING_MODEL,
+        inference_input_schema=STEERING_MODEL,
         mapping_schema=STEERING_MAPPING,
     )
 
@@ -276,7 +276,7 @@ def test_adding_a_device_needs_no_application_or_model_change() -> None:
 
     compatibility = check_mapping_compatibility(
         canonical_schema=canonicalizer.canonical_schema(WHEEL_SOURCE),
-        model_schema=STEERING_MODEL,
+        inference_input_schema=STEERING_MODEL,
         mapping_schema=STEERING_MAPPING,
     )
     assert compatibility.can_drive

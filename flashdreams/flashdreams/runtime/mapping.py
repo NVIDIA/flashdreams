@@ -156,7 +156,7 @@ class MappingCompatibility:
     __hash__ = None
 
     canonical_schema: CanonicalInputSchema
-    model_schema: InferenceInputSchema
+    inference_input_schema: InferenceInputSchema
     mapping_schema: InputMappingSchema
     missing_modalities: tuple[CanonicalModality, ...] = ()
     missing_required_model_fields: tuple[tuple[InputPhase, InputField], ...] = ()
@@ -256,7 +256,7 @@ def combine_mapping_schemas(
 def _build_compatibility(
     *,
     canonical_schema: CanonicalInputSchema,
-    model_schema: InferenceInputSchema,
+    inference_input_schema: InferenceInputSchema,
     mapping_schemas: Sequence[InputMappingSchema],
     reported_schema: InputMappingSchema,
 ) -> MappingCompatibility:
@@ -269,7 +269,7 @@ def _build_compatibility(
             unavailable.append(mapping_schema)
 
     usable = combine_mapping_schemas(feedable, name=reported_schema.name)
-    required = model_schema.required_fields()
+    required = inference_input_schema.required_fields()
     missing_required = tuple(
         (phase, input_field)
         for phase, input_field in required
@@ -282,7 +282,7 @@ def _build_compatibility(
     )
     available_optional = tuple(
         (phase, input_field)
-        for phase, input_field in model_schema.optional_fields()
+        for phase, input_field in inference_input_schema.optional_fields()
         if usable.can_produce(phase, input_field)
     )
 
@@ -303,7 +303,7 @@ def _build_compatibility(
 
     return MappingCompatibility(
         canonical_schema=canonical_schema,
-        model_schema=model_schema,
+        inference_input_schema=inference_input_schema,
         mapping_schema=reported_schema,
         missing_modalities=tuple(missing_modalities),
         missing_required_model_fields=missing_required,
@@ -316,7 +316,7 @@ def _build_compatibility(
 def check_mapping_compatibility(
     *,
     canonical_schema: CanonicalInputSchema,
-    model_schema: InferenceInputSchema,
+    inference_input_schema: InferenceInputSchema,
     mapping_schema: InputMappingSchema,
 ) -> MappingCompatibility:
     """Check whether a user-input source can drive a model through a mapping."""
@@ -324,7 +324,7 @@ def check_mapping_compatibility(
         raise TypeError("mapping_schema must be an InputMappingSchema object.")
     return _build_compatibility(
         canonical_schema=canonical_schema,
-        model_schema=model_schema,
+        inference_input_schema=inference_input_schema,
         mapping_schemas=(mapping_schema,),
         reported_schema=mapping_schema,
     )
@@ -333,7 +333,7 @@ def check_mapping_compatibility(
 def check_mapping_set_compatibility(
     *,
     canonical_schema: CanonicalInputSchema,
-    model_schema: InferenceInputSchema,
+    inference_input_schema: InferenceInputSchema,
     mapping_schemas: Sequence[InputMappingSchema],
     name: str = "input-mapping-set",
 ) -> MappingCompatibility:
@@ -345,13 +345,13 @@ def check_mapping_set_compatibility(
     mapping_schemas = tuple(mapping_schemas)
     return _build_compatibility(
         canonical_schema=canonical_schema,
-        model_schema=model_schema,
+        inference_input_schema=inference_input_schema,
         mapping_schemas=mapping_schemas,
         reported_schema=combine_mapping_schemas(mapping_schemas, name=name),
     )
 
 
-def undeclared_inference_input(
+def undeclared_inference_inputs(
     inputs: InferenceInput,
     mapping_schema: InputMappingSchema,
 ) -> tuple[tuple[InputPhase, str], ...]:
