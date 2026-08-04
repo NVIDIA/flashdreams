@@ -690,9 +690,13 @@ def test_runtime_initialization_passes_manifest_pipeline_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     manifest_args = webrtc_server.parse_args(
-        ["--manifest", "example_world_model_perf.yaml"]
+        [
+            "--manifest",
+            "example_world_model_perf.yaml",
+            "--prefer_sw_encoder",
+        ]
     )
-    cfg = webrtc_server.build_runtime_config(manifest_args)
+    cfg = webrtc_server.build_runtime_config(manifest_args, device_override="cpu")
     cfg.scene_dir = tmp_path / "scene"
     clipgt_dir = cfg.scene_dir / "clipgt"
     clipgt_dir.mkdir(parents=True)
@@ -990,7 +994,9 @@ async def test_loopback_warmup_drives_session_generation(
     assert fake_runtime is not None
     assert fake_runtime.initialize_calls == 1
     assert fake_runtime.reset_calls == 1
-    assert len(fake_runtime.generated_segments) == 2
+    # The close signal can race with the generation worker starting the next
+    # chunk; the warmup contract is that at least the requested chunks complete.
+    assert len(fake_runtime.generated_segments) >= 2
     assert not manager.has_active_session()
 
 
