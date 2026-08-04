@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inputs import ModelInputSchema, TimeWindow
+from flashdreams.runtime.inputs import InferenceInputSchema, TimeWindow
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -24,7 +24,7 @@ class StepRequest:
     __hash__ = None
 
     step_index: int
-    model_input_schema: ModelInputSchema | None = None
+    inference_input_schema: InferenceInputSchema | None = None
     user_input_window: TimeWindow | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
