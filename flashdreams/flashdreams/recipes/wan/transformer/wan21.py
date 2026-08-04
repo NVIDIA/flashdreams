@@ -157,6 +157,9 @@ class Wan21TransformerConfig(TransformerConfig):
     """Pre-load state-dict remap (e.g. Self-Forcing's
     ``generator_ema.model.…`` layout)."""
 
+    stream_checkpoint: bool = False
+    """Load cached safetensors directly into the model with bounded host residency."""
+
     batch_shape: tuple[int, ...] = (1,)
     """Batch dims of the latent (excluding the L, D dims)."""
 
@@ -279,13 +282,24 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self.network.set_context_parallel_group(cp_group=self._cp_group)
 
         if config.checkpoint_path is not None:
-            state_dict = load_checkpoint(
-                config.checkpoint_path,
-                checkpoint_min_free_gb=config.checkpoint_min_free_gb,
-            )
-            if config.state_dict_transform is not None:
-                state_dict = config.state_dict_transform(state_dict)
-            self.network.load_state_dict(state_dict)
+            if config.stream_checkpoint:
+                if config.state_dict_transform is not None:
+                    raise ValueError(
+                        "stream_checkpoint does not support state_dict_transform"
+                    )
+                load_checkpoint(
+                    config.checkpoint_path,
+                    model=self.network,
+                    checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+                )
+            else:
+                state_dict = load_checkpoint(
+                    config.checkpoint_path,
+                    checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+                )
+                if config.state_dict_transform is not None:
+                    state_dict = config.state_dict_transform(state_dict)
+                self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:

@@ -28,6 +28,7 @@ from urllib.parse import unquote, urlparse
 import torch
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
 from loguru import logger
+from safetensors import safe_open
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors
@@ -737,10 +738,121 @@ def _load_checkpoint_from_local(
 ) -> dict[str, torch.Tensor]:
     """Load checkpoint from local filesystem."""
     if ext == ".safetensors":
-        with open(path, "rb") as f:
-            return load_safetensors(f.read())
+        return load_safetensors_file(path, device=_safetensors_device(map_location))
     else:
         return torch.load(path, map_location=map_location, weights_only=False)
+
+
+def _stream_safetensors_into_model(
+    model: torch.nn.Module,
+    path: str,
+) -> torch.nn.Module:
+    """Copy a safetensors checkpoint into a model with bounded host residency.
+
+    Args:
+        model: Materialized destination model.
+        path: Local safetensors checkpoint path.
+
+    Returns:
+        The destination model with checkpoint weights loaded.
+
+    Raises:
+        RuntimeError: Checkpoint keys or tensor shapes do not match the model.
+    """
+    model_state = model.state_dict()
+    checkpoint_fd = os.open(path, os.O_RDONLY)
+    evict_interval = 512 * 1024**2
+    bytes_since_evict = 0
+
+    def evict_checkpoint_pages() -> None:
+        if not hasattr(os, "posix_fadvise") or not hasattr(os, "POSIX_FADV_DONTNEED"):
+            return
+        try:
+            os.posix_fadvise(checkpoint_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        except OSError as exc:
+            logger.warning(f"Could not evict checkpoint page cache for {path}: {exc}")
+
+    try:
+        with safe_open(path, framework="pt", device="cpu", backend="mmap") as source:
+            checkpoint_keys = set(source.keys())
+            model_keys = set(model_state)
+            missing = sorted(model_keys - checkpoint_keys)
+            unexpected = sorted(checkpoint_keys - model_keys)
+            if missing or unexpected:
+                details = []
+                if missing:
+                    details.append(f"Missing key(s): {', '.join(missing[:20])}")
+                if unexpected:
+                    details.append(f"Unexpected key(s): {', '.join(unexpected[:20])}")
+                raise RuntimeError(
+                    f"Checkpoint does not match {type(model).__name__}: "
+                    + "; ".join(details)
+                )
+
+            for name, destination in model_state.items():
+                source_shape = tuple(source.get_slice(name).get_shape())
+                if source_shape != tuple(destination.shape):
+                    raise RuntimeError(
+                        f"Checkpoint tensor {name!r} has shape {source_shape}, "
+                        f"expected {tuple(destination.shape)}"
+                    )
+
+            with torch.no_grad():
+                for name, destination in model_state.items():
+                    tensor = source.get_tensor(name)
+                    destination.copy_(tensor)
+                    bytes_since_evict += tensor.numel() * tensor.element_size()
+                    del tensor
+                    if bytes_since_evict >= evict_interval:
+                        evict_checkpoint_pages()
+                        bytes_since_evict = 0
+    finally:
+        evict_checkpoint_pages()
+        os.close(checkpoint_fd)
+
+    return model
+
+
+def _resolve_streamable_safetensors_path(
+    checkpoint_path: str,
+    *,
+    local_cache_dir: str,
+    checkpoint_min_free_gb: float | None,
+) -> str | None:
+    """Resolve a locally available safetensors file for streaming model loads.
+
+    Args:
+        checkpoint_path: Local path, S3 URI, or Hugging Face URL.
+        local_cache_dir: Directory for S3 and merged-safetensors caches.
+        checkpoint_min_free_gb: Optional Hugging Face cache-space requirement.
+
+    Returns:
+        Local safetensors path, or ``None`` when materialization is still required.
+    """
+    if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
+        if checkpoint_path.startswith("s3://"):
+            return None
+        cache_path = _sharded_safetensors_merge_cache_path(
+            checkpoint_path, local_cache_dir
+        )
+        if os.path.exists(cache_path):
+            logger.info(f"Streaming merged sharded checkpoint from cache: {cache_path}")
+            return cache_path
+        return None
+
+    if _get_checkpoint_extension(checkpoint_path) != ".safetensors":
+        return None
+    if _is_huggingface_checkpoint_url(checkpoint_path):
+        return _download_checkpoint_from_huggingface_url(
+            checkpoint_path,
+            checkpoint_min_free_gb=checkpoint_min_free_gb,
+        )
+    if checkpoint_path.startswith("s3://"):
+        cache_path = os.path.join(
+            local_cache_dir, checkpoint_path.removeprefix("s3://")
+        )
+        return cache_path if os.path.exists(cache_path) else None
+    return checkpoint_path
 
 
 def _load_checkpoint_from_s3(
@@ -837,8 +949,9 @@ def load_checkpoint(
     Args:
         checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
             DCP directory.
-        model: Model to load weights into. Required for DCP. Optional for
-            single-file: when provided, ``load_state_dict`` is called.
+        model: Model to load weights into. Required for DCP. Cached
+            safetensors are streamed into a provided model; other single-file
+            formats use ``load_state_dict``.
         checkpoint_type: ``"auto"``, ``"single"``, or ``"distributed"``.
         local_cache_dir: Directory for caches.
         credential_path: S3 credentials path.
@@ -873,6 +986,16 @@ def load_checkpoint(
                 checkpoint_type = "distributed"
 
     if checkpoint_type == "single":
+        if model is not None:
+            stream_path = _resolve_streamable_safetensors_path(
+                checkpoint_path,
+                local_cache_dir=local_cache_dir,
+                checkpoint_min_free_gb=checkpoint_min_free_gb,
+            )
+            if stream_path is not None:
+                _stream_safetensors_into_model(model, stream_path)
+                logger.info(f"Streamed checkpoint into model: {checkpoint_path}")
+                return model
         state_dict = load_single_checkpoint(
             checkpoint_path=checkpoint_path,
             local_cache_dir=local_cache_dir,

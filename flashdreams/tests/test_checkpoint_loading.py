@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Checkpoint loading behavior tests."""
+
+import importlib
+
+import pytest
+import torch
+from safetensors.torch import save_file as save_safetensors_file
+
+pytestmark = pytest.mark.ci_cpu
+
+
+def test_local_safetensors_uses_file_backed_loader(monkeypatch, tmp_path) -> None:
+    """Load local safetensors without materializing the file as bytes."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    checkpoint_path = tmp_path / "weights.safetensors"
+    expected = {"weight": torch.ones(2)}
+    calls: list[tuple[str, str]] = []
+
+    def fake_load_file(path: str, *, device: str) -> dict[str, torch.Tensor]:
+        calls.append((path, device))
+        return expected
+
+    def reject_bytes_load(_data: bytes) -> dict[str, torch.Tensor]:
+        pytest.fail("safetensors checkpoints must use the file-backed loader")
+
+    monkeypatch.setattr(checkpoint_load, "load_safetensors_file", fake_load_file)
+    monkeypatch.setattr(checkpoint_load, "load_safetensors", reject_bytes_load)
+
+    actual = checkpoint_load.load_single_checkpoint(
+        str(checkpoint_path), map_location=torch.device("cpu")
+    )
+
+    assert actual is expected
+    assert calls == [(str(checkpoint_path), "cpu")]
+
+
+def test_safetensors_model_load_streams_without_full_state_dict(
+    monkeypatch, tmp_path
+) -> None:
+    """Stream safetensors tensors directly into a materialized model."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    checkpoint_path = tmp_path / "weights.safetensors"
+    expected = torch.arange(6, dtype=torch.float32).view(2, 3)
+    save_safetensors_file({"weight": expected}, checkpoint_path)
+    model = torch.nn.Linear(3, 2, bias=False)
+
+    def reject_full_load(*_args, **_kwargs) -> None:
+        pytest.fail("model loads must not materialize the complete state dict")
+
+    monkeypatch.setattr(checkpoint_load, "load_safetensors_file", reject_full_load)
+
+    actual = checkpoint_load.load_checkpoint(str(checkpoint_path), model=model)
+
+    assert actual is model
+    torch.testing.assert_close(model.weight, expected)

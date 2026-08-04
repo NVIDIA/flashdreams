@@ -76,6 +76,7 @@ PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
                 in_dim=16 + 4 + 16,
             ),
             checkpoint_path=LINGBOT_WORLD_V1_CHECKPOINT_PATH,
+            stream_checkpoint=True,
             # Single-rollout layout: tensors flow through the stack as
             # ``[T, C, H, W]`` (or ``[T, ...]``) with no leading batch/view dim.
             batch_shape=(),
@@ -136,7 +137,8 @@ RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunnerConfig(
 )
 
 # LingBot-World v2 uses the same architecture and runtime as v1. The
-# transformer checkpoint is the only model-level substitution.
+# transformer checkpoint is the only model-level substitution; it inherits
+# the bounded checkpoint loader from the v1 base config.
 PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST = derive_config(
     PIPELINE_LINGBOT_WORLD_FAST,
     name="lingbot-world-v2-14b-causal-fast",
