@@ -29,8 +29,8 @@ from omnidreams.webrtc.session import (
 
 import flashdreams.plugins.registry as plugin_registry
 from flashdreams.infra.postprocess import (
-    VideoPostProcessorConfig,
     VideoPostprocessChainConfig,
+    VideoPostProcessorConfig,
 )
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
@@ -98,6 +98,15 @@ class _FakeVideoEncoder:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _json_response_payload(response: web.StreamResponse) -> dict[str, Any]:
+    assert isinstance(response, web.Response)
+    text = response.text
+    assert text is not None
+    payload = json.loads(text)
+    assert isinstance(payload, dict)
+    return payload
 
 
 def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
@@ -757,7 +766,7 @@ async def test_postprocess_options_hide_unlaunched_presets() -> None:
     request = make_mocked_request("GET", "/api/postprocess/options", app=app)
 
     response = await webrtc_server._postprocess_options(request)
-    payload = json.loads(response.text)
+    payload = _json_response_payload(response)
 
     assert payload == {"default_preset": "", "presets": []}
 
@@ -775,7 +784,7 @@ async def test_postprocess_options_exposes_only_launch_preset() -> None:
     request = make_mocked_request("GET", "/api/postprocess/options", app=app)
 
     response = await webrtc_server._postprocess_options(request)
-    payload = json.loads(response.text)
+    payload = _json_response_payload(response)
 
     assert payload == {
         "default_preset": "launched-preset",

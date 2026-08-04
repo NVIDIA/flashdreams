@@ -313,7 +313,7 @@ def _empty_output_like(canonical: Tensor, *, spec: VideoSpec) -> Tensor:
 
 def _load_video_super_res_class() -> Any:
     try:
-        from nvvfx import (  # ty: ignore[unresolved-import]  # noqa: PLC0415
+        from nvvfx import (  # noqa: PLC0415
             VideoSuperRes,
         )
     except ImportError as exc:
