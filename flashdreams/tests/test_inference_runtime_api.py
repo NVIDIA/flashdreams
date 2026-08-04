@@ -390,8 +390,10 @@ def _drive_two_step_session(
                     or TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
                     source_schema=source_schema,
                 ),
+                # The global slot stays empty in steady state. A mapping that
+                # sees ``canonical_inputs.has_global_change`` fills it via
+                # ``with_global_update`` to request a mid-rollout swap.
                 inference_input=InferenceInput(
-                    global_conditioning=initial_inputs.global_conditioning,
                     step={"chunk_index": request.step_index},
                 ),
                 request=request,

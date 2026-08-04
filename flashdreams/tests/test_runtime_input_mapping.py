@@ -16,12 +16,11 @@ from typing import Any
 import pytest
 
 from flashdreams.runtime import (
-    CONDITIONING_FRAME,
-    CONDITIONING_PROMPT,
     DRIVER_COMMAND,
     SESSION_START_ONLY,
     CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalModality,
     IdentityInputMapping,
     InferenceInput,
     InferenceInputSchema,
@@ -57,18 +56,20 @@ BROWSER_SOURCE = UserInputSchema(
     description="browser webrtc client",
 )
 
-CANONICAL_ALL = CanonicalInputSchema(
-    modalities=(CONDITIONING_PROMPT, CONDITIONING_FRAME, DRIVER_COMMAND)
+CAMERA_LOOK = CanonicalModality(
+    name="camera_look", payload_fields=frozenset({"yaw", "pitch"})
 )
 
+CANONICAL_ALL = CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_LOOK))
+
+# Global conditioning is application-owned and does not come from a canonical
+# modality, so this mapping consumes nothing and only declares what it produces.
 PROMPT_MAPPING = InputMappingSchema(
     name="prompt",
-    consumes=(CONDITIONING_PROMPT,),
     produces_global=(InputField(name="prompt", semantic_type="text"),),
 )
 FRAME_MAPPING = InputMappingSchema(
     name="conditioning-frame",
-    consumes=(CONDITIONING_FRAME,),
     produces_global=(InputField(name="global_conditioning_frame", required=False),),
 )
 STEERING_MAPPING = InputMappingSchema(
@@ -76,15 +77,20 @@ STEERING_MAPPING = InputMappingSchema(
     consumes=(DRIVER_COMMAND,),
     produces_step=(InputField(name="steering"),),
 )
+LOOK_MAPPING = InputMappingSchema(
+    name="camera-look",
+    consumes=(CAMERA_LOOK,),
+    produces_step=(InputField(name="camera_delta", required=False),),
+)
 
 DRIVING_MODEL = InferenceInputSchema(
     global_fields=(
         InputField(name="prompt", semantic_type="text", lifecycle="cache_init"),
-        InputField(
-            name="global_conditioning_frame", required=False, lifecycle="cache_init"
-        ),
     ),
-    step_fields=(InputField(name="steering", lifecycle="step_input"),),
+    step_fields=(
+        InputField(name="steering", lifecycle="step_input"),
+        InputField(name="camera_delta", required=False, lifecycle="step_input"),
+    ),
 )
 
 
@@ -195,9 +201,7 @@ def test_model_declares_required_and_optional_fields_per_phase() -> None:
         ("global", "prompt"),
         ("step", "steering"),
     }
-    assert {(phase, f.name) for phase, f in optional} == {
-        ("global", "global_conditioning_frame")
-    }
+    assert {(phase, f.name) for phase, f in optional} == {("step", "camera_delta")}
 
 
 def test_required_fields_can_be_filtered_by_phase() -> None:
@@ -254,7 +258,7 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
     compatibility = check_mapping_set_compatibility(
         canonical_schema=CANONICAL_ALL,
         inference_input_schema=DRIVING_MODEL,
-        mapping_schemas=(PROMPT_MAPPING, FRAME_MAPPING, STEERING_MAPPING),
+        mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING, LOOK_MAPPING),
     )
 
     assert compatibility.can_drive
@@ -263,7 +267,7 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
         ("step", "steering"),
     }
     assert {(p, f.name) for p, f in compatibility.available_optional_model_fields} == {
-        ("global", "global_conditioning_frame")
+        ("step", "camera_delta")
     }
 
 
@@ -281,10 +285,10 @@ def test_missing_required_model_field_blocks_the_run() -> None:
 
 
 def test_missing_source_capability_is_reported_when_it_blocks() -> None:
-    prompt_only = CanonicalInputSchema(modalities=(CONDITIONING_PROMPT,))
+    no_wheel = CanonicalInputSchema(modalities=(CAMERA_LOOK,))
 
     compatibility = check_mapping_set_compatibility(
-        canonical_schema=prompt_only,
+        canonical_schema=no_wheel,
         inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING),
     )
@@ -296,18 +300,16 @@ def test_missing_source_capability_is_reported_when_it_blocks() -> None:
 
 def test_unfeedable_optional_mapping_degrades_instead_of_vetoing() -> None:
     """Losing a mapping that fed only optional fields must not block the run."""
-    no_frame_source = CanonicalInputSchema(
-        modalities=(CONDITIONING_PROMPT, DRIVER_COMMAND)
-    )
+    no_look = CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
 
     compatibility = check_mapping_set_compatibility(
-        canonical_schema=no_frame_source,
+        canonical_schema=no_look,
         inference_input_schema=DRIVING_MODEL,
-        mapping_schemas=(PROMPT_MAPPING, FRAME_MAPPING, STEERING_MAPPING),
+        mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING, LOOK_MAPPING),
     )
 
     assert compatibility.can_drive
-    assert compatibility.unavailable_mapping_names == ("conditioning-frame",)
+    assert compatibility.unavailable_mapping_names == ("camera-look",)
     # The dropped mapping's field must not be advertised as available.
     assert compatibility.available_optional_model_fields == ()
 
@@ -329,7 +331,6 @@ def test_lifecycle_disagreement_blocks_a_field_match() -> None:
     )
     mapping = InputMappingSchema(
         name="prompt",
-        consumes=(CONDITIONING_PROMPT,),
         produces_global=(InputField(name="prompt", lifecycle="cache_init"),),
     )
 
@@ -356,7 +357,7 @@ def test_unspecified_lifecycle_stays_permissive() -> None:
 
 def test_raise_if_incompatible_names_both_failure_kinds() -> None:
     compatibility = check_mapping_set_compatibility(
-        canonical_schema=CanonicalInputSchema(modalities=(CONDITIONING_PROMPT,)),
+        canonical_schema=CanonicalInputSchema(modalities=(CAMERA_LOOK,)),
         inference_input_schema=DRIVING_MODEL,
         mapping_schemas=(PROMPT_MAPPING, STEERING_MAPPING),
     )
@@ -396,10 +397,7 @@ def test_check_mapping_compatibility_rejects_a_non_schema() -> None:
 def test_combining_mappings_unions_their_surfaces() -> None:
     combined = combine_mapping_schemas((PROMPT_MAPPING, STEERING_MAPPING))
 
-    assert {m.name for m in combined.consumes} == {
-        "conditioning_prompt",
-        "driver_command",
-    }
+    assert {m.name for m in combined.consumes} == {"driver_command"}
     assert [f.name for f in combined.produces_global] == ["prompt"]
     assert [f.name for f in combined.produces_step] == ["steering"]
 
@@ -558,3 +556,18 @@ def test_undeclared_global_values_are_left_to_the_adapter() -> None:
     update = InferenceInput(global_conditioning={"mystery": 1})
 
     assert schema.unsupported_global_updates(update) == ()
+
+
+def test_steady_state_steps_do_not_request_a_global_update() -> None:
+    """Carrying session-start conditioning forward would look like an update."""
+    started = InferenceInput(global_conditioning={"prompt": "drive"})
+
+    steady_state = InferenceInput(step={"chunk_index": 1})
+
+    assert started.requests_global_update
+    assert not steady_state.requests_global_update
+    assert (
+        not started.with_step({"chunk_index": 1})
+        .without_global_update()
+        .requests_global_update
+    )

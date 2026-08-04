@@ -8,14 +8,11 @@ intentionally additive while integrations migrate onto it.
 """
 
 from flashdreams.runtime.canonical import (
-    CONDITIONING_FRAME,
-    CONDITIONING_PROMPT,
     DRIVER_COMMAND,
     DeviceConverter,
     DeviceConverterSchema,
     InputCanonicalizer,
     KeyboardToDriverCommand,
-    LatestEventToModality,
 )
 from flashdreams.runtime.config import ExecutionBackend, InferenceConfig, Precision
 from flashdreams.runtime.inputs import (
@@ -67,8 +64,6 @@ __all__ = [
     "check_mapping_compatibility",
     "check_mapping_set_compatibility",
     "combine_mapping_schemas",
-    "CONDITIONING_FRAME",
-    "CONDITIONING_PROMPT",
     "DeclaresMappingSchema",
     "DeviceConverter",
     "DeviceConverterSchema",
@@ -88,7 +83,6 @@ __all__ = [
     "InputMappingSchema",
     "InputPhase",
     "KeyboardToDriverCommand",
-    "LatestEventToModality",
     "MappingCompatibility",
     "MetricsRecorder",
     "ModelAdapter",

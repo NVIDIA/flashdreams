@@ -16,17 +16,16 @@ from typing import Any
 import pytest
 
 from flashdreams.runtime import (
-    CONDITIONING_PROMPT,
     DRIVER_COMMAND,
     CanonicalInputs,
     CanonicalModality,
     DeviceConverterSchema,
+    InferenceInput,
     InferenceInputSchema,
     InputCanonicalizer,
     InputField,
     InputMappingSchema,
     KeyboardToDriverCommand,
-    LatestEventToModality,
     TimeWindow,
     UserInputCapability,
     UserInputEvent,
@@ -125,8 +124,8 @@ def _key(event_type: str, key: str, timestamp_s: float) -> UserInputEvent:
 
 
 def _command(canonical: CanonicalInputs) -> Mapping[str, Any]:
-    assert DRIVER_COMMAND.name in canonical.per_step
-    return canonical.per_step[DRIVER_COMMAND.name]
+    assert DRIVER_COMMAND.name in canonical.values
+    return canonical.values[DRIVER_COMMAND.name]
 
 
 # --- per-step conditioning ----------------------------------------------
@@ -194,51 +193,12 @@ def test_reset_drops_device_state() -> None:
     assert _command(after)["throttle"] == 0.0
 
 
-# --- global conditioning ------------------------------------------------
+# --- boundary: global conditioning is not canonicalized -----------------
 
 
-def test_global_conditioning_is_emitted_only_when_it_changes() -> None:
-    """A quiet window must not look like a repeated update request."""
-    canonicalizer = InputCanonicalizer(
-        [LatestEventToModality(modality=CONDITIONING_PROMPT, event_type="prompt_set")]
-    )
-    inputs = UserInputs(
-        events=(
-            UserInputEvent(
-                timestamp_s=0.2, event_type="prompt_set", payload={"prompt": "rain"}
-            ),
-        )
-    )
-
-    changed = canonicalizer.canonicalize(
-        inputs, window=WINDOW, source_schema=PROMPT_SOURCE
-    )
-    quiet = canonicalizer.canonicalize(
-        inputs, window=NEXT_WINDOW, source_schema=PROMPT_SOURCE
-    )
-
-    assert changed.has_global_change
-    assert changed.global_conditioning["conditioning_prompt"]["prompt"] == "rain"
-    assert not quiet.has_global_change
-
-
-def test_global_converter_rejects_a_per_step_modality() -> None:
-    with pytest.raises(ValueError, match="global conditioning"):
-        LatestEventToModality(modality=DRIVER_COMMAND, event_type="wheel_axis")
-
-
-def test_global_and_per_step_land_in_separate_slots() -> None:
-    canonicalizer = InputCanonicalizer(
-        [
-            KeyboardToDriverCommand(),
-            LatestEventToModality(
-                modality=CONDITIONING_PROMPT, event_type="prompt_set"
-            ),
-        ]
-    )
-    source = UserInputSchema(
-        capabilities=KEYBOARD_SOURCE.capabilities + PROMPT_SOURCE.capabilities
-    )
+def test_canonical_inputs_carry_live_control_only() -> None:
+    """Global conditioning is application-owned and bypasses this layer."""
+    canonicalizer = InputCanonicalizer([KeyboardToDriverCommand()])
     inputs = UserInputs(
         events=(
             _key("key_down", "w", 0.1),
@@ -248,10 +208,21 @@ def test_global_and_per_step_land_in_separate_slots() -> None:
         )
     )
 
-    canonical = canonicalizer.canonicalize(inputs, window=WINDOW, source_schema=source)
+    canonical = canonicalizer.canonicalize(
+        inputs, window=WINDOW, source_schema=KEYBOARD_SOURCE
+    )
 
-    assert set(canonical.per_step) == {"driver_command"}
-    assert set(canonical.global_conditioning) == {"conditioning_prompt"}
+    assert set(canonical.values) == {"driver_command"}
+
+
+def test_application_supplies_global_conditioning_directly() -> None:
+    """A prompt swap reaches the session without touching canonicalization."""
+    update = InferenceInput(step={"steering": 0.0}).with_global_update(
+        {"prompt": "heavy rain"}
+    )
+
+    assert update.requests_global_update
+    assert update.global_conditioning["prompt"] == "heavy rain"
 
 
 # --- device independence ------------------------------------------------
@@ -434,7 +405,7 @@ def test_new_modality_is_a_registration_not_a_core_change() -> None:
         window=WINDOW,
         source_schema=source,
     )
-    assert canonical.per_step["pedal_state"]["throttle"] == pytest.approx(0.75)
+    assert canonical.values["pedal_state"]["throttle"] == pytest.approx(0.75)
 
 
 def test_replaying_the_same_windows_reproduces_the_same_canonical_inputs() -> None:

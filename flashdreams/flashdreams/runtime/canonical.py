@@ -15,9 +15,9 @@ still means full throttle. Feed windows in session order and call
 :meth:`InputCanonicalizer.reset` at a rollout boundary; replaying the same
 window sequence then reproduces the same canonical inputs.
 
-Global-conditioning converters behave differently on purpose. They emit only
-when a value actually changed in the window, so a downstream non-empty global
-slot means "update this", not "re-apply it every step".
+This layer covers live user control only. Global conditioning such as a prompt
+or conditioning frame is application-owned and reaches ``InferenceInput``
+directly, without passing through canonicalization.
 """
 
 from __future__ import annotations
@@ -87,34 +87,18 @@ class DeviceConverter(Protocol):
         """Return the modality value for ``window``, or ``None`` if inactive.
 
         ``user_inputs`` is already filtered to ``window``. Returning ``None``
-        lets a present-but-idle device yield to a lower-priority one, and lets a
-        global-conditioning converter stay silent when nothing changed.
+        lets a present-but-idle device yield to a lower-priority one.
         """
         ...
 
 
 DRIVER_COMMAND = CanonicalModality(
     name="driver_command",
-    phase="step",
     payload_fields=frozenset({"throttle", "brake", "steer", "stop", "reverse"}),
     description=(
         "Normalized driving intent. throttle/brake are in [0, 1], steer is in "
         "[-1, 1] with positive meaning left."
     ),
-)
-
-CONDITIONING_PROMPT = CanonicalModality(
-    name="conditioning_prompt",
-    phase="global",
-    payload_fields=frozenset({"prompt"}),
-    description="Global conditioning prompt; may change mid-rollout.",
-)
-
-CONDITIONING_FRAME = CanonicalModality(
-    name="conditioning_frame",
-    phase="global",
-    payload_fields=frozenset({"image"}),
-    description="Global conditioning frame; may change mid-rollout.",
 )
 
 
@@ -189,70 +173,6 @@ class KeyboardToDriverCommand:
                 "steer": steer,
                 "stop": "space" in pressed,
                 "reverse": False,
-            }
-        )
-
-
-class LatestEventToModality:
-    """Emit a global-conditioning modality when its source event fires.
-
-    Global conditioning is transient by design: this returns ``None`` in windows
-    where nothing changed, so downstream code only sees an update request when
-    the user actually changed something.
-    """
-
-    def __init__(
-        self,
-        *,
-        modality: CanonicalModality,
-        event_type: str,
-        payload_fields: frozenset[str] | None = None,
-        name: str | None = None,
-        device_kind: str | None = None,
-        priority: int = 0,
-    ) -> None:
-        if modality.phase != "global":
-            raise ValueError(
-                "LatestEventToModality is for global conditioning; "
-                f"{modality.name!r} declares phase {modality.phase!r}."
-            )
-        self._modality = modality
-        self._event_type = event_type
-        fields = modality.payload_fields if payload_fields is None else payload_fields
-        self._schema = DeviceConverterSchema(
-            name=name or f"{event_type}-to-{modality.name}",
-            produces=modality,
-            device_kind=device_kind,
-            priority=priority,
-            consumes=(
-                UserInputCapability(event_type=event_type, payload_fields=fields),
-            ),
-        )
-
-    @property
-    def schema(self) -> DeviceConverterSchema:
-        return self._schema
-
-    def reset(self) -> None:
-        return None
-
-    def convert(
-        self,
-        user_inputs: UserInputs,
-        window: TimeWindow,
-    ) -> Mapping[str, Any] | None:
-        del window
-        latest = None
-        for event in user_inputs.events:
-            if event.event_type == self._event_type:
-                latest = event
-        if latest is None:
-            return None
-        return self._modality.value(
-            {
-                name: latest.payload[name]
-                for name in self._modality.payload_fields
-                if name in latest.payload
             }
         )
 
@@ -353,22 +273,17 @@ class InputCanonicalizer:
         returned a value wins.
         """
         windowed = user_inputs.window(window)
-        by_phase: dict[str, dict[str, Any]] = {"global": {}, "step": {}}
+        values: dict[str, Any] = {}
         sources: dict[str, str] = {}
         for converter in self.converters_for(source_schema):
             value = converter.convert(windowed, window)
             modality = converter.schema.produces
-            slot = by_phase[modality.phase]
-            if value is not None and modality.name not in slot:
-                slot[modality.name] = value
+            if value is not None and modality.name not in values:
+                values[modality.name] = value
                 if converter.schema.device_kind is not None:
                     sources[modality.name] = converter.schema.device_kind
 
         metadata: dict[str, Any] = {}
         if sources:
             metadata["canonical_sources"] = freeze_mapping(sources)
-        return CanonicalInputs(
-            global_conditioning=by_phase["global"],
-            per_step=by_phase["step"],
-            metadata=metadata,
-        )
+        return CanonicalInputs(values=values, metadata=metadata)

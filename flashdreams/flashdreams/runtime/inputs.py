@@ -369,13 +369,12 @@ class CanonicalModality:
     modalities; they never read raw device events, so adding a new device is a
     converter registration rather than an application change.
 
-    ``phase`` says which conditioning slot the modality feeds: ``"global"`` for
-    one-shot rollout conditioning such as a prompt or conditioning frame, and
-    ``"step"`` for per-step conditioning such as steering.
+    Modalities describe live user control only. Global conditioning such as a
+    prompt or conditioning frame is application-owned and reaches
+    :class:`InferenceInput` directly, without passing through this layer.
     """
 
     name: str
-    phase: InputPhase = "step"
     payload_fields: frozenset[str] = field(default_factory=frozenset)
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
@@ -387,7 +386,6 @@ class CanonicalModality:
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("CanonicalModality.name must be non-empty.")
-        object.__setattr__(self, "phase", validate_phase(self.phase))
         for payload_field in self.payload_fields:
             if not payload_field.strip():
                 raise ValueError("payload field names must be non-empty.")
@@ -395,10 +393,8 @@ class CanonicalModality:
 
     def is_satisfied_by(self, provider: "CanonicalModality") -> bool:
         """Return whether ``provider`` can satisfy this consumed modality."""
-        return (
-            self.name == provider.name
-            and self.phase == provider.phase
-            and self.payload_fields.issubset(provider.payload_fields)
+        return self.name == provider.name and self.payload_fields.issubset(
+            provider.payload_fields
         )
 
     def value(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -423,50 +419,25 @@ class CanonicalInputSchema:
         """Return whether this source can supply ``modality``."""
         return any(modality.is_satisfied_by(provided) for provided in self.modalities)
 
-    def modalities_for(self, phase: InputPhase) -> tuple[CanonicalModality, ...]:
-        """Return supplied modalities feeding ``phase``."""
-        validate_phase(phase)
-        return tuple(
-            modality for modality in self.modalities if modality.phase == phase
-        )
-
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CanonicalInputs:
-    """Canonicalized user input for one step, split by conditioning slot.
+    """Canonicalized user input for one step, keyed by modality name.
 
-    ``per_step`` is level-triggered and normally present every step: a key held
-    down emits no events but still means full throttle. ``global_conditioning``
-    is transient and populated only when a value actually changed in this
-    window, which is what makes a non-empty global slot downstream mean "update
-    this" rather than "re-apply every step".
+    Values are level-triggered and normally present every step: a key held down
+    emits no events but still means full throttle. Global conditioning does not
+    appear here; it is application-owned and reaches :class:`InferenceInput`
+    directly.
     """
 
     __hash__ = None
 
-    global_conditioning: Mapping[str, Any] = field(default_factory=dict)
-    per_step: Mapping[str, Any] = field(default_factory=dict)
+    values: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "global_conditioning", freeze_mapping(self.global_conditioning)
-        )
-        object.__setattr__(self, "per_step", freeze_mapping(self.per_step))
+        object.__setattr__(self, "values", freeze_mapping(self.values))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
-
-    @property
-    def has_global_change(self) -> bool:
-        """Return whether a global conditioning value changed in this window."""
-        return bool(self.global_conditioning)
-
-    def for_phase(self, phase: InputPhase) -> Mapping[str, Any]:
-        """Return the canonical payload for ``phase``."""
-        return (
-            self.global_conditioning
-            if validate_phase(phase) == "global"
-            else self.per_step
-        )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

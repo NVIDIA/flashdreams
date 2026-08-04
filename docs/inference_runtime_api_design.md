@@ -108,10 +108,8 @@ App / integration / benchmark / transport
   v
 ModelRunner / standard loop
   orchestrates validation, lifecycle, stepping, output, and metrics
-  canonicalizes raw UserInputs into device-independent CanonicalInputs,
-    so applications and mappings never read raw device events
   uses input mapping to:
-    validate that canonical inputs can drive the model
+    validate that user/app inputs can drive the model
     build global and per-step InferenceInput during the run
   |
   v

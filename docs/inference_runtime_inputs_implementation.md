@@ -44,6 +44,12 @@ events: `InputMapping.map_step_inputs` takes `canonical_inputs`, not
 Adding a keyboard, gamepad, or wheel is an `InputCanonicalizer.register` call
 that touches no application, mapping, or model code.
 
+This path covers **live user control only**. Global conditioning is
+application-owned data and reaches `InferenceInput` directly, without passing
+through canonicalization or a device converter. An application that wants a
+trigger key to swap the prompt reads that as ordinary canonical control input
+and updates its own global conditioning in response.
+
 ## Conditioning Slots
 
 Both the canonical and encoded layers split into two slots, and the split means
@@ -100,11 +106,10 @@ schema.unsupported_global_updates(
 in that vocabulary, and all of `lifecycle`, is open and adapter-owned; this layer
 only carries it as queryable metadata.
 
-The canonical layer mirrors this. Per-step converters emit every window, because
-per-step conditioning is level-triggered: a key held across a step emits no
-events but still means full throttle. Global-conditioning converters emit *only*
-when a value changed, so a quiet window does not look like a repeated update
-request.
+Steady-state steps must leave the global slot empty; otherwise every step reads
+as an update request. Converters emit every window, because live control is
+level-triggered: a key held across a step emits no events but still means full
+throttle.
 
 ## Raw Inputs
 
@@ -134,8 +139,8 @@ fields, so schemas written before capabilities existed keep working.
 
 ## Canonical Modalities
 
-A `CanonicalModality` is a device-independent input: a name, a phase, and the
-payload fields it guarantees. Converters implement `DeviceConverter`, declaring
+A `CanonicalModality` is a device-independent input: a name and the payload
+fields it guarantees. Converters implement `DeviceConverter`, declaring
 what raw capabilities they consume and which modality they produce.
 
 ```python
@@ -149,15 +154,13 @@ canonicalizer.register(WheelToDriverCommand())      # a wheel is one call
 canonical = canonicalizer.canonicalize(
     user_inputs, window=TimeWindow(start_s=0.0, end_s=1.0), source_schema=browser
 )
-canonical.per_step["driver_command"]["throttle"]
+canonical.values["driver_command"]["throttle"]
 ```
 
-Shipped modalities are `DRIVER_COMMAND` (step), `CONDITIONING_PROMPT` and
-`CONDITIONING_FRAME` (global). `KeyboardToDriverCommand` reuses
+`DRIVER_COMMAND` is the one shipped modality. `KeyboardToDriverCommand` reuses
 `KeyboardState`/`normalize_key` from `flashdreams.serving.realtime.input` and
 mirrors the semantics the Omnidreams interactive-drive keyboard backend already
-has. `LatestEventToModality` is the general global-conditioning converter and
-rejects a per-step modality at construction.
+has.
 
 Converters are stateful, so feed windows in session order and call
 `InputCanonicalizer.reset()` at a rollout boundary. Replaying the same window
@@ -232,13 +235,25 @@ Tracked against the runtime API discussion, not yet settled:
   required set, so "accepts `{prompt}` OR `{prompt, conditioning_frame}`" cannot
   be expressed. `MappingCompatibility.missing_required_model_fields` assumes a
   single required set too.
-- **Who owns encoding.** Whether text/image embedding happens app-side (a
-  `publish_input<arg>(modality) -> Tensor` handler) or model-side. This does not
-  change what `InputMappingSchema` declares — a mapping consumes canonical
-  modalities either way — but it decides whether `InferenceInput` payloads hold
-  tensors or canonical values.
 - **`step()` returning a future**, for models with a dependency on their own
   output. `InferenceSession.step()` is currently synchronous.
+- **`Input System` ownership.** The diagrams show it pulling events and
+  supporting mock input, so the Application has-a input system.
+  `InputCanonicalizer` is currently a pure function over a supplied window and
+  owns no source. This is the one deferred item inside the input scope.
+
+## Owned Elsewhere
+
+Named here only so the boundary is explicit; these are not gaps in the input
+layer:
+
+- **`FrameStream`**, which the architecture diagrams place between
+  `InferenceSession` and `Output Target`. The code writes `StepResult` straight
+  to `OutputTarget.write()`. Output shape is T5.
+- **Declared output modalities**, so an output target or quality-eval can state
+  what it requires and be matched the way inputs now are. T5/T8.
+- **`Application`**, the class that has-a input system, input map, global
+  conditioning, session, and output target. T4.
 - **Loop ownership** — whether the application or the runtime/session drives the
   main event loop, and whether inputs are queued and batched.
 
