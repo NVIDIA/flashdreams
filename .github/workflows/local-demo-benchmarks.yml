@@ -1,0 +1,151 @@
+name: Local Demo Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuda_group:
+        description: CUDA dependency group to install.
+        required: true
+        default: cuda13
+        type: choice
+        options:
+          - cuda13
+          - cuda12
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: LingBot and Omnidreams benchmarks
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+      options: --gpus all
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-local-demo-benchmark-venv
+      UV_LINK_MODE: copy
+      UV_PYTHON: "3.10"
+      MAX_JOBS: 8
+      SCENARIO_FILE: configs/deterministic_quality_benchmarks.json
+      BENCHMARK_BASELINE_DIR: artifacts/benchmarks/local-demo-baseline
+      BENCHMARK_CANDIDATE_DIR: artifacts/benchmarks/local-demo-candidate
+    steps:
+      - name: Detect GPU architecture
+        id: gpu-arch
+        run: |
+          nvidia-smi
+          compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+          arch=$(echo "${compute_cap}" | tr -d '.')
+          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+          echo "Detected GPU compute capability: ${compute_cap} -> sm_${arch}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            python3 python3-dev python3-venv \
+            ffmpeg \
+            gcc g++ ninja-build \
+            libnccl-dev \
+            curl git ca-certificates unzip jq
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "local-demo-benchmarks-${{ github.event.inputs.cuda_group }}-sm${{ steps.gpu-arch.outputs.arch }}"
+          prune-cache: false
+
+      - name: Install benchmark dependencies
+        run: |
+          uv venv --clear
+          uv sync --locked \
+            --package flashdreams \
+            --package flashdreams-lingbot \
+            --package flashdreams-omnidreams \
+            --no-dev \
+            --group "${{ github.event.inputs.cuda_group }}" \
+            --extra runners
+
+      - name: Run baseline benchmark
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          rm -rf artifacts/benchmarks
+          uv run --no-sync flashdreams-benchmark \
+            --scenario-file "${SCENARIO_FILE}" \
+            --scenario lingbot-world-fast-taehv-quality-smoke \
+            --scenario omnidreams-sv-ci-quality-smoke \
+            --scenario lingbot-world-fast-taehv-one-minute-review \
+            --scenario omnidreams-sv-one-minute-review \
+            --output-dir "${BENCHMARK_BASELINE_DIR}"
+
+      - name: Run candidate benchmark
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          uv run --no-sync flashdreams-benchmark \
+            --scenario-file "${SCENARIO_FILE}" \
+            --scenario lingbot-world-fast-taehv-quality-smoke \
+            --scenario omnidreams-sv-ci-quality-smoke \
+            --scenario lingbot-world-fast-taehv-one-minute-review \
+            --scenario omnidreams-sv-one-minute-review \
+            --quality-baseline-dir "${BENCHMARK_BASELINE_DIR}" \
+            --output-dir "${BENCHMARK_CANDIDATE_DIR}"
+
+      - name: Summarize benchmark metrics
+        if: always()
+        run: |
+          manifest="${BENCHMARK_CANDIDATE_DIR}/manifest.json"
+          {
+            echo "## Local Demo Benchmarks"
+            echo
+            echo "Scenario file: \`${SCENARIO_FILE}\`"
+            echo
+            if [ ! -f "${manifest}" ]; then
+              echo "Candidate manifest was not created."
+              exit 0
+            fi
+            echo "Candidate report: \`${BENCHMARK_CANDIDATE_DIR}/report.html\`"
+            echo
+            echo "| Scenario | Status | Wall time | Median gen FPS | Quality score | Similarity | PSNR | RMSE |"
+            echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+            jq -r '
+              def metric($key): .metric_summary[$key].median // null;
+              def fmt:
+                if . == null then "n/a"
+                elif type == "number" then
+                  if . >= 100 then ((. * 10 | round) / 10 | tostring)
+                  else ((. * 10000 | round) / 10000 | tostring)
+                  end
+                else tostring
+                end;
+              def duration:
+                if . == null then "n/a"
+                elif . >= 60 then (((. / 60 | floor) | tostring) + "m " + ((. % 60 | round) | tostring) + "s")
+                else (((. * 10 | round) / 10 | tostring) + "s")
+                end;
+              .scenarios[]
+              | "| \(.id) | \(.status) | \(.wall_time_s | duration) | \(metric("gen_fps") | fmt) | \(metric("quality_score") | fmt) | \(metric("quality_similarity_score") | fmt) | \(metric("quality_psnr_db") | fmt) | \(metric("quality_rmse") | fmt) |"
+            ' "${manifest}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-demo-benchmarks-${{ github.run_id }}
+          path: artifacts/benchmarks
+          if-no-files-found: warn
