@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+from collections.abc import Callable
 from fractions import Fraction
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -439,9 +440,9 @@ class _OrderingFakeEncoder:
     marshaling contract without needing CUDA or PyNvVideoCodec.
 
     Encoding runs on an ``asyncio.to_thread`` worker and each emitted
-    packet is delivered to the track via ``loop.call_soon_threadsafe``,
-    exactly as the real hardware encoder does. This lets us assert the
-    end-to-end ordering property without any GPU dependency.
+    packet is delivered to the track via ``run_coroutine_threadsafe``.
+    That mirrors the real hardware encoder's backpressured per-packet
+    handoff without needing any GPU dependency.
 
     The pts counter is guarded by a lock because the fire-and-forget
     test dispatches multiple ``deliver_chunk`` calls concurrently, and
@@ -474,8 +475,8 @@ class _OrderingFakeEncoder:
 
         def _encode_worker() -> None:
             # One packet per frame, monotonically-increasing pts. The
-            # per-iteration call_soon_threadsafe hand-off mirrors what
-            # PyNvHardwareEncoder does with its on_packet callback.
+            # The per-iteration run_coroutine_threadsafe hand-off mirrors
+            # what PyNvHardwareEncoder does with its on_packet callback.
             for _ in range(frames):
                 packet = Packet(b"\x00\x00\x00\x01\x67")
                 with self._pts_counter_lock:
@@ -483,10 +484,11 @@ class _OrderingFakeEncoder:
                     self._pts_counter += 1
                 packet.pts = (pts_frame_index * 90_000) // self.fps
                 packet.time_base = self._time_base
-                loop.call_soon_threadsafe(
-                    track.enqueue_encoded_packet_nowait,
-                    packet,
+                future = asyncio.run_coroutine_threadsafe(
+                    track.enqueue_encoded_packet(packet),
+                    loop,
                 )
+                future.result()
 
         await asyncio.to_thread(_encode_worker)
         return ChunkDeliveryResult(
@@ -529,6 +531,72 @@ class TestDeliverChunkOrdering:
     marshaling. They pass under the current ``await``-based design and
     would fail under a fire-and-forget rewrite.
     """
+
+    @pytest.mark.asyncio
+    async def test_hardware_deliver_streams_before_chunk_encode_returns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """First packet should reach the track while later frames encode.
+
+        This catches whole-chunk buffering regressions where the NVENC
+        callback merely appends packets to a local list and ``deliver_chunk``
+        does not enqueue anything until ``encode_chunk_sync`` has returned.
+        """
+        nvenc_mod = _install_fake_nvc(monkeypatch, MagicMock())
+        encoder = nvenc_mod.PyNvHardwareEncoder.__new__(nvenc_mod.PyNvHardwareEncoder)
+        loop = asyncio.get_running_loop()
+        first_packet_enqueued = asyncio.Event()
+        finish_encode = threading.Event()
+        encode_returned = threading.Event()
+
+        def _packet(pts: int) -> Packet:
+            packet = Packet(b"\x00\x00\x00\x01\x67")
+            packet.pts = pts
+            packet.time_base = Fraction(1, 90_000)
+            return packet
+
+        def _fake_encode_chunk_sync(
+            chunk: object,
+            *,
+            force_keyframe: bool = False,
+            on_packet: Callable[[Packet], None] | None = None,
+        ) -> tuple[int, int, float]:
+            del chunk, force_keyframe
+            assert on_packet is not None
+            on_packet(_packet(0))
+            loop.call_soon_threadsafe(first_packet_enqueued.set)
+            assert finish_encode.wait(timeout=1.0)
+            on_packet(_packet(1))
+            encode_returned.set()
+            return (2, 0, 12.5)
+
+        setattr(encoder, "encode_chunk_sync", _fake_encode_chunk_sync)
+        track = NVENCVideoTrack(fps=_ORDERING_FPS, maxsize=4)
+        deliver_task = asyncio.create_task(
+            encoder.deliver_chunk(
+                object(),
+                track,
+            )
+        )
+
+        try:
+            await asyncio.wait_for(first_packet_enqueued.wait(), timeout=1.0)
+            assert not encode_returned.is_set()
+            assert track.qsize() == 1
+            first = await asyncio.wait_for(track.recv(), timeout=1.0)
+            assert first.pts == 0
+        finally:
+            finish_encode.set()
+
+        result = await asyncio.wait_for(deliver_task, timeout=1.0)
+        assert result.backend == "pynvvideocodec"
+        assert result.num_frames == 2
+        assert result.num_keyframes == 0
+        assert result.encode_ms == 12.5
+        second = await asyncio.wait_for(track.recv(), timeout=1.0)
+        assert second.pts == 1
+        await track.close()
 
     @pytest.mark.asyncio
     async def test_sequential_await_produces_monotonic_pts(self) -> None:

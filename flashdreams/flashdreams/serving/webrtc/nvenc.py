@@ -272,21 +272,41 @@ class PyNvHardwareEncoder:
                 "PyNvHardwareEncoder requires an NVENCVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
-        packets: list[Packet] = []
+        loop = asyncio.get_running_loop()
+        emitted = 0
+        enqueued = 0
+
+        def _stream(packet: Packet) -> None:
+            nonlocal emitted, enqueued
+            emitted += 1
+            enqueue = track.enqueue_encoded_packet(packet)
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    enqueue,
+                    loop,
+                )
+            except RuntimeError:
+                enqueue.close()
+                return
+            try:
+                accepted = future.result()
+            except Exception:
+                return
+            if accepted:
+                enqueued += 1
 
         _num_frames, num_keyframes, encode_ms = await asyncio.to_thread(
             self.encode_chunk_sync,
             chunk,
             force_keyframe=force_keyframe,
-            on_packet=packets.append,
+            on_packet=_stream,
         )
-        enqueued = await track.enqueue_encoded_packets(packets)
-        if enqueued < len(packets):
+        if enqueued < emitted:
             logger.debug(
                 "NVENC track closed while enqueueing encoded chunk; "
                 "enqueued {} of {} packet(s).",
                 enqueued,
-                len(packets),
+                emitted,
             )
         return ChunkDeliveryResult(
             backend=self.backend,
