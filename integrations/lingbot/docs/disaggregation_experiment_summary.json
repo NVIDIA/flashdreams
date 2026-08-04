@@ -1,0 +1,135 @@
+{
+  "model": "lingbot-world-fast-taehv-window15-sink3",
+  "hardware": "NVIDIA H100 80GB HBM3",
+  "precision": "bfloat16",
+  "default_resolution": [464, 832],
+  "warmup_chunks": 6,
+  "measured_chunks": 5,
+  "single_session": [
+    {
+      "topology": "three-stage-disaggregated-cp1",
+      "gpu_count": 3,
+      "sessions": 1,
+      "resolution": [464, 832],
+      "aggregate_fps": 5.360631332509123,
+      "median_latency_ms": 2233.5668401792645,
+      "p90_latency_ms": 2250.7897848263383,
+      "max_required_gib_per_gpu": 56.28736877441406
+    },
+    {
+      "topology": "aggregated-cp1",
+      "gpu_count": 1,
+      "sessions": 1,
+      "resolution": [464, 832],
+      "aggregate_fps": 5.55553754894227,
+      "median_latency_ms": 2157.513060141355,
+      "p90_latency_ms": 2166.248793900013,
+      "max_required_gib_per_gpu": 66.54739189147949,
+      "memory_basis": "initialization peak"
+    },
+    {
+      "topology": "stage-disaggregated-cp4-ulysses",
+      "gpu_count": 6,
+      "sessions": 1,
+      "resolution": [464, 832],
+      "aggregate_fps": 15.695497779264775,
+      "median_latency_ms": 754.4078070059186,
+      "p90_latency_ms": 786.4595750012086,
+      "max_required_gib_per_gpu": 40.64252519607544,
+      "cp_efficiency": 0.7820537785981635
+    },
+    {
+      "topology": "stage-disaggregated-cp6-ring",
+      "gpu_count": 8,
+      "sessions": 1,
+      "resolution": [464, 832],
+      "aggregate_fps": 15.901998021609447,
+      "median_latency_ms": 743.272824001906,
+      "p90_latency_ms": 780.5990148001001,
+      "max_required_gib_per_gpu": 39.17708206176758,
+      "node_required_gib": 251.07237005233765,
+      "cp_efficiency": 0.5317502054854495
+    },
+    {
+      "topology": "aggregated-cp8-ulysses",
+      "gpu_count": 8,
+      "sessions": 1,
+      "resolution": [448, 832],
+      "aggregate_fps": 29.503035463925226,
+      "median_latency_ms": 393.33291398361325,
+      "p90_latency_ms": 434.0799169614911,
+      "max_required_gib_per_gpu": 48.26605987548828,
+      "memory_basis": "initialization peak",
+      "rollout_peak_gib_per_gpu": 40.879210472106934,
+      "node_rollout_peak_gib": 327.03368377685547,
+      "tokens_per_chunk": 4368
+    }
+  ],
+  "multi_session": [
+    {
+      "topology": "one-encoder-six-dits-one-decoder",
+      "gpu_count": 8,
+      "sessions": 6,
+      "resolution": [464, 832],
+      "aggregate_fps": 27.198381414481183,
+      "per_session_fps": 4.5330635690801975,
+      "median_wave_latency_ms": 2657.061628997326,
+      "p90_wave_latency_ms": 2671.0753187537193,
+      "max_required_gib_per_gpu": 56.5107626914978
+    },
+    {
+      "topology": "one-io-seven-dits-pooled-async",
+      "gpu_count": 8,
+      "sessions": 7,
+      "resolution": [464, 832],
+      "aggregate_fps": 35.1528845526397,
+      "per_session_fps": 5.0218406503771,
+      "median_wave_latency_ms": 2358.5133550077444,
+      "p90_wave_latency_ms": 2454.0991360030603,
+      "max_required_gib_per_gpu": 56.5107626914978,
+      "node_required_gib": 415.0186958312988,
+      "rdma_probe_gbps": 41.968
+    },
+    {
+      "topology": "eight-independent-aggregated-cp1",
+      "gpu_count": 8,
+      "sessions": 8,
+      "resolution": [464, 832],
+      "aggregate_fps": 43.43749180420828,
+      "per_session_fps": 5.544989798538596,
+      "median_wave_latency_ms": 2163.643025793135,
+      "p90_wave_latency_ms": 2205.5334428325295,
+      "max_required_gib_per_gpu": 66.54739189147949,
+      "memory_basis": "initialization peak",
+      "node_required_gib": 532.3791351318359,
+      "rollout_peak_gib_per_gpu": 59.35440921783447,
+      "node_rollout_peak_gib": 474.8352737426758
+    },
+    {
+      "topology": "three-two-rank-dit-groups-double-buffered",
+      "gpu_count": 8,
+      "sessions": 6,
+      "resolution": [464, 832],
+      "aggregate_fps": 21.16041714965187,
+      "per_session_fps": 3.526736191608645,
+      "median_wave_latency_ms": 3401.4590242877603,
+      "p90_wave_latency_ms": 3406.9314090535045,
+      "max_required_gib_per_gpu": 39.4732871055603,
+      "node_required_gib": 256.2064833641052,
+      "nvlink_probe_gbps": 344.40037308204535,
+      "fixed_batch_control_fps": 16.766955159781013,
+      "fixed_batch_control_latency_ms": 4286.9481993839145
+    }
+  ],
+  "transport": {
+    "mooncake_large_buffer_probe_gbps": 41.968,
+    "pipeline_nvlink_probe_gbps": 344.40037308204535,
+    "nixl_gpu_validation": "not run; NIXL was absent from the allocated image"
+  },
+  "comparability_notes": [
+    "All headline values exclude six warmup chunks and use five measured chunks.",
+    "Aggregated CP8 uses 832x448 and 4368 tokens; the other headline runs use 832x464 and 4524 tokens.",
+    "Multi-session aggregate FPS rows contain different numbers of concurrent sessions.",
+    "Strict matched-seed decoded-quality equivalence across every topology remains deferred."
+  ]
+}

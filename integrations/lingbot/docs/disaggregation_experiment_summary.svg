@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title description">
+  <title id="title">LingBot disaggregation latency, throughput, and memory tradeoffs</title>
+  <desc id="description">The upper chart compares single-session median latency for disaggregated and aggregated topologies. The lower chart plots multi-session aggregate throughput against the maximum required memory on any GPU.</desc>
+  <style>
+    text{font-family:Inter,Arial,sans-serif;fill:#202124}
+    .title{font-size:26px;font-weight:600}.subtitle{font-size:15px;fill:#5f6368}
+    .heading{font-size:17px;font-weight:600}.label{font-size:14px;font-weight:600}
+    .axis{font-size:12px;fill:#5f6368}.value{font-size:13px;font-weight:600}
+    .note{font-size:12px;fill:#5f6368}.grid{stroke:#dadce0;stroke-width:1}
+    .axisline{stroke:#9aa0a6;stroke-width:1.2}.disagg{fill:#4e79a7}.aggregated{fill:#f28e2b}
+  </style>
+  <rect width="1200" height="760" fill="#ffffff"/>
+
+  <text x="40" y="42" class="title">LingBot serving tradeoff: latency, throughput, and memory</text>
+  <text x="40" y="68" class="subtitle">H100 80 GB · BF16 · six warmup + five measured chunks · generated FPS</text>
+  <circle cx="930" cy="42" r="7" class="disagg"/>
+  <text x="944" y="47" class="axis">Disaggregated</text>
+  <rect x="1042" y="35" width="14" height="14" class="aggregated"/>
+  <text x="1063" y="47" class="axis">Aggregated</text>
+
+  <text x="40" y="108" class="heading">Single-session median chunk latency</text>
+  <text x="1120" y="108" class="axis" text-anchor="end">lower is better</text>
+
+  <line x1="270" y1="126" x2="270" y2="348" class="axisline"/>
+  <line x1="270" y1="348" x2="1120" y2="348" class="axisline"/>
+  <line x1="270" y1="126" x2="270" y2="348" class="grid"/>
+  <line x1="411.7" y1="126" x2="411.7" y2="348" class="grid"/>
+  <line x1="553.3" y1="126" x2="553.3" y2="348" class="grid"/>
+  <line x1="695" y1="126" x2="695" y2="348" class="grid"/>
+  <line x1="836.7" y1="126" x2="836.7" y2="348" class="grid"/>
+  <line x1="978.3" y1="126" x2="978.3" y2="348" class="grid"/>
+  <line x1="1120" y1="126" x2="1120" y2="348" class="grid"/>
+  <text x="270" y="366" class="axis" text-anchor="middle">0</text>
+  <text x="411.7" y="366" class="axis" text-anchor="middle">400</text>
+  <text x="553.3" y="366" class="axis" text-anchor="middle">800</text>
+  <text x="695" y="366" class="axis" text-anchor="middle">1200</text>
+  <text x="836.7" y="366" class="axis" text-anchor="middle">1600</text>
+  <text x="978.3" y="366" class="axis" text-anchor="middle">2000</text>
+  <text x="1120" y="366" class="axis" text-anchor="middle">2400 ms</text>
+
+  <text x="250" y="158" class="label" text-anchor="end">Stage-disagg CP1</text>
+  <rect x="270" y="138" width="791.1" height="30" rx="2" class="disagg"/>
+  <text x="1069" y="158" class="value">2234 ms</text>
+
+  <text x="250" y="208" class="label" text-anchor="end">Aggregated CP1</text>
+  <rect x="270" y="188" width="764.2" height="30" rx="2" class="aggregated"/>
+  <text x="1042" y="208" class="value">2158 ms</text>
+
+  <text x="250" y="258" class="label" text-anchor="end">Stage-disagg CP6 ring</text>
+  <rect x="270" y="238" width="263.2" height="30" rx="2" class="disagg"/>
+  <text x="541" y="258" class="value">743 ms</text>
+
+  <text x="250" y="308" class="label" text-anchor="end">Aggregated CP8 Ulysses</text>
+  <rect x="270" y="288" width="139.3" height="30" rx="2" class="aggregated"/>
+  <text x="417" y="308" class="value">393 ms</text>
+  <text x="270" y="391" class="note">CP8 used 832×448 (3.45% fewer tokens); all other rows used 832×464.</text>
+
+  <text x="40" y="438" class="heading">Concurrent-session capacity versus maximum required HBM per GPU</text>
+  <text x="1120" y="438" class="axis" text-anchor="end">higher and farther left is better</text>
+
+  <line x1="200" y1="474" x2="200" y2="696" class="axisline"/>
+  <line x1="200" y1="696" x2="1120" y2="696" class="axisline"/>
+
+  <line x1="200" y1="474" x2="1120" y2="474" class="grid"/>
+  <line x1="200" y1="518.4" x2="1120" y2="518.4" class="grid"/>
+  <line x1="200" y1="562.8" x2="1120" y2="562.8" class="grid"/>
+  <line x1="200" y1="607.2" x2="1120" y2="607.2" class="grid"/>
+  <line x1="200" y1="651.6" x2="1120" y2="651.6" class="grid"/>
+  <line x1="200" y1="696" x2="1120" y2="696" class="grid"/>
+  <text x="188" y="478" class="axis" text-anchor="end">50</text>
+  <text x="188" y="522.4" class="axis" text-anchor="end">40</text>
+  <text x="188" y="566.8" class="axis" text-anchor="end">30</text>
+  <text x="188" y="611.2" class="axis" text-anchor="end">20</text>
+  <text x="188" y="655.6" class="axis" text-anchor="end">10</text>
+  <text x="188" y="700" class="axis" text-anchor="end">0</text>
+  <text x="47" y="585" class="axis" text-anchor="middle" transform="rotate(-90 47 585)">aggregate generated FPS</text>
+
+  <line x1="200" y1="474" x2="200" y2="696" class="grid"/>
+  <line x1="430" y1="474" x2="430" y2="696" class="grid"/>
+  <line x1="660" y1="474" x2="660" y2="696" class="grid"/>
+  <line x1="890" y1="474" x2="890" y2="696" class="grid"/>
+  <line x1="1120" y1="474" x2="1120" y2="696" class="grid"/>
+  <text x="200" y="716" class="axis" text-anchor="middle">30</text>
+  <text x="430" y="716" class="axis" text-anchor="middle">40</text>
+  <text x="660" y="716" class="axis" text-anchor="middle">50</text>
+  <text x="890" y="716" class="axis" text-anchor="middle">60</text>
+  <text x="1120" y="716" class="axis" text-anchor="middle">70</text>
+  <text x="660" y="744" class="axis" text-anchor="middle">maximum required HBM on any GPU (GiB)</text>
+
+  <circle cx="417.9" cy="602.0" r="10" class="disagg"/>
+  <text x="436" y="584" class="label">2-stage DiT pipeline</text>
+  <text x="436" y="602" class="axis">6 sessions · 21.16 FPS · 39.47 GiB</text>
+
+  <circle cx="809.7" cy="539.9" r="10" class="disagg"/>
+  <text x="827" y="522" class="label">1 I/O + 7 DiTs</text>
+  <text x="827" y="540" class="axis">7 sessions · 35.15 FPS · 56.51 GiB</text>
+
+  <rect x="1030.7" y="493.1" width="20" height="20" class="aggregated"/>
+  <text x="1021" y="486" class="label" text-anchor="end">8 full pipelines</text>
+  <text x="1021" y="504" class="axis" text-anchor="end">8 sessions · 43.44 FPS · 66.55 GiB</text>
+</svg>

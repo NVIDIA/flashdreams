@@ -298,11 +298,12 @@ Both benchmarks write `benchmark.json` and a Markdown summary. They report:
   small-payload setup overhead;
 - per-stage peak GPU memory and the exact software/hardware environment.
 
-See the
-[three-stage H100 experiment report](docs/disaggregated_inference_experiment.md)
-for the tested stack, measurement method, detailed findings, Slurm
-reproduction procedure, 1:1:1 versus 1:6:1 results, component chart, and
-acceptance limitations, including the CP4/CP6 single-session comparison.
+Start with the concise
+[disaggregation experiment summary](docs/disaggregation_experiment_summary.md)
+for the deployment decision, headline data, limitations, and comparison chart.
+The [full H100 experiment record](docs/disaggregated_inference_experiment.md)
+contains the tested stack, measurement method, Slurm reproduction procedures,
+stage breakdowns, and chronological optimization findings.
 
 Mooncake is explicitly initialized with its `rdma` protocol. On a single node,
 the engine may select a topology-local GPU path; the measured effective GB/s
