@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Supported Model Input Inventory For T2/T3
+# Supported Model Input Inventory
 
 This note inventories the inputs used by the currently supported FlashDreams
 runners and interactive runtimes, plus the SANA-WM input surface on `main`, then
@@ -139,10 +139,10 @@ The inventory changes the T2/T3 shape in four concrete ways.
 First, a selected mapping is often a composition. A LingBot-like run needs prompt
 mapping, first-frame mapping, and keyboard-to-camera mapping. Omnidreams may add
 scene selection, camera selection, and HDMap mapping. The implementation should
-support checking a set of mapper schemas as one compatibility surface, while
-still allowing a single mapper object when that is simpler.
+support checking a set of mapping schemas as one compatibility surface, while
+still allowing a single mapping object when that is simpler.
 
-Second, `ModelInputSchema` needs a lightweight lifecycle tag in addition to the
+Second, `InferenceInputSchema` needs a lightweight lifecycle tag in addition to the
 `initial` versus `step` phase. The phase answers when the value is needed at the
 standard-loop level. The lifecycle tag distinguishes where the model adapter
 uses it, such as:
@@ -159,13 +159,13 @@ uses it, such as:
   such as LingBot text-event embedding swaps.
 
 The lifecycle tag is metadata, not a new deep type system. If both a model field
-and mapper output specify lifecycle, compatibility should require them to agree.
+and mapping output specify lifecycle, compatibility should require them to agree.
 If either side omits it, matching stays permissive for simple schemas.
 
-Third, `payload_kind` should be treated as a representation hint rather than a
+Third, `semantic_type` should be treated as a representation hint rather than a
 universal semantic type. For example, `prompt` may arrive as inline text or a
-path but become prompt text or text embeddings; `first_frame` may arrive as a
-path, URL, bytes, or decoded tensor; camera motion may arrive as keys, pose JSON,
+path but become prompt text or text embeddings; the global conditioning frame
+may arrive as a path, URL, bytes, or decoded tensor; camera motion may arrive as keys, pose JSON,
 Numpy arrays, or integrated tensors. The semantic input name is still the main
 contract.
 
@@ -176,71 +176,85 @@ schema URI, units, coordinate frame, accepted file suffixes, cardinality hints,
 or update notes. Metadata should remain query information and should not become
 the compatibility type system.
 
-Fifth, `UserInputSchema` should describe raw source capabilities, while
-mapper schemas describe derived model-facing semantics. A browser may provide
-`key_down`, `key_up`, `prompt_set`, and `initial_frame_set` events. Whether that
-can drive `steering`, `camera_trajectory`, `driver_command`, or text embedding
-updates depends on the selected mapper and model schema.
+Fifth, `UserInputSchema` describes raw source capabilities, `CanonicalModality`
+describes what an application consumes, and mapping schemas describe derived
+model-facing semantics. A browser may provide `key_down`, `key_up`,
+`prompt_set`, and `initial_frame_set` events. Those become canonical modalities
+such as `driver_command` or `conditioning_prompt`; whether they can then drive
+`steering`, `camera_trajectory`, or text embedding updates depends on the
+selected mapping and model schema.
 
-## Revised T2/T3 Plan
+## Implemented T2/T3 Shape
 
-The implementation plan after this inventory is:
+The implementation that came out of this inventory is:
 
-1. Keep `UserInputEvent`, `UserInputTrace`, and `UserInputWindow` as the primary
-   event-based input API. Static startup values remain timestamp-zero events.
-2. Keep `UserInputSchema` lightweight and source-facing. It declares event kinds,
-   payload representation hints, and payload fields that a source can provide.
-3. Keep `ModelInputs` split into `initial` and `step` payload maps. This still
-   matches the standard loop's session-start and per-step moments.
-4. Extend `ModelInputField` with optional lifecycle metadata so models can
-   distinguish runtime config, cache initialization, rollout binding, per-step
-   inputs, and supported active-session updates.
-5. Keep `InputMapperSchema` as the mapping boundary, but add mapper-set
-   compatibility helpers for composed mappings.
-6. Keep input names, payload kinds, lifecycle labels, and metadata open-ended.
+1. Keep `UserInputEvent` and `UserInputs` as the raw event API, sliced by a
+   half-open `TimeWindow`. Static startup values remain timestamp-zero events.
+2. Keep `UserInputSchema` lightweight and source-facing. `event_types` declares
+   that an event type exists; `UserInputCapability` additionally pins the
+   payload fields it carries.
+3. Add a canonical layer between raw and encoded. `CanonicalModality` names a
+   device-independent input and its conditioning phase; `InputCanonicalizer`
+   registers per-device converters and produces `CanonicalInputs`. Applications
+   and mappings consume canonical inputs and never read raw device events.
+4. Split `InferenceInput` (formerly `ModelInputs`) into `global_conditioning`
+   and `step`. A non-empty global slot mid-rollout is an update request, not a
+   reset; `InputField.update_policy` declares whether the model can apply it.
+5. Extend `InputField` with `update_policy`, `lifecycle`, and `metadata` so
+   models can distinguish runtime config, cache initialization, rollout binding,
+   per-step inputs, and supported active-session updates.
+6. Keep `InputMappingSchema` as the canonical-to-encoded boundary, with
+   mapping-set compatibility helpers for composed mappings.
+7. Keep input names, semantic types, lifecycle labels, and metadata open-ended.
    Adding a new model should usually mean adding adapter-owned schema
-   declarations and mappers, not changing the core input dataclasses.
-7. Leave deep validation to model adapters, sessions, and mappers. The schema
-   layer should catch obvious source/mapping/model mismatches before expensive
-   runtime initialization, not validate every tensor and coordinate convention.
+   declarations and mappings, not changing the core input dataclasses.
+8. Leave deep validation to model adapters, sessions, and mappings. The schema
+   layer catches obvious source/mapping/model mismatches before expensive
+   runtime initialization; it does not validate every tensor and coordinate
+   convention.
+
+See `docs/inference_runtime_inputs_implementation.md` for the resulting API.
 
 ## Extensibility Contract
 
-The inventory above is not a vocabulary freeze. The core API should not contain
-a closed enum of allowed model input names. New adapters can introduce semantic
-field names that match the model boundary they own.
+The inventory above is not a vocabulary freeze. The core API does not contain a
+closed enum of allowed input names. New adapters can introduce semantic field
+names that match the model boundary they own.
 
 Use these conventions when adding future model schemas:
 
 - Prefer semantic names over modality names, such as `camera_trajectory_c2w`
   instead of `array`, or `hdmap_frames` instead of `image`.
-- Use `payload_kind` for a coarse representation hint, such as `path`,
-  `decoded_tensor`, `c2w_sequence`, `intrinsics_vec4_sequence`, `driver_command`,
-  or `embedding`.
+- Use `semantic_type` for a coarse representation hint, such as `path`,
+  `decoded_tensor`, `c2w_sequence`, `intrinsics_vec4_sequence`, or `embedding`.
 - Use `lifecycle` to say where the adapter consumes the value, such as
   `runtime_config`, `cache_init`, `rollout_binding`, `step_input`, or
   `session_update`.
+- Use `update_policy` to say when a value may change. `SESSION_START_ONLY` is
+  the one reserved token, meaning the value cannot be swapped mid-rollout.
 - Use `metadata` for query hints: units, coordinate frame, shape summary,
   accepted suffixes, schema URI, model family, value ranges, or cardinality.
-- Keep deep validation in the adapter/mapper. The lightweight schemas answer
+- Keep deep validation in the adapter/mapping. The lightweight schemas answer
   whether the selected source and mapping can plausibly drive the model before
   expensive initialization.
 
 ## Representative Schema Sketches
 
-These sketches are not migration work for T4+, but they show that the current
-T2/T3 primitives can describe the supported input surfaces.
+These are not migration work for T4+, but they show that the current primitives
+can describe the supported input surfaces. All use
+`flashdreams.runtime.InferenceInputSchema` and `InputField`.
 
 ```python
-lingbot_model = ModelInputSchema(
-    name="lingbot-world",
-    fields=(
-        ModelInputField("prompt", "initial", lifecycle="cache_init"),
-        ModelInputField("first_frame", "initial", lifecycle="cache_init"),
-        ModelInputField("camera_trajectory", "step", lifecycle="step_input"),
-        ModelInputField(
-            "text_embeddings",
-            "step",
+lingbot_model = InferenceInputSchema(
+    description="lingbot-world",
+    global_fields=(
+        InputField(name="prompt", lifecycle="cache_init"),
+        InputField(name="global_conditioning_frame", lifecycle="cache_init"),
+    ),
+    step_fields=(
+        InputField(name="camera_trajectory", lifecycle="step_input"),
+        InputField(
+            name="text_embeddings",
             required=False,
             update_policy="step_boundary",
             lifecycle="session_update",
@@ -250,84 +264,58 @@ lingbot_model = ModelInputSchema(
 ```
 
 ```python
-omnidreams_model = ModelInputSchema(
-    name="omnidreams",
-    fields=(
-        ModelInputField("prompts", "initial", lifecycle="cache_init"),
-        ModelInputField("first_frames", "initial", lifecycle="cache_init"),
-        ModelInputField("view_names", "initial", lifecycle="cache_init"),
-        ModelInputField("hdmap_frames", "step", lifecycle="step_input"),
-        ModelInputField(
-            "text_embeddings",
-            "initial",
-            required=False,
-            lifecycle="cache_init",
-        ),
-        ModelInputField(
-            "image_embeddings",
-            "initial",
-            required=False,
-            lifecycle="cache_init",
-        ),
+omnidreams_model = InferenceInputSchema(
+    description="omnidreams",
+    global_fields=(
+        InputField(name="prompts", lifecycle="cache_init"),
+        InputField(name="global_conditioning_frames", lifecycle="cache_init"),
+        InputField(name="view_names", lifecycle="cache_init"),
+        InputField(name="text_embeddings", required=False, lifecycle="cache_init"),
+        InputField(name="image_embeddings", required=False, lifecycle="cache_init"),
+    ),
+    step_fields=(InputField(name="hdmap_frames", lifecycle="step_input"),),
+)
+```
+
+```python
+hy_worldplay_model = InferenceInputSchema(
+    description="hy-worldplay",
+    global_fields=(
+        InputField(name="prompt", lifecycle="cache_init"),
+        InputField(name="global_conditioning_frame", lifecycle="cache_init"),
+        InputField(name="action_labels", lifecycle="rollout_binding"),
+        InputField(name="camera_viewmats", lifecycle="rollout_binding"),
+        InputField(name="camera_intrinsics", lifecycle="rollout_binding"),
+        InputField(name="memory_config", lifecycle="rollout_binding"),
     ),
 )
 ```
 
 ```python
-hy_worldplay_model = ModelInputSchema(
-    name="hy-worldplay",
-    fields=(
-        ModelInputField("prompt", "initial", lifecycle="cache_init"),
-        ModelInputField("first_frame", "initial", lifecycle="cache_init"),
-        ModelInputField("action_labels", "initial", lifecycle="rollout_binding"),
-        ModelInputField("camera_viewmats", "initial", lifecycle="rollout_binding"),
-        ModelInputField("camera_intrinsics", "initial", lifecycle="rollout_binding"),
-        ModelInputField("memory_config", "initial", lifecycle="rollout_binding"),
-    ),
-)
-```
-
-```python
-sana_wm_model = ModelInputSchema(
-    name="sana-wm",
-    fields=(
-        ModelInputField("prompt", "initial", lifecycle="cache_init"),
-        ModelInputField(
-            "negative_prompt",
-            "initial",
-            required=False,
-            lifecycle="cache_init",
-        ),
-        ModelInputField("first_frame", "initial", lifecycle="cache_init"),
-        ModelInputField(
-            "camera_trajectory_c2w",
-            "initial",
-            payload_kind="c2w_sequence",
+sana_wm_model = InferenceInputSchema(
+    description="sana-wm",
+    global_fields=(
+        InputField(name="prompt", lifecycle="cache_init"),
+        InputField(name="negative_prompt", required=False, lifecycle="cache_init"),
+        InputField(name="global_conditioning_frame", lifecycle="cache_init"),
+        InputField(
+            name="camera_trajectory_c2w",
+            semantic_type="c2w_sequence",
             lifecycle="rollout_binding",
             metadata={"shape": "[F,4,4]", "coordinates": "opencv_c2w"},
         ),
-        ModelInputField(
-            "camera_intrinsics_vec4",
-            "initial",
+        InputField(
+            name="camera_intrinsics_vec4",
             required=False,
-            payload_kind="intrinsics_vec4_sequence",
+            semantic_type="intrinsics_vec4_sequence",
             lifecycle="rollout_binding",
             metadata={"shape": "[F,4]"},
         ),
-        ModelInputField(
-            "stage1_sampling",
-            "initial",
-            lifecycle="rollout_binding",
-            metadata={"fields": ("steps", "cfg_scale", "flow_shift", "seed")},
-        ),
-        ModelInputField(
-            "streaming_chunking",
-            "initial",
-            required=False,
-            lifecycle="rollout_binding",
-            metadata={"fields": ("num_frame_per_block", "cached_blocks")},
-        ),
     ),
-    metadata={"model_family": "sana-wm"},
 )
 ```
+
+SANA-WM's `stage1_sampling` and `streaming_chunking` are deliberately absent
+above. They describe how to run the model rather than what conditions it, so
+they belong in `InferenceConfig`, not in an input schema. Flagged here because
+the runner currently threads them alongside the conditioning inputs.
