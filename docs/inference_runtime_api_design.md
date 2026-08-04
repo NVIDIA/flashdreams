@@ -30,6 +30,12 @@ integration-specific runner code:
 - metrics/profiling: timings, memory, traces, NVTX ranges, and benchmark
   outputs.
 
+Current T2/T3 implementation notes are in
+`docs/inference_runtime_inputs_implementation.md`.
+
+The supported-model input inventory used to revisit T2/T3 is in
+`docs/inference_runtime_supported_inputs_inventory.md`.
+
 The API should standardize the envelope and lifecycle. It should not pretend
 that all world models have the same inputs, that all models use the same
 optimization stack, or that a raw checkpoint can fully describe how to run the
@@ -322,6 +328,17 @@ Model input payloads should use semantic names, not only modality names. For
 example, a first frame and an HD map frame should be distinct inputs even if
 both are image-like values.
 
+Model input metadata may also include a lightweight lifecycle label, such as
+runtime config, cache initialization, rollout binding, per-step input, or
+session update. This should remain query metadata, not model-specific tensor
+validation.
+
+Model input names, payload kinds, lifecycle labels, and schema metadata should
+be open-ended. Supported integrations such as SANA-WM, LingBot, Omnidreams, and
+future external adapters may need different semantic fields. Adding a new model
+should usually mean adding adapter-owned schema declarations and mappings, not
+changing a central FlashDreams enum.
+
 For interactive runs, most `ModelInputs` will be initial values plus per-step
 inputs produced by input mapping. For MP4 generation and benchmarking, the API
 should also support fixed per-step model inputs so runs can be deterministic.
@@ -341,6 +358,13 @@ model-specific validation. They should be just enough to answer:
 The purpose is to fail early before expensive model initialization, produce
 clearer errors, make fixed scenarios easier to validate, and avoid ambiguous
 dict payloads where keys only describe modality.
+
+Schema objects may carry open-ended metadata for query-time hints such as
+coordinate frame, units, rough shape summary, accepted file suffixes, schema
+URI, model family, or source/transport details. Metadata should help humans and
+adapter selection code, but compatibility should still be based on the declared
+event capabilities, semantic model fields, payload representation hints, and
+lifecycle labels.
 
 For simple CLI text-to-video or image-to-video runs, `UserInputSchema` can be
 trivial or omitted because there may be no live controls. `ModelInputSchema` is
@@ -406,9 +430,10 @@ unless the checkpoint already matches a supported generic adapter.
 
 ## Input Mapping
 
-Input mapping is required whenever `UserInputs` need to become per-step
-`ModelInputs`. The exact implementation does not need to be a required top-level
-object. It could be:
+Input mapping is required whenever `UserInputs` need to become `ModelInputs`.
+The selected mapping may be one mapper or a composed set of mapper schemas. The
+exact implementation does not need to be a required top-level object. It could
+be:
 
 - a method on the model adapter;
 - a method on an app/runtime adapter;
@@ -417,8 +442,9 @@ object. It could be:
 
 There are two separate moments to keep clear:
 
-- before runtime initialization, FlashDreams should select the mapping and check
-  obvious compatibility between the app event source and the model;
+- before runtime initialization, FlashDreams should select the mapping or mapper
+  set and check obvious compatibility between the app event source and the
+  model;
 - during the standard loop, the runner uses the mapping to build initial or
   per-step `ModelInputs` from the relevant event window, often after the session
   reports what it needs next.
