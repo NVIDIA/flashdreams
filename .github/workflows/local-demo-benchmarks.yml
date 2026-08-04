@@ -1,6 +1,22 @@
 name: Local Demo Benchmarks
 
 on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - ".github/workflows/local-demo-benchmarks.yml"
+      - "configs/deterministic_quality_benchmarks.json"
+      - "flashdreams/flashdreams/**"
+      - "flashdreams/pyproject.toml"
+      - "flashdreams/tools/benchmarks/**"
+      - "integrations/lingbot/**"
+      - "integrations/omnidreams/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  merge_group:
+    branches: [main]
   workflow_dispatch:
     inputs:
       cuda_group:
@@ -17,9 +33,10 @@ permissions:
 
 jobs:
   benchmark:
-    name: LingBot and Omnidreams benchmarks
+    name: LingBot and Omnidreams benchmark canary
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
-    timeout-minutes: 360
+    timeout-minutes: 180
+    continue-on-error: true
     defaults:
       run:
         shell: bash
@@ -31,9 +48,10 @@ jobs:
       UV_LINK_MODE: copy
       UV_PYTHON: "3.10"
       MAX_JOBS: 8
+      CUDA_GROUP: ${{ github.event.inputs.cuda_group || 'cuda13' }}
       SCENARIO_FILE: configs/deterministic_quality_benchmarks.json
-      BENCHMARK_BASELINE_DIR: artifacts/benchmarks/local-demo-baseline
-      BENCHMARK_CANDIDATE_DIR: artifacts/benchmarks/local-demo-candidate
+      BENCHMARK_BASELINE_DIR: artifacts/benchmarks/local-demo-canary-baseline
+      BENCHMARK_CANDIDATE_DIR: artifacts/benchmarks/local-demo-canary-candidate
     steps:
       - name: Detect GPU architecture
         id: gpu-arch
@@ -65,7 +83,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-suffix: "local-demo-benchmarks-${{ github.event.inputs.cuda_group }}-sm${{ steps.gpu-arch.outputs.arch }}"
+          cache-suffix: "local-demo-benchmark-canary-${{ github.event.inputs.cuda_group || 'cuda13' }}-sm${{ steps.gpu-arch.outputs.arch }}"
           prune-cache: false
 
       - name: Install benchmark dependencies
@@ -76,7 +94,7 @@ jobs:
             --package flashdreams-lingbot \
             --package flashdreams-omnidreams \
             --no-dev \
-            --group "${{ github.event.inputs.cuda_group }}" \
+            --group "${CUDA_GROUP}" \
             --extra runners
 
       - name: Run baseline benchmark
@@ -88,8 +106,6 @@ jobs:
             --scenario-file "${SCENARIO_FILE}" \
             --scenario lingbot-world-fast-taehv-quality-smoke \
             --scenario omnidreams-sv-ci-quality-smoke \
-            --scenario lingbot-world-fast-taehv-one-minute-review \
-            --scenario omnidreams-sv-one-minute-review \
             --output-dir "${BENCHMARK_BASELINE_DIR}"
 
       - name: Run candidate benchmark
@@ -100,8 +116,6 @@ jobs:
             --scenario-file "${SCENARIO_FILE}" \
             --scenario lingbot-world-fast-taehv-quality-smoke \
             --scenario omnidreams-sv-ci-quality-smoke \
-            --scenario lingbot-world-fast-taehv-one-minute-review \
-            --scenario omnidreams-sv-one-minute-review \
             --quality-baseline-dir "${BENCHMARK_BASELINE_DIR}" \
             --output-dir "${BENCHMARK_CANDIDATE_DIR}"
 
@@ -119,6 +133,8 @@ jobs:
               exit 0
             fi
             echo "Candidate report: \`${BENCHMARK_CANDIDATE_DIR}/report.html\`"
+            echo
+            echo "This canary runs the two 30-second seeded quality scenarios only. The full one-minute review scenarios remain local/manual for now."
             echo
             echo "| Scenario | Status | Wall time | Median gen FPS | Quality score | Similarity | PSNR | RMSE |"
             echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
