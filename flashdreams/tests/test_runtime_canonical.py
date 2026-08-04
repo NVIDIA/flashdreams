@@ -26,6 +26,7 @@ from flashdreams.runtime import (
     InputField,
     InputMappingSchema,
     KeyboardToDriverCommand,
+    ScriptedModality,
     TimeWindow,
     UserInputCapability,
     UserInputEvent,
@@ -422,6 +423,168 @@ def test_replaying_the_same_windows_reproduces_the_same_canonical_inputs() -> No
                 )
             )
             for window in (WINDOW, NEXT_WINDOW)
+        ]
+
+    assert run() == run()
+
+
+# --- key bindings -------------------------------------------------------
+
+
+def test_bindings_are_data_and_can_be_rebound() -> None:
+    """A layout change must not require editing the converter."""
+    azerty = InputCanonicalizer(
+        [
+            KeyboardToDriverCommand(
+                bindings={
+                    "throttle": frozenset({"z"}),
+                    "brake": frozenset({"s"}),
+                    "steer_left": frozenset({"q"}),
+                    "steer_right": frozenset({"d"}),
+                    "stop": frozenset({"space"}),
+                }
+            )
+        ]
+    )
+
+    canonical = azerty.canonicalize(
+        UserInputs(events=(_key("key_down", "z", 0.1),)),
+        window=WINDOW,
+        source_schema=KEYBOARD_SOURCE,
+    )
+
+    assert _command(canonical)["throttle"] == 1.0
+
+
+def test_tracked_keys_are_derived_so_an_action_cannot_go_unreachable() -> None:
+    """Declaring bindings and tracked keys separately used to disagree."""
+    converter = KeyboardToDriverCommand(
+        bindings={"stop": frozenset({"escape"}), "throttle": frozenset({"w"})}
+    )
+    canonicalizer = InputCanonicalizer([converter])
+
+    canonical = canonicalizer.canonicalize(
+        UserInputs(events=(_key("key_down", "escape", 0.1),)),
+        window=WINDOW,
+        source_schema=KEYBOARD_SOURCE,
+    )
+
+    assert _command(canonical)["stop"] is True
+
+
+def test_unknown_driver_action_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown driver actions"):
+        KeyboardToDriverCommand(bindings={"turbo": frozenset({"t"})})
+
+
+def test_reverse_is_bindable() -> None:
+    canonicalizer = InputCanonicalizer(
+        [KeyboardToDriverCommand(bindings={"reverse": frozenset({"r"})})]
+    )
+
+    canonical = canonicalizer.canonicalize(
+        UserInputs(events=(_key("key_down", "r", 0.1),)),
+        window=WINDOW,
+        source_schema=KEYBOARD_SOURCE,
+    )
+
+    assert _command(canonical)["reverse"] is True
+
+
+# --- scripted / mock input ----------------------------------------------
+
+
+def _scripted() -> InputCanonicalizer:
+    return InputCanonicalizer(
+        [
+            ScriptedModality(
+                modality=DRIVER_COMMAND,
+                timeline=[
+                    (
+                        0.0,
+                        {
+                            "throttle": 1.0,
+                            "brake": 0.0,
+                            "steer": 0.0,
+                            "stop": False,
+                            "reverse": False,
+                        },
+                    ),
+                    (
+                        2.0,
+                        {
+                            "throttle": 0.0,
+                            "brake": 0.0,
+                            "steer": 1.0,
+                            "stop": False,
+                            "reverse": False,
+                        },
+                    ),
+                ],
+            )
+        ]
+    )
+
+
+def test_mock_input_needs_no_raw_events_or_source_schema() -> None:
+    """Authoring a benchmark scenario must not require raw device vocabulary."""
+    canonical = _scripted().canonicalize(
+        UserInputs(), window=WINDOW, source_schema=UserInputSchema()
+    )
+
+    assert _command(canonical)["throttle"] == 1.0
+
+
+def test_scripted_values_hold_until_the_next_entry() -> None:
+    canonicalizer = _scripted()
+    windows = [TimeWindow(start_s=t, end_s=t + 1.0) for t in (0.0, 1.0, 2.0)]
+
+    steer = [
+        _command(
+            canonicalizer.canonicalize(
+                UserInputs(), window=w, source_schema=UserInputSchema()
+            )
+        )["steer"]
+        for w in windows
+    ]
+
+    assert steer == [0.0, 0.0, 1.0]
+
+
+def test_scripted_converter_is_silent_before_its_first_entry() -> None:
+    canonicalizer = InputCanonicalizer(
+        [
+            ScriptedModality(
+                modality=CanonicalModality(name="late", payload_fields=frozenset()),
+                timeline=[(5.0, {})],
+            )
+        ]
+    )
+
+    canonical = canonicalizer.canonicalize(
+        UserInputs(), window=WINDOW, source_schema=UserInputSchema()
+    )
+
+    assert canonical.values == {}
+
+
+def test_scripted_timeline_is_validated_against_the_modality() -> None:
+    with pytest.raises(ValueError, match="requires payload fields"):
+        ScriptedModality(modality=DRIVER_COMMAND, timeline=[(0.0, {"throttle": 1.0})])
+
+
+def test_scripted_replay_is_deterministic() -> None:
+    def run() -> list[float]:
+        canonicalizer = _scripted()
+        return [
+            _command(
+                canonicalizer.canonicalize(
+                    UserInputs(),
+                    window=TimeWindow(start_s=t, end_s=t + 1.0),
+                    source_schema=UserInputSchema(),
+                )
+            )["steer"]
+            for t in (0.0, 1.0, 2.0)
         ]
 
     assert run() == run()

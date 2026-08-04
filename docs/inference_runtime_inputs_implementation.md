@@ -160,7 +160,24 @@ canonical.values["driver_command"]["throttle"]
 `DRIVER_COMMAND` is the one shipped modality. `KeyboardToDriverCommand` reuses
 `KeyboardState`/`normalize_key` from `flashdreams.serving.realtime.input` and
 mirrors the semantics the Omnidreams interactive-drive keyboard backend already
-has.
+has. Its key bindings are data (`DEFAULT_DRIVING_BINDINGS`), and the set of
+tracked keys is derived from them, so a rebound layout cannot leave an action
+unreachable.
+
+`ScriptedModality` is the mock/replay converter. It consumes no raw
+capabilities, so a benchmark or test can author a scenario at the canonical
+level without knowing any device vocabulary:
+
+```python
+canonicalizer = InputCanonicalizer([
+    ScriptedModality(modality=DRIVER_COMMAND, timeline=[(0.0, full_throttle)]),
+])
+canonicalizer.canonicalize(
+    UserInputs(), window=step_window, source_schema=UserInputSchema()
+)
+```
+
+Application code is identical between a real run and a scripted one.
 
 Converters are stateful, so feed windows in session order and call
 `InputCanonicalizer.reset()` at a rollout boundary. Replaying the same window
@@ -237,10 +254,11 @@ Tracked against the runtime API discussion, not yet settled:
   single required set too.
 - **`step()` returning a future**, for models with a dependency on their own
   output. `InferenceSession.step()` is currently synchronous.
-- **`Input System` ownership.** The diagrams show it pulling events and
-  supporting mock input, so the Application has-a input system.
-  `InputCanonicalizer` is currently a pure function over a supplied window and
-  owns no source. This is the one deferred item inside the input scope.
+- **`Input System` ownership.** The diagrams show it pulling events, so the
+  Application owns an input system. `InputCanonicalizer` is currently a pure
+  function over a supplied window and owns no source. Whether it needs to grow
+  one depends on the loop-ownership decision. Mock input and key binding are
+  handled (`ScriptedModality`, `DEFAULT_DRIVING_BINDINGS`).
 
 ## Owned Elsewhere
 

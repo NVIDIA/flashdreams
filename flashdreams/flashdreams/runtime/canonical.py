@@ -22,8 +22,9 @@ directly, without passing through canonicalization.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
@@ -36,11 +37,27 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
-from flashdreams.serving.realtime.input import (
-    DRIVING_SUPPORTED_KEYS,
-    KeyboardState,
-    normalize_key,
+from flashdreams.serving.realtime.input import KeyboardState, normalize_key
+
+DriverBindings = Mapping[str, frozenset[str]]
+
+DEFAULT_DRIVING_BINDINGS: DriverBindings = MappingProxyType(
+    {
+        "throttle": frozenset({"w", "up"}),
+        "brake": frozenset({"s", "down"}),
+        "steer_left": frozenset({"a", "left"}),
+        "steer_right": frozenset({"d", "right"}),
+        "stop": frozenset({"space"}),
+        "reverse": frozenset(),
+    }
 )
+"""Default key bindings for :class:`KeyboardToDriverCommand`.
+
+Bindings are data so a layout can be rebound without editing the converter, and
+so the set of tracked keys is derived from them rather than declared twice.
+"""
+
+_DRIVER_ACTIONS = frozenset(DEFAULT_DRIVING_BINDINGS)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -114,11 +131,25 @@ class KeyboardToDriverCommand:
         self,
         *,
         name: str = "keyboard-to-driver-command",
-        supported_keys: frozenset[str] = DRIVING_SUPPORTED_KEYS,
+        bindings: DriverBindings = DEFAULT_DRIVING_BINDINGS,
         priority: int = 0,
     ) -> None:
-        self._supported_keys = supported_keys
-        self._state = KeyboardState(supported_keys=supported_keys)
+        unknown = sorted(set(bindings) - _DRIVER_ACTIONS)
+        if unknown:
+            raise ValueError(
+                f"Unknown driver actions in bindings: {unknown}. "
+                f"Supported actions: {sorted(_DRIVER_ACTIONS)}."
+            )
+        self._bindings = {
+            action: frozenset(normalize_key(key) for key in bindings.get(action, ()))
+            for action in _DRIVER_ACTIONS
+        }
+        # Tracked keys are derived, so they cannot drift from the bindings and
+        # silently make an action unreachable.
+        self._supported_keys = frozenset(
+            key for keys in self._bindings.values() for key in keys
+        )
+        self._state = KeyboardState(supported_keys=self._supported_keys)
         self._schema = DeviceConverterSchema(
             name=name,
             produces=DRIVER_COMMAND,
@@ -161,20 +192,87 @@ class KeyboardToDriverCommand:
             )
 
         pressed = {normalize_key(key) for key in self._state.snapshot()}
+
+        def held(action: str) -> bool:
+            return bool(self._bindings[action] & pressed)
+
         steer = 0.0
-        if {"a", "left"} & pressed:
+        if held("steer_left"):
             steer += 1.0
-        if {"d", "right"} & pressed:
+        if held("steer_right"):
             steer -= 1.0
         return DRIVER_COMMAND.value(
             {
-                "throttle": 1.0 if {"w", "up"} & pressed else 0.0,
-                "brake": 1.0 if {"s", "down"} & pressed else 0.0,
+                "throttle": 1.0 if held("throttle") else 0.0,
+                "brake": 1.0 if held("brake") else 0.0,
                 "steer": steer,
-                "stop": "space" in pressed,
-                "reverse": False,
+                "stop": held("stop"),
+                "reverse": held("reverse"),
             }
         )
+
+
+class ScriptedModality:
+    """Emit pre-authored canonical values, for benchmarks, replay, and tests.
+
+    Mocking input should not require knowing the raw device vocabulary. This
+    converter consumes no raw capabilities, so it is feedable by any source
+    -- including an empty :class:`UserInputSchema` -- and application code is
+    identical between a real run and a scripted one.
+
+    ``timeline`` is ``(start_s, value)`` pairs. Values are level-triggered and
+    held until the next entry begins, matching how live converters behave. An
+    entry applies to a window once it has begun by the window's end, and
+    ``None`` is returned for windows before the first entry.
+    """
+
+    def __init__(
+        self,
+        *,
+        modality: CanonicalModality,
+        timeline: Sequence[tuple[float, Mapping[str, Any]]],
+        name: str | None = None,
+        device_kind: str | None = "scripted",
+        priority: int = 0,
+    ) -> None:
+        entries = tuple(sorted(timeline, key=lambda entry: entry[0]))
+        for start_s, value in entries:
+            if start_s < 0:
+                raise ValueError("timeline start_s must be >= 0.")
+            modality.value(value)
+        self._entries = tuple(
+            (start_s, modality.value(value)) for start_s, value in entries
+        )
+        self._modality = modality
+        self._schema = DeviceConverterSchema(
+            name=name or f"scripted-{modality.name}",
+            produces=modality,
+            device_kind=device_kind,
+            priority=priority,
+        )
+
+    @property
+    def schema(self) -> DeviceConverterSchema:
+        return self._schema
+
+    def reset(self) -> None:
+        # The timeline is a pure function of the window, so replay is
+        # deterministic without any state to clear.
+        return None
+
+    def convert(
+        self,
+        user_inputs: UserInputs,
+        window: TimeWindow,
+    ) -> Mapping[str, Any] | None:
+        del user_inputs
+        current: Mapping[str, Any] | None = None
+        for start_s, value in self._entries:
+            if start_s < window.end_s:
+                current = value
+            else:
+                break
+        return current
 
 
 class InputCanonicalizer:
