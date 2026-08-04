@@ -59,25 +59,25 @@ Initial scope:
 
 ## Task Tracker
 
-| ID | Workstream | Can run in parallel? | Depends on | Done when |
-| --- | --- | --- | --- | --- |
-| T0 | Create experimental branch and contribution rules. | No, this starts the work. | None. | Branch exists, PR target is agreed, and main merge criteria are written down. |
-| T1 | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `ModelInputs`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
-| T2 | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
-| T3 | `ModelInputs`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required initial/per-step inputs, and mappings can convert user events into model inputs. |
-| T4 | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
-| T5 | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
-| T6 | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
-| T7 | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams runs through the new API path with its model-specific inputs and mapping preserved. |
-| T8 | Benchmark/smoke verification for LingBot and OmniDreams. | Preparation can run early; final gate is late. | T5, T6, T7. | Existing or updated benchmark tooling can run both migrated demos and produce enough evidence that they still work. |
-| T9 | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
-| T10 | CLI compatibility and migration cleanup. | Yes, after demo migrations start. | T6, T7. | Required demo commands are restored or replaced, temporary hacks are removed, and user-facing docs/notes match the branch behavior. |
-| T11 | Stabilize and merge experimental branch to `main`. | No, final integration step. | T6-T10. | LingBot and OmniDreams pass agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+| ID | Status | Workstream | Can run in parallel? | Depends on | Done when |
+| --- | --- | --- | --- | --- | --- |
+| T0 | Complete | Create experimental branch and contribution rules. | No, this starts the work. | None. | Branch exists, PR target is agreed, and main merge criteria are written down. |
+| T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `ModelInputs`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
+| T2 | Planned | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
+| T3 | Planned | `ModelInputs`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required initial/per-step inputs, and mappings can convert user events into model inputs. |
+| T4 | Planned | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
+| T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
+| T6 | Planned | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
+| T7 | Planned | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams runs through the new API path with its model-specific inputs and mapping preserved. |
+| T8 | Planned | Benchmark/smoke verification for LingBot and OmniDreams. | Preparation can run early; final gate is late. | T5, T6, T7. | Existing or updated benchmark tooling can run both migrated demos and produce enough evidence that they still work. |
+| T9 | Planned | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
+| T10 | Planned | CLI compatibility and migration cleanup. | Yes, after demo migrations start. | T6, T7. | Required demo commands are restored or replaced, temporary hacks are removed, and user-facing docs/notes match the branch behavior. |
+| T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T6-T10. | LingBot and OmniDreams pass agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
 
 Suggested parallel split:
 
-- one person owns T1/T4, because the API envelope and standard loop are the
-  critical path;
+- one person owns T4 and keeps it aligned with the completed T1 envelope,
+  because the standard loop is now the critical path;
 - one person owns T2/T3, because event inputs, schemas, and mapping need to
   stay coherent;
 - one person owns T5/T8/T9, because outputs, benchmarks, and metrics are tightly
@@ -182,7 +182,7 @@ local model implementation, a Dynamo-like backend, or a hosted service.
 | Model/preset registry | Lists what can run: model/preset slugs, scenarios, capabilities, resource hints, and supported output modes. | Must remain cheap to query and must not load checkpoints. |
 | App / integration / benchmark / transport | Owns the user-facing mode: CLI, native integration, WebRTC, benchmark, hosted request, or replay. | Supplies run setup, user inputs, model inputs, and output target selection. |
 | User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image updates, traces, and future scalar controls. |
-| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | Owned by model/application code; may be a no-op for simple runs. |
+| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
 | ModelRunner / standard loop | Orchestrates one run from setup through runtime initialization, stepping, output, metrics, and teardown. | Shared orchestration layer used by CLIs, benchmarks, MP4 runs, and simple realtime flows. |
 | InferenceRuntime | Owns heavyweight lifecycle: distributed init, model construction, checkpoint loading, compile/capture, warmup, hosted-service connection, and teardown. | Long-lived reusable runtime created from `InferenceConfig`; lets FlashDreams load/warm once and create sessions sequentially unless the backend supports concurrency. |
 | InferenceSession | Owns one rollout or stream: initial inputs, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
@@ -281,8 +281,11 @@ native app, replay trace, synthetic benchmark driver, or no-op source.
 
 User inputs should primarily be represented as timestamped events. This gives
 live apps, replay traces, and benchmarks the same basic shape, and lets
-FlashDreams resample or window those events when a model session asks for the
-next chunk of inputs.
+FlashDreams route, drain, or window those events when a model session asks for
+the next chunk of inputs. Resampling and interpolation should remain
+input-specific mapping or helper behavior, because controls such as rotations,
+poses, or controller state may need semantics that generic runtime code cannot
+infer safely.
 
 Initial supported user input types should stay close to what FlashDreams already
 uses:
@@ -359,8 +362,8 @@ shapes or architecture details, but it usually does not fully define:
 - preprocessing, encoder, decoder, mask, prompt, or cache rules.
 
 Therefore, a FlashDreams-supported model should have an adapter or integration
-layer that declares its model input requirements and prepares inputs for the
-underlying model implementation.
+layer that declares its model input requirements, declares any user inputs it can
+map by default, and prepares inputs for the underlying model implementation.
 
 Users running an existing FlashDreams-supported model should not need to write
 that adapter. Developers bringing a new world model to FlashDreams should expect
@@ -407,21 +410,25 @@ unless the checkpoint already matches a supported generic adapter.
 ## Input Mapping
 
 Input mapping is required whenever `UserInputs` need to become per-step
-`ModelInputs`. The exact implementation does not need to be a required top-level
-object. It could be:
-
-- a method on the model adapter;
-- a method on an app/runtime adapter;
-- a separate mapper object;
-- a default no-op or identity mapping for simple T2V/I2V/fixed-input runs.
+`ModelInputs`. In the T1 envelope this boundary is represented by a separate
+`InputMapping` protocol. A model adapter may provide the default mapper because
+it knows how its supported user controls affect model-facing inputs. Applications,
+benchmarks, replay tools, or hosted runtimes may replace that mapper when they
+need a different wire surface or aggregation policy.
 
 There are two separate moments to keep clear:
 
 - before runtime initialization, FlashDreams should select the mapping and check
   obvious compatibility between the app event source and the model;
-- during the standard loop, the runner uses the mapping to build initial or
-  per-step `ModelInputs` from the relevant event window, often after the session
-  reports what it needs next.
+- during the standard loop, the runtime or runner queues and timestamps user
+  events, then uses the selected mapping to build initial or per-step
+  `ModelInputs` from the relevant event window, often after the session reports
+  what it needs next.
+
+This keeps the Reactor-style contract intact: the model-side integration can
+declare user inputs, declare model inputs, and provide a default mapping, while
+the runtime owns transport, event validation, timestamping, input queue/window
+selection, output delivery, and optional overrides.
 
 Examples:
 
@@ -464,6 +471,11 @@ The session should expose what it needs for the next step rather than requiring
 the app or output layer to guess. This matters because AR step 0 can differ from
 steady-state steps, and encoder/decoder temporal compression can produce
 different input and output frame windows.
+
+Input and output timing should share a session timeline even when raw capture
+rates and presentation rates differ. A session can request a user-input window
+for mapping, then return an output window or equivalent metadata so an output
+target can present the generated chunk at the intended cadence.
 
 ## Output Targets
 
@@ -598,20 +610,40 @@ back to `main` safely.
 - Public/internal boundaries must remain clean. Internal adapters, slugs, and
   scenarios should not leak into the public repo.
 
-## Decisions To Make Before Implementation
+## Decisions Made In T1
 
-- What should the top-level package/API be called?
-- Should the main registered object be called an adapter, integration, runtime
-  factory, or something else?
+Task T1 settles the initial package and naming envelope without committing to a
+registry, standard loop, concrete output modes, or model migrations:
+
+- The experimental API lives under `flashdreams.runtime`.
+- The model-specific integration boundary is named `ModelAdapter`.
+- Heavyweight lifecycle is split into `InferenceRuntime` and
+  `InferenceSession`.
+- Step data carriers are named `StepRequest` and `StepResult`; a session returns
+  `None` from `next_step_request()` when the rollout is complete.
+- User-facing inputs use `UserInputs`; model-facing inputs use `ModelInputs`.
+  Both remain lightweight payload envelopes with shallow read-only mappings.
+- `UserInputSchema` and `ModelInputSchema` stay intentionally small: they
+  declare supported event types and required named fields for early validation,
+  not a full type system.
+- Input mapping is represented by a separate `InputMapping` protocol. Model
+  adapters may provide a default mapping; runtimes and applications may override
+  it while preserving the `UserInputs` to `ModelInputs` boundary. Simple
+  fixed-input runs can use `IdentityInputMapping`.
+- Output handling is represented by `OutputTarget`; `NullOutputTarget` is the
+  initial headless implementation.
+- Metrics collection is represented by `MetricsRecorder`; timing samples use
+  seconds as the canonical unit.
+- The minimum v0 user input shape is timestamped `UserInputEvent` records plus
+  optional snapshot data. Concrete event-type catalogs are left to T2 and demo
+  migrations.
+
+## Remaining Decisions
+
 - What direct-Python API should let users pass an external adapter without
   registering it?
 - What package registration mechanism should third-party and internal adapters
   use for CLI discovery and benchmarks?
-- How lightweight should `UserInputSchema` and `ModelInputSchema` be?
-- Where should input mapping live: model adapter, app adapter, separate object,
-  or a mix?
-- What should the output abstraction be called?
-- What is the minimum v0 set of supported user input events?
 - What is the first public model to migrate?
 - What metrics are required for every benchmark run?
 - What metadata must be discoverable without loading checkpoints?
