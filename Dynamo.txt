@@ -1,0 +1,1341 @@
+# Dynamo Review Notes
+
+This document summarizes the questions and answers from the current Dynamo architecture review.
+
+> This is a point-in-time architecture note. Versions, CLI flags, examples, and
+> implementation paths should be checked against the Dynamo revision used for
+> deployment.
+
+## 1. What is Dynamo?
+
+Dynamo is an open-source, datacenter-scale inference orchestration layer. It does not replace inference engines such as SGLang, vLLM, or TensorRT-LLM. Instead, it coordinates engine workers across GPUs and nodes.
+
+Its main responsibilities include:
+
+* An OpenAI-compatible frontend
+* Worker discovery and request routing
+* KV-cache-aware routing
+* Disaggregated prefill and decode serving
+* KV-cache transfer and multi-tier cache management
+* SLA-aware capacity planning and autoscaling
+* Kubernetes deployment and lifecycle management
+* Health checking, graceful shutdown, and fault handling
+
+The implementation is split across several languages:
+
+* **Rust:** performance-sensitive runtime, protocols, routing, memory, and KV-cache components
+* **Python:** frontend services, backend adapters, configuration, and extensibility
+* **Go:** Kubernetes Operator
+* **YAML/Helm:** recipes and production deployment definitions
+
+### High-level architecture
+
+Dynamo separates the system into three conceptual planes:
+
+1. **Request plane:** Frontend, Router, and inference workers execute and stream requests.
+2. **Control plane:** Planner and Kubernetes Operator manage desired capacity and deployment state.
+3. **Storage and events plane:** KV events, KVBM, and NIXL track and move cached inference state.
+
+A typical request path is:
+
+    Client -> Dynamo Frontend -> Router -> engine worker(s) -> Frontend -> Client
+
+## 2. How does Dynamo work with inference engines such as SGLang?
+
+Dynamo uses an adapter-based integration. The inference engine remains a separately packaged dependency, while Dynamo runs it inside a Dynamo-managed worker process.
+
+For SGLang, the worker is started with:
+
+    python -m dynamo.sglang
+
+The Dynamo SGLang adapter then:
+
+1. Parses native SGLang arguments together with Dynamo arguments.
+2. Creates an upstream `sglang.Engine`.
+3. Registers the worker and model with Dynamo discovery.
+4. Advertises the worker's role, capacity, KV block size, and topology.
+5. Converts Dynamo requests into SGLang engine calls.
+6. Streams SGLang output through the Dynamo frontend.
+7. Connects SGLang KV events and metrics to Dynamo routing and planning.
+8. Adds health checks, graceful shutdown, cancellation, and distributed lifecycle controls.
+
+The corresponding adapter is under `components/src/dynamo/sglang/`.
+
+## 3. Does Dynamo include the SGLang source code?
+
+No. The Dynamo repository and Python wheel do not vendor SGLang's source code.
+
+There are three normal installation paths:
+
+### Prebuilt container
+
+The production CUDA image is based on an upstream SGLang runtime image. In the reviewed tree, the configured upstream base is:
+
+    lmsysorg/sglang:v0.5.14-cu130-runtime
+
+Dynamo installs its own wheels into that image using `pip install --no-deps`, preserving the SGLang, CUDA, PyTorch, and related dependency stack already present in the upstream image.
+
+Kubernetes pulls the completed `sglang-runtime` image. It does not normally install SGLang during pod startup.
+
+### Python package installation
+
+Installing the SGLang extra installs a compatible, pinned SGLang package:
+
+    uv pip install "ai-dynamo[sglang]"
+
+At the time of this review, the dependency is:
+
+    sglang[diffusion] == 0.5.14
+
+### Development installation
+
+Developers can clone SGLang separately and install it as an editable package. Dynamo and SGLang remain separate repositories.
+
+## 4. Must SGLang be modified to work with Dynamo?
+
+For the supported CUDA configuration, Dynamo does not require a maintained SGLang fork or a runtime patch set. It uses the upstream SGLang package and image.
+
+However, Dynamo relies on particular SGLang APIs and features, so arbitrary SGLang versions are not guaranteed to work. Dynamo pins a compatible release and maintains narrow compatibility shims for changes in SGLang's pre-1.0 internal APIs.
+
+Examples of required or consumed SGLang capabilities include:
+
+* `sglang.Engine`
+* Prefill/decode modes
+* Disaggregation bootstrap coordination
+* KV-cache transfer
+* KV-event publication
+* Metrics and forward-pass information
+* Cancellation and engine control APIs
+
+Compatibility handling is centralized in `components/src/dynamo/sglang/_compat.py` rather than applied as modifications to SGLang source.
+
+## 5. Does SGLang support disaggregated serving?
+
+Yes. SGLang supplies the engine-side prefill/decode separation, bootstrap handshake, and KV-cache transfer mechanisms. Dynamo supplies discovery, worker selection, routing, independent scaling, and lifecycle management around those mechanisms.
+
+### What are prefill and decode?
+
+LLM inference has two major phases:
+
+* **Prefill:** Processes all input tokens and constructs the attention KV cache. This phase is generally compute-intensive and highly parallel.
+* **Decode:** Generates output one token at a time using the KV cache. This phase is generally constrained by memory bandwidth, concurrency, and KV-cache capacity.
+
+In aggregated serving, one worker performs both phases:
+
+    GPU 0: prompt prefill -> token 1 -> token 2 -> token 3 -> ...
+
+In disaggregated serving, different workers perform the phases:
+
+    GPU 0, prefill worker: prompt -> KV cache
+                                     |
+                               transfer KV
+                                     v
+    GPU 1, decode worker:           token 1 -> token 2 -> token 3 -> ...
+
+Both workers normally load the same model weights. The per-request KV cache, not the model, is transferred between them.
+
+## 6. Concrete SGLang disaggregation example
+
+The repository includes a two-GPU Qwen example in `examples/backends/sglang/launch/disagg.sh`:
+
+* GPU 0: SGLang prefill worker
+* GPU 1: SGLang decode worker
+* NIXL: KV-cache transfer
+* Dynamo Frontend: OpenAI-compatible API on port 8000
+
+Simplified commands are:
+
+    # Frontend and routing
+    python -m dynamo.frontend
+
+    # GPU 0: prefill only
+    CUDA_VISIBLE_DEVICES=0 python -m dynamo.sglang \
+      --model-path Qwen/Qwen3-0.6B \
+      --disaggregation-mode prefill \
+      --disaggregation-bootstrap-port 12345 \
+      --disaggregation-transfer-backend nixl
+
+    # GPU 1: decode only
+    CUDA_VISIBLE_DEVICES=1 python -m dynamo.sglang \
+      --model-path Qwen/Qwen3-0.6B \
+      --disaggregation-mode decode \
+      --disaggregation-bootstrap-port 12345 \
+      --disaggregation-transfer-backend nixl
+
+For a request containing a 20,000-token document and asking for a 500-token summary:
+
+1. Dynamo selects a decode worker to own and stream the request.
+2. Dynamo selects a prefill worker, potentially using load and cache overlap.
+3. The decode worker reserves GPU pages for the incoming KV cache.
+4. The prefill worker processes the 20,000-token prompt.
+5. SGLang transfers the resulting KV cache to decode through NIXL, commonly over RDMA in a production multi-node cluster.
+6. The decode worker generates the 500 output tokens.
+7. Tokens stream back through the Dynamo Frontend.
+
+Dynamo contacts the decode side first for coordination, but model computation still occurs in the logical order of prefill followed by decode.
+
+## 7. Why disaggregate?
+
+Prefill and decode may need different amounts or configurations of hardware. Dynamo can scale their pools independently, for example:
+
+    Long prompts, short answers:  4 prefill workers + 2 decode workers
+    Short prompts, long answers:  2 prefill workers + 6 decode workers
+
+Workers may also use different parallelism:
+
+    Prefill pool: 2 replicas x tensor parallel size 4
+    Decode pool:  4 replicas x tensor parallel size 2
+
+Tensor parallelism and disaggregation are different:
+
+* **Tensor parallelism** splits one model forward pass across GPUs.
+* **Disaggregation** assigns prefill and decode to separate worker pools.
+
+They can be used together.
+
+Disaggregation is most useful for large models, long prompts, high concurrency, or workloads whose input/output mix changes. It is not automatically faster for small models: transfer and coordination overhead can exceed the utilization benefit.
+
+## Relevant source locations
+
+* `README.md`
+* `docs/design-docs/architecture.md`
+* `docs/backends/sglang/README.md`
+* `docs/backends/sglang/sglang-disaggregation.md`
+* `components/src/dynamo/frontend/main.py`
+* `components/src/dynamo/sglang/main.py`
+* `components/src/dynamo/sglang/init_llm.py`
+* `components/src/dynamo/sglang/register.py`
+* `components/src/dynamo/sglang/_compat.py`
+* `container/templates/sglang_runtime.Dockerfile`
+* `examples/backends/sglang/launch/disagg.sh`
+
+## 8. What is NIXL?
+
+NIXL is the **NVIDIA Inference Transfer Library**. It is a data-movement layer for inference workloads, not a network protocol itself. It can register GPU or host memory and initiate asynchronous reads or writes through the best transport available in the environment.
+
+Depending on hardware and configuration, the underlying path can include:
+
+* GPU-to-GPU transfer within a machine
+* GPUDirect RDMA over InfiniBand or RoCE
+* UCX or libfabric transports
+* Host-memory staging
+* Slower TCP fallback
+* Storage backends for other Dynamo data-movement use cases
+
+For disaggregated serving, NIXL allows a prefill worker to place a request's KV-cache tensors into memory reserved by a decode worker. With GPUDirect RDMA, the transfer can go between GPU memory on different hosts without copying the payload through application CPU memory.
+
+## 9. How large is a KV cache?
+
+For a conventional transformer, a useful approximation for the total KV cache is:
+
+    bytes = tokens
+          x layers
+          x KV heads
+          x head dimension
+          x 2                  # key and value
+          x bytes per element
+
+The model architecture and KV data type therefore matter greatly. Grouped-query attention reduces the number of KV heads; FP8 halves storage relative to BF16/FP16; MLA models use a different, compressed representation.
+
+Approximate BF16 examples:
+
+| Model shape | KV per token | KV for a 20K-token prompt |
+| --- | --- | --- |
+| 32 layers, 8 KV heads, head dimension 128 | 128 KiB | 2.44 GiB |
+| 80 layers, 8 KV heads, head dimension 128 | 320 KiB | 6.10 GiB |
+
+These are aggregate full-model figures. Tensor parallelism shards the cache and transfer across ranks, changing the per-GPU amount but not eliminating the aggregate data volume. During disaggregation, the prompt KV is transferred; KV for subsequently generated output tokens grows locally on the decode side.
+
+## 10. Can KV transfer become the bottleneck?
+
+Yes. A rough lower bound is:
+
+    transfer time = KV bytes / effective transfer bandwidth + setup overhead
+
+For example, moving a 6.10 GiB cache over a nominal 200 Gbit/s link has an ideal serialization time of roughly 0.26 seconds. Real effective time is higher because nominal link rate is not payload throughput and transfers have registration, coordination, contention, and topology costs.
+
+Transfer is more likely to dominate when:
+
+* Prompts are long.
+* KV uses BF16/FP16 rather than a smaller representation.
+* The model has many layers or KV heads.
+* Workers are cross-node.
+* RDMA is unavailable and the path falls back to TCP or host staging.
+* Multiple prefill workers concurrently target the same network or decode worker.
+* Prefill computation is short relative to the amount of KV data produced.
+
+This is why Dynamo's documentation treats validation of RDMA/UCX/NIXL as an early deployment step. Disaggregation is beneficial only when better phase-specific utilization outweighs the transfer cost. Aggregated serving can be faster for small models, short prompts, low concurrency, or weak interconnects.
+
+## 11. How does Dynamo know prompt and answer lengths?
+
+The two lengths have different certainty:
+
+* **Input sequence length (ISL):** Known for an individual request after the frontend tokenizes the prompt. The Router can immediately use it for request placement and load accounting.
+* **Output sequence length (OSL):** Not known exactly until generation finishes. `max_tokens` is only an upper bound. A caller can optionally supply `nvext.agent_hints.osl` as an expected output length for routing, but this is a hint rather than a guarantee.
+
+The Planner does not normally resize the cluster independently for every incoming request. It sizes pools from aggregate workload observations and predictions.
+
+The frontend records Prometheus metrics including:
+
+* Started and completed request counts
+* Average input sequence tokens
+* Average output sequence tokens
+* TTFT and ITL
+* Request duration and concurrency
+* KV hit rate and engine load signals when available
+
+The output-length metric comes from completed or progressing requests, so it describes observed workload history rather than foreknowledge of a new answer.
+
+## 12. How does Dynamo decide prefill and decode replica counts?
+
+For SLA-based throughput planning, the control loop is approximately:
+
+    Observed request rate, ISL and OSL
+                     |
+                     v
+    Predict next request rate, ISL and OSL
+                     |
+                     v
+    Engine performance model under TTFT/ITL targets
+                     |
+                     v
+    Per-worker prefill RPS and decode RPS
+                     |
+                     v
+    ceil(predicted demand RPS / per-worker capacity RPS)
+                     |
+                     v
+    Apply minimum replicas and global GPU budget
+
+Dynamo can use constant, ARIMA, Kalman, or Prophet predictors for request count, ISL, and OSL. The engine-capacity model is bootstrapped from AIConfigurator estimates, profiler/self-benchmark data, or live ForwardPassMetrics.
+
+Prefill and decode are modeled separately:
+
+* **Prefill capacity** depends strongly on ISL, KV hit rate, engine configuration, and the TTFT target.
+* **Decode capacity** depends on ISL + OSL context growth, concurrency/KV pressure, engine configuration, speculative acceptance when used, and the ITL target.
+
+An illustrative decision might be:
+
+    Predicted traffic:                  20 requests/second
+    Prefill capacity at predicted ISL:  4 requests/second/worker
+    Decode capacity at predicted OSL:   2 requests/second/worker
+
+    Prefill replicas = ceil(20 / 4) = 5
+    Decode replicas  = ceil(20 / 2) = 10
+
+The actual values come from model- and hardware-specific performance data rather than fixed ratios.
+
+Dynamo also has a faster load-based loop. It consumes live ForwardPassMetrics, queue pressure, KV utilization, and estimated latency to react to bursts. When both loops are active, predicted throughput establishes a capacity floor and live load scaling can temporarily scale above that floor. Default documented cadences are much slower for throughput planning (around 180 seconds) and faster for load reactions (around 5 seconds), because starting a GPU worker is expensive.
+
+Relevant implementation files include:
+
+* `docs/api/nixl-connect/README.md`
+* `docs/features/disaggregated-serving/README.md`
+* `components/src/dynamo/planner/monitoring/traffic_metrics.py`
+* `components/src/dynamo/planner/plugins/builtins/local_planner.py`
+* `components/src/dynamo/planner/core/throughput_scaling.py`
+
+## 13. Which SGLang APIs enable disaggregation and KV-aware routing?
+
+There is no single `enable_dynamo()` SGLang API. Dynamo composes several upstream SGLang configuration fields and engine APIs.
+
+### Engine construction and role configuration
+
+Dynamo parses upstream SGLang `ServerArgs` and constructs the normal engine:
+
+    server_args = ServerArgs.from_cli_args(parsed_args)
+    engine = sglang.Engine(server_args=server_args)
+
+The important upstream arguments are:
+
+    --disaggregation-mode prefill|decode
+    --disaggregation-transfer-backend nixl
+    --disaggregation-bootstrap-port 12345
+    --kv-events-config '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:5557"}'
+
+The first three enable SGLang's prefill/decode role and its transfer path. `kv_events_config` asks the SGLang scheduler to publish cache lifecycle events.
+
+### Per-request disaggregation contract
+
+SGLang's main execution API is `Engine.async_generate()`. For disaggregated requests, both peers receive the same bootstrap triple:
+
+    stream = await engine.async_generate(
+        input_ids=token_ids,
+        sampling_params=sampling_params,
+        stream=True,
+        bootstrap_host=bootstrap_host,
+        bootstrap_port=bootstrap_port,
+        bootstrap_room=bootstrap_room,
+        data_parallel_rank=selected_dp_rank,
+        rid=request_id,
+    )
+
+The triple identifies the transfer rendezvous:
+
+* `bootstrap_host`: host on which SGLang's transfer/bootstrap service is reachable
+* `bootstrap_port`: bootstrap service port
+* `bootstrap_room`: unique per-request rendezvous identifier
+
+Dynamo obtains the prefill worker's address through SGLang's live engine state:
+
+    engine.tokenizer_manager.server_args.disaggregation_bootstrap_port
+
+Dynamo generates or forwards a `bootstrap_room`, sends the same triple to the selected prefill and decode workers, and calls `async_generate()` on both. SGLang registers the room, allocates the decode-side cache pages, performs prefill, and executes the configured NIXL KV transfer. Dynamo must continue draining the prefill stream until the transfer finishes.
+
+`data_parallel_rank` is also important: Dynamo can choose a specific SGLang DP rank and pass that decision into `async_generate()`, keeping request placement aligned with per-rank cache events and load state.
+
+### KV-event API used for routing
+
+With `kv_events_config` enabled, SGLang schedulers publish KV block creation/deletion events over ZMQ. Dynamo imports SGLang's event helper:
+
+    from sglang.srt.disaggregation.kv_events import ZmqEventPublisher
+
+For data-parallel workers, the helper derives the correct publisher endpoint for each rank:
+
+    rank_endpoint = ZmqEventPublisher.offset_endpoint_port(base_endpoint, dp_rank)
+
+Dynamo subscribes to those endpoints, associates the events with the Dynamo worker and DP rank, and feeds them into its KV indexer. The indexer records which hashed prompt blocks are present on which workers.
+
+For a new request, Dynamo—not SGLang—then:
+
+1. Tokenizes the prompt.
+2. Hashes it in KV-cache-sized blocks.
+3. Looks up matching cached blocks in the event-maintained index.
+4. Combines cached overlap with active prefill/decode load.
+5. Selects the lowest-cost worker and DP rank.
+6. Passes that rank to SGLang through `data_parallel_rank`.
+
+Thus SGLang provides cache events and rank-targeted execution, while Dynamo provides the cache-aware selection algorithm.
+
+Relevant source locations:
+
+* `components/src/dynamo/sglang/args.py`
+* `components/src/dynamo/sglang/_disagg.py`
+* `components/src/dynamo/sglang/llm_engine.py`
+* `components/src/dynamo/sglang/request_handlers/llm/prefill_handler.py`
+* `components/src/dynamo/sglang/request_handlers/llm/decode_handler.py`
+* `components/src/dynamo/sglang/publisher.py`
+* `lib/llm/src/kv_router/`
+* `examples/backends/sglang/launch/disagg_router.sh`
+
+## 14. What would be required to run FlashDreams behind Dynamo?
+
+### Current FlashDreams execution model
+
+FlashDreams is a video/world-model inference framework rather than an LLM token server. Its central API is a persistent autoregressive pipeline:
+
+    cache = pipeline.initialize_cache(...)
+    for i in range(total_blocks):
+        video_chunk = pipeline.generate(i, cache, input=control)
+        pipeline.finalize(i, cache)
+
+`initialize_cache()` creates per-rollout state, `generate()` runs one autoregressive video chunk, and `finalize()` advances the transformer KV cache.
+
+FlashDreams already supports multi-GPU execution through `torchrun` and context parallelism. Every rank constructs a sharded pipeline and executes `generate()` / `finalize()` in lockstep. Rank zero alone performs final user-facing I/O.
+
+This is multi-GPU model execution, but it is not by itself a general multi-request batch server. FlashDreams documentation describes serving as integration-specific, and its LingBot reference server currently supports one active WebRTC session per process.
+
+### Recommended first architecture
+
+    Client
+      |
+      v
+    Dynamo Frontend (/v1/videos)
+      |
+      | least-loaded or round-robin
+      v
+    FlashDreams worker-group leader (rank 0)
+      |
+      | broadcast request/control command
+      v
+    FlashDreams context-parallel ranks 0..N-1
+      |
+      | all ranks run initialize_cache/generate/finalize
+      v
+    Rank 0 encodes/uploads result and returns response
+
+One Dynamo worker replica should represent one complete FlashDreams GPU group, not one GPU rank. Only rank zero should register the Dynamo endpoint. Otherwise Dynamo could route unrelated requests independently to ranks that must participate in the same collectives.
+
+### Required addition 1: Dynamo video backend adapter
+
+Add a small package, ideally outside the Dynamo repository initially, that wraps a selected FlashDreams pipeline. The proven path for video workloads is Dynamo's lower-level Python worker API, similar to the existing FastVideo custom worker.
+
+The adapter should:
+
+* Initialize the chosen FlashDreams pipeline once at process startup.
+* Register `ModelInput.Text` and `ModelType.Videos`.
+* Serve a `dynamo.<component>.generate` endpoint.
+* Accept Dynamo's `/v1/videos` request fields: model, prompt, input reference, size, seconds, FPS, frame count, inference steps, seed, and response format.
+* Translate those fields into a FlashDreams integration/pipeline configuration.
+* Run `initialize_cache()`, repeated `generate()` / `finalize()`, and cleanup.
+* Return an `NvVideosResponse` with a URL or base64 MP4.
+* Implement health readiness only after model loading, compilation, and warmup complete.
+* Implement cancellation and bounded queueing.
+
+For large video outputs, object storage plus a returned URL is preferable to transporting base64 MP4 through every service layer.
+
+### Required addition 2: distributed request command loop
+
+Under `torchrun`, all context-parallel ranks must enter the same collectives in the same order. A Dynamo request reaches rank zero only, so the adapter needs a group command protocol:
+
+1. Rank zero receives and validates the request.
+2. Rank zero broadcasts a fixed request descriptor to all ranks.
+3. Every rank constructs equivalent per-request cache state.
+4. Every rank executes each autoregressive step in lockstep.
+5. Rank zero gathers/owns the user-facing video output.
+6. Errors, cancellation, shutdown, and the next command are broadcast to every rank.
+
+FlashDreams' multi-GPU WebRTC server provides a useful precedent for rank-zero networking with all-rank inference, but a Dynamo adapter needs this behavior behind a Dynamo endpoint rather than WebRTC.
+
+### Required addition 3: serving scheduler
+
+For the minimum viable integration, serialize requests with one in-flight request per GPU group. Scale throughput by deploying several identical groups and let Dynamo load-balance between their leaders.
+
+True engine-level batching requires additional FlashDreams work:
+
+* A bounded pending-request queue
+* Admission control based on resolution, frames, rollout blocks, model variant, and memory
+* Compatibility buckets for requests that can share one tensor batch and CUDA graph
+* Batched prompt/image/control encoding
+* A batched `StreamInferencePipelineCache`, or a scheduler that stacks compatible per-request caches
+* Per-request active masks when rollouts have different lengths
+* Result demultiplexing and per-request cancellation
+* Fairness and timeout behavior
+
+Although FlashDreams tensor shapes include batch dimensions, the public runners shown in the repository drive one rollout at a time. Dynamo does not automatically combine concurrent requests into a tensor batch; that batching logic belongs inside the FlashDreams engine adapter/framework.
+
+### Required addition 4: runtime image and deployment
+
+Build a custom CUDA 13 image containing:
+
+* A pinned FlashDreams release and selected integration package
+* The matching PyTorch/CUDA/Transformer Engine stack
+* Dynamo runtime and Python package
+* FFmpeg or another production video encoder
+* Model/cache volume support
+* The adapter entry point
+
+For a same-node four-GPU group, the Dynamo deployment should request four GPUs for one worker pod and launch approximately:
+
+    torchrun --standalone --nproc_per_node=4 -m flashdreams_dynamo.worker
+
+Set `replicas` to the desired number of four-GPU groups. Multi-node context parallelism would additionally require gang scheduling, stable rendezvous, cross-node NCCL networking, and failure handling for the entire rank group; that should be a later phase.
+
+### Routing and scaling limitations
+
+Do not initially enable Dynamo's LLM KV-aware router for FlashDreams. FlashDreams' cache is per-video-rollout state, not the standardized token-prefix block cache expected by Dynamo's KV indexer. For independent batch jobs, use least-loaded or round-robin routing. For interactive world-model sessions, add session-affinity routing so every action returns to the worker group holding that session's cache.
+
+Likewise, the current Dynamo Planner is oriented around request rate, ISL/OSL, TTFT, ITL, token queues, and LLM KV utilization. A FlashDreams deployment should initially use fixed replica counts or queue/latency-based autoscaling. Native Planner integration would require video-specific capacity metrics or a custom Planner plugin using fields such as queued jobs, active sessions, pixels x frames x denoising steps, generation latency, and GPU memory.
+
+Prefill/decode disaggregation should not be an MVP goal. FlashDreams' pattern is closer to `initialize -> generate chunk -> finalize -> generate chunk`, with a session-private cache that evolves each step. Supporting cross-worker cache movement would require defining serialization and transfer contracts for every integration's encoder, transformer, and decoder caches.
+
+### Suggested delivery phases
+
+1. **MVP:** One model, one request per N-GPU group, `/v1/videos`, fixed replicas, round-robin/least-loaded routing.
+2. **Production hardening:** readiness, cancellation, queue limits, URL-based outputs, metrics, Kubernetes manifests, and graceful group shutdown.
+3. **Replica throughput:** multiple N-GPU groups with Dynamo load balancing.
+4. **True batching:** compatible-shape microbatch scheduler and batch-aware cache handling.
+5. **Interactive sessions:** session IDs, sticky routing, state expiry, reconnection, and admission limits.
+6. **Optional advanced work:** custom Planner plugin, cache checkpoint/migration, or pipeline-stage disaggregation.
+
+External references reviewed:
+
+* <https://github.com/NVIDIA/flashdreams>
+* <https://nvidia.github.io/flashdreams/main/developer_guides/inference_pipeline_overview.html>
+* <https://nvidia.github.io/flashdreams/main/api/serving.html>
+* <https://nvidia.github.io/flashdreams/main/models/self_forcing.html>
+* <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>
+
+## 15. How should FlashDreams refactor its serving API for autoregressive world models?
+
+### Do not force the LLM prefill/decode abstraction
+
+FlashDreams has a different state machine from an LLM:
+
+    LLM request:       prefill(prompt) -> decode token -> decode token -> done
+    World-model session: initialize(context) -> advance chunk -> advance chunk -> ...
+
+`initialize_cache()` is similar to prefill only in the broad sense that it creates persistent state. It is not necessarily a separable compute pool, and the cache evolves after every video chunk. FlashDreams should therefore model a stateful session explicitly rather than rename initialization to prefill or introduce a decode role prematurely.
+
+### Recommended engine contract
+
+Use a transport-neutral session API:
+
+    class WorldModelEngine:
+        async def start(self) -> EngineCapabilities: ...
+
+        async def create_session(
+            self, request: CreateSessionRequest
+        ) -> SessionHandle: ...
+
+        async def advance(
+            self, session: SessionHandle, request: StepRequest
+        ) -> AsyncIterator[VideoChunk]: ...
+
+        async def cancel_step(self, session: SessionHandle) -> None: ...
+
+        async def close_session(self, session: SessionHandle) -> None: ...
+
+        async def health(self) -> HealthStatus: ...
+
+`create_session()` owns FlashDreams' `initialize_cache()`. `advance()` should encapsulate both `pipeline.generate()` and `pipeline.finalize()` as one state transition:
+
+    async def advance(session, request):
+        output = pipeline.generate(session.next_index, session.cache, request.control)
+        pipeline.finalize(session.next_index, session.cache)
+        session.next_index += 1
+        return output
+
+The public serving layer should not ask clients or transports to invoke `finalize()` separately. The next step must not start until the previous cache update is committed, even if finalization is internally overlapped with encoding or network delivery.
+
+### Session state model
+
+Each session should have:
+
+* Opaque session ID
+* Owning worker group and model/config identity
+* Pipeline cache and next autoregressive index
+* Resolution, FPS, chunk shape, seed, and batching class
+* Lifecycle state: creating, ready, advancing, closing, closed, or failed
+* Idle TTL and maximum lifetime
+* Cancellation state and idempotency keys
+* Optional checkpoint/migration metadata
+
+The cache should remain opaque to Dynamo and transport code. Routing should use session affinity: after creation, every step returns to the worker group that owns the cache.
+
+### Scheduler model
+
+The equivalent of continuous batching is step-level scheduling across sessions:
+
+    Session A step 7  ┐
+    Session B step 3  ├─ compatible microbatch -> one multi-GPU execution
+    Session C step 11 ┘
+
+Requests can batch only when their execution shapes are compatible, including model variant, resolution, chunk frame count, denoising schedule, guidance mode, precision, and context-parallel group. The scheduler needs deadline-aware admission because an interactive session cannot wait indefinitely for a larger batch.
+
+A useful policy is:
+
+* Interactive queue: short batching window and latency deadline
+* Batch-job queue: longer batching window for utilization
+* Weighted fairness between the two classes
+* Fixed shape buckets compatible with CUDA graphs
+* Per-session active masks and output demultiplexing
+
+Initialization should be scheduled separately from `advance()` because it may include text/image encoding and large cache allocation. It can later be split into stateless preprocessing and stateful activation, but this should be driven by profiling rather than by analogy to LLM prefill/decode.
+
+### Two serving products over one engine
+
+#### Finite video-generation jobs
+
+Expose an asynchronous REST resource:
+
+    POST   /v1/videos                    create queued job
+    GET    /v1/videos/{id}               status/progress
+    GET    /v1/videos/{id}/content       MP4 or preview content
+    DELETE /v1/videos/{id}               cancel/delete
+    GET    /v1/videos/{id}/events        optional SSE progress events
+
+The create call should return quickly with a job ID and state such as `queued`. Completed output should normally live in object storage and be returned as a signed URL. This matches the common shape used by OpenAI video jobs, Google Veo long-running operations, Amazon Bedrock async invocation, and Runway tasks.
+
+#### Persistent interactive sessions
+
+Expose a session control plane plus interchangeable streaming transports:
+
+    POST   /v1/world-model/sessions
+    GET    /v1/world-model/sessions/{id}
+    DELETE /v1/world-model/sessions/{id}
+
+Then support:
+
+* WebRTC media tracks for low-latency browser playback
+* WebRTC DataChannel for browser controls and step acknowledgements
+* WebSocket for simpler bidirectional SDK clients
+* Bidirectional gRPC for native simulation, robotics, and datacenter clients
+
+WebRTC signaling, ICE/TURN, codecs, congestion control, and browser integration belong in a transport adapter. They should not be embedded in the pipeline or scheduler API.
+
+### Should FlashDreams focus only on WebRTC?
+
+No. WebRTC is the right primary demo and browser transport for interactive world models because it standardizes real-time media and generic data channels. It is a poor sole API for offline batch generation, backend-to-backend calls, job orchestration, and many native robotics/simulation clients.
+
+Recommended product priority:
+
+1. Build and stabilize the transport-neutral session engine.
+2. Provide asynchronous `/v1/videos` jobs for broad batch/API compatibility.
+3. Keep WebRTC as the first-class interactive browser adapter.
+4. Add WebSocket or bidirectional gRPC for native/headless clients.
+
+### Current industry pattern
+
+There is no single universal generative-video API standard. The strongest current conventions are:
+
+* **Finite generation:** asynchronous job creation, job ID, polling/webhook, progress state, cancellation, and downloadable/object-storage output.
+* **Interactive generation:** persistent session with bidirectional controls and streamed media; WebRTC is standard for browser real-time media, while WebSocket/gRPC are common application transports outside the browser.
+* **Request fields:** prompt, model, image/reference input, duration, resolution/aspect ratio, seed, sample count, and provider-specific generation settings.
+* **Output:** MP4 or another encoded asset via URL/content endpoint, not a long-held synchronous JSON response.
+
+The OpenAI-style `/v1/videos` job resource is a practical compatibility target for finite generation. It should not be stretched to represent an endless interactive world session; that deserves a separate session API.
+
+External references reviewed:
+
+* <https://platform.openai.com/docs/api-reference/videos/object>
+* <https://cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text>
+* <https://docs.aws.amazon.com/bedrock/latest/userguide/inference-api.html>
+* <https://docs.dev.runwayml.com/api/>
+* <https://www.w3.org/TR/webrtc/>
+
+## 16. Is “prefill, decode, and KV-cache-transfer worker pools” an accurate description?
+
+Broadly yes, with one correction: KV-cache transfer is normally a data movement path between the prefill and decode workers, not a third inference worker pool.
+
+A more precise statement is:
+
+> Disaggregated LLM serving places prefill and decode computation in independently scalable worker pools. Dynamo routes and coordinates requests across those pools, while the inference backend and a transport such as NIXL move the generated KV-cache state from the selected prefill worker to the selected decode worker.
+
+The responsibilities are:
+
+* **Prefill workers:** process prompt tokens and create the prompt's KV cache.
+* **Decode workers:** consume that cache and generate output tokens autoregressively.
+* **Dynamo:** provides the frontend, discovery, routing, coordination, metrics, and deployment/orchestration integration needed to select and connect the workers.
+* **Inference backend:** SGLang, TensorRT-LLM, vLLM, or another backend performs the model computation and participates in the disaggregated protocol.
+* **KV transport:** NIXL or a backend transport transfers/registers the cache memory; it is a mechanism rather than usually a pool that runs model inference.
+
+Some deployments may add separate cache-storage or offload services, but those are optional and should not be treated as part of the basic definition of prefill/decode disaggregation.
+
+## 17. Dynamo introduction: three slide bullets
+
+* **Distributed inference framework:** NVIDIA Dynamo turns inference engines such as SGLang, TensorRT-LLM, and vLLM into scalable, distributed serving systems.
+* **Intelligent request orchestration:** It discovers workers and routes requests using load and KV-cache locality, including coordination of disaggregated prefill and decode.
+* **Production infrastructure:** It provides APIs, observability, autoscaling, and Kubernetes deployment components while leaving model execution to the underlying inference engine.
+
+## 18. Does Dynamo support image and video generation?
+
+Yes. This is **media generation**, which is separate from VLM multimodal input/understanding.
+
+### SGLang
+
+Dynamo wraps SGLang's `DiffGenerator` with dedicated media workers:
+
+* `--image-diffusion-worker` exposes `POST /v1/images/generations`.
+* `--video-generation-worker` exposes `POST /v1/videos`.
+* Documented examples include FLUX text-to-image and Wan 2.1 text-to-video; the video handler also has image-to-video support.
+* Output can be returned as base64 or written to local/S3-compatible storage and returned by URL.
+* SGLang `DiffGenerator` can use tensor and data parallelism across GPUs.
+
+The important limitation is that Dynamo currently treats each SGLang image/video generator as an **aggregated media worker**. The whole generation pipeline belongs to that worker group. There is no LLM-style prefill/decode split, KV-cache transfer, or KV-aware routing for these jobs. Multiple worker replicas can still be registered for request-level scaling and load distribution.
+
+### Other generation backends
+
+* **vLLM-Omni:** text-to-image, text-to-video, image-to-video, and text-to-audio. It also supports some explicitly multi-stage pipelines, such as disaggregated GLM-Image.
+* **TensorRT-LLM diffusion:** text-to-image and text-to-video; currently documented as experimental, with NVENC required for video output.
+* **FastVideo:** a custom Dynamo worker for production-oriented text-to-video Kubernetes deployments.
+* **Custom backends:** Dynamo's `DiffusionEngine` interface and image/video protocols allow another framework, such as FlashDreams, to register `ModelType.Images` or `ModelType.Videos` and use the same frontend endpoints.
+
+Current deployment caveat: the built-in SGLang, vLLM-Omni, and TensorRT-LLM diffusion integrations primarily ship CLI/local launch examples rather than ready-made Kubernetes recipes. FastVideo includes a Kubernetes path.
+
+## 19. How vLLM-Omni multi-stage disaggregation works in Dynamo
+
+This is **pipeline-stage disaggregation**, not the LLM prefill/decode form of disaggregation. A heterogeneous model is divided at its natural model boundaries, and every stage becomes an independently served Dynamo worker pool.
+
+The current concrete Dynamo example is GLM-Image:
+
+    POST /v1/images/generations
+              |
+         Dynamo frontend
+              |
+      public Omni stage router
+              |
+              v
+      Stage 0: AR model, GPU 0
+      generates prior image token IDs
+              |
+              | intermediate output through an OmniConnector
+              | router forwards only an opaque connector reference
+              v
+      Stage 1: ar2diffusion processor + DiT, GPU 1
+      performs diffusion denoising and VAE decoding
+              |
+              v
+      router formats image response
+
+### Configuration and process layout
+
+The vLLM-Omni stage YAML describes:
+
+* the stage IDs and types, such as autoregressive LLM or diffusion;
+* each stage's model/runtime and GPU configuration;
+* `engine_input_source`, which declares upstream dependencies;
+* the model-specific transition function, such as `ar2diffusion`;
+* the connector used on each inter-stage edge.
+
+Dynamo launches one process per stage using `--stage-id N` and a separate coordinator using `--omni-router`. In the GLM-Image example, Stage 0 and Stage 1 are bound to GPUs 0 and 1 respectively.
+
+Each stage worker exposes a private endpoint:
+
+    dyn://<namespace>/<model_stage>/generate
+
+Only the Omni router registers the public model endpoint with the Dynamo frontend. From the normal frontend's perspective, that router is one aggregated model worker, while the stage graph behind it is private.
+
+### Control plane versus data plane
+
+For each request, the router walks the stage graph:
+
+1. It sends the original request to Stage 0 using a Dynamo endpoint client.
+2. Stage 0 runs its engine and writes the intermediate output to the configured vLLM-Omni connector.
+3. Stage 0 returns only connector metadata—an address ticket—to the router.
+4. The router forwards that opaque ticket to Stage 1 without reading or serializing the tensor payload.
+5. Stage 1 calls `connector.get`, reconstructs the upstream output, applies `ar2diffusion`, and invokes its DiT engine.
+6. The final image is returned to the router, which encodes/stores it and creates the API response.
+
+Connector references accumulate, allowing a later stage to consume outputs from more than one preceding stage. The stage YAML's `engine_input_source` selects which references it reads.
+
+This differs from LLM P/D disaggregation:
+
+| LLM P/D | vLLM-Omni stage disaggregation |
+| --- | --- |
+| Splits one transformer into prefill and decode | Splits a heterogeneous model at semantic stage boundaries |
+| Moves attention KV cache | Moves stage outputs such as token IDs, embeddings, latents, or media tensors |
+| Commonly uses NIXL KV connectors | Uses vLLM-Omni `OmniConnector` edges |
+| Decode repeatedly generates tokens | Each stage executes its own engine and transition processor |
+
+### Independent scaling
+
+Every stage endpoint is independently discoverable. Additional workers with the same stage ID form replicas of that stage; the router uses round-robin selection within that stage pool. This makes it possible to assign more replicas or more intra-stage parallelism to the slow DiT stage without duplicating the AR stage at the same ratio.
+
+### Current Dynamo limitations
+
+* The tested Dynamo disaggregated example is currently GLM-Image, AR to DiT, and is documented as experimental.
+* Inter-stage streaming (`async_chunk=true`) is not supported; each stage finishes before its connector reference is sent onward.
+* If connector edges are omitted, Dynamo synthesizes shared-memory connectors.
+* The final-stage-to-router result currently uses shared memory, which requires the final worker and router to be on the same host. Although connector types such as Mooncake can support remote inter-stage movement, the final hop is still a single-node limitation in the current implementation.
+* This path does not publish KV events or use Dynamo's KV-aware LLM router.
+* The local launcher creates processes directly; it is not yet a ready-made `DynamoGraphDeployment`.
+
+## 20. GLM-Image stages, video capability, and transfer size
+
+### What “GLM” means
+
+GLM originally stands for **General Language Model**, the model family introduced with autoregressive blank-infilling pretraining. Here, `GLM-Image` is Z.ai's image-generation member of that family. It initializes its autoregressive image generator from GLM-4-9B and adds visual tokens plus a diffusion decoder.
+
+### Dynamo does not invent the AR/DiT split
+
+GLM-Image itself is trained as a hybrid, two-stage model:
+
+    prompt
+      |
+      v
+    9B autoregressive generator
+      |  discrete prior image tokens
+      v
+    7B DiT diffusion decoder + glyph/text encoder + VAE
+      |
+      v
+    image
+
+Dynamo and vLLM-Omni expose that native model boundary as two independently served stages. This is useful because:
+
+* the AR stage and DiT stage use different execution engines and scheduling strategies;
+* their weights and working memory do not have to fit on the same GPU;
+* the stages have different bottlenecks and can be replicated independently;
+* AR token generation can use vLLM's token scheduler while DiT uses diffusion-specific batching and parallelism.
+
+Published vLLM-Omni estimates for GLM-Image are roughly 18 GiB plus KV cache for Stage 0 and 20 GiB for Stage 1.
+
+### What each stage does
+
+**Stage 0: autoregressive prior generator**
+
+* Reads the prompt and, for editing, source image information.
+* Uses a 9B GLM-derived causal transformer.
+* Sequentially generates a compact visual plan followed by higher-resolution discrete visual tokens.
+* For a square text-to-image request, the current processor expects a 16×16 preview token grid plus a target grid downsampled by 32, followed by EOS.
+
+**Transition processor: `ar2diffusion`**
+
+* Extracts the AR stage's cumulative token IDs.
+* Selects the target-grid tokens and upsamples their token layout from 32× downsampling to the 16× layout expected by the DiT.
+* Builds the DiT request containing the original prompt, resolution, prior token IDs, and optional image-editing tokens.
+
+**Stage 1: diffusion decoder**
+
+* Encodes prompt/glyph text used for accurate text rendering.
+* Embeds the AR-generated prior tokens as semantic/layout conditioning.
+* Starts from latent noise and applies the DiT denoising loop.
+* Uses the VAE to decode the final latent into pixels.
+
+In short, the AR stage decides broadly **what and where**; the DiT stage renders **pixels, texture, detail, and text appearance**.
+
+### Can GLM-Image generate video?
+
+No. GLM-Image supports text-to-image and image-to-image/editing, not video.
+
+vLLM-Omni supports video-generation models such as Wan, and Dynamo exposes them through `/v1/videos`. However, Dynamo's currently tested multi-stage disaggregated vLLM-Omni example is GLM-Image AR→DiT. Existing Dynamo video examples are aggregated video workers; there is not yet a validated multi-stage disaggregated video recipe.
+
+### How much data moves between the GLM-Image AR and DiT workers?
+
+For text-to-image, the payload is small because Stage 0 sends **discrete token IDs**, not KV cache, hidden states, latents, or pixels.
+
+The current upstream processor computes the number of generated AR tokens as:
+
+    large target tokens = floor(H / 32) × floor(W / 32)
+    small preview tokens ≈ 256 for a square image
+    total T2I tokens = large target tokens + preview tokens + 1 EOS
+
+Examples:
+
+| Resolution | AR tokens crossing the stage boundary | Packed as uint16 | As int32 | As int64 |
+| --- | --- | --- | --- | --- |
+| 1024×1024 | 1,281 | ~2.5 KiB | ~5 KiB | ~10 KiB |
+| 1536×1536 | 2,561 | ~5 KiB | ~10 KiB | ~20 KiB |
+| 2048×2048 | 4,353 | ~8.5 KiB | ~17 KiB | ~34 KiB |
+
+Dynamo's current connector serializes the containing vLLM request-output object rather than a bare packed array, so the real connector payload includes object and protocol metadata. A reasonable order-of-magnitude estimate for ordinary text-to-image is **tens of KiB per request**, and it should be measured for an exact build.
+
+This makes AR→DiT transfer dramatically smaller than multi-GiB LLM KV-cache transfers. It is unlikely to be a network bandwidth bottleneck; serialization, synchronization, stage imbalance, and inference time matter more.
+
+Two qualifications:
+
+* Image-to-image requests may also carry source-image-related VQ token IDs and source media, making the payload larger.
+* The final DiT result sent to the router is an image rather than token IDs. A raw 1024×1024 RGB image is about 3 MiB (and may differ after serialization/compression). In the current Dynamo example, both inter-stage and final-result movement default to shared memory on one host rather than crossing the network.
+
+## 21. What KV-aware routing means
+
+KV-aware routing sends a request to the worker that can reuse the largest useful portion of the request's existing attention KV cache, while also accounting for current worker load.
+
+### Concrete example
+
+Suppose every request begins with a 4,000-token system prompt:
+
+    Worker A: already caches the 4,000-token system prompt
+    Worker B: does not cache it
+    New request: same system prompt + 100 new user tokens
+
+Round-robin routing might choose Worker B, forcing it to prefill all 4,100 tokens. A KV-aware router normally chooses Worker A, which can reuse the cached prefix and prefill only the 100 new tokens. That reduces GPU computation and usually improves time to first token.
+
+### How Dynamo knows where the cache is
+
+1. The inference backend divides token sequences into cache blocks and derives stable hashes for their prefixes.
+2. Workers publish `BlockStored` and `BlockRemoved` events when cache blocks are allocated or evicted.
+3. Dynamo's event plane carries those events through ZMQ or NATS.
+4. The router maintains an index mapping prefix-block hashes to workers.
+5. For an incoming tokenized request, the router hashes its prefix, calculates the overlap with each worker, combines this with active prefill/decode load, and selects the lowest estimated-cost worker.
+
+The simplified cost is:
+
+    score = prefill_load_scale × adjusted_uncached_prefill_blocks
+            + active_decode_blocks
+
+Cached prefix blocks reduce the prefill portion of the score. The router still accounts for active load, so an overloaded worker with a perfect cache hit can lose to a lightly loaded worker with a smaller hit.
+
+When precise cache events are unavailable, Dynamo can run an approximate mode that predicts cache placement from past routing decisions and expires those predictions by TTL.
+
+### KV-aware routing versus KV transfer
+
+* **KV-aware routing:** chooses a worker where useful cache blocks already exist.
+* **KV transfer:** moves KV state between workers, for example from a prefill worker to a decode worker through NIXL.
+
+In an aggregated deployment, KV-aware routing chooses the worker that handles the complete request. In a P/D-disaggregated deployment, it is especially useful when selecting a prefill worker; after prefill, the required cache may still be transferred to the selected decode worker.
+
+This feature is mainly for transformer token inference with reusable prompt prefixes. It does not currently apply to the GLM-Image AR-to-DiT connector flow or ordinary image/video diffusion workers; vLLM-Omni stage workers do not publish the LLM KV events required by this router.
+
+## 22. Shared-memory transfer between GPU 0 and GPU 1
+
+Yes, the AR output still has to move from the GPU 0 worker to the GPU 1 worker. “Shared memory on the same host” means that the current default connector uses **CPU host memory as the staging area** instead of sending the payload across a network or copying directly between GPU memories.
+
+The path is:
+
+    GPU 0
+      | AR inference produces token IDs
+      | device-to-host representation
+      v
+    Stage 0 Python process
+      | serialize vLLM output object
+      v
+    POSIX shared memory (/dev/shm in host RAM)
+      | Stage 1 opens the segment and reads the bytes
+      | deserialize and build the DiT input
+      v
+    Stage 1 Python process
+      | host-to-device copy
+      v
+    GPU 1
+
+The stage router carries only a small handle such as the shared-memory segment name and byte count. It does not carry the token payload itself.
+
+“Shared” means both worker processes run under the same operating-system host and can map the same `/dev/shm` segment. It does **not** mean:
+
+* CUDA shared memory inside an SM;
+* one GPU directly reading the other GPU's VRAM;
+* CUDA peer-to-peer, NVLink, NCCL, or NIXL transfer;
+* no data copy.
+
+The current vLLM-Omni connector documentation describes its stage transfers as D2H2D: device-to-host-to-device. This adds serialization, a host-memory write/read, and a host-to-GPU copy. For GLM-Image text-to-image, the AR-to-DiT payload is only on the order of tens of KiB, so this is usually negligible compared with running a 9B AR model and a 7B diffusion decoder.
+
+For stages on different machines, `/dev/shm` cannot work because each host has different physical RAM and a different OS namespace. A remote connector such as Mooncake over TCP or RDMA is required. Direct device-to-device OmniConnector transports are described as future work in the current vLLM-Omni design.
+
+## 23. Commands for launching vLLM and SGLang in P/D-disaggregated mode
+
+For local testing, first start Dynamo's discovery/supporting services:
+
+    docker compose -f dev/docker-compose.yml up -d
+
+The repository presets launch a frontend, one decode worker, and one prefill worker on two GPUs:
+
+    # vLLM
+    cd examples/backends/vllm
+    bash launch/disagg.sh
+
+    # SGLang
+    cd examples/backends/sglang
+    bash launch/disagg.sh
+
+Both scripts also accept `--unified` to use the newer common backend entry point:
+
+    bash launch/disagg.sh --unified
+
+### Expanded vLLM commands
+
+    MODEL=Qwen/Qwen3-0.6B
+
+    python -m dynamo.frontend &
+
+    CUDA_VISIBLE_DEVICES=0 \
+    DYN_SYSTEM_PORT=8081 \
+    python -m dynamo.vllm \
+      --model "$MODEL" \
+      --enforce-eager \
+      --disaggregation-mode decode \
+      --kv-transfer-config \
+        '{"kv_connector":"NixlConnector","kv_role":"kv_both"}' &
+
+    CUDA_VISIBLE_DEVICES=1 \
+    DYN_SYSTEM_PORT=8082 \
+    VLLM_NIXL_SIDE_CHANNEL_PORT=20097 \
+    python -m dynamo.vllm \
+      --model "$MODEL" \
+      --enforce-eager \
+      --disaggregation-mode prefill \
+      --kv-transfer-config \
+        '{"kv_connector":"NixlConnector","kv_role":"kv_both"}' \
+      --kv-events-config \
+        '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:20081","enable_kv_cache_events":true}'
+
+`--enforce-eager` is included by the example for quick startup and should normally be removed when benchmarking or tuning production performance.
+
+### Expanded SGLang commands
+
+    MODEL=Qwen/Qwen3-0.6B
+    BOOTSTRAP_PORT=12345
+
+    python -m dynamo.frontend &
+
+    CUDA_VISIBLE_DEVICES=0 \
+    DYN_SYSTEM_PORT=8081 \
+    python -m dynamo.sglang \
+      --enable-multimodal \
+      --model-path "$MODEL" \
+      --served-model-name "$MODEL" \
+      --page-size 16 \
+      --tp 1 \
+      --trust-remote-code \
+      --disaggregation-mode prefill \
+      --disaggregation-bootstrap-port "$BOOTSTRAP_PORT" \
+      --disaggregation-transfer-backend nixl \
+      --host 0.0.0.0 \
+      --port 40000 \
+      --enable-metrics \
+      --disable-piecewise-cuda-graph &
+
+    CUDA_VISIBLE_DEVICES=1 \
+    DYN_SYSTEM_PORT=8082 \
+    python -m dynamo.sglang \
+      --enable-multimodal \
+      --model-path "$MODEL" \
+      --served-model-name "$MODEL" \
+      --page-size 16 \
+      --tp 1 \
+      --trust-remote-code \
+      --disaggregation-mode decode \
+      --disaggregation-bootstrap-port "$BOOTSTRAP_PORT" \
+      --disaggregation-transfer-backend nixl \
+      --host 0.0.0.0 \
+      --enable-metrics \
+      --disable-piecewise-cuda-graph
+
+The important backend-specific difference is that vLLM selects `NixlConnector` through `--kv-transfer-config`, while SGLang selects NIXL with `--disaggregation-transfer-backend nixl` and coordinates each request through the shared bootstrap port.
+
+For two prefill and two decode replicas with KV-aware routing, use:
+
+    bash launch/disagg_router.sh
+
+from the respective backend example directory. These presets require four GPUs and launch the frontend with `--router-mode kv`.
+
+## 24. What underlying vLLM API does Dynamo use for disaggregated mode?
+
+Dynamo does **not** call a vLLM API such as `launch_disaggregated()`, and it does not launch `vllm serve` as a second HTTP service. It embeds ordinary vLLM Python engines and coordinates them as separate prefill and decode workers.
+
+There are three distinct layers:
+
+1. **Dynamo control plane:** `--disaggregation-mode prefill|decode` assigns the worker role, registers/discovers workers, routes requests, and relays the prefill result to the selected decoder.
+2. **vLLM engine API:** Dynamo constructs each engine with `AsyncEngineArgs.create_engine_config(...)` and `AsyncLLM.from_vllm_config(...)`, then submits requests through `AsyncLLM.generate(...)`.
+3. **vLLM KV-transfer API:** `--kv-transfer-config` becomes vLLM's `KVTransferConfig`, selecting `NixlConnector`. Per-request transfer metadata is passed as `SamplingParams.extra_args["kv_transfer_params"]`.
+
+Conceptually, engine creation looks like this:
+
+    vllm_config = engine_args.create_engine_config(
+        usage_context=UsageContext.OPENAI_API_SERVER
+    )
+
+    engine = AsyncLLM.from_vllm_config(
+        vllm_config=vllm_config,
+        usage_context=UsageContext.OPENAI_API_SERVER,
+    )
+
+The launch argument:
+
+    --kv-transfer-config \
+      '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
+
+populates vLLM's `KVTransferConfig`. vLLM then instantiates and invokes the NIXL connector internally; Dynamo does not directly call the connector for every GPU transfer.
+
+For the prefill request, Dynamo uses the ordinary vLLM generation API but marks the request for a remote decode:
+
+    sampling_params.extra_args["kv_transfer_params"] = {
+        "do_remote_prefill": False,
+        "remote_engine_id": None,
+        "remote_block_ids": None,
+        "remote_host": None,
+        "remote_port": None,
+        "do_remote_decode": True,
+    }
+    sampling_params.max_tokens = 1
+    sampling_params.min_tokens = 1
+
+    async for output in prefill_engine.generate(
+        prompt, sampling_params, request_id
+    ):
+        handoff = output.kv_transfer_params
+
+The one-token limit makes this engine perform prompt prefill and prepare the KV handoff rather than generate the full answer. vLLM returns `output.kv_transfer_params`, which describes where the produced KV blocks can be fetched.
+
+Dynamo relays that handoff to the decoder and invokes the same vLLM API:
+
+    sampling_params.extra_args["kv_transfer_params"] = handoff
+
+    async for output in decode_engine.generate(
+        prompt, sampling_params, request_id
+    ):
+        ...
+
+The decode-side vLLM scheduler and `NixlConnector` interpret the transfer metadata, retrieve the remote KV blocks, and then perform autoregressive decoding. In the current pull-based protocol, the decode worker initiates the NIXL read from the prefill worker.
+
+Therefore, the short answer is:
+
+> Dynamo uses vLLM's `AsyncLLM.from_vllm_config()` and `AsyncLLM.generate()` APIs, configured with `KVTransferConfig(kv_connector="NixlConnector", ...)`. The crucial per-request disaggregation hook is `SamplingParams.extra_args["kv_transfer_params"]`; Dynamo supplies the orchestration around it.
+
+This is a Python engine integration, not an OpenAI HTTP API. The KV-transfer interface is also an evolving/experimental vLLM integration surface, so it is more version-sensitive than the normal generation API. This checkout pins `vllm==0.24.0`.
+
+Relevant implementation:
+
+* `components/src/dynamo/vllm/main.py` — creates the embedded `AsyncLLM`.
+* `components/src/dynamo/vllm/llm_engine.py` — constructs the engine and calls `generate()` for prefill/decode.
+* `components/src/dynamo/vllm/handlers.py` — legacy prefill/decode request handling.
+* `components/src/dynamo/vllm/kv_connector_protocols.py` — constructs and relays the NIXL transfer parameters.
+* `components/src/dynamo/vllm/args.py` — validates Dynamo's disaggregation arguments.
+* `pyproject.toml` — pins the vLLM version.
+
+## 25. What underlying SGLang API does Dynamo use for disaggregated mode?
+
+SGLang differs from vLLM because PD disaggregation is an explicit upstream
+SGLang engine feature. The following are native SGLang `ServerArgs`, not
+Dynamo inventions:
+
+    --disaggregation-mode prefill|decode
+    --disaggregation-transfer-backend nixl
+    --disaggregation-bootstrap-port 12345
+
+Dynamo parses the upstream arguments with `ServerArgs.add_cli_args(...)` and
+`ServerArgs.from_cli_args(...)`, then embeds an SGLang engine:
+
+    server_args = ServerArgs.from_cli_args(parsed_args)
+    engine = sgl.Engine(server_args=server_args)
+
+It does not launch a separate `sglang.launch_server` HTTP server. The installed
+SGLang engine starts its own tokenizer-manager, scheduler, and detokenizer
+processes internally. This checkout installs `sglang[diffusion]==0.5.14`.
+
+The per-request disaggregation interface is SGLang's ordinary
+`Engine.async_generate()` method with three native bootstrap arguments:
+
+    stream = await engine.async_generate(
+        input_ids=prompt_token_ids,
+        sampling_params=sampling_params,
+        stream=True,
+        rid=request_id,
+        bootstrap_host=prefill_host,
+        bootstrap_port=prefill_bootstrap_port,
+        bootstrap_room=request_room,
+    )
+
+`bootstrap_host`, `bootstrap_port`, and `bootstrap_room` form a rendezvous key:
+
+* `bootstrap_host` identifies the prefill worker.
+* `bootstrap_port` identifies that worker's SGLang disaggregation bootstrap service.
+* `bootstrap_room` is a request-specific channel identifier so the matching prefill and decode operations find one another.
+
+For a prefill worker, Dynamo first calls `async_generate()` with this triple.
+Because the engine was constructed with `disaggregation_mode="prefill"`,
+SGLang registers the room and performs the prefill side of the protocol.
+Dynamo then sends only the small bootstrap triple to the decode side:
+
+    {
+        "bootstrap_host": "...",
+        "bootstrap_port": 12345,
+        "bootstrap_room": 428729103,
+    }
+
+The decoder calls its own SGLang engine with the same triple:
+
+    decode_stream = await decode_engine.async_generate(
+        input_ids=prompt_token_ids,
+        sampling_params=sampling_params,
+        stream=True,
+        bootstrap_host=bootstrap_info["bootstrap_host"],
+        bootstrap_port=bootstrap_info["bootstrap_port"],
+        bootstrap_room=bootstrap_info["bootstrap_room"],
+    )
+
+Because that engine was constructed with `disaggregation_mode="decode"`,
+SGLang interprets the request as the decode peer. Its internal disaggregation
+implementation uses the selected transfer backend, such as NIXL, to transfer
+the actual KV-cache blocks. The large KV tensors do not travel through Dynamo
+or inside the bootstrap dictionary.
+
+Compared with vLLM:
+
+| Concern | vLLM integration | SGLang integration |
+| --- | --- | --- |
+| Engine construction | `AsyncLLM.from_vllm_config()` | `sgl.Engine(server_args=...)` |
+| Request API | `AsyncLLM.generate()` | `Engine.async_generate()` |
+| Engine role | Dynamo role plus vLLM `KVTransferConfig` | Native SGLang `disaggregation_mode` |
+| Transfer backend | `KVTransferConfig(kv_connector="NixlConnector")` | Native `disaggregation_transfer_backend="nixl"` |
+| Per-request handoff | `SamplingParams.extra_args["kv_transfer_params"]` | `bootstrap_host`, `bootstrap_port`, `bootstrap_room` |
+| Large KV transfer | vLLM connector internals | SGLang disaggregation internals |
+
+Unlike Dynamo's vLLM adapter, the SGLang adapter does not need to force
+`max_tokens=1` to emulate a prefill request. The SGLang engine already knows it
+is a prefill-only engine from `ServerArgs.disaggregation_mode`.
+
+No patched copy of SGLang is required for this mechanism. Dynamo installs and
+embeds the upstream SGLang package, while its adapter supplies Dynamo routing,
+worker registration, request translation, bootstrap coordination, monitoring,
+and cancellation behavior.
+
+Relevant implementation:
+
+* `components/src/dynamo/sglang/args.py` — consumes native SGLang `ServerArgs`.
+* `components/src/dynamo/sglang/llm_engine.py` — constructs `sgl.Engine`, calls `async_generate()`, and coordinates the bootstrap triple.
+* `components/src/dynamo/sglang/_disagg.py` — resolves the advertised bootstrap address and warms up the prefill path.
+* `components/src/dynamo/sglang/request_handlers/llm/prefill_handler.py` and `decode_handler.py` — equivalent legacy request paths.
+* `pyproject.toml` — pins the SGLang package version.
+
+## 26. What do SGLang's bootstrap host, port, and room mean?
+
+These three values are a rendezvous address that lets the decode-side request
+find the matching prefill-side request:
+
+    bootstrap_host="10.0.0.12"
+    bootstrap_port=12345
+    bootstrap_room=428729103
+
+* **`bootstrap_host`** is the network-reachable address of the SGLang prefill worker that produced the KV cache. It must be reachable from the decode worker; `127.0.0.1` is only suitable when both engines are on the same host.
+* **`bootstrap_port`** is the prefill worker's SGLang disaggregation bootstrap service port. It is used to establish and coordinate the transfer. It should not be confused with the public OpenAI/HTTP serving port.
+* **`bootstrap_room`** is a request-specific channel or meeting ID. Many requests can use the same host and port concurrently, so the room tells SGLang which prefill request must be paired with which decode request. Dynamo normally generates a random 63-bit room when the router has not already supplied one.
+
+Both SGLang calls receive the same triple:
+
+    # On the prefill engine
+    await prefill_engine.async_generate(
+        ...,
+        bootstrap_host="10.0.0.12",
+        bootstrap_port=12345,
+        bootstrap_room=428729103,
+    )
+
+    # On the decode engine
+    await decode_engine.async_generate(
+        ...,
+        bootstrap_host="10.0.0.12",
+        bootstrap_port=12345,
+        bootstrap_room=428729103,
+    )
+
+Conceptually, the triple is comparable to:
+
+    server address = 10.0.0.12:12345
+    request/session key = 428729103
+
+It is small control-plane metadata, not the KV cache. SGLang uses the rendezvous
+to exchange the information needed by the selected transfer backend. NIXL then
+moves the large KV tensors through the available data path, such as GPU memory
+over NVLink/PCIe on one host or RDMA-capable networking across hosts. The
+bootstrap port coordinates that operation; it should not be interpreted as the
+Python application serializing the KV cache into the `async_generate()` call.
+
+If the host or port is unreachable, the peers cannot establish the transfer. If
+the room differs, the decoder does not match the intended prefill operation and
+the request will normally wait or fail rather than receiving that KV cache.
+
+## 27. Complete command to launch SGLang in prefill mode
+
+When SGLang is used under Dynamo, launch the prefill worker through Dynamo's
+SGLang entry point:
+
+    CUDA_VISIBLE_DEVICES=0 \
+    OTEL_SERVICE_NAME=dynamo-worker-prefill \
+    DYN_SYSTEM_PORT=8081 \
+    python3 -m dynamo.sglang \
+      --model-path Qwen/Qwen3-0.6B \
+      --served-model-name Qwen/Qwen3-0.6B \
+      --page-size 16 \
+      --tp 1 \
+      --trust-remote-code \
+      --disaggregation-mode prefill \
+      --disaggregation-transfer-backend nixl \
+      --disaggregation-bootstrap-port 12345 \
+      --host 0.0.0.0 \
+      --port 40000 \
+      --enable-metrics \
+      --disable-piecewise-cuda-graph
+
+This launches an embedded `sgl.Engine` registered as a Dynamo prefill worker.
+It is not the client-facing OpenAI endpoint. A usable Dynamo deployment also
+needs the Dynamo runtime services, frontend/router, and at least one matching
+decode worker.
+
+The repository's complete two-GPU example, including the frontend and decoder,
+is:
+
+    bash examples/backends/sglang/launch/disagg.sh
+
+To use the unified worker implementation:
+
+    bash examples/backends/sglang/launch/disagg.sh --unified
+
+If the intention is to launch SGLang's own HTTP server without Dynamo, use the
+upstream entry point instead:
+
+    CUDA_VISIBLE_DEVICES=0 \
+    python3 -m sglang.launch_server \
+      --model-path Qwen/Qwen3-0.6B \
+      --tp-size 1 \
+      --disaggregation-mode prefill \
+      --disaggregation-transfer-backend nixl \
+      --disaggregation-bootstrap-port 12345 \
+      --host 0.0.0.0 \
+      --port 30000
+
+The native SGLang command uses `--tp-size`; Dynamo's wrapper accepts the
+upstream alias `--tp` used by the repository examples. A standalone prefill
+server is only one half of a PD deployment: it still needs a decode server and
+an orchestrator/load balancer such as SGLang's `mini_lb`.
