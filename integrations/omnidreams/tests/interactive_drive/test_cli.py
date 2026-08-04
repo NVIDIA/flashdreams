@@ -2,7 +2,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 import pytest
-
 from omnidreams.interactive_drive.cli import build_parser
 from omnidreams.interactive_drive.cli_args import arg_was_explicit
 

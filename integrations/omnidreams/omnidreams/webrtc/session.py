@@ -692,9 +692,9 @@ class OmnidreamsInferenceRuntime:
                 f"Supported: {supported}"
             )
 
-        pipeline_cfg = cfg.pipeline_config or OMNIDREAMS_CONFIGS[
-            cfg.pipeline_config_name
-        ]
+        pipeline_cfg = (
+            cfg.pipeline_config or OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
+        )
         transformer_cfg = pipeline_cfg.diffusion_model.transformer
         if not isinstance(transformer_cfg, CosmosTransformerConfig):
             raise TypeError(
