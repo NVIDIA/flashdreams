@@ -59,7 +59,9 @@ Examples:
 
 `UserInputTrace` stores events in deterministic timestamp order and can slice a
 `UserInputWindow` for one runtime step. Events with equal timestamps preserve
-their original order.
+their original order. A `UserInputWindow` enforces its own invariant: every
+event it holds must fall inside `[start_s, end_s]`, so a directly constructed
+window cannot silently disagree with its bounds.
 
 ```python
 from flashdreams.inference import UserInputEvent, UserInputTrace
@@ -128,6 +130,8 @@ camera coordinate system, or model-specific units.
 Capabilities and schemas also carry optional `metadata`. This is for query-time
 hints such as source type, UI widget, file suffixes, units, coordinate frame, or
 schema URI. Metadata is intentionally not part of compatibility matching.
+Because metadata is an open-ended pass-through, its keys are validated (they
+must be non-empty strings) but never rewritten, so a key round-trips unchanged.
 
 ## Model Inputs
 
@@ -260,6 +264,11 @@ static_mapper = StaticInputMapper.from_inputs(
 )
 ```
 
+A mapper schema is a hand-written declaration, so it can drift from what
+`build_initial_inputs` / `build_step_inputs` actually return.
+`undeclared_model_inputs()` reports payload keys a mapper produced but did not
+declare, which keeps mapper tests honest about the compatibility surface.
+
 Mapper schemas can also be combined for compatibility checks. This matches the
 current supported model inventory: a run may select one mapping for prompt
 events, another for first-frame events, and another for keyboard or controller
@@ -288,7 +297,8 @@ schema, model schema, and mapper schema, it reports:
 - source capabilities the mapper needs but the source lacks;
 - required model fields the mapper cannot produce;
 - required model fields that are satisfied;
-- optional model fields that can be enabled.
+- optional model fields that can be enabled;
+- mappers dropped because the source cannot feed them.
 
 ```python
 from flashdreams.inference import check_mapping_compatibility
@@ -309,7 +319,22 @@ the model run will succeed.
 
 Use `check_mapping_set_compatibility()` when the selected mapping is composed
 from multiple mapper schemas. It returns the same `MappingCompatibility` report
-after combining mapper inputs and outputs.
+for the composed mapping.
+
+Compatibility is evaluated per mapper rather than over a flattened bag of
+capabilities, so each mapper keeps its own `consumes`/`produces` link. A mapper
+the source cannot feed is dropped and reported in `unavailable_mapper_schemas`;
+it costs only the model inputs that mapper produced. This means:
+
+- a dropped mapper that produced only optional fields degrades the run instead
+  of vetoing it, and those fields are correctly absent from
+  `available_optional_model_fields`;
+- a dropped mapper that was the only producer of a required field still blocks,
+  and its unmet source capabilities are reported in
+  `missing_source_capabilities`;
+- `satisfied_required_model_fields` and `available_optional_model_fields` name
+  only fields this source can really produce, not every field some mapper
+  declared.
 
 ## What This Does Not Validate
 
@@ -346,6 +371,12 @@ They cover:
 - missing source capabilities;
 - optional model inputs becoming available only when mapper support exists;
 - composed mapper-set compatibility;
+- graceful degradation when an optional mapper cannot be fed, and blocking when
+  a required one cannot;
+- metadata merging when duplicate declarations collapse during mapper-set
+  combination;
+- event hashability, window bound enforcement, and metadata key round-tripping;
+- mappers producing only model inputs their schema declares;
 - SANA-WM-like model-specific inputs without importing the SANA integration;
 - fake prompt, initial-frame, keyboard-to-steering, and camera-trajectory
   mappers;

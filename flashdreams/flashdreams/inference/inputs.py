@@ -6,10 +6,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import isfinite
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 InputPhase = Literal["initial", "step"]
 
@@ -34,10 +34,29 @@ def _normalized_payload_fields(values: Iterable[str]) -> frozenset[str]:
 
 
 def _immutable_metadata_map(values: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Copy metadata into a read-only map without rewriting its keys.
+
+    Metadata is an open-ended pass-through for adapter hints, so keys are
+    validated but never normalized: a key must round-trip unchanged.
+    """
     normalized: dict[str, Any] = {}
     for key, value in values.items():
-        normalized[_normalized_token(str(key), field_name="metadata key")] = value
+        if not isinstance(key, str):
+            raise TypeError(f"metadata keys must be strings, got {type(key).__name__}.")
+        if not key:
+            raise ValueError("metadata keys must be non-empty strings.")
+        normalized[key] = value
     return MappingProxyType(normalized)
+
+
+def _merged_metadata(
+    first: Mapping[str, Any],
+    second: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Union two metadata maps, keeping ``first`` on conflicting keys."""
+    merged = dict(second)
+    merged.update(first)
+    return merged
 
 
 def _validate_phase(value: str) -> InputPhase:
@@ -106,6 +125,12 @@ class UserInputEvent:
             _normalized_optional_token(self.source, field_name="source"),
         )
 
+    def __hash__(self) -> int:
+        # ``payload`` is an arbitrary mapping and therefore unhashable, so the
+        # generated hash would raise. Hash the identity fields instead; equality
+        # still compares payloads, and equal events still hash equal.
+        return hash((self.timestamp_s, self.kind, self.session_id, self.source))
+
 
 @dataclass(frozen=True, slots=True)
 class UserInputWindow:
@@ -124,7 +149,14 @@ class UserInputWindow:
             raise ValueError("end_s must be >= start_s.")
         object.__setattr__(self, "start_s", start_s)
         object.__setattr__(self, "end_s", end_s)
-        object.__setattr__(self, "events", _sorted_events(self.events))
+        events = _sorted_events(self.events)
+        for event in events:
+            if not start_s <= event.timestamp_s <= end_s:
+                raise ValueError(
+                    f"Event {event.kind!r} at t={event.timestamp_s} is outside "
+                    f"window [{start_s}, {end_s}]."
+                )
+        object.__setattr__(self, "events", events)
 
     def events_of_kind(self, kind: str) -> tuple[UserInputEvent, ...]:
         """Return all events of ``kind`` inside this window."""
@@ -252,9 +284,7 @@ class UserInputCapability:
             or provider.payload_kind is None
             or self.payload_kind == provider.payload_kind
         )
-        return payload_kind_ok and self.payload_fields.issubset(
-            provider.payload_fields
-        )
+        return payload_kind_ok and self.payload_fields.issubset(provider.payload_fields)
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,8 +339,7 @@ class UserInputSchema:
             )
         payload_keys = set(event.payload)
         if not any(
-            capability.payload_fields.issubset(payload_keys)
-            for capability in matching
+            capability.payload_fields.issubset(payload_keys) for capability in matching
         ):
             expected = sorted(
                 {
@@ -432,7 +461,7 @@ class ModelInputSchema:
             if not field_def.required and (phase is None or field_def.phase == phase)
         )
 
-    def field(self, *, name: str, phase: InputPhase) -> ModelInputField | None:
+    def field_for(self, *, name: str, phase: InputPhase) -> ModelInputField | None:
         """Return one field definition, if present."""
         name = _normalized_token(name, field_name="model input name")
         phase = _validate_phase(phase)
@@ -490,6 +519,28 @@ def missing_required_inputs(
     )
 
 
+def undeclared_model_inputs(
+    inputs: ModelInputs,
+    mapper_schema: "InputMapperSchema",
+) -> tuple[tuple[InputPhase, str], ...]:
+    """Return payload keys a mapper produced but did not declare in its schema.
+
+    Mapper schemas are hand-written, so they can drift from what
+    ``build_initial_inputs`` / ``build_step_inputs`` actually return. Mapper
+    tests can use this to keep the declared compatibility surface honest.
+    """
+    declared = {
+        (field_def.phase, field_def.name) for field_def in mapper_schema.produces
+    }
+    phases: tuple[InputPhase, ...] = ("initial", "step")
+    return tuple(
+        (phase, key)
+        for phase in phases
+        for key in inputs.for_phase(phase)
+        if (phase, key) not in declared
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class InputMapperSchema:
     """Metadata for a mapper that converts user events into model inputs."""
@@ -522,11 +573,11 @@ class InputMapperSchema:
     def can_produce(self, model_field: ModelInputField) -> bool:
         """Return whether this mapper can produce ``model_field``."""
         return any(
-            _model_field_matches(produced, model_field)
-            for produced in self.produces
+            _model_field_matches(produced, model_field) for produced in self.produces
         )
 
 
+@runtime_checkable
 class InputMapper(Protocol):
     """Contract for user-event to model-input conversion."""
 
@@ -590,7 +641,14 @@ class StaticInputMapper:
 
 @dataclass(frozen=True, slots=True)
 class MappingCompatibility:
-    """Compatibility report for one source, model schema, and mapper."""
+    """Compatibility report for one source, model schema, and mapping.
+
+    ``mapper_schema`` is the full requested mapping surface. Mappers whose
+    consumed capabilities the source cannot provide are reported separately in
+    ``unavailable_mapper_schemas`` and are excluded from the satisfied/available
+    model-field reports, so those lists only name fields that can really be
+    produced by this source.
+    """
 
     source_schema: UserInputSchema
     model_schema: ModelInputSchema
@@ -599,14 +657,24 @@ class MappingCompatibility:
     missing_required_model_fields: tuple[ModelInputField, ...]
     satisfied_required_model_fields: tuple[ModelInputField, ...]
     available_optional_model_fields: tuple[ModelInputField, ...]
+    unavailable_mapper_schemas: tuple[InputMapperSchema, ...] = ()
 
     @property
     def can_drive(self) -> bool:
-        """Return whether this source can drive this model through the mapper."""
+        """Return whether this source can drive this model through the mapping.
+
+        Mappers that the source cannot feed do not block the run unless they
+        were the only way to produce a required model input.
+        """
         return (
             not self.missing_source_capabilities
             and not self.missing_required_model_fields
         )
+
+    @property
+    def unavailable_mapper_names(self) -> tuple[str, ...]:
+        """Return names of mappers dropped because the source cannot feed them."""
+        return tuple(schema.name for schema in self.unavailable_mapper_schemas)
 
     def raise_if_incompatible(self) -> None:
         """Raise a compact error when this mapping cannot drive the model."""
@@ -615,8 +683,7 @@ class MappingCompatibility:
         problems: list[str] = []
         if self.missing_source_capabilities:
             missing = ", ".join(
-                capability.event_kind
-                for capability in self.missing_source_capabilities
+                capability.event_kind for capability in self.missing_source_capabilities
             )
             problems.append(f"missing source capabilities: {missing}")
         if self.missing_required_model_fields:
@@ -625,11 +692,82 @@ class MappingCompatibility:
                 for field_def in self.missing_required_model_fields
             )
             problems.append(f"missing required model inputs: {missing}")
+        if self.unavailable_mapper_schemas:
+            problems.append(
+                "unavailable mappers: " + ", ".join(self.unavailable_mapper_names)
+            )
         raise ValueError(
             f"Input mapper {self.mapper_schema.name!r} cannot drive model "
             f"{self.model_schema.name!r} from source {self.source_schema.name!r}: "
             + "; ".join(problems)
         )
+
+
+def _mapper_is_feedable(
+    source_schema: UserInputSchema,
+    mapper_schema: InputMapperSchema,
+) -> bool:
+    return all(
+        source_schema.supports(capability) for capability in mapper_schema.consumes
+    )
+
+
+def _build_compatibility(
+    *,
+    source_schema: UserInputSchema,
+    model_schema: ModelInputSchema,
+    mapper_schemas: Sequence[InputMapperSchema],
+    reported_schema: InputMapperSchema,
+) -> MappingCompatibility:
+    feedable: list[InputMapperSchema] = []
+    unavailable: list[InputMapperSchema] = []
+    for mapper_schema in mapper_schemas:
+        if _mapper_is_feedable(source_schema, mapper_schema):
+            feedable.append(mapper_schema)
+        else:
+            unavailable.append(mapper_schema)
+
+    usable = combine_mapper_schemas(feedable, name=reported_schema.name)
+    required_fields = model_schema.required_fields()
+    missing_required_model_fields = tuple(
+        field_def for field_def in required_fields if not usable.can_produce(field_def)
+    )
+    satisfied_required_model_fields = tuple(
+        field_def for field_def in required_fields if usable.can_produce(field_def)
+    )
+    available_optional_model_fields = tuple(
+        field_def
+        for field_def in model_schema.optional_fields()
+        if usable.can_produce(field_def)
+    )
+
+    # Only capabilities that block a required model input make the mapping
+    # unusable. A dropped mapper that fed nothing but optional fields degrades
+    # instead of vetoing the run.
+    missing_source_capabilities: list[UserInputCapability] = []
+    seen_missing: set[UserInputCapability] = set()
+    for mapper_schema in unavailable:
+        if not any(
+            mapper_schema.can_produce(field_def)
+            for field_def in missing_required_model_fields
+        ):
+            continue
+        for capability in mapper_schema.consumes:
+            if source_schema.supports(capability) or capability in seen_missing:
+                continue
+            seen_missing.add(capability)
+            missing_source_capabilities.append(capability)
+
+    return MappingCompatibility(
+        source_schema=source_schema,
+        model_schema=model_schema,
+        mapper_schema=reported_schema,
+        missing_source_capabilities=tuple(missing_source_capabilities),
+        missing_required_model_fields=missing_required_model_fields,
+        satisfied_required_model_fields=satisfied_required_model_fields,
+        available_optional_model_fields=available_optional_model_fields,
+        unavailable_mapper_schemas=tuple(unavailable),
+    )
 
 
 def check_mapping_compatibility(
@@ -639,35 +777,13 @@ def check_mapping_compatibility(
     mapper_schema: InputMapperSchema,
 ) -> MappingCompatibility:
     """Check whether a user-input source can drive a model through a mapper."""
-    missing_source_capabilities = tuple(
-        capability
-        for capability in mapper_schema.consumes
-        if not source_schema.supports(capability)
-    )
-    required_fields = model_schema.required_fields()
-    missing_required_model_fields = tuple(
-        field_def
-        for field_def in required_fields
-        if not mapper_schema.can_produce(field_def)
-    )
-    satisfied_required_model_fields = tuple(
-        field_def
-        for field_def in required_fields
-        if mapper_schema.can_produce(field_def)
-    )
-    available_optional_model_fields = tuple(
-        field_def
-        for field_def in model_schema.optional_fields()
-        if mapper_schema.can_produce(field_def)
-    )
-    return MappingCompatibility(
+    if not isinstance(mapper_schema, InputMapperSchema):
+        raise TypeError("mapper_schema must be an InputMapperSchema object.")
+    return _build_compatibility(
         source_schema=source_schema,
         model_schema=model_schema,
-        mapper_schema=mapper_schema,
-        missing_source_capabilities=missing_source_capabilities,
-        missing_required_model_fields=missing_required_model_fields,
-        satisfied_required_model_fields=satisfied_required_model_fields,
-        available_optional_model_fields=available_optional_model_fields,
+        mapper_schemas=(mapper_schema,),
+        reported_schema=mapper_schema,
     )
 
 
@@ -676,23 +792,44 @@ def combine_mapper_schemas(
     *,
     name: str = "input-mapper-set",
 ) -> InputMapperSchema:
-    """Combine independently declared mappers into one compatibility surface."""
+    """Combine independently declared mappers into one compatibility surface.
+
+    Duplicate entries are collapsed. Because ``metadata`` is excluded from
+    equality, the metadata of collapsed duplicates is merged rather than
+    dropped, with the first declaration winning on conflicting keys.
+    """
     consumes: list[UserInputCapability] = []
     produces: list[ModelInputField] = []
-    seen_consumes: set[UserInputCapability] = set()
-    seen_produces: set[ModelInputField] = set()
+    consumes_index: dict[UserInputCapability, int] = {}
+    produces_index: dict[ModelInputField, int] = {}
 
     for mapper_schema in mapper_schemas:
         if not isinstance(mapper_schema, InputMapperSchema):
             raise TypeError("mapper_schemas must contain InputMapperSchema objects.")
         for capability in mapper_schema.consumes:
-            if capability not in seen_consumes:
+            index = consumes_index.get(capability)
+            if index is None:
+                consumes_index[capability] = len(consumes)
                 consumes.append(capability)
-                seen_consumes.add(capability)
+            elif capability.metadata:
+                consumes[index] = replace(
+                    consumes[index],
+                    metadata=_merged_metadata(
+                        consumes[index].metadata, capability.metadata
+                    ),
+                )
         for field_def in mapper_schema.produces:
-            if field_def not in seen_produces:
+            index = produces_index.get(field_def)
+            if index is None:
+                produces_index[field_def] = len(produces)
                 produces.append(field_def)
-                seen_produces.add(field_def)
+            elif field_def.metadata:
+                produces[index] = replace(
+                    produces[index],
+                    metadata=_merged_metadata(
+                        produces[index].metadata, field_def.metadata
+                    ),
+                )
 
     return InputMapperSchema(
         name=name,
@@ -708,10 +845,15 @@ def check_mapping_set_compatibility(
     mapper_schemas: Sequence[InputMapperSchema],
     name: str = "input-mapper-set",
 ) -> MappingCompatibility:
-    """Check compatibility for a composed set of input mappers."""
-    mapper_schema = combine_mapper_schemas(mapper_schemas, name=name)
-    return check_mapping_compatibility(
+    """Check compatibility for a composed set of input mappers.
+
+    Each mapper keeps its own ``consumes``/``produces`` link, so a mapper the
+    source cannot feed only costs the model inputs that mapper produced.
+    """
+    mapper_schemas = tuple(mapper_schemas)
+    return _build_compatibility(
         source_schema=source_schema,
         model_schema=model_schema,
-        mapper_schema=mapper_schema,
+        mapper_schemas=mapper_schemas,
+        reported_schema=combine_mapper_schemas(mapper_schemas, name=name),
     )

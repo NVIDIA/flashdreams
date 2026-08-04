@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
 from flashdreams.inference import (
+    InputMapper,
     InputMapperSchema,
     ModelInputField,
     ModelInputSchema,
@@ -22,6 +24,7 @@ from flashdreams.inference import (
     check_mapping_set_compatibility,
     combine_mapper_schemas,
     missing_required_inputs,
+    undeclared_model_inputs,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -154,7 +157,7 @@ def test_model_input_schema_declares_required_optional_and_update_metadata() -> 
         "steering",
     ]
     assert [field.name for field in schema.optional_fields()] == ["first_frame"]
-    prompt_field = schema.field(name="prompt", phase="initial")
+    prompt_field = schema.field_for(name="prompt", phase="initial")
     assert prompt_field is not None
     assert prompt_field.update_policy == "step_boundary"
     assert prompt_field.lifecycle == "cache_init"
@@ -173,9 +176,7 @@ def test_model_inputs_report_missing_required_fields() -> None:
 
     missing = missing_required_inputs(inputs, schema)
 
-    assert [(field.phase, field.name) for field in missing] == [
-        ("step", "steering")
-    ]
+    assert [(field.phase, field.name) for field in missing] == [("step", "steering")]
 
 
 def test_mapping_compatibility_reports_satisfied_missing_and_optional_fields() -> None:
@@ -338,9 +339,7 @@ def test_mapping_compatibility_reports_missing_source_capability() -> None:
             ),
         )
     )
-    model = ModelInputSchema(
-        fields=(ModelInputField(name="steering", phase="step"),)
-    )
+    model = ModelInputSchema(fields=(ModelInputField(name="steering", phase="step"),))
     mapper = InputMapperSchema(
         consumes=(
             UserInputCapability(
@@ -473,12 +472,97 @@ def test_mapping_set_compatibility_supports_composed_model_inputs() -> None:
         "first_frame",
         "camera_trajectory",
     ]
-    assert [capability.event_kind for capability in compatibility.mapper_schema.consumes] == [
+    assert [
+        capability.event_kind for capability in compatibility.mapper_schema.consumes
+    ] == [
         "prompt_set",
         "initial_frame_set",
         "key_down",
         "key_up",
     ]
+
+
+def test_unfeedable_optional_mapper_degrades_instead_of_blocking_the_run() -> None:
+    source = UserInputSchema(
+        name="prompt-only",
+        capabilities=(
+            UserInputCapability(
+                event_kind="prompt_set",
+                payload_fields=frozenset({"prompt"}),
+            ),
+        ),
+    )
+    model = ModelInputSchema(
+        fields=(
+            ModelInputField(name="prompt", phase="initial"),
+            ModelInputField(name="steering", phase="step", required=False),
+        )
+    )
+    prompt_mapper = InputMapperSchema(
+        name="prompt",
+        consumes=(
+            UserInputCapability(
+                event_kind="prompt_set",
+                payload_fields=frozenset({"prompt"}),
+            ),
+        ),
+        produces=(ModelInputField(name="prompt", phase="initial"),),
+    )
+    gamepad_mapper = InputMapperSchema(
+        name="gamepad-steering",
+        consumes=(
+            UserInputCapability(
+                event_kind="controller_axis",
+                payload_fields=frozenset({"axis", "value"}),
+            ),
+        ),
+        produces=(ModelInputField(name="steering", phase="step", required=False),),
+    )
+
+    compatibility = check_mapping_set_compatibility(
+        source_schema=source,
+        model_schema=model,
+        mapper_schemas=(prompt_mapper, gamepad_mapper),
+    )
+
+    assert compatibility.can_drive
+    assert compatibility.unavailable_mapper_names == ("gamepad-steering",)
+    assert compatibility.missing_source_capabilities == ()
+    assert [field.name for field in compatibility.satisfied_required_model_fields] == [
+        "prompt"
+    ]
+    # The optional field is not reported as available: nothing can produce it.
+    assert compatibility.available_optional_model_fields == ()
+
+
+def test_unfeedable_required_mapper_still_blocks_the_run() -> None:
+    source = UserInputSchema(name="prompt-only")
+    model = ModelInputSchema(fields=(ModelInputField(name="steering", phase="step"),))
+    gamepad_mapper = InputMapperSchema(
+        name="gamepad-steering",
+        consumes=(
+            UserInputCapability(
+                event_kind="controller_axis",
+                payload_fields=frozenset({"axis", "value"}),
+            ),
+        ),
+        produces=(ModelInputField(name="steering", phase="step"),),
+    )
+
+    compatibility = check_mapping_set_compatibility(
+        source_schema=source,
+        model_schema=model,
+        mapper_schemas=(gamepad_mapper,),
+    )
+
+    assert not compatibility.can_drive
+    assert [
+        capability.event_kind
+        for capability in compatibility.missing_source_capabilities
+    ] == ["controller_axis"]
+    assert compatibility.unavailable_mapper_names == ("gamepad-steering",)
+    with pytest.raises(ValueError, match="unavailable mappers: gamepad-steering"):
+        compatibility.raise_if_incompatible()
 
 
 def test_mapper_schema_combination_deduplicates_shared_capabilities() -> None:
@@ -505,6 +589,80 @@ def test_mapper_schema_combination_deduplicates_shared_capabilities() -> None:
 
     assert combined.consumes == (shared_prompt,)
     assert combined.produces == (prompt_field,)
+
+
+def test_mapper_schema_combination_merges_metadata_of_collapsed_duplicates() -> None:
+    combined = combine_mapper_schemas(
+        (
+            InputMapperSchema(
+                name="prompt-a",
+                consumes=(
+                    UserInputCapability(
+                        event_kind="prompt_set",
+                        payload_fields=frozenset({"prompt"}),
+                        metadata={"widget": "prompt-box", "owner": "app-a"},
+                    ),
+                ),
+            ),
+            InputMapperSchema(
+                name="prompt-b",
+                consumes=(
+                    UserInputCapability(
+                        event_kind="prompt_set",
+                        payload_fields=frozenset({"prompt"}),
+                        metadata={"max_length": 512, "owner": "app-b"},
+                    ),
+                ),
+            ),
+        )
+    )
+
+    assert len(combined.consumes) == 1
+    assert dict(combined.consumes[0].metadata) == {
+        "widget": "prompt-box",
+        "max_length": 512,
+        "owner": "app-a",
+    }
+
+
+def test_user_input_event_is_hashable_despite_mapping_payload() -> None:
+    event = UserInputEvent(
+        timestamp_s=0.5,
+        kind="key_down",
+        payload={"key": "w", "modifiers": ["shift"]},
+    )
+    same = UserInputEvent(
+        timestamp_s=0.5,
+        kind="key_down",
+        payload={"key": "w", "modifiers": ["shift"]},
+    )
+
+    assert {event, same} == {event}
+    assert hash(event) == hash(same)
+
+
+def test_user_input_window_rejects_events_outside_its_bounds() -> None:
+    with pytest.raises(ValueError, match="outside window"):
+        UserInputWindow(
+            start_s=0.0,
+            end_s=1.0,
+            events=(UserInputEvent(timestamp_s=2.0, kind="key_down"),),
+        )
+
+
+def test_metadata_keys_round_trip_unchanged() -> None:
+    capability = UserInputCapability(
+        event_kind="prompt_set",
+        metadata={" spaced key ": "kept", "schema.uri": "urn:example"},
+    )
+
+    assert dict(capability.metadata) == {
+        " spaced key ": "kept",
+        "schema.uri": "urn:example",
+    }
+    non_string_keys: dict[Any, Any] = {1: "coerced"}
+    with pytest.raises(TypeError, match="metadata keys must be strings"):
+        UserInputCapability(event_kind="prompt_set", metadata=non_string_keys)
 
 
 def test_lifecycle_mismatch_does_not_satisfy_model_field() -> None:
@@ -878,9 +1036,7 @@ def test_fake_prompt_and_initial_frame_mappers_build_initial_model_inputs() -> N
         ]
     )
 
-    assert PromptMapper().build_initial_inputs(trace).initial == {
-        "prompt": "a road"
-    }
+    assert PromptMapper().build_initial_inputs(trace).initial == {"prompt": "a road"}
     assert InitialFrameMapper().build_initial_inputs(trace).initial == {
         "first_frame": b"frame"
     }
@@ -929,6 +1085,50 @@ def test_fake_keyboard_mapper_builds_step_model_inputs() -> None:
     )
 
     assert inputs.step == {"steering": -1.0}
+
+
+@pytest.mark.parametrize(
+    "mapper",
+    [
+        PromptMapper(),
+        InitialFrameMapper(),
+        KeyboardSteeringMapper(),
+        CameraTrajectoryMapper(),
+        StaticInputMapper.from_inputs(
+            inputs=ModelInputs(initial={"prompt": "fixed"}, step={"steering": 0.0}),
+        ),
+    ],
+)
+def test_mappers_only_produce_model_inputs_they_declare(mapper: InputMapper) -> None:
+    trace = UserInputTrace.from_events(
+        [
+            UserInputEvent(
+                timestamp_s=0.0,
+                kind="prompt_set",
+                payload={"prompt": "a road"},
+            ),
+            UserInputEvent(
+                timestamp_s=0.0,
+                kind="initial_frame_set",
+                payload={"image": b"frame"},
+            ),
+            UserInputEvent(timestamp_s=0.1, kind="key_down", payload={"key": "a"}),
+            UserInputEvent(
+                timestamp_s=0.2,
+                kind="camera_pose",
+                payload={"pose": "pose-a"},
+            ),
+        ]
+    )
+    window = trace.window(start_s=0.0, end_s=1.0)
+
+    assert isinstance(mapper, InputMapper)
+    assert (
+        undeclared_model_inputs(mapper.build_initial_inputs(trace), mapper.schema) == ()
+    )
+    assert (
+        undeclared_model_inputs(mapper.build_step_inputs(window), mapper.schema) == ()
+    )
 
 
 def test_fake_camera_trajectory_mapper_builds_step_model_inputs() -> None:

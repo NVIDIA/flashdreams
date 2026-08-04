@@ -27,6 +27,7 @@ from flashdreams.inference.inputs import (
     check_mapping_set_compatibility,
     combine_mapper_schemas,
     missing_required_inputs,
+    undeclared_model_inputs,
 )
 
 __all__ = [
@@ -47,4 +48,5 @@ __all__ = [
     "check_mapping_set_compatibility",
     "combine_mapper_schemas",
     "missing_required_inputs",
+    "undeclared_model_inputs",
 ]
