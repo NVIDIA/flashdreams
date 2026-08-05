@@ -8,11 +8,8 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from flashdreams.runtime.config import InferenceConfig
-from flashdreams.runtime.inputs import (
-    CanonicalInputSchema,
-    InferenceInput,
-    InferenceInputSchema,
-)
+from flashdreams.runtime.inference_session import InferenceInput
+from flashdreams.runtime.inputs import CanonicalInputSchema, InferenceInputSchema
 from flashdreams.runtime.mapping import InputMapping
 from flashdreams.runtime.types import StepRequest, StepResult
 

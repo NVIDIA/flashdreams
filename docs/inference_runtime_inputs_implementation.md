@@ -11,7 +11,10 @@ what is intentionally still outside this layer.
 
 Implementation lives in `flashdreams.runtime`:
 
-- `flashdreams/flashdreams/runtime/inputs.py` — the input types and schemas
+- `flashdreams/flashdreams/runtime/inputs.py` — user/canonical input types
+  and schemas
+- `flashdreams/flashdreams/runtime/inference_session.py` — model-ready
+  `InferenceInput` and session lifecycle
 - `flashdreams/flashdreams/runtime/canonical.py` — raw device to canonical
   modality conversion
 - `flashdreams/flashdreams/runtime/mapping.py` — canonical to encoded mapping

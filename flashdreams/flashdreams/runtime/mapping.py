@@ -10,12 +10,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
+from flashdreams.runtime.inference_session import InferenceInput
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
-    InferenceInput,
     InferenceInputSchema,
     InputField,
     InputPhase,

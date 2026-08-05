@@ -1,16 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""User- and model-input envelopes for the experimental runtime API."""
+"""User, canonical, and model-input schemas for the experimental runtime API."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from flashdreams.runtime._utils import freeze_mapping
+
+if TYPE_CHECKING:
+    from flashdreams.runtime.inference_session import InferenceInput
 
 InputPhase = Literal["global", "step"]
 
@@ -258,7 +261,7 @@ class InferenceInputSchema:
             if input_field.required is required
         )
 
-    def unsupported_global_updates(self, inputs: "InferenceInput") -> tuple[str, ...]:
+    def unsupported_global_updates(self, inputs: InferenceInput) -> tuple[str, ...]:
         """Return requested conditioning updates this model cannot apply.
 
         A field whose ``update_policy`` is :data:`SESSION_START_ONLY` can be
@@ -273,15 +276,15 @@ class InferenceInputSchema:
             and declared.update_policy == SESSION_START_ONLY
         )
 
-    def missing_global(self, inputs: "InferenceInput") -> tuple[str, ...]:
+    def missing_global(self, inputs: InferenceInput) -> tuple[str, ...]:
         """Return required initial fields absent from ``inputs``."""
         return _missing_required(self.global_fields, inputs.global_conditioning)
 
-    def missing_step(self, inputs: "InferenceInput") -> tuple[str, ...]:
+    def missing_step(self, inputs: InferenceInput) -> tuple[str, ...]:
         """Return required per-step fields absent from ``inputs``."""
         return _missing_required(self.step_fields, inputs.step)
 
-    def require_global(self, inputs: "InferenceInput") -> None:
+    def require_global(self, inputs: InferenceInput) -> None:
         """Raise if required initial fields are absent."""
         missing = self.missing_global(inputs)
         if missing:
@@ -289,7 +292,7 @@ class InferenceInputSchema:
                 f"Missing required global conditioning input(s): {missing}"
             )
 
-    def require_step(self, inputs: "InferenceInput") -> None:
+    def require_step(self, inputs: InferenceInput) -> None:
         """Raise if required per-step fields are absent."""
         missing = self.missing_step(inputs)
         if missing:
@@ -371,7 +374,8 @@ class CanonicalModality:
 
     Modalities describe live user control only. Global conditioning such as a
     prompt or conditioning frame is application-owned and reaches
-    :class:`InferenceInput` directly, without passing through this layer.
+    :class:`flashdreams.runtime.inference_session.InferenceInput` directly,
+    without passing through this layer.
     """
 
     name: str
@@ -426,8 +430,8 @@ class CanonicalInputs:
 
     Values are level-triggered and normally present every step: a key held down
     emits no events but still means full throttle. Global conditioning does not
-    appear here; it is application-owned and reaches :class:`InferenceInput`
-    directly.
+    appear here; it is application-owned and reaches
+    :class:`flashdreams.runtime.inference_session.InferenceInput` directly.
     """
 
     __hash__ = None
@@ -438,77 +442,6 @@ class CanonicalInputs:
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", freeze_mapping(self.values))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class InferenceInput:
-    """Encoded inputs for one :class:`InferenceSession` call.
-
-    Two conditioning slots:
-
-    - ``global_conditioning``: values that condition the whole rollout, such as
-      the conditioning frame or prompt. Normally supplied when the session
-      starts.
-    - ``step``: values needed to generate the next chunk or frame.
-
-    A non-empty ``global_conditioning`` on a mid-rollout input is an *update
-    request*, not a reset. The session should apply it when the model supports
-    that; resetting rollout state is a separate, explicit
-    :meth:`InferenceSession.reset` call. Whether a given value can be updated
-    mid-rollout is declared per field by ``InputField.update_policy``; see
-    :meth:`InferenceInputSchema.unsupported_global_updates`.
-    """
-
-    __hash__ = None
-
-    global_conditioning: Mapping[str, Any] = field(default_factory=dict)
-    step: Mapping[str, Any] = field(default_factory=dict)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "global_conditioning", freeze_mapping(self.global_conditioning)
-        )
-        object.__setattr__(self, "step", freeze_mapping(self.step))
-        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
-
-    @property
-    def requests_global_update(self) -> bool:
-        """Return whether this input asks the session to update conditioning."""
-        return bool(self.global_conditioning)
-
-    def with_step(self, step: Mapping[str, Any]) -> "InferenceInput":
-        """Return a copy with replaced per-step payload.
-
-        The global slot is carried through unchanged, so a mid-rollout input
-        built this way keeps whatever update request it already had. Use
-        :meth:`without_global_update` for the common steady-state case.
-        """
-        return InferenceInput(
-            global_conditioning=self.global_conditioning,
-            step=step,
-            metadata=self.metadata,
-        )
-
-    def with_global_update(
-        self, global_conditioning: Mapping[str, Any]
-    ) -> "InferenceInput":
-        """Return a copy requesting a mid-rollout conditioning update."""
-        return InferenceInput(
-            global_conditioning=global_conditioning,
-            step=self.step,
-            metadata=self.metadata,
-        )
-
-    def without_global_update(self) -> "InferenceInput":
-        """Return a copy that requests no conditioning update."""
-        return InferenceInput(step=self.step, metadata=self.metadata)
-
-    def for_phase(self, phase: InputPhase) -> Mapping[str, Any]:
-        """Return the payload mapping for ``phase``."""
-        return (
-            self.global_conditioning if validate_phase(phase) == "global" else self.step
-        )
 
 
 def _missing_required(

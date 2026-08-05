@@ -17,13 +17,13 @@ from flashdreams.runtime.canonical import (
     ScriptedModality,
 )
 from flashdreams.runtime.config import ExecutionBackend, InferenceConfig, Precision
+from flashdreams.runtime.inference_session import InferenceInput
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     SESSION_START_ONLY,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
-    InferenceInput,
     InferenceInputSchema,
     InputField,
     InputPhase,
