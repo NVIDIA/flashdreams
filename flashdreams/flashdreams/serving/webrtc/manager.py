@@ -33,6 +33,7 @@ from flashdreams.serving.webrtc.runtime import (
     WebRTCRuntimeConfig,
     WebRTCSessionRuntime,
     WebRTCStepResult,
+    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
@@ -45,6 +46,7 @@ __all__ = [
     "ManagedWebRTCSession",
     "WebRTCControlSignal",
     "WebRTCStepResult",
+    "make_webrtc_step_result",
 ]
 
 # Close the active session if no client heartbeat/control message arrives

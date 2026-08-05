@@ -317,7 +317,9 @@ def test_session_postprocesses_local_frames_and_supports_live_toggle(
     first_stream = streams[0]
     assert first_stream.calls == [0]
     assert first_stream.kwargs["output_layout"] == "bvtchw"
-    assert first_stream.kwargs["collect_output"] is False
+    assert first_stream.kwargs["fps"] == session.manifest.fps
+    assert "collect_output" not in first_stream.kwargs
+    assert "move_to_cpu" not in first_stream.kwargs
 
     session.set_postprocess_enabled(False)
     assert first_stream.finished is True

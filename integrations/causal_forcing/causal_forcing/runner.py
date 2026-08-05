@@ -167,23 +167,13 @@ class CausalForcingT2VRunner(
         cache = self._initialize_cache()
 
         # Generate the autoregressive chunks.
-        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=config.fps)
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = postprocess_stream.process(
-                video_chunk, autoregressive_index=i
-            )
-            if postprocess_stream.collect_output and stats is not None:
-                stats_history.append(
-                    {
-                        "autoregressive_index": i,
-                        **postprocess_stream.add_process_stats(stats),
-                    }
-                )
+            output_stream.process(video_chunk, autoregressive_index=i, stats=stats)
 
-        generated = postprocess_stream.finish()
+        generated = output_stream.finish()
         if generated is None:
             return
 
@@ -198,9 +188,9 @@ class CausalForcingT2VRunner(
         )
 
         # Write the perf stats.
-        if stats_history:
+        if output_stream.stats_history:
             stats_path = write_runner_stats(
-                config.output_dir, config.runner_name, stats_history
+                config.output_dir, config.runner_name, output_stream.stats_history
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

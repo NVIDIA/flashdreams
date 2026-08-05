@@ -65,6 +65,7 @@ from flashdreams.serving.webrtc.manager import (
     ManagedWebRTCSession,
     WebRTCControlSignal,
     WebRTCStepResult,
+    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 
@@ -887,8 +888,6 @@ class OmnidreamsInferenceRuntime:
             fps=self.config.fps,
             per_view=False,
             world_size=world_size,
-            collect_output=False,
-            move_to_cpu=False,
         )
         logger.info(
             "Omnidreams WebRTC post-processing enabled with preset {!r}.",
@@ -981,11 +980,12 @@ class OmnidreamsInferenceRuntime:
                 autoregressive_index=self.autoregressive_index,
             )
 
-        result = WebRTCStepResult(
+        result = make_webrtc_step_result(
             chunk_index=self.autoregressive_index,
-            num_frames=int(video_chunk.shape[2]),
-            video_chunk=video_chunk.detach().cpu(),
+            video_chunk=video_chunk,
+            layout="bvtchw",
             stats=None,
+            sync_device=self._device,
         )
         self.autoregressive_index += 1
         return result

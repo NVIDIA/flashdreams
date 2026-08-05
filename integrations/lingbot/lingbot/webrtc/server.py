@@ -138,6 +138,16 @@ def parse_args() -> argparse.Namespace:
         help="Output video pixel width. Must be divisible by 16.",
     )
     parser.add_argument(
+        "--prefer_sw_encoder",
+        action="store_true",
+        help=(
+            "Force aiortc's default software encoder instead of probing NVENC. "
+            "Without this flag, LingBot uses NVENC when the driver reports "
+            "support at the target resolution and falls back to software "
+            "otherwise."
+        ),
+    )
+    parser.add_argument(
         "--example-idx",
         "--example_idx",
         type=int,
@@ -343,6 +353,10 @@ def build_runtime_config(
         warmup_timeout_s=args.warmup_timeout_s,
         video_height=args.video_height,
         video_width=args.video_width,
+        fps=args.fps,
+        encoder_backend=(
+            "default" if getattr(args, "prefer_sw_encoder", False) else "auto"
+        ),
         example_data_dir=example_dir,
         default_image_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/image.jpg",
         default_intrinsics_url=(

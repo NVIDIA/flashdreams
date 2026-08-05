@@ -29,6 +29,7 @@ from lingbot.webrtc.session import (
     LingbotWebRTCSessionManager,
 )
 
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.serving.webrtc.manager import WebRTCStepResult
 
 pytestmark = pytest.mark.ci_cpu
@@ -83,6 +84,151 @@ def test_runtime_defaults_use_canonical_v2_examples() -> None:
     assert config.default_image_url == f"{expected_base_url}/image.jpg"
     assert config.default_intrinsics_url == f"{expected_base_url}/intrinsics.npy"
     assert config.default_poses_url == f"{expected_base_url}/poses.npy"
+    assert config.fps == 16
+    assert config.encoder_backend == "auto"
+
+
+def test_session_manager_uses_runtime_config_fps_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
+
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0, fps=12)
+    )
+
+    assert manager.fps == 12
+
+
+def test_initialize_video_encoder_sync_skips_on_non_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _select_encoder_should_not_be_called(**_kw: object) -> object:
+        raise AssertionError("worker ranks must not initialize WebRTC encoders")
+
+    monkeypatch.setattr(session, "select_encoder", _select_encoder_should_not_be_called)
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    runtime.rank = 1
+    runtime._device = torch.device("cpu")
+
+    runtime._initialize_video_encoder_sync()
+
+    assert runtime._video_encoder is None
+
+
+def test_initialize_video_encoder_sync_selects_runtime_encoder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _FakeVideoEncoder()
+    calls: list[dict[str, object]] = []
+
+    def _fake_select_encoder(**kwargs: object) -> _FakeVideoEncoder:
+        calls.append(kwargs)
+        return stub
+
+    monkeypatch.setattr(session, "select_encoder", _fake_select_encoder)
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cuda:2",
+            warmup_chunks=0,
+            video_height=360,
+            video_width=640,
+            fps=12,
+            encoder_backend="auto",
+            encoder_bitrate_bps=4_000_000,
+            encoder_gop=24,
+        )
+    )
+    runtime.rank = 0
+    runtime._device = torch.device("cuda:2")
+
+    runtime._initialize_video_encoder_sync()
+
+    assert runtime._video_encoder is stub
+    assert calls == [
+        {
+            "backend": "auto",
+            "width": 640,
+            "height": 360,
+            "fps": 12,
+            "bitrate": 4_000_000,
+            "gpu_id": 2,
+            "gop": 24,
+        }
+    ]
+
+
+def test_generate_one_chunk_sync_hands_gpu_resident_output_to_webrtc_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _NoCpuChunk:
+        detach_calls = 0
+
+        def detach(self) -> "_NoCpuChunk":
+            self.detach_calls += 1
+            return self
+
+        def cpu(self) -> object:
+            raise AssertionError("LingBot WebRTC must not eagerly call .cpu()")
+
+    class _FakePipeline:
+        def __init__(self) -> None:
+            self.output = _NoCpuChunk()
+
+        @staticmethod
+        def get_num_output_frames(autoregressive_index: int) -> int:
+            assert autoregressive_index == 0
+            return 2
+
+        def generate(self, **_kwargs: object) -> _NoCpuChunk:
+            return self.output
+
+        @staticmethod
+        def finalize(autoregressive_index: int, cache: object) -> dict[str, float]:
+            assert autoregressive_index == 0
+            return {"total_ms": 3.0}
+
+    captured: dict[str, object] = {}
+
+    def _fake_make_webrtc_step_result(**kwargs: object) -> WebRTCStepResult:
+        captured.update(kwargs)
+        stats = cast(dict[str, float] | None, kwargs["stats"])
+        layout = cast(VideoTensorLayout | None, kwargs["layout"])
+        return WebRTCStepResult(
+            chunk_index=0,
+            num_frames=2,
+            video_chunk=torch.zeros((2, 3, 4, 5)),
+            stats=stats,
+            layout=layout,
+        )
+
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    )
+    pipeline = _FakePipeline()
+    runtime._device = torch.device("cpu")
+    runtime._pipeline = pipeline
+    runtime._cache = object()
+    runtime._base_intrinsics = torch.ones(4)
+    monkeypatch.setattr(
+        session,
+        "make_webrtc_step_result",
+        _fake_make_webrtc_step_result,
+    )
+
+    result = runtime._generate_one_chunk_sync(
+        segments=[(0.0, 1.0, frozenset())],
+        frame_times=[0.25, 0.5],
+    )
+
+    assert captured["video_chunk"] is pipeline.output
+    assert captured["layout"] == "tchw"
+    assert captured["sync_device"] == torch.device("cpu")
+    assert pipeline.output.detach_calls == 0
+    assert result.stats == {"total_ms": 3.0}
+    assert runtime.autoregressive_index == 1
 
 
 def test_validate_remote_url_normalizes_github_blob_image_url(
