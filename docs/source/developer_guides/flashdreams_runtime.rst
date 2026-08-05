@@ -45,7 +45,7 @@ Application layer
 -----------------
 
 ``Application`` is the composition and lifecycle boundary for an interactive
-FlashDreams runtime. It owns one ``InputSystem``, one ``InputMapping``, one
+FlashDreams runtime. It owns ``InputSystem``, ``InputMapping``,
 ``OutputTarget``, and the main ``InferenceSession`` that runs the inference
 pipeline. These components are passed to the application through dependency
 injection. The application connects them, drives the runtime loop, and shuts
@@ -59,37 +59,33 @@ the inference session.
 InputSystem
 ~~~~~~~~~~~
 
-``InputSystem`` owns the interaction with input devices and converts their
-events into a canonical control representation. Raw input can come from many
-sources, including keyboard events, a digital steering wheel, a controller
-joystick, or Meta Quest hand tracking.
+``InputSystem`` accepts an ordered list of timestamped raw input events
+supplied by the application or an upstream input framework. It converts that
+list into an ordered stream of timestamped, canonicalized user-input events.
+Raw events can include keyboard key-down and key-up events, digital wheel
+readings, controller joystick readings, or Meta Quest hand-tracking readings.
 
 `Unity's Input System
 <https://docs.unity3d.com/Packages/com.unity.inputsystem@1.20/manual/index.html>`_
-provides similar concepts for configuring input devices and actions. In
-FlashDreams, users can configure arbitrary key bindings through
-``InputSystem``, which converts device signals into canonicalized user input.
+provides similar concepts for devices and actions. FlashDreams has a narrower
+boundary: it does not poll devices or configure key bindings. Device polling,
+event collection, and binding configuration are handled upstream.
 
-.. admonition:: Example
-   :class: note
-
-   Either WASD or HJKL can be bound to movement directions and mapped into a
-   2D character-movement vector.
-
-.. admonition:: Queued events between pulls
+.. admonition:: Preserving events during slow inference
    :class: note
 
    A call to ``InferenceSession.step()`` can take approximately 100--1000 ms
-   because it runs a latent-diffusion step. ``InputSystem`` must therefore
-   preserve every input change that occurs while inference is running rather
-   than returning only the most recent device state. It queues all events since
-   the previous ``InputSystem`` pull and returns them as an ordered list of
-   timestamped, canonicalized user-input events.
+   because it runs a latent-diffusion step. The upstream input source must
+   preserve every raw input change that occurs while inference is running
+   rather than retain only the most recent device state. On the next runtime
+   iteration, the application passes the complete ordered raw-event list to
+   ``InputSystem``, which converts every event without collapsing intermediate
+   states.
 
    For example, assume positive *x* means right and positive *y* means forward.
-   The user presses W at 5 ms, presses D at 10 ms, releases W at 50 ms, presses
-   S at 60 ms, releases D at 70 ms, and releases S at 80 ms. The next pull
-   returns the following canonical movement states:
+   The raw-event list contains a W key-down at 5 ms, a D key-down at 10 ms, a W
+   key-up at 50 ms, an S key-down at 60 ms, a D key-up at 70 ms, and an S
+   key-up at 80 ms. ``InputSystem`` produces this canonical event stream:
 
    .. code-block:: text
 
@@ -102,13 +98,14 @@ FlashDreams, users can configure arbitrary key bindings through
           (80 ms, vec2(0,  0)),  # S released
       ]
 
-   The timestamps are the original event times, not the time at which the
-   application eventually calls ``pull()``.
+   The timestamps are the original raw-event times, not the time at which
+   ``InputSystem`` processes the list.
 
-This layer handles device-facing concerns such as key bindings, dead zones,
-axis conventions, and event sampling. Its output describes the user's intent
-in a stable, device-independent form. It does not create model embeddings or
-know how a particular inference pipeline represents conditioning.
+This layer handles raw-to-canonical conversion concerns such as device-value
+normalization, dead zones, axis conventions, and event ordering. Its output
+describes the user's intent in a stable, device-independent form. It does not
+create model embeddings or know how a particular inference pipeline represents
+conditioning.
 
 InputMapping
 ~~~~~~~~~~~~
@@ -186,9 +183,10 @@ source. Examples include:
 * controller joystick readings; and
 * Meta Quest hand-tracking readings.
 
-Raw values can depend on a particular device, driver, sampling rate, or key
-binding. They are consumed by ``InputSystem`` and must not be passed directly
-to ``InferenceSession``.
+Raw events can depend on a particular device, driver, and upstream input
+framework. They are collected and timestamped before entering FlashDreams. The
+application passes the ordered raw-event list to ``InputSystem``; raw events
+must not be passed directly to ``InferenceSession``.
 
 Canonicalized user input
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -205,8 +203,10 @@ include:
   control for Cosmos-style interaction models.
 
 The exact structure depends on the interaction type and can evolve as its
-semantics become clearer. The important invariant is that equivalent intent
-from different devices has the same canonical representation.
+semantics become clearer. ``InputSystem`` emits these values as an ordered
+stream of timestamped, canonicalized events. The important invariant is that
+equivalent intent from different devices has the same canonical
+representation.
 
 Per-step inference conditioning
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -288,12 +288,12 @@ End-to-end runtime loop
 
 At a conceptual level, one runtime iteration follows these steps:
 
-#. ``Application`` pulls ``InputSystem`` for the events accumulated since the
-   previous pull.
-#. ``InputSystem`` returns an ordered list of timestamped, canonicalized
-   user-input events.
-#. ``InputMapping`` consumes this list of timestamped, canonicalized events and
-   produces per-step inference conditioning.
+#. ``Application`` passes ``InputSystem`` the ordered list of timestamped
+   raw input events accumulated upstream since the previous runtime iteration.
+#. ``InputSystem`` converts that list into an ordered stream of timestamped,
+   canonicalized user-input events.
+#. ``InputMapping`` consumes this canonical event stream and produces per-step
+   inference conditioning.
 #. ``Application`` packages that data as inference input, adding canonicalized
    global conditioning on the first step or whenever it changes.
 #. ``InferenceSession`` advances the pipeline and emits generated frames
@@ -301,7 +301,7 @@ At a conceptual level, one runtime iteration follows these steps:
 #. ``OutputTarget`` consumes the stream for display, encoding, transport, or
    another presentation path.
 
-These boundaries are the central architectural constraint: input devices
-produce semantic controls, the input map produces model-ready conditioning,
-the inference session runs the model, and the output target delivers the
-result.
+These boundaries are the central architectural constraint: an upstream input
+source collects timestamped raw events, ``InputSystem`` produces canonical
+events, ``InputMapping`` produces model-ready conditioning,
+``InferenceSession`` runs the model, and ``OutputTarget`` delivers the result.
