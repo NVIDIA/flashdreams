@@ -424,8 +424,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         cache = self._initialize_cache()
 
-        postprocess_stream = self.create_postprocess_stream(fps=fps)
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=fps)
         for chunk_idx, (start, size) in enumerate(chunks):
             clip = video_t[:, :, start : start + size]
             video_chunk = self.pipeline.generate(
@@ -435,11 +434,8 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             )
             pipeline_frames = int(video_chunk.shape[2])
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
-            postprocess_stream.process(
-                video_chunk,
-                autoregressive_index=chunk_idx,
-            )
-            if postprocess_stream.collect_output and stats is not None:
+            stats_extra: dict[str, float | int] | None = None
+            if stats is not None:
                 # Pipeline throughput is based on this AR step's direct output.
                 # Postprocess emission/buffering is reported separately.
                 chunk_total_ms = stats["total_ms"]
@@ -448,16 +444,15 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     if chunk_total_ms > 0
                     else 0.0
                 )
-                stats_history.append(
-                    {
-                        "autoregressive_index": chunk_idx,
-                        **postprocess_stream.add_process_stats(stats),
-                        "frames": pipeline_frames,
-                        "fps": chunk_fps,
-                    }
-                )
+                stats_extra = {"frames": pipeline_frames, "fps": chunk_fps}
+            output_stream.process(
+                video_chunk,
+                autoregressive_index=chunk_idx,
+                stats=stats,
+                stats_extra=stats_extra,
+            )
 
-        generated = postprocess_stream.finish()
+        generated = output_stream.finish()
         if generated is None:
             return
 
@@ -470,9 +465,9 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             f"-> {video_path.resolve()}"
         )
 
-        if stats_history:
+        if output_stream.stats_history:
             stats_path = write_runner_stats(
-                config.output_dir, config.runner_name, stats_history
+                config.output_dir, config.runner_name, output_stream.stats_history
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> "

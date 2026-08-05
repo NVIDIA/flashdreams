@@ -39,6 +39,7 @@ from flashdreams.infra.postprocess import (
     VideoTensorLayout,
     create_runner_postprocess_stream,
 )
+from flashdreams.infra.video_output import RunnerVideoOutputStream
 
 
 def _is_torchrun_env() -> bool:
@@ -169,27 +170,30 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self,
         *,
         fps: float | None = None,
-        move_to_cpu: bool = True,
-    ) -> VideoPostprocessStream:
+    ) -> VideoPostprocessStream | None:
         """Create one stateful post-processing stream for a rollout."""
-        stream = create_runner_postprocess_stream(
+        return create_runner_postprocess_stream(
             self.config,
             world_size=self.world_size,
             is_rank_zero=self.is_rank_zero,
             fps=fps,
         )
-        if stream is not None:
-            stream.collect_output = self.is_rank_zero
-            stream.move_to_cpu = move_to_cpu
-            return stream
 
+    def create_video_output_stream(
+        self,
+        *,
+        fps: float | None = None,
+        move_to_cpu: bool = True,
+    ) -> RunnerVideoOutputStream:
+        """Create the standard runner video output stream for one rollout."""
         layout = self.config.postprocess_output_layout
         if layout is None:
-            raise ValueError("Runner output collection requires an output layout.")
-        return VideoPostprocessStream(
-            postprocess=VideoPostprocessChainConfig(),
+            raise ValueError(
+                "Runner video output collection requires an output layout."
+            )
+        return RunnerVideoOutputStream(
+            postprocess_stream=self.create_postprocess_stream(fps=fps),
             output_layout=layout,
-            fps=fps,
             collect_output=self.is_rank_zero,
             move_to_cpu=move_to_cpu,
         )

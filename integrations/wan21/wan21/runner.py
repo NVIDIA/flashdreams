@@ -172,11 +172,11 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
         cache = self._initialize_cache()
 
         # Generate the output in one AR step.
-        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
+        output_stream = self.create_video_output_stream(fps=config.fps)
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        postprocess_stream.process(generated, autoregressive_index=0)
-        generated = postprocess_stream.finish()
+        output_stream.process(generated, autoregressive_index=0, stats=stats)
+        generated = output_stream.finish()
         if generated is None:
             return
 
@@ -191,11 +191,11 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
         )
 
         # Write the perf stats.
-        if stats is not None:
+        if output_stream.stats_history:
             stats_path = write_runner_stats(
                 config.output_dir,
                 config.runner_name,
-                [{"autoregressive_index": 0, **stats}],
+                output_stream.stats_history,
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

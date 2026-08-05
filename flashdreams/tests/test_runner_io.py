@@ -193,11 +193,28 @@ def test_video_tensor_to_uint8_converts_bcthw_layout() -> None:
     assert frames.max() == 0
 
 
+def test_video_tensor_to_uint8_converts_btchw_layout() -> None:
+    video = torch.full((1, 2, 3, 4, 5), 1.0, dtype=torch.float32)
+
+    frames = video_tensor_to_uint8(video, layout="btchw")
+
+    assert frames.shape == (2, 4, 5, 3)
+    assert frames.dtype == np.uint8
+    assert frames.min() == 255
+
+
 def test_video_tensor_to_uint8_rejects_multi_batch_bcthw() -> None:
     video = torch.zeros((2, 3, 1, 4, 5), dtype=torch.float32)
 
     with pytest.raises(ValueError, match="expects a single batch element"):
         video_tensor_to_uint8(video, layout="bcthw")
+
+
+def test_video_tensor_to_uint8_rejects_multi_batch_btchw() -> None:
+    video = torch.zeros((2, 1, 3, 4, 5), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="expects a single batch element"):
+        video_tensor_to_uint8(video, layout="btchw")
 
 
 def test_read_first_frame_rgb_rejects_empty_video(

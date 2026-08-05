@@ -729,8 +729,6 @@ class FlashdreamsWorldModelSession:
                 fps=self.manifest.fps,
                 per_view=False,
                 world_size=1,
-                collect_output=False,
-                move_to_cpu=False,
             )
         processed = self._postprocess_stream.process(
             video, autoregressive_index=autoregressive_index
