@@ -1,4 +1,4 @@
-name: Local Demo Benchmarks
+name: Demo Benchmarks
 
 on:
   push:
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   benchmark:
-    name: Omnidreams benchmark canary
+    name: Demo Benchmarks
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     timeout-minutes: 180
     continue-on-error: true
@@ -84,6 +84,15 @@ jobs:
           enable-cache: true
           cache-suffix: "local-demo-benchmark-canary-${{ github.event.inputs.cuda_group || 'cuda13' }}-sm${{ steps.gpu-arch.outputs.arch }}"
           prune-cache: false
+
+      - name: Check benchmark baseline host reachability
+        run: |
+          set -ux
+          host=2u2g-gen-0801.ipp3a2.colossus.nvidia.com
+          getent hosts "${host}" || true
+          timeout 10 bash -c "</dev/tcp/${host}/22" \
+            && echo "tcp/22 reachable on ${host}" \
+            || echo "tcp/22 not reachable on ${host}"
 
       - name: Install benchmark dependencies
         run: |
@@ -153,6 +162,35 @@ jobs:
               | "| \(.id) | \(.status) | \(.wall_time_s | duration) | \(metric("gen_fps") | fmt) | \(metric("quality_score") | fmt) | \(metric("quality_similarity_score") | fmt) | \(metric("quality_psnr_db") | fmt) | \(metric("quality_rmse") | fmt) |"
             ' "${manifest}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trim uv cache for upload
+        if: always()
+        run: |
+          cache_dir="${UV_CACHE_DIR:-/github/home/.cache/uv}"
+          echo "=== Cache size before trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+
+          # The proxy cache can re-download wheels faster than Actions can
+          # upload and restore a multi-GB uv cache.
+          rm -rf "${cache_dir}/wheels-v6"
+
+          # uv can re-extract unzipped wheel archives on demand.
+          rm -rf "${cache_dir}/archive-v0"
+
+          # Build artifacts from git checkouts bloat the saved cache but are
+          # not needed for reuse.
+          find "${cache_dir}/git-v0/checkouts" \
+            \( -name "build" -o -name "*.egg-info" -o -name "__pycache__" \) \
+            -type d -exec rm -rf {} + 2>/dev/null || true
+
+          # Workspace editable installs rebuild quickly from source.
+          rm -rf "${cache_dir}/sdists-v9/editable"
+
+          echo ""
+          echo "=== Cache size after trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
 
       - name: Upload benchmark artifacts
         if: always()
