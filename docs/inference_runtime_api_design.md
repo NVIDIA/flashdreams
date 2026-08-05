@@ -19,7 +19,7 @@ integration-specific runner code:
 
 - `InferenceConfig`: how the model and inference stack should run;
 - `UserInputs`: controls or events from an app, replay trace, or benchmark;
-- `ModelInputs`: prompts, frames, videos, trajectories, maps, scene data, and
+- `InferenceInput`: prompts, frames, videos, trajectories, maps, scene data, and
   other values required by a specific model;
 - input mapping: model/application-specific conversion from user-facing inputs
   into model-facing inputs;
@@ -29,6 +29,12 @@ integration-specific runner code:
   runs;
 - metrics/profiling: timings, memory, traces, NVTX ranges, and benchmark
   outputs.
+
+Current T2/T3 implementation notes are in
+`docs/inference_runtime_inputs_implementation.md`.
+
+The supported-model input inventory used to revisit T2/T3 is in
+`docs/inference_runtime_supported_inputs_inventory.md`.
 
 The API should standardize the envelope and lifecycle. It should not pretend
 that all world models have the same inputs, that all models use the same
@@ -62,9 +68,9 @@ Initial scope:
 | ID | Status | Workstream | Can run in parallel? | Depends on | Done when |
 | --- | --- | --- | --- | --- | --- |
 | T0 | Complete | Create experimental branch and contribution rules. | No, this starts the work. | None. | Branch exists, PR target is agreed, and main merge criteria are written down. |
-| T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `ModelInputs`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
-| T2 | Planned | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
-| T3 | Planned | `ModelInputs`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required initial/per-step inputs, and mappings can convert user events into model inputs. |
+| T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `InferenceInput`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
+| T2 | Complete | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
+| T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
 | T4 | Planned | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
 | T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
 | T6 | Planned | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
@@ -97,14 +103,14 @@ Main runtime flow:
 App / integration / benchmark / transport
   chooses how the run is driven and where output goes
   supplies run setup:
-    InferenceConfig + UserInputs + ModelInputs + output/metrics options
+    InferenceConfig + UserInputs + InferenceInput + output/metrics options
   |
   v
 ModelRunner / standard loop
   orchestrates validation, lifecycle, stepping, output, and metrics
   uses input mapping to:
     validate that user/app inputs can drive the model
-    build initial and per-step ModelInputs during the run
+    build global and per-step InferenceInput during the run
   |
   v
 InferenceRuntime
@@ -145,7 +151,7 @@ Create InferenceRuntime from InferenceConfig
   |
   v
 Start InferenceSession A
-  initial ModelInputs: prompt/frame/scene/etc.
+  global conditioning: prompt/frame/scene/etc.
   per-session state: cache, current step, reset state
   step 0 -> step 1 -> ... -> done
   outputs -> Output target
@@ -154,7 +160,7 @@ Start InferenceSession A
   |
   v
 Start InferenceSession B
-  new initial ModelInputs or replay scenario
+  new global conditioning or replay scenario
   independent cache/state
   step 0 -> step 1 -> ... -> done
   outputs -> Output target
@@ -305,33 +311,63 @@ User inputs are not model inputs. A keyboard event does not have one universal
 meaning. One model may map it to pose segments, another to steering commands,
 and another may ignore it.
 
-## ModelInputs
+## CanonicalInputs And InferenceInput
 
-`ModelInputs` describes the data the model or inference pipeline actually
-requires. It should distinguish:
+Inputs move through three layers:
 
-- initial inputs: values needed to start or reset a rollout;
-- per-step inputs: values needed for one generated chunk or frame window.
+```text
+UserInputs  ->  CanonicalInputs  ->  InferenceInput
+   raw           canonicalized          encoded
+```
 
-Examples of initial model inputs include prompt, negative prompt, first frame,
-input video, scene id, HD map asset, camera calibration, initial camera pose,
-seed, or model-specific fields.
+Raw device events are canonicalized into device-independent modalities before an
+application sees them, so adding a keyboard, gamepad, or wheel is a converter
+registration rather than an application change. `InferenceInput` is what an
+`InferenceSession` actually receives.
 
-Examples of per-step model inputs include frame timestamps, pose segments,
+`InferenceInput` describes the data the model or inference pipeline actually
+requires. Both it and `CanonicalInputs` distinguish two conditioning slots:
+
+- global conditioning: values that condition the whole rollout;
+- per-step conditioning: values needed for one generated chunk or frame window.
+
+Examples of global conditioning include prompt, negative prompt, conditioning
+frame, input video, scene id, HD map asset, camera calibration, initial camera
+pose, seed, or model-specific fields.
+
+Global conditioning is normally supplied when a session starts, but a non-empty
+global slot on a mid-rollout input is an update request rather than a reset;
+resetting rollout state is a separate `InferenceSession.reset()` call. Whether a
+given value can be swapped mid-rollout is declared per field by
+`InputField.update_policy`.
+
+Examples of per-step conditioning include frame timestamps, pose segments,
 camera trajectory chunks, rendered HD map frames, conditioning video windows,
 control tensors, event markers, or model-specific fields.
 
-Model input payloads should use semantic names, not only modality names. For
+Inference input payloads should use semantic names, not only modality names. For
 example, a first frame and an HD map frame should be distinct inputs even if
 both are image-like values.
 
-For interactive runs, most `ModelInputs` will be initial values plus per-step
-inputs produced by input mapping. For MP4 generation and benchmarking, the API
+Model input metadata may also include a lightweight lifecycle label, such as
+runtime config, cache initialization, rollout binding, per-step input, or
+session update. This should remain query metadata, not model-specific tensor
+validation.
+
+Model input names, payload kinds, lifecycle labels, and schema metadata should
+be open-ended. Supported integrations such as SANA-WM, LingBot, Omnidreams, and
+future external adapters may need different semantic fields. Adding a new model
+should usually mean adding adapter-owned schema declarations and mappings, not
+changing a central FlashDreams enum.
+
+For interactive runs, most `InferenceInput` values will be global conditioning
+plus per-step inputs produced by input mapping. For MP4 generation and benchmarking, the API
 should also support fixed per-step model inputs so runs can be deterministic.
 
 ## Schemas
 
-The API should support lightweight `UserInputSchema` and `ModelInputSchema`
+The API should support lightweight `UserInputSchema`, `CanonicalInputSchema`,
+and `InferenceInputSchema`
 metadata.
 
 These schemas are not meant to be a rich type system or a replacement for
@@ -345,8 +381,15 @@ The purpose is to fail early before expensive model initialization, produce
 clearer errors, make fixed scenarios easier to validate, and avoid ambiguous
 dict payloads where keys only describe modality.
 
+Schema objects may carry open-ended metadata for query-time hints such as
+coordinate frame, units, rough shape summary, accepted file suffixes, schema
+URI, model family, or source/transport details. Metadata should help humans and
+adapter selection code, but compatibility should still be based on the declared
+event capabilities, semantic model fields, payload representation hints, and
+lifecycle labels.
+
 For simple CLI text-to-video or image-to-video runs, `UserInputSchema` can be
-trivial or omitted because there may be no live controls. `ModelInputSchema` is
+trivial or omitted because there may be no live controls. `InferenceInputSchema` is
 more important because each supported model still needs to declare the
 model-facing values it expects.
 
@@ -410,19 +453,24 @@ unless the checkpoint already matches a supported generic adapter.
 ## Input Mapping
 
 Input mapping is required whenever `UserInputs` need to become per-step
-`ModelInputs`. In the T1 envelope this boundary is represented by a separate
+`InferenceInput`. In the T1 envelope this boundary is represented by a separate
 `InputMapping` protocol. A model adapter may provide the default mapper because
 it knows how its supported user controls affect model-facing inputs. Applications,
 benchmarks, replay tools, or hosted runtimes may replace that mapper when they
 need a different wire surface or aggregation policy.
 
+The selected mapping may be a single mapper or a composed set of mappers, so one
+run can combine separate prompt, first-frame, and live-control mappings instead
+of routing everything through one object.
+
 There are two separate moments to keep clear:
 
-- before runtime initialization, FlashDreams should select the mapping and check
-  obvious compatibility between the app event source and the model;
+- before runtime initialization, FlashDreams should select the mapping or mapper
+  set and check obvious compatibility between the app event source and the
+  model;
 - during the standard loop, the runtime or runner queues and timestamps user
   events, then uses the selected mapping to build initial or per-step
-  `ModelInputs` from the relevant event window, often after the session reports
+  `InferenceInput` from the relevant event window, often after the session reports
   what it needs next.
 
 This keeps the Reactor-style contract intact: the model-side integration can
@@ -621,14 +669,16 @@ registry, standard loop, concrete output modes, or model migrations:
   `InferenceSession`.
 - Step data carriers are named `StepRequest` and `StepResult`; a session returns
   `None` from `next_step_request()` when the rollout is complete.
-- User-facing inputs use `UserInputs`; model-facing inputs use `ModelInputs`.
+- Raw inputs use `UserInputs`, canonicalized inputs use `CanonicalInputs`, and
+  model-facing inputs use `InferenceInput`.
   Both remain lightweight payload envelopes with shallow read-only mappings.
-- `UserInputSchema` and `ModelInputSchema` stay intentionally small: they
+- `UserInputSchema`, `CanonicalInputSchema`, and `InferenceInputSchema` stay
+  intentionally small: they
   declare supported event types and required named fields for early validation,
   not a full type system.
 - Input mapping is represented by a separate `InputMapping` protocol. Model
   adapters may provide a default mapping; runtimes and applications may override
-  it while preserving the `UserInputs` to `ModelInputs` boundary. Simple
+  it while preserving the `CanonicalInputs` to `InferenceInput` boundary. Simple
   fixed-input runs can use `IdentityInputMapping`.
 - Output handling is represented by `OutputTarget`; `NullOutputTarget` is the
   initial headless implementation.
@@ -660,7 +710,8 @@ Proceed with the proposed split:
 
 - `InferenceConfig` for model/runtime execution;
 - `UserInputs` for app-facing controls and replay traces;
-- `ModelInputs` for model-facing initial and per-step inputs;
+- `CanonicalInputs` for device-independent application-facing inputs;
+- `InferenceInput` for model-facing global and per-step conditioning;
 - input mapping for model/application-specific conversion;
 - runtime/session boundaries for lifecycle and stepping;
 - output targets for display, streaming, files, and benchmarks;

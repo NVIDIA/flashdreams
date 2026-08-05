@@ -8,9 +8,28 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, cast
 
 from flashdreams.runtime._utils import freeze_mapping
+
+InputPhase = Literal["global", "step"]
+
+INPUT_PHASES: tuple[InputPhase, ...] = ("global", "step")
+
+SESSION_START_ONLY = "session_start"
+"""``InputField.update_policy`` value meaning "supply at session start only".
+
+``update_policy`` is otherwise an open, adapter-owned vocabulary. This is the
+one reserved token, because the runtime needs to distinguish a conditioning
+value that can be swapped mid-rollout from one that cannot.
+"""
+
+
+def validate_phase(value: str) -> InputPhase:
+    """Return ``value`` as a validated :data:`InputPhase`."""
+    if value not in INPUT_PHASES:
+        raise ValueError(f"phase must be 'global' or 'step', got {value!r}.")
+    return cast(InputPhase, value)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -35,16 +54,70 @@ class TimeWindow:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class InputField:
-    """Lightweight schema field for user snapshots or model inputs."""
+    """Lightweight schema field for user snapshots or model inputs.
+
+    ``update_policy`` and ``lifecycle`` are plain query metadata. They let a
+    model advertise facts such as "prompt updates land at step boundaries" or
+    "this value is consumed at cache init" without making this layer
+    responsible for implementing or deeply validating that behavior.
+    """
 
     name: str
     required: bool = True
     semantic_type: str | None = None
+    update_policy: str | None = None
+    lifecycle: str | None = None
+    metadata: Mapping[str, Any] = field(
+        default_factory=dict,
+        compare=False,
+        hash=False,
+    )
     description: str = ""
 
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("InputField.name must be non-empty.")
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class UserInputCapability:
+    """One user event a source or mapping can provide, at payload granularity.
+
+    ``UserInputSchema.event_types`` declares only that an event type exists. A
+    capability additionally pins the payload fields carried by that event, so a
+    mapping can state that it needs ``key_down`` events that actually carry a
+    ``key``.
+    """
+
+    event_type: str
+    semantic_type: str | None = None
+    payload_fields: frozenset[str] = field(default_factory=frozenset)
+    metadata: Mapping[str, Any] = field(
+        default_factory=dict,
+        compare=False,
+        hash=False,
+    )
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.event_type.strip():
+            raise ValueError("UserInputCapability.event_type must be non-empty.")
+        for payload_field in self.payload_fields:
+            if not payload_field.strip():
+                raise ValueError("payload field names must be non-empty.")
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+
+    def is_satisfied_by(self, provider: "UserInputCapability") -> bool:
+        """Return whether ``provider`` can satisfy this consumed capability."""
+        if self.event_type != provider.event_type:
+            return False
+        semantic_ok = (
+            self.semantic_type is None
+            or provider.semantic_type is None
+            or self.semantic_type == provider.semantic_type
+        )
+        return semantic_ok and self.payload_fields.issubset(provider.payload_fields)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -53,6 +126,7 @@ class UserInputSchema:
 
     event_types: frozenset[str] = field(default_factory=frozenset)
     snapshot_fields: tuple[InputField, ...] = ()
+    capabilities: tuple[UserInputCapability, ...] = ()
     description: str = ""
 
     def supports_event_types(self, event_types: Iterable[str]) -> bool:
@@ -60,7 +134,63 @@ class UserInputSchema:
         requested = frozenset(event_types)
         if not requested:
             return True
-        return requested.issubset(self.event_types)
+        return requested.issubset(self.declared_event_types())
+
+    def declared_event_types(self) -> frozenset[str]:
+        """Return event types from ``event_types`` and from ``capabilities``."""
+        return self.event_types | frozenset(
+            capability.event_type for capability in self.capabilities
+        )
+
+    def declared_capabilities(self) -> tuple[UserInputCapability, ...]:
+        """Return capabilities, widened with bare ``event_types`` entries.
+
+        A plain ``event_types`` entry carries no payload promise, so it is
+        modeled as a capability with no payload fields. Coarse schemas written
+        before capabilities existed therefore still satisfy any consumer that
+        does not require specific payload fields.
+        """
+        declared = list(self.capabilities)
+        covered = {capability.event_type for capability in declared}
+        declared.extend(
+            UserInputCapability(event_type=event_type)
+            for event_type in sorted(self.event_types - covered)
+        )
+        return tuple(declared)
+
+    def supports(self, capability: UserInputCapability) -> bool:
+        """Return whether this source can satisfy ``capability``."""
+        return any(
+            capability.is_satisfied_by(provider)
+            for provider in self.declared_capabilities()
+        )
+
+    def validate_event(self, event: "UserInputEvent") -> None:
+        """Validate one event against the event types this source declares."""
+        matching = [
+            capability
+            for capability in self.declared_capabilities()
+            if capability.event_type == event.event_type
+        ]
+        if not matching:
+            raise ValueError(
+                f"User input source does not provide event type {event.event_type!r}."
+            )
+        payload_keys = set(event.payload)
+        if not any(
+            capability.payload_fields.issubset(payload_keys) for capability in matching
+        ):
+            expected = sorted(
+                {
+                    payload_field
+                    for capability in matching
+                    for payload_field in capability.payload_fields
+                }
+            )
+            raise ValueError(
+                f"Event {event.event_type!r} payload is missing required "
+                f"fields: {expected}."
+            )
 
     def missing_snapshot(self, inputs: "UserInputs") -> tuple[str, ...]:
         """Return required snapshot fields absent from ``inputs``."""
@@ -74,10 +204,10 @@ class UserInputSchema:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class ModelInputSchema:
+class InferenceInputSchema:
     """Minimal metadata for model-facing initial and per-step inputs."""
 
-    initial_fields: tuple[InputField, ...] = ()
+    global_fields: tuple[InputField, ...] = ()
     """Model inputs required before starting the initial generation/session."""
 
     step_fields: tuple[InputField, ...] = ()
@@ -85,21 +215,81 @@ class ModelInputSchema:
 
     description: str = ""
 
-    def missing_initial(self, inputs: "ModelInputs") -> tuple[str, ...]:
-        """Return required initial fields absent from ``inputs``."""
-        return _missing_required(self.initial_fields, inputs.initial)
+    def fields_for(self, phase: InputPhase) -> tuple[InputField, ...]:
+        """Return every declared field for ``phase``."""
+        return (
+            self.global_fields
+            if validate_phase(phase) == "global"
+            else self.step_fields
+        )
 
-    def missing_step(self, inputs: "ModelInputs") -> tuple[str, ...]:
+    def required_fields(
+        self,
+        phase: InputPhase | None = None,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        """Return required fields as ``(phase, field)``, optionally filtered."""
+        return self._select(phase, required=True)
+
+    def optional_fields(
+        self,
+        phase: InputPhase | None = None,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        """Return optional fields as ``(phase, field)``, optionally filtered."""
+        return self._select(phase, required=False)
+
+    def field_for(self, *, name: str, phase: InputPhase) -> InputField | None:
+        """Return one declared field, if present."""
+        for input_field in self.fields_for(phase):
+            if input_field.name == name:
+                return input_field
+        return None
+
+    def _select(
+        self,
+        phase: InputPhase | None,
+        *,
+        required: bool,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        phases = INPUT_PHASES if phase is None else (validate_phase(phase),)
+        return tuple(
+            (each_phase, input_field)
+            for each_phase in phases
+            for input_field in self.fields_for(each_phase)
+            if input_field.required is required
+        )
+
+    def unsupported_global_updates(self, inputs: "InferenceInput") -> tuple[str, ...]:
+        """Return requested conditioning updates this model cannot apply.
+
+        A field whose ``update_policy`` is :data:`SESSION_START_ONLY` can be
+        supplied when the session starts but not changed mid-rollout. Any other
+        policy, including ``None``, is treated as permissive here; the adapter
+        still owns whether the swap actually succeeds.
+        """
+        return tuple(
+            name
+            for name in inputs.global_conditioning
+            if (declared := self.field_for(name=name, phase="global")) is not None
+            and declared.update_policy == SESSION_START_ONLY
+        )
+
+    def missing_global(self, inputs: "InferenceInput") -> tuple[str, ...]:
+        """Return required initial fields absent from ``inputs``."""
+        return _missing_required(self.global_fields, inputs.global_conditioning)
+
+    def missing_step(self, inputs: "InferenceInput") -> tuple[str, ...]:
         """Return required per-step fields absent from ``inputs``."""
         return _missing_required(self.step_fields, inputs.step)
 
-    def require_initial(self, inputs: "ModelInputs") -> None:
+    def require_global(self, inputs: "InferenceInput") -> None:
         """Raise if required initial fields are absent."""
-        missing = self.missing_initial(inputs)
+        missing = self.missing_global(inputs)
         if missing:
-            raise ValueError(f"Missing required initial model input(s): {missing}")
+            raise ValueError(
+                f"Missing required global conditioning input(s): {missing}"
+            )
 
-    def require_step(self, inputs: "ModelInputs") -> None:
+    def require_step(self, inputs: "InferenceInput") -> None:
         """Raise if required per-step fields are absent."""
         missing = self.missing_step(inputs)
         if missing:
@@ -171,23 +361,154 @@ class UserInputs:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class ModelInputs:
-    """Model-facing payloads split by initial and per-step use."""
+class CanonicalModality:
+    """A device-independent user input an application consumes.
+
+    This is the middle layer of ``raw input -> canonicalized input -> encoded
+    inference input``. Applications and benchmarks declare and consume
+    modalities; they never read raw device events, so adding a new device is a
+    converter registration rather than an application change.
+
+    Modalities describe live user control only. Global conditioning such as a
+    prompt or conditioning frame is application-owned and reaches
+    :class:`InferenceInput` directly, without passing through this layer.
+    """
+
+    name: str
+    payload_fields: frozenset[str] = field(default_factory=frozenset)
+    metadata: Mapping[str, Any] = field(
+        default_factory=dict,
+        compare=False,
+        hash=False,
+    )
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("CanonicalModality.name must be non-empty.")
+        for payload_field in self.payload_fields:
+            if not payload_field.strip():
+                raise ValueError("payload field names must be non-empty.")
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+
+    def is_satisfied_by(self, provider: "CanonicalModality") -> bool:
+        """Return whether ``provider`` can satisfy this consumed modality."""
+        return self.name == provider.name and self.payload_fields.issubset(
+            provider.payload_fields
+        )
+
+    def value(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Return ``payload`` frozen, checking it covers this modality."""
+        missing = sorted(self.payload_fields - set(payload))
+        if missing:
+            raise ValueError(
+                f"Canonical modality {self.name!r} requires payload fields "
+                f"{missing}, which the converter did not produce."
+            )
+        return freeze_mapping(payload)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CanonicalInputSchema:
+    """Canonical modalities an application can be fed by a given source."""
+
+    modalities: tuple[CanonicalModality, ...] = ()
+    description: str = ""
+
+    def supports(self, modality: CanonicalModality) -> bool:
+        """Return whether this source can supply ``modality``."""
+        return any(modality.is_satisfied_by(provided) for provided in self.modalities)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CanonicalInputs:
+    """Canonicalized user input for one step, keyed by modality name.
+
+    Values are level-triggered and normally present every step: a key held down
+    emits no events but still means full throttle. Global conditioning does not
+    appear here; it is application-owned and reaches :class:`InferenceInput`
+    directly.
+    """
 
     __hash__ = None
 
-    initial: Mapping[str, Any] = field(default_factory=dict)
+    values: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", freeze_mapping(self.values))
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class InferenceInput:
+    """Encoded inputs for one :class:`InferenceSession` call.
+
+    Two conditioning slots:
+
+    - ``global_conditioning``: values that condition the whole rollout, such as
+      the conditioning frame or prompt. Normally supplied when the session
+      starts.
+    - ``step``: values needed to generate the next chunk or frame.
+
+    A non-empty ``global_conditioning`` on a mid-rollout input is an *update
+    request*, not a reset. The session should apply it when the model supports
+    that; resetting rollout state is a separate, explicit
+    :meth:`InferenceSession.reset` call. Whether a given value can be updated
+    mid-rollout is declared per field by ``InputField.update_policy``; see
+    :meth:`InferenceInputSchema.unsupported_global_updates`.
+    """
+
+    __hash__ = None
+
+    global_conditioning: Mapping[str, Any] = field(default_factory=dict)
     step: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "initial", freeze_mapping(self.initial))
+        object.__setattr__(
+            self, "global_conditioning", freeze_mapping(self.global_conditioning)
+        )
         object.__setattr__(self, "step", freeze_mapping(self.step))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
-    def with_step(self, step: Mapping[str, Any]) -> "ModelInputs":
-        """Return a copy with replaced per-step payload."""
-        return ModelInputs(initial=self.initial, step=step, metadata=self.metadata)
+    @property
+    def requests_global_update(self) -> bool:
+        """Return whether this input asks the session to update conditioning."""
+        return bool(self.global_conditioning)
+
+    def with_step(self, step: Mapping[str, Any]) -> "InferenceInput":
+        """Return a copy with replaced per-step payload.
+
+        The global slot is carried through unchanged, so a mid-rollout input
+        built this way keeps whatever update request it already had. Use
+        :meth:`without_global_update` for the common steady-state case.
+        """
+        return InferenceInput(
+            global_conditioning=self.global_conditioning,
+            step=step,
+            metadata=self.metadata,
+        )
+
+    def with_global_update(
+        self, global_conditioning: Mapping[str, Any]
+    ) -> "InferenceInput":
+        """Return a copy requesting a mid-rollout conditioning update."""
+        return InferenceInput(
+            global_conditioning=global_conditioning,
+            step=self.step,
+            metadata=self.metadata,
+        )
+
+    def without_global_update(self) -> "InferenceInput":
+        """Return a copy that requests no conditioning update."""
+        return InferenceInput(step=self.step, metadata=self.metadata)
+
+    def for_phase(self, phase: InputPhase) -> Mapping[str, Any]:
+        """Return the payload mapping for ``phase``."""
+        return (
+            self.global_conditioning if validate_phase(phase) == "global" else self.step
+        )
 
 
 def _missing_required(
