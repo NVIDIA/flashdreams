@@ -9,9 +9,9 @@ from typing import Protocol, runtime_checkable
 
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import (
-    ModelInputs,
-    ModelInputSchema,
-    UserInputSchema,
+    CanonicalInputSchema,
+    InferenceInput,
+    InferenceInputSchema,
 )
 from flashdreams.runtime.mapping import InputMapping
 from flashdreams.runtime.types import StepRequest, StepResult
@@ -25,11 +25,11 @@ class InferenceSession(Protocol):
         """Describe the next step's inputs, or return ``None`` when complete."""
         ...
 
-    def step(self, inputs: ModelInputs) -> StepResult:
+    def step(self, inputs: InferenceInput) -> StepResult:
         """Run one sequential inference step."""
         ...
 
-    def reset(self, inputs: ModelInputs | None = None) -> None:
+    def reset(self, inputs: InferenceInput | None = None) -> None:
         """Reset this session's rollout state when the backend supports it."""
         ...
 
@@ -42,8 +42,8 @@ class InferenceSession(Protocol):
 class InferenceRuntime(Protocol):
     """Heavyweight reusable runtime created from :class:`InferenceConfig`."""
 
-    def start_session(self, inputs: ModelInputs) -> InferenceSession:
-        """Create an isolated session from initial model inputs."""
+    def start_session(self, inputs: InferenceInput) -> InferenceSession:
+        """Create an isolated session from global conditioning inputs."""
         ...
 
     def close(self) -> None:
@@ -56,10 +56,10 @@ class InferenceRuntime(Protocol):
 class ModelAdapter(Protocol):
     """Model-specific boundary that declares defaults and creates runtimes.
 
-    Adapters declare model-facing input requirements, optional user-input
-    capabilities, and an optional default mapping between the two. Runtime,
-    application, or benchmark code may override that mapping while preserving the
-    same ``UserInputs`` to ``ModelInputs`` boundary.
+    Adapters declare model-facing input requirements, the canonical modalities
+    their default mapping consumes, and an optional default mapping between the
+    two. Runtime, application, or benchmark code may override that mapping while
+    preserving the same ``CanonicalInputs`` to ``InferenceInput`` boundary.
     """
 
     @property
@@ -68,17 +68,17 @@ class ModelAdapter(Protocol):
         ...
 
     @property
-    def model_input_schema(self) -> ModelInputSchema:
+    def inference_input_schema(self) -> InferenceInputSchema:
         """Model-facing initial and per-step input requirements."""
         ...
 
     @property
-    def user_input_schema(self) -> UserInputSchema | None:
-        """User inputs supported by the adapter's default mapping, if any."""
+    def canonical_input_schema(self) -> CanonicalInputSchema | None:
+        """Canonical modalities the adapter's default mapping consumes."""
         ...
 
     def default_input_mapping(self) -> InputMapping | None:
-        """Return the model-provided default user-to-model mapping, if any."""
+        """Return the model-provided default canonical-to-model mapping."""
         ...
 
     def validate_config(self, config: InferenceConfig) -> None:
