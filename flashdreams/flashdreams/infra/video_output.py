@@ -24,6 +24,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.postprocess import VideoPostprocessStream, VideoTensorLayout
 
 
@@ -41,6 +42,94 @@ def video_layout_time_dim(layout: VideoTensorLayout) -> int:
 def infer_video_num_frames(tensor: Tensor, *, layout: VideoTensorLayout) -> int:
     """Infer a video chunk's frame count from its declared layout."""
     return int(tensor.shape[video_layout_time_dim(layout)])
+
+
+class LazyRGBFrame(LazyCudaFrame):
+    """Defer RGB frame host materialization until a host-only consumer needs it."""
+
+    def __init__(
+        self,
+        frames_hwc_uint8: Any,
+        frame_index: int,
+        *,
+        source_event: object | None = None,
+    ) -> None:
+        super().__init__(
+            frames_hwc_uint8,
+            frame_index,
+            source_event=source_event,
+            lost_source_message=(
+                "Lazy RGB frame lost its source tensor before materialization."
+            ),
+            already_materialized_message=(
+                "Lazy RGB frame was already materialized on the host."
+            ),
+        )
+
+
+def video_tensor_to_hwc_uint8(
+    video: Tensor,
+    *,
+    layout: VideoTensorLayout,
+    batch_index: int = 0,
+    view_index: int = 0,
+) -> Tensor:
+    """Convert a GPU/CPU RGB video chunk to uint8 ``[T, H, W, C]`` tensor.
+
+    The conversion preserves the source device. Callers that need host frames
+    can materialize the returned tensor later; GPU-aware consumers can keep it
+    resident for interop or hardware encoding.
+    """
+    if layout == "tchw":
+        frames = video
+    elif layout == "btchw":
+        frames = video[batch_index]
+    elif layout == "bcthw":
+        frames = video[batch_index].permute(1, 0, 2, 3)
+    elif layout == "bvtchw":
+        frames = video[batch_index, view_index]
+    else:
+        raise ValueError(f"unsupported video layout: {layout!r}")
+
+    if frames.ndim != 4:
+        raise ValueError(
+            f"expected a 4D [T,C,H,W] frame tensor, got {tuple(frames.shape)}"
+        )
+    if frames.shape[1] != 3:
+        raise ValueError(
+            "expected RGB video frames with C=3 in [T,C,H,W], "
+            f"got {tuple(frames.shape)}"
+        )
+
+    if frames.dtype != torch.uint8:
+        frames = frames.clamp(-1.0, 1.0)
+        frames = ((frames + 1.0) * 127.5).round().to(torch.uint8)
+    return frames.detach().permute(0, 2, 3, 1).contiguous()
+
+
+def lazy_rgb_frames_from_video_tensor(
+    video: Tensor,
+    *,
+    layout: VideoTensorLayout,
+    batch_index: int = 0,
+    view_index: int = 0,
+    record_cuda_event: bool = True,
+) -> list[LazyRGBFrame]:
+    """Return lazy per-frame RGB handles backed by one video tensor chunk."""
+    frames = video_tensor_to_hwc_uint8(
+        video,
+        layout=layout,
+        batch_index=batch_index,
+        view_index=view_index,
+    )
+    source_event = None
+    if record_cuda_event and frames.is_cuda:
+        source_event = torch.cuda.Event()
+        source_event.record(torch.cuda.current_stream(frames.device))
+    return [
+        LazyRGBFrame(frames, frame_index, source_event=source_event)
+        for frame_index in range(frames.shape[0])
+    ]
 
 
 @dataclass(slots=True)
@@ -67,7 +156,7 @@ class VideoStepResult:
         layout: VideoTensorLayout,
         stats: dict[str, float] | None = None,
         metadata: Mapping[str, Any] | None = None,
-    ) -> "VideoStepResult":
+    ) -> VideoStepResult:
         """Build a result and infer ``num_frames`` from ``layout``."""
         return cls(
             chunk_index=chunk_index,
@@ -76,6 +165,40 @@ class VideoStepResult:
             stats=stats,
             layout=layout,
             metadata=dict(metadata or {}),
+        )
+
+    def lazy_rgb_frames(
+        self,
+        *,
+        batch_index: int = 0,
+        view_index: int = 0,
+        record_cuda_event: bool = True,
+    ) -> list[LazyRGBFrame]:
+        """Expose this chunk as lazy per-frame RGB handles."""
+        if self.layout is None:
+            raise ValueError("VideoStepResult.layout is required for frame extraction")
+        return lazy_rgb_frames_from_video_tensor(
+            self.video_chunk,
+            layout=self.layout,
+            batch_index=batch_index,
+            view_index=view_index,
+            record_cuda_event=record_cuda_event,
+        )
+
+    def video_hwc_uint8(
+        self,
+        *,
+        batch_index: int = 0,
+        view_index: int = 0,
+    ) -> Tensor:
+        """Return this chunk as a uint8 ``[T,H,W,C]`` tensor on its source device."""
+        if self.layout is None:
+            raise ValueError("VideoStepResult.layout is required for frame extraction")
+        return video_tensor_to_hwc_uint8(
+            self.video_chunk,
+            layout=self.layout,
+            batch_index=batch_index,
+            view_index=view_index,
         )
 
 
@@ -166,8 +289,11 @@ class RunnerVideoOutputStream:
 
 
 __all__ = [
+    "LazyRGBFrame",
     "RunnerVideoOutputStream",
     "VideoStepResult",
     "infer_video_num_frames",
+    "lazy_rgb_frames_from_video_tensor",
     "video_layout_time_dim",
+    "video_tensor_to_hwc_uint8",
 ]

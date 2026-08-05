@@ -9,9 +9,12 @@ import pytest
 import torch
 
 from flashdreams.infra.video_output import (
+    LazyRGBFrame,
     RunnerVideoOutputStream,
     VideoStepResult,
     infer_video_num_frames,
+    lazy_rgb_frames_from_video_tensor,
+    video_tensor_to_hwc_uint8,
 )
 from flashdreams.serving.webrtc.manager import WebRTCStepResult, make_webrtc_step_result
 
@@ -68,6 +71,44 @@ def test_make_webrtc_step_result_preserves_tensor_and_infers_frames() -> None:
     assert result.video_chunk.requires_grad is False
     assert result.layout == "tchw"
     assert result.stats == {"decode_ms": 1.5}
+
+
+def test_video_tensor_to_hwc_uint8_preserves_device_layout_conversion() -> None:
+    video = torch.empty((1, 3, 1, 2, 2), dtype=torch.float32)
+    video[:, 0] = -1.0
+    video[:, 1] = 0.5
+    video[:, 2] = 1.0
+
+    frames = video_tensor_to_hwc_uint8(video, layout="bcthw")
+
+    assert frames.device == video.device
+    assert frames.dtype == torch.uint8
+    assert frames.shape == (1, 2, 2, 3)
+    assert frames[0, 0, 0].tolist() == [0, 191, 255]
+
+
+def test_lazy_rgb_frames_from_video_tensor_materializes_on_demand() -> None:
+    video = torch.zeros((2, 3, 4, 5), dtype=torch.float32)
+    video[1, :, 2, 3] = 1.0
+
+    frames = lazy_rgb_frames_from_video_tensor(video, layout="tchw")
+
+    assert len(frames) == 2
+    assert isinstance(frames[0], LazyRGBFrame)
+    assert frames[1].to_numpy()[2, 3].tolist() == [255, 255, 255]
+
+
+def test_video_step_result_exposes_lazy_rgb_frames() -> None:
+    result = VideoStepResult.from_video_chunk(
+        chunk_index=0,
+        video_chunk=torch.zeros((1, 2, 1, 3, 4, 5), dtype=torch.float32),
+        layout="bvtchw",
+    )
+
+    frames = result.lazy_rgb_frames()
+
+    assert len(frames) == 1
+    assert frames[0].to_numpy().shape == (4, 5, 3)
 
 
 def test_runner_video_output_stream_collects_chunks_and_stats() -> None:

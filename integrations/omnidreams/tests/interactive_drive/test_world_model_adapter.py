@@ -15,7 +15,6 @@ from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _build_pipeline_config,
-    _LazyRGBFrame,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -24,6 +23,7 @@ from omnidreams.interactive_drive.world_model.synthetic_fixture import (
 )
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.infra.video_output import LazyRGBFrame
 
 
 class _FakePipeline:
@@ -384,7 +384,7 @@ def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) 
 
 def test_lazy_rgb_frame_exposes_tensor_before_host_materialization() -> None:
     frames = torch.arange(2 * 2 * 3 * 3, dtype=torch.uint8).reshape(2, 2, 3, 3)
-    lazy = _LazyRGBFrame(frames, frame_index=1)
+    lazy = LazyRGBFrame(frames, frame_index=1)
 
     tensor = lazy.to_cuda_tensor()
 
