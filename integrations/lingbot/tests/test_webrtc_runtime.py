@@ -53,6 +53,17 @@ class _FakeControlChannel:
         self.messages.append(decoded)
 
 
+class _FakeVideoEncoder:
+    """Minimal ``VideoEncoder``-shaped stub for runtime encoder selection tests."""
+
+    fps = 30
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def close(self) -> None:
+        return
+
+
 def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
     del config
     return object()
