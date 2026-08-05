@@ -6,9 +6,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.serving import output_targets as output_targets_module
 from flashdreams.serving.output_targets import (
     OutputLaunchOptions,
@@ -28,7 +30,7 @@ def _runner_config(
     pipeline_name: str | None = None,
     num_views: int = 1,
     compile_network: bool = True,
-) -> SimpleNamespace:
+) -> RunnerConfig:
     transformer = SimpleNamespace(
         num_views=num_views,
         compile_network=compile_network,
@@ -37,16 +39,19 @@ def _runner_config(
         name=pipeline_name or runner_name,
         diffusion_model=SimpleNamespace(seed=42, transformer=transformer),
     )
-    return SimpleNamespace(
-        runner_name=runner_name,
-        pipeline=pipeline,
-        device="cuda:1",
-        pixel_height=480,
-        pixel_width=832,
-        fps=20,
-        output_fps=24,
-        example_idx=3,
-        postprocess=SimpleNamespace(preset=""),
+    return cast(
+        RunnerConfig,
+        SimpleNamespace(
+            runner_name=runner_name,
+            pipeline=pipeline,
+            device="cuda:1",
+            pixel_height=480,
+            pixel_width=832,
+            fps=20,
+            output_fps=24,
+            example_idx=3,
+            postprocess=SimpleNamespace(preset=""),
+        ),
     )
 
 
@@ -57,7 +62,7 @@ def test_lingbot_webrtc_target_translates_runner_config() -> None:
     )
 
     spec = resolve_output_target(
-        config,  # ty:ignore[invalid-argument-type]
+        config,
         mode="webrtc",
         options=OutputLaunchOptions(
             host="127.0.0.1",
@@ -95,10 +100,10 @@ def test_omnidreams_webrtc_target_rejects_multi_view() -> None:
         num_views=4,
     )
 
-    assert available_output_modes(config) == ("cli",)  # ty:ignore[invalid-argument-type]
+    assert available_output_modes(config) == ("cli",)
     with pytest.raises(OutputTargetUnavailableError, match="Supported modes: cli"):
         resolve_output_target(
-            config,  # ty:ignore[invalid-argument-type]
+            config,
             mode="webrtc",
         )
 
@@ -110,7 +115,7 @@ def test_omnidreams_local_window_target_uses_manifest_override() -> None:
     config.postprocess.preset = "flashvsr-v1.1-sparse-2.0"
 
     spec = resolve_output_target(
-        config,  # ty:ignore[invalid-argument-type]
+        config,
         mode="local-window",
         options=OutputLaunchOptions(local_window_manifest=Path("custom.yaml")),
     )
@@ -129,7 +134,7 @@ def test_output_manifest_extends_local_window_availability() -> None:
     config = _runner_config(runner_name="omnidreams-sv-2steps-chunk3-loc6-vae-vae")
     options = OutputLaunchOptions(local_window_manifest=Path("custom.yaml"))
 
-    assert available_output_modes(  # ty:ignore[invalid-argument-type]
+    assert available_output_modes(
         config,
         options,
     ) == ("cli", "webrtc", "local-window")
