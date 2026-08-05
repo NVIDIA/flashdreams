@@ -30,6 +30,7 @@ from flashdreams.recipes.wan.pipeline import (
 )
 from lingbot.encoder.camctrl import (
     CamCtrlInput,
+    I2VCamCtrlEncoderConfig,
     I2VCamCtrlInput,
 )
 
@@ -45,12 +46,18 @@ class LingbotUMT5TextEncoderConfig(UMT5TextEncoderConfig):
 class LingbotWorldInferencePipelineConfig(WanInferencePipelineConfig):
     """Config for the Lingbot World streaming pipeline.
 
-    Same shape as the Wan I2V config; only the target class is overridden.
+    Same shape as the Wan I2V config, with the camera-control encoder narrowed
+    to the concrete LingBot config that this pipeline requires.
     """
 
     _target: type["LingbotWorldInferencePipeline"] = field(
         default_factory=lambda: LingbotWorldInferencePipeline
     )
+    encoder: I2VCamCtrlEncoderConfig = field(  # type: ignore[assignment]
+        default_factory=I2VCamCtrlEncoderConfig
+    )
+    """Composite I2V + camera-control encoder."""
+
     text_encoder: LingbotUMT5TextEncoderConfig | None = field(
         default_factory=LingbotUMT5TextEncoderConfig
     )

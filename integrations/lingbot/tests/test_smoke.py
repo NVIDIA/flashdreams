@@ -17,12 +17,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
+from typing import Annotated
 from typing import cast
 
 import pytest
 import tomli as tomllib
+import tyro
 from lingbot import config as config_mod
 from lingbot import runner as runner_mod
 from lingbot.config import (
@@ -220,6 +223,50 @@ def test_model_versions_share_text_event_capable_pipeline(slug: str) -> None:
     transformer = pipeline.diffusion_model.transformer
     assert isinstance(transformer, LingbotWorldTransformerConfig)
     assert transformer._target is LingbotWorldTransformer
+
+
+def test_benchmark_runner_args_parse_through_tyro() -> None:
+    """Catch LingBot runner CLI schema regressions before benchmark CI."""
+    cfg = RUNNER_CONFIGS["lingbot-world-fast-taehv-window15-sink3"]
+    union = tyro.extras.subcommand_type_from_defaults(
+        defaults={cfg.runner_name: cfg},
+        descriptions={cfg.runner_name: cfg.description},
+        prefix_names=False,
+        sort_subcommands=True,
+    )
+    runner_union = tyro.conf.SuppressFixed[tyro.conf.FlagConversionOff[union]]
+    args_cls = dataclasses.make_dataclass(
+        "LingbotBenchmarkArgs",
+        [
+            ("runner", Annotated[runner_union, tyro.conf.arg(name="")]),
+        ],
+    )
+
+    parsed = tyro.cli(
+        args_cls,
+        args=[
+            cfg.runner_name,
+            "--example-data",
+            "True",
+            "--example-idx",
+            "0",
+            "--pixel-height",
+            "464",
+            "--pixel-width",
+            "832",
+            "--total-blocks",
+            "40",
+            "--pipeline.diffusion-model.seed",
+            "1",
+        ],
+        console_outputs=False,
+    )
+
+    runner_cfg = getattr(parsed, "runner")
+    assert runner_cfg.runner_name == cfg.runner_name
+    assert runner_cfg.example_data is True
+    assert runner_cfg.total_blocks == 40
+    assert runner_cfg.pipeline.diffusion_model.seed == 1
 
 
 def test_entry_points_match_module_literals() -> None:
