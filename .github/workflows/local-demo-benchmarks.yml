@@ -11,7 +11,6 @@ on:
       - "flashdreams/flashdreams/**"
       - "flashdreams/pyproject.toml"
       - "flashdreams/tools/benchmarks/**"
-      - "integrations/lingbot/**"
       - "integrations/omnidreams/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -33,7 +32,7 @@ permissions:
 
 jobs:
   benchmark:
-    name: LingBot and Omnidreams benchmark canary
+    name: Omnidreams benchmark canary
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     timeout-minutes: 180
     continue-on-error: true
@@ -91,7 +90,6 @@ jobs:
           uv venv --clear
           uv sync --locked \
             --package flashdreams \
-            --package flashdreams-lingbot \
             --package flashdreams-omnidreams \
             --no-dev \
             --group "${CUDA_GROUP}" \
@@ -104,7 +102,6 @@ jobs:
           rm -rf artifacts/benchmarks
           uv run --no-sync flashdreams-benchmark \
             --scenario-file "${SCENARIO_FILE}" \
-            --scenario lingbot-world-fast-taehv-quality-smoke \
             --scenario omnidreams-sv-ci-quality-smoke \
             --output-dir "${BENCHMARK_BASELINE_DIR}"
 
@@ -114,7 +111,6 @@ jobs:
         run: |
           uv run --no-sync flashdreams-benchmark \
             --scenario-file "${SCENARIO_FILE}" \
-            --scenario lingbot-world-fast-taehv-quality-smoke \
             --scenario omnidreams-sv-ci-quality-smoke \
             --quality-baseline-dir "${BENCHMARK_BASELINE_DIR}" \
             --output-dir "${BENCHMARK_CANDIDATE_DIR}"
@@ -134,7 +130,7 @@ jobs:
             fi
             echo "Candidate report: \`${BENCHMARK_CANDIDATE_DIR}/report.html\`"
             echo
-            echo "This canary runs the two 30-second seeded quality scenarios only. The full one-minute review scenarios remain local/manual for now."
+            echo "This canary runs the 30-second seeded Omnidreams quality scenario only. The full one-minute review scenarios and LingBot scenarios remain local/manual for now."
             echo
             echo "| Scenario | Status | Wall time | Median gen FPS | Quality score | Similarity | PSNR | RMSE |"
             echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
