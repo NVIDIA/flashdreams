@@ -14,7 +14,7 @@ Implementation lives in `flashdreams.runtime`:
 - `flashdreams/flashdreams/runtime/inputs.py` — user/canonical input types
   and schemas
 - `flashdreams/flashdreams/runtime/inference_session.py` — model-ready
-  `InferenceInput` and session lifecycle
+  `InferenceInput`, `InferenceInputSchema`, and session lifecycle
 - `flashdreams/flashdreams/runtime/canonical.py` — raw device to canonical
   modality conversion
 - `flashdreams/flashdreams/runtime/mapping.py` — canonical to encoded mapping
@@ -63,56 +63,41 @@ the same thing at each:
 - **per-step conditioning** — needed to generate the next chunk or frame:
   steering, HD map frames, camera trajectory.
 
-`InputPhase` is `Literal["global", "step"]`. The axis names *which slot*, not
-*when the value may arrive* — see the next section.
-
-## Global Conditioning Updates Are Not Resets
-
-A non-empty global slot on a mid-rollout `InferenceInput` is an **update
-request**. The session should apply it when the model supports doing so.
-Resetting rollout state is a separate, explicit `InferenceSession.reset()` call.
-The motivating case is changing prompt and conditioning frame mid-run to change
-the weather in an Omnidreams rollout.
+``InferenceInput`` exposes exactly those two mappings:
 
 ```python
 from flashdreams.runtime import InferenceInput
 
-steady_state = InferenceInput(step={"steering": 0.25})
-assert not steady_state.requests_global_update
-
-changed_weather = steady_state.with_global_update({"prompt": "heavy rain"})
-assert changed_weather.requests_global_update
+inputs = InferenceInput(
+    global_conditioning={"prompt": "drive"},
+    per_step_conditioning={"steering": 0.25},
+)
 ```
 
-Because `with_step()` carries the global slot through unchanged, use
-`without_global_update()` for the steady-state case; otherwise every step looks
-like an update request.
+``InputPhase`` remains ``Literal["global", "step"]`` for mapping schemas. The
+inference envelope uses the more explicit ``global_conditioning`` and
+``per_step_conditioning`` names directly.
 
-Whether a value can actually be swapped mid-rollout is declared per field:
+## Payload Validation
+
+``InferenceInputSchema`` declares ``global_fields`` and
+``per_step_fields``. Its two checks validate the corresponding payload and
+raise ``ValueError`` when a required field is absent:
 
 ```python
-from flashdreams.runtime import SESSION_START_ONLY, InferenceInputSchema, InputField
+from flashdreams.runtime import InferenceInputSchema, InputField
 
 schema = InferenceInputSchema(
-    global_fields=(
-        InputField(name="prompt", update_policy="step_boundary"),
-        InputField(name="scene_id", update_policy=SESSION_START_ONLY),
-    )
+    global_fields=(InputField(name="prompt"),),
+    per_step_fields=(InputField(name="steering"),),
 )
-schema.unsupported_global_updates(
-    InferenceInput(global_conditioning={"prompt": "heavy rain", "scene_id": "town_02"})
-)
-# ("scene_id",)
+schema.check_global_payload(inputs)
+schema.check_per_step_payload(inputs)
 ```
 
-`SESSION_START_ONLY` is the one reserved `update_policy` token. Everything else
-in that vocabulary, and all of `lifecycle`, is open and adapter-owned; this layer
-only carries it as queryable metadata.
-
-Steady-state steps must leave the global slot empty; otherwise every step reads
-as an update request. Converters emit every window, because live control is
-level-triggered: a key held across a step emits no events but still means full
-throttle.
+Optional fields do not block either check. ``update_policy``, ``lifecycle``, and
+other ``InputField`` metadata remain adapter-owned query hints; deep payload
+validation stays in the adapter or mapping.
 
 ## Raw Inputs
 
@@ -269,7 +254,7 @@ Named here only so the boundary is explicit; these are not gaps in the input
 layer:
 
 - **`FrameStream`**, which the architecture diagrams place between
-  `InferenceSession` and `Output Target`. The code writes `StepResult` straight
+  `InferenceSession` and `Output Target`. The code writes `InferenceOutput` straight
   to `OutputTarget.write()`. Output shape is T5.
 - **Declared output modalities**, so an output target or quality-eval can state
   what it requires and be matched the way inputs now are. T5/T8.

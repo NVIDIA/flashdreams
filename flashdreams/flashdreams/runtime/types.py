@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inputs import InferenceInputSchema, TimeWindow
+from flashdreams.runtime.inputs import TimeWindow
+
+if TYPE_CHECKING:
+    from flashdreams.runtime.inference_session import InferenceInputSchema
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

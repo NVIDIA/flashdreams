@@ -8,10 +8,14 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from flashdreams.runtime.config import InferenceConfig
-from flashdreams.runtime.inference_session import InferenceInput
-from flashdreams.runtime.inputs import CanonicalInputSchema, InferenceInputSchema
+from flashdreams.runtime.inference_session import (
+    InferenceInput,
+    InferenceInputSchema,
+    InferenceOutput,
+)
+from flashdreams.runtime.inputs import CanonicalInputSchema
 from flashdreams.runtime.mapping import InputMapping
-from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.runtime.types import StepRequest
 
 
 @runtime_checkable
@@ -22,7 +26,7 @@ class InferenceSession(Protocol):
         """Describe the next step's inputs, or return ``None`` when complete."""
         ...
 
-    def step(self, inputs: InferenceInput) -> StepResult:
+    def step(self, inputs: InferenceInput) -> InferenceOutput:
         """Run one sequential inference step."""
         ...
 

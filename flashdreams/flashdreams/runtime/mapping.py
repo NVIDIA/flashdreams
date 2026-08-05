@@ -10,13 +10,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inference_session import InferenceInput
+from flashdreams.runtime.inference_session import InferenceInput, InferenceInputSchema
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
-    InferenceInputSchema,
     InputField,
     InputPhase,
 )
@@ -269,7 +268,15 @@ def _build_compatibility(
             unavailable.append(mapping_schema)
 
     usable = combine_mapping_schemas(feedable, name=reported_schema.name)
-    required = inference_input_schema.required_fields()
+    declared_fields: tuple[tuple[InputPhase, InputField], ...] = tuple(
+        (phase, input_field)
+        for phase, fields in (
+            ("global", inference_input_schema.global_fields),
+            ("step", inference_input_schema.per_step_fields),
+        )
+        for input_field in fields
+    )
+    required = tuple(declared for declared in declared_fields if declared[1].required)
     missing_required = tuple(
         (phase, input_field)
         for phase, input_field in required
@@ -282,7 +289,8 @@ def _build_compatibility(
     )
     available_optional = tuple(
         (phase, input_field)
-        for phase, input_field in inference_input_schema.optional_fields()
+        for phase, input_field in declared_fields
+        if not input_field.required
         if usable.can_produce(phase, input_field)
     )
 
@@ -361,10 +369,14 @@ def undeclared_inference_inputs(
     ``map_global_inputs``/``map_step_inputs`` actually return. Mapping tests
     can use this to keep the declared compatibility surface honest.
     """
+    payloads: tuple[tuple[InputPhase, Mapping[str, Any]], ...] = (
+        ("global", inputs.global_conditioning),
+        ("step", inputs.per_step_conditioning),
+    )
     return tuple(
         (phase, key)
-        for phase in INPUT_PHASES
-        for key in inputs.for_phase(phase)
+        for phase, payload in payloads
+        for key in payload
         if not any(
             declared.name == key for declared in mapping_schema.produces_for(phase)
         )

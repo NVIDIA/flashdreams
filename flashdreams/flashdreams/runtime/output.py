@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime.inference_session import InferenceOutput
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -39,7 +39,7 @@ class OutputTarget(Protocol):
         """Prepare the target for a new run."""
         ...
 
-    def write(self, result: StepResult) -> None:
+    def write(self, result: InferenceOutput) -> None:
         """Consume one generated step result."""
         ...
 
@@ -54,7 +54,7 @@ class NullOutputTarget:
 
     store_results: bool = False
     output_count: int = field(default=0, init=False)
-    results: list[StepResult] = field(default_factory=list, init=False)
+    results: list[InferenceOutput] = field(default_factory=list, init=False)
     _opened: bool = field(default=False, init=False, repr=False)
 
     @property
@@ -66,7 +66,7 @@ class NullOutputTarget:
         self.output_count = 0
         self.results.clear()
 
-    def write(self, result: StepResult) -> None:
+    def write(self, result: InferenceOutput) -> None:
         if not self._opened:
             raise RuntimeError("Cannot write to a closed output target.")
         self.output_count += 1

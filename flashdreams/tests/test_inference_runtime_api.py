@@ -15,6 +15,7 @@ from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
+    InferenceOutput,
     InferenceRuntime,
     InferenceSession,
     InMemoryMetricsRecorder,
@@ -34,6 +35,9 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
     UserInputSchema,
+)
+from flashdreams.runtime.inference_session import (
+    InferenceSession as PipelineInferenceSession,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -88,8 +92,8 @@ def test_inference_config_rejects_empty_model_id() -> None:
         ),
         (lambda: UserInputEvent(timestamp_s=0.0, event_type=" "), "event_type"),
         (lambda: StepRequest(step_index=-1), "step_index"),
-        (lambda: StepResult(step_index=-1), "step_index"),
-        (lambda: StepResult(step_index=0, frame_count=-1), "frame_count"),
+        (lambda: InferenceOutput(step_index=-1), "step_index"),
+        (lambda: InferenceOutput(step_index=0, frame_count=-1), "frame_count"),
         (lambda: RuntimeMetricSample(name=" ", value=1.0), "name"),
         (lambda: RuntimeMetricSample(name="sample", value=float("nan")), "finite"),
         (lambda: OutputArtifact(kind=" ", uri="artifact://demo"), "kind"),
@@ -106,23 +110,55 @@ def test_runtime_metric_sample_rejects_bool_values() -> None:
         RuntimeMetricSample(name="sample", value=True)
 
 
-def test_inference_input_schema_validates_initial_and_step_payloads() -> None:
+def test_inference_input_schema_checks_both_payloads() -> None:
     schema = InferenceInputSchema(
         global_fields=(
             InputField(name="prompt"),
             InputField(name="global_conditioning_frame"),
         ),
-        step_fields=(InputField(name="camera_poses"),),
+        per_step_fields=(InputField(name="camera_poses"),),
     )
     inputs = InferenceInput(
-        global_conditioning={"prompt": "drive", "global_conditioning_frame": object()}
+        global_conditioning={
+            "prompt": "drive",
+            "global_conditioning_frame": object(),
+        },
+        per_step_conditioning={"camera_poses": object()},
     )
 
-    schema.require_global(inputs)
-    assert schema.missing_step(inputs) == ("camera_poses",)
+    schema.check_global_payload(inputs)
+    schema.check_per_step_payload(inputs)
 
+    with pytest.raises(ValueError, match="prompt"):
+        schema.check_global_payload(InferenceInput())
     with pytest.raises(ValueError, match="camera_poses"):
-        schema.require_step(inputs)
+        schema.check_per_step_payload(InferenceInput())
+
+
+def test_inference_input_and_schema_only_declare_two_fields() -> None:
+    assert tuple(InferenceInput.__dataclass_fields__) == (
+        "global_conditioning",
+        "per_step_conditioning",
+    )
+    assert tuple(InferenceInputSchema.__dataclass_fields__) == (
+        "global_fields",
+        "per_step_fields",
+    )
+
+
+def test_inference_output_matches_step_result_fields() -> None:
+    assert tuple(field.name for field in fields(InferenceOutput)) == tuple(
+        field.name for field in fields(StepResult)
+    )
+
+
+def test_inference_session_uses_step_requests_instead_of_a_schema_property() -> None:
+    assert "inference_input_schema" not in PipelineInferenceSession.__dict__
+    assert callable(PipelineInferenceSession.next_step_request)
+
+
+def test_pipeline_inference_session_requires_reset_and_step_implementations() -> None:
+    assert PipelineInferenceSession.__abstractmethods__ == frozenset({"reset", "step"})
 
 
 def test_user_inputs_filter_timestamped_event_windows() -> None:
@@ -185,7 +221,8 @@ def test_user_input_schema_validates_required_snapshot_fields() -> None:
 def test_identity_input_mapping_leaves_inference_input_unchanged() -> None:
     mapping = IdentityInputMapping()
     inference_input = InferenceInput(
-        global_conditioning={"prompt": "fixed"}, step={"hdmap": object()}
+        global_conditioning={"prompt": "fixed"},
+        per_step_conditioning={"hdmap": object()},
     )
     request = StepRequest(step_index=0)
 
@@ -208,7 +245,7 @@ def test_identity_input_mapping_leaves_inference_input_unchanged() -> None:
 
 def test_null_output_target_counts_and_optionally_stores_results() -> None:
     target = NullOutputTarget(store_results=True)
-    result = StepResult(step_index=0, output=b"frame")
+    result = InferenceOutput(step_index=0, output=b"frame")
 
     assert target.closed
     with pytest.raises(RuntimeError, match="closed output target"):
@@ -224,22 +261,22 @@ def test_null_output_target_counts_and_optionally_stores_results() -> None:
     assert target.output_count == 1
     assert target.results == [result]
     with pytest.raises(RuntimeError, match="closed output target"):
-        target.write(StepResult(step_index=1))
+        target.write(InferenceOutput(step_index=1))
 
 
 def test_null_output_target_open_resets_per_run_state() -> None:
     target = NullOutputTarget(store_results=True)
 
     target.open()
-    target.write(StepResult(step_index=0, output=b"first"))
+    target.write(InferenceOutput(step_index=0, output=b"first"))
     target.close()
     target.open()
 
     assert target.output_count == 0
     assert target.results == []
-    target.write(StepResult(step_index=0, output=b"second"))
+    target.write(InferenceOutput(step_index=0, output=b"second"))
     assert target.output_count == 1
-    assert target.results == [StepResult(step_index=0, output=b"second")]
+    assert target.results == [InferenceOutput(step_index=0, output=b"second")]
 
 
 def test_in_memory_metrics_recorder_uses_seconds_for_timing() -> None:
@@ -390,11 +427,9 @@ def _drive_two_step_session(
                     or TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
                     source_schema=source_schema,
                 ),
-                # The global slot stays empty in steady state. A mapping that
-                # sees ``canonical_inputs.has_global_change`` fills it via
-                # ``with_global_update`` to request a mid-rollout swap.
+                # Per-step calls do not need to repeat global conditioning.
                 inference_input=InferenceInput(
-                    step={"chunk_index": request.step_index},
+                    per_step_conditioning={"chunk_index": request.step_index},
                 ),
                 request=request,
             )
@@ -418,7 +453,7 @@ class _FakeAdapter:
     model_id = "fake-model"
     inference_input_schema = InferenceInputSchema(
         global_fields=(InputField(name="prompt"),),
-        step_fields=(InputField(name="chunk_index"),),
+        per_step_fields=(InputField(name="chunk_index"),),
     )
     canonical_input_schema = CanonicalInputSchema()
 
@@ -440,7 +475,7 @@ class _FakeRuntime:
         self.closed = False
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
-        self._inference_input_schema.require_global(inputs)
+        self._inference_input_schema.check_global_payload(inputs)
         return _FakeSession(inference_input_schema=self._inference_input_schema)
 
     def close(self) -> None:
@@ -471,9 +506,9 @@ class _FakeSession:
             ),
         )
 
-    def step(self, inputs: InferenceInput) -> StepResult:
-        self._inference_input_schema.require_step(inputs)
-        result = StepResult(
+    def step(self, inputs: InferenceInput) -> InferenceOutput:
+        self._inference_input_schema.check_per_step_payload(inputs)
+        result = InferenceOutput(
             step_index=self.step_index,
             output=f"chunk-{self.step_index}",
             frame_count=3,

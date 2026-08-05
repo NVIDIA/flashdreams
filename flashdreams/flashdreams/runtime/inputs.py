@@ -1,19 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""User, canonical, and model-input schemas for the experimental runtime API."""
+"""User and canonical input envelopes and schemas for the runtime API."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 from flashdreams.runtime._utils import freeze_mapping
-
-if TYPE_CHECKING:
-    from flashdreams.runtime.inference_session import InferenceInput
 
 InputPhase = Literal["global", "step"]
 
@@ -197,106 +194,17 @@ class UserInputSchema:
 
     def missing_snapshot(self, inputs: "UserInputs") -> tuple[str, ...]:
         """Return required snapshot fields absent from ``inputs``."""
-        return _missing_required(self.snapshot_fields, inputs.snapshot)
+        return tuple(
+            input_field.name
+            for input_field in self.snapshot_fields
+            if input_field.required and input_field.name not in inputs.snapshot
+        )
 
     def require_snapshot(self, inputs: "UserInputs") -> None:
         """Raise if required snapshot fields are absent."""
         missing = self.missing_snapshot(inputs)
         if missing:
             raise ValueError(f"Missing required user snapshot field(s): {missing}")
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class InferenceInputSchema:
-    """Minimal metadata for model-facing initial and per-step inputs."""
-
-    global_fields: tuple[InputField, ...] = ()
-    """Model inputs required before starting the initial generation/session."""
-
-    step_fields: tuple[InputField, ...] = ()
-    """Per-step model inputs required after the session starts."""
-
-    description: str = ""
-
-    def fields_for(self, phase: InputPhase) -> tuple[InputField, ...]:
-        """Return every declared field for ``phase``."""
-        return (
-            self.global_fields
-            if validate_phase(phase) == "global"
-            else self.step_fields
-        )
-
-    def required_fields(
-        self,
-        phase: InputPhase | None = None,
-    ) -> tuple[tuple[InputPhase, InputField], ...]:
-        """Return required fields as ``(phase, field)``, optionally filtered."""
-        return self._select(phase, required=True)
-
-    def optional_fields(
-        self,
-        phase: InputPhase | None = None,
-    ) -> tuple[tuple[InputPhase, InputField], ...]:
-        """Return optional fields as ``(phase, field)``, optionally filtered."""
-        return self._select(phase, required=False)
-
-    def field_for(self, *, name: str, phase: InputPhase) -> InputField | None:
-        """Return one declared field, if present."""
-        for input_field in self.fields_for(phase):
-            if input_field.name == name:
-                return input_field
-        return None
-
-    def _select(
-        self,
-        phase: InputPhase | None,
-        *,
-        required: bool,
-    ) -> tuple[tuple[InputPhase, InputField], ...]:
-        phases = INPUT_PHASES if phase is None else (validate_phase(phase),)
-        return tuple(
-            (each_phase, input_field)
-            for each_phase in phases
-            for input_field in self.fields_for(each_phase)
-            if input_field.required is required
-        )
-
-    def unsupported_global_updates(self, inputs: InferenceInput) -> tuple[str, ...]:
-        """Return requested conditioning updates this model cannot apply.
-
-        A field whose ``update_policy`` is :data:`SESSION_START_ONLY` can be
-        supplied when the session starts but not changed mid-rollout. Any other
-        policy, including ``None``, is treated as permissive here; the adapter
-        still owns whether the swap actually succeeds.
-        """
-        return tuple(
-            name
-            for name in inputs.global_conditioning
-            if (declared := self.field_for(name=name, phase="global")) is not None
-            and declared.update_policy == SESSION_START_ONLY
-        )
-
-    def missing_global(self, inputs: InferenceInput) -> tuple[str, ...]:
-        """Return required initial fields absent from ``inputs``."""
-        return _missing_required(self.global_fields, inputs.global_conditioning)
-
-    def missing_step(self, inputs: InferenceInput) -> tuple[str, ...]:
-        """Return required per-step fields absent from ``inputs``."""
-        return _missing_required(self.step_fields, inputs.step)
-
-    def require_global(self, inputs: InferenceInput) -> None:
-        """Raise if required initial fields are absent."""
-        missing = self.missing_global(inputs)
-        if missing:
-            raise ValueError(
-                f"Missing required global conditioning input(s): {missing}"
-            )
-
-    def require_step(self, inputs: InferenceInput) -> None:
-        """Raise if required per-step fields are absent."""
-        missing = self.missing_step(inputs)
-        if missing:
-            raise ValueError(f"Missing required step model input(s): {missing}")
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -444,11 +352,12 @@ class CanonicalInputs:
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
-def _missing_required(
-    fields: tuple[InputField, ...], payload: Mapping[str, Any]
-) -> tuple[str, ...]:
-    return tuple(
+def check_payload(fields: tuple[InputField, ...], payload: Mapping[str, Any]) -> None:
+    """Raise if ``payload`` omits any required field."""
+    missing = tuple(
         input_field.name
         for input_field in fields
         if input_field.required and input_field.name not in payload
     )
+    if missing:
+        raise ValueError(f"Missing required input(s): {missing}")

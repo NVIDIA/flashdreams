@@ -198,7 +198,7 @@ The implementation that came out of this inventory is:
    registers per-device converters and produces `CanonicalInputs`. Applications
    and mappings consume canonical inputs and never read raw device events.
 4. Split `InferenceInput` (formerly `ModelInputs`) into `global_conditioning`
-   and `step`. A non-empty global slot mid-rollout is an update request, not a
+   and `per_step_conditioning`. A non-empty global slot mid-rollout is an update request, not a
    reset; `InputField.update_policy` declares whether the model can apply it.
 5. Extend `InputField` with `update_policy`, `lifecycle`, and `metadata` so
    models can distinguish runtime config, cache initialization, rollout binding,
@@ -246,12 +246,11 @@ can describe the supported input surfaces. All use
 
 ```python
 lingbot_model = InferenceInputSchema(
-    description="lingbot-world",
     global_fields=(
         InputField(name="prompt", lifecycle="cache_init"),
         InputField(name="global_conditioning_frame", lifecycle="cache_init"),
     ),
-    step_fields=(
+    per_step_fields=(
         InputField(name="camera_trajectory", lifecycle="step_input"),
         InputField(
             name="text_embeddings",
@@ -265,7 +264,6 @@ lingbot_model = InferenceInputSchema(
 
 ```python
 omnidreams_model = InferenceInputSchema(
-    description="omnidreams",
     global_fields=(
         InputField(name="prompts", lifecycle="cache_init"),
         InputField(name="global_conditioning_frames", lifecycle="cache_init"),
@@ -273,13 +271,12 @@ omnidreams_model = InferenceInputSchema(
         InputField(name="text_embeddings", required=False, lifecycle="cache_init"),
         InputField(name="image_embeddings", required=False, lifecycle="cache_init"),
     ),
-    step_fields=(InputField(name="hdmap_frames", lifecycle="step_input"),),
+    per_step_fields=(InputField(name="hdmap_frames", lifecycle="step_input"),),
 )
 ```
 
 ```python
 hy_worldplay_model = InferenceInputSchema(
-    description="hy-worldplay",
     global_fields=(
         InputField(name="prompt", lifecycle="cache_init"),
         InputField(name="global_conditioning_frame", lifecycle="cache_init"),
@@ -293,7 +290,6 @@ hy_worldplay_model = InferenceInputSchema(
 
 ```python
 sana_wm_model = InferenceInputSchema(
-    description="sana-wm",
     global_fields=(
         InputField(name="prompt", lifecycle="cache_init"),
         InputField(name="negative_prompt", required=False, lifecycle="cache_init"),

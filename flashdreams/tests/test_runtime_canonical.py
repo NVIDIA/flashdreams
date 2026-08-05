@@ -64,7 +64,7 @@ STEERING_MAPPING = InputMappingSchema(
     consumes=(DRIVER_COMMAND,),
     produces_step=(InputField(name="steering"),),
 )
-STEERING_MODEL = InferenceInputSchema(step_fields=(InputField(name="steering"),))
+STEERING_MODEL = InferenceInputSchema(per_step_fields=(InputField(name="steering"),))
 
 WINDOW = TimeWindow(start_s=0.0, end_s=1.0)
 NEXT_WINDOW = TimeWindow(start_s=1.0, end_s=2.0)
@@ -217,13 +217,14 @@ def test_canonical_inputs_carry_live_control_only() -> None:
 
 
 def test_application_supplies_global_conditioning_directly() -> None:
-    """A prompt swap reaches the session without touching canonicalization."""
-    update = InferenceInput(step={"steering": 0.0}).with_global_update(
-        {"prompt": "heavy rain"}
+    """Global conditioning reaches the session without canonicalization."""
+    inputs = InferenceInput(
+        global_conditioning={"prompt": "heavy rain"},
+        per_step_conditioning={"steering": 0.0},
     )
 
-    assert update.requests_global_update
-    assert update.global_conditioning["prompt"] == "heavy rain"
+    assert inputs.global_conditioning["prompt"] == "heavy rain"
+    assert inputs.per_step_conditioning["steering"] == 0.0
 
 
 # --- device independence ------------------------------------------------

@@ -667,7 +667,7 @@ registry, standard loop, concrete output modes, or model migrations:
 - The model-specific integration boundary is named `ModelAdapter`.
 - Heavyweight lifecycle is split into `InferenceRuntime` and
   `InferenceSession`.
-- Step data carriers are named `StepRequest` and `StepResult`; a session returns
+- Step data carriers are named `StepRequest` and `InferenceOutput`; a session returns
   `None` from `next_step_request()` when the rollout is complete.
 - Raw inputs use `UserInputs`, canonicalized inputs use `CanonicalInputs`, and
   model-facing inputs use `InferenceInput`.
