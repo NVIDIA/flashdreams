@@ -1,0 +1,67 @@
+[project]
+name = "sana-wm-test-harness"
+version = "0.0.0"
+description = "Isolated venv for the SANA-WM upstream correctness and performance harness."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flashdreams",
+    "flashdreams-sana-wm",
+    "accelerate>=1.3",
+    "diffusers>=0.37",
+    "einops>=0.7",
+    "flash-linear-attention>=0.4.2",
+    "ftfy>=6.0",
+    "huggingface-hub>=0.36",
+    "imageio[ffmpeg]>=2.31",
+    "numpy>=1.24,<2.5",
+    "omegaconf>=2.3",
+    "opencv-python-headless>=4.8",
+    "pillow>=10",
+    "protobuf>=7.35.0,<8",
+    "pyrallis>=0.3",
+    "pytz>=2024.0",
+    "pyyaml>=6.0",
+    "qwen-vl-utils>=0.0.8",
+    "safetensors>=0.5",
+    "scipy>=1.11",
+    "sentencepiece>=0.2",
+    "termcolor>=2.4",
+    "timm>=0.6.13",
+    "torch>=2.11",
+    "torchvision>=0.26",
+    "tqdm>=4.60",
+    "transformers>=5.0,<6",
+    "triton>=3.6; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+# Transformer Engine is only needed for upstream SANA-WM_streaming FP8/FP4
+# comparisons. FlashDreams low-precision rows use Torch/Triton replacements,
+# and upstream SANA-WM_bidirectional is BF16-only.
+quant = [
+    "ml-dtypes>=0.5",
+    "nvdlfw-inspect>=0.2",
+    "onnx>=1.22",
+    "onnxscript>=0.7",
+    "pybind11>=3.0",
+    "transformer-engine==2.17.0+2e559f06; sys_platform != 'win32'",
+    "wheel>=0.45",
+]
+
+[tool.uv.sources]
+flashdreams = { path = "../../../flashdreams", editable = true }
+flashdreams-sana-wm = { path = "..", editable = true }
+transformer-engine = { git = "https://github.com/NVIDIA/TransformerEngine.git", tag = "v2.17" }
+
+[tool.uv]
+managed = true
+override-dependencies = [
+    # PyTorch 2.13.0's default CUDA 13 dependency set can resolve cuDNN
+    # 9.20.0.48 on Linux. That stack can fail standalone BF16 Conv3d and SDPA
+    # with CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH. Pin the CUDA runtime
+    # packages that keep the default cuDNN backends working.
+    "nvidia-cublas==13.6.1.10",
+    "nvidia-cuda-nvrtc==13.3.33",
+    "nvidia-cudnn-cu13==9.24.0.43",
+]
+no-build-isolation-package = ["transformer-engine"]

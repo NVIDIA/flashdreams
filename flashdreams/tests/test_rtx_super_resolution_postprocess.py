@@ -289,6 +289,33 @@ def test_rtx_super_resolution_empty_chunk_does_not_load_backend(
     assert outputs[0].tensor.shape == (1, 1, 0, 3, 4, 6)
 
 
+def test_rtx_super_resolution_loader_uses_optional_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeVfx:
+        VideoSuperRes = object()
+
+    imported: list[str] = []
+
+    def _fake_import_module(name: str) -> object:
+        imported.append(name)
+        return _FakeVfx
+
+    monkeypatch.setattr(rtx_module, "import_module", _fake_import_module)
+
+    assert rtx_module._load_video_super_res_class() is _FakeVfx.VideoSuperRes
+    assert imported == ["nvvfx"]
+
+
+def test_rtx_super_resolution_loader_missing_vfx_symbol_is_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rtx_module, "import_module", lambda name: object())
+
+    with pytest.raises(RuntimeError, match="nvvfx.VideoSuperRes"):
+        rtx_module._load_video_super_res_class()
+
+
 def test_rtx_super_resolution_missing_backend_error_is_actionable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

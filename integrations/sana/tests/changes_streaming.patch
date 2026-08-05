@@ -1,0 +1,33 @@
+diff --git a/inference_video_scripts/wm/inference_sana_wm_streaming.py b/inference_video_scripts/wm/inference_sana_wm_streaming.py
+index 2d61d4b..94f51c2 100644
+--- a/inference_video_scripts/wm/inference_sana_wm_streaming.py
++++ b/inference_video_scripts/wm/inference_sana_wm_streaming.py
+@@ -523,6 +523,9 @@ def main() -> None:
+             if os.environ.get(name) is not None
+         }
+         payload = {
++            "backend": "upstream",
++            "variant": "streaming",
++            "entrypoint": "inference_video_scripts/wm/inference_sana_wm_streaming.py",
+             "output_mode": result["output_mode"],
+             "output_path": str(result["output_path"]) if result["output_path"] is not None else None,
+             "num_frames": int(num_frames),
+@@ -559,6 +562,10 @@ def main() -> None:
+             "torch_compile": not bool(args.no_compile),
+             "profile_cuda": bool(args.profile_cuda),
+             "streaming_root": str(args.streaming_root),
++            "stage1_precision": args.stage1_precision,
++            "refiner_precision": args.refiner_precision,
++            "seed": int(args.seed),
++            "refiner_seed": int(args.refiner_seed),
+             "config": str(config_path),
+             "model_path": str(model_path),
+             "causal_vae_path": str(causal_vae_path),
+@@ -574,6 +581,7 @@ def main() -> None:
+             "last_stream_wall_seconds": float(run_payloads[-1]["stream_wall_seconds"]),
+             "last_realtime_factor": float(run_payloads[-1]["realtime_factor"]),
+             "last_steady_state_realtime_factor": run_payloads[-1]["steady_state_realtime_factor"],
++            "mem_peak_gib": float(max(run["peak_mem_gb"] for run in run_payloads)),
+         }
+         args.benchmark_json.parent.mkdir(parents=True, exist_ok=True)
+         args.benchmark_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

@@ -26,12 +26,12 @@ from flashdreams.infra.acceleration.encoder_lifecycle import (
     run_one_shot_encoder_stage,
     setup_one_shot_encoder,
 )
-from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
+from flashdreams.infra.video_output import lazy_rgb_frames_from_video_tensor
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -729,8 +729,6 @@ class FlashdreamsWorldModelSession:
                 fps=self.manifest.fps,
                 per_view=False,
                 world_size=1,
-                collect_output=False,
-                move_to_cpu=False,
             )
         processed = self._postprocess_stream.process(
             video, autoregressive_index=autoregressive_index
@@ -851,37 +849,13 @@ class FlashdreamsWorldModelSession:
             raise ValueError(
                 f"Expected [B,V,T,3,H,W] video tensor, got shape {tuple(video.shape)}"
             )
-        frames = video[0, 0]
-        if frames.dtype != torch.uint8:
-            frames = frames.clamp(-1.0, 1.0)
-            frames = ((frames + 1.0) * 127.5).round().to(torch.uint8)
-        frames = frames.permute(0, 2, 3, 1).contiguous()
-        source_event = None
-        if frames.is_cuda:
-            source_event = torch.cuda.Event()
-            source_event.record(torch.cuda.current_stream(frames.device))
-        return [
-            _LazyRGBFrame(frames, frame_index, source_event=source_event)
-            for frame_index in range(frames.shape[0])
-        ]
-
-
-class _LazyRGBFrame(LazyCudaFrame):
-    """Defer GPU-to-host copies until the presenter consumes each frame."""
-
-    def __init__(
-        self,
-        frames_hwc_uint8: torch.Tensor,
-        frame_index: int,
-        *,
-        source_event: object | None = None,
-    ) -> None:
-        super().__init__(
-            frames_hwc_uint8,
-            frame_index,
-            source_event=source_event,
-            lost_source_message="Lazy RGB frame lost its source tensor before materialization.",
-            already_materialized_message="Lazy RGB frame was already materialized on the host.",
+        return list(
+            lazy_rgb_frames_from_video_tensor(
+                video,
+                layout="bvtchw",
+                batch_index=0,
+                view_index=0,
+            )
         )
 
 

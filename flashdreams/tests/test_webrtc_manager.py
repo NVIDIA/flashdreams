@@ -13,6 +13,7 @@ import torch
 
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
+from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -47,6 +48,36 @@ class _FakeVideoTrack:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _FakeVideoEncoder:
+    """``VideoEncoder``-shaped stub for ``ManagedWebRTCSession`` construction
+    and the base manager's generation-worker path. ``deliver_chunk``
+    delegates to the paired track's ``enqueue_chunk`` so the manager
+    tests that drive one chunk end-to-end see the frames land."""
+
+    fps = 30
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    async def deliver_chunk(
+        self,
+        chunk: Any,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        del force_keyframe
+        enqueued = await track.enqueue_chunk(chunk)
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=enqueued,
+            num_keyframes=0,
+            encode_ms=0.1,
+        )
+
+    def close(self) -> None:
+        return
 
 
 class _FakePeerConnection:
@@ -146,6 +177,7 @@ def _managed_session(
     managed = ManagedWebRTCSession(
         runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=peer,
         resampler=_FakeResampler(),  # ty:ignore[invalid-argument-type]
         control_channel=channel,
@@ -469,3 +501,35 @@ async def test_step_action_starts_generation_without_key_edge() -> None:
     assert managed.first_action_received.is_set()
     assert len(managed.pending_action_arrivals) == 1
     assert resampler.edges == []
+
+
+def test_resolve_video_encoder_defaults_to_software_when_runtime_lacks_encoder() -> (
+    None
+):
+    """Runtimes that do not expose ``video_encoder`` must still get a
+    working session — the base manager falls back to a session-scope
+    :class:`DefaultRTCEncoder` rather than raising ``AttributeError``
+    from ``_create_answer_with_runtime_ready_locked``."""
+
+    from flashdreams.serving.webrtc.encoders import DefaultRTCEncoder
+
+    class _RuntimeWithoutEncoder:
+        """Deliberately no ``video_encoder`` attribute."""
+
+    manager = _make_manager(_BaseTestManager, _RuntimeWithoutEncoder())
+    encoder = manager._resolve_video_encoder()
+
+    assert isinstance(encoder, DefaultRTCEncoder)
+    assert encoder.fps == 30
+
+
+def test_resolve_video_encoder_uses_runtime_encoder_when_present() -> None:
+    """Runtimes that own their encoder (e.g. omnidreams) have their
+    choice honoured — the base manager does not second-guess."""
+    provided = _FakeVideoEncoder()
+
+    class _RuntimeWithEncoder:
+        video_encoder = provided
+
+    manager = _make_manager(_BaseTestManager, _RuntimeWithEncoder())
+    assert manager._resolve_video_encoder() is provided

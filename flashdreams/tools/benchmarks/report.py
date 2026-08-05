@@ -115,6 +115,18 @@ _CHART_ORDER = {
     "pai_bench_long_score": 0,
     "pai_bench_g_score": 1,
 }
+_DERIVED_SUMMARY_SUFFIXES = (
+    ("_median_s", "median"),
+    ("_p90_s", "p90"),
+    ("_mean_s", "mean"),
+    ("_min_s", "min"),
+    ("_max_s", "max"),
+    ("_median_fps", "median"),
+    ("_p90_fps", "p90"),
+    ("_mean_fps", "mean"),
+    ("_min_fps", "min"),
+    ("_max_fps", "max"),
+)
 
 
 def write_html_report(manifest: dict[str, Any], path: Path) -> Path:
@@ -276,7 +288,15 @@ def _model_detail_body(
   {highlight_sections or _empty_highlights()}
 
   <h2>Scenarios</h2>
-  <table>
+  <div class="table-scroll">
+  <table class="scenario-table">
+    <colgroup>
+      <col class="scenario-col">
+      <col class="status-col">
+      <col class="wall-col">
+      <col class="command-col">
+      <col class="artifacts-col">
+    </colgroup>
     <thead>
       <tr>
         <th>Scenario</th>
@@ -290,6 +310,7 @@ def _model_detail_body(
       {scenario_rows}
     </tbody>
   </table>
+  </div>
 
   <h2>Quality Guide</h2>
   {_quality_guide()}
@@ -305,7 +326,7 @@ def _model_detail_body(
     <thead>
       <tr>
         <th>Scenario</th><th>Metric</th><th>Unit</th><th>Count</th>
-        <th>Median</th><th>P90</th><th>Mean</th><th>Min</th><th>Max</th>
+        <th>Median</th>
       </tr>
     </thead>
     <tbody>
@@ -395,6 +416,35 @@ def _report_css() -> str:
     .quality-score-list dt { color: #5f6368; }
     .quality-score-list dd { margin: 0; font-variant-numeric: tabular-nums; }
     .quality-guide-table td:first-child { white-space: nowrap; }
+    .table-scroll {
+      overflow-x: auto;
+      margin-bottom: 12px;
+    }
+    .scenario-table {
+      table-layout: fixed;
+      min-width: 900px;
+    }
+    .scenario-table .scenario-col { width: 26%; }
+    .scenario-table .status-col { width: 8%; }
+    .scenario-table .wall-col { width: 10%; }
+    .scenario-table .command-col { width: 16%; }
+    .scenario-table .artifacts-col { width: 40%; }
+    .scenario-table td { min-width: 0; }
+    .scenario-cell strong { overflow-wrap: anywhere; }
+    .wall-time-cell { white-space: nowrap; }
+    .command-details summary {
+      cursor: pointer;
+      color: #174ea6;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .command-text {
+      display: block;
+      max-width: 100%;
+      max-height: 10rem;
+      margin-top: 6px;
+      overflow: auto;
+    }
     .chart-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
@@ -715,7 +765,7 @@ def _scenario_row(
     scenario_id = str(scenario.get("id", ""))
     status = str(scenario.get("status", ""))
     wall_time = _format_wall_time(scenario.get("wall_time_s"))
-    command = html.escape(str(scenario.get("command", "")))
+    command = _command_details(scenario.get("command", ""))
     artifact_links = _artifact_links(
         scenario,
         manifest_output_root=manifest_output_root,
@@ -724,14 +774,26 @@ def _scenario_row(
     )
     return (
         "<tr>"
-        f'<td id="{html.escape(_scenario_anchor(scenario_id))}">'
+        f'<td class="scenario-cell" id="{html.escape(_scenario_anchor(scenario_id))}">'
         f"<strong>{html.escape(scenario_id)}</strong><br>"
         f'<span class="muted">{html.escape(str(scenario.get("name", "")))}</span></td>'
         f'<td class="status-{_status_class(status)}">{html.escape(status)}</td>'
-        f"<td>{wall_time}</td>"
-        f"<td><code>{command}</code></td>"
-        f"<td>{artifact_links}</td>"
+        f'<td class="wall-time-cell">{wall_time}</td>'
+        f'<td class="command-cell">{command}</td>'
+        f'<td class="artifact-cell">{artifact_links}</td>'
         "</tr>"
+    )
+
+
+def _command_details(command: object) -> str:
+    command_text = "" if command is None else str(command)
+    if not command_text:
+        return '<span class="muted">not recorded</span>'
+    return (
+        '<details class="command-details">'
+        "<summary>Show command</summary>"
+        f'<code class="command-text">{html.escape(command_text)}</code>'
+        "</details>"
     )
 
 
@@ -778,6 +840,10 @@ def _metric_summary_rows(scenario: dict[str, Any]) -> str:
     summary = scenario.get("metric_summary", {})
     if not isinstance(summary, dict):
         return ""
+    summary = _display_metric_summary(
+        summary,
+        metadata=_metric_summary_metadata(scenario),
+    )
     rows: list[str] = []
     for metric, stats in sorted(summary.items()):
         if not isinstance(stats, dict):
@@ -793,10 +859,6 @@ def _metric_summary_rows(scenario: dict[str, Any]) -> str:
             f"<td>{html.escape(display.unit or '')}</td>"
             f'<td class="numeric">{html.escape(str(stats.get("count", "")))}</td>'
             f'<td class="numeric">{_format_metric_value(stats.get("median"), display)}</td>'
-            f'<td class="numeric">{_format_metric_value(stats.get("p90"), display)}</td>'
-            f'<td class="numeric">{_format_metric_value(stats.get("mean"), display)}</td>'
-            f'<td class="numeric">{_format_metric_value(stats.get("min"), display)}</td>'
-            f'<td class="numeric">{_format_metric_value(stats.get("max"), display)}</td>'
             "</tr>"
         )
     return "\n".join(rows)
@@ -1108,6 +1170,10 @@ def _metric_charts(scenarios: list[dict[str, Any]]) -> str:
         summary = scenario.get("metric_summary", {})
         if not isinstance(summary, dict):
             continue
+        summary = _display_metric_summary(
+            summary,
+            metadata=_metric_summary_metadata(scenario),
+        )
         charts = [
             _chart_for_kind(
                 summary,
@@ -1339,6 +1405,91 @@ def _summary_stat(
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value
+
+
+def _display_metric_summary(
+    summary: dict[str, Any],
+    *,
+    metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Fold parsed log-summary metrics into base metrics for HTML presentation."""
+    base_metrics = {
+        str(metric)
+        for metric, stats in summary.items()
+        if isinstance(stats, dict)
+        and _foldable_derived_summary_metric(str(metric), metadata) is None
+    }
+    display: dict[str, dict[str, Any]] = {
+        str(metric): dict(stats)
+        for metric, stats in summary.items()
+        if isinstance(stats, dict) and str(metric) in base_metrics
+    }
+    derived_folded_metrics: set[str] = set()
+
+    for metric, stats in summary.items():
+        if not isinstance(stats, dict):
+            continue
+        metric = str(metric)
+        derived = _foldable_derived_summary_metric(metric, metadata)
+        if derived is None:
+            if metric not in display:
+                display[metric] = dict(stats)
+            continue
+        base_metric, statistic = derived
+        if base_metric in display and base_metric not in derived_folded_metrics:
+            continue
+        value = stats.get("median")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        folded = display.get(base_metric)
+        if folded is None:
+            folded = {}
+            display[base_metric] = folded
+            derived_folded_metrics.add(base_metric)
+        folded[statistic] = value
+        count = stats.get("count")
+        if isinstance(count, int) and not isinstance(count, bool):
+            folded["count"] = max(int(folded.get("count", 0)), count)
+    return display
+
+
+def _metric_summary_metadata(scenario: dict[str, Any]) -> Mapping[str, Any]:
+    metadata = scenario.get("metric_summary_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _foldable_derived_summary_metric(
+    metric: str,
+    metadata: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    derived = _derived_summary_metric(metric)
+    if derived is None:
+        return None
+    metric_metadata = metadata.get(metric)
+    if not isinstance(metric_metadata, dict):
+        return None
+    record_types = metric_metadata.get("record_types")
+    if not isinstance(record_types, list):
+        return None
+    normalized_record_types = {str(record_type) for record_type in record_types}
+    if normalized_record_types != {"log_summary"}:
+        return None
+    parsers = metric_metadata.get("parsers")
+    if not isinstance(parsers, list):
+        return None
+    normalized_parsers = {str(parser) for parser in parsers}
+    if normalized_parsers != {"perf_summary"}:
+        return None
+    return derived
+
+
+def _derived_summary_metric(metric: str) -> tuple[str, str] | None:
+    for suffix, statistic in _DERIVED_SUMMARY_SUFFIXES:
+        if metric.endswith(suffix):
+            base_metric = metric[: -len(suffix)]
+            if base_metric:
+                return base_metric, statistic
+    return None
 
 
 def _numeric_or_none(
@@ -1715,7 +1866,7 @@ def _empty_quality_comparisons() -> str:
 
 def _empty_metrics_row() -> str:
     return (
-        '<tr><td colspan="9" class="muted">No numeric metrics were collected.</td></tr>'
+        '<tr><td colspan="5" class="muted">No numeric metrics were collected.</td></tr>'
     )
 
 

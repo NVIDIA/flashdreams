@@ -681,6 +681,23 @@ def test_hud_postprocess_control_toggles_configured_preset() -> None:
     assert presenter._postprocess_enabled is True
 
 
+@pytest.mark.ci_cpu
+def test_hud_postprocess_control_ignores_click_without_configured_preset() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[bool] = []
+    presenter._postprocess_rect = (10, 20, 110, 52)
+    presenter._postprocess_preset = ""
+    presenter._postprocess_enabled = False
+    presenter._postprocess_callback = calls.append
+    presenter._scene_dropdown_open = False
+    presenter._variant_dropdown_open = False
+
+    presenter._handle_click((20, 30))
+
+    assert calls == []
+    assert presenter._postprocess_enabled is False
+
+
 def test_hud_scene_dropdown_blocks_underlying_upsample_toggle() -> None:
     presenter = _hud_presenter_without_window()
     calls: list[bool] = []

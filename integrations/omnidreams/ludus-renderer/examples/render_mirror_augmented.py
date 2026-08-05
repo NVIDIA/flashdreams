@@ -123,7 +123,7 @@ def main():
     import subprocess
     import tempfile
 
-    import PyNvVideoCodec as nvc  # ty:ignore[unresolved-import]
+    import PyNvVideoCodec as nvc
 
     output_path = os.path.join(
         os.path.dirname(__file__), f"../_images/mirror_augmented_bev.mp4"

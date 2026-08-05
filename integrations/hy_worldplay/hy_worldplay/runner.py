@@ -35,6 +35,7 @@ from flashdreams.infra.runner_io import (
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
+    write_video_tensor,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -124,37 +125,6 @@ def _pil_to_numpy(img: object) -> object:
     import numpy as np
 
     return np.asarray(img)
-
-
-def _write_mp4(video: Tensor, out_path: Path, *, fps: int) -> None:
-    """Persist a decoded video tensor as mp4.
-
-    Expects ``video`` shape ``[*batch, T, C, H, W]`` in ``[-1, 1]``.
-    Drops the leading batch axis (size 1), converts to ``[T, H, W, C]``
-    float32 in ``[0, 1]``, and hands the frame list to
-    ``diffusers.utils.export_to_video``.
-
-    Note:
-        Frames must be float in ``[0, 1]``: ``export_to_video``
-        multiplies ndarray frames by 255 before ``.astype(np.uint8)``,
-        so uint8 ``[0, 255]`` input overflows.
-    """
-    import numpy as np
-    from diffusers.utils import export_to_video
-
-    if video.dim() > 4:
-        # Squeeze leading batch axes one at a time, asserting size 1.
-        while video.dim() > 4:
-            assert video.shape[0] == 1, (
-                f"_write_mp4 expects batch_size=1; got leading shape {video.shape[0]}."
-            )
-            video = video.squeeze(0)
-    # video is now [T, C, H, W] in [-1, 1]; map to [0, 1] float32 for
-    # diffusers' export_to_video contract on ndarray frames.
-    arr = ((video.clamp(-1.0, 1.0) + 1.0) * 0.5).to(torch.float32)
-    arr_thwc = arr.permute(0, 2, 3, 1).cpu().numpy()  # [T, H, W, C]
-    frames: list[np.ndarray] = list(arr_thwc)
-    export_to_video(frames, str(out_path), fps=fps)
 
 
 @dataclass(kw_only=True)
@@ -371,12 +341,7 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
-        postprocess_stream = self.create_postprocess_stream(
-            fps=cfg.fps, move_to_cpu=False
-        )
-        # Each ``finalize`` returns the per-stage ms dict for that AR
-        # step; collect into ``stats_history`` and dump as JSON.
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=cfg.fps, move_to_cpu=False)
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
@@ -387,15 +352,8 @@ class HyWorldPlayWanI2VRunner(
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
-                postprocess_stream.process(chunk, autoregressive_index=ar_idx)
-                if postprocess_stream.collect_output and stats is not None:
-                    stats_history.append(
-                        {
-                            "autoregressive_index": ar_idx,
-                            **postprocess_stream.add_process_stats(stats),
-                        }
-                    )
-            video = postprocess_stream.finish()
+                output_stream.process(chunk, autoregressive_index=ar_idx, stats=stats)
+            video = output_stream.finish()
         elapsed = time.time() - start_time
 
         if video is None:
@@ -403,15 +361,15 @@ class HyWorldPlayWanI2VRunner(
 
         ensure_output_dir(cfg.output_dir)
         out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        _write_mp4(video, out_path, fps=cfg.fps)
+        write_video_tensor(video, out_path, fps=cfg.fps, layout="btchw")
         logger.info(
             f"[{cfg.runner_name}] wrote video "
             f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"
         )
 
-        if stats_history:
+        if output_stream.stats_history:
             stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, stats_history
+                cfg.output_dir, cfg.runner_name, output_stream.stats_history
             )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

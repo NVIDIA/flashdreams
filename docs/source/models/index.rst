@@ -28,6 +28,8 @@ Models
    flashvsr
    hy_worldplay
    lingbot_world
+   sana_wm_streaming
+   sana_wm_bidirectional
    wan21
 
 FlashDreams runs a growing family of world and video models (text-to-video,
@@ -138,6 +140,18 @@ uses, and the settings you can tune.
 
       Action- and camera-controllable image-to-video world model.
 
+   .. grid-item-card:: SANA-WM_streaming
+      :class-card: fd-feature
+      :link: /models/sana_wm_streaming
+      :link-type: doc
+
+      .. image:: /_static/model_clips/sana_wm/sana-wm-streaming.avif
+         :alt: SANA-WM streaming FlashDreams sample clip.
+         :class: fd-card-video
+
+      Chunk-causal camera-controlled world model with streaming Stage-1,
+      refiner, and VAE paths.
+
 .. container:: fd-eyebrow
 
    Bidirectional Video Generation
@@ -171,6 +185,18 @@ uses, and the settings you can tune.
          </video>
 
       Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+
+   .. grid-item-card:: SANA-WM_bidirectional
+      :class-card: fd-feature
+      :link: /models/sana_wm_bidirectional
+      :link-type: doc
+
+      .. image:: /_static/model_clips/sana_wm/sana-wm-bidirectional.avif
+         :alt: SANA-WM bidirectional FlashDreams sample clip.
+         :class: fd-card-video
+
+      Bidirectional camera-controlled world model (Stage-1 DiT + LTX-2
+      refiner, 2.6B).
 
 .. container:: fd-eyebrow
 

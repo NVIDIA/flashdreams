@@ -53,11 +53,12 @@ _VAE_STREAMING_DIR = _SOURCE_DIR / "vae_streaming"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
 _DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
+_DISABLE_SAGE3_ENV = "OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _DEFAULT_CUDA_ARCH_LIST = "12.0a"
 
 _native_build_module: ModuleType | None = None
-_extension: ModuleType | None = None
+_extension: dict[bool, ModuleType] = {}
 _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
 _dll_directory_handles: list[object] = []
@@ -365,7 +366,12 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sage3_disabled() -> bool:
+    return os.environ.get(_DISABLE_SAGE3_ENV, "").strip().lower() in {"1", "true"}
+
+
 def _extension_sources() -> list[Path]:
+    disable_sage3 = _sage3_disabled()
     return [
         _EXTENSION_SOURCE,
         _NATIVE_PRIMITIVES_SOURCE,
@@ -378,8 +384,14 @@ def _extension_sources() -> list[Path]:
         _VAE_STREAMING_DIR / "lightvae_fp8_warp_mma_stages.cu",
         _VAE_STREAMING_DIR / "lightvae_fp8_attention.cu",
         _DIT_STREAMING_PYEXT_DIR / "streaming_dit_bridge.cu",
-        _DIT_STREAMING_PYEXT_DIR / "sage3_blackwell_api_shim.cu",
-        _DIT_STREAMING_PYEXT_DIR / "sage3_fp4_quant_shim.cu",
+        *(
+            []
+            if disable_sage3
+            else [
+                _DIT_STREAMING_PYEXT_DIR / "sage3_blackwell_api_shim.cu",
+                _DIT_STREAMING_PYEXT_DIR / "sage3_fp4_quant_shim.cu",
+            ]
+        ),
         _DIT_STREAMING_KERNEL_DIR / "attention.cu",
         _DIT_STREAMING_KERNEL_DIR / "block_quant.cu",
         _DIT_STREAMING_KERNEL_DIR / "cosmos_adaln_lora.cu",
@@ -391,7 +403,8 @@ def _extension_sources() -> list[Path]:
         _DIT_STREAMING_KERNEL_DIR / "cosmos_gemm_bf16.cu",
         _DIT_STREAMING_KERNEL_DIR / "cosmos_modulate.cu",
         _DIT_STREAMING_KERNEL_DIR / "ops.cu",
-        _DIT_STREAMING_KERNEL_DIR / "sage3_attention.cu",
+        _DIT_STREAMING_KERNEL_DIR
+        / ("sage3_attention_stub.cu" if disable_sage3 else "sage3_attention.cu"),
         _DIT_STREAMING_KERNEL_DIR / "sparge_attention_sm89_inst.cu",
         _DIT_STREAMING_KERNEL_DIR / "transformer_block.cu",
     ]
@@ -421,10 +434,12 @@ def _source_fingerprint() -> str:
 
 
 def _extension_name(thirdparty_info: dict[str, Any]) -> str:
+    has_sage3 = int(not _sage3_disabled())
     digest = hashlib.sha256()
     digest.update(_source_fingerprint().encode("ascii"))
     digest.update(json.dumps(thirdparty_info, sort_keys=True).encode("utf-8"))
-    return f"omnidreams_singleview_native_{digest.hexdigest()[:12]}"
+    digest.update(f"sage3={has_sage3}".encode("ascii"))
+    return f"omnidreams_singleview_native_sage3_{has_sage3}_{digest.hexdigest()[:12]}"
 
 
 def _validate_max_jobs(value: int | str) -> str:
@@ -525,8 +540,9 @@ def load_extension(
 
     global _extension, _extension_load_error
     with _state_lock:
-        if _extension is not None:
-            return _extension
+        sage3_disabled = _sage3_disabled()
+        if (extension := _extension.get(sage3_disabled)) is not None:
+            return extension
         _extension_load_error = None
 
         try:
@@ -536,6 +552,7 @@ def load_extension(
 
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(thirdparty_info)
+            has_sage3 = int(not sage3_disabled)
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
             cutlass_include = cutlass_dir / "include"
             sage_attention_dir = Path(thirdparty_info["SageAttention"]["path"])
@@ -554,7 +571,7 @@ def load_extension(
             _add_windows_cuda_dll_directories(cudnn_package_dir)
 
             with _scoped_torch_max_jobs(max_jobs), _scoped_cuda_arch_list():
-                _extension = load_torch_extension(
+                _extension[sage3_disabled] = load_torch_extension(
                     name=extension_name,
                     sources=[str(source) for source in _extension_sources()],
                     build_directory=str(extension_build_dir),
@@ -600,7 +617,7 @@ def load_extension(
                         "-std=c++20",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
-                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3={has_sage3}",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA="
                         f'\\"{thirdparty_info["cutlass"]["commit"]}\\"',
@@ -645,7 +662,7 @@ def load_extension(
                         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
-                        "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1",
+                        f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3={has_sage3}",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                     ],
                     extra_ldflags=[
@@ -660,7 +677,7 @@ def load_extension(
         except Exception as exc:  # pragma: no cover - environment-specific build path
             _extension_load_error = exc
             return None
-        return _extension
+        return _extension[sage3_disabled]
 
 
 def extension_load_error() -> Exception | None:

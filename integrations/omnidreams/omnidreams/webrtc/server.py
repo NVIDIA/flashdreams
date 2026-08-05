@@ -4,15 +4,28 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import torch
 import torch.distributed as dist
 from aiohttp import web
 from loguru import logger
 from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.interactive_drive.cli_args import (
+    ExplicitArgTrackingArgumentParser,
+    arg_was_explicit,
+)
+from omnidreams.interactive_drive.config import WorldModelProfileConfig
+from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
+    _build_pipeline_config,
+)
+from omnidreams.interactive_drive.world_model.manifest import (
+    load_world_model_manifest,
+    resolve_world_model_manifest_path,
+)
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
@@ -53,8 +66,8 @@ class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
     ) -> None: ...
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = ExplicitArgTrackingArgumentParser(
         description=(
             "Omnidreams WebRTC server: serves /request_session and streams "
             "single-view WSAD-controlled video chunks over one peer connection."
@@ -76,6 +89,17 @@ def parse_args() -> argparse.Namespace:
             "Local WebRTC scene directory containing clipgt/first_image.* "
             "and clipgt/prompt.txt. If omitted, the server downloads and "
             "stages the selected Hugging Face scene."
+        ),
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Omnidreams world-model manifest (YAML). Accepts a path or a "
+            "bundled config filename such as example_world_model_perf.yaml. "
+            "When set, WebRTC uses the same pipeline perf toggles as the "
+            "interactive-drive world-model path."
         ),
     )
     parser.add_argument(
@@ -133,11 +157,24 @@ def parse_args() -> argparse.Namespace:
         default="",
         choices=sorted(discover_postprocess_presets()),
         help=(
-            "Default video post-process preset for WebRTC sessions. The browser "
-            "can override this selection before connecting."
+            "Video post-process preset for WebRTC sessions. The browser can "
+            "only toggle this launched preset before connecting."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--prefer_sw_encoder",
+        action="store_true",
+        help=(
+            "Prefer the FFmpeg software encoder (aiortc) over the "
+            "hardware encoder (PyNvVideoCodec/NVENC H.264). Useful on "
+            "hosts where NVENC is unavailable or misbehaving, and for "
+            "A/B profiling against the hardware path. Without this flag "
+            "the encoder is auto-selected at startup: NVENC when the "
+            "driver reports support at the target resolution, aiortc's "
+            "software encoder otherwise."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
@@ -146,10 +183,11 @@ def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
 
 async def _postprocess_options(request: web.Request) -> web.StreamResponse:
     manager = _get_omnidreams_manager(request.app)
-    presets = sorted(discover_postprocess_presets())
+    configured_preset = manager.runtime_config.postprocess.preset
+    presets = [configured_preset] if configured_preset else []
     return web.json_response(
         {
-            "default_preset": manager.runtime_config.postprocess.preset,
+            "default_preset": configured_preset,
             "presets": presets,
         }
     )
@@ -208,21 +246,64 @@ def build_runtime_config(
     *,
     device_override: str | None = None,
 ) -> OmnidreamsRuntimeConfig:
+    manifest_path = None
+    manifest = None
+    pipeline_config = None
+    pipeline_config_name = args.pipeline_config_name
+    device = args.device
+    seed = args.seed
+    fps = args.fps
+    video_width = args.video_width
+    video_height = args.video_height
+
+    manifest_arg = getattr(args, "manifest", None)
+    if manifest_arg is not None:
+        manifest_path = resolve_world_model_manifest_path(manifest_arg)
+        manifest = load_world_model_manifest(manifest_path)
+        pipeline_config = _build_pipeline_config(
+            manifest,
+            profile=WorldModelProfileConfig(),
+        )
+        pipeline_config_name = str(pipeline_config.name)
+        if (
+            arg_was_explicit(args, "pipeline_config_name")
+            and args.pipeline_config_name != pipeline_config_name
+        ):
+            raise ValueError(
+                "--manifest selects pipeline config "
+                f"{pipeline_config_name!r}, but --pipeline_config_name was "
+                f"also set to {args.pipeline_config_name!r}."
+            )
+
+        if not arg_was_explicit(args, "device"):
+            device = manifest.device
+        if not arg_was_explicit(args, "seed"):
+            seed = manifest.seed_for_every_rollout
+        if not arg_was_explicit(args, "fps"):
+            fps = manifest.fps
+        if not arg_was_explicit(args, "video_width"):
+            video_width = manifest.resolution_wh[0]
+        if not arg_was_explicit(args, "video_height"):
+            video_height = manifest.resolution_wh[1]
+
     return OmnidreamsRuntimeConfig(
-        pipeline_config_name=args.pipeline_config_name,
+        pipeline_config_name=pipeline_config_name,
+        pipeline_config=pipeline_config,
+        manifest_path=manifest_path,
         scene_dir=args.scene_dir,
         scene_uuid=args.scene_uuid,
         scene_variant=args.scene_variant,
-        seed=args.seed,
-        device=device_override or args.device,
-        video_height=args.video_height,
-        video_width=args.video_width,
-        fps=args.fps,
+        seed=seed,
+        device=device_override or device,
+        video_height=video_height,
+        video_width=video_width,
+        fps=fps,
         camera_name=args.camera_name,
         warmup_chunks=args.warmup_chunks,
         warmup_timeout_s=args.warmup_timeout_s,
         debug_serve_hdmaps=args.debug_serve_hdmaps,
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
+        encoder_backend="default" if args.prefer_sw_encoder else "auto",
     )
 
 
@@ -245,8 +326,10 @@ def initialize_distributed(
     return context.device, context.world_rank, context.world_size
 
 
-def _validate_single_view_config(config_name: str) -> None:
-    pipeline_cfg = OMNIDREAMS_CONFIGS[config_name]
+def _validate_single_view_config(
+    config_name: str, pipeline_config: Any | None = None
+) -> None:
+    pipeline_cfg = pipeline_config or OMNIDREAMS_CONFIGS[config_name]
     transformer_cfg = pipeline_cfg.diffusion_model.transformer
     if not isinstance(transformer_cfg, CosmosTransformerConfig):
         raise TypeError("Omnidreams WebRTC requires a CosmosTransformerConfig.")
@@ -260,10 +343,16 @@ def _validate_single_view_config(config_name: str) -> None:
 def main() -> None:
     configure_logging()
     args = parse_args()
-    _validate_single_view_config(args.pipeline_config_name)
+    runtime_config = build_runtime_config(args)
+    _validate_single_view_config(
+        runtime_config.pipeline_config_name,
+        runtime_config.pipeline_config,
+    )
 
-    runtime_device, world_rank, _ = initialize_distributed(default_device=args.device)
-    runtime_config = build_runtime_config(args, device_override=str(runtime_device))
+    runtime_device, world_rank, _ = initialize_distributed(
+        default_device=runtime_config.device
+    )
+    runtime_config = replace(runtime_config, device=str(runtime_device))
     session_manager = OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
     app = None
     if world_rank == 0:

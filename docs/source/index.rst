@@ -239,6 +239,13 @@ invocation, the checkpoint source, and the per-implementation knobs.
 
       Camera-controllable image-to-video world model.
 
+   .. grid-item-card:: SANA-WM_streaming
+      :class-card: fd-feature
+      :link: models/sana_wm_streaming
+      :link-type: doc
+
+      Chunk-causal camera-controlled world model.
+
    .. grid-item-card:: FlashVSR
       :class-card: fd-feature
       :link: models/flashvsr
@@ -260,6 +267,14 @@ invocation, the checkpoint source, and the per-implementation knobs.
       :link-type: doc
 
       Bidirectional Cosmos-Predict2 reference implementations (T2V / I2V, 2B).
+
+   .. grid-item-card:: SANA-WM_bidirectional
+      :class-card: fd-feature
+      :link: models/sana_wm_bidirectional
+      :link-type: doc
+
+      Bidirectional camera-controlled world model (Stage-1 DiT + LTX-2
+      refiner, 2.6B).
 
 .. Master toctree: one flat entry per top-level navbar item. Order
    here = order in the navbar.

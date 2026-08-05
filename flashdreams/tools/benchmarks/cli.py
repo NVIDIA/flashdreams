@@ -176,8 +176,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "them with public PAI-Bench-G, then reports a long-video average. "
             "PAI-Bench profiles only apply to selected scenarios tagged "
             "one-minute or pai-bench. "
-            "Run with `uv run --group pai-bench ...` or pass a prepared "
-            "--pai-bench-python for the PAI-Bench evaluator dependencies."
+            "Pass --pai-bench-python to use a separately prepared evaluator "
+            "environment for the PAI-Bench dependencies."
         ),
     )
     parser.add_argument(
@@ -205,7 +205,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help=(
             "Python command used for PAI-Bench. Defaults to this benchmark "
             "process's Python in local runner mode, or 'python' in upstream "
-            "runner mode."
+            "runner mode. Standard runs should point this at a separately "
+            "prepared evaluator environment."
         ),
     )
     parser.add_argument(
