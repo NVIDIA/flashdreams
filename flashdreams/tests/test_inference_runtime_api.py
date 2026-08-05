@@ -9,17 +9,20 @@ from typing import Any, cast
 import pytest
 
 from flashdreams.runtime import (
+    CanonicalInputs,
+    CanonicalInputSchema,
     IdentityInputMapping,
     InferenceConfig,
+    InferenceInput,
+    InferenceInputSchema,
     InferenceRuntime,
     InferenceSession,
     InMemoryMetricsRecorder,
+    InputCanonicalizer,
     InputField,
     InputMapping,
     MetricsRecorder,
     ModelAdapter,
-    ModelInputs,
-    ModelInputSchema,
     NullOutputTarget,
     OutputArtifact,
     OutputTarget,
@@ -27,12 +30,25 @@ from flashdreams.runtime import (
     StepRequest,
     StepResult,
     TimeWindow,
+    UserInputCapability,
     UserInputEvent,
     UserInputs,
     UserInputSchema,
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+_SESSION_HORIZON_S = 3600.0
+
+_KEYBOARD_SOURCE = UserInputSchema(
+    capabilities=(
+        UserInputCapability(
+            event_type="keyboard.keydown", payload_fields=frozenset({"key"})
+        ),
+    )
+)
+_KEYBOARD_CANONICALIZER = InputCanonicalizer()
 
 
 def test_inference_config_keeps_runtime_settings_separate() -> None:
@@ -90,17 +106,19 @@ def test_runtime_metric_sample_rejects_bool_values() -> None:
         RuntimeMetricSample(name="sample", value=True)
 
 
-def test_model_input_schema_validates_initial_and_step_payloads() -> None:
-    schema = ModelInputSchema(
-        initial_fields=(
+def test_inference_input_schema_validates_initial_and_step_payloads() -> None:
+    schema = InferenceInputSchema(
+        global_fields=(
             InputField(name="prompt"),
-            InputField(name="first_frame"),
+            InputField(name="global_conditioning_frame"),
         ),
         step_fields=(InputField(name="camera_poses"),),
     )
-    inputs = ModelInputs(initial={"prompt": "drive", "first_frame": object()})
+    inputs = InferenceInput(
+        global_conditioning={"prompt": "drive", "global_conditioning_frame": object()}
+    )
 
-    schema.require_initial(inputs)
+    schema.require_global(inputs)
     assert schema.missing_step(inputs) == ("camera_poses",)
 
     with pytest.raises(ValueError, match="camera_poses"):
@@ -164,25 +182,27 @@ def test_user_input_schema_validates_required_snapshot_fields() -> None:
         schema.require_snapshot(UserInputs())
 
 
-def test_identity_input_mapping_leaves_model_inputs_unchanged() -> None:
+def test_identity_input_mapping_leaves_inference_input_unchanged() -> None:
     mapping = IdentityInputMapping()
-    model_inputs = ModelInputs(initial={"prompt": "fixed"}, step={"hdmap": object()})
+    inference_input = InferenceInput(
+        global_conditioning={"prompt": "fixed"}, step={"hdmap": object()}
+    )
     request = StepRequest(step_index=0)
 
     assert (
-        mapping.map_initial_inputs(
-            user_inputs=UserInputs(),
-            model_inputs=model_inputs,
+        mapping.map_global_inputs(
+            canonical_inputs=CanonicalInputs(),
+            inference_input=inference_input,
         )
-        is model_inputs
+        is inference_input
     )
     assert (
         mapping.map_step_inputs(
-            user_inputs=UserInputs(),
-            model_inputs=model_inputs,
+            canonical_inputs=CanonicalInputs(),
+            inference_input=inference_input,
             request=request,
         )
-        is model_inputs
+        is inference_input
     )
 
 
@@ -258,7 +278,7 @@ def test_runtime_api_components_compose_for_sequential_session() -> None:
             ),
         )
     )
-    model_inputs = ModelInputs(initial={"prompt": "drive forward"})
+    inference_input = InferenceInput(global_conditioning={"prompt": "drive forward"})
     output = NullOutputTarget(store_results=True)
     metrics = InMemoryMetricsRecorder()
 
@@ -269,8 +289,10 @@ def test_runtime_api_components_compose_for_sequential_session() -> None:
         adapter=adapter,
         config=config,
         mapping=mapping,
+        canonicalizer=_KEYBOARD_CANONICALIZER,
+        source_schema=_KEYBOARD_SOURCE,
         user_inputs=user_inputs,
-        model_inputs=model_inputs,
+        inference_input=inference_input,
         output=output,
         metrics=metrics,
     )
@@ -291,8 +313,10 @@ def test_reference_loop_validates_mapping_before_runtime_creation() -> None:
         adapter=adapter,
         config=InferenceConfig(model_id="fake-model"),
         mapping=mapping,
+        canonicalizer=_KEYBOARD_CANONICALIZER,
+        source_schema=_KEYBOARD_SOURCE,
         user_inputs=UserInputs(),
-        model_inputs=ModelInputs(initial={"prompt": "drive forward"}),
+        inference_input=InferenceInput(global_conditioning={"prompt": "drive forward"}),
         output=NullOutputTarget(),
         metrics=InMemoryMetricsRecorder(),
     )
@@ -311,8 +335,12 @@ def test_reference_loop_closes_runtime_when_session_start_fails() -> None:
             adapter=adapter,
             config=InferenceConfig(model_id="fake-model"),
             mapping=IdentityInputMapping(),
+            canonicalizer=_KEYBOARD_CANONICALIZER,
+            source_schema=_KEYBOARD_SOURCE,
             user_inputs=UserInputs(),
-            model_inputs=ModelInputs(initial={"prompt": "drive forward"}),
+            inference_input=InferenceInput(
+                global_conditioning={"prompt": "drive forward"}
+            ),
             output=output,
             metrics=metrics,
         )
@@ -328,18 +356,24 @@ def _drive_two_step_session(
     adapter: ModelAdapter,
     config: InferenceConfig,
     mapping: InputMapping,
+    canonicalizer: InputCanonicalizer,
+    source_schema: UserInputSchema,
     user_inputs: UserInputs,
-    model_inputs: ModelInputs,
+    inference_input: InferenceInput,
     output: OutputTarget,
     metrics: MetricsRecorder,
 ) -> None:
     mapping.validate(
-        user_schema=adapter.user_input_schema,
-        model_schema=adapter.model_input_schema,
+        canonical_schema=adapter.canonical_input_schema,
+        inference_input_schema=adapter.inference_input_schema,
     )
-    initial_inputs = mapping.map_initial_inputs(
-        user_inputs=user_inputs,
-        model_inputs=model_inputs,
+    initial_inputs = mapping.map_global_inputs(
+        canonical_inputs=canonicalizer.canonicalize(
+            user_inputs,
+            window=TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
+            source_schema=source_schema,
+        ),
+        inference_input=inference_input,
     )
     runtime = adapter.create_runtime(config)
     session: InferenceSession | None = None
@@ -350,13 +384,16 @@ def _drive_two_step_session(
         output_opened = True
         while (request := session.next_step_request()) is not None:
             step_inputs = mapping.map_step_inputs(
-                user_inputs=(
-                    user_inputs.window(request.user_input_window)
-                    if request.user_input_window is not None
-                    else user_inputs
+                canonical_inputs=canonicalizer.canonicalize(
+                    user_inputs,
+                    window=request.user_input_window
+                    or TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
+                    source_schema=source_schema,
                 ),
-                model_inputs=ModelInputs(
-                    initial=initial_inputs.initial,
+                # The global slot stays empty in steady state. A mapping that
+                # sees ``canonical_inputs.has_global_change`` fills it via
+                # ``with_global_update`` to request a mid-rollout swap.
+                inference_input=InferenceInput(
                     step={"chunk_index": request.step_index},
                 ),
                 request=request,
@@ -379,11 +416,11 @@ def _drive_two_step_session(
 
 class _FakeAdapter:
     model_id = "fake-model"
-    model_input_schema = ModelInputSchema(
-        initial_fields=(InputField(name="prompt"),),
+    inference_input_schema = InferenceInputSchema(
+        global_fields=(InputField(name="prompt"),),
         step_fields=(InputField(name="chunk_index"),),
     )
-    user_input_schema = UserInputSchema(event_types=frozenset({"keyboard.keydown"}))
+    canonical_input_schema = CanonicalInputSchema()
 
     def default_input_mapping(self) -> InputMapping:
         return IdentityInputMapping()
@@ -394,31 +431,31 @@ class _FakeAdapter:
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
-        return _FakeRuntime(model_input_schema=self.model_input_schema)
+        return _FakeRuntime(inference_input_schema=self.inference_input_schema)
 
 
 class _FakeRuntime:
-    def __init__(self, *, model_input_schema: ModelInputSchema) -> None:
-        self._model_input_schema = model_input_schema
+    def __init__(self, *, inference_input_schema: InferenceInputSchema) -> None:
+        self._inference_input_schema = inference_input_schema
         self.closed = False
 
-    def start_session(self, inputs: ModelInputs) -> InferenceSession:
-        self._model_input_schema.require_initial(inputs)
-        return _FakeSession(model_input_schema=self._model_input_schema)
+    def start_session(self, inputs: InferenceInput) -> InferenceSession:
+        self._inference_input_schema.require_global(inputs)
+        return _FakeSession(inference_input_schema=self._inference_input_schema)
 
     def close(self) -> None:
         self.closed = True
 
 
 class _FailingRuntime(_FakeRuntime):
-    def start_session(self, inputs: ModelInputs) -> InferenceSession:
+    def start_session(self, inputs: InferenceInput) -> InferenceSession:
         del inputs
         raise RuntimeError("start failed")
 
 
 class _FakeSession:
-    def __init__(self, *, model_input_schema: ModelInputSchema) -> None:
-        self._model_input_schema = model_input_schema
+    def __init__(self, *, inference_input_schema: InferenceInputSchema) -> None:
+        self._inference_input_schema = inference_input_schema
         self.step_index = 0
         self.closed = False
 
@@ -427,15 +464,15 @@ class _FakeSession:
             return None
         return StepRequest(
             step_index=self.step_index,
-            model_input_schema=self._model_input_schema,
+            inference_input_schema=self._inference_input_schema,
             user_input_window=TimeWindow(
                 start_s=0.5 * self.step_index,
                 end_s=0.5 * (self.step_index + 1),
             ),
         )
 
-    def step(self, inputs: ModelInputs) -> StepResult:
-        self._model_input_schema.require_step(inputs)
+    def step(self, inputs: InferenceInput) -> StepResult:
+        self._inference_input_schema.require_step(inputs)
         result = StepResult(
             step_index=self.step_index,
             output=f"chunk-{self.step_index}",
@@ -449,7 +486,7 @@ class _FakeSession:
         self.step_index += 1
         return result
 
-    def reset(self, inputs: ModelInputs | None = None) -> None:
+    def reset(self, inputs: InferenceInput | None = None) -> None:
         del inputs
         self.step_index = 0
 
@@ -464,14 +501,19 @@ class _OrderCheckingMapping(IdentityInputMapping):
     def validate(
         self,
         *,
-        user_schema: UserInputSchema | None = None,
-        model_schema: ModelInputSchema | None = None,
+        canonical_schema: CanonicalInputSchema | None = None,
+        inference_input_schema: InferenceInputSchema | None = None,
     ) -> None:
-        super().validate(user_schema=user_schema, model_schema=model_schema)
+        super().validate(
+            canonical_schema=canonical_schema,
+            inference_input_schema=inference_input_schema,
+        )
         self.validated = True
 
 
 class _OrderCheckingAdapter(_FakeAdapter):
+    canonical_input_schema = CanonicalInputSchema()
+
     def __init__(self, *, mapping: _OrderCheckingMapping) -> None:
         self._mapping = mapping
         self.created_runtime_after_validate = False
@@ -479,14 +521,18 @@ class _OrderCheckingAdapter(_FakeAdapter):
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
         self.created_runtime_after_validate = self._mapping.validated
-        return _FakeRuntime(model_input_schema=self.model_input_schema)
+        return _FakeRuntime(inference_input_schema=self.inference_input_schema)
 
 
 class _FailingStartAdapter(_FakeAdapter):
+    canonical_input_schema = CanonicalInputSchema()
+
     def __init__(self) -> None:
         self.runtime: _FailingRuntime | None = None
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
-        self.runtime = _FailingRuntime(model_input_schema=self.model_input_schema)
+        self.runtime = _FailingRuntime(
+            inference_input_schema=self.inference_input_schema
+        )
         return self.runtime
