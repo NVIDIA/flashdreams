@@ -153,30 +153,63 @@ scenarios tagged ``one-minute`` or ``pai-bench``; in this standard suite the
 30-second seeded quality clips run baseline comparison only, while the
 one-minute review clips get PAI-Bench scores.
 
+PAI-Bench and its Python dependencies are not FlashDreams dependencies. Before
+running the PAI-Bench quality profile, create or select a separate evaluator
+environment whose dependencies and licenses have been reviewed for your use
+case.
+
+The following setup was used for the local PAI-Bench runs. Run it from the
+FlashDreams repository root. If the virtual environment already exists, ``uv
+venv`` asks whether to replace it:
+
+.. code-block:: bash
+
+   uv sync --python 3.12 \
+     --package flashdreams \
+     --no-dev \
+     --group cuda13 \
+     --extra runners
+
+   uv venv --python 3.12 ~/.venvs/flashdreams-paibench
+
+   export PAI_BENCH_PYTHON="$HOME/.venvs/flashdreams-paibench/bin/python"
+
+   uv pip install --python "$PAI_BENCH_PYTHON" \
+     torch torchvision \
+     opencv-python-headless \
+     omegaconf \
+     openai-clip \
+     "pyiqa>=0.1.15,<0.1.16" \
+     "setuptools<81"
+
+   "$PAI_BENCH_PYTHON" -c "import clip, cv2, omegaconf, pyiqa, torch; print('PAI-Bench environment OK')"
+
 First create the baseline:
 
 .. code-block:: bash
 
-   uv run --group pai-bench flashdreams-benchmark \
+   uv run flashdreams-benchmark \
      --scenario-file configs/deterministic_quality_benchmarks.json \
      --scenario lingbot-world-fast-taehv-quality-smoke \
      --scenario omnidreams-sv-ci-quality-smoke \
      --scenario lingbot-world-fast-taehv-one-minute-review \
      --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
+     --pai-bench-python "$PAI_BENCH_PYTHON" \
      --output-dir artifacts/benchmarks/quality-and-review-baseline
 
 Then compare a later candidate run against that baseline:
 
 .. code-block:: bash
 
-   uv run --group pai-bench flashdreams-benchmark \
+   uv run flashdreams-benchmark \
      --scenario-file configs/deterministic_quality_benchmarks.json \
      --scenario lingbot-world-fast-taehv-quality-smoke \
      --scenario omnidreams-sv-ci-quality-smoke \
      --scenario lingbot-world-fast-taehv-one-minute-review \
      --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
+     --pai-bench-python "$PAI_BENCH_PYTHON" \
      --quality-baseline-dir artifacts/benchmarks/quality-and-review-baseline \
      --output-dir artifacts/benchmarks/quality-and-review-candidate
 
@@ -301,20 +334,20 @@ checkout is missing, so syncing ``artifacts/`` does not include the evaluator
 checkout or its environment.
 
 The default ``--pai-bench-runner local`` mode runs the public PAI-Bench
-entrypoint with the benchmark Python and injects a FlashDreams OpenCV-backed
-``decord`` compatibility shim. This avoids the upstream ``decord`` wheel
-resolution failure on aarch64. Use ``uv run --group pai-bench`` for the
-standard local evaluator environment. That group includes the Python packages
-needed by the default public PAI-Bench dimensions, including OpenAI CLIP and
-PyIQA, without making them normal FlashDreams runtime dependencies.
+entrypoint with the selected evaluator Python and injects a FlashDreams
+OpenCV-backed ``decord`` compatibility shim. This avoids the upstream
+``decord`` wheel resolution failure on aarch64. Pass ``--pai-bench-python`` to
+point at a separately prepared evaluator environment; PAI-Bench dependencies are
+not declared in FlashDreams because they are evaluator-only and have separate
+license terms.
 
 Before launching ``torch.distributed.run``, the adapter imports the requested
 PAI-Bench dimension modules with the same Python and ``PYTHONPATH`` that the
 evaluator will use. Missing imports are reported in
 ``scenarios/<id>/quality/<profile>/pai_bench_preflight.log`` and in the hook's
 ``metrics.json``. For example, a missing ``clip`` import means the command was
-not run with the ``pai-bench`` dependency group or ``--pai-bench-python`` does
-not point at a prepared evaluator environment.
+not run with an evaluator Python that contains the requested PAI-Bench
+dependencies.
 
 For baseline/candidate copy-paste commands that include PAI-Bench, use the
 ``Quality Hooks`` section above. For ad hoc one-off evaluation, run one-minute
@@ -323,18 +356,19 @@ for debugging, but they do not produce the standard baseline/candidate report:
 
 .. code-block:: bash
 
-   uv run --group pai-bench flashdreams-benchmark \
+   uv run flashdreams-benchmark \
      --scenario-file configs/one_minute_demo_benchmarks.json \
      --scenario lingbot-world-fast-taehv-one-minute \
      --scenario omnidreams-sv-one-minute \
      --quality-profile pai-bench-long \
+     --pai-bench-python "$PAI_BENCH_PYTHON" \
      --output-dir artifacts/benchmarks/one-minute-pai-bench
 
-Use ``--pai-bench-python`` to point at a curated evaluator Python when the
-benchmark environment does not contain the dependencies for the requested
-dimensions. On aarch64, avoid ``--pai-bench-python "uv run python"`` with the
-upstream PAI-Bench checkout unless that checkout has already been patched or
-locked for aarch64-compatible dependencies.
+Use ``--pai-bench-python`` to point at a curated evaluator Python that contains
+the dependencies for the requested dimensions. On aarch64, avoid
+``--pai-bench-python "uv run python"`` with the upstream PAI-Bench checkout
+unless that checkout has already been patched or locked for aarch64-compatible
+dependencies.
 
 For one-off checks, the profile also supports public PAI-Bench-G on the full
 MP4 without local segmentation. This is also not the standard local benchmark
@@ -342,10 +376,11 @@ workflow:
 
 .. code-block:: bash
 
-   uv run --group pai-bench flashdreams-benchmark \
+   uv run flashdreams-benchmark \
      --scenario-file configs/one_minute_demo_benchmarks.json \
      --scenario lingbot-world-fast-taehv-one-minute \
      --quality-profile pai-bench-g \
+     --pai-bench-python "$PAI_BENCH_PYTHON" \
      --output-dir artifacts/benchmarks/lingbot-pai-bench-g
 
 Pass ``--pai-bench-runner upstream`` only when you intentionally want the old

@@ -13,6 +13,7 @@ const latencyValue = document.getElementById("latencyValue")
 const resolutionValue = document.getElementById("resolutionValue")
 const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
+const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
@@ -40,6 +41,7 @@ let inferenceInFlight = false
 let connected = false
 let disconnecting = false
 let heldKeySequence = 0
+let postprocessControlAvailable = false
 
 const metrics = {
   fps: null,
@@ -120,6 +122,10 @@ function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
 }
 
+function setPostprocessDisabled(disabled) {
+  postprocessSelect.disabled = disabled || !postprocessControlAvailable
+}
+
 async function loadPostprocessOptions() {
   const response = await fetch("/api/postprocess/options")
   if (!response.ok) {
@@ -127,6 +133,11 @@ async function loadPostprocessOptions() {
   }
   const payload = await response.json()
   const presets = Array.isArray(payload.presets) ? payload.presets : []
+  const defaultPreset = typeof payload.default_preset === "string"
+    ? payload.default_preset
+    : ""
+  postprocessControlAvailable = Boolean(defaultPreset && presets.includes(defaultPreset))
+  postprocessField.hidden = !postprocessControlAvailable
   postprocessSelect.replaceChildren()
 
   const offOption = document.createElement("option")
@@ -142,10 +153,8 @@ async function loadPostprocessOptions() {
     option.textContent = preset
     postprocessSelect.append(option)
   }
-  const defaultPreset = typeof payload.default_preset === "string"
-    ? payload.default_preset
-    : ""
-  postprocessSelect.value = presets.includes(defaultPreset) ? defaultPreset : ""
+  postprocessSelect.value = postprocessControlAvailable ? defaultPreset : ""
+  setPostprocessDisabled(false)
 }
 
 async function configureSessionInput() {
@@ -686,7 +695,7 @@ function disconnectSession({ notify = true } = {}) {
   stopStatsPolling()
   connected = false
   connectButton.disabled = false
-  postprocessSelect.disabled = false
+  setPostprocessDisabled(false)
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
       controlChannel.send(JSON.stringify({ type: "disconnect" }))
@@ -709,7 +718,7 @@ async function connectSession() {
   }
 
   connectButton.disabled = true
-  postprocessSelect.disabled = true
+  setPostprocessDisabled(true)
   setStatus("Connecting", "connecting")
   setFlow("creating peer connection")
   logEvent("connecting to server...", { source: "client" })
@@ -775,7 +784,7 @@ async function connectSession() {
       if (["failed", "closed", "disconnected"].includes(state)) {
         connected = false
         connectButton.disabled = false
-        postprocessSelect.disabled = false
+        setPostprocessDisabled(false)
         stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
@@ -830,7 +839,7 @@ async function connectSession() {
     setFlow("failed")
     logEvent(`connect failed: ${error.message}`, { source: "client", level: "error" })
     connectButton.disabled = false
-    postprocessSelect.disabled = false
+    setPostprocessDisabled(false)
   }
 }
 

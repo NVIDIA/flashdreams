@@ -736,8 +736,8 @@ def _format_preflight_failure(failure: Mapping[str, Any]) -> str:
         return (
             f"PAI-Bench dependency preflight failed for {dimension}: "
             f"missing Python import '{missing_import}'{package_hint}. "
-            "Run the benchmark with `uv run --group pai-bench ...` or pass "
-            "`--pai-bench-python` pointing at a prepared evaluator environment."
+            "Pass `--pai-bench-python` pointing at a prepared evaluator "
+            "environment that contains the requested PAI-Bench dependencies."
         )
     return (
         f"PAI-Bench dependency preflight failed for {dimension}: "

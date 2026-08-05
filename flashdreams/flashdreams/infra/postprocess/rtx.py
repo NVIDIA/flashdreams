@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib import import_module
 from typing import Any, Literal, get_args
 
 import torch
@@ -313,17 +314,15 @@ def _empty_output_like(canonical: Tensor, *, spec: VideoSpec) -> Tensor:
 
 def _load_video_super_res_class() -> Any:
     try:
-        from nvvfx import (  # ty: ignore[unresolved-import]  # noqa: PLC0415
-            VideoSuperRes,
-        )
-    except ImportError as exc:
+        nvvfx = import_module("nvvfx")
+        return getattr(nvvfx, "VideoSuperRes")
+    except (AttributeError, ImportError) as exc:
         raise RuntimeError(
             "RTX Video Super Resolution post-processing requires the optional "
             "`nvidia-vfx` package, which provides `nvvfx.VideoSuperRes`. "
             "Install it in the active environment before selecting the "
             "`rtx-super-resolution` postprocess preset."
         ) from exc
-    return VideoSuperRes
 
 
 def _resolve_quality(video_super_res: Any, quality: str) -> Any:

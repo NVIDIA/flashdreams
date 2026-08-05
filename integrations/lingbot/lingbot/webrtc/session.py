@@ -45,12 +45,18 @@ from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
 )
+from flashdreams.serving.webrtc.encoders import (
+    EncoderBackend,
+    VideoEncoder,
+    select_encoder,
+)
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
     WebRTCControlSignal,
     WebRTCStepResult,
+    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from lingbot.encoder.utils import preprocess_example_poses
@@ -445,6 +451,7 @@ class LingbotRuntimeConfig:
     device: str = "cuda:0"
     video_height: int = 464
     video_width: int = 832
+    fps: int = 16
     world_scale: float | None = None
     default_intrinsics: tuple[float, float, float, float] | None = None
     default_prompt: str = ""
@@ -454,6 +461,9 @@ class LingbotRuntimeConfig:
     default_poses_url: str | None = _DEFAULT_POSES_URL
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
+    encoder_backend: EncoderBackend = "auto"
+    encoder_bitrate_bps: int = 6_000_000
+    encoder_gop: int = 30
 
     example_data_dir: Path = field(
         default_factory=lambda: default_flashdreams_cache_dir()
@@ -588,6 +598,7 @@ class LingbotInferenceRuntime:
         self._event_embeddings: dict[str, torch.Tensor] = {}
         self._active_event_id: str | None = None
         self._world_scale = 1.0
+        self._video_encoder: VideoEncoder | None = None
         self._closed = False
 
         self._step_lock = asyncio.Lock()
@@ -602,6 +613,15 @@ class LingbotInferenceRuntime:
     @property
     def is_master(self) -> bool:
         return self.rank == self.MASTER_RANK
+
+    @property
+    def video_encoder(self) -> VideoEncoder:
+        """Return the encoder selected at :meth:`initialize` time."""
+        if self._video_encoder is None:
+            raise LingbotRuntimeError(
+                "Video encoder is not initialized; call runtime.initialize() first."
+            )
+        return self._video_encoder
 
     def wait_for_termination(self) -> None:
         self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
@@ -785,6 +805,37 @@ class LingbotInferenceRuntime:
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
         self._reset_rollout_sync()
+        self._initialize_video_encoder_sync()
+
+    def _initialize_video_encoder_sync(self) -> None:
+        """Select the video encoder for this runtime."""
+        if not self.is_master:
+            return
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
+        device = (
+            self._device
+            if self._device is not None
+            else torch.device(self.config.device)
+        )
+        backend: EncoderBackend = self.config.encoder_backend
+        if device.type != "cuda" and backend == "auto":
+            backend = "default"
+        if device.type != "cuda" and backend == "nvenc":
+            raise LingbotRuntimeError(
+                "encoder_backend='nvenc' requires a CUDA runtime device."
+            )
+        gpu_id = device.index if device.index is not None else 0
+        self._video_encoder = select_encoder(
+            backend=backend,
+            width=self.config.video_width,
+            height=self.config.video_height,
+            fps=self.config.fps,
+            bitrate=self.config.encoder_bitrate_bps,
+            gpu_id=gpu_id,
+            gop=self.config.encoder_gop,
+        )
 
     def _encode_text_embeddings_sync(self, texts: list[str]) -> torch.Tensor:
         if self._pipeline is None:
@@ -1061,6 +1112,9 @@ class LingbotInferenceRuntime:
         self._base_text_embeddings = None
         self._event_embeddings = {}
         self._active_event_id = None
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
 
         if cache is not None:
             del cache
@@ -1119,12 +1173,18 @@ class LingbotInferenceRuntime:
         )
         stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
 
-        result = WebRTCStepResult(
+        result = make_webrtc_step_result(
             chunk_index=self.autoregressive_index,
-            num_frames=num_frames,
-            video_chunk=video_chunk.detach().cpu(),
+            video_chunk=video_chunk,
+            layout="tchw",
             stats=stats,
+            sync_device=self._device,
         )
+        if result.num_frames != num_frames:
+            raise LingbotRuntimeError(
+                f"Expected generated chunk to contain {num_frames} frames, "
+                f"got {result.num_frames}."
+            )
         self.autoregressive_index += 1
         return result
 
@@ -1145,12 +1205,13 @@ class LingbotWebRTCSessionManager(
         self,
         *,
         runtime_config: LingbotRuntimeConfig | None = None,
-        fps: int = 16,
+        fps: int | None = None,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
+        runtime_config = runtime_config or LingbotRuntimeConfig()
+        fps = runtime_config.fps if fps is None else fps
         if fps <= 0:
             raise ValueError("fps must be > 0")
-        runtime_config = runtime_config or LingbotRuntimeConfig()
         super().__init__(
             runtime=LingbotInferenceRuntime(config=runtime_config),
             runtime_config=runtime_config,

@@ -51,6 +51,7 @@ extraPaths = [
     "integrations/fastvideo_causal_wan22",
     "integrations/hy_worldplay",
     "integrations/lingbot",
+    "integrations/sana",
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
@@ -74,6 +75,7 @@ extra-paths = [
     "integrations/fastvideo_causal_wan22",
     "integrations/hy_worldplay",
     "integrations/lingbot",
+    "integrations/sana",
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
@@ -136,15 +138,6 @@ lint = [
     "sphinx>=7.0",
     "ty>=0.0.39",
     {include-group = "test"},
-]
-
-# Optional dependencies for local PAI-Bench quality hooks. These are kept out of
-# the default runtime because they are evaluator-only and may download model
-# weights on first use.
-pai-bench = [
-    "omegaconf>=2.3",
-    "openai-clip>=1.0.1",
-    "pyiqa>=0.1.15,<0.1.16",
 ]
 
 # Sphinx toolchain for building docs locally (`uv run --group docs sphinx-build ...`).

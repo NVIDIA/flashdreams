@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import sys
+import threading
 import types
 from pathlib import Path
 from typing import Any
@@ -192,11 +193,28 @@ def test_video_tensor_to_uint8_converts_bcthw_layout() -> None:
     assert frames.max() == 0
 
 
+def test_video_tensor_to_uint8_converts_btchw_layout() -> None:
+    video = torch.full((1, 2, 3, 4, 5), 1.0, dtype=torch.float32)
+
+    frames = video_tensor_to_uint8(video, layout="btchw")
+
+    assert frames.shape == (2, 4, 5, 3)
+    assert frames.dtype == np.uint8
+    assert frames.min() == 255
+
+
 def test_video_tensor_to_uint8_rejects_multi_batch_bcthw() -> None:
     video = torch.zeros((2, 3, 1, 4, 5), dtype=torch.float32)
 
     with pytest.raises(ValueError, match="expects a single batch element"):
         video_tensor_to_uint8(video, layout="bcthw")
+
+
+def test_video_tensor_to_uint8_rejects_multi_batch_btchw() -> None:
+    video = torch.zeros((2, 1, 3, 4, 5), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="expects a single batch element"):
+        video_tensor_to_uint8(video, layout="btchw")
 
 
 def test_read_first_frame_rgb_rejects_empty_video(
@@ -264,6 +282,44 @@ def test_write_video_tensor_streams_to_host_ffmpeg(
     assert commands[0][commands[0].index("-s") + 1] == "2x2"
     assert commands[0][commands[0].index("-r") + 1] == "16"
     assert commands[0][-1] == str(out_path)
+
+
+def test_write_video_tensor_drains_ffmpeg_stderr_while_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    drain_started = threading.Event()
+
+    class RecordingStderr:
+        def __init__(self) -> None:
+            self._chunks = [b"ffmpeg diagnostic", b""]
+
+        def read(self, _size: int = -1) -> bytes:
+            drain_started.set()
+            return self._chunks.pop(0)
+
+    class GuardedStdin(io.BytesIO):
+        def write(self, data: bytes) -> int:
+            assert drain_started.wait(timeout=1.0)
+            return super().write(data)
+
+    process = types.SimpleNamespace(
+        stdin=GuardedStdin(),
+        stderr=RecordingStderr(),
+        wait=lambda: 0,
+    )
+
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        runner_io.subprocess, "Popen", lambda *_args, **_kwargs: process
+    )
+
+    write_video_tensor(
+        torch.zeros((2, 3, 2, 2), dtype=torch.float32),
+        tmp_path / "out.mp4",
+        fps=16,
+        layout="tchw",
+    )
 
 
 def test_load_first_frame_tensor_uses_requested_resize_interpolation(

@@ -180,9 +180,16 @@ the weather-matched `clipgt/prompt<N>.txt` (falling back to `clipgt/prompt.txt`)
 Pass `--scene_dir <path>` to use a pre-staged local scene instead.
 
 To enable video post-processing by default, pass a registered preset such as
-`--postprocess-preset rtx-super-resolution`. The request-session page also
-offers a **Post-process** selector; its choice applies to the next connection
-and can override the command-line default, including turning processing off.
+`--postprocess-preset rtx-super-resolution`. RTX postprocess presets require the
+optional NVIDIA VFX runtime:
+
+```bash
+uv sync --package flashdreams-omnidreams --extra rtx-postprocess
+```
+
+The request-session page only offers a **Post-process** selector when the server
+was launched with `--postprocess-preset`; the selector can toggle that launched
+preset off for the next connection.
 
 ## Run gRPC server
 

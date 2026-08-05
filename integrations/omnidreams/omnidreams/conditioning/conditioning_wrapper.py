@@ -24,6 +24,7 @@ This module combines:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import torch
@@ -93,6 +94,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         self,
         *,
         pipeline_config_name: str,
+        pipeline_config: Any | None = None,
         resolution_wh: tuple[int, int],
         seed_for_every_rollout: int | None = None,
         device: torch.device = torch.device("cuda:0"),
@@ -103,6 +105,9 @@ class OmnidreamsConditioningWrapper(nn.Module):
             pipeline_config_name: Key into
                 :data:`omnidreams.config.OMNIDREAMS_CONFIGS`
                 identifying the pipeline literal to instantiate.
+            pipeline_config: Optional already-derived pipeline config. When
+                provided, it is instantiated instead of looking up
+                ``pipeline_config_name``.
             resolution_wh: Decoded video ``(width, height)``. Not encoded in
                 the pipeline config; supplied per server deployment.
             seed_for_every_rollout: Optional per-rollout RNG seed override. When
@@ -110,20 +115,21 @@ class OmnidreamsConditioningWrapper(nn.Module):
             device: CUDA device the pipeline is moved to.
 
         Raises:
-            KeyError: ``pipeline_config_name`` is not a registered Omnidreams
-                integration.
+            KeyError: ``pipeline_config`` is omitted and ``pipeline_config_name``
+                is not a registered Omnidreams integration.
             TypeError: The selected pipeline does not use
                 :class:`CosmosTransformerConfig` (the wrapper relies on its
                 ``num_views`` / ``len_t`` fields to size session state).
         """
         super().__init__()
 
-        if pipeline_config_name not in OMNIDREAMS_CONFIGS:
-            raise KeyError(
-                f"Unknown Omnidreams pipeline config {pipeline_config_name!r}. "
-                f"Available: {sorted(OMNIDREAMS_CONFIGS)}"
-            )
-        pipeline_config = OMNIDREAMS_CONFIGS[pipeline_config_name]
+        if pipeline_config is None:
+            if pipeline_config_name not in OMNIDREAMS_CONFIGS:
+                raise KeyError(
+                    f"Unknown Omnidreams pipeline config {pipeline_config_name!r}. "
+                    f"Available: {sorted(OMNIDREAMS_CONFIGS)}"
+                )
+            pipeline_config = OMNIDREAMS_CONFIGS[pipeline_config_name]
 
         transformer_cfg = pipeline_config.diffusion_model.transformer
         if not isinstance(transformer_cfg, CosmosTransformerConfig):
