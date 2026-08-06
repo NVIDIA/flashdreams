@@ -319,13 +319,16 @@ UserInputs  ->  CanonicalInputs  ->  InferenceInput
    raw           canonicalized          encoded
 ```
 
-Raw device events are canonicalized into device-independent modalities before an
-application sees them, so adding a keyboard, gamepad, or wheel is a converter
-registration rather than an application change. `InferenceInput` is what an
-`InferenceSession` actually receives.
+Raw device events for live control are canonicalized into device-independent
+modalities before application or mapping logic consumes them, so adding a
+keyboard, gamepad, or wheel is a converter registration rather than an
+application change. Global conditioning is application-owned and reaches
+`InferenceInput` directly; it does not pass through live device canonicalization.
+`InferenceInput` is what an `InferenceSession` actually receives.
 
-`InferenceInput` describes the data the model or inference pipeline actually
-requires. Both it and `CanonicalInputs` distinguish two conditioning slots:
+`CanonicalInputs` describes device-independent live control for one requested
+input window. `InferenceInput` describes the data the model or inference
+pipeline actually requires, split into two conditioning slots:
 
 - global conditioning: values that condition the whole rollout;
 - per-step conditioning: values needed for one generated chunk or frame window.
@@ -348,11 +351,11 @@ Inference input payloads should use semantic names, not only modality names. For
 example, a first frame and an HD map frame should be distinct inputs even if
 both are image-like values.
 
-Model input names, payload kinds, semantic-type hints, and schema metadata
-should be open-ended. Supported integrations such as SANA-WM, LingBot,
-Omnidreams, and future external adapters may need different semantic fields.
-Adding a new model should usually mean adding adapter-owned schema declarations
-and mappings, not changing a central FlashDreams enum.
+Model input names, input modalities, and schema metadata should be open-ended.
+Supported integrations such as SANA-WM, LingBot, Omnidreams, and future
+external adapters may need different semantic fields. Adding a new model should
+usually mean adding adapter-owned schema declarations and mappings, not changing
+a central FlashDreams enum.
 
 Consumption cadence is a separate hint from input scope. A field may be
 provided through global conditioning because it is session-global state, while
@@ -360,9 +363,10 @@ the adapter consumes or slices it during every step. That can be recorded as
 `frequency_consumed` metadata without changing whether the field belongs in
 `global_conditioning_fields` or `step_fields`.
 
-For interactive runs, most `InferenceInput` values will be global conditioning
-plus per-step inputs produced by input mapping. For MP4 generation and benchmarking, the API
-should also support fixed per-step model inputs so runs can be deterministic.
+For interactive runs, most `InferenceInput` values will be app-owned global
+conditioning plus per-step inputs produced by input mapping. For MP4 generation
+and benchmarking, the API should also support fixed per-step model inputs so
+runs can be deterministic.
 
 ## Schemas
 
@@ -385,8 +389,8 @@ Schema objects may carry open-ended metadata for query-time hints such as
 coordinate frame, units, rough shape summary, accepted file suffixes, schema
 URI, model family, or source/transport details. Metadata should help humans and
 adapter selection code, but compatibility should still be based on the declared
-event capabilities, semantic model fields, payload representation hints, and
-schema phases. Consumption-cadence hints are descriptive and adapter-owned.
+event capabilities, semantic model fields, input modalities, and schema phases.
+Consumption-cadence hints are descriptive and adapter-owned.
 
 For simple CLI text-to-video or image-to-video runs, `UserInputSchema` can be
 trivial or omitted because there may be no live controls. `InferenceInputSchema` is
@@ -468,10 +472,10 @@ There are two separate moments to keep clear:
 - before runtime initialization, FlashDreams should select the mapping or mapper
   set and check obvious compatibility between the app event source and the
   model;
-- during the standard loop, the runtime or runner queues and timestamps user
-  events, then uses the selected mapping to build initial or per-step
-  `InferenceInput` from the relevant event window, often after the session reports
-  what it needs next.
+- during the standard loop, the runtime or runner passes app-owned global
+  `InferenceInput` through the selected mapping before session start, then
+  queues and timestamps user events, canonicalizes the session-requested window,
+  and uses the selected mapping to build per-step `InferenceInput`.
 
 This keeps the Reactor-style contract intact: the model-side integration can
 declare user inputs, declare model inputs, and provide a default mapping, while
