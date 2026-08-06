@@ -41,13 +41,13 @@ class InputMapping(Protocol):
         """Fail early for obvious app, event-source, and model mismatches."""
         ...
 
-    def map_global_inputs(
+    def map_global_conditioning_inputs(
         self,
         *,
         canonical_inputs: CanonicalInputs,
         inference_input: InferenceInput,
     ) -> InferenceInput:
-        """Build global conditioning inputs before a session starts."""
+        """Build global conditioning inputs for session start or reset."""
         ...
 
     def map_step_inputs(
@@ -72,7 +72,7 @@ class IdentityInputMapping:
     ) -> None:
         del canonical_schema, inference_input_schema
 
-    def map_global_inputs(
+    def map_global_conditioning_inputs(
         self,
         *,
         canonical_inputs: CanonicalInputs,
@@ -104,7 +104,7 @@ class InputMappingSchema:
 
     name: str = "input-mapping"
     consumes: tuple[CanonicalModality, ...] = ()
-    produces_global: tuple[InputField, ...] = ()
+    produces_global_conditioning: tuple[InputField, ...] = ()
     produces_step: tuple[InputField, ...] = ()
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
@@ -119,7 +119,11 @@ class InputMappingSchema:
 
     def produces_for(self, phase: InputPhase) -> tuple[InputField, ...]:
         """Return the fields this mapping produces for ``phase``."""
-        return self.produces_global if phase == "global" else self.produces_step
+        return (
+            self.produces_global_conditioning
+            if phase == "global_conditioning"
+            else self.produces_step
+        )
 
     def can_produce(self, phase: InputPhase, required: InputField) -> bool:
         """Return whether this mapping can produce ``required`` in ``phase``."""
@@ -136,12 +140,7 @@ def _field_matches(produced: InputField, required: InputField) -> bool:
         or required.semantic_type is None
         or produced.semantic_type == required.semantic_type
     )
-    lifecycle_ok = (
-        produced.lifecycle is None
-        or required.lifecycle is None
-        or produced.lifecycle == required.lifecycle
-    )
-    return semantic_ok and lifecycle_ok
+    return semantic_ok
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -223,7 +222,10 @@ def combine_mapping_schemas(
     first declaration winning on conflicting keys.
     """
     consumes: list[CanonicalModality] = []
-    produces: dict[InputPhase, list[InputField]] = {"global": [], "step": []}
+    produces: dict[InputPhase, list[InputField]] = {
+        "global_conditioning": [],
+        "step": [],
+    }
 
     def _merge(target: list[Any], value: Any) -> None:
         for index, existing in enumerate(target):
@@ -248,7 +250,7 @@ def combine_mapping_schemas(
     return InputMappingSchema(
         name=name,
         consumes=tuple(consumes),
-        produces_global=tuple(produces["global"]),
+        produces_global_conditioning=tuple(produces["global_conditioning"]),
         produces_step=tuple(produces["step"]),
     )
 
@@ -358,8 +360,9 @@ def undeclared_inference_inputs(
     """Return payload keys a mapping produced but did not declare.
 
     Mapping schemas are hand-written, so they drift from what
-    ``map_global_inputs``/``map_step_inputs`` actually return. Mapping tests
-    can use this to keep the declared compatibility surface honest.
+    ``map_global_conditioning_inputs``/``map_step_inputs`` actually return.
+    Mapping tests can use this to keep the declared compatibility surface
+    honest.
     """
     return tuple(
         (phase, key)

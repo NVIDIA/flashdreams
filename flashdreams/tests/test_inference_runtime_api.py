@@ -106,9 +106,9 @@ def test_runtime_metric_sample_rejects_bool_values() -> None:
         RuntimeMetricSample(name="sample", value=True)
 
 
-def test_inference_input_schema_validates_initial_and_step_payloads() -> None:
+def test_schema_validates_global_conditioning_and_step_payloads() -> None:
     schema = InferenceInputSchema(
-        global_fields=(
+        global_conditioning_fields=(
             InputField(name="prompt"),
             InputField(name="global_conditioning_frame"),
         ),
@@ -118,7 +118,7 @@ def test_inference_input_schema_validates_initial_and_step_payloads() -> None:
         global_conditioning={"prompt": "drive", "global_conditioning_frame": object()}
     )
 
-    schema.require_global(inputs)
+    schema.require_global_conditioning(inputs)
     assert schema.missing_step(inputs) == ("camera_poses",)
 
     with pytest.raises(ValueError, match="camera_poses"):
@@ -190,7 +190,7 @@ def test_identity_input_mapping_leaves_inference_input_unchanged() -> None:
     request = StepRequest(step_index=0)
 
     assert (
-        mapping.map_global_inputs(
+        mapping.map_global_conditioning_inputs(
             canonical_inputs=CanonicalInputs(),
             inference_input=inference_input,
         )
@@ -367,7 +367,7 @@ def _drive_two_step_session(
         canonical_schema=adapter.canonical_input_schema,
         inference_input_schema=adapter.inference_input_schema,
     )
-    initial_inputs = mapping.map_global_inputs(
+    initial_inputs = mapping.map_global_conditioning_inputs(
         canonical_inputs=canonicalizer.canonicalize(
             user_inputs,
             window=TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
@@ -390,9 +390,8 @@ def _drive_two_step_session(
                     or TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
                     source_schema=source_schema,
                 ),
-                # The global slot stays empty in steady state. A mapping that
-                # sees ``canonical_inputs.has_global_change`` fills it via
-                # ``with_global_update`` to request a mid-rollout swap.
+                # Per-step calls carry only the step payload. A changed prompt
+                # or scene starts or resets a session outside this loop.
                 inference_input=InferenceInput(
                     step={"chunk_index": request.step_index},
                 ),
@@ -417,7 +416,7 @@ def _drive_two_step_session(
 class _FakeAdapter:
     model_id = "fake-model"
     inference_input_schema = InferenceInputSchema(
-        global_fields=(InputField(name="prompt"),),
+        global_conditioning_fields=(InputField(name="prompt"),),
         step_fields=(InputField(name="chunk_index"),),
     )
     canonical_input_schema = CanonicalInputSchema()
@@ -440,7 +439,7 @@ class _FakeRuntime:
         self.closed = False
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
-        self._inference_input_schema.require_global(inputs)
+        self._inference_input_schema.require_global_conditioning(inputs)
         return _FakeSession(inference_input_schema=self._inference_input_schema)
 
     def close(self) -> None:

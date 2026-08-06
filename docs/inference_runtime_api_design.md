@@ -119,7 +119,7 @@ InferenceRuntime
   |
   v
 InferenceSession
-  one rollout/stream: prompt/initial inputs, cache/state, current step, reset
+  one rollout/stream: global conditioning, cache/state, current step, reset
   keeps per-run state from leaking across prompts, clients, or benchmark repeats
   |
   v
@@ -187,11 +187,11 @@ local model implementation, a Dynamo-like backend, or a hosted service.
 | --- | --- | --- |
 | Model/preset registry | Lists what can run: model/preset slugs, scenarios, capabilities, resource hints, and supported output modes. | Must remain cheap to query and must not load checkpoints. |
 | App / integration / benchmark / transport | Owns the user-facing mode: CLI, native integration, WebRTC, benchmark, hosted request, or replay. | Supplies run setup, user inputs, model inputs, and output target selection. |
-| User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image updates, traces, and future scalar controls. |
-| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
+| User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image selection, traces, and future scalar controls. |
+| Input mapping | Converts user/app inputs plus global conditioning into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
 | ModelRunner / standard loop | Orchestrates one run from setup through runtime initialization, stepping, output, metrics, and teardown. | Shared orchestration layer used by CLIs, benchmarks, MP4 runs, and simple realtime flows. |
 | InferenceRuntime | Owns heavyweight lifecycle: distributed init, model construction, checkpoint loading, compile/capture, warmup, hosted-service connection, and teardown. | Long-lived reusable runtime created from `InferenceConfig`; lets FlashDreams load/warm once and create sessions sequentially unless the backend supports concurrency. |
-| InferenceSession | Owns one rollout or stream: initial inputs, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
+| InferenceSession | Owns one rollout or stream: global conditioning, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
 | Model implementation / inference pipeline | Implements encode, model step, decode, cache updates, and model-specific optimizations. | FlashDreams wraps this boundary; it should not replace every model implementation. |
 | Output target | Consumes generated outputs and handles presentation or persistence. | Separate from model execution so the same session can feed WebRTC, MP4, benchmark, or headless output. |
 | Metrics, artifacts, and profiling | Records timings, memory, quality data, logs, reports, traces, and optional NVTX ranges. | Shared observation layer for local runs, benchmarks, CI smoke, and hosted runs. |
@@ -298,8 +298,7 @@ uses:
 
 - keyboard keydown/keyup events;
 - reset requests;
-- prompt update requests;
-- image update requests;
+- prompt or image selection/update events;
 - future scalar controls such as throttle, brake, steer, or camera axes once an
   integration needs them.
 
@@ -335,11 +334,11 @@ Examples of global conditioning include prompt, negative prompt, conditioning
 frame, input video, scene id, HD map asset, camera calibration, initial camera
 pose, seed, or model-specific fields.
 
-Global conditioning is normally supplied when a session starts, but a non-empty
-global slot on a mid-rollout input is an update request rather than a reset;
-resetting rollout state is a separate `InferenceSession.reset()` call. Whether a
-given value can be swapped mid-rollout is declared per field by
-`InputField.update_policy`.
+Global conditioning establishes session-global model state when a session
+starts or resets. During an active rollout, a non-empty global-conditioning
+payload passed to `InferenceSession.step()` asks the session to update that
+state when the model supports it. Reset remains a separate explicit session
+method.
 
 Examples of per-step conditioning include frame timestamps, pose segments,
 camera trajectory chunks, rendered HD map frames, conditioning video windows,
@@ -349,16 +348,17 @@ Inference input payloads should use semantic names, not only modality names. For
 example, a first frame and an HD map frame should be distinct inputs even if
 both are image-like values.
 
-Model input metadata may also include a lightweight lifecycle label, such as
-runtime config, cache initialization, rollout binding, per-step input, or
-session update. This should remain query metadata, not model-specific tensor
-validation.
+Model input names, payload kinds, semantic-type hints, and schema metadata
+should be open-ended. Supported integrations such as SANA-WM, LingBot,
+Omnidreams, and future external adapters may need different semantic fields.
+Adding a new model should usually mean adding adapter-owned schema declarations
+and mappings, not changing a central FlashDreams enum.
 
-Model input names, payload kinds, lifecycle labels, and schema metadata should
-be open-ended. Supported integrations such as SANA-WM, LingBot, Omnidreams, and
-future external adapters may need different semantic fields. Adding a new model
-should usually mean adding adapter-owned schema declarations and mappings, not
-changing a central FlashDreams enum.
+Consumption cadence is a separate hint from input scope. A field may be
+provided through global conditioning because it is session-global state, while
+the adapter consumes or slices it during every step. That can be recorded as
+`frequency_consumed` metadata without changing whether the field belongs in
+`global_conditioning_fields` or `step_fields`.
 
 For interactive runs, most `InferenceInput` values will be global conditioning
 plus per-step inputs produced by input mapping. For MP4 generation and benchmarking, the API
@@ -374,7 +374,7 @@ These schemas are not meant to be a rich type system or a replacement for
 model-specific validation. They should be just enough to answer:
 
 - what can this app, transport, trace, or benchmark source provide?
-- what does this model require before startup and at each step?
+- what does this model require before session start and at each step?
 - can this event source drive this model with the selected mapping?
 
 The purpose is to fail early before expensive model initialization, produce
@@ -386,7 +386,7 @@ coordinate frame, units, rough shape summary, accepted file suffixes, schema
 URI, model family, or source/transport details. Metadata should help humans and
 adapter selection code, but compatibility should still be based on the declared
 event capabilities, semantic model fields, payload representation hints, and
-lifecycle labels.
+schema phases. Consumption-cadence hints are descriptive and adapter-owned.
 
 For simple CLI text-to-video or image-to-video runs, `UserInputSchema` can be
 trivial or omitted because there may be no live controls. `InferenceInputSchema` is
@@ -478,6 +478,14 @@ declare user inputs, declare model inputs, and provide a default mapping, while
 the runtime owns transport, event validation, timestamping, input queue/window
 selection, output delivery, and optional overrides.
 
+`StepRequest` and `StepResult` are per-step runtime messages, not declarative
+schemas. `InferenceSession.next_step_request()` returns a `StepRequest` to say
+which step is next, which user-input time window to map, and whether this step
+has any narrower `InferenceInputSchema` than the session default. The runner or
+application then builds an `InferenceInput` and calls `InferenceSession.step()`,
+which returns a `StepResult` carrying the generated output, output timing,
+metrics, and step metadata.
+
 Examples:
 
 - T2V mapping validates a prompt and creates no per-step control inputs.
@@ -505,7 +513,7 @@ A run should:
    profiling, and optional scenario setup.
 3. Validate that the event source and mapping can drive the selected model.
 4. Initialize the runtime.
-5. Start a session from initial model inputs.
+5. Start a session from global conditioning inputs.
 6. For each step, ask the session what it needs, gather live or fixed inputs,
    build step model inputs, run the session step, route outputs, and record
    metrics.
@@ -553,8 +561,9 @@ generation, benchmarks, regression testing, and autotune.
 
 Two replay levels should be supported:
 
-- user-event replay: records timestamped key events, prompt updates, image
-  updates, reset events, and timing, then runs normal input mapping;
+- user-event replay: records timestamped key events, prompt or image
+  selection/update events, reset events, and timing, then runs normal input
+  mapping;
 - model-input replay: records or defines already-mapped per-step model inputs
   for stricter model-level regression tests.
 
@@ -667,8 +676,10 @@ registry, standard loop, concrete output modes, or model migrations:
 - The model-specific integration boundary is named `ModelAdapter`.
 - Heavyweight lifecycle is split into `InferenceRuntime` and
   `InferenceSession`.
-- Step data carriers are named `StepRequest` and `StepResult`; a session returns
-  `None` from `next_step_request()` when the rollout is complete.
+- Step data carriers are named `StepRequest` and `StepResult`. They are runtime
+  messages around one call to `InferenceSession.step()`, not schema
+  declarations; a session returns `None` from `next_step_request()` when the
+  rollout is complete.
 - Raw inputs use `UserInputs`, canonicalized inputs use `CanonicalInputs`, and
   model-facing inputs use `InferenceInput`.
   Both remain lightweight payload envelopes with shallow read-only mappings.

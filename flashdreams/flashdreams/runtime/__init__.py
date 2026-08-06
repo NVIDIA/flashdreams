@@ -19,7 +19,6 @@ from flashdreams.runtime.canonical import (
 from flashdreams.runtime.config import ExecutionBackend, InferenceConfig, Precision
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
-    SESSION_START_ONLY,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
@@ -96,7 +95,6 @@ __all__ = [
     "Precision",
     "RuntimeMetricSample",
     "ScriptedModality",
-    "SESSION_START_ONLY",
     "StepRequest",
     "StepResult",
     "TimeWindow",

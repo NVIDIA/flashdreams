@@ -4,9 +4,10 @@
 """Tests for declarative input-mapping compatibility in the runtime API.
 
 These cover the T2/T3 contract: sources declare what user events they can
-provide at payload granularity, models declare required and optional
-initial/per-step inputs, and a mapping declares what it consumes and produces so
-compatibility can be answered before expensive runtime initialization.
+provide at payload granularity, models declare required and optional global
+conditioning/per-step inputs, and a mapping declares what it consumes and
+produces so compatibility can be answered before expensive runtime
+initialization.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ import pytest
 
 from flashdreams.runtime import (
     DRIVER_COMMAND,
-    SESSION_START_ONLY,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
@@ -66,11 +66,13 @@ CANONICAL_ALL = CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_LOOK))
 # modality, so this mapping consumes nothing and only declares what it produces.
 PROMPT_MAPPING = InputMappingSchema(
     name="prompt",
-    produces_global=(InputField(name="prompt", semantic_type="text"),),
+    produces_global_conditioning=(InputField(name="prompt", semantic_type="text"),),
 )
 FRAME_MAPPING = InputMappingSchema(
     name="conditioning-frame",
-    produces_global=(InputField(name="global_conditioning_frame", required=False),),
+    produces_global_conditioning=(
+        InputField(name="global_conditioning_frame", required=False),
+    ),
 )
 STEERING_MAPPING = InputMappingSchema(
     name="driver-command-to-steering",
@@ -84,12 +86,10 @@ LOOK_MAPPING = InputMappingSchema(
 )
 
 DRIVING_MODEL = InferenceInputSchema(
-    global_fields=(
-        InputField(name="prompt", semantic_type="text", lifecycle="cache_init"),
-    ),
+    global_conditioning_fields=(InputField(name="prompt", semantic_type="text"),),
     step_fields=(
-        InputField(name="steering", lifecycle="step_input"),
-        InputField(name="camera_delta", required=False, lifecycle="step_input"),
+        InputField(name="steering"),
+        InputField(name="camera_delta", required=False),
     ),
 )
 
@@ -97,7 +97,7 @@ DRIVING_MODEL = InferenceInputSchema(
 # --- user input events and windowing ------------------------------------
 
 
-def test_startup_values_are_represented_as_events() -> None:
+def test_session_start_values_are_represented_as_events() -> None:
     inputs = UserInputs(
         events=(
             UserInputEvent(
@@ -198,7 +198,7 @@ def test_model_declares_required_and_optional_fields_per_phase() -> None:
     optional = DRIVING_MODEL.optional_fields()
 
     assert {(phase, f.name) for phase, f in required} == {
-        ("global", "prompt"),
+        ("global_conditioning", "prompt"),
         ("step", "steering"),
     }
     assert {(phase, f.name) for phase, f in optional} == {("step", "camera_delta")}
@@ -211,7 +211,10 @@ def test_required_fields_can_be_filtered_by_phase() -> None:
 
 
 def test_field_lookup_is_phase_scoped() -> None:
-    assert DRIVING_MODEL.field_for(name="prompt", phase="global") is not None
+    assert (
+        DRIVING_MODEL.field_for(name="prompt", phase="global_conditioning")
+        is not None
+    )
     assert DRIVING_MODEL.field_for(name="prompt", phase="step") is None
 
 
@@ -227,20 +230,28 @@ def test_inference_input_expose_payload_per_phase() -> None:
         global_conditioning={"prompt": "drive"}, step={"steering": 0.25}
     )
 
-    assert inputs.for_phase("global")["prompt"] == "drive"
+    assert inputs.for_phase("global_conditioning")["prompt"] == "drive"
     assert inputs.for_phase("step")["steering"] == 0.25
 
 
-def test_lifecycle_and_update_policy_are_queryable_metadata() -> None:
+def test_step_context_can_carry_global_conditioning_update_payload() -> None:
+    inputs = InferenceInput(
+        global_conditioning={"prompt": "heavy rain"},
+        step={"steering": 0.25},
+    )
+
+    assert inputs.global_conditioning["prompt"] == "heavy rain"
+    assert inputs.step["steering"] == 0.25
+
+
+def test_field_metadata_is_queryable() -> None:
     field = InputField(
         name="prompt",
-        update_policy="step_boundary",
-        lifecycle="cache_init",
+        frequency_consumed="once",
         metadata={"coordinates": "opencv_c2w"},
     )
 
-    assert field.update_policy == "step_boundary"
-    assert field.lifecycle == "cache_init"
+    assert field.frequency_consumed == "once"
     assert field.metadata["coordinates"] == "opencv_c2w"
 
 
@@ -263,7 +274,7 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
 
     assert compatibility.can_drive
     assert {(p, f.name) for p, f in compatibility.satisfied_required_model_fields} == {
-        ("global", "prompt"),
+        ("global_conditioning", "prompt"),
         ("step", "steering"),
     }
     assert {(p, f.name) for p, f in compatibility.available_optional_model_fields} == {
@@ -325,13 +336,17 @@ def test_optional_field_needs_mapping_support_to_be_available() -> None:
     assert compatibility.available_optional_model_fields == ()
 
 
-def test_lifecycle_disagreement_blocks_a_field_match() -> None:
+def test_global_conditioning_mapping_matches_global_conditioning_field() -> None:
     model = InferenceInputSchema(
-        global_fields=(InputField(name="prompt", lifecycle="rollout_binding"),)
+        global_conditioning_fields=(
+            InputField(name="camera_trajectory", frequency_consumed="per_step"),
+        )
     )
     mapping = InputMappingSchema(
-        name="prompt",
-        produces_global=(InputField(name="prompt", lifecycle="cache_init"),),
+        name="trajectory",
+        produces_global_conditioning=(
+            InputField(name="camera_trajectory", frequency_consumed="once"),
+        ),
     )
 
     compatibility = check_mapping_compatibility(
@@ -340,11 +355,13 @@ def test_lifecycle_disagreement_blocks_a_field_match() -> None:
         mapping_schema=mapping,
     )
 
-    assert not compatibility.can_drive
+    assert compatibility.can_drive
 
 
-def test_unspecified_lifecycle_stays_permissive() -> None:
-    model = InferenceInputSchema(global_fields=(InputField(name="prompt"),))
+def test_unspecified_semantic_type_stays_permissive() -> None:
+    model = InferenceInputSchema(
+        global_conditioning_fields=(InputField(name="prompt"),)
+    )
 
     compatibility = check_mapping_compatibility(
         canonical_schema=CANONICAL_ALL,
@@ -398,26 +415,28 @@ def test_combining_mappings_unions_their_surfaces() -> None:
     combined = combine_mapping_schemas((PROMPT_MAPPING, STEERING_MAPPING))
 
     assert {m.name for m in combined.consumes} == {"driver_command"}
-    assert [f.name for f in combined.produces_global] == ["prompt"]
+    assert [f.name for f in combined.produces_global_conditioning] == ["prompt"]
     assert [f.name for f in combined.produces_step] == ["steering"]
 
 
 def test_duplicate_declarations_collapse_and_merge_metadata() -> None:
     first = InputMappingSchema(
         name="a",
-        produces_global=(InputField(name="prompt", metadata={"source": "a"}),),
+        produces_global_conditioning=(
+            InputField(name="prompt", metadata={"source": "a"}),
+        ),
     )
     second = InputMappingSchema(
         name="b",
-        produces_global=(
+        produces_global_conditioning=(
             InputField(name="prompt", metadata={"source": "b", "extra": "kept"}),
         ),
     )
 
     combined = combine_mapping_schemas((first, second))
 
-    assert len(combined.produces_global) == 1
-    metadata = combined.produces_global[0].metadata
+    assert len(combined.produces_global_conditioning) == 1
+    metadata = combined.produces_global_conditioning[0].metadata
     assert metadata["source"] == "a"
     assert metadata["extra"] == "kept"
 
@@ -489,85 +508,3 @@ def test_model_with_no_requirements_is_always_drivable() -> None:
     )
 
     assert compatibility.can_drive
-
-
-# --- global conditioning updates vs reset -------------------------------
-
-
-def test_empty_global_slot_requests_no_update() -> None:
-    steady_state = InferenceInput(step={"steering": 0.25})
-
-    assert not steady_state.requests_global_update
-
-
-def test_non_empty_global_slot_mid_rollout_is_an_update_request() -> None:
-    """Changing weather mid-run updates conditioning; it is not a reset."""
-    updated = InferenceInput(step={"steering": 0.0}).with_global_update(
-        {"prompt": "heavy rain"}
-    )
-
-    assert updated.requests_global_update
-    assert updated.global_conditioning["prompt"] == "heavy rain"
-    assert updated.step["steering"] == 0.0
-
-
-def test_with_step_carries_the_global_slot_through() -> None:
-    started = InferenceInput(global_conditioning={"prompt": "drive"})
-
-    stepped = started.with_step({"steering": 0.5})
-
-    assert stepped.global_conditioning["prompt"] == "drive"
-
-
-def test_without_global_update_clears_the_request() -> None:
-    started = InferenceInput(
-        global_conditioning={"prompt": "drive"}, step={"steering": 0.5}
-    )
-
-    steady_state = started.without_global_update()
-
-    assert not steady_state.requests_global_update
-    assert steady_state.step["steering"] == 0.5
-
-
-def test_model_can_declare_conditioning_it_cannot_swap_mid_rollout() -> None:
-    schema = InferenceInputSchema(
-        global_fields=(
-            InputField(name="prompt", update_policy="step_boundary"),
-            InputField(name="scene_id", update_policy=SESSION_START_ONLY),
-        )
-    )
-    update = InferenceInput(
-        global_conditioning={"prompt": "heavy rain", "scene_id": "town_02"}
-    )
-
-    assert schema.unsupported_global_updates(update) == ("scene_id",)
-
-
-def test_permissive_when_no_update_policy_is_declared() -> None:
-    schema = InferenceInputSchema(global_fields=(InputField(name="prompt"),))
-    update = InferenceInput(global_conditioning={"prompt": "heavy rain"})
-
-    assert schema.unsupported_global_updates(update) == ()
-
-
-def test_undeclared_global_values_are_left_to_the_adapter() -> None:
-    schema = InferenceInputSchema(global_fields=(InputField(name="prompt"),))
-    update = InferenceInput(global_conditioning={"mystery": 1})
-
-    assert schema.unsupported_global_updates(update) == ()
-
-
-def test_steady_state_steps_do_not_request_a_global_update() -> None:
-    """Carrying session-start conditioning forward would look like an update."""
-    started = InferenceInput(global_conditioning={"prompt": "drive"})
-
-    steady_state = InferenceInput(step={"chunk_index": 1})
-
-    assert started.requests_global_update
-    assert not steady_state.requests_global_update
-    assert (
-        not started.with_step({"chunk_index": 1})
-        .without_global_update()
-        .requests_global_update
-    )

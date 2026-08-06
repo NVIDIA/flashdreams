@@ -12,23 +12,17 @@ from typing import Any, Literal, cast
 
 from flashdreams.runtime._utils import freeze_mapping
 
-InputPhase = Literal["global", "step"]
+InputPhase = Literal["global_conditioning", "step"]
 
-INPUT_PHASES: tuple[InputPhase, ...] = ("global", "step")
-
-SESSION_START_ONLY = "session_start"
-"""``InputField.update_policy`` value meaning "supply at session start only".
-
-``update_policy`` is otherwise an open, adapter-owned vocabulary. This is the
-one reserved token, because the runtime needs to distinguish a conditioning
-value that can be swapped mid-rollout from one that cannot.
-"""
+INPUT_PHASES: tuple[InputPhase, ...] = ("global_conditioning", "step")
 
 
 def validate_phase(value: str) -> InputPhase:
     """Return ``value`` as a validated :data:`InputPhase`."""
     if value not in INPUT_PHASES:
-        raise ValueError(f"phase must be 'global' or 'step', got {value!r}.")
+        raise ValueError(
+            f"phase must be 'global_conditioning' or 'step', got {value!r}."
+        )
     return cast(InputPhase, value)
 
 
@@ -56,17 +50,15 @@ class TimeWindow:
 class InputField:
     """Lightweight schema field for user snapshots or model inputs.
 
-    ``update_policy`` and ``lifecycle`` are plain query metadata. They let a
-    model advertise facts such as "prompt updates land at step boundaries" or
-    "this value is consumed at cache init" without making this layer
-    responsible for implementing or deeply validating that behavior.
+    ``semantic_type``, ``frequency_consumed``, and ``metadata`` are query hints
+    only. Adapter-owned validation still decides concrete shape, dtype, units,
+    and tensor layout.
     """
 
     name: str
     required: bool = True
     semantic_type: str | None = None
-    update_policy: str | None = None
-    lifecycle: str | None = None
+    frequency_consumed: str | None = None
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
         compare=False,
@@ -205,21 +197,21 @@ class UserInputSchema:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class InferenceInputSchema:
-    """Minimal metadata for model-facing initial and per-step inputs."""
+    """Minimal metadata for global conditioning and per-step inputs."""
 
-    global_fields: tuple[InputField, ...] = ()
-    """Model inputs required before starting the initial generation/session."""
+    global_conditioning_fields: tuple[InputField, ...] = ()
+    """Model inputs carried in the global conditioning slot."""
 
     step_fields: tuple[InputField, ...] = ()
-    """Per-step model inputs required after the session starts."""
+    """Model inputs required for one session step."""
 
     description: str = ""
 
     def fields_for(self, phase: InputPhase) -> tuple[InputField, ...]:
         """Return every declared field for ``phase``."""
         return (
-            self.global_fields
-            if validate_phase(phase) == "global"
+            self.global_conditioning_fields
+            if validate_phase(phase) == "global_conditioning"
             else self.step_fields
         )
 
@@ -258,32 +250,20 @@ class InferenceInputSchema:
             if input_field.required is required
         )
 
-    def unsupported_global_updates(self, inputs: "InferenceInput") -> tuple[str, ...]:
-        """Return requested conditioning updates this model cannot apply.
-
-        A field whose ``update_policy`` is :data:`SESSION_START_ONLY` can be
-        supplied when the session starts but not changed mid-rollout. Any other
-        policy, including ``None``, is treated as permissive here; the adapter
-        still owns whether the swap actually succeeds.
-        """
-        return tuple(
-            name
-            for name in inputs.global_conditioning
-            if (declared := self.field_for(name=name, phase="global")) is not None
-            and declared.update_policy == SESSION_START_ONLY
+    def missing_global_conditioning(self, inputs: "InferenceInput") -> tuple[str, ...]:
+        """Return required global conditioning fields absent from ``inputs``."""
+        return _missing_required(
+            self.global_conditioning_fields,
+            inputs.global_conditioning,
         )
-
-    def missing_global(self, inputs: "InferenceInput") -> tuple[str, ...]:
-        """Return required initial fields absent from ``inputs``."""
-        return _missing_required(self.global_fields, inputs.global_conditioning)
 
     def missing_step(self, inputs: "InferenceInput") -> tuple[str, ...]:
         """Return required per-step fields absent from ``inputs``."""
         return _missing_required(self.step_fields, inputs.step)
 
-    def require_global(self, inputs: "InferenceInput") -> None:
-        """Raise if required initial fields are absent."""
-        missing = self.missing_global(inputs)
+    def require_global_conditioning(self, inputs: "InferenceInput") -> None:
+        """Raise if required global conditioning fields are absent."""
+        missing = self.missing_global_conditioning(inputs)
         if missing:
             raise ValueError(
                 f"Missing required global conditioning input(s): {missing}"
@@ -447,16 +427,10 @@ class InferenceInput:
     Two conditioning slots:
 
     - ``global_conditioning``: values that condition the whole rollout, such as
-      the conditioning frame or prompt. Normally supplied when the session
-      starts.
+      the conditioning frame or prompt. Session start/reset establishes this
+      state; a step call may carry a non-empty payload to request an update when
+      the model supports it.
     - ``step``: values needed to generate the next chunk or frame.
-
-    A non-empty ``global_conditioning`` on a mid-rollout input is an *update
-    request*, not a reset. The session should apply it when the model supports
-    that; resetting rollout state is a separate, explicit
-    :meth:`InferenceSession.reset` call. Whether a given value can be updated
-    mid-rollout is declared per field by ``InputField.update_policy``; see
-    :meth:`InferenceInputSchema.unsupported_global_updates`.
     """
 
     __hash__ = None
@@ -472,42 +446,12 @@ class InferenceInput:
         object.__setattr__(self, "step", freeze_mapping(self.step))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
-    @property
-    def requests_global_update(self) -> bool:
-        """Return whether this input asks the session to update conditioning."""
-        return bool(self.global_conditioning)
-
-    def with_step(self, step: Mapping[str, Any]) -> "InferenceInput":
-        """Return a copy with replaced per-step payload.
-
-        The global slot is carried through unchanged, so a mid-rollout input
-        built this way keeps whatever update request it already had. Use
-        :meth:`without_global_update` for the common steady-state case.
-        """
-        return InferenceInput(
-            global_conditioning=self.global_conditioning,
-            step=step,
-            metadata=self.metadata,
-        )
-
-    def with_global_update(
-        self, global_conditioning: Mapping[str, Any]
-    ) -> "InferenceInput":
-        """Return a copy requesting a mid-rollout conditioning update."""
-        return InferenceInput(
-            global_conditioning=global_conditioning,
-            step=self.step,
-            metadata=self.metadata,
-        )
-
-    def without_global_update(self) -> "InferenceInput":
-        """Return a copy that requests no conditioning update."""
-        return InferenceInput(step=self.step, metadata=self.metadata)
-
     def for_phase(self, phase: InputPhase) -> Mapping[str, Any]:
         """Return the payload mapping for ``phase``."""
         return (
-            self.global_conditioning if validate_phase(phase) == "global" else self.step
+            self.global_conditioning
+            if validate_phase(phase) == "global_conditioning"
+            else self.step
         )
 
 

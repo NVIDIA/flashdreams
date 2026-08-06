@@ -15,10 +15,11 @@ from flashdreams.runtime.inputs import InferenceInputSchema, TimeWindow
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class StepRequest:
-    """Model-session request for the next step's inputs.
+    """Per-step runtime request emitted by an inference session.
 
-    ``user_input_window`` lets a runner drain or slice timestamped user events for
-    the current step before invoking the selected ``InputMapping``.
+    This is not a schema declaration. ``user_input_window`` lets a runner drain
+    or slice timestamped user events for the current step before invoking the
+    selected ``InputMapping``.
     """
 
     __hash__ = None
@@ -36,7 +37,7 @@ class StepRequest:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class StepResult:
-    """Generated output and metadata for one inference step."""
+    """Generated output and metadata returned by one inference step."""
 
     __hash__ = None
 

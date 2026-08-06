@@ -22,7 +22,7 @@ class InferenceSession(Protocol):
     """One rollout or stream with isolated model/cache state."""
 
     def next_step_request(self) -> StepRequest | None:
-        """Describe the next step's inputs, or return ``None`` when complete."""
+        """Return the next step's runtime request, or ``None`` when complete."""
         ...
 
     def step(self, inputs: InferenceInput) -> StepResult:
@@ -69,7 +69,7 @@ class ModelAdapter(Protocol):
 
     @property
     def inference_input_schema(self) -> InferenceInputSchema:
-        """Model-facing initial and per-step input requirements."""
+        """Model-facing global conditioning and per-step input requirements."""
         ...
 
     @property
