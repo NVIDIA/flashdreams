@@ -83,22 +83,10 @@ _WorkerCommand = Callable[["VideoModelBackend"], bool]
 
 class ChunkPipeline:
     def __init__(
-        self,
-        backend: VideoModelBackend,
-        trace_context: TraceContext | None = None,
-        *,
-        defer_warmup: bool = False,
+        self, backend: VideoModelBackend, trace_context: TraceContext | None = None
     ) -> None:
         self._backend = backend
         self._trace_context = trace_context
-        # Warmup is deferred so the worker can build its cuDNN attention plans
-        # before SlangPy creates a Vulkan device; see ``prime_before_slangpy``.
-        self._defer_warmup = bool(defer_warmup)
-        self._primer_done = threading.Event()
-        self._warmup_gate = threading.Event()
-        self._abort_before_warmup = False
-        if not self._defer_warmup:
-            self._warmup_gate.set()
         # Unbounded so ``put`` never blocks the worker against shutdown.
         # TODO: gate in-flight work at the request site (frame-level, alpasim
         # style) instead of the loop's chunk-level ``chunks_outstanding`` gate.
@@ -130,15 +118,6 @@ class ChunkPipeline:
             daemon=True,
         )
         self._thread.start()
-
-    def wait_for_primer(self) -> None:
-        """Block until the worker has run its pre-SlangPy primer hook."""
-        self._primer_done.wait()
-        self._raise_worker_error_if_any()
-
-    def start_warmup(self) -> None:
-        """Allow the worker to continue from primer into backend warmup."""
-        self._warmup_gate.set()
 
     @property
     def model_ready(self) -> threading.Event:
@@ -330,25 +309,12 @@ class ChunkPipeline:
         self._command_queue.put(toggle_command)
 
     def shutdown(self) -> None:
-        if self._defer_warmup and not self._warmup_gate.is_set():
-            self._abort_before_warmup = True
-            self._warmup_gate.set()
         self._command_queue.put(_shutdown_command)
         self._thread.join()
         self._raise_worker_error_if_any()
 
     def _worker(self) -> None:
         try:
-            # Build cuDNN's attention plans before the caller is allowed to
-            # create a SlangPy Vulkan device; doing it the other way round
-            # makes the first large cuDNN MHA fail.
-            primer = getattr(self._backend, "prime_before_slangpy", None)
-            if callable(primer):
-                primer()
-            self._primer_done.set()
-            self._warmup_gate.wait()
-            if self._abort_before_warmup:
-                return
             logger.info("[chunk-pipeline] warmup start")
             warmup_timing = run_timed_prewarm(
                 self._backend.warmup_model,
@@ -372,9 +338,8 @@ class ChunkPipeline:
         except BaseException as exc:
             with self._worker_error_lock:
                 self._worker_error = exc
-            # Unblock anyone waiting on the primer or on warmup; the error
-            # resurfaces on the next public call via _raise_worker_error_if_any.
-            self._primer_done.set()
+            # Unblock anyone waiting on warmup; the error resurfaces on the
+            # next public call via _raise_worker_error_if_any.
             self._model_ready.set()
 
     def _raise_worker_error_if_any(self) -> None:

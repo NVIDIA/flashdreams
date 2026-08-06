@@ -19,11 +19,6 @@ class LocalVideoModelAdapter:
         self._backend = backend
         self._is_first_chunk = True
 
-    def prime_before_slangpy(self) -> None:
-        primer = getattr(self._backend, "prime_before_slangpy", None)
-        if callable(primer):
-            primer()
-
     @property
     def can_prewarm(self) -> bool:
         return self._backend.can_prewarm
