@@ -7,7 +7,7 @@ from lingbot.demo.adapter import LingbotDemoAdapter
 from lingbot.demo.spec import (
     DEFAULT_LINGBOT_PRESET,
     LINGBOT_MODEL_ID,
-    LingbotReplayScenario,
+    LingbotReplayInputs,
     LingbotWebRTCScenario,
 )
 
@@ -15,6 +15,6 @@ __all__ = [
     "DEFAULT_LINGBOT_PRESET",
     "LINGBOT_MODEL_ID",
     "LingbotDemoAdapter",
-    "LingbotReplayScenario",
+    "LingbotReplayInputs",
     "LingbotWebRTCScenario",
 ]

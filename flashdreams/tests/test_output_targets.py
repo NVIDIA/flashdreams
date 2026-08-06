@@ -71,9 +71,10 @@ def test_lingbot_webrtc_target_translates_runner_config() -> None:
         ),
     )
 
-    assert spec.module == "lingbot.webrtc.server"
+    assert spec.module == "lingbot.demo.cli"
     assert spec.argv == (
-        "--config_name",
+        "webrtc",
+        "--preset-id",
         "lingbot-world-fast",
         "--device",
         "cuda:1",
@@ -83,14 +84,14 @@ def test_lingbot_webrtc_target_translates_runner_config() -> None:
         "480",
         "--video-width",
         "832",
-        "--no_compile",
+        "--no-compile",
         "--example-idx",
         "3",
         "--host",
         "127.0.0.1",
         "--port",
         "9010",
-        "--prefer_sw_encoder",
+        "--prefer-sw-encoder",
     )
 
 

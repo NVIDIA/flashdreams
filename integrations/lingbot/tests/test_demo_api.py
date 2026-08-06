@@ -15,7 +15,7 @@ from lingbot.demo import (
     DEFAULT_LINGBOT_PRESET,
     LINGBOT_MODEL_ID,
     LingbotDemoAdapter,
-    LingbotReplayScenario,
+    LingbotReplayInputs,
     LingbotWebRTCScenario,
 )
 from lingbot.demo.cli import _replay_spec, _webrtc_spec, parse_args
@@ -24,6 +24,17 @@ from lingbot.demo.replay import (
     LingbotReplayRuntimeOptions,
 )
 from lingbot.demo.webrtc import LingbotDemoWebRTCSessionManager
+from lingbot.runtime import (
+    FIELD_CAMERA_INTRINSICS_PATH,
+    FIELD_CAMERA_POSES_PATH,
+    FIELD_FIRST_FRAME_PATH,
+    FIELD_FPS,
+    FIELD_PIXEL_HEIGHT,
+    FIELD_PIXEL_WIDTH,
+    FIELD_PROMPT,
+    FIELD_TOTAL_BLOCKS,
+    inference_input_from_replay_inputs,
+)
 from lingbot.webrtc.session import LingbotRuntimeConfig
 
 from flashdreams.infra.video_output import VideoStepResult
@@ -59,6 +70,21 @@ def test_lingbot_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
     assert adapter.model_id == LINGBOT_MODEL_ID
     assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
     assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    fields = {
+        field.name
+        for field in adapter.inference_input_schema.global_conditioning_fields
+    }
+    assert "scenario" not in fields
+    assert {
+        FIELD_PROMPT,
+        FIELD_FIRST_FRAME_PATH,
+        FIELD_CAMERA_POSES_PATH,
+        FIELD_CAMERA_INTRINSICS_PATH,
+        FIELD_TOTAL_BLOCKS,
+        FIELD_PIXEL_HEIGHT,
+        FIELD_PIXEL_WIDTH,
+        FIELD_FPS,
+    }.issubset(fields)
 
 
 def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
@@ -107,12 +133,12 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
     assert len(calls) == 1
     assert calls[0]["adapter"] is adapter
     assert calls[0]["config"] == spec.config
-    scenario = calls[0]["initial_inputs"].global_conditioning["scenario"]
-    assert isinstance(scenario, LingbotReplayScenario)
-    assert scenario.prompt == "drive through a city"
-    assert scenario.image_path == image
-    assert scenario.pose_path == poses
-    assert scenario.intrinsic_path == intrinsics
+    inputs = calls[0]["initial_inputs"].global_conditioning
+    assert inputs[FIELD_PROMPT] == "drive through a city"
+    assert inputs[FIELD_FIRST_FRAME_PATH] == image
+    assert inputs[FIELD_CAMERA_POSES_PATH] == poses
+    assert inputs[FIELD_CAMERA_INTRINSICS_PATH] == intrinsics
+    assert inputs[FIELD_TOTAL_BLOCKS] == 1
 
 
 def test_lingbot_replay_invalid_scenario_fails_before_runtime_creation(
@@ -147,7 +173,7 @@ def test_lingbot_replay_invalid_scenario_fails_before_runtime_creation(
         ),
     )
 
-    with pytest.raises(FileNotFoundError, match="missing image_path"):
+    with pytest.raises(FileNotFoundError, match=f"missing {FIELD_FIRST_FRAME_PATH}"):
         run_replay_demo(
             spec=spec,
             adapter=adapter,
@@ -161,7 +187,7 @@ def test_lingbot_replay_cli_defaults_to_example_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import lingbot.demo.spec as spec_module
+    import lingbot.runtime as runtime_module
 
     example_dir = tmp_path / "example"
     example_dir.mkdir()
@@ -177,7 +203,7 @@ def test_lingbot_replay_cli_defaults_to_example_data(
         return example_dir
 
     monkeypatch.setattr(
-        spec_module,
+        runtime_module,
         "ensure_example_data_downloaded",
         fake_download,
     )
@@ -186,13 +212,12 @@ def test_lingbot_replay_cli_defaults_to_example_data(
 
     prepared = LingbotDemoAdapter().prepare_scenario(spec)
 
-    scenario = prepared.initial_inputs.global_conditioning["scenario"]
-    assert isinstance(scenario, LingbotReplayScenario)
+    inputs = prepared.initial_inputs.global_conditioning
     assert downloaded == [0]
-    assert scenario.image_path == example_dir / "image.jpg"
-    assert scenario.pose_path == example_dir / "poses.npy"
-    assert scenario.intrinsic_path == example_dir / "intrinsics.npy"
-    assert scenario.prompt == "drive through a forest"
+    assert inputs[FIELD_FIRST_FRAME_PATH] == example_dir / "image.jpg"
+    assert inputs[FIELD_CAMERA_POSES_PATH] == example_dir / "poses.npy"
+    assert inputs[FIELD_CAMERA_INTRINSICS_PATH] == example_dir / "intrinsics.npy"
+    assert inputs[FIELD_PROMPT] == "drive through a forest"
 
 
 def test_lingbot_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
@@ -201,7 +226,7 @@ def test_lingbot_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
     )
     spec = _replay_spec(args)
 
-    with pytest.raises(ValueError, match="requires image_path"):
+    with pytest.raises(ValueError, match=f"require {FIELD_FIRST_FRAME_PATH}"):
         LingbotDemoAdapter().prepare_scenario(spec)
 
 
@@ -209,7 +234,7 @@ def test_lingbot_replay_runtime_generates_video_step_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import lingbot.demo.replay as replay_module
+    import lingbot.runtime as runtime_module
 
     image = tmp_path / "image.jpg"
     poses = tmp_path / "poses.npy"
@@ -219,17 +244,17 @@ def test_lingbot_replay_runtime_generates_video_step_result(
     np.save(intrinsics, np.ones((2, 4), dtype=np.float32))
     pipeline = _FakeLingbotPipeline()
     monkeypatch.setattr(
-        replay_module,
+        runtime_module,
         "load_first_frame_tensor",
         lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
     )
     monkeypatch.setattr(
-        replay_module,
+        runtime_module,
         "get_Ks_transformed",
         lambda intrinsics_t, **kwargs: intrinsics_t,
     )
     monkeypatch.setattr(
-        replay_module,
+        runtime_module,
         "preprocess_example_poses",
         lambda c2ws: (c2ws, 2.5),
     )
@@ -241,19 +266,17 @@ def test_lingbot_replay_runtime_generates_video_step_result(
             pipeline_factory=lambda pipeline_config, device: pipeline,
         ),
     )
-    scenario = LingbotReplayScenario(
+    replay_inputs = LingbotReplayInputs(
         prompt="drive",
-        image_path=image,
-        pose_path=poses,
-        intrinsic_path=intrinsics,
+        first_frame_path=image,
+        camera_poses_path=poses,
+        camera_intrinsics_path=intrinsics,
         total_blocks=1,
         pixel_height=2,
         pixel_width=2,
         fps=16,
     )
-    session = runtime.start_session(
-        InferenceInput(global_conditioning={"scenario": scenario})
-    )
+    session = runtime.start_session(inference_input_from_replay_inputs(replay_inputs))
 
     request = session.next_step_request()
     assert request is not None

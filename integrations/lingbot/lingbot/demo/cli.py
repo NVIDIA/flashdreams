@@ -24,7 +24,20 @@ from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
 )
-from lingbot.runner import EXAMPLE_DATA_AVAILABLE_IDXS, ensure_example_data_downloaded
+from lingbot.example_data import (
+    EXAMPLE_DATA_AVAILABLE_IDXS,
+    ensure_example_data_downloaded,
+)
+from lingbot.runtime import (
+    FIELD_CAMERA_INTRINSICS_PATH,
+    FIELD_CAMERA_POSES_PATH,
+    FIELD_FIRST_FRAME_PATH,
+    FIELD_FPS,
+    FIELD_PIXEL_HEIGHT,
+    FIELD_PIXEL_WIDTH,
+    FIELD_PROMPT,
+    FIELD_TOTAL_BLOCKS,
+)
 
 from .adapter import LingbotDemoAdapter
 from .spec import (
@@ -143,21 +156,21 @@ def _replay_spec(args: argparse.Namespace) -> DemoSpec:
     scenario: dict[str, object] = {
         "example_data": args.example_data,
         "example_idx": args.example_idx,
-        "total_blocks": args.total_blocks,
-        "pixel_height": args.pixel_height,
-        "pixel_width": args.pixel_width,
-        "fps": args.fps,
+        FIELD_TOTAL_BLOCKS: args.total_blocks,
+        FIELD_PIXEL_HEIGHT: args.pixel_height,
+        FIELD_PIXEL_WIDTH: args.pixel_width,
+        FIELD_FPS: args.fps,
     }
     if args.prompt:
-        scenario["prompt"] = args.prompt
+        scenario[FIELD_PROMPT] = args.prompt
     if args.prompt_path is not None:
         scenario["prompt_path"] = args.prompt_path
     if args.image_path is not None:
-        scenario["image_path"] = args.image_path
+        scenario[FIELD_FIRST_FRAME_PATH] = args.image_path
     if args.pose_path is not None:
-        scenario["pose_path"] = args.pose_path
+        scenario[FIELD_CAMERA_POSES_PATH] = args.pose_path
     if args.intrinsic_path is not None:
-        scenario["intrinsic_path"] = args.intrinsic_path
+        scenario[FIELD_CAMERA_INTRINSICS_PATH] = args.intrinsic_path
 
     return DemoSpec(
         model_id=LINGBOT_MODEL_ID,
