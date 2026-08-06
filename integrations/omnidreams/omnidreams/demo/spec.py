@@ -90,25 +90,37 @@ class OmnidreamsWebRTCScenario:
             raise ValueError("OmnidreamsWebRTCScenario.camera_name is required.")
 
 
-def resolve_replay_scenario(value: Any) -> OmnidreamsReplayScenario:
+def resolve_replay_scenario(
+    value: Any,
+    *,
+    default_prompt: str = "",
+) -> OmnidreamsReplayScenario:
     """Normalize a user/demo scenario into a validated replay scenario."""
     if isinstance(value, OmnidreamsReplayScenario):
         _require_existing_paths(value.hdmap_video_paths, label="hdmap_video_paths")
         _require_existing_paths(value.first_frame_paths, label="first_frame_paths")
         return value
+    if value is None:
+        value = {}
     if not isinstance(value, Mapping):
         raise TypeError(
             "OmniDreams replay scenario must be an OmnidreamsReplayScenario "
-            "or a mapping."
+            "a mapping, or None."
         )
 
-    example_data = bool(value.get("example_data", False))
     hdmap_paths = _path_tuple(value.get("hdmap_video_paths", ()))
     first_paths = _path_tuple(value.get("first_frame_paths", ()))
+    example_data = _resolve_example_data_default(value)
     if example_data and (not hdmap_paths or not first_paths):
-        hdmap_paths, first_paths = _ensure_hf_single_view_example_data_synced(
-            str(value.get("example_data_uuid", DEFAULT_EXAMPLE_DATA_UUID_1V))
+        example_hdmaps, example_first_frames = (
+            _ensure_hf_single_view_example_data_synced(
+                str(value.get("example_data_uuid", DEFAULT_EXAMPLE_DATA_UUID_1V))
+            )
         )
+        if not hdmap_paths:
+            hdmap_paths = example_hdmaps
+        if not first_paths:
+            first_paths = example_first_frames
 
     _require_existing_paths(hdmap_paths, label="hdmap_video_paths")
     _require_existing_paths(first_paths, label="first_frame_paths")
@@ -119,7 +131,7 @@ def resolve_replay_scenario(value: Any) -> OmnidreamsReplayScenario:
         )
 
     num_views = len(hdmap_paths)
-    prompts = _resolve_prompts(value, num_views)
+    prompts = _resolve_prompts(value, num_views, default_prompt=default_prompt)
     camera_names = _string_tuple(value.get("camera_names", ()))
     if not camera_names:
         camera_names = (
@@ -166,6 +178,8 @@ def resolve_webrtc_scenario(value: Any) -> OmnidreamsWebRTCScenario:
 def _resolve_prompts(
     value: Mapping[str, Any],
     num_views: int,
+    *,
+    default_prompt: str,
 ) -> tuple[str, ...]:
     prompts = _string_tuple(value.get("prompts", ()))
     if prompts:
@@ -177,8 +191,43 @@ def _resolve_prompts(
         return prompts
     prompt = str(value.get("prompt", "")).strip()
     if not prompt:
+        prompt = default_prompt.strip()
+    if not prompt:
         raise ValueError("OmniDreams replay scenario requires prompt or prompts.")
     return (prompt,) * num_views
+
+
+def _resolve_example_data_default(value: Mapping[str, Any]) -> bool:
+    explicit = value.get("example_data")
+    if explicit is not None:
+        return _bool_value(explicit)
+    return not (
+        _has_nonempty_value(value, "hdmap_video_paths")
+        or _has_nonempty_value(value, "first_frame_paths")
+    )
+
+
+def _bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _has_nonempty_value(value: Mapping[str, Any], key: str) -> bool:
+    if key not in value:
+        return False
+    raw = value[key]
+    if raw is None or raw == "":
+        return False
+    if isinstance(raw, Sequence) and not isinstance(raw, str):
+        return len(raw) > 0
+    return True
 
 
 def _path_tuple(value: Any) -> tuple[Path, ...]:

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
@@ -107,7 +107,10 @@ class OmnidreamsDemoAdapter:
             )
         if not isinstance(spec.output, Mp4OutputSpec):
             raise ValueError("OmniDreams replay demo currently requires MP4 output.")
-        scenario = resolve_replay_scenario(spec.scenario)
+        scenario = resolve_replay_scenario(
+            spec.scenario,
+            default_prompt=self._default_replay_prompt(spec.config),
+        )
         return PreparedScenario(
             initial_inputs=InferenceInput(
                 global_conditioning={"scenario": scenario},
@@ -239,6 +242,10 @@ class OmnidreamsDemoAdapter:
                 f"Unsupported OmniDreams preset_id={preset_id!r}. "
                 f"Supported presets: {supported}."
             ) from exc
+
+    def _default_replay_prompt(self, config: InferenceConfig | None) -> str:
+        runner = OMNIDREAMS_RUNNERS.get(self._preset_id(config))
+        return "" if runner is None else str(getattr(runner, "prompt", ""))
 
 
 def _option(config: InferenceConfig, name: str, default: Any) -> Any:

@@ -7,8 +7,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import omnidreams.demo.spec as spec_module
 import pytest
 import torch
+from omnidreams.config import OMNIDREAMS_RUNNERS
 from omnidreams.demo import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,
@@ -16,6 +18,7 @@ from omnidreams.demo import (
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
 )
+from omnidreams.demo.cli import _replay_spec, parse_args
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
@@ -136,6 +139,51 @@ def test_omnidreams_replay_invalid_scenario_fails_before_runtime_creation(
         )
 
     assert output_factory_calls == 0
+
+
+def test_omnidreams_replay_cli_defaults_to_hf_example_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hdmap = tmp_path / "hf-hdmap.mp4"
+    first_frame = tmp_path / "hf-first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    synced_uuids: list[str] = []
+
+    def fake_sync(uuid: str) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+        synced_uuids.append(uuid)
+        return (hdmap,), (first_frame,)
+
+    monkeypatch.setattr(
+        spec_module,
+        "_ensure_hf_single_view_example_data_synced",
+        fake_sync,
+    )
+    args = parse_args(["replay", "--output", str(tmp_path / "demo.mp4")])
+    spec = _replay_spec(args)
+
+    prepared = OmnidreamsDemoAdapter().prepare_scenario(spec)
+
+    scenario = prepared.initial_inputs.global_conditioning["scenario"]
+    assert isinstance(scenario, OmnidreamsReplayScenario)
+    assert synced_uuids == ["239560dc-33d1-11ef-9720-00044bcbccac"]
+    assert scenario.hdmap_video_paths == (hdmap,)
+    assert scenario.first_frame_paths == (first_frame,)
+    assert scenario.camera_names == ("camera_front_wide_120fov",)
+    assert scenario.prompts == (
+        str(getattr(OMNIDREAMS_RUNNERS[DEFAULT_OMNIDREAMS_PRESET], "prompt")),
+    )
+
+
+def test_omnidreams_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
+    args = parse_args(
+        ["replay", "--no-example-data", "--output", str(tmp_path / "demo.mp4")]
+    )
+    spec = _replay_spec(args)
+
+    with pytest.raises(ValueError, match="requires hdmap_video_paths"):
+        OmnidreamsDemoAdapter().prepare_scenario(spec)
 
 
 def test_omnidreams_replay_runtime_generates_video_step_result(

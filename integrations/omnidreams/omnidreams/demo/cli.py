@@ -10,6 +10,7 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
+from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime import InferenceConfig
@@ -42,10 +43,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     replay = subparsers.add_parser("replay", help="Run an MP4 replay demo.")
     replay.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
     replay.add_argument("--device", default="cuda")
-    replay.add_argument("--prompt", required=True)
-    replay.add_argument("--hdmap-video-paths", type=_split_paths, required=True)
-    replay.add_argument("--first-frame-paths", type=_split_paths, required=True)
+    replay.add_argument("--prompt", default=None)
+    replay.add_argument("--hdmap-video-paths", type=_split_paths, default=())
+    replay.add_argument("--first-frame-paths", type=_split_paths, default=())
     replay.add_argument("--camera-names", type=_split_strings, default=())
+    replay.add_argument(
+        "--example-data",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Use the bundled single-view HF sample when asset paths are omitted "
+            "(default: auto)."
+        ),
+    )
+    replay.add_argument("--example-data-uuid", default=DEFAULT_EXAMPLE_DATA_UUID_1V)
     replay.add_argument("--total-blocks", type=int, default=60)
     replay.add_argument("--pixel-height", type=int, default=704)
     replay.add_argument("--pixel-width", type=int, default=1280)
@@ -99,20 +110,28 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:
+    scenario: dict[str, object] = {
+        "example_data": args.example_data,
+        "example_data_uuid": args.example_data_uuid,
+        "total_blocks": args.total_blocks,
+        "pixel_height": args.pixel_height,
+        "pixel_width": args.pixel_width,
+        "fps": args.fps,
+    }
+    if args.prompt:
+        scenario["prompt"] = args.prompt
+    if args.hdmap_video_paths:
+        scenario["hdmap_video_paths"] = args.hdmap_video_paths
+    if args.first_frame_paths:
+        scenario["first_frame_paths"] = args.first_frame_paths
+    if args.camera_names:
+        scenario["camera_names"] = args.camera_names
+
     return DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=args.preset_id,
         input_mode="replay",
-        scenario={
-            "prompt": args.prompt,
-            "hdmap_video_paths": args.hdmap_video_paths,
-            "first_frame_paths": args.first_frame_paths,
-            "camera_names": args.camera_names,
-            "total_blocks": args.total_blocks,
-            "pixel_height": args.pixel_height,
-            "pixel_width": args.pixel_width,
-            "fps": args.fps,
-        },
+        scenario=scenario,
         output=Mp4OutputSpec(path=args.output, fps=args.fps),
         config=InferenceConfig(
             model_id=OMNIDREAMS_MODEL_ID,
