@@ -259,7 +259,7 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     baseline = scenarios["omnidreams-sv-runner-baseline"]
     assert baseline.report_group is not None
     assert baseline.report_group.id == "omnidreams-demo"
-    assert _command_value(baseline.command, "--total-blocks") == "60"
+    assert _command_value(baseline.command, "--total-blocks") == "226"
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" in baseline.command
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
         baseline.command
@@ -279,7 +279,7 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     assert _command_value(demo.command, "--preset-id") == (
         "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
     )
-    assert _command_value(demo.command, "--total-blocks") == "60"
+    assert _command_value(demo.command, "--total-blocks") == "226"
     assert _command_value(demo.command, "--output") == (
         "{output_dir}/omnidreams-sv-demo-replay.mp4"
     )
