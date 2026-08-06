@@ -20,6 +20,7 @@ from flashdreams.runtime import (
     InferenceRuntime,
     InferenceSession,
     InMemoryMetricsRecorder,
+    IdentityInputMapping,
     InputCanonicalizer,
     InputField,
     InputMapping,
@@ -70,6 +71,36 @@ def test_run_inference_session_completes_two_step_run() -> None:
     assert [sample.name for sample in metrics.samples] == ["model_step", "model_step"]
     assert [sample.step_index for sample in metrics.samples] == [0, 1]
     assert metrics.closed
+
+
+def test_runner_preserves_initial_step_inputs_for_identity_mapping() -> None:
+    adapter = _FakeAdapter()
+
+    run_inference_session(
+        adapter=adapter,
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=IdentityInputMapping(),
+        canonicalizer=InputCanonicalizer(),
+        source_schema=UserInputSchema(),
+        user_inputs=UserInputs(),
+        initial_inputs=InferenceInput(
+            global_conditioning={"prompt": "drive forward"},
+            step={"chunk_index": 42},
+        ),
+        output=NullOutputTarget(),
+        metrics=InMemoryMetricsRecorder(),
+    )
+
+    assert adapter.runtime is not None
+    assert adapter.runtime.session is not None
+    assert [dict(inputs.step) for inputs in adapter.runtime.session.step_inputs] == [
+        {"chunk_index": 42},
+        {"chunk_index": 42},
+    ]
+    assert [
+        dict(inputs.global_conditioning)
+        for inputs in adapter.runtime.session.step_inputs
+    ] == [{}, {}]
 
 
 def test_runner_validates_mapping_before_runtime_creation() -> None:
@@ -501,6 +532,7 @@ class _FakeSession:
     def __init__(self, *, inference_input_schema: InferenceInputSchema) -> None:
         self._inference_input_schema = inference_input_schema
         self.step_index = 0
+        self.step_inputs: list[InferenceInput] = []
         self.closed = False
 
     def next_step_request(self) -> StepRequest | None:
@@ -517,6 +549,7 @@ class _FakeSession:
 
     def step(self, inputs: InferenceInput) -> StepResult:
         self._inference_input_schema.require_step(inputs)
+        self.step_inputs.append(inputs)
         result = StepResult(
             step_index=self.step_index,
             output=f"chunk-{self.step_index}",

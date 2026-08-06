@@ -80,6 +80,10 @@ def run_inference_session(
         session = runtime.start_session(mapped_initial_inputs)
         output.open()
         output_opened = True
+        step_base_inputs = InferenceInput(
+            step=initial_inputs.step,
+            metadata=initial_inputs.metadata,
+        )
 
         while (request := session.next_step_request()) is not None:
             step_inputs = mapping.map_step_inputs(
@@ -89,7 +93,7 @@ def run_inference_session(
                     or _all_user_inputs_window(user_inputs),
                     source_schema=source_schema,
                 ),
-                inference_input=InferenceInput(),
+                inference_input=step_base_inputs,
                 request=request,
             )
             result = session.step(step_inputs)
