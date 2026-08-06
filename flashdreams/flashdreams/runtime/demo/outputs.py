@@ -10,7 +10,13 @@ from pathlib import Path
 from flashdreams.runtime.output import NullOutputTarget, OutputTarget
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget, VideoWriter
 
-from .spec import Mp4OutputSpec, NullOutputSpec, OutputSpec, WebRTCOutputSpec
+from .spec import (
+    LocalWindowOutputSpec,
+    Mp4OutputSpec,
+    NullOutputSpec,
+    OutputSpec,
+    WebRTCOutputSpec,
+)
 
 
 def build_output_target(
@@ -39,6 +45,10 @@ def build_output_target(
         )
     if isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC output does not create a replay OutputTarget.")
+    if isinstance(output, LocalWindowOutputSpec):
+        raise ValueError(
+            "Local-window output does not create a replay OutputTarget."
+        )
     raise TypeError(f"Unsupported demo output spec: {type(output).__name__}.")
 
 

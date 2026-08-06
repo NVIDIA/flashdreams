@@ -33,4 +33,20 @@ def serve_flashdreams_demo(
     return serve_webrtc_demo(spec=spec, adapter=adapter, **kwargs)
 
 
-__all__ = ["run_flashdreams_demo", "serve_flashdreams_demo"]
+def show_flashdreams_demo(
+    *,
+    spec: DemoSpec,
+    adapter: DemoAdapter,
+    **kwargs: Any,
+) -> object:
+    """Run a local-window demo, blocking until the window closes."""
+    from .local_window import run_local_window_demo
+
+    return run_local_window_demo(spec=spec, adapter=adapter, **kwargs)
+
+
+__all__ = [
+    "run_flashdreams_demo",
+    "serve_flashdreams_demo",
+    "show_flashdreams_demo",
+]

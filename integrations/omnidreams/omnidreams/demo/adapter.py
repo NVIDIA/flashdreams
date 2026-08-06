@@ -97,7 +97,19 @@ class OmnidreamsDemoAdapter:
         return ("replay", "keyboard-driving")
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "webrtc")
+        return ("mp4", "webrtc", "local-window")
+
+    def create_local_window_app(self, *, spec: DemoSpec) -> Any:
+        """Build the interactive-drive windowed app described by ``spec``.
+
+        Wraps the existing demo entrypoint rather than reimplementing it: the
+        scene picker, model warmup overlap, wheel binding, and scene-switch
+        loop all stay where they are, and the shared launcher only has to
+        call ``run``.
+        """
+        from omnidreams.demo.local_window import build_interactive_drive_app
+
+        return build_interactive_drive_app(spec)
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode != "replay":

@@ -693,7 +693,15 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
 
 def main() -> None:
     configure_logging()
-    args = build_parser().parse_args()
+    run_parsed_args(build_parser().parse_args())
+
+
+def run_parsed_args(args: argparse.Namespace) -> None:
+    """Dispatch already-parsed arguments to the selected presentation mode.
+
+    Split out of :func:`main` so the shared demo launcher can drive the same
+    scene staging and mode selection without going through ``sys.argv``.
+    """
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a

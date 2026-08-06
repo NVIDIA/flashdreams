@@ -16,10 +16,12 @@ from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
+    LocalWindowOutputSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
     run_flashdreams_demo,
     serve_flashdreams_demo,
+    show_flashdreams_demo,
 )
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
@@ -27,6 +29,7 @@ from flashdreams.serving.webrtc.bootstrap import (
 )
 
 from .adapter import OmnidreamsDemoAdapter
+from .local_window import OmnidreamsLocalWindowScenario
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,
@@ -82,6 +85,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     webrtc.add_argument("--debug-serve-hdmaps", action="store_true")
     webrtc.add_argument("--postprocess-preset", default="")
     webrtc.add_argument("--prefer-sw-encoder", action="store_true")
+
+    local_window = subparsers.add_parser(
+        "local-window", help="Open the interactive driving demo in a native window."
+    )
+    local_window.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
+    local_window.add_argument("--scene-dir", type=Path, default=None)
+    local_window.add_argument("--scene", type=Path, default=None)
+    local_window.add_argument("--manifest", default=None)
+    local_window.add_argument("--camera-name", default=None)
+    local_window.add_argument("--variant", default=None)
+    local_window.add_argument("--synthetic-scene", action="store_true")
+    local_window.add_argument("--synthetic-initial-rgb", type=Path, default=None)
+    local_window.add_argument("--postprocess-preset", default="")
+    local_window.add_argument("--auto-start", action="store_true")
+    local_window.add_argument("--preload-scenes", action="store_true")
+    local_window.add_argument("--no-wheel", action="store_true")
+    local_window.add_argument("--no-hud", action="store_true")
+    local_window.add_argument("--window-width", type=int, default=1920)
+    local_window.add_argument("--window-height", type=int, default=1080)
     return parser.parse_args(argv)
 
 
@@ -106,7 +128,38 @@ def main(argv: list[str] | None = None) -> None:
             world_rank=context.world_rank,
         )
         return
+    if args.command == "local-window":
+        show_flashdreams_demo(spec=_local_window_spec(args), adapter=adapter)
+        return
     raise AssertionError(f"Unhandled command: {args.command}")
+
+
+def _local_window_spec(args: argparse.Namespace) -> DemoSpec:
+    scenario = OmnidreamsLocalWindowScenario(
+        scene_dir=args.scene_dir,
+        scene=args.scene,
+        synthetic_scene=args.synthetic_scene,
+        synthetic_initial_rgb=args.synthetic_initial_rgb,
+        manifest=args.manifest,
+        camera_name=args.camera_name,
+        variant=args.variant,
+        postprocess_preset=args.postprocess_preset,
+        auto_start=args.auto_start,
+        preload_scenes=args.preload_scenes,
+        no_wheel=args.no_wheel,
+    )
+    return DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        input_mode="keyboard-driving",
+        preset_id=args.preset_id,
+        output=LocalWindowOutputSpec(
+            width=args.window_width,
+            height=args.window_height,
+            title="interactive-drive HUD",
+            show_hud=not args.no_hud,
+        ),
+        scenario=scenario,
+    )
 
 
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:

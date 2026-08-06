@@ -83,7 +83,31 @@ class WebRTCOutputSpec:
             object.__setattr__(self, "web_dir", Path(self.web_dir))
 
 
-OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
+@dataclass(frozen=True, kw_only=True, slots=True)
+class LocalWindowOutputSpec:
+    """Native windowed output presented on the machine running the model.
+
+    Deliberately thin: window geometry and whether chrome is drawn are the
+    only presentation-level knobs shared across models. Scene, camera, and
+    control settings are model-specific and belong in ``DemoSpec.scenario``.
+    """
+
+    mode: Literal["local-window"] = "local-window"
+    width: int = 1920
+    height: int = 1080
+    title: str = "flashdreams"
+    show_hud: bool = True
+
+    def __post_init__(self) -> None:
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("LocalWindowOutputSpec dimensions must be > 0.")
+        if not self.title.strip():
+            raise ValueError("LocalWindowOutputSpec.title must be non-empty.")
+
+
+OutputSpec: TypeAlias = (
+    NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec | LocalWindowOutputSpec
+)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -168,6 +192,7 @@ class DemoAdapter(ModelAdapter, Protocol):
 __all__ = [
     "DemoAdapter",
     "DemoSpec",
+    "LocalWindowOutputSpec",
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",
