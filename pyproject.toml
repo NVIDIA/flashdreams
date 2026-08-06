@@ -105,8 +105,15 @@ invalid-method-override = "ignore"
 [tool.ty.analysis]
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
-# imports as Any.
-replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**"]
+# imports as Any. ``slangpy`` ships only with the omnidreams
+# ``interactive-drive`` extra, so the presentation backends import it lazily
+# and it is absent from the lint environment.
+replace-imports-with-any = [
+    "flash_attn.**",
+    "slangpy.**",
+    "transformer_engine.**",
+    "triton.**",
+]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
