@@ -18,8 +18,9 @@ Implementation lives in `flashdreams.runtime`:
   and compatibility
 - `flashdreams/tests/test_runtime_canonical.py`
 - `flashdreams/tests/test_runtime_input_mapping.py`
-- `flashdreams/tests/test_inference_runtime_api.py` — the T1 envelope tests,
-  including a reference loop that exercises all three layers
+- `flashdreams/tests/test_inference_runtime_api.py` — the T1 envelope tests
+- `flashdreams/tests/test_runtime_runner.py` — the production standard loop
+  tests that exercise all three input layers with runtime/session cleanup
 
 The supported-model input inventory that informed this work is in
 `docs/inference_runtime_supported_inputs_inventory.md`.
@@ -269,8 +270,9 @@ layer:
   to `OutputTarget.write()`. Output shape is T5.
 - **Declared output modalities**, so an output target or quality-eval can state
   what it requires and be matched the way inputs now are. T5/T8.
-- **`Application`**, the class that has-a input system, input map, global
-  conditioning, session, and output target. T4.
+- **Full `Application` ownership**, the class that has-a input system, input
+  map, global conditioning, session, and output target. T4 now provides the
+  narrow synchronous runner; richer application ownership remains outside T4.
 - **Loop ownership** — whether the application or the runtime/session drives the
   main event loop, and whether inputs are queued and batched.
 
@@ -279,7 +281,8 @@ layer:
 ```bash
 .venv/bin/pytest flashdreams/tests/test_runtime_canonical.py \
   flashdreams/tests/test_runtime_input_mapping.py \
-  flashdreams/tests/test_inference_runtime_api.py -q
+  flashdreams/tests/test_inference_runtime_api.py \
+  flashdreams/tests/test_runtime_runner.py -q
 .venv/bin/ty check flashdreams/flashdreams/runtime
 ```
 

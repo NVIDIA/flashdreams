@@ -369,8 +369,7 @@ def undeclared_inference_inputs(
         for phase in INPUT_PHASES
         for key in inputs.for_phase(phase)
         if not any(
-            declared.name == key
-            for declared in mapping_schema.produces_for(phase)
+            declared.name == key for declared in mapping_schema.produces_for(phase)
         )
     )
 

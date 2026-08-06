@@ -44,22 +44,24 @@ model.
 ## Current Implementation Plan
 
 Implementation should happen on an experimental integration branch. PRs for this
-work should target that branch until the API shape, LingBot migration, and
-OmniDreams migration are all working well enough to merge to `main` together.
+work should target that branch until the API shape and OmniDreams migration are
+working well enough to merge to `main` together. LingBot migration is deferred
+to a separate follow-up after the OmniDreams path has clarified the shared demo
+API shape.
 
 The experimental branch can temporarily break or simplify command-line options
-while the demos are being moved to the new API. The required outcome is that the
-LingBot and OmniDreams demos still run through the new runtime path, and that
-benchmark tooling can confirm they are at least broadly healthy before the
-branch is merged back to `main`.
+while the demos are being moved to the new API. The required outcome for this
+branch is that the OmniDreams demo runs through the new shared demo/runtime path,
+and that benchmark and manual WebRTC checks can confirm it is at least broadly
+healthy before the branch is merged back to `main`.
 
 Initial scope:
 
 - define the minimal runtime API envelope;
-- migrate LingBot and OmniDreams to use it;
+- migrate OmniDreams to use it through a shared demo-level API;
 - support selectable output modes such as MP4, JPEG/MJPEG stream, WebRTC, and
   headless/null where appropriate;
-- use or update benchmark tooling to verify the migrated demos;
+- use or update benchmark tooling to verify the migrated OmniDreams demo;
 - defer broader model migrations, hosted execution, full autotune, and polished
   metrics until the first branch proves the API shape.
 
@@ -71,14 +73,30 @@ Initial scope:
 | T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `InferenceInput`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
 | T2 | Complete | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
 | T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
-| T4 | Planned | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
+| T4 | Complete | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
 | T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
-| T6 | Planned | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
-| T7 | Planned | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams runs through the new API path with its model-specific inputs and mapping preserved. |
-| T8 | Planned | Benchmark/smoke verification for LingBot and OmniDreams. | Preparation can run early; final gate is late. | T5, T6, T7. | Existing or updated benchmark tooling can run both migrated demos and produce enough evidence that they still work. |
+| T6 | Deferred | LingBot migration. | Yes, but out of scope for this branch. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
+| T7 | Partially complete | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams replay and WebRTC run through the shared demo API path; remaining work is output/stat integration, legacy demo retirement, and cleanup. |
+| T8 | Partially complete | Benchmark/smoke verification for OmniDreams. | Preparation can run early; final gate is late. | T5, T7. | Existing or updated benchmark tooling can run the migrated OmniDreams demo and produce enough evidence that it still works. |
 | T9 | Planned | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
-| T10 | Planned | CLI compatibility and migration cleanup. | Yes, after demo migrations start. | T6, T7. | Required demo commands are restored or replaced, temporary hacks are removed, and user-facing docs/notes match the branch behavior. |
-| T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T6-T10. | LingBot and OmniDreams pass agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+| T10 | Planned | CLI compatibility, legacy retirement, and migration cleanup. | Yes, after demo migrations start. | T5, T7, T8. | Required demo commands are restored or replaced, old interactive-drive and old OmniDreams demo/server paths are removed or reduced to compatibility shims, code used only by retired demos is removed, and user-facing docs/notes match the branch behavior. |
+| T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T5, T7-T10. | OmniDreams passes agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+
+Current OmniDreams migration status:
+
+- The shared `flashdreams.runtime.demo` API and OmniDreams demo adapter exist.
+- OmniDreams MP4 replay runs through the shared replay runner and MP4 output
+  target.
+- The one-minute benchmark comparison can run the legacy replay path and the new
+  shared demo replay path side by side.
+- OmniDreams WebRTC runs through `serve_flashdreams_demo(...)` and the shared
+  WebRTC manager path while still using the existing OmniDreams runtime and
+  packaged browser app.
+- The migration is not complete until the new output target/stat artifact work
+  lands, the new OmniDreams path is updated to use it, the old interactive-drive
+  and old OmniDreams demo/server paths are removed or reduced to deliberate
+  compatibility shims, code used only by retired demos is deleted, and the
+  experimental demo/runtime/input code is cleaned up.
 
 Suggested parallel split:
 
@@ -88,7 +106,8 @@ Suggested parallel split:
   stay coherent;
 - one person owns T5/T8/T9, because outputs, benchmarks, and metrics are tightly
   related;
-- LingBot and OmniDreams can be assigned separately once the skeleton is usable;
+- LingBot should be tracked as a separate follow-up once OmniDreams has settled
+  the shared demo API shape;
 - one person should track branch health, CLI compatibility, and merge readiness.
 
 ## Architecture
@@ -510,6 +529,11 @@ adapter/runtime still owns deep tensor validation and model semantics.
 The standard loop should be shared by CLI generation, headless playback, MP4
 generation, benchmarks, and simple realtime applications.
 
+The current v0 production loop is `flashdreams.runtime.run_inference_session()`.
+It is intentionally narrow: one adapter, one config, one canonicalizer/source,
+one selected mapping, one initial input, one output target, one metrics
+recorder, and one synchronous sequential session.
+
 A run should:
 
 1. Discover the model or preset without loading checkpoints.
@@ -645,9 +669,11 @@ The new API should reuse existing code instead of replacing everything:
 
 The task tracker near the start of this document is the source of truth for the
 first implementation branch. The first milestone is intentionally narrower than
-the full design: prove the API with LingBot and OmniDreams, selectable output
-modes, and enough benchmark/smoke coverage to merge the experimental branch
-back to `main` safely.
+the full design: prove the API with OmniDreams, add shared output/stat artifact
+selection, retire the old OmniDreams demo paths, clean up the experimental
+runtime/demo code, and collect enough benchmark/smoke evidence to merge the
+experimental branch back to `main` safely. LingBot should be handled in a
+separate follow-up plan.
 
 ## Design Risks
 
@@ -709,7 +735,7 @@ registry, standard loop, concrete output modes, or model migrations:
   registering it?
 - What package registration mechanism should third-party and internal adapters
   use for CLI discovery and benchmarks?
-- What is the first public model to migrate?
+- Which model should migrate after OmniDreams settles the shared demo API shape?
 - What metrics are required for every benchmark run?
 - What metadata must be discoverable without loading checkpoints?
 - What requirements do Dynamo/Reactor-style backends need before we commit to

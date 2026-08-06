@@ -201,9 +201,7 @@ def test_model_declares_required_and_optional_fields_per_phase() -> None:
         ("global_conditioning", "prompt"),
         ("step", "steering"),
     }
-    assert {(phase, f.name) for phase, f in optional} == {
-        ("step", "camera_delta")
-    }
+    assert {(phase, f.name) for phase, f in optional} == {("step", "camera_delta")}
 
 
 def test_required_fields_can_be_filtered_by_phase() -> None:
@@ -214,8 +212,7 @@ def test_required_fields_can_be_filtered_by_phase() -> None:
 
 def test_field_lookup_is_phase_scoped() -> None:
     assert (
-        DRIVING_MODEL.field_for(name="prompt", phase="global_conditioning")
-        is not None
+        DRIVING_MODEL.field_for(name="prompt", phase="global_conditioning") is not None
     )
     assert DRIVING_MODEL.field_for(name="prompt", phase="step") is None
 
@@ -275,12 +272,13 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
     )
 
     assert compatibility.can_drive
-    assert {
-        (p, f.name) for p, f in compatibility.satisfied_required_model_fields
-    } == {("global_conditioning", "prompt"), ("step", "steering")}
-    assert {
-        (p, f.name) for p, f in compatibility.available_optional_model_fields
-    } == {("step", "camera_delta")}
+    assert {(p, f.name) for p, f in compatibility.satisfied_required_model_fields} == {
+        ("global_conditioning", "prompt"),
+        ("step", "steering"),
+    }
+    assert {(p, f.name) for p, f in compatibility.available_optional_model_fields} == {
+        ("step", "camera_delta")
+    }
 
 
 def test_missing_required_model_field_blocks_the_run() -> None:
@@ -291,9 +289,9 @@ def test_missing_required_model_field_blocks_the_run() -> None:
     )
 
     assert not compatibility.can_drive
-    assert [
-        f.name for _, f in compatibility.missing_required_model_fields
-    ] == ["steering"]
+    assert [f.name for _, f in compatibility.missing_required_model_fields] == [
+        "steering"
+    ]
 
 
 def test_missing_source_capability_is_reported_when_it_blocks() -> None:
@@ -416,9 +414,7 @@ def test_combining_mappings_unions_their_surfaces() -> None:
     combined = combine_mapping_schemas((PROMPT_MAPPING, STEERING_MAPPING))
 
     assert {m.name for m in combined.consumes} == {"driver_command"}
-    assert [f.name for f in combined.produces_global_conditioning] == [
-        "prompt"
-    ]
+    assert [f.name for f in combined.produces_global_conditioning] == ["prompt"]
     assert [f.name for f in combined.produces_step] == ["steering"]
 
 

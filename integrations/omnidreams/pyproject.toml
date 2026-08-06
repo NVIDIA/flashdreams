@@ -22,7 +22,8 @@ name = "flashdreams-omnidreams"
 version = "0.1.0"
 description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+# PyNvVideoCodec 2.1 currently publishes wheels through CPython 3.12.
+requires-python = ">=3.10,<3.13"
 dependencies = [
     # Core inference / serving deps (consumed by ``omnidreams.webrtc``,
     # ``omnidreams.grpc``, and the ``omnidreams.interactive_drive`` desktop
@@ -103,6 +104,10 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # Batch evaluation helper for Hugging Face scene discovery, bounded staging,
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.eval.cli:main"
+
+# Experimental shared demo API path. This coexists with the legacy
+# WebRTC/gRPC/interactive-drive demos until the new adapter is proven.
+omnidreams-demo = "omnidreams.demo.cli:main"
 
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the
