@@ -27,7 +27,8 @@ uv run --package flashdreams-omnidreams omnidreams-demo replay \
 
 This replay path mirrors the benchmark runner path: it uses a prompt, first
 frame, and pre-rendered HDMap video. It does not load a Ludus scene or render
-HDMaps at runtime.
+HDMaps at runtime. The demo defaults to the stable non-perf OmniDreams preset
+used by the benchmark path.
 
 To provide benchmark-style assets explicitly:
 
@@ -42,6 +43,10 @@ uv run --package flashdreams-omnidreams omnidreams-demo replay \
 
 Pass `--example-data-uuid <uuid>` to select another bundled single-view sample,
 or `--no-example-data` to require explicit asset paths.
+
+The `omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf` preset remains an
+explicit `--preset-id` opt-in. It should become the default only after the
+compile/cache behavior is reliable enough for the demo path.
 
 ## WebRTC
 

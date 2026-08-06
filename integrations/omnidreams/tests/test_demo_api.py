@@ -40,6 +40,13 @@ from flashdreams.runtime.demo.webrtc import build_webrtc_demo
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
+    args = parse_args(["replay", "--output", "demo.mp4"])
+
+    assert args.preset_id == "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+    assert not args.preset_id.endswith("-perf")
+
+
 def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
     adapter = OmnidreamsDemoAdapter()
 
