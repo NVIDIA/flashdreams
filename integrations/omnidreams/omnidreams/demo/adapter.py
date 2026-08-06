@@ -153,7 +153,9 @@ class OmnidreamsDemoAdapter:
         spec: DemoSpec,
         runtime: Any,
     ) -> OmnidreamsRuntimeConfig:
-        del runtime
+        runtime_config = getattr(runtime, "config", None)
+        if isinstance(runtime_config, OmnidreamsRuntimeConfig):
+            return runtime_config
         if spec.input_mode != "keyboard-driving":
             raise ValueError(
                 "OmniDreams WebRTC requires input_mode='keyboard-driving', "

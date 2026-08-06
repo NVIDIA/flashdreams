@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import omnidreams.demo.spec as spec_module
+import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
+from aiohttp import web
 from omnidreams.config import OMNIDREAMS_RUNNERS
 from omnidreams.demo import (
     DEFAULT_OMNIDREAMS_PRESET,
@@ -18,7 +20,7 @@ from omnidreams.demo import (
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
 )
-from omnidreams.demo.cli import _replay_spec, parse_args
+from omnidreams.demo.cli import _replay_spec, _webrtc_spec, parse_args
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
@@ -33,9 +35,15 @@ from flashdreams.runtime import (
     OutputTarget,
     StepResult,
 )
-from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, WebRTCOutputSpec
+from flashdreams.runtime.demo import (
+    DemoSpec,
+    Mp4OutputSpec,
+    WebRTCOutputSpec,
+    serve_flashdreams_demo,
+)
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import build_webrtc_demo
+from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
+from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -258,6 +266,69 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     runtime.close()
 
 
+def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> None:
+    args = parse_args(
+        [
+            "webrtc",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9090",
+            "--device",
+            "cuda:2",
+            "--seed",
+            "123",
+            "--scene-dir",
+            str(tmp_path / "scene"),
+            "--scene-uuid",
+            "scene-1",
+            "--scene-variant",
+            "rain",
+            "--camera-name",
+            "camera_front_wide_120fov",
+            "--fps",
+            "24",
+            "--video-height",
+            "32",
+            "--video-width",
+            "64",
+            "--warmup-chunks",
+            "0",
+            "--warmup-timeout-s",
+            "1.5",
+            "--client-liveness-timeout-s",
+            "2.5",
+            "--debug-serve-hdmaps",
+            "--prefer-sw-encoder",
+        ]
+    )
+
+    spec = _webrtc_spec(args, device="cuda:3")
+
+    assert spec.model_id == OMNIDREAMS_MODEL_ID
+    assert spec.preset_id == DEFAULT_OMNIDREAMS_PRESET
+    assert spec.input_mode == "keyboard-driving"
+    assert isinstance(spec.scenario, OmnidreamsWebRTCScenario)
+    assert spec.scenario.scene_dir == tmp_path / "scene"
+    assert spec.scenario.scene_uuid == "scene-1"
+    assert spec.scenario.scene_variant == "rain"
+    assert spec.scenario.camera_name == "camera_front_wide_120fov"
+    assert spec.scenario.debug_serve_hdmaps is True
+    assert spec.scenario.prefer_sw_encoder is True
+    assert isinstance(spec.output, WebRTCOutputSpec)
+    assert spec.output.host == "127.0.0.1"
+    assert spec.output.port == 9090
+    assert spec.output.fps == 24
+    assert spec.output.video_width == 64
+    assert spec.output.video_height == 32
+    assert spec.output.warmup_chunks == 0
+    assert spec.output.warmup_timeout_s == 1.5
+    assert spec.output.client_liveness_timeout_s == 2.5
+    assert spec.config is not None
+    assert spec.config.device == "cuda:3"
+    assert spec.config.runtime_options["seed"] == 123
+
+
 def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     pipeline_config = object()
     adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
@@ -294,6 +365,8 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
     assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
     assert demo.session_manager._runtime is demo.runtime
+    assert demo.session_manager.runtime_config is demo.runtime.config
+    assert demo.runtime_config is demo.runtime.config
     assert demo.runtime_config.pipeline_config is pipeline_config
     assert demo.runtime_config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
     assert demo.runtime_config.scene_uuid == "scene-1"
@@ -308,6 +381,111 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert demo.session_manager._model_name() == DEFAULT_OMNIDREAMS_PRESET
     assert demo.host == "0.0.0.0"
     assert demo.port == 8082
+
+
+def test_omnidreams_webrtc_demo_installs_model_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_calls: list[dict[str, Any]] = []
+
+    def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
+        app_calls.append(kwargs)
+        app = web.Application()
+        app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
+        kwargs["configure_app"](app)
+        return app
+
+    monkeypatch.setattr(
+        demo_webrtc_module,
+        "create_packaged_webrtc_app",
+        fake_create_packaged_webrtc_app,
+    )
+    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="keyboard-driving",
+        scenario=OmnidreamsWebRTCScenario(),
+        output=WebRTCOutputSpec(
+            host="0.0.0.0",
+            port=8082,
+            warmup_timeout_s=1.0,
+            preload_name="Test Omnidreams",
+        ),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+
+    assert demo.app is not None
+    assert app_calls[0]["session_manager"] is demo.session_manager
+    assert app_calls[0]["request_session_url"] == (
+        "http://127.0.0.1:8082/request_session"
+    )
+    assert app_calls[0]["preload_name"] == "Test Omnidreams"
+    route_paths = {resource.canonical for resource in demo.app.router.resources()}
+    assert "/api/postprocess/options" in route_paths
+    assert "/api/session/input" in route_paths
+
+
+def test_omnidreams_webrtc_demo_serves_through_shared_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server_calls: list[dict[str, Any]] = []
+
+    def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
+        app = web.Application()
+        app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
+        kwargs["configure_app"](app)
+        return app
+
+    def fake_server_runner(**kwargs: Any) -> None:
+        server_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        demo_webrtc_module,
+        "create_packaged_webrtc_app",
+        fake_create_packaged_webrtc_app,
+    )
+    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="keyboard-driving",
+        scenario={"scene_uuid": "scene-1"},
+        output=WebRTCOutputSpec(
+            host="0.0.0.0",
+            port=8082,
+            warmup_timeout_s=1.0,
+        ),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+    demo = cast(
+        WebRTCDemo,
+        serve_flashdreams_demo(
+            spec=spec,
+            adapter=adapter,
+            world_rank=0,
+            server_runner=fake_server_runner,
+        ),
+    )
+
+    assert len(server_calls) == 1
+    assert server_calls[0]["world_rank"] == 0
+    assert server_calls[0]["session_manager"] is demo.session_manager
+    assert server_calls[0]["app"] is demo.app
+    assert server_calls[0]["host"] == "0.0.0.0"
+    assert server_calls[0]["port"] == 8082
+    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
 
 
 class _RecordingOutputTarget:

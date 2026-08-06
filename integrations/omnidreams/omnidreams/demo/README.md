@@ -50,11 +50,17 @@ compile/cache behavior is reliable enough for the demo path.
 
 ## WebRTC
 
-WebRTC is still scene-driven and uses Ludus to render HDMap conditioning from a
-scene:
+WebRTC uses the shared demo launcher around the existing Omnidreams live WebRTC
+runtime. It is still scene-driven and uses Ludus to render HDMap conditioning
+from a scene:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-demo webrtc \
   --host 0.0.0.0 \
   --port 8082
 ```
+
+The scene UUID is optional; when omitted, the runtime uses the default
+Hugging Face WebRTC scene. Override the scene with `--scene-uuid`, select a
+weather variant with `--scene-variant default|rain|snow`, or use
+`--scene-dir /path/to/local/scene` for a local staged scene.
