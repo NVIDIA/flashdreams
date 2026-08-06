@@ -210,6 +210,22 @@ class TestSelectStage1Failure:
         with pytest.raises(EncoderInitError, match="driver comms error"):
             select_encoder(backend="nvenc", **_SELECT_KW)
 
+    def test_caps_probe_restores_initialized_torch_cuda_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_nvc = MagicMock()
+        fake_nvc.GetEncoderCaps.side_effect = RuntimeError("unsupported GPU")
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        set_device = MagicMock()
+        monkeypatch.setattr(enc_mod.torch.cuda, "is_initialized", lambda: True)
+        monkeypatch.setattr(enc_mod.torch.cuda, "current_device", lambda: 3)
+        monkeypatch.setattr(enc_mod.torch.cuda, "set_device", set_device)
+
+        enc = select_encoder(backend="auto", **_SELECT_KW)
+
+        assert isinstance(enc, DefaultRTCEncoder)
+        set_device.assert_called_once_with(3)
+
 
 # ---------------------------------------------------------------------------
 # select_encoder: Stage-1 deferred-import failure (package present but
