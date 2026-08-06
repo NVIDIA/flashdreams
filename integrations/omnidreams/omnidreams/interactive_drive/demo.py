@@ -23,10 +23,6 @@ from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
-from omnidreams.interactive_drive.cuda_env import (
-    DISABLE_CUDNN_SDP_ENV,
-    apply_cudnn_sdp_opt_out,
-)
 from omnidreams.interactive_drive.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -717,11 +713,6 @@ def run_parsed_args(args: argparse.Namespace) -> None:
     Split out of :func:`main` so the shared demo launcher can drive the same
     scene staging and mode selection without going through ``sys.argv``.
     """
-    if apply_cudnn_sdp_opt_out():
-        logger.info(
-            f"[interactive-drive] cuDNN SDPA disabled by {DISABLE_CUDNN_SDP_ENV};"
-            " attention falls back to flash / efficient kernels",
-        )
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a
