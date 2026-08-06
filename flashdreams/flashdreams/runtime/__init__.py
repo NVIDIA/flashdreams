@@ -56,6 +56,7 @@ from flashdreams.runtime.metrics import (
     RuntimeMetricSample,
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
+from flashdreams.runtime.runner import run_inference_session
 from flashdreams.runtime.types import StepRequest, StepResult
 
 __all__ = [
@@ -98,6 +99,7 @@ __all__ = [
     "StepRequest",
     "StepResult",
     "TimeWindow",
+    "run_inference_session",
     "undeclared_inference_inputs",
     "UserInputCapability",
     "UserInputEvent",

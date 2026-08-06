@@ -71,7 +71,7 @@ Initial scope:
 | T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `InferenceInput`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
 | T2 | Complete | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
 | T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
-| T4 | Planned | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
+| T4 | Complete | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
 | T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
 | T6 | Planned | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
 | T7 | Planned | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams runs through the new API path with its model-specific inputs and mapping preserved. |
@@ -509,6 +509,11 @@ adapter/runtime still owns deep tensor validation and model semantics.
 
 The standard loop should be shared by CLI generation, headless playback, MP4
 generation, benchmarks, and simple realtime applications.
+
+The current v0 production loop is `flashdreams.runtime.run_inference_session()`.
+It is intentionally narrow: one adapter, one config, one canonicalizer/source,
+one selected mapping, one initial input, one output target, one metrics
+recorder, and one synchronous sequential session.
 
 A run should:
 
