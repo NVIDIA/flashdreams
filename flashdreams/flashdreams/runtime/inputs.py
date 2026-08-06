@@ -12,23 +12,17 @@ from typing import Any, Literal, cast
 
 from flashdreams.runtime._utils import freeze_mapping
 
-InputPhase = Literal["global", "step"]
+InputPhase = Literal["global_conditioning", "step"]
 
-INPUT_PHASES: tuple[InputPhase, ...] = ("global", "step")
-
-SESSION_START_ONLY = "session_start"
-"""``InputField.update_policy`` value meaning "supply at session start only".
-
-``update_policy`` is otherwise an open, adapter-owned vocabulary. This is the
-one reserved token, because the runtime needs to distinguish a conditioning
-value that can be swapped mid-rollout from one that cannot.
-"""
+INPUT_PHASES: tuple[InputPhase, ...] = ("global_conditioning", "step")
 
 
 def validate_phase(value: str) -> InputPhase:
     """Return ``value`` as a validated :data:`InputPhase`."""
     if value not in INPUT_PHASES:
-        raise ValueError(f"phase must be 'global' or 'step', got {value!r}.")
+        raise ValueError(
+            f"phase must be 'global_conditioning' or 'step', got {value!r}."
+        )
     return cast(InputPhase, value)
 
 
@@ -56,17 +50,16 @@ class TimeWindow:
 class InputField:
     """Lightweight schema field for user snapshots or model inputs.
 
-    ``update_policy`` and ``lifecycle`` are plain query metadata. They let a
-    model advertise facts such as "prompt updates land at step boundaries" or
-    "this value is consumed at cache init" without making this layer
-    responsible for implementing or deeply validating that behavior.
+    ``name`` is the model-facing input role and payload key, such as ``prompt``
+    or ``negative_prompt``. ``input_modality``, ``frequency_consumed``, and
+    ``metadata`` are query hints only. Adapter-owned validation still decides
+    concrete shape, dtype, units, and tensor layout.
     """
 
     name: str
     required: bool = True
-    semantic_type: str | None = None
-    update_policy: str | None = None
-    lifecycle: str | None = None
+    input_modality: str | None = None
+    frequency_consumed: str | None = None
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
         compare=False,
@@ -91,7 +84,7 @@ class UserInputCapability:
     """
 
     event_type: str
-    semantic_type: str | None = None
+    input_modality: str | None = None
     payload_fields: frozenset[str] = field(default_factory=frozenset)
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
@@ -112,12 +105,14 @@ class UserInputCapability:
         """Return whether ``provider`` can satisfy this consumed capability."""
         if self.event_type != provider.event_type:
             return False
-        semantic_ok = (
-            self.semantic_type is None
-            or provider.semantic_type is None
-            or self.semantic_type == provider.semantic_type
+        input_modality_ok = (
+            self.input_modality is None
+            or provider.input_modality is None
+            or self.input_modality == provider.input_modality
         )
-        return semantic_ok and self.payload_fields.issubset(provider.payload_fields)
+        return input_modality_ok and self.payload_fields.issubset(
+            provider.payload_fields
+        )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -205,6 +200,87 @@ class UserInputSchema:
         missing = self.missing_snapshot(inputs)
         if missing:
             raise ValueError(f"Missing required user snapshot field(s): {missing}")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class InferenceInputSchema:
+    """Minimal metadata for global conditioning and per-step inputs."""
+
+    global_conditioning_fields: tuple[InputField, ...] = ()
+    """Model inputs carried in the global conditioning slot."""
+
+    step_fields: tuple[InputField, ...] = ()
+    """Model inputs required for one session step."""
+
+    description: str = ""
+
+    def fields_for(self, phase: InputPhase) -> tuple[InputField, ...]:
+        """Return every declared field for ``phase``."""
+        return (
+            self.global_conditioning_fields
+            if validate_phase(phase) == "global_conditioning"
+            else self.step_fields
+        )
+
+    def required_fields(
+        self,
+        phase: InputPhase | None = None,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        """Return required fields as ``(phase, field)``, optionally filtered."""
+        return self._select(phase, required=True)
+
+    def optional_fields(
+        self,
+        phase: InputPhase | None = None,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        """Return optional fields as ``(phase, field)``, optionally filtered."""
+        return self._select(phase, required=False)
+
+    def field_for(self, *, name: str, phase: InputPhase) -> InputField | None:
+        """Return one declared field, if present."""
+        for input_field in self.fields_for(phase):
+            if input_field.name == name:
+                return input_field
+        return None
+
+    def _select(
+        self,
+        phase: InputPhase | None,
+        *,
+        required: bool,
+    ) -> tuple[tuple[InputPhase, InputField], ...]:
+        phases = INPUT_PHASES if phase is None else (validate_phase(phase),)
+        return tuple(
+            (each_phase, input_field)
+            for each_phase in phases
+            for input_field in self.fields_for(each_phase)
+            if input_field.required is required
+        )
+
+    def missing_global_conditioning(self, inputs: "InferenceInput") -> tuple[str, ...]:
+        """Return required global conditioning fields absent from ``inputs``."""
+        return _missing_required(
+            self.global_conditioning_fields,
+            inputs.global_conditioning,
+        )
+
+    def missing_step(self, inputs: "InferenceInput") -> tuple[str, ...]:
+        """Return required per-step fields absent from ``inputs``."""
+        return _missing_required(self.step_fields, inputs.step)
+
+    def require_global_conditioning(self, inputs: "InferenceInput") -> None:
+        """Raise if required global conditioning fields are absent."""
+        missing = self.missing_global_conditioning(inputs)
+        if missing:
+            raise ValueError(
+                f"Missing required global conditioning input(s): {missing}"
+            )
+
+    def require_step(self, inputs: "InferenceInput") -> None:
+        """Raise if required per-step fields are absent."""
+        missing = self.missing_step(inputs)
+        if missing:
+            raise ValueError(f"Missing required step model input(s): {missing}")
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -352,9 +428,45 @@ class CanonicalInputs:
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
-def check_payload(fields: tuple[InputField, ...], payload: Mapping[str, Any]) -> None:
-    """Raise if ``payload`` omits any required field."""
-    missing = tuple(
+@dataclass(frozen=True, kw_only=True, slots=True)
+class InferenceInput:
+    """Encoded inputs for one :class:`InferenceSession` call.
+
+    Two conditioning slots:
+
+    - ``global_conditioning``: values that condition the whole rollout, such as
+      the conditioning frame or prompt. Session start/reset establishes this
+      state; a step call may carry a non-empty payload to request an update when
+      the model supports it.
+    - ``step``: values needed to generate the next chunk or frame.
+    """
+
+    __hash__ = None
+
+    global_conditioning: Mapping[str, Any] = field(default_factory=dict)
+    step: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "global_conditioning", freeze_mapping(self.global_conditioning)
+        )
+        object.__setattr__(self, "step", freeze_mapping(self.step))
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+
+    def for_phase(self, phase: InputPhase) -> Mapping[str, Any]:
+        """Return the payload mapping for ``phase``."""
+        return (
+            self.global_conditioning
+            if validate_phase(phase) == "global_conditioning"
+            else self.step
+        )
+
+
+def _missing_required(
+    fields: tuple[InputField, ...], payload: Mapping[str, Any]
+) -> tuple[str, ...]:
+    return tuple(
         input_field.name
         for input_field in fields
         if input_field.required and input_field.name not in payload

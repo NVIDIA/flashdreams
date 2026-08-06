@@ -21,8 +21,9 @@ Implementation lives in `flashdreams.runtime`:
   and compatibility
 - `flashdreams/tests/test_runtime_canonical.py`
 - `flashdreams/tests/test_runtime_input_mapping.py`
-- `flashdreams/tests/test_inference_runtime_api.py` — the T1 envelope tests,
-  including a reference loop that exercises all three layers
+- `flashdreams/tests/test_inference_runtime_api.py` — the T1 envelope tests
+- `flashdreams/tests/test_runtime_runner.py` — the production standard loop
+  tests that exercise all three input layers with runtime/session cleanup
 
 The supported-model input inventory that informed this work is in
 `docs/inference_runtime_supported_inputs_inventory.md`.
@@ -49,55 +50,60 @@ that touches no application, mapping, or model code.
 
 This path covers **live user control only**. Global conditioning is
 application-owned data and reaches `InferenceInput` directly, without passing
-through canonicalization or a device converter. An application that wants a
-trigger key to swap the prompt reads that as ordinary canonical control input
-and updates its own global conditioning in response.
+through canonicalization or a device converter. Session start/reset establishes
+that global conditioning. During an active rollout, a non-empty
+`global_conditioning` payload passed to `step()` requests an update of the
+session-global state when the model supports it.
 
 ## Conditioning Slots
 
-Both the canonical and encoded layers split into two slots, and the split means
-the same thing at each:
+The encoded layer splits model-facing inputs into two slots:
 
-- **global conditioning** — conditions the whole rollout: prompt, conditioning
-  frame, scene. Normally supplied at session start.
+- **global conditioning** — session-global model state: prompt, conditioning
+  frame, scene.
 - **per-step conditioning** — needed to generate the next chunk or frame:
   steering, HD map frames, camera trajectory.
 
-``InferenceInput`` exposes exactly those two mappings:
+`InputPhase` is `Literal["global_conditioning", "step"]`. The phase names the
+`InferenceInput` slot the caller provides.
+
+`InputField.frequency_consumed` is independent query metadata. It says how the
+adapter consumes a field internally, such as `once` or `per_step`; it does not
+decide whether the caller provides the field through `global_conditioning` or
+`step`.
+
+## Global Conditioning Is Session-Global State
+
+`InferenceInput.global_conditioning` carries session-scoped inputs. A runtime
+passes those values to `InferenceRuntime.start_session()` or to
+`InferenceSession.reset()` when the backend supports resetting a rollout.
+During an active rollout, passing a non-empty `global_conditioning` payload to
+`InferenceSession.step()` asks the session to update that session-global state.
+The model/session owns whether that update is supported.
 
 ```python
-from flashdreams.runtime import InferenceInput
-
-inputs = InferenceInput(
-    global_conditioning={"prompt": "drive"},
-    per_step_conditioning={"steering": 0.25},
-)
-```
-
-``InputPhase`` remains ``Literal["global", "step"]`` for mapping schemas. The
-inference envelope uses the more explicit ``global_conditioning`` and
-``per_step_conditioning`` names directly.
-
-## Payload Validation
-
-``InferenceInputSchema`` declares ``global_fields`` and
-``per_step_fields``. Its two checks validate the corresponding payload and
-raise ``ValueError`` when a required field is absent:
-
-```python
-from flashdreams.runtime import InferenceInputSchema, InputField
+from flashdreams.runtime import InferenceInput, InferenceInputSchema, InputField
 
 schema = InferenceInputSchema(
-    global_fields=(InputField(name="prompt"),),
-    per_step_fields=(InputField(name="steering"),),
+    global_conditioning_fields=(
+        InputField(name="prompt"),
+        InputField(name="scene_id"),
+    )
 )
-schema.check_global_payload(inputs)
-schema.check_per_step_payload(inputs)
+schema.require_global_conditioning(
+    InferenceInput(global_conditioning={"prompt": "drive", "scene_id": "town_02"})
+)
+
+step_with_prompt_update = InferenceInput(
+    global_conditioning={"prompt": "heavy rain"},
+    step={"steering": 0.0},
+)
 ```
 
-Optional fields do not block either check. ``update_policy``, ``lifecycle``, and
-other ``InputField`` metadata remain adapter-owned query hints; deep payload
-validation stays in the adapter or mapping.
+Per-step conditioning is different: those values are supplied through
+`InferenceInput.step` for each generated chunk or frame. Converters still emit
+every window, because live control is level-triggered: a key held across a step
+emits no events but still means full throttle.
 
 ## Raw Inputs
 
@@ -180,8 +186,9 @@ device does not resume from stale state.
 ## Mapping And Compatibility
 
 `InputMapping` is the canonical-to-encoded boundary. `InputMappingSchema` is its
-declarative surface: `consumes` names canonical modalities; `produces_global`
-and `produces_step` name the `InferenceInput` fields it can build.
+declarative surface: `consumes` names canonical modalities;
+`produces_global_conditioning` and `produces_step` name the `InferenceInput`
+fields it can build.
 
 `InputMapping.validate()` raises, which fails a run late and cannot say *which*
 optional model input a source would enable or *which* missing modality makes a
@@ -218,6 +225,13 @@ registered later, with no change to the mapping or the model schema.
 `undeclared_inference_inputs()` reports payload keys a mapping produced but did
 not declare, which keeps hand-written schemas honest as the code drifts.
 
+`StepRequest` and `StepResult` sit around a single `InferenceSession.step()`
+call. They are not schema declarations. A session returns `StepRequest` from
+`next_step_request()` to name the next step, optionally provide a narrower
+`InferenceInputSchema`, and request a `TimeWindow` of user inputs. The runner
+then builds `InferenceInput` and calls `step()`, which returns a `StepResult`
+for the output target and metrics recorder.
+
 ## What This Does Not Validate
 
 The schemas intentionally avoid becoming a rich type system. These remain the
@@ -225,8 +239,9 @@ responsibility of the model adapter, runtime, session, or mapping:
 
 - tensor shape and dtype, image decode details;
 - camera coordinate systems, pose and timestamp units;
-- prompt-embedding swap mechanics;
-- whether a model can actually apply a declared update policy at runtime;
+- prompt-embedding mechanics;
+- whether a model can actually apply a requested global-conditioning update;
+- enforcing consumption-cadence metadata;
 - deep validation of scene, HD map, or actor-state data.
 
 The layer answers "can this source plausibly drive this model through this
@@ -258,8 +273,9 @@ layer:
   to `OutputTarget.write()`. Output shape is T5.
 - **Declared output modalities**, so an output target or quality-eval can state
   what it requires and be matched the way inputs now are. T5/T8.
-- **`Application`**, the class that has-a input system, input map, global
-  conditioning, session, and output target. T4.
+- **Full `Application` ownership**, the class that has-a input system, input
+  map, global conditioning, session, and output target. T4 now provides the
+  narrow synchronous runner; richer application ownership remains outside T4.
 - **Loop ownership** — whether the application or the runtime/session drives the
   main event loop, and whether inputs are queued and batched.
 
@@ -268,7 +284,8 @@ layer:
 ```bash
 .venv/bin/pytest flashdreams/tests/test_runtime_canonical.py \
   flashdreams/tests/test_runtime_input_mapping.py \
-  flashdreams/tests/test_inference_runtime_api.py -q
+  flashdreams/tests/test_inference_runtime_api.py \
+  flashdreams/tests/test_runtime_runner.py -q
 .venv/bin/ty check flashdreams/flashdreams/runtime
 ```
 

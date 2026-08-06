@@ -25,7 +25,6 @@ from flashdreams.runtime.inference_session import (
 )
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
-    SESSION_START_ONLY,
     CanonicalInputs,
     CanonicalInputSchema,
     CanonicalModality,
@@ -61,7 +60,9 @@ from flashdreams.runtime.metrics import (
     RuntimeMetricSample,
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
+from flashdreams.runtime.runner import run_inference_session
 from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 __all__ = [
     "CanonicalInputs",
@@ -95,6 +96,7 @@ __all__ = [
     "MappingCompatibility",
     "MetricsRecorder",
     "ModelAdapter",
+    "Mp4VideoOutputTarget",
     "NullMetricsRecorder",
     "NullOutputTarget",
     "OutputArtifact",
@@ -102,10 +104,10 @@ __all__ = [
     "Precision",
     "RuntimeMetricSample",
     "ScriptedModality",
-    "SESSION_START_ONLY",
     "StepRequest",
     "StepResult",
     "TimeWindow",
+    "run_inference_session",
     "undeclared_inference_inputs",
     "UserInputCapability",
     "UserInputEvent",

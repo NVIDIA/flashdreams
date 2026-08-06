@@ -217,14 +217,14 @@ def test_canonical_inputs_carry_live_control_only() -> None:
 
 
 def test_application_supplies_global_conditioning_directly() -> None:
-    """Global conditioning reaches the session without canonicalization."""
+    """A prompt reaches session start without touching canonicalization."""
     inputs = InferenceInput(
         global_conditioning={"prompt": "heavy rain"},
-        per_step_conditioning={"steering": 0.0},
+        step={"steering": 0.0},
     )
 
     assert inputs.global_conditioning["prompt"] == "heavy rain"
-    assert inputs.per_step_conditioning["steering"] == 0.0
+    assert inputs.step["steering"] == 0.0
 
 
 # --- device independence ------------------------------------------------

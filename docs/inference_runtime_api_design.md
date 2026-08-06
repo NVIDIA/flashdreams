@@ -44,22 +44,24 @@ model.
 ## Current Implementation Plan
 
 Implementation should happen on an experimental integration branch. PRs for this
-work should target that branch until the API shape, LingBot migration, and
-OmniDreams migration are all working well enough to merge to `main` together.
+work should target that branch until the API shape and OmniDreams migration are
+working well enough to merge to `main` together. LingBot migration is deferred
+to a separate follow-up after the OmniDreams path has clarified the shared demo
+API shape.
 
 The experimental branch can temporarily break or simplify command-line options
-while the demos are being moved to the new API. The required outcome is that the
-LingBot and OmniDreams demos still run through the new runtime path, and that
-benchmark tooling can confirm they are at least broadly healthy before the
-branch is merged back to `main`.
+while the demos are being moved to the new API. The required outcome for this
+branch is that the OmniDreams demo runs through the new shared demo/runtime path,
+and that benchmark and manual WebRTC checks can confirm it is at least broadly
+healthy before the branch is merged back to `main`.
 
 Initial scope:
 
 - define the minimal runtime API envelope;
-- migrate LingBot and OmniDreams to use it;
+- migrate OmniDreams to use it through a shared demo-level API;
 - support selectable output modes such as MP4, JPEG/MJPEG stream, WebRTC, and
   headless/null where appropriate;
-- use or update benchmark tooling to verify the migrated demos;
+- use or update benchmark tooling to verify the migrated OmniDreams demo;
 - defer broader model migrations, hosted execution, full autotune, and polished
   metrics until the first branch proves the API shape.
 
@@ -71,14 +73,30 @@ Initial scope:
 | T1 | Complete | Minimal API envelope and naming. | Partly. | T0. | `InferenceConfig`, `UserInputs`, `InferenceInput`, runtime/session, output target, and mapping boundaries are defined well enough for demos to use. |
 | T2 | Complete | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
 | T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
-| T4 | Planned | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
+| T4 | Complete | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
 | T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
-| T6 | Planned | LingBot migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
-| T7 | Planned | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams runs through the new API path with its model-specific inputs and mapping preserved. |
-| T8 | Planned | Benchmark/smoke verification for LingBot and OmniDreams. | Preparation can run early; final gate is late. | T5, T6, T7. | Existing or updated benchmark tooling can run both migrated demos and produce enough evidence that they still work. |
+| T6 | Deferred | LingBot migration. | Yes, but out of scope for this branch. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
+| T7 | Partially complete | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams replay and WebRTC run through the shared demo API path; remaining work is output/stat integration, legacy demo retirement, and cleanup. |
+| T8 | Partially complete | Benchmark/smoke verification for OmniDreams. | Preparation can run early; final gate is late. | T5, T7. | Existing or updated benchmark tooling can run the migrated OmniDreams demo and produce enough evidence that it still works. |
 | T9 | Planned | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
-| T10 | Planned | CLI compatibility and migration cleanup. | Yes, after demo migrations start. | T6, T7. | Required demo commands are restored or replaced, temporary hacks are removed, and user-facing docs/notes match the branch behavior. |
-| T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T6-T10. | LingBot and OmniDreams pass agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+| T10 | Planned | CLI compatibility, legacy retirement, and migration cleanup. | Yes, after demo migrations start. | T5, T7, T8. | Required demo commands are restored or replaced, old interactive-drive and old OmniDreams demo/server paths are removed or reduced to compatibility shims, code used only by retired demos is removed, and user-facing docs/notes match the branch behavior. |
+| T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T5, T7-T10. | OmniDreams passes agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+
+Current OmniDreams migration status:
+
+- The shared `flashdreams.runtime.demo` API and OmniDreams demo adapter exist.
+- OmniDreams MP4 replay runs through the shared replay runner and MP4 output
+  target.
+- The one-minute benchmark comparison can run the legacy replay path and the new
+  shared demo replay path side by side.
+- OmniDreams WebRTC runs through `serve_flashdreams_demo(...)` and the shared
+  WebRTC manager path while still using the existing OmniDreams runtime and
+  packaged browser app.
+- The migration is not complete until the new output target/stat artifact work
+  lands, the new OmniDreams path is updated to use it, the old interactive-drive
+  and old OmniDreams demo/server paths are removed or reduced to deliberate
+  compatibility shims, code used only by retired demos is deleted, and the
+  experimental demo/runtime/input code is cleaned up.
 
 Suggested parallel split:
 
@@ -88,7 +106,8 @@ Suggested parallel split:
   stay coherent;
 - one person owns T5/T8/T9, because outputs, benchmarks, and metrics are tightly
   related;
-- LingBot and OmniDreams can be assigned separately once the skeleton is usable;
+- LingBot should be tracked as a separate follow-up once OmniDreams has settled
+  the shared demo API shape;
 - one person should track branch health, CLI compatibility, and merge readiness.
 
 ## Architecture
@@ -119,7 +138,7 @@ InferenceRuntime
   |
   v
 InferenceSession
-  one rollout/stream: prompt/initial inputs, cache/state, current step, reset
+  one rollout/stream: global conditioning, cache/state, current step, reset
   keeps per-run state from leaking across prompts, clients, or benchmark repeats
   |
   v
@@ -187,11 +206,11 @@ local model implementation, a Dynamo-like backend, or a hosted service.
 | --- | --- | --- |
 | Model/preset registry | Lists what can run: model/preset slugs, scenarios, capabilities, resource hints, and supported output modes. | Must remain cheap to query and must not load checkpoints. |
 | App / integration / benchmark / transport | Owns the user-facing mode: CLI, native integration, WebRTC, benchmark, hosted request, or replay. | Supplies run setup, user inputs, model inputs, and output target selection. |
-| User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image updates, traces, and future scalar controls. |
-| Input mapping | Converts user/app inputs plus initial model inputs into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
+| User input library | Normalizes live or replayed controls into FlashDreams-supported user input events/windows. | Shared primitives for keyboard, reset, prompt/image selection, traces, and future scalar controls. |
+| Input mapping | Converts user/app inputs plus global conditioning into the model-specific inputs needed by the session. | A model adapter may provide a default mapping; runtimes, applications, benchmarks, and replay tools may override it without changing the model step. |
 | ModelRunner / standard loop | Orchestrates one run from setup through runtime initialization, stepping, output, metrics, and teardown. | Shared orchestration layer used by CLIs, benchmarks, MP4 runs, and simple realtime flows. |
 | InferenceRuntime | Owns heavyweight lifecycle: distributed init, model construction, checkpoint loading, compile/capture, warmup, hosted-service connection, and teardown. | Long-lived reusable runtime created from `InferenceConfig`; lets FlashDreams load/warm once and create sessions sequentially unless the backend supports concurrency. |
-| InferenceSession | Owns one rollout or stream: initial inputs, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
+| InferenceSession | Owns one rollout or stream: global conditioning, cache state, current step, reset behavior, step requirements, and step execution. | Per-rollout interface consumed by the standard loop; keeps state isolated across prompts, browser clients, replay scenarios, or benchmark repeats. |
 | Model implementation / inference pipeline | Implements encode, model step, decode, cache updates, and model-specific optimizations. | FlashDreams wraps this boundary; it should not replace every model implementation. |
 | Output target | Consumes generated outputs and handles presentation or persistence. | Separate from model execution so the same session can feed WebRTC, MP4, benchmark, or headless output. |
 | Metrics, artifacts, and profiling | Records timings, memory, quality data, logs, reports, traces, and optional NVTX ranges. | Shared observation layer for local runs, benchmarks, CI smoke, and hosted runs. |
@@ -298,8 +317,7 @@ uses:
 
 - keyboard keydown/keyup events;
 - reset requests;
-- prompt update requests;
-- image update requests;
+- prompt or image selection/update events;
 - future scalar controls such as throttle, brake, steer, or camera axes once an
   integration needs them.
 
@@ -320,13 +338,16 @@ UserInputs  ->  CanonicalInputs  ->  InferenceInput
    raw           canonicalized          encoded
 ```
 
-Raw device events are canonicalized into device-independent modalities before an
-application sees them, so adding a keyboard, gamepad, or wheel is a converter
-registration rather than an application change. `InferenceInput` is what an
-`InferenceSession` actually receives.
+Raw device events for live control are canonicalized into device-independent
+modalities before application or mapping logic consumes them, so adding a
+keyboard, gamepad, or wheel is a converter registration rather than an
+application change. Global conditioning is application-owned and reaches
+`InferenceInput` directly; it does not pass through live device canonicalization.
+`InferenceInput` is what an `InferenceSession` actually receives.
 
-`InferenceInput` describes the data the model or inference pipeline actually
-requires. Both it and `CanonicalInputs` distinguish two conditioning slots:
+`CanonicalInputs` describes device-independent live control for one requested
+input window. `InferenceInput` describes the data the model or inference
+pipeline actually requires, split into two conditioning slots:
 
 - global conditioning: values that condition the whole rollout;
 - per-step conditioning: values needed for one generated chunk or frame window.
@@ -335,11 +356,11 @@ Examples of global conditioning include prompt, negative prompt, conditioning
 frame, input video, scene id, HD map asset, camera calibration, initial camera
 pose, seed, or model-specific fields.
 
-Global conditioning is normally supplied when a session starts, but a non-empty
-global slot on a mid-rollout input is an update request rather than a reset;
-resetting rollout state is a separate `InferenceSession.reset()` call. Whether a
-given value can be swapped mid-rollout is declared per field by
-`InputField.update_policy`.
+Global conditioning establishes session-global model state when a session
+starts or resets. During an active rollout, a non-empty global-conditioning
+payload passed to `InferenceSession.step()` asks the session to update that
+state when the model supports it. Reset remains a separate explicit session
+method.
 
 Examples of per-step conditioning include frame timestamps, pose segments,
 camera trajectory chunks, rendered HD map frames, conditioning video windows,
@@ -349,20 +370,22 @@ Inference input payloads should use semantic names, not only modality names. For
 example, a first frame and an HD map frame should be distinct inputs even if
 both are image-like values.
 
-Model input metadata may also include a lightweight lifecycle label, such as
-runtime config, cache initialization, rollout binding, per-step input, or
-session update. This should remain query metadata, not model-specific tensor
-validation.
+Model input names, input modalities, and schema metadata should be open-ended.
+Supported integrations such as SANA-WM, LingBot, Omnidreams, and future
+external adapters may need different semantic fields. Adding a new model should
+usually mean adding adapter-owned schema declarations and mappings, not changing
+a central FlashDreams enum.
 
-Model input names, payload kinds, lifecycle labels, and schema metadata should
-be open-ended. Supported integrations such as SANA-WM, LingBot, Omnidreams, and
-future external adapters may need different semantic fields. Adding a new model
-should usually mean adding adapter-owned schema declarations and mappings, not
-changing a central FlashDreams enum.
+Consumption cadence is a separate hint from input scope. A field may be
+provided through global conditioning because it is session-global state, while
+the adapter consumes or slices it during every step. That can be recorded as
+`frequency_consumed` metadata without changing whether the field belongs in
+`global_conditioning_fields` or `step_fields`.
 
-For interactive runs, most `InferenceInput` values will be global conditioning
-plus per-step inputs produced by input mapping. For MP4 generation and benchmarking, the API
-should also support fixed per-step model inputs so runs can be deterministic.
+For interactive runs, most `InferenceInput` values will be app-owned global
+conditioning plus per-step inputs produced by input mapping. For MP4 generation
+and benchmarking, the API should also support fixed per-step model inputs so
+runs can be deterministic.
 
 ## Schemas
 
@@ -374,7 +397,7 @@ These schemas are not meant to be a rich type system or a replacement for
 model-specific validation. They should be just enough to answer:
 
 - what can this app, transport, trace, or benchmark source provide?
-- what does this model require before startup and at each step?
+- what does this model require before session start and at each step?
 - can this event source drive this model with the selected mapping?
 
 The purpose is to fail early before expensive model initialization, produce
@@ -385,8 +408,8 @@ Schema objects may carry open-ended metadata for query-time hints such as
 coordinate frame, units, rough shape summary, accepted file suffixes, schema
 URI, model family, or source/transport details. Metadata should help humans and
 adapter selection code, but compatibility should still be based on the declared
-event capabilities, semantic model fields, payload representation hints, and
-lifecycle labels.
+event capabilities, semantic model fields, input modalities, and schema phases.
+Consumption-cadence hints are descriptive and adapter-owned.
 
 For simple CLI text-to-video or image-to-video runs, `UserInputSchema` can be
 trivial or omitted because there may be no live controls. `InferenceInputSchema` is
@@ -468,15 +491,23 @@ There are two separate moments to keep clear:
 - before runtime initialization, FlashDreams should select the mapping or mapper
   set and check obvious compatibility between the app event source and the
   model;
-- during the standard loop, the runtime or runner queues and timestamps user
-  events, then uses the selected mapping to build initial or per-step
-  `InferenceInput` from the relevant event window, often after the session reports
-  what it needs next.
+- during the standard loop, the runtime or runner passes app-owned global
+  `InferenceInput` through the selected mapping before session start, then
+  queues and timestamps user events, canonicalizes the session-requested window,
+  and uses the selected mapping to build per-step `InferenceInput`.
 
 This keeps the Reactor-style contract intact: the model-side integration can
 declare user inputs, declare model inputs, and provide a default mapping, while
 the runtime owns transport, event validation, timestamping, input queue/window
 selection, output delivery, and optional overrides.
+
+`StepRequest` and `StepResult` are per-step runtime messages, not declarative
+schemas. `InferenceSession.next_step_request()` returns a `StepRequest` to say
+which step is next, which user-input time window to map, and whether this step
+has any narrower `InferenceInputSchema` than the session default. The runner or
+application then builds an `InferenceInput` and calls `InferenceSession.step()`,
+which returns a `StepResult` carrying the generated output, output timing,
+metrics, and step metadata.
 
 Examples:
 
@@ -498,6 +529,11 @@ adapter/runtime still owns deep tensor validation and model semantics.
 The standard loop should be shared by CLI generation, headless playback, MP4
 generation, benchmarks, and simple realtime applications.
 
+The current v0 production loop is `flashdreams.runtime.run_inference_session()`.
+It is intentionally narrow: one adapter, one config, one canonicalizer/source,
+one selected mapping, one initial input, one output target, one metrics
+recorder, and one synchronous sequential session.
+
 A run should:
 
 1. Discover the model or preset without loading checkpoints.
@@ -505,7 +541,7 @@ A run should:
    profiling, and optional scenario setup.
 3. Validate that the event source and mapping can drive the selected model.
 4. Initialize the runtime.
-5. Start a session from initial model inputs.
+5. Start a session from global conditioning inputs.
 6. For each step, ask the session what it needs, gather live or fixed inputs,
    build step model inputs, run the session step, route outputs, and record
    metrics.
@@ -553,8 +589,9 @@ generation, benchmarks, regression testing, and autotune.
 
 Two replay levels should be supported:
 
-- user-event replay: records timestamped key events, prompt updates, image
-  updates, reset events, and timing, then runs normal input mapping;
+- user-event replay: records timestamped key events, prompt or image
+  selection/update events, reset events, and timing, then runs normal input
+  mapping;
 - model-input replay: records or defines already-mapped per-step model inputs
   for stricter model-level regression tests.
 
@@ -632,9 +669,11 @@ The new API should reuse existing code instead of replacing everything:
 
 The task tracker near the start of this document is the source of truth for the
 first implementation branch. The first milestone is intentionally narrower than
-the full design: prove the API with LingBot and OmniDreams, selectable output
-modes, and enough benchmark/smoke coverage to merge the experimental branch
-back to `main` safely.
+the full design: prove the API with OmniDreams, add shared output/stat artifact
+selection, retire the old OmniDreams demo paths, clean up the experimental
+runtime/demo code, and collect enough benchmark/smoke evidence to merge the
+experimental branch back to `main` safely. LingBot should be handled in a
+separate follow-up plan.
 
 ## Design Risks
 
@@ -667,8 +706,10 @@ registry, standard loop, concrete output modes, or model migrations:
 - The model-specific integration boundary is named `ModelAdapter`.
 - Heavyweight lifecycle is split into `InferenceRuntime` and
   `InferenceSession`.
-- Step data carriers are named `StepRequest` and `InferenceOutput`; a session returns
-  `None` from `next_step_request()` when the rollout is complete.
+- Step data carriers are named `StepRequest` and `StepResult`. They are runtime
+  messages around one call to `InferenceSession.step()`, not schema
+  declarations; a session returns `None` from `next_step_request()` when the
+  rollout is complete.
 - Raw inputs use `UserInputs`, canonicalized inputs use `CanonicalInputs`, and
   model-facing inputs use `InferenceInput`.
   Both remain lightweight payload envelopes with shallow read-only mappings.
@@ -694,7 +735,7 @@ registry, standard loop, concrete output modes, or model migrations:
   registering it?
 - What package registration mechanism should third-party and internal adapters
   use for CLI discovery and benchmarks?
-- What is the first public model to migrate?
+- Which model should migrate after OmniDreams settles the shared demo API shape?
 - What metrics are required for every benchmark run?
 - What metadata must be discoverable without loading checkpoints?
 - What requirements do Dynamo/Reactor-style backends need before we commit to
