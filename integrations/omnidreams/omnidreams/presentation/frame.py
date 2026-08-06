@@ -39,6 +39,14 @@ class DisplayFrame:
     status_message: str | None = None
     """Text to draw over the image; ``None`` presents the image alone."""
 
+    allow_window_resize: bool = True
+    """Whether this image's native resolution may drive a window resize.
+
+    Set ``False`` for images already rendered at the window's own resolution,
+    where growing the window to "fit" them would be circular. Only consulted
+    when the presenter is configured to auto-resize at all.
+    """
+
     overlay_data: Mapping[str, Any] = field(default_factory=dict)
     """Extra per-frame values forwarded verbatim to the overlay.
 

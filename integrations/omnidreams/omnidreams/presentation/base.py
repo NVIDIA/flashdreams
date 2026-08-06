@@ -148,6 +148,15 @@ class HudOverlay(Protocol):
         """Stage anything in ``frame.overlay_data`` needed at draw time."""
         ...
 
+    def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
+        """Discard chrome cached against the previous canvas size.
+
+        Presenters reallocate the canvas on resize, so any sprite or panel an
+        overlay cached for the old dimensions is stale. Overlays that cache
+        nothing size-dependent can leave this empty.
+        """
+        ...
+
     def on_key(self, event: KeyEvent) -> bool:
         """Handle a key event.
 

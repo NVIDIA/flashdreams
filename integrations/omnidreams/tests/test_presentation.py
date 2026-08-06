@@ -41,6 +41,7 @@ class _RecordingOverlay:
         self.drawn: list[DisplayFrame] = []
         self.placeholders = 0
         self.prepared: list[DisplayFrame] = []
+        self.resizes: list[tuple[int, int]] = []
         self.keys: list[KeyEvent] = []
         self.pointers: list[PointerEvent] = []
         self.closed = False
@@ -72,6 +73,9 @@ class _RecordingOverlay:
 
     def prepare(self, frame: DisplayFrame) -> None:
         self.prepared.append(frame)
+
+    def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
+        self.resizes.append(canvas_size)
 
     def on_key(self, event: KeyEvent) -> bool:
         self.keys.append(event)
@@ -129,7 +133,15 @@ def test_display_frame_defaults_to_an_empty_presentable_frame() -> None:
 
     assert frame.image is None
     assert frame.status_message is None
+    assert frame.allow_window_resize
     assert dict(frame.overlay_data) == {}
+
+
+def test_display_frame_can_opt_out_of_source_driven_window_resize() -> None:
+    """Images already rendered at window resolution must not resize the window."""
+    frame = DisplayFrame(image=object(), allow_window_resize=False)
+
+    assert not frame.allow_window_resize
 
 
 def test_display_frame_supports_replacing_only_the_status_message() -> None:

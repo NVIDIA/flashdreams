@@ -212,7 +212,11 @@ class LocalWindowPresenter:
             self._apply_resize(width, height)
 
         image = frame.image
-        if image is not None and self._resize_window_for_source(image):
+        if (
+            image is not None
+            and frame.allow_window_resize
+            and self._resize_window_for_source(image)
+        ):
             # Resources are rebuilt at the start of the next tick. Drop this
             # transition frame rather than presenting old-size buffers against
             # the newly resized window.
@@ -257,6 +261,21 @@ class LocalWindowPresenter:
     def window_size(self) -> tuple[int, int]:
         """Current configured canvas size in pixels."""
         return self._configured_size
+
+    def reset_camera(self) -> None:
+        """Drop the retained camera frame and its derived caches.
+
+        Applications call this when the frame producer changes -- a new scene
+        or rollout -- because the resize cache is keyed on buffer identity and
+        a fresh producer would otherwise ghost the previous run's last frame.
+        """
+        self._camera_image = None
+        self._camera_src_size = None
+        self._camera_rgba = None
+        self._camera_resize_cache = None
+        self._camera_resize_cache_key = None
+        self._auto_sized_source_size = None
+        self._has_camera_frame = False
 
     ## CUDA composite path
 
@@ -757,6 +776,8 @@ class LocalWindowPresenter:
         self._camera_fit_size = None
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
+        if size_changed:
+            self._overlay.on_canvas_resized((width, height))
         return True
 
     def _on_resize(self, width: int, height: int) -> None:
