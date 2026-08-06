@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import fields
 from typing import Any, cast
 
@@ -11,6 +12,8 @@ import pytest
 from flashdreams.runtime import (
     CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalModality,
+    DeviceConverterSchema,
     IdentityInputMapping,
     InferenceConfig,
     InferenceInput,
@@ -325,6 +328,40 @@ def test_reference_loop_validates_mapping_before_runtime_creation() -> None:
     assert adapter.created_runtime_after_validate
 
 
+def test_reference_loop_does_not_canonicalize_global_conditioning() -> None:
+    mapping = _CanonicalRecordingMapping()
+    adapter = _FakeAdapter()
+    canonicalizer = InputCanonicalizer([_CountingDeviceConverter()])
+    source_schema = UserInputSchema(
+        capabilities=(
+            UserInputCapability(
+                event_type="stateful_event",
+                payload_fields=frozenset(),
+            ),
+        )
+    )
+
+    _drive_two_step_session(
+        adapter=adapter,
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=mapping,
+        canonicalizer=canonicalizer,
+        source_schema=source_schema,
+        user_inputs=UserInputs(
+            events=(UserInputEvent(timestamp_s=0.75, event_type="stateful_event"),)
+        ),
+        inference_input=InferenceInput(global_conditioning={"prompt": "drive forward"}),
+        output=NullOutputTarget(),
+        metrics=InMemoryMetricsRecorder(),
+    )
+
+    assert mapping.global_canonical_values == {}
+    assert mapping.step_canonical_values == (
+        {"stateful_counter": {"count": 0}},
+        {"stateful_counter": {"count": 1}},
+    )
+
+
 def test_reference_loop_closes_runtime_when_session_start_fails() -> None:
     adapter = _FailingStartAdapter()
     output = NullOutputTarget()
@@ -367,12 +404,9 @@ def _drive_two_step_session(
         canonical_schema=adapter.canonical_input_schema,
         inference_input_schema=adapter.inference_input_schema,
     )
+    canonicalizer.reset()
     initial_inputs = mapping.map_global_conditioning_inputs(
-        canonical_inputs=canonicalizer.canonicalize(
-            user_inputs,
-            window=TimeWindow(start_s=0.0, end_s=_SESSION_HORIZON_S),
-            source_schema=source_schema,
-        ),
+        canonical_inputs=CanonicalInputs(),
         inference_input=inference_input,
     )
     runtime = adapter.create_runtime(config)
@@ -508,6 +542,71 @@ class _OrderCheckingMapping(IdentityInputMapping):
             inference_input_schema=inference_input_schema,
         )
         self.validated = True
+
+
+class _CanonicalRecordingMapping(IdentityInputMapping):
+    def __init__(self) -> None:
+        self.global_canonical_values: Mapping[str, Any] | None = None
+        self._step_canonical_values: list[Mapping[str, Any]] = []
+
+    @property
+    def step_canonical_values(self) -> tuple[Mapping[str, Any], ...]:
+        return tuple(self._step_canonical_values)
+
+    def map_global_conditioning_inputs(
+        self,
+        *,
+        canonical_inputs: CanonicalInputs,
+        inference_input: InferenceInput,
+    ) -> InferenceInput:
+        self.global_canonical_values = canonical_inputs.values
+        return super().map_global_conditioning_inputs(
+            canonical_inputs=canonical_inputs,
+            inference_input=inference_input,
+        )
+
+    def map_step_inputs(
+        self,
+        *,
+        canonical_inputs: CanonicalInputs,
+        inference_input: InferenceInput,
+        request: StepRequest,
+    ) -> InferenceInput:
+        self._step_canonical_values.append(canonical_inputs.values)
+        return super().map_step_inputs(
+            canonical_inputs=canonical_inputs,
+            inference_input=inference_input,
+            request=request,
+        )
+
+
+_STATEFUL_COUNTER = CanonicalModality(
+    name="stateful_counter",
+    payload_fields=frozenset({"count"}),
+)
+
+
+class _CountingDeviceConverter:
+    schema = DeviceConverterSchema(
+        name="stateful-counter",
+        produces=_STATEFUL_COUNTER,
+        consumes=(UserInputCapability(event_type="stateful_event"),),
+    )
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def reset(self) -> None:
+        self.count = 0
+
+    def convert(
+        self,
+        user_inputs: UserInputs,
+        window: TimeWindow,
+    ) -> Mapping[str, Any] | None:
+        del window
+        self.count += len(user_inputs.events)
+        return _STATEFUL_COUNTER.value({"count": self.count})
 
 
 class _OrderCheckingAdapter(_FakeAdapter):
