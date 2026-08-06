@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.types import PresentedFrame
 from PIL import Image, ImageDraw
@@ -168,6 +169,9 @@ class LocalWindowPresenterBridge:
                 background=BG_COLOR,
                 text_color=TEXT_COLOR,
             ),
+            # Honour the same opt-out the rasterizer and the legacy presenters
+            # read, so one variable still forces the whole demo onto host paths.
+            cuda_interop_disabled=env_truthy(DISABLE_CUDA_INTEROP_ENV),
         )
 
     @property
