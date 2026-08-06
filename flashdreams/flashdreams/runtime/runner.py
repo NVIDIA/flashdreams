@@ -10,8 +10,8 @@ import math
 from flashdreams.runtime.canonical import InputCanonicalizer
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import (
-    CanonicalInputSchema,
     CanonicalInputs,
+    CanonicalInputSchema,
     InferenceInput,
     TimeWindow,
     UserInputs,
