@@ -105,9 +105,9 @@ invalid-method-override = "ignore"
 [tool.ty.analysis]
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
-# imports as Any. ``slangpy`` ships only with the omnidreams
-# ``interactive-drive`` extra, so the presentation backends import it lazily
-# and it is absent from the lint environment.
+# imports as Any. ``slangpy`` ships only with the ``local-window`` extra, so
+# the presentation backends import it lazily and it is absent from the lint
+# environment.
 replace-imports-with-any = [
     "flash_attn.**",
     "slangpy.**",

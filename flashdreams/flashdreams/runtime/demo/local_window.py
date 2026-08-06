@@ -5,11 +5,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from .replay import _require_supported_mode
 from .spec import DemoAdapter, DemoSpec, LocalWindowOutputSpec
+
+if TYPE_CHECKING:
+    from flashdreams.serving.presentation import DisplayFrame
 
 
 @runtime_checkable
@@ -60,14 +64,66 @@ def build_local_window_demo(
         label="output.mode",
     )
 
-    factory = getattr(adapter, "create_local_window_app", None)
-    if not callable(factory):
-        raise ValueError(
-            f"Adapter {type(adapter).__name__} does not provide "
-            "create_local_window_app; local-window output needs a model-owned "
-            "windowed app."
+    app_factory = getattr(adapter, "create_local_window_app", None)
+    if callable(app_factory):
+        return LocalWindowDemo(app=app_factory(spec=spec), output=spec.output)
+
+    overlay_factory = getattr(adapter, "create_local_window_overlay", None)
+    if callable(overlay_factory):
+        return LocalWindowDemo(
+            app=_OverlayDrivenApp(
+                overlay=overlay_factory(spec=spec),
+                frames=adapter.local_window_frames(spec=spec),
+                output=spec.output,
+            ),
+            output=spec.output,
         )
-    return LocalWindowDemo(app=factory(spec=spec), output=spec.output)
+
+    raise ValueError(
+        f"Adapter {type(adapter).__name__} supports local-window output but "
+        "provides neither create_local_window_app nor "
+        "create_local_window_overlay."
+    )
+
+
+@dataclass(slots=True)
+class _OverlayDrivenApp:
+    """Default loop for adapters that only supply chrome and a frame stream.
+
+    Enough for a demo whose interaction is "show me frames as they arrive" --
+    a text-to-video preview, or a model whose controls already reach it by
+    another route. Adapters needing their own outer loop, such as one that
+    switches scenes over a long-lived window, supply a full app instead.
+    """
+
+    overlay: Any
+    frames: Iterable["DisplayFrame"]
+    output: LocalWindowOutputSpec
+
+    def run(self) -> None:
+        from flashdreams.serving.presentation import (
+            LocalWindowPresenter,
+            WindowConfig,
+        )
+
+        presenter = LocalWindowPresenter(
+            overlay=self.overlay,
+            config=WindowConfig(
+                width=self.output.width,
+                height=self.output.height,
+                title=self.output.title,
+            ),
+        )
+        try:
+            for frame in self.frames:
+                if presenter.should_close:
+                    break
+                presenter.process_events()
+                if presenter.should_close:
+                    break
+                presenter.present_frame(frame)
+        finally:
+            presenter.close()
 
 
 def run_local_window_demo(

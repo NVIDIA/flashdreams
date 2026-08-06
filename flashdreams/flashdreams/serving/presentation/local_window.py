@@ -6,7 +6,7 @@
 Owns the window, device, surface, and camera composite for the
 ``local-window`` output mode. Everything model-specific -- layout, chrome
 pixels, and what a key or click means -- is delegated to a
-:class:`~omnidreams.presentation.base.HudOverlay`, so an integration adds a
+:class:`~flashdreams.serving.presentation.base.HudOverlay`, so an integration adds a
 native demo by writing an overlay rather than another presenter.
 """
 
@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from omnidreams.presentation.base import (
+from flashdreams.serving.presentation.base import (
     HudOverlay,
     InputSink,
     KeyAction,
@@ -27,14 +27,14 @@ from omnidreams.presentation.base import (
     PointerEvent,
     Rect,
 )
-from omnidreams.presentation.canvas import (
+from flashdreams.serving.presentation.canvas import (
     allocate_canvas,
     draw_status_overlay,
     fit_rect,
     resolve_font,
 )
-from omnidreams.presentation.cuda_interop import CudaRGBInterop
-from omnidreams.presentation.frame import (
+from flashdreams.serving.presentation.cuda_interop import CudaRGBInterop
+from flashdreams.serving.presentation.frame import (
     DisplayFrame,
     as_rgb_host_uint8,
     has_cuda_tensor,
@@ -113,8 +113,8 @@ class LocalWindowPresenter:
             import slangpy as spy
         except ImportError as exc:
             raise RuntimeError(
-                "SlangPy is required for the local-window presenter; install with"
-                " `uv sync --package flashdreams-omnidreams --extra interactive-drive`."
+                "SlangPy is required for the local-window presenter; install the"
+                " `local-window` extra (`uv sync --extra local-window`)."
             ) from exc
 
         self._spy = spy

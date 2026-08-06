@@ -9,8 +9,8 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from omnidreams.presentation.base import Rect
-from omnidreams.presentation.canvas import fit_rect
+from flashdreams.serving.presentation.base import Rect
+from flashdreams.serving.presentation.canvas import fit_rect
 
 _BUFFER_COUNT = 3
 """Shared RGBA buffers in the ring; enough to keep the copy stream ahead of

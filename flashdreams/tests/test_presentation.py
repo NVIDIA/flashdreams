@@ -9,7 +9,7 @@ import dataclasses
 
 import numpy as np
 import pytest
-from omnidreams.presentation import (
+from flashdreams.serving.presentation import (
     DisplayFrame,
     HudOverlay,
     InputSink,
@@ -24,7 +24,7 @@ from omnidreams.presentation import (
     rgb_source_size,
     truncate_text_to_width,
 )
-from omnidreams.presentation.canvas import resolve_font
+from flashdreams.serving.presentation.canvas import resolve_font
 from PIL import Image, ImageDraw
 
 pytestmark = pytest.mark.ci_cpu

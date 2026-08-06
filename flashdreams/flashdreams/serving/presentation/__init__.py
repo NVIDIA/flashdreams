@@ -3,13 +3,19 @@
 
 """Model-agnostic presentation backends: presenter/overlay contracts, canvas, interop.
 
-Importing this package pulls in PIL and numpy only. SlangPy is imported by
-:mod:`omnidreams.presentation.local_window` and torch by
-:mod:`omnidreams.presentation.cuda_interop`, both at construction time, so
-contracts and geometry stay usable on hosts with no GPU or display.
+The core an integration builds a native demo on: it owns window creation,
+device and swapchain setup, resize recovery, and the camera composite, and
+delegates every model-specific pixel and control decision to a
+:class:`~flashdreams.serving.presentation.base.HudOverlay`.
+
+Requires the ``local-window`` extra for Pillow and SlangPy. Importing the
+package needs only Pillow and numpy; SlangPy is imported by
+:mod:`~flashdreams.serving.presentation.local_window` and torch by
+:mod:`~flashdreams.serving.presentation.cuda_interop`, both at construction
+time, so contracts and geometry stay usable on hosts with no GPU or display.
 """
 
-from omnidreams.presentation.base import (
+from flashdreams.serving.presentation.base import (
     HudOverlay,
     InputSink,
     KeyAction,
@@ -20,7 +26,7 @@ from omnidreams.presentation.base import (
     Rect,
     SupportsPrepareFrame,
 )
-from omnidreams.presentation.canvas import (
+from flashdreams.serving.presentation.canvas import (
     LRUCache,
     allocate_canvas,
     draw_status_overlay,
@@ -29,14 +35,14 @@ from omnidreams.presentation.canvas import (
     resolve_font,
     truncate_text_to_width,
 )
-from omnidreams.presentation.frame import (
+from flashdreams.serving.presentation.frame import (
     DisplayFrame,
     as_rgb_host_uint8,
     has_cuda_tensor,
     prefetch_frame,
     rgb_source_size,
 )
-from omnidreams.presentation.local_window import LocalWindowPresenter, WindowConfig
+from flashdreams.serving.presentation.local_window import LocalWindowPresenter, WindowConfig
 
 __all__ = [
     "DisplayFrame",

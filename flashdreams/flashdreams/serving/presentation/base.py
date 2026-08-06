@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
-from omnidreams.presentation.frame import DisplayFrame
+from flashdreams.serving.presentation.frame import DisplayFrame
 from PIL import Image, ImageDraw
 
 Rect = tuple[int, int, int, int]

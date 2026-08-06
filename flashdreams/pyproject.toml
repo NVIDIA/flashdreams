@@ -109,6 +109,13 @@ examples = [
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
 # off the core install so a serving deployment that uses the bare
 # pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
+# Native windowed presentation (``flashdreams.serving.presentation``). Kept
+# optional because it needs a display server and a Vulkan loader, which a
+# headless serving deployment has no use for.
+local-window = [
+    "Pillow>=10.0",
+    "slangpy==0.42.0",
+]
 runners = [
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",
