@@ -15,13 +15,14 @@ import torch
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
-    VideoTensorLayout as WritableVideoTensorLayout,
     write_video_tensor,
+)
+from flashdreams.infra.runner_io import (
+    VideoTensorLayout as WritableVideoTensorLayout,
 )
 from flashdreams.infra.video_output import RunnerVideoOutputStream, VideoStepResult
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepResult
-
 
 VideoWriter = Callable[..., Path]
 

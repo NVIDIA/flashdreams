@@ -74,9 +74,7 @@ class WebRTCOutputSpec:
         if self.warmup_timeout_s <= 0:
             raise ValueError("WebRTCOutputSpec.warmup_timeout_s must be > 0.")
         if self.client_liveness_timeout_s <= 0:
-            raise ValueError(
-                "WebRTCOutputSpec.client_liveness_timeout_s must be > 0."
-            )
+            raise ValueError("WebRTCOutputSpec.client_liveness_timeout_s must be > 0.")
         if not self.request_session_path.startswith("/"):
             raise ValueError(
                 "WebRTCOutputSpec.request_session_path must start with '/'."

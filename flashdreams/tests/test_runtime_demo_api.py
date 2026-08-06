@@ -73,9 +73,7 @@ def test_replay_demo_uses_shared_runner() -> None:
         runner=fake_runner,
     )
 
-    assert artifacts == (
-        OutputArtifact(kind="test/artifact", uri="memory://artifact"),
-    )
+    assert artifacts == (OutputArtifact(kind="test/artifact", uri="memory://artifact"),)
     assert len(calls) == 1
     assert calls[0]["adapter"] is adapter
     assert calls[0]["config"] == spec.config
