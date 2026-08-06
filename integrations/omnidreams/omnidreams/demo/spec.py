@@ -20,7 +20,6 @@ from omnidreams.runner import (
 from omnidreams.scenes import SCENE_VARIANT_DEFAULT
 from omnidreams.webrtc.session import DEFAULT_WEBRTC_SCENE_UUID
 
-
 DEFAULT_OMNIDREAMS_PRESET = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
 OMNIDREAMS_MODEL_ID = "omnidreams"
 

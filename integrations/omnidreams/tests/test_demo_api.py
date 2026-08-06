@@ -9,19 +9,6 @@ from typing import Any
 
 import pytest
 import torch
-
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime import (
-    InferenceConfig,
-    InferenceInput,
-    OutputArtifact,
-    OutputTarget,
-    StepResult,
-)
-from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, WebRTCOutputSpec
-from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import build_webrtc_demo
-
 from omnidreams.demo import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,
@@ -34,6 +21,18 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntimeOptions,
 )
 from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+
+from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime import (
+    InferenceConfig,
+    InferenceInput,
+    OutputArtifact,
+    OutputTarget,
+    StepResult,
+)
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, WebRTCOutputSpec
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.webrtc import build_webrtc_demo
 
 pytestmark = pytest.mark.ci_cpu
 
