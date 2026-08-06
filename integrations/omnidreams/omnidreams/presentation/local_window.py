@@ -19,8 +19,6 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from PIL import Image, ImageDraw
-
 from omnidreams.presentation.base import (
     HudOverlay,
     InputSink,
@@ -43,6 +41,7 @@ from omnidreams.presentation.frame import (
     prefetch_frame,
     rgb_source_size,
 )
+from PIL import Image, ImageDraw
 
 _ARROW_ALIASES: dict[str, tuple[str, ...]] = {
     "up": ("up", "arrow_up"),

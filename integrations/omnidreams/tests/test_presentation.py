@@ -9,8 +9,6 @@ import dataclasses
 
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw
-
 from omnidreams.presentation import (
     DisplayFrame,
     HudOverlay,
@@ -27,6 +25,7 @@ from omnidreams.presentation import (
     truncate_text_to_width,
 )
 from omnidreams.presentation.canvas import resolve_font
+from PIL import Image, ImageDraw
 
 pytestmark = pytest.mark.ci_cpu
 

@@ -9,7 +9,6 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-
 from omnidreams.presentation.base import Rect
 from omnidreams.presentation.canvas import fit_rect
 
