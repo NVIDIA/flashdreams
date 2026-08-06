@@ -14,7 +14,6 @@ from flashdreams.runtime.inputs import (
     CanonicalInputSchema,
     InferenceInput,
     TimeWindow,
-    UserInputs,
     UserInputSchema,
 )
 from flashdreams.runtime.interfaces import (
@@ -29,6 +28,7 @@ from flashdreams.runtime.mapping import (
 )
 from flashdreams.runtime.metrics import MetricsRecorder
 from flashdreams.runtime.output import OutputArtifact, OutputTarget
+from flashdreams.runtime.sources import UserInputSource
 from flashdreams.runtime.types import StepResult
 
 _DEFAULT_SESSION_HORIZON_S = 3600.0
@@ -41,7 +41,7 @@ def run_inference_session(
     mapping: InputMapping,
     canonicalizer: InputCanonicalizer,
     source_schema: UserInputSchema,
-    user_inputs: UserInputs,
+    user_inputs: UserInputSource,
     initial_inputs: InferenceInput,
     output: OutputTarget,
     metrics: MetricsRecorder,
@@ -49,8 +49,12 @@ def run_inference_session(
     """Run one sequential inference session through the standard loop.
 
     This v0 loop intentionally handles one adapter/runtime/session, one selected
-    input mapping, one replay/live input batch, one output target, and one
-    metrics recorder. It is synchronous and owns only orchestration.
+    input mapping, one input source, one output target, and one metrics
+    recorder. It is synchronous and owns only orchestration.
+
+    ``user_inputs`` is windowed once per step rather than read whole, so a
+    fully-known replay batch and a live queue drive the same loop. See
+    :class:`~flashdreams.runtime.sources.UserInputSource`.
     """
 
     runtime: InferenceRuntime | None = None
@@ -85,12 +89,14 @@ def run_inference_session(
             metadata=initial_inputs.metadata,
         )
 
+        default_window = _default_user_input_window(user_inputs)
+
         while (request := session.next_step_request()) is not None:
+            window = request.user_input_window or default_window
             step_inputs = mapping.map_step_inputs(
                 canonical_inputs=canonicalizer.canonicalize(
-                    user_inputs,
-                    window=request.user_input_window
-                    or _all_user_inputs_window(user_inputs),
+                    user_inputs.window(window),
+                    window=window,
                     source_schema=source_schema,
                 ),
                 inference_input=step_base_inputs,
@@ -131,14 +137,21 @@ def _check_declared_mapping_compatibility(
     compatibility.raise_if_incompatible()
 
 
-def _all_user_inputs_window(user_inputs: UserInputs) -> TimeWindow:
-    if not user_inputs.events:
+def _default_user_input_window(user_inputs: UserInputSource) -> TimeWindow:
+    """Window used for sessions that do not request one per step.
+
+    A source holding a fully-known batch exposes its events, so the horizon is
+    stretched past the last one to keep long replay traces intact. A live queue
+    has no final event, so the flat horizon applies.
+    """
+    events = getattr(user_inputs, "events", ())
+    if not events:
         return TimeWindow(start_s=0.0, end_s=_DEFAULT_SESSION_HORIZON_S)
     return TimeWindow(
         start_s=0.0,
         end_s=max(
             _DEFAULT_SESSION_HORIZON_S,
-            math.nextafter(user_inputs.events[-1].timestamp_s, math.inf),
+            math.nextafter(events[-1].timestamp_s, math.inf),
         ),
     )
 

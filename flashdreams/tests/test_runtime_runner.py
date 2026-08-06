@@ -27,6 +27,7 @@ from flashdreams.runtime import (
     InputMappingSchema,
     NullOutputTarget,
     OutputArtifact,
+    QueuedUserInputSource,
     RuntimeMetricSample,
     StepRequest,
     StepResult,
@@ -174,6 +175,37 @@ def test_runner_does_not_canonicalize_global_conditioning() -> None:
     )
 
     assert mapping.global_canonical_values == {}
+    assert mapping.step_canonical_values == (
+        {"stateful_counter": {"count": 0}},
+        {"stateful_counter": {"count": 1}},
+    )
+
+
+def test_runner_drives_a_live_queue_like_a_replay_batch() -> None:
+    """A live source is a drop-in for a fully-known batch of the same events."""
+    mapping = _CanonicalRecordingMapping()
+    user_inputs = QueuedUserInputSource()
+    user_inputs.append(UserInputEvent(timestamp_s=0.75, event_type="stateful_event"))
+
+    run_inference_session(
+        adapter=_FakeAdapter(),
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=mapping,
+        canonicalizer=InputCanonicalizer([_CountingDeviceConverter()]),
+        source_schema=UserInputSchema(
+            capabilities=(
+                UserInputCapability(
+                    event_type="stateful_event",
+                    payload_fields=frozenset(),
+                ),
+            )
+        ),
+        user_inputs=user_inputs,
+        initial_inputs=InferenceInput(global_conditioning={"prompt": "drive forward"}),
+        output=NullOutputTarget(),
+        metrics=InMemoryMetricsRecorder(),
+    )
+
     assert mapping.step_canonical_values == (
         {"stateful_counter": {"count": 0}},
         {"stateful_counter": {"count": 1}},

@@ -57,6 +57,7 @@ from flashdreams.runtime.metrics import (
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
 from flashdreams.runtime.runner import run_inference_session
+from flashdreams.runtime.sources import QueuedUserInputSource, UserInputSource
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
@@ -96,6 +97,7 @@ __all__ = [
     "OutputArtifact",
     "OutputTarget",
     "Precision",
+    "QueuedUserInputSource",
     "RuntimeMetricSample",
     "ScriptedModality",
     "StepRequest",
@@ -107,5 +109,6 @@ __all__ = [
     "UserInputEvent",
     "UserInputs",
     "UserInputSchema",
+    "UserInputSource",
     "validate_phase",
 ]
