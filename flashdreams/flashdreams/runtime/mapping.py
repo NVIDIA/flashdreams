@@ -135,12 +135,12 @@ class InputMappingSchema:
 def _field_matches(produced: InputField, required: InputField) -> bool:
     if produced.name != required.name:
         return False
-    semantic_ok = (
-        produced.semantic_type is None
-        or required.semantic_type is None
-        or produced.semantic_type == required.semantic_type
+    input_modality_ok = (
+        produced.input_modality is None
+        or required.input_modality is None
+        or produced.input_modality == required.input_modality
     )
-    return semantic_ok
+    return input_modality_ok
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -369,7 +369,8 @@ def undeclared_inference_inputs(
         for phase in INPUT_PHASES
         for key in inputs.for_phase(phase)
         if not any(
-            declared.name == key for declared in mapping_schema.produces_for(phase)
+            declared.name == key
+            for declared in mapping_schema.produces_for(phase)
         )
     )
 

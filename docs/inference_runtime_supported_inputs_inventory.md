@@ -161,12 +161,12 @@ caller provides the value. A field can live in `global_conditioning_fields` and
 still have `frequency_consumed="per_step"` when the adapter slices or reads
 rollout-wide state during step execution.
 
-Third, `semantic_type` should be treated as a representation hint rather than a
-universal semantic type. For example, `prompt` may arrive as inline text or a
-path but become prompt text or text embeddings; the global conditioning frame
-may arrive as a path, URL, bytes, or decoded tensor; camera motion may arrive as keys, pose JSON,
-Numpy arrays, or integrated tensors. The semantic input name is still the main
-contract.
+Third, `name` is the semantic model input role, while `input_modality` is only
+a coarse value-kind hint. For example, `prompt` and `negative_prompt` are
+different semantic names even though both usually have `input_modality="text"`.
+The semantic input name is the main contract; source details such as path, URL,
+bytes, decoded tensor layout, accepted suffixes, or file schema belong in
+adapter validation or `metadata`.
 
 Fourth, schema objects need open-ended metadata for future adapters. This lets a
 SANA-WM-like adapter advertise that `camera_trajectory_c2w` uses an
@@ -200,12 +200,13 @@ The implementation that came out of this inventory is:
 4. Split `InferenceInput` (formerly `ModelInputs`) into `global_conditioning`
    and `step`. Global conditioning is session-global state; `step` is the
    payload for one generated chunk or frame window.
-5. Keep `InputField.semantic_type` and `metadata` as lightweight query hints,
-   while leaving tensor shape, cadence, and model-specific validation to
-   adapters and sessions.
+5. Keep `InputField.input_modality`, `frequency_consumed`, and `metadata` as
+   lightweight query hints, while leaving tensor shape and model-specific
+   validation to adapters and sessions. `InputField.name` remains the semantic
+   payload key.
 6. Keep `InputMappingSchema` as the canonical-to-encoded boundary, with
    mapping-set compatibility helpers for composed mappings.
-7. Keep input names, semantic types, and metadata open-ended.
+7. Keep input names, input modalities, and metadata open-ended.
    Adding a new model should usually mean adding adapter-owned schema
    declarations and mappings, not changing the core input dataclasses.
 8. Leave deep validation to model adapters, sessions, and mappings. The schema
@@ -225,13 +226,14 @@ Use these conventions when adding future model schemas:
 
 - Prefer semantic names over modality names, such as `camera_trajectory_c2w`
   instead of `array`, or `hdmap_frames` instead of `image`.
-- Use `semantic_type` for a coarse representation hint, such as `path`,
-  `decoded_tensor`, `c2w_sequence`, `intrinsics_vec4_sequence`, or `embedding`.
+- Use `input_modality` for a coarse value-kind hint, such as `text`, `image`,
+  `embedding`, `c2w_sequence`, or `intrinsics_vec4_sequence`.
+- Use `metadata` for representation details such as paths, decoded tensor
+  layout, units, coordinate frame, shape summary, accepted suffixes, schema URI,
+  model family, value ranges, or cardinality.
 - Use `frequency_consumed` for adapter-consumption cadence, such as `once` or
   `per_step`; keep it independent from whether the field is declared under
   `global_conditioning_fields` or `step_fields`.
-- Use `metadata` for query hints: units, coordinate frame, shape summary,
-  accepted suffixes, schema URI, model family, value ranges, or cardinality.
 - Keep deep validation in the adapter/mapping. The lightweight schemas answer
   whether the selected source and mapping can plausibly drive the model before
   expensive initialization.
@@ -246,9 +248,18 @@ can describe the supported input surfaces. All use
 lingbot_model = InferenceInputSchema(
     description="lingbot-world",
     global_conditioning_fields=(
-        InputField(name="prompt", frequency_consumed="once"),
-        InputField(name="global_conditioning_frame", frequency_consumed="once"),
-        InputField(name="text_embeddings", required=False, frequency_consumed="once"),
+        InputField(name="prompt", input_modality="text", frequency_consumed="once"),
+        InputField(
+            name="global_conditioning_frame",
+            input_modality="image",
+            frequency_consumed="once",
+        ),
+        InputField(
+            name="text_embeddings",
+            required=False,
+            input_modality="embedding",
+            frequency_consumed="once",
+        ),
     ),
     step_fields=(
         InputField(name="camera_trajectory", frequency_consumed="per_step"),
@@ -260,11 +271,25 @@ lingbot_model = InferenceInputSchema(
 omnidreams_model = InferenceInputSchema(
     description="omnidreams",
     global_conditioning_fields=(
-        InputField(name="prompts", frequency_consumed="once"),
-        InputField(name="global_conditioning_frames", frequency_consumed="once"),
+        InputField(name="prompts", input_modality="text", frequency_consumed="once"),
+        InputField(
+            name="global_conditioning_frames",
+            input_modality="image",
+            frequency_consumed="once",
+        ),
         InputField(name="view_names", frequency_consumed="once"),
-        InputField(name="text_embeddings", required=False, frequency_consumed="once"),
-        InputField(name="image_embeddings", required=False, frequency_consumed="once"),
+        InputField(
+            name="text_embeddings",
+            required=False,
+            input_modality="embedding",
+            frequency_consumed="once",
+        ),
+        InputField(
+            name="image_embeddings",
+            required=False,
+            input_modality="embedding",
+            frequency_consumed="once",
+        ),
     ),
     step_fields=(
         InputField(name="hdmap_frames", frequency_consumed="per_step"),
@@ -276,8 +301,12 @@ omnidreams_model = InferenceInputSchema(
 hy_worldplay_model = InferenceInputSchema(
     description="hy-worldplay",
     global_conditioning_fields=(
-        InputField(name="prompt", frequency_consumed="once"),
-        InputField(name="global_conditioning_frame", frequency_consumed="once"),
+        InputField(name="prompt", input_modality="text", frequency_consumed="once"),
+        InputField(
+            name="global_conditioning_frame",
+            input_modality="image",
+            frequency_consumed="once",
+        ),
         InputField(name="action_labels", frequency_consumed="per_step"),
         InputField(name="camera_viewmats", frequency_consumed="per_step"),
         InputField(name="camera_intrinsics", frequency_consumed="per_step"),
@@ -290,19 +319,28 @@ hy_worldplay_model = InferenceInputSchema(
 sana_wm_model = InferenceInputSchema(
     description="sana-wm",
     global_conditioning_fields=(
-        InputField(name="prompt", frequency_consumed="once"),
-        InputField(name="negative_prompt", required=False, frequency_consumed="once"),
-        InputField(name="global_conditioning_frame", frequency_consumed="once"),
+        InputField(name="prompt", input_modality="text", frequency_consumed="once"),
+        InputField(
+            name="negative_prompt",
+            required=False,
+            input_modality="text",
+            frequency_consumed="once",
+        ),
+        InputField(
+            name="global_conditioning_frame",
+            input_modality="image",
+            frequency_consumed="once",
+        ),
         InputField(
             name="camera_trajectory_c2w",
-            semantic_type="c2w_sequence",
+            input_modality="c2w_sequence",
             frequency_consumed="per_step",
             metadata={"shape": "[F,4,4]", "coordinates": "opencv_c2w"},
         ),
         InputField(
             name="camera_intrinsics_vec4",
             required=False,
-            semantic_type="intrinsics_vec4_sequence",
+            input_modality="intrinsics_vec4_sequence",
             frequency_consumed="per_step",
             metadata={"shape": "[F,4]"},
         ),

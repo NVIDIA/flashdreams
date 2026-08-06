@@ -50,14 +50,15 @@ class TimeWindow:
 class InputField:
     """Lightweight schema field for user snapshots or model inputs.
 
-    ``semantic_type``, ``frequency_consumed``, and ``metadata`` are query hints
-    only. Adapter-owned validation still decides concrete shape, dtype, units,
-    and tensor layout.
+    ``name`` is the model-facing input role and payload key, such as ``prompt``
+    or ``negative_prompt``. ``input_modality``, ``frequency_consumed``, and
+    ``metadata`` are query hints only. Adapter-owned validation still decides
+    concrete shape, dtype, units, and tensor layout.
     """
 
     name: str
     required: bool = True
-    semantic_type: str | None = None
+    input_modality: str | None = None
     frequency_consumed: str | None = None
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
@@ -83,7 +84,7 @@ class UserInputCapability:
     """
 
     event_type: str
-    semantic_type: str | None = None
+    input_modality: str | None = None
     payload_fields: frozenset[str] = field(default_factory=frozenset)
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
@@ -104,12 +105,14 @@ class UserInputCapability:
         """Return whether ``provider`` can satisfy this consumed capability."""
         if self.event_type != provider.event_type:
             return False
-        semantic_ok = (
-            self.semantic_type is None
-            or provider.semantic_type is None
-            or self.semantic_type == provider.semantic_type
+        input_modality_ok = (
+            self.input_modality is None
+            or provider.input_modality is None
+            or self.input_modality == provider.input_modality
         )
-        return semantic_ok and self.payload_fields.issubset(provider.payload_fields)
+        return input_modality_ok and self.payload_fields.issubset(
+            provider.payload_fields
+        )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

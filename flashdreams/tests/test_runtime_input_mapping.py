@@ -44,7 +44,7 @@ KEY_DOWN = UserInputCapability(event_type="key_down", payload_fields=frozenset({
 KEY_UP = UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"}))
 PROMPT_SET = UserInputCapability(
     event_type="prompt_set",
-    semantic_type="text",
+    input_modality="text",
     payload_fields=frozenset({"prompt"}),
 )
 FRAME_SET = UserInputCapability(
@@ -66,7 +66,7 @@ CANONICAL_ALL = CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_LOOK))
 # modality, so this mapping consumes nothing and only declares what it produces.
 PROMPT_MAPPING = InputMappingSchema(
     name="prompt",
-    produces_global_conditioning=(InputField(name="prompt", semantic_type="text"),),
+    produces_global_conditioning=(InputField(name="prompt", input_modality="text"),),
 )
 FRAME_MAPPING = InputMappingSchema(
     name="conditioning-frame",
@@ -86,7 +86,7 @@ LOOK_MAPPING = InputMappingSchema(
 )
 
 DRIVING_MODEL = InferenceInputSchema(
-    global_conditioning_fields=(InputField(name="prompt", semantic_type="text"),),
+    global_conditioning_fields=(InputField(name="prompt", input_modality="text"),),
     step_fields=(
         InputField(name="steering"),
         InputField(name="camera_delta", required=False),
@@ -164,15 +164,15 @@ def test_capabilities_widen_declared_event_types() -> None:
     assert BROWSER_SOURCE.supports_event_types({"key_down", "prompt_set"})
 
 
-def test_semantic_type_mismatch_blocks_capability_match() -> None:
+def test_input_modality_mismatch_blocks_capability_match() -> None:
     source = UserInputSchema(
         capabilities=(
-            UserInputCapability(event_type="prompt_set", semantic_type="embedding"),
+            UserInputCapability(event_type="prompt_set", input_modality="embedding"),
         )
     )
 
     assert not source.supports(
-        UserInputCapability(event_type="prompt_set", semantic_type="text")
+        UserInputCapability(event_type="prompt_set", input_modality="text")
     )
 
 
@@ -201,7 +201,9 @@ def test_model_declares_required_and_optional_fields_per_phase() -> None:
         ("global_conditioning", "prompt"),
         ("step", "steering"),
     }
-    assert {(phase, f.name) for phase, f in optional} == {("step", "camera_delta")}
+    assert {(phase, f.name) for phase, f in optional} == {
+        ("step", "camera_delta")
+    }
 
 
 def test_required_fields_can_be_filtered_by_phase() -> None:
@@ -273,13 +275,12 @@ def test_compatible_source_model_and_mapping_can_drive() -> None:
     )
 
     assert compatibility.can_drive
-    assert {(p, f.name) for p, f in compatibility.satisfied_required_model_fields} == {
-        ("global_conditioning", "prompt"),
-        ("step", "steering"),
-    }
-    assert {(p, f.name) for p, f in compatibility.available_optional_model_fields} == {
-        ("step", "camera_delta")
-    }
+    assert {
+        (p, f.name) for p, f in compatibility.satisfied_required_model_fields
+    } == {("global_conditioning", "prompt"), ("step", "steering")}
+    assert {
+        (p, f.name) for p, f in compatibility.available_optional_model_fields
+    } == {("step", "camera_delta")}
 
 
 def test_missing_required_model_field_blocks_the_run() -> None:
@@ -290,9 +291,9 @@ def test_missing_required_model_field_blocks_the_run() -> None:
     )
 
     assert not compatibility.can_drive
-    assert [f.name for _, f in compatibility.missing_required_model_fields] == [
-        "steering"
-    ]
+    assert [
+        f.name for _, f in compatibility.missing_required_model_fields
+    ] == ["steering"]
 
 
 def test_missing_source_capability_is_reported_when_it_blocks() -> None:
@@ -358,7 +359,7 @@ def test_global_conditioning_mapping_matches_global_conditioning_field() -> None
     assert compatibility.can_drive
 
 
-def test_unspecified_semantic_type_stays_permissive() -> None:
+def test_unspecified_input_modality_stays_permissive() -> None:
     model = InferenceInputSchema(
         global_conditioning_fields=(InputField(name="prompt"),)
     )
@@ -415,7 +416,9 @@ def test_combining_mappings_unions_their_surfaces() -> None:
     combined = combine_mapping_schemas((PROMPT_MAPPING, STEERING_MAPPING))
 
     assert {m.name for m in combined.consumes} == {"driver_command"}
-    assert [f.name for f in combined.produces_global_conditioning] == ["prompt"]
+    assert [f.name for f in combined.produces_global_conditioning] == [
+        "prompt"
+    ]
     assert [f.name for f in combined.produces_step] == ["steering"]
 
 
