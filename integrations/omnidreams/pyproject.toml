@@ -104,6 +104,10 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.eval.cli:main"
 
+# Experimental shared demo API path. This coexists with the legacy
+# WebRTC/gRPC/interactive-drive demos until the new adapter is proven.
+omnidreams-demo = "omnidreams.demo.cli:main"
+
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the
 # presenter import fails fast with a clear message.

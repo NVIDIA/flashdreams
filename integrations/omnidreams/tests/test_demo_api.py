@@ -1,0 +1,345 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+import pytest
+import torch
+
+from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime import (
+    InferenceConfig,
+    InferenceInput,
+    OutputArtifact,
+    OutputTarget,
+    StepResult,
+)
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, WebRTCOutputSpec
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.webrtc import build_webrtc_demo
+
+from omnidreams.demo import (
+    DEFAULT_OMNIDREAMS_PRESET,
+    OMNIDREAMS_MODEL_ID,
+    OmnidreamsDemoAdapter,
+    OmnidreamsReplayScenario,
+    OmnidreamsWebRTCScenario,
+)
+from omnidreams.demo.replay import (
+    OmnidreamsReplayRuntime,
+    OmnidreamsReplayRuntimeOptions,
+)
+from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+
+pytestmark = pytest.mark.ci_cpu
+
+
+def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
+    adapter = OmnidreamsDemoAdapter()
+
+    assert adapter.model_id == OMNIDREAMS_MODEL_ID
+    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
+    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+
+
+def test_omnidreams_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
+    hdmap = tmp_path / "hdmap.mp4"
+    first_frame = tmp_path / "first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    pipeline_config = object()
+    adapter = OmnidreamsDemoAdapter()
+    output = _RecordingOutputTarget()
+    calls: list[dict[str, Any]] = []
+
+    def fake_runner(**kwargs: Any) -> Sequence[OutputArtifact]:
+        calls.append(kwargs)
+        return (OutputArtifact(kind="video/mp4", uri="memory://omnidreams"),)
+
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive through a city",
+            "hdmap_video_paths": (hdmap,),
+            "first_frame_paths": (first_frame,),
+            "camera_names": ("camera_front_wide_120fov",),
+            "total_blocks": 1,
+        },
+        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=30),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            runtime_options={"pipeline_config": pipeline_config},
+        ),
+    )
+
+    artifacts = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        output_target_factory=lambda output_spec: output,
+        runner=fake_runner,
+    )
+
+    assert artifacts == (OutputArtifact(kind="video/mp4", uri="memory://omnidreams"),)
+    assert len(calls) == 1
+    assert calls[0]["adapter"] is adapter
+    assert calls[0]["config"] == spec.config
+    scenario = calls[0]["initial_inputs"].global_conditioning["scenario"]
+    assert isinstance(scenario, OmnidreamsReplayScenario)
+    assert scenario.prompts == ("drive through a city",)
+    assert scenario.hdmap_video_paths == (hdmap,)
+    assert scenario.first_frame_paths == (first_frame,)
+    assert scenario.camera_names == ("camera_front_wide_120fov",)
+
+
+def test_omnidreams_replay_invalid_scenario_fails_before_runtime_creation(
+    tmp_path: Path,
+) -> None:
+    adapter = OmnidreamsDemoAdapter(
+        replay_runtime_factory=lambda **kwargs: pytest.fail(
+            f"runtime should not be created: {kwargs}"
+        )
+    )
+    output_factory_calls = 0
+
+    def output_factory(output_spec: object) -> OutputTarget:
+        nonlocal output_factory_calls
+        del output_spec
+        output_factory_calls += 1
+        return _RecordingOutputTarget()
+
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive",
+            "hdmap_video_paths": (tmp_path / "missing-hdmap.mp4",),
+            "first_frame_paths": (tmp_path / "missing-first.png",),
+        },
+        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=30),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+    with pytest.raises(FileNotFoundError, match="missing hdmap_video_paths"):
+        run_replay_demo(
+            spec=spec,
+            adapter=adapter,
+            output_target_factory=output_factory,
+        )
+
+    assert output_factory_calls == 0
+
+
+def test_omnidreams_replay_runtime_generates_video_step_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import omnidreams.demo.replay as replay_module
+
+    hdmap = tmp_path / "hdmap.mp4"
+    first_frame = tmp_path / "first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    pipeline = _FakeOmnidreamsPipeline()
+    monkeypatch.setattr(
+        replay_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
+    )
+    monkeypatch.setattr(
+        replay_module,
+        "_load_video",
+        lambda *args, **kwargs: torch.zeros(2, 3, 2, 2),
+    )
+
+    runtime = OmnidreamsReplayRuntime(
+        config=InferenceConfig(model_id=OMNIDREAMS_MODEL_ID, device="cpu"),
+        options=OmnidreamsReplayRuntimeOptions(
+            pipeline_config=object(),
+            pipeline_factory=lambda pipeline_config, device: pipeline,
+        ),
+    )
+    scenario = OmnidreamsReplayScenario(
+        prompts=("drive",),
+        hdmap_video_paths=(hdmap,),
+        first_frame_paths=(first_frame,),
+        camera_names=("camera_front_wide_120fov",),
+        total_blocks=1,
+        pixel_height=2,
+        pixel_width=2,
+        fps=30,
+    )
+    session = runtime.start_session(
+        InferenceInput(global_conditioning={"scenario": scenario})
+    )
+
+    request = session.next_step_request()
+    assert request is not None
+    assert request.step_index == 0
+    result = session.step(InferenceInput())
+
+    assert result.step_index == 0
+    assert result.frame_count == 1
+    assert isinstance(result.output, VideoStepResult)
+    assert result.output.layout == "bvtchw"
+    assert result.output.video_chunk.shape == (1, 1, 1, 3, 2, 2)
+    assert result.metrics["denoise_s"] == 0.25
+    assert session.next_step_request() is None
+    assert pipeline.initialize_cache_calls == [
+        {
+            "text": [["drive"]],
+            "image_shape": (1, 1, 1, 3, 2, 2),
+            "view_names": ["camera_front_wide_120fov"],
+        }
+    ]
+    runtime.close()
+
+
+def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
+    pipeline_config = object()
+    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="keyboard-driving",
+        scenario=OmnidreamsWebRTCScenario(
+            scene_uuid="scene-1",
+            scene_variant="rain",
+            camera_name="camera_front_wide_120fov",
+            debug_serve_hdmaps=True,
+            prefer_sw_encoder=True,
+        ),
+        output=WebRTCOutputSpec(
+            host="0.0.0.0",
+            port=8082,
+            fps=24,
+            video_width=64,
+            video_height=32,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        ),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            device="cuda:7",
+            runtime_options={"pipeline_config": pipeline_config, "seed": 123},
+        ),
+    )
+
+    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+
+    assert isinstance(demo.runtime, _FakeWebRTCRuntime)
+    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert demo.session_manager._runtime is demo.runtime
+    assert demo.runtime_config.pipeline_config is pipeline_config
+    assert demo.runtime_config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
+    assert demo.runtime_config.scene_uuid == "scene-1"
+    assert demo.runtime_config.scene_variant == "rain"
+    assert demo.runtime_config.seed == 123
+    assert demo.runtime_config.device == "cuda:7"
+    assert demo.runtime_config.video_width == 64
+    assert demo.runtime_config.video_height == 32
+    assert demo.runtime_config.fps == 24
+    assert demo.runtime_config.debug_serve_hdmaps is True
+    assert demo.runtime_config.encoder_backend == "default"
+    assert demo.session_manager._model_name() == DEFAULT_OMNIDREAMS_PRESET
+    assert demo.host == "0.0.0.0"
+    assert demo.port == 8082
+
+
+class _RecordingOutputTarget:
+    def open(self) -> None:
+        return None
+
+    def write(self, result: StepResult) -> None:
+        del result
+
+    def close(self) -> Sequence[OutputArtifact]:
+        return ()
+
+
+class _FakeOmnidreamsPipeline:
+    def __init__(self) -> None:
+        self.initialize_cache_calls: list[dict[str, Any]] = []
+        self.released_encoders = False
+
+    def initialize_cache(
+        self,
+        *,
+        text: list[list[str]],
+        image: torch.Tensor,
+        view_names: list[str],
+    ) -> object:
+        self.initialize_cache_calls.append(
+            {
+                "text": text,
+                "image_shape": tuple(image.shape),
+                "view_names": view_names,
+            }
+        )
+        return object()
+
+    def release_oneshot_encoders(self) -> None:
+        self.released_encoders = True
+
+    def get_num_frames(self, autoregressive_index: int) -> int:
+        del autoregressive_index
+        return 1
+
+    def generate(
+        self,
+        *,
+        autoregressive_index: int,
+        cache: object,
+        hdmap: torch.Tensor,
+    ) -> torch.Tensor:
+        del cache, hdmap
+        return torch.full((1, 1, 1, 3, 2, 2), float(autoregressive_index))
+
+    def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
+        del autoregressive_index, cache
+        return {"denoise_s": 0.25}
+
+
+class _FakeWebRTCRuntime:
+    def __init__(self, config: Any) -> None:
+        self.config = config
+
+    async def initialize(self) -> None:
+        return None
+
+    async def reset_for_new_session(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def peek_steady_chunk_num_frames(self) -> int:
+        return 1
+
+    def peek_next_chunk_num_frames(self) -> int:
+        return 1
+
+    async def generate_chunk(
+        self,
+        *,
+        segments: list[Any],
+        frame_times: list[float],
+    ) -> Any:
+        del segments, frame_times
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    def send_exit_signal(self) -> None:
+        return None
+
+    def wait_for_termination(self) -> None:
+        return None

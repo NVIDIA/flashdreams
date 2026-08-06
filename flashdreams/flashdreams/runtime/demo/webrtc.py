@@ -30,9 +30,7 @@ class WebRTCDemoRuntimeConfig:
     warmup_timeout_s: float
 
 
-class SharedDemoWebRTCSessionManager(
-    BaseWebRTCSessionManager[Any, WebRTCDemoRuntimeConfig]
-):
+class SharedDemoWebRTCSessionManager(BaseWebRTCSessionManager[Any, Any]):
     """Generic session manager wrapper for demo adapters."""
 
     def __init__(
@@ -40,7 +38,7 @@ class SharedDemoWebRTCSessionManager(
         *,
         model_name: str,
         runtime: Any,
-        runtime_config: WebRTCDemoRuntimeConfig,
+        runtime_config: Any,
         fps: int,
         client_liveness_timeout_s: float,
     ) -> None:
@@ -61,8 +59,8 @@ class WebRTCDemo:
     """Constructed WebRTC demo pieces, before or after serving."""
 
     runtime: Any
-    runtime_config: WebRTCDemoRuntimeConfig
-    session_manager: SharedDemoWebRTCSessionManager
+    runtime_config: Any
+    session_manager: BaseWebRTCSessionManager[Any, Any]
     app: web.Application | None
     host: str
     port: int
@@ -93,26 +91,27 @@ def build_webrtc_demo(
         label="output.mode",
     )
 
+    output = spec.output
     runtime = adapter.create_webrtc_runtime(spec)
-    runtime_config = WebRTCDemoRuntimeConfig(
-        video_width=spec.output.video_width,
-        video_height=spec.output.video_height,
-        warmup_chunks=spec.output.warmup_chunks,
-        warmup_timeout_s=spec.output.warmup_timeout_s,
+    runtime_config = _create_runtime_config(
+        spec=spec,
+        adapter=adapter,
+        runtime=runtime,
     )
-    manager = SharedDemoWebRTCSessionManager(
-        model_name=spec.model_id,
+    manager = _create_session_manager(
+        spec=spec,
+        adapter=adapter,
         runtime=runtime,
         runtime_config=runtime_config,
-        fps=spec.output.fps,
-        client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+        fps=output.fps,
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
     )
     app = (
-        _build_webrtc_app(
-            output=spec.output,
+        _create_app(
+            spec=spec,
+            adapter=adapter,
             session_manager=manager,
             create_app_fn=create_app_fn,
-            preload_name=spec.output.preload_name or spec.model_id,
         )
         if create_app
         else None
@@ -122,8 +121,8 @@ def build_webrtc_demo(
         runtime_config=runtime_config,
         session_manager=manager,
         app=app,
-        host=spec.output.host,
-        port=spec.output.port,
+        host=output.host,
+        port=output.port,
     )
 
 
@@ -152,10 +151,100 @@ def serve_webrtc_demo(
     return demo
 
 
+def _create_runtime_config(
+    *,
+    spec: DemoSpec,
+    adapter: DemoAdapter,
+    runtime: Any,
+) -> Any:
+    factory = getattr(adapter, "create_webrtc_runtime_config", None)
+    if callable(factory):
+        return factory(spec=spec, runtime=runtime)
+
+    runtime_config = getattr(runtime, "config", None)
+    if _looks_like_webrtc_runtime_config(runtime_config):
+        return runtime_config
+
+    output = spec.output
+    if not isinstance(output, WebRTCOutputSpec):
+        raise ValueError("WebRTC runtime config creation requires WebRTCOutputSpec.")
+    return WebRTCDemoRuntimeConfig(
+        video_width=output.video_width,
+        video_height=output.video_height,
+        warmup_chunks=output.warmup_chunks,
+        warmup_timeout_s=output.warmup_timeout_s,
+    )
+
+
+def _looks_like_webrtc_runtime_config(value: Any) -> bool:
+    return all(
+        hasattr(value, name)
+        for name in (
+            "video_width",
+            "video_height",
+            "warmup_chunks",
+            "warmup_timeout_s",
+        )
+    )
+
+
+def _create_session_manager(
+    *,
+    spec: DemoSpec,
+    adapter: DemoAdapter,
+    runtime: Any,
+    runtime_config: Any,
+    fps: int,
+    client_liveness_timeout_s: float,
+) -> BaseWebRTCSessionManager[Any, Any]:
+    factory = getattr(adapter, "create_webrtc_session_manager", None)
+    if callable(factory):
+        return factory(
+            spec=spec,
+            runtime=runtime,
+            runtime_config=runtime_config,
+            fps=fps,
+            client_liveness_timeout_s=client_liveness_timeout_s,
+        )
+
+    return SharedDemoWebRTCSessionManager(
+        model_name=spec.model_id,
+        runtime=runtime,
+        runtime_config=runtime_config,
+        fps=fps,
+        client_liveness_timeout_s=client_liveness_timeout_s,
+    )
+
+
+def _create_app(
+    *,
+    spec: DemoSpec,
+    adapter: DemoAdapter,
+    session_manager: BaseWebRTCSessionManager[Any, Any],
+    create_app_fn: CreateWebRTCApp,
+) -> web.Application:
+    output = spec.output
+    if not isinstance(output, WebRTCOutputSpec):
+        raise ValueError("WebRTC app creation requires WebRTCOutputSpec output.")
+    factory = getattr(adapter, "create_webrtc_app", None)
+    if callable(factory):
+        return factory(
+            spec=spec,
+            session_manager=session_manager,
+            request_session_url=_request_session_url(output),
+        )
+    return _build_webrtc_app(
+        output=output,
+        session_manager=session_manager,
+        create_app_fn=create_app_fn,
+        preload_name=output.preload_name or spec.model_id,
+    )
+
+
 def _build_webrtc_app(
     *,
     output: WebRTCOutputSpec,
-    session_manager: SharedDemoWebRTCSessionManager,
+    session_manager: BaseWebRTCSessionManager[Any, Any],
     create_app_fn: CreateWebRTCApp,
     preload_name: str,
 ) -> web.Application:
