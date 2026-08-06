@@ -519,6 +519,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--presenter-backend",
+        choices=("legacy", "local-window"),
+        default="legacy",
+        help=(
+            "Windowed presenter to use. 'local-window' runs the shared"
+            " flashdreams.serving.presentation presenter with a minimal"
+            " overlay instead of the full driving HUD; the chrome is being"
+            " ported onto it incrementally. Implies --no-hud."
+        ),
+    )
+    parser.add_argument(
         "--scene-dir",
         type=Path,
         default=scenes_cache_root(),
@@ -720,7 +731,9 @@ def run_parsed_args(args: argparse.Namespace) -> None:
     if args.stream_mjpeg is not None:
         _run_streaming(args)
         return
-    if args.no_hud:
+    # The shared presenter carries its own minimal overlay, so it takes the
+    # single-scene path rather than the HUD's scene-switching outer loop.
+    if args.no_hud or getattr(args, "presenter_backend", "legacy") != "legacy":
         _cli.run(args)
         return
 

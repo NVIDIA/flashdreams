@@ -143,3 +143,8 @@ class AppConfig:
     # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
     # the first enumerated adapter.
     presenter_adapter: str | None = None
+    # Which windowed presenter the default factory builds. ``legacy`` is the
+    # full PIL driving HUD; ``local-window`` runs the shared
+    # ``flashdreams.serving.presentation`` presenter with a minimal overlay
+    # while that chrome is ported across.
+    presenter_backend: Literal["legacy", "local-window"] = "legacy"

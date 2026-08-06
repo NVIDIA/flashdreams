@@ -29,6 +29,9 @@ class OmnidreamsLocalWindowScenario:
     camera_name: str | None = None
     variant: str | None = None
     postprocess_preset: str = ""
+    presenter_backend: str = "legacy"
+    """``local-window`` swaps the driving HUD for the shared presenter."""
+
     auto_start: bool = False
     preload_scenes: bool = False
     no_wheel: bool = False
@@ -78,6 +81,8 @@ def build_interactive_drive_app(spec: DemoSpec) -> InteractiveDriveApp:
     _append_option(argv, "--synthetic-initial-rgb", scenario.synthetic_initial_rgb)
     if scenario.postprocess_preset:
         argv.extend(("--postprocess-preset", scenario.postprocess_preset))
+    if scenario.presenter_backend != "legacy":
+        argv.extend(("--presenter-backend", scenario.presenter_backend))
     if scenario.synthetic_scene:
         argv.append("--synthetic-scene")
     if scenario.auto_start:

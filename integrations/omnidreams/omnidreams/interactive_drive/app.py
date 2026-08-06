@@ -587,4 +587,10 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
             bind_host=host,
             bind_port=port,
         )
+    if config.presenter_backend == "local-window":
+        from omnidreams.interactive_drive.local_window_bridge import (
+            LocalWindowPresenterBridge,
+        )
+
+        return LocalWindowPresenterBridge(keyboard)
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)

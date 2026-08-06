@@ -102,6 +102,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     local_window.add_argument("--preload-scenes", action="store_true")
     local_window.add_argument("--no-wheel", action="store_true")
     local_window.add_argument("--no-hud", action="store_true")
+    local_window.add_argument(
+        "--presenter-backend", choices=("legacy", "local-window"), default="legacy"
+    )
     local_window.add_argument("--window-width", type=int, default=1920)
     local_window.add_argument("--window-height", type=int, default=1080)
     return parser.parse_args(argv)
@@ -144,6 +147,7 @@ def _local_window_spec(args: argparse.Namespace) -> DemoSpec:
         camera_name=args.camera_name,
         variant=args.variant,
         postprocess_preset=args.postprocess_preset,
+        presenter_backend=args.presenter_backend,
         auto_start=args.auto_start,
         preload_scenes=args.preload_scenes,
         no_wheel=args.no_wheel,

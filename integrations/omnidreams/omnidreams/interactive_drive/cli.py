@@ -476,6 +476,7 @@ def prepare_config_and_backend(
         bev=bev_config,
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
+        presenter_backend=getattr(args, "presenter_backend", "legacy"),
         **_oob_kwargs(args),
     )
 
