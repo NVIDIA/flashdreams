@@ -11,7 +11,7 @@ import inspect
 import json
 from collections import deque
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from typing import Any, Generic, TypeVar
 
@@ -24,6 +24,12 @@ from aiortc import (
 from loguru import logger
 
 from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    TimeWindow,
+    UserInputEvent,
+    UserInputs,
+)
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
@@ -91,6 +97,8 @@ class WebRTCControlSignal(IntEnum):
     ACTION_STEP = 2
     CLOSE = 3
     EVENT = 4
+    SESSION_STEP = 5
+    """One step driven by mapped ``InferenceInput`` rather than pose segments."""
     EXIT = 99
 
 
@@ -107,6 +115,10 @@ class ManagedWebRTCSession:
     generation_task: asyncio.Task[Any] | None = None
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
     pending_action_arrivals: deque[float] = field(default_factory=deque)
+    inference_session: Any | None = None
+    """Set only on the session branch; ``None`` means legacy generate_chunk."""
+    user_events: deque[UserInputEvent] = field(default_factory=deque)
+    """Raw user events awaiting canonicalization, oldest first."""
     last_client_message_at: float = 0.0
     liveness_task: asyncio.Task[Any] | None = None
     closed: bool = False
@@ -349,6 +361,109 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Extra fields merged into every ``chunk_done`` payload."""
         return {}
 
+    @staticmethod
+    def _drives_inference_session(runtime: Any) -> bool:
+        """Return whether ``runtime`` opts into the InferenceSession branch."""
+        return callable(getattr(runtime, "start_inference_session", None))
+
+    def _record_user_event(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        timestamp_s: float,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Buffer one raw user event for the session branch.
+
+        Timestamps come from the same monotonic clock that anchors the
+        resampler, so a chunk's ``TimeWindow`` selects exactly the events that
+        arrived during that chunk's virtual window.
+        """
+        managed_session.user_events.append(
+            UserInputEvent(
+                timestamp_s=timestamp_s,
+                event_type=event_type,
+                payload=payload,
+                source="webrtc",
+            )
+        )
+
+    @staticmethod
+    def _prune_consumed_user_events(
+        managed_session: ManagedWebRTCSession, *, before_s: float
+    ) -> None:
+        """Drop events already folded into converter state.
+
+        Converters are level-triggered and carry their own state across
+        windows, so an event older than the current window start cannot affect
+        any future window and would otherwise grow the buffer without bound.
+        """
+        events = managed_session.user_events
+        while events and events[0].timestamp_s < before_s:
+            events.popleft()
+
+    async def _step_inference_session(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        window: TimeWindow,
+    ) -> VideoStepResult:
+        """Map this chunk's events into model inputs and run one session step."""
+        session: Any = managed_session.inference_session
+        if session is None:
+            raise RuntimeError("Session branch invoked without an inference session.")
+        request = session.next_step_request()
+        if request is None:
+            raise RuntimeError("Inference session reported no further steps.")
+        # The transport owns input windowing. The session derives its own
+        # window from its frame counter, but live events are stamped on the
+        # manager's monotonic clock, so the manager's window wins.
+        if request.step_index == 0:
+            # The resampler's clock is re-anchored to "now" at first
+            # interaction, but events that triggered it were stamped just
+            # before that anchor. Widening chunk 0 back to the session start
+            # keeps them in the first window; otherwise a text event that
+            # itself started generation would be dropped, since converters
+            # never see a window that has already passed.
+            window = TimeWindow(start_s=0.0, end_s=window.end_s)
+        request = replace(request, user_input_window=window)
+        step_inputs = self._build_step_inputs(
+            managed_session=managed_session,
+            request=request,
+            window=window,
+        )
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, session.step, step_inputs)
+        self._prune_consumed_user_events(managed_session, before_s=window.start_s)
+        output = result.output
+        if not isinstance(output, VideoStepResult):
+            raise TypeError(
+                "WebRTC session steps must produce VideoStepResult output, got "
+                f"{type(output).__name__}."
+            )
+        return output
+
+    def _build_step_inputs(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        request: Any,
+        window: TimeWindow,
+    ) -> InferenceInput:
+        """Canonicalize this chunk's events and map them into model inputs."""
+        runtime = managed_session.runtime
+        canonical_inputs = runtime.input_canonicalizer.canonicalize(
+            UserInputs(events=tuple(managed_session.user_events)),
+            window=window,
+            source_schema=runtime.input_source_schema,
+        )
+        return runtime.input_mapping.map_step_inputs(
+            canonical_inputs=canonical_inputs,
+            inference_input=InferenceInput(),
+            request=request,
+        )
+
     async def _handle_event_message(
         self,
         *,
@@ -372,6 +487,31 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     ),
                 )
             return False
+
+        if managed_session.inference_session is not None:
+            # On the session branch a text event is just another user event:
+            # the mapping turns it into a session-global conditioning update
+            # applied by the next step, so there is no separate runtime call.
+            clears = state in clear_states
+            self._record_user_event(
+                managed_session=managed_session,
+                timestamp_s=asyncio.get_running_loop().time(),
+                event_type="text_event",
+                payload={
+                    "event_id": None if clears else event_id,
+                    "state": state,
+                },
+            )
+            if channel is not None:
+                self._send_json(
+                    channel,
+                    make_event_ack_payload(
+                        event_id=None if clears else (event_id or None),
+                        state=state,
+                        result={"active_event_id": None if clears else event_id},
+                    ),
+                )
+            return True
 
         trigger_event = getattr(managed_session.runtime, "trigger_event", None)
         if not callable(trigger_event):
@@ -485,6 +625,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             resampler=resampler,
             last_client_message_at=loop.time(),
         )
+        session_runtime: Any = self._runtime
+        if self._drives_inference_session(session_runtime):
+            managed_session.inference_session = (
+                await session_runtime.start_inference_session()
+            )
         self._active_session = managed_session
         if enable_liveness_watchdog:
             managed_session.liveness_task = asyncio.create_task(
@@ -708,6 +853,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # ``KeyboardResampler.sample_chunk`` are well-defined.
         arrival_t = asyncio.get_running_loop().time()
         managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
+        if managed_session.inference_session is not None:
+            self._record_user_event(
+                managed_session=managed_session,
+                timestamp_s=arrival_t,
+                event_type="key_down" if event == "keydown" else "key_up",
+                payload={"key": key},
+            )
         managed_session.pending_action_arrivals.append(arrival_t)
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.
@@ -780,6 +932,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     resampler.next_chunk_start_v = now - chunk_duration
 
                 t_before_gen = loop.time()
+                chunk_start_v = resampler.next_chunk_start_v
+                # Sampled on both branches: the resampler owns the virtual
+                # clock, so it must advance even when its segments are unused.
                 segments, frame_times = resampler.sample_chunk(input_num_frames)
                 chunk_end_v = resampler.next_chunk_start_v
                 consumed_action_arrivals: list[float] = []
@@ -791,9 +946,17 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         managed_session.pending_action_arrivals.popleft()
                     )
                 try:
-                    result = await runtime.generate_chunk(
-                        segments=segments, frame_times=frame_times
-                    )
+                    if managed_session.inference_session is not None:
+                        result = await self._step_inference_session(
+                            managed_session=managed_session,
+                            window=TimeWindow(
+                                start_s=chunk_start_v, end_s=chunk_end_v
+                            ),
+                        )
+                    else:
+                        result = await runtime.generate_chunk(
+                            segments=segments, frame_times=frame_times
+                        )
                 except Exception as exc:
                     logger.exception("Chunk generation failed.")
                     channel = managed_session.control_channel
