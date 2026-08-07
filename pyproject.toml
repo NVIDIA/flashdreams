@@ -1,6 +1,9 @@
 [tool.uv.workspace]
 members = [
     "flashdreams",
+    # Demo applications. Built on the framework and, where they drive a
+    # model, on that model's integration -- never the reverse.
+    "apps/*",
     # Each populated subdir under ``integrations/`` is a standalone
     # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
     # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
@@ -67,6 +70,7 @@ reportIncompatibleVariableOverride = "none"
 python-version = "3.10"
 extra-paths = [
     "flashdreams",
+    "apps/interactive-drive",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
     "integrations/causal_forcing",

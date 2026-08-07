@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from omnidreams.interactive_drive.overlays.theme import (
+from interactive_drive_app.overlays.theme import (
     LABEL_COLOR,
     NVIDIA_GREEN,
     PANEL_BG,

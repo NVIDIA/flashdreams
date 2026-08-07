@@ -66,6 +66,7 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-app-interactive-drive = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
@@ -77,6 +78,7 @@ ludus-renderer = { workspace = true }
 # the abstract capability so the install command is self-documenting.
 interactive-drive = [
     "slangpy==0.42.0",
+    "flashdreams-app-interactive-drive",
 ]
 # Optional NVIDIA VFX runtime for selecting RTX postprocess presets such as
 # ``--postprocess-preset rtx-super-resolution`` in the WebRTC or local demo.

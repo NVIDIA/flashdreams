@@ -9,7 +9,7 @@ import concurrent.futures
 from collections.abc import Callable
 
 from loguru import logger
-from omnidreams.interactive_drive.overlays.theme import LABEL_COLOR
+from interactive_drive_app.overlays.theme import LABEL_COLOR
 from PIL import Image, ImageDraw
 
 from flashdreams.serving.presentation import (

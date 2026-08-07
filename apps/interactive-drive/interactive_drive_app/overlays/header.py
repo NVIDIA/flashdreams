@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from omnidreams.interactive_drive.overlays.theme import (
+from interactive_drive_app.overlays.theme import (
     ACTIVE_BG,
     HEADER_BG,
     LABEL_COLOR,

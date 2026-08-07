@@ -9,7 +9,7 @@ import math
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from omnidreams.interactive_drive.overlays.theme import (
+from interactive_drive_app.overlays.theme import (
     ACCENT_AMBER,
     NVIDIA_GREEN,
     TEXT_COLOR,

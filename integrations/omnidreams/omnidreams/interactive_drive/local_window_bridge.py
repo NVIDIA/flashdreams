@@ -19,7 +19,7 @@ from typing import Any
 from loguru import logger
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
-from omnidreams.interactive_drive.overlays import (
+from interactive_drive_app.overlays import (
     BEV_OVERLAY_KEY,
     BevOverlay,
     DrivingPanelOverlay,

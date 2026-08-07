@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from omnidreams.interactive_drive.overlays.theme import LABEL_COLOR, NVIDIA_GREEN
+from interactive_drive_app.overlays.theme import LABEL_COLOR, NVIDIA_GREEN
 from PIL import Image, ImageDraw
 
 from flashdreams.serving.presentation import (

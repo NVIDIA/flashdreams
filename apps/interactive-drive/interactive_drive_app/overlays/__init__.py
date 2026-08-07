@@ -8,18 +8,18 @@ Each widget from the legacy HUD lands here as its own
 chrome it wants instead of inheriting one class that owns every widget.
 """
 
-from omnidreams.interactive_drive.overlays.bev import BEV_OVERLAY_KEY, BevOverlay
-from omnidreams.interactive_drive.overlays.controls import (
+from interactive_drive_app.overlays.bev import BEV_OVERLAY_KEY, BevOverlay
+from interactive_drive_app.overlays.controls import (
     PedalsOverlay,
     WheelOverlay,
 )
-from omnidreams.interactive_drive.overlays.header import SceneHeaderOverlay
-from omnidreams.interactive_drive.overlays.panel import (
+from interactive_drive_app.overlays.header import SceneHeaderOverlay
+from interactive_drive_app.overlays.panel import (
     PANEL_WIDTH,
     DrivingPanelOverlay,
 )
-from omnidreams.interactive_drive.overlays.speed import SpeedOverlay
-from omnidreams.interactive_drive.overlays.theme import (
+from interactive_drive_app.overlays.speed import SpeedOverlay
+from interactive_drive_app.overlays.theme import (
     ACCENT_AMBER,
     BG_COLOR,
     LABEL_COLOR,
