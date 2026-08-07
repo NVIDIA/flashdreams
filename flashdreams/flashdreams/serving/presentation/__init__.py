@@ -43,6 +43,7 @@ from flashdreams.serving.presentation.frame import (
     prefetch_frame,
     rgb_source_size,
 )
+from flashdreams.serving.presentation.layout import PanelLayout
 from flashdreams.serving.presentation.local_window import (
     LocalWindowPresenter,
     WindowConfig,
@@ -57,6 +58,7 @@ __all__ = [
     "KeyEvent",
     "LRUCache",
     "LocalWindowPresenter",
+    "PanelLayout",
     "PointerAction",
     "PointerEvent",
     "PresenterBackend",

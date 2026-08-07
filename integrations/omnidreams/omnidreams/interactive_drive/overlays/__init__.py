@@ -8,6 +8,14 @@ Each widget from the legacy HUD lands here as its own
 chrome it wants instead of inheriting one class that owns every widget.
 """
 
+from omnidreams.interactive_drive.overlays.controls import (
+    PedalsOverlay,
+    WheelOverlay,
+)
+from omnidreams.interactive_drive.overlays.panel import (
+    PANEL_WIDTH,
+    DrivingPanelOverlay,
+)
 from omnidreams.interactive_drive.overlays.speed import SpeedOverlay
 from omnidreams.interactive_drive.overlays.theme import (
     ACCENT_AMBER,
@@ -24,6 +32,10 @@ __all__ = [
     "LABEL_COLOR",
     "NVIDIA_GREEN",
     "PANEL_BG",
+    "PANEL_WIDTH",
+    "DrivingPanelOverlay",
+    "PedalsOverlay",
     "SpeedOverlay",
+    "WheelOverlay",
     "TEXT_COLOR",
 ]

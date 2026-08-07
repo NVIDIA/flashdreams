@@ -13,11 +13,17 @@ ported across a piece at a time.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
-from omnidreams.interactive_drive.overlays import SpeedOverlay
+from omnidreams.interactive_drive.overlays import (
+    DrivingPanelOverlay,
+    PedalsOverlay,
+    SpeedOverlay,
+    WheelOverlay,
+)
 from omnidreams.interactive_drive.types import PresentedFrame
 from PIL import Image, ImageDraw
 
@@ -26,6 +32,7 @@ from flashdreams.serving.presentation import (
     DisplayFrame,
     KeyEvent,
     LocalWindowPresenter,
+    PanelLayout,
     PointerEvent,
     Rect,
     WindowConfig,
@@ -204,19 +211,54 @@ class LocalWindowPresenterBridge:
         del kwargs
 
 
-def _build_overlay(keyboard: KeyboardState) -> CompositeOverlay:
+def _build_overlay(
+    keyboard: KeyboardState, *, control_assets: Any | None = None
+) -> CompositeOverlay:
     """Stack the chrome this demo wants over the shared presenter.
 
-    Widgets are added here as they move across from the legacy HUD; the
-    base layer stays so the control hint and frame counter survive until
-    their replacements exist.
+    The panel layer must come first: it reserves the column and opens the
+    shared layout that every widget after it reserves rows from, in draw
+    order. Widgets are added here as they move across from the legacy HUD.
     """
+    layout = PanelLayout()
+    drive_state = _DriveStateReader(keyboard)
     return CompositeOverlay(
         layers=(
             MinimalDrivingOverlay(keyboard),
-            SpeedOverlay(lambda: _current_speed_mps(keyboard)),
+            DrivingPanelOverlay(layout),
+            SpeedOverlay(layout, lambda: _current_speed_mps(keyboard)),
+            WheelOverlay(layout, drive_state, control_assets=control_assets),
+            PedalsOverlay(layout, drive_state, control_assets=control_assets),
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _DriveStateReader:
+    """Adapt ``KeyboardState``'s command to the chrome's drive-state shape.
+
+    The legacy HUD read a wheel object with ``steering`` / ``throttle`` /
+    ``brake``; the keyboard path exposes the same values under a
+    ``DriverCommand``'s ``steer``. Normalizing here keeps the overlays free
+    of either representation.
+    """
+
+    keyboard: KeyboardState
+
+    def __call__(self) -> _DriveValues:
+        command = self.keyboard.command()
+        return _DriveValues(
+            steering=float(command.steer),
+            throttle=float(command.throttle),
+            brake=float(command.brake),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _DriveValues:
+    steering: float
+    throttle: float
+    brake: float
 
 
 def _current_speed_mps(keyboard: KeyboardState) -> float:

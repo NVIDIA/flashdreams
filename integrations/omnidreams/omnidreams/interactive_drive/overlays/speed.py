@@ -14,6 +14,7 @@ from flashdreams.serving.presentation import (
     DisplayFrame,
     KeyEvent,
     LRUCache,
+    PanelLayout,
     PointerEvent,
     Rect,
     measure_text,
@@ -27,7 +28,6 @@ _DIGIT_CACHE_SIZE = 64
 a 76pt glyph run every tick."""
 
 _UNIT_GAP = 6
-_MARGIN = 24
 
 
 class SpeedOverlay:
@@ -40,15 +40,18 @@ class SpeedOverlay:
 
     def __init__(
         self,
+        layout: PanelLayout,
         speed_mps: Callable[[], float],
         *,
         digit_size: int = 76,
         label_size: int = 18,
     ) -> None:
+        self._layout = layout
         self._speed_mps = speed_mps
         self._font_digit = resolve_font(digit_size)
         self._font_label = resolve_font(label_size)
         self._chips: LRUCache = LRUCache(maxsize=_DIGIT_CACHE_SIZE)
+        self._row_height = digit_size + label_size + _UNIT_GAP + 8
 
     def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
         # Drawn over the camera; reserves no layout of its own.
@@ -62,14 +65,14 @@ class SpeedOverlay:
         frame: DisplayFrame,
         camera_area: Rect,
     ) -> None:
-        del frame
+        del frame, camera_area
+        row = self._layout.reserve(self._row_height, gap=12)
+        if row[3] - row[1] <= 0:
+            return
         mph = max(0, int(self._speed_mps() * MPS_TO_MPH))
         chip = self._chips.get_or_compute(mph, lambda: self._render_chip(mph))
-        left, top, right, _bottom = camera_area
-        x = right - chip.width - _MARGIN
-        y = top + _MARGIN
-        if x < left:
-            return
+        x = self._layout.center_x - chip.width // 2
+        y = row[1]
         canvas.alpha_composite(chip, (x, y))
 
         label_bbox = measure_text(self._font_label, "mph")
