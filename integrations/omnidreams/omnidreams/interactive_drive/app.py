@@ -592,9 +592,11 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
                 LocalWindowPresenterBridge,
             )
 
+            logger.info("[presenter] backend=local-window (shared presentation)")
             return LocalWindowPresenterBridge(
                 keyboard,
                 scene_label=config.scene_path.stem,
                 variant_label=config.variant,
             )
+    logger.info("[presenter] backend=bare-window (legacy SlangPyPresenter)")
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)
