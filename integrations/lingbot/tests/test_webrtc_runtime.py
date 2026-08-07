@@ -22,11 +22,7 @@ from typing import cast
 
 import pytest
 import torch
-from lingbot.input_mapping import (
-    KeyboardToCameraCommand,
-    LingbotInputMapping,
-    TextEventSelection,
-)
+from lingbot.model_session import LingbotModelSessionCore
 from lingbot.webrtc import session
 from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
@@ -37,6 +33,24 @@ from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _attach_model_session(
+    runtime: session.LingbotInferenceRuntime,
+    pipeline: object,
+    *,
+    cache: object | None = None,
+) -> LingbotModelSessionCore:
+    core = LingbotModelSessionCore(
+        pipeline=pipeline,
+        output_stream_factory=lambda: VideoOutputStream(
+            postprocess_stream=None,
+            output_layout="tchw",
+        ),
+    )
+    core._cache = cache  # Test seam for already-initialized runtime state.
+    runtime._model_session = core
+    return core
 
 
 class _FakeCloseable:
@@ -217,7 +231,7 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     pipeline = _FakePipeline()
     runtime._device = torch.device("cpu")
     runtime._pipeline = pipeline
-    runtime._cache = object()
+    _attach_model_session(runtime, pipeline, cache=object())
     runtime._base_intrinsics = torch.ones(4)
     monkeypatch.setattr(
         VideoOutputStream,
@@ -231,7 +245,9 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     )
 
     assert captured["video_chunk"] is pipeline.output
-    assert captured["metrics"] == {"total_ms": 3.0}
+    metrics = cast(dict[str, float], captured["metrics"])
+    assert metrics["total_ms"] == 3.0
+    assert float(metrics["model_step_s"]) >= 0.0
     assert pipeline.output.detach_calls == 0
     assert result.metrics == {"total_ms": 3.0}
     assert runtime.autoregressive_index == 1
@@ -650,7 +666,7 @@ def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     base_text = torch.zeros((1, 2, 3))
     event_text = torch.ones((1, 2, 3))
     runtime._pipeline = _FakePipeline()
-    runtime._cache = cache
+    _attach_model_session(runtime, runtime._pipeline, cache=cache)
     runtime._base_text_embeddings = base_text
     runtime._event_embeddings = {"portal": event_text}
 
@@ -726,6 +742,7 @@ def test_reset_rollout_precomputes_session_text_events() -> None:
     pipeline = _FakePipeline()
     runtime._device = torch.device("cpu")
     runtime._pipeline = pipeline
+    _attach_model_session(runtime, pipeline)
 
     def _fake_prepare_session_input_state(
         session_input: session.LingbotSessionInput | None,
@@ -764,7 +781,7 @@ async def test_trigger_event_prevalidates_before_distributed_broadcast() -> None
         )
     )
     runtime._pipeline = object()
-    runtime._cache = object()
+    _attach_model_session(runtime, runtime._pipeline, cache=object())
     runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
     calls = 0
 
@@ -792,7 +809,7 @@ async def test_trigger_event_waits_for_generation_lock() -> None:
         )
     )
     runtime._pipeline = object()
-    runtime._cache = object()
+    _attach_model_session(runtime, runtime._pipeline, cache=object())
     runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
     calls: list[tuple[str, str]] = []
 

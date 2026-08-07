@@ -214,14 +214,14 @@ the model-specific inputs for replay, WebRTC, or local use.
 
 #### Lingbot TODO
 
-- [ ] Extract shared cache initialization, AR indexing, generation, finalize,
+- [x] Extract shared cache initialization, AR indexing, generation, finalize,
       reset, and close logic from the replay and WebRTC sessions.
-- [ ] Reuse the core from the runner/replay path.
-- [ ] Map WebRTC keyboard actions and text events into the same per-step input
+- [x] Reuse the core from the runner/replay path.
+- [x] Map WebRTC keyboard actions and text events into the same per-step input
       boundary.
-- [ ] Reuse the core from the WebRTC path.
-- [ ] Delete the duplicate Lingbot generation implementation.
-- [ ] Add parity tests comparing replay and live mappings for equivalent camera
+- [x] Reuse the core from the WebRTC path.
+- [x] Delete the duplicate Lingbot generation implementation.
+- [x] Add parity tests comparing replay and live mappings for equivalent camera
       inputs.
 
 #### OmniDreams TODO

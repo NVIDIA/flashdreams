@@ -75,6 +75,7 @@ from lingbot.input_mapping import (
     TextEventSelection,
 )
 from lingbot.encoder.utils import preprocess_example_poses
+from lingbot.model_session import LingbotModelSessionCore
 
 _INTRINSICS_REFERENCE_HEIGHT = 480
 _INTRINSICS_REFERENCE_WIDTH = 832
@@ -603,15 +604,10 @@ class LingbotInferenceRuntime:
             )
 
         self.pose_integrator = CameraPoseIntegrator()
-        self.autoregressive_index = 0
-        self._output_stream = VideoOutputStream(
-            postprocess_stream=None,
-            output_layout="tchw",
-        )
 
         self._device: torch.device | None = None
         self._pipeline: Any | None = None
-        self._cache: Any | None = None
+        self._model_session: LingbotModelSessionCore | None = None
         self._base_intrinsics: torch.Tensor | None = None
         self._first_frames: torch.Tensor | None = None
         self._prompt: str | None = None
@@ -642,6 +638,10 @@ class LingbotInferenceRuntime:
     @property
     def is_master(self) -> bool:
         return self.rank == self.MASTER_RANK
+
+    @property
+    def autoregressive_index(self) -> int:
+        return 0 if self._model_session is None else self._model_session.step_index
 
     @property
     def video_encoder(self) -> VideoEncoder:
@@ -686,13 +686,13 @@ class LingbotInferenceRuntime:
         """Activate or clear a precomputed text event for subsequent chunks."""
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
         event_id, state = self._validate_event_request(event_id=event_id, state=state)
         async with self._step_lock:
             if self._closed:
                 raise LingbotRuntimeError("Runtime is closed.")
-            if self._pipeline is None or self._cache is None:
+            if self._pipeline is None or self._model_session is None:
                 raise LingbotRuntimeError("Runtime is not initialized.")
             return await self._worker.call(
                 self._trigger_event_sync_all_ranks,
@@ -818,7 +818,7 @@ class LingbotInferenceRuntime:
         """
         if self._closed:
             raise LingbotRuntimeError("Session is closed.")
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
 
         async with self._step_lock:
@@ -835,9 +835,9 @@ class LingbotInferenceRuntime:
         the master rank's asyncio event loop to size the resampler's
         per-chunk request.
         """
-        if self._pipeline is None:
+        if self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        return int(self._pipeline.get_num_output_frames(self.autoregressive_index))
+        return self._model_session.next_num_frames()
 
     # Arbitrary index well past the AR-step transient; for the Wan/lingbot
     # pipelines used here the per-step count is constant for any index
@@ -938,6 +938,13 @@ class LingbotInferenceRuntime:
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
+        self._model_session = LingbotModelSessionCore(
+            pipeline=self._pipeline,
+            output_stream_factory=lambda: VideoOutputStream(
+                postprocess_stream=None,
+                output_layout="tchw",
+            ),
+        )
         self._reset_rollout_sync()
         self._initialize_video_encoder_sync()
 
@@ -1176,12 +1183,8 @@ class LingbotInferenceRuntime:
     def _reset_rollout_sync(
         self, session_input: LingbotSessionInput | None = None
     ) -> None:
-        if self._pipeline is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime pipeline is not initialized.")
-
-        if self._cache is not None:
-            del self._cache
-            self._cache = None
 
         self._prepare_session_input_state(session_input)
         text_events = (
@@ -1194,26 +1197,19 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Runtime input state is not initialized.")
 
         self.pose_integrator = CameraPoseIntegrator()
-        self.autoregressive_index = 0
         self._active_event_id = None
-        self._cache = self._pipeline.initialize_cache(
-            text=[self._prompt],
-            image=self._first_frames,
+        self._model_session.reset(
+            prompt=self._prompt,
+            first_frames=self._first_frames,
         )
         # Rebuilt per rollout: the mapping carries the rollout's text-event
         # catalog, base prompt, and pose integrator state.
         self._build_input_layers_sync(text_events)
 
     def _replace_rollout_text_embeddings(self, text_embeddings: torch.Tensor) -> None:
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        transformer = self._pipeline.diffusion_model.transformer
-        replace_text_embeddings = getattr(transformer, "replace_text_embeddings", None)
-        if not callable(replace_text_embeddings):
-            raise LingbotRuntimeError(
-                "Current pipeline does not support runtime text-event swapping."
-            )
-        replace_text_embeddings(self._cache.transformer_cache, text_embeddings)
+        self._model_session.replace_text_embeddings(text_embeddings)
 
     def _validate_event_request(self, *, event_id: str, state: str) -> tuple[str, str]:
         state = state.strip().lower() or "trigger"
@@ -1247,9 +1243,9 @@ class LingbotInferenceRuntime:
         return {"active_event_id": event_id}
 
     def _close_sync(self) -> None:
-        cache = self._cache
+        model_session = self._model_session
         pipeline = self._pipeline
-        self._cache = None
+        self._model_session = None
         self._pipeline = None
         self._base_intrinsics = None
         self._first_frames = None
@@ -1261,8 +1257,8 @@ class LingbotInferenceRuntime:
             self._video_encoder.close()
             self._video_encoder = None
 
-        if cache is not None:
-            del cache
+        if model_session is not None:
+            model_session.close()
         if pipeline is not None:
             del pipeline
 
@@ -1278,7 +1274,7 @@ class LingbotInferenceRuntime:
     ) -> StepResult:
         if (
             self._pipeline is None
-            or self._cache is None
+            or self._model_session is None
             or self._base_intrinsics is None
         ):
             raise LingbotRuntimeError("Runtime is not initialized.")
@@ -1333,24 +1329,13 @@ class LingbotInferenceRuntime:
             poses=poses.to(device=self._device, dtype=torch.float32),
             world_scale=self._world_scale,
         )
-        video_chunk = self._pipeline.generate(
-            autoregressive_index=self.autoregressive_index,
-            cache=self._cache,
-            input=camctrl_input,
-        )
-        stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
-        result = self._output_stream.process(
-            video_chunk,
-            autoregressive_index=self.autoregressive_index,
-            metrics=stats,
-            metadata={"active_event_id": self._active_event_id},
-        )
-        if result.frame_count != num_frames:
-            raise LingbotRuntimeError(
-                f"Expected generated chunk to contain {num_frames} frames, "
-                f"got {result.frame_count}."
+        try:
+            result = self._model_session.step(
+                camctrl_input,
+                metadata={"active_event_id": self._active_event_id},
             )
-        self.autoregressive_index += 1
+        except RuntimeError as exc:
+            raise LingbotRuntimeError(str(exc)) from exc
         return result
 
     def _step_sync(self, inputs: InferenceInput) -> StepResult:
