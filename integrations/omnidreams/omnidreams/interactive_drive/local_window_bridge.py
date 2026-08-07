@@ -16,9 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.overlays import (
+    BEV_OVERLAY_KEY,
+    BevOverlay,
     DrivingPanelOverlay,
     PedalsOverlay,
     SpeedOverlay,
@@ -222,6 +225,8 @@ def _build_overlay(
     """
     layout = PanelLayout()
     drive_state = _DriveStateReader(keyboard)
+    if control_assets is None:
+        control_assets = _bundled_control_assets()
     return CompositeOverlay(
         layers=(
             MinimalDrivingOverlay(keyboard),
@@ -229,8 +234,25 @@ def _build_overlay(
             SpeedOverlay(layout, lambda: _current_speed_mps(keyboard)),
             WheelOverlay(layout, drive_state, control_assets=control_assets),
             PedalsOverlay(layout, drive_state, control_assets=control_assets),
+            BevOverlay(layout, marker_y_fraction=_bev_marker_y_fraction),
         )
     )
+
+
+def _bundled_control_assets() -> Any | None:
+    """Load the wheel and pedal sprites that ship with the demo.
+
+    Late import: ``demo`` reaches this module through the presenter factory,
+    so a top-level import would be circular. Returns ``None`` when the assets
+    cannot be loaded, which leaves the widgets on their drawn fallbacks.
+    """
+    try:
+        from omnidreams.interactive_drive.demo import _load_control_assets
+
+        return _load_control_assets(None)
+    except Exception as exc:  # noqa: BLE001 -- chrome sprites are optional
+        logger.info(f"[presenter] control assets unavailable; using fallbacks ({exc})")
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +306,22 @@ def _display_frame(frame: PresentedFrame, view_mode: str) -> DisplayFrame:
         timestamp_us=frame.timestamp_us,
         status_message=frame.status_message,
         allow_window_resize=show_model,
+        overlay_data={BEV_OVERLAY_KEY: frame.bev_host_uint8},
     )
+
+
+def _bev_marker_y_fraction() -> float:
+    """Where the ego chevron sits vertically in the minimap.
+
+    The BEV camera looks ahead of the vehicle, so the ego is below centre.
+    Late import for the same circularity reason as the control assets.
+    """
+    try:
+        from omnidreams.interactive_drive.demo import _bev_marker_y_rel
+
+        return float(_bev_marker_y_rel())
+    except Exception:  # noqa: BLE001 -- centre is a reasonable default
+        return 0.5
 
 
 __all__ = [
