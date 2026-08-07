@@ -80,7 +80,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     webrtc.add_argument("--warmup-timeout-s", type=float, default=600.0)
     webrtc.add_argument("--client-liveness-timeout-s", type=float, default=10.0)
     webrtc.add_argument("--debug-serve-hdmaps", action="store_true")
-    webrtc.add_argument("--postprocess-preset", default="")
     webrtc.add_argument("--prefer-sw-encoder", action="store_true")
     return parser.parse_args(argv)
 
@@ -152,7 +151,6 @@ def _webrtc_spec(args: argparse.Namespace, *, device: str) -> DemoSpec:
             scene_variant=args.scene_variant,
             camera_name=args.camera_name,
             debug_serve_hdmaps=args.debug_serve_hdmaps,
-            postprocess_preset=args.postprocess_preset,
             prefer_sw_encoder=args.prefer_sw_encoder,
         ),
         output=WebRTCOutputSpec(

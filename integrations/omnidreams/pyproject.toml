@@ -78,8 +78,8 @@ ludus-renderer = { workspace = true }
 interactive-drive = [
     "slangpy==0.42.0",
 ]
-# Optional NVIDIA VFX runtime for selecting RTX postprocess presets such as
-# ``--postprocess-preset rtx-super-resolution`` in the WebRTC or local demo.
+# Optional NVIDIA VFX runtime for selecting RTX postprocess presets in the
+# local interactive demo.
 rtx-postprocess = [
     "flashdreams[rtx-postprocess]",
 ]
@@ -139,7 +139,6 @@ exclude = ["tests"]
 # tree automatically.
 [tool.setuptools.package-data]
 "omnidreams.demo" = ["web/adapter.js"]
-"omnidreams.webrtc.web" = ["adapter.js"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",

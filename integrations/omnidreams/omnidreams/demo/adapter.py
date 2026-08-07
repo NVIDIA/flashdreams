@@ -11,8 +11,6 @@ from typing import Any
 
 from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
 
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
-from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -168,8 +166,6 @@ class OmnidreamsDemoAdapter:
             raise RuntimeError("DemoSpec.config was not initialized.")
         self.validate_config(config)
         scenario = resolve_webrtc_scenario(spec.scenario)
-        if scenario.postprocess_preset:
-            resolve_postprocess_preset(scenario.postprocess_preset)
 
         preset_id = self._preset_id(config)
         pipeline_config = self._pipeline_config(config)
@@ -190,7 +186,6 @@ class OmnidreamsDemoAdapter:
             warmup_chunks=spec.output.warmup_chunks,
             warmup_timeout_s=spec.output.warmup_timeout_s,
             debug_serve_hdmaps=scenario.debug_serve_hdmaps,
-            postprocess=VideoPostprocessChainConfig(preset=scenario.postprocess_preset),
             encoder_backend="default" if scenario.prefer_sw_encoder else "auto",
         )
         return _apply_webrtc_runtime_options(runtime_config, config.runtime_options)

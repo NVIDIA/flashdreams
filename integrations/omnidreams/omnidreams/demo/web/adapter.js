@@ -14,5 +14,4 @@ export default {
       ],
     },
   ],
-  capabilities: { postprocess: true },
 }

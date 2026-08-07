@@ -31,7 +31,6 @@ from omnidreams.demo.webrtc import (
     OmnidreamsWebRTCModelRuntimeConfig,
 )
 
-from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
@@ -396,7 +395,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert demo.port == 8082
 
 
-def test_omnidreams_webrtc_demo_installs_model_routes(
+def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import flashdreams.runtime.demo.webrtc as shared_webrtc_module
@@ -407,7 +406,8 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
         app_calls.append(kwargs)
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
-        kwargs["configure_app"](app)
+        if configure_app := kwargs["configure_app"]:
+            configure_app(app)
         return app
 
     monkeypatch.setattr(
@@ -443,9 +443,7 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
     )
     assert app_calls[0]["preload_name"] == "Test Omnidreams"
     assert str(app_calls[0]["model_web_resource"]).endswith("omnidreams/demo/web")
-    route_paths = {resource.canonical for resource in demo.app.router.resources()}
-    assert "/api/postprocess/options" in route_paths
-    assert "/api/session/input" in route_paths
+    assert app_calls[0]["configure_app"] is None
 
 
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
@@ -458,7 +456,8 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
-        kwargs["configure_app"](app)
+        if configure_app := kwargs["configure_app"]:
+            configure_app(app)
         return app
 
     def fake_server_runner(**kwargs: Any) -> None:
@@ -524,10 +523,6 @@ async def test_omnidreams_demo_runtime_generates_directly_from_controls() -> Non
     runtime._text_prompts = []
     runtime._camera_to_rig = torch.eye(4)
     runtime._initial_ego_pose = torch.eye(4).numpy()
-    runtime._output_stream = VideoOutputStream(
-        postprocess_stream=None,
-        output_layout="bvtchw",
-    )
     runtime.pose_integrator.reset()
     runtime._next_timestamp_us = 1_000
 

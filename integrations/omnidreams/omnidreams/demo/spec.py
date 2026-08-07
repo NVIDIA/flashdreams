@@ -78,7 +78,6 @@ class OmnidreamsWebRTCScenario:
     scene_variant: str = SCENE_VARIANT_DEFAULT
     camera_name: str = "camera_front_wide_120fov"
     debug_serve_hdmaps: bool = False
-    postprocess_preset: str = ""
     prefer_sw_encoder: bool = False
 
     def __post_init__(self) -> None:
@@ -170,7 +169,6 @@ def resolve_webrtc_scenario(value: Any) -> OmnidreamsWebRTCScenario:
         scene_variant=str(value.get("scene_variant", SCENE_VARIANT_DEFAULT)),
         camera_name=str(value.get("camera_name", "camera_front_wide_120fov")),
         debug_serve_hdmaps=bool(value.get("debug_serve_hdmaps", False)),
-        postprocess_preset=str(value.get("postprocess_preset", "")),
         prefer_sw_encoder=bool(value.get("prefer_sw_encoder", False)),
     )
 

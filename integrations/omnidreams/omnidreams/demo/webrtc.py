@@ -19,15 +19,13 @@ from __future__ import annotations
 
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
-import torch.distributed as dist
-from aiohttp import web
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
@@ -49,22 +47,11 @@ from omnidreams.scenes import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 
-from flashdreams.infra.postprocess import (
-    VideoPostprocessChainConfig,
-    create_video_postprocess_stream,
-)
-from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime import StepResult
 from flashdreams.runtime.demo import DemoSpec, WebRTCAppResources
 from flashdreams.serving.webrtc.controls import CameraPoseIntegrator, PoseSegment
 from flashdreams.serving.webrtc.encoders import EncoderBackend
 from flashdreams.serving.webrtc.runtime import ThreadAffineDistributedWebRTCRuntime
-from flashdreams.serving.webrtc.server import (
-    SESSION_MANAGER_KEY,
-    SessionBusyError,
-    WebRTCSessionManager,
-)
 
 from .spec import DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID
 
@@ -125,11 +112,6 @@ class OmnidreamsWebRTCModelRuntimeConfig:
     debug_serve_hdmaps: bool = False
     """Stream rendered conditioning frames without running video generation."""
 
-    postprocess: VideoPostprocessChainConfig = field(
-        default_factory=VideoPostprocessChainConfig
-    )
-    """Video post-processing chain available to browser sessions."""
-
     encoder_backend: EncoderBackend = "auto"
     """WebRTC video encoder selection policy."""
 
@@ -140,18 +122,10 @@ class OmnidreamsWebRTCModelRuntimeConfig:
     """WebRTC video encoder group-of-pictures length."""
 
 
-@dataclass(frozen=True, slots=True)
-class OmnidreamsWebRTCSessionOptions:
-    """Browser settings applied when the next WebRTC session starts."""
-
-    postprocess_preset: str | None = None
-    """Selected preset; ``None`` keeps the launch default and ``""`` disables it."""
-
-
 class OmnidreamsWebRTCModelRuntime(
     ThreadAffineDistributedWebRTCRuntime[
         OmnidreamsWebRTCModelRuntimeConfig,
-        OmnidreamsWebRTCSessionOptions,
+        None,
     ]
 ):
     """Run one single-view OmniDreams scene with browser camera controls."""
@@ -165,7 +139,6 @@ class OmnidreamsWebRTCModelRuntime(
         self.pose_integrator = self._new_pose_integrator()
         self._wrapper: OmnidreamsConditioningWrapper | None = None
         self._state: OmnidreamsConditioningState | None = None
-        self._output_stream: VideoOutputStream | None = None
         self._renderer: Any | None = None
         self._scene_data: Any | None = None
         self._initial_rgb_frames: torch.Tensor | None = None
@@ -174,7 +147,6 @@ class OmnidreamsWebRTCModelRuntime(
         self._initial_ego_pose: np.ndarray | None = None
         self._step_index = 0
         self._next_timestamp_us = 0
-        self._postprocess_preset = config.postprocess.preset
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
 
     def _new_pose_integrator(self) -> CameraPoseIntegrator:
@@ -324,9 +296,8 @@ class OmnidreamsWebRTCModelRuntime(
                 f"Camera {camera_name!r} has no extrinsics in {scene_dir}."
             )
 
-    def _reset_rollout_sync(
-        self, session_input: OmnidreamsWebRTCSessionOptions | None = None
-    ) -> None:
+    def _reset_rollout_sync(self, session_input: None = None) -> None:
+        del session_input
         wrapper = self._require_wrapper()
         if self._renderer is None or self._scene_data is None:
             raise OmnidreamsWebRTCModelRuntimeError("Scene state is not initialized.")
@@ -339,50 +310,10 @@ class OmnidreamsWebRTCModelRuntime(
             del self._state.pipeline_cache
         self._state = None
         self._step_index = 0
-        self._replace_output_stream(session_input)
         self.pose_integrator = self._new_pose_integrator()
         self.pose_integrator.reset(self._initial_ego_pose)
         self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
         wrapper.set_rollout_seed(self.config.seed)
-
-    def _replace_output_stream(
-        self, session_input: OmnidreamsWebRTCSessionOptions | None
-    ) -> None:
-        if self._output_stream is not None:
-            self._output_stream.finish()
-        configured = self.config.postprocess
-        preset = (
-            configured.preset
-            if session_input is None or session_input.postprocess_preset is None
-            else session_input.postprocess_preset
-        )
-        validate_postprocess_selection(
-            requested_preset=preset,
-            configured_preset=configured.preset,
-        )
-        postprocess = VideoPostprocessChainConfig(
-            processors=configured.processors,
-            preset=preset,
-        )
-        world_size = dist.get_world_size() if dist.is_initialized() else 1
-        postprocess_stream = create_video_postprocess_stream(
-            postprocess=postprocess,
-            output_layout="bvtchw",
-            fps=self.config.fps,
-            per_view=False,
-            world_size=world_size,
-            is_rank_zero=self.is_master,
-        )
-        self._postprocess_preset = preset
-        self._output_stream = VideoOutputStream(
-            postprocess_stream=postprocess_stream,
-            output_layout="bvtchw",
-        )
-        if postprocess_stream is not None:
-            logger.info(
-                "OmniDreams WebRTC post-processing enabled with preset {!r}.",
-                preset,
-            )
 
     def _generate_one_chunk_sync(
         self,
@@ -445,31 +376,21 @@ class OmnidreamsWebRTCModelRuntime(
                 output.finalization_state,
             )
 
-        metadata = {
-            "stream": "hdmap" if serve_hdmaps else "rgb",
-            "postprocess_preset": self._postprocess_preset,
-        }
+        metadata = {"stream": "hdmap" if serve_hdmaps else "rgb"}
         if serve_hdmaps:
-            result = StepResult.from_video_chunk(
-                step_index=self._step_index,
-                video_chunk=output.condition_frames.detach(),
-                layout="bvtchw",
-                metadata=metadata,
-            )
+            video_chunk = output.condition_frames
         else:
             if output.rgb_frames is None:
                 raise OmnidreamsWebRTCModelRuntimeError(
                     "OmniDreams generation produced no RGB frames."
                 )
-            if self._output_stream is None:
-                raise OmnidreamsWebRTCModelRuntimeError(
-                    "Output stream is not initialized."
-                )
-            result = self._output_stream.process(
-                output.rgb_frames,
-                autoregressive_index=self._step_index,
-                metadata=metadata,
-            )
+            video_chunk = output.rgb_frames
+        result = StepResult.from_video_chunk(
+            step_index=self._step_index,
+            video_chunk=video_chunk.detach(),
+            layout="bvtchw",
+            metadata=metadata,
+        )
         expected_frames = len(frame_times)
         if result.frame_count != expected_frames:
             raise OmnidreamsWebRTCModelRuntimeError(
@@ -489,9 +410,6 @@ class OmnidreamsWebRTCModelRuntime(
         return timestamps
 
     def _close_sync(self) -> None:
-        if self._output_stream is not None:
-            self._output_stream.finish()
-            self._output_stream = None
         if self._wrapper is not None and self._state is not None:
             self._wrapper.cleanup(self._state)
         elif self._renderer is not None:
@@ -517,108 +435,20 @@ class OmnidreamsWebRTCModelRuntime(
         return self._wrapper
 
 
-def validate_postprocess_selection(
-    *, requested_preset: str, configured_preset: str
-) -> None:
-    """Validate a browser preset against the server's launched preset."""
-    if not requested_preset:
-        return
-    if not configured_preset:
-        raise ValueError(
-            "Post-processing is not enabled for this server; restart with "
-            "--postprocess-preset to make a preset available."
-        )
-    if requested_preset != configured_preset:
-        raise ValueError(
-            "Post-processing preset must match the launched preset "
-            f"{configured_preset!r}; got {requested_preset!r}."
-        )
-    resolve_postprocess_preset(requested_preset)
-
-
-class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
-    runtime_config: OmnidreamsWebRTCModelRuntimeConfig
-
-    def set_pending_session_input(
-        self,
-        session_input: OmnidreamsWebRTCSessionOptions,
-    ) -> None: ...
-
-
-async def postprocess_options(request: web.Request) -> web.StreamResponse:
-    """Return the postprocess preset selected at server launch."""
-    manager = _get_omnidreams_manager(request.app)
-    configured_preset = manager.runtime_config.postprocess.preset
-    presets = [configured_preset] if configured_preset else []
-    return web.json_response(
-        {
-            "default_preset": configured_preset,
-            "presets": presets,
-        }
-    )
-
-
-async def session_input(request: web.Request) -> web.StreamResponse:
-    """Apply browser-selected settings to the next WebRTC rollout."""
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        raise web.HTTPBadRequest(reason="Expected JSON session input.") from exc
-    if not isinstance(payload, dict):
-        raise web.HTTPBadRequest(reason="Session input must be a JSON object.")
-    preset = payload.get("postprocess_preset")
-    if not isinstance(preset, str):
-        raise web.HTTPBadRequest(
-            reason="Session input must include string 'postprocess_preset'."
-        )
-
-    manager = _get_omnidreams_manager(request.app)
-    try:
-        if preset:
-            validate_postprocess_selection(
-                requested_preset=preset,
-                configured_preset=manager.runtime_config.postprocess.preset,
-            )
-        manager.set_pending_session_input(
-            OmnidreamsWebRTCSessionOptions(postprocess_preset=preset)
-        )
-    except SessionBusyError as exc:
-        raise web.HTTPConflict(reason=str(exc)) from exc
-    except ValueError as exc:
-        raise web.HTTPBadRequest(reason=str(exc)) from exc
-    return web.json_response({"postprocess_preset": preset})
-
-
-def configure_omnidreams_webrtc_app(app: web.Application) -> None:
-    """Register OmniDreams browser support routes on a shared WebRTC app."""
-    app.router.add_get("/api/postprocess/options", postprocess_options)
-    app.router.add_post("/api/session/input", session_input)
-
-
 def omnidreams_webrtc_app_resources(spec: DemoSpec) -> WebRTCAppResources:
-    """Return OmniDreams assets and routes for the shared WebRTC app."""
+    """Return OmniDreams browser assets for the shared WebRTC app."""
     from importlib.resources import files
 
     del spec
     return WebRTCAppResources(
         model_web_resource=files("omnidreams.demo").joinpath("web"),
         preload_name="OmniDreams",
-        configure_app=configure_omnidreams_webrtc_app,
     )
-
-
-def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
-    return cast(_OmnidreamsSessionManager, app[SESSION_MANAGER_KEY])
 
 
 __all__ = [
     "OmnidreamsWebRTCModelRuntime",
     "OmnidreamsWebRTCModelRuntimeConfig",
     "OmnidreamsWebRTCModelRuntimeError",
-    "OmnidreamsWebRTCSessionOptions",
-    "configure_omnidreams_webrtc_app",
     "omnidreams_webrtc_app_resources",
-    "postprocess_options",
-    "session_input",
-    "validate_postprocess_selection",
 ]
