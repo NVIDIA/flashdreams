@@ -26,11 +26,9 @@ from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
@@ -132,14 +130,10 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
             output_stream.process(video_chunk, autoregressive_index=i, stats=stats)
 
-        generated = output_stream.finish()
-        if generated is None:
-            return
-
-        # Write the video.
-        ensure_output_dir(config.output_dir)
         video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        write_video_tensor(generated, video_path, fps=config.fps, layout="tchw")
+        video_path = output_stream.finish_to_mp4(video_path, fps=config.fps)
+        if video_path is None:
+            return
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "

@@ -5,43 +5,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable
 from typing import Any, Protocol
 
-import torch
-
-from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.infra.video_output import VideoStepResult, infer_video_num_frames
+from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.serving.realtime.input import PoseSegment
-
-
-class WebRTCStepResult(VideoStepResult):
-    """One generated chunk handed back by a WebRTC model runtime."""
-
-
-def make_webrtc_step_result(
-    *,
-    chunk_index: int,
-    video_chunk: torch.Tensor,
-    layout: VideoTensorLayout,
-    stats: dict[str, float] | None = None,
-    sync_device: torch.device | str | None = None,
-    metadata: Mapping[str, Any] | None = None,
-) -> WebRTCStepResult:
-    """Package a generated chunk for WebRTC without forcing a host copy."""
-    if sync_device is not None:
-        device = torch.device(sync_device)
-        if device.type == "cuda":
-            torch.cuda.current_stream(device).synchronize()
-
-    return WebRTCStepResult(
-        chunk_index=chunk_index,
-        num_frames=infer_video_num_frames(video_chunk, layout=layout),
-        video_chunk=video_chunk.detach(),
-        stats=stats,
-        layout=layout,
-        metadata=dict(metadata or {}),
-    )
 
 
 class WebRTCRuntimeConfig(Protocol):
@@ -83,7 +51,7 @@ class WebRTCGenerationRuntime(Protocol):
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult: ...
+    ) -> VideoStepResult: ...
 
     async def close(self) -> None: ...
 

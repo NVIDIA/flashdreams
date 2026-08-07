@@ -33,6 +33,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostProcessorConfig,
 )
+from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -41,7 +42,6 @@ from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
     DefaultRTCEncoder,
 )
-from flashdreams.serving.webrtc.manager import WebRTCStepResult
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -254,7 +254,9 @@ def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
 
     runtime, _wrapper = _build_fake_runtime()
     postprocess_stream = _FakePostprocessStream()
-    runtime._postprocess_stream = postprocess_stream  # ty:ignore[invalid-assignment]
+    runtime._output_stream.postprocess_stream = (  # ty:ignore[invalid-assignment]
+        postprocess_stream
+    )
 
     result = runtime._generate_one_chunk_sync(
         segments=[(0.0, 2 / 30, frozenset({"w"}))],
@@ -292,7 +294,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
     runtime._reset_postprocess_stream(
         session.OmnidreamsSessionInput(postprocess_preset="fake-preset")
     )
-    first_stream = runtime._postprocess_stream
+    first_stream = runtime._output_stream.postprocess_stream
 
     assert first_stream is not None
     assert runtime.postprocess_preset == "fake-preset"
@@ -302,7 +304,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
     )
 
     assert first_stream._closed is True
-    assert runtime._postprocess_stream is None
+    assert runtime._output_stream.postprocess_stream is None
     assert runtime.postprocess_preset == ""
 
 
@@ -1052,11 +1054,11 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> WebRTCStepResult:
+        ) -> VideoStepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return WebRTCStepResult(
+            return VideoStepResult(
                 chunk_index=chunk_index,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
@@ -1199,7 +1201,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> WebRTCStepResult:
+        ) -> VideoStepResult:
             del segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")

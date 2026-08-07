@@ -8,19 +8,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
-
-import torch
 
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
     write_video_tensor,
 )
-from flashdreams.infra.runner_io import (
-    VideoTensorLayout as WritableVideoTensorLayout,
-)
-from flashdreams.infra.video_output import RunnerVideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepResult
 
@@ -38,7 +32,7 @@ class Mp4VideoOutputTarget:
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT
     move_to_cpu: bool = True
     _opened: bool = field(default=False, init=False, repr=False)
-    _stream: RunnerVideoOutputStream | None = field(
+    _stream: VideoOutputStream | None = field(
         default=None,
         init=False,
         repr=False,
@@ -49,7 +43,7 @@ class Mp4VideoOutputTarget:
         return not self._opened
 
     def open(self) -> None:
-        self._stream = RunnerVideoOutputStream(
+        self._stream = VideoOutputStream(
             postprocess_stream=None,
             output_layout=self.output_layout,
             collect_output=True,
@@ -97,16 +91,12 @@ class Mp4VideoOutputTarget:
         video = stream.finish()
         if video is None:
             return ()
-
-        writable_video, writable_layout = _prepare_video_for_mp4(
+        path = stream.write_mp4(
             video,
-            layout=self.output_layout,
-        )
-        path = self.writer(
-            writable_video,
             self.output_path,
             fps=self.fps,
-            layout=writable_layout,
+            layout=self.output_layout,
+            writer=self.writer,
             install_hint=self.install_hint,
         )
         return (
@@ -116,42 +106,11 @@ class Mp4VideoOutputTarget:
                 metadata={
                     "fps": self.fps,
                     "source_layout": self.output_layout,
-                    "write_layout": writable_layout,
-                    "shape": tuple(int(dim) for dim in writable_video.shape),
+                    "shape": tuple(int(dim) for dim in video.shape),
                     "stats_history": tuple(stream.stats_history),
                 },
             ),
         )
-
-
-def _prepare_video_for_mp4(
-    video: torch.Tensor,
-    *,
-    layout: VideoTensorLayout,
-) -> tuple[torch.Tensor, WritableVideoTensorLayout]:
-    """Convert runtime video layouts into layouts accepted by runner I/O."""
-    if layout in {"tchw", "btchw", "bcthw"}:
-        return video, cast(WritableVideoTensorLayout, layout)
-    if layout == "bvtchw":
-        if video.ndim != 6:
-            raise ValueError(
-                "layout='bvtchw' expects a 6D [B,V,T,C,H,W] tensor, "
-                f"got {tuple(video.shape)}."
-            )
-        if video.shape[0] != 1:
-            raise ValueError(
-                "layout='bvtchw' MP4 writing expects a single batch element, "
-                f"got {tuple(video.shape)}."
-            )
-        _, views, frames, channels, height, width = video.shape
-        canvas = (
-            video[0]
-            .permute(1, 3, 0, 4, 2)
-            .contiguous()
-            .reshape(frames, height, views * width, channels)
-        )
-        return canvas, "thwc"
-    raise ValueError(f"unsupported runtime video layout for MP4: {layout!r}")
 
 
 __all__ = ["Mp4VideoOutputTarget"]

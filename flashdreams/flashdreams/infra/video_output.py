@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -202,8 +203,13 @@ class VideoStepResult:
         )
 
 
-class RunnerVideoOutputStream:
-    """Post-process, collect, and summarize runner video chunks."""
+class VideoOutputStream:
+    """Post-process and optionally collect generated video tensors.
+
+    Runner CLI, realtime serving, and local presentation all use this same
+    tensor-in/tensor-out boundary. Transport-specific result envelopes and
+    frame conversions happen after :meth:`process`.
+    """
 
     def __init__(
         self,
@@ -236,8 +242,8 @@ class RunnerVideoOutputStream:
         autoregressive_index: int,
         stats: dict[str, float] | None = None,
         stats_extra: Mapping[str, object] | None = None,
-    ) -> None:
-        """Process one generated chunk and collect it when this rank writes output."""
+    ) -> Tensor:
+        """Process one chunk, optionally collect it, and return emitted frames."""
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
         processed = video_chunk
@@ -259,6 +265,7 @@ class RunnerVideoOutputStream:
             if stats_extra is not None:
                 entry.update(stats_extra)
             self.stats_history.append(entry)
+        return processed
 
     def finish(self) -> Tensor | None:
         """Flush post-processing and return the collected rank-zero video."""
@@ -270,6 +277,97 @@ class RunnerVideoOutputStream:
             if flushed is not None:
                 self._append_if_nonempty(flushed)
         return self._collected_output()
+
+    def make_step_result(
+        self,
+        video_chunk: Tensor,
+        *,
+        autoregressive_index: int,
+        stats: dict[str, float] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        sync_device: torch.device | str | None = None,
+    ) -> VideoStepResult:
+        """Process a chunk and package the emitted frames for a live consumer.
+
+        ``sync_device`` is useful for consumers such as WebRTC that hand a
+        GPU-resident result to another subsystem immediately after generation.
+        It synchronizes only when it names a CUDA device and never moves the
+        emitted tensor to the host.
+        """
+        processed = self.process(
+            video_chunk,
+            autoregressive_index=autoregressive_index,
+            stats=stats,
+        )
+        if sync_device is not None:
+            device = torch.device(sync_device)
+            if device.type == "cuda":
+                torch.cuda.current_stream(device).synchronize()
+        return VideoStepResult.from_video_chunk(
+            chunk_index=autoregressive_index,
+            video_chunk=processed.detach(),
+            layout=self.output_layout,
+            stats=stats,
+            metadata=metadata,
+        )
+
+    def finish_to_mp4(
+        self,
+        output_path: str | Path,
+        *,
+        fps: int | float,
+        writer: Callable[..., Path] | None = None,
+        install_hint: str | None = None,
+    ) -> Path | None:
+        """Finish this collecting stream and write its frames as one MP4.
+
+        The stream converts its declared output layout to the runner I/O
+        layout, including tiling ``bvtchw`` views horizontally.
+        """
+        video = self.finish()
+        if video is None:
+            return None
+        return self.write_mp4(
+            video,
+            output_path,
+            fps=fps,
+            layout=self.output_layout,
+            writer=writer,
+            install_hint=install_hint,
+        )
+
+    def write_mp4(
+        self,
+        video: Tensor,
+        output_path: str | Path,
+        *,
+        fps: int | float,
+        layout: VideoTensorLayout | str | None = None,
+        writer: Callable[..., Path] | None = None,
+        install_hint: str | None = None,
+    ) -> Path:
+        """Write video frames as MP4 using this stream's runner output path.
+
+        ``layout`` defaults to :attr:`output_layout`; callers that compose a
+        presentation canvas can pass the runner-I/O ``thwc`` layout directly.
+        """
+        from flashdreams.infra.runner_io import (
+            DEFAULT_RUNNER_INSTALL_HINT,
+            write_video_tensor,
+        )
+
+        writable_video, writable_layout = prepare_video_for_mp4(
+            video, layout=layout or self.output_layout
+        )
+        output_writer = writer or write_video_tensor
+        path = output_writer(
+            writable_video,
+            output_path,
+            fps=fps,
+            layout=writable_layout,
+            install_hint=install_hint or DEFAULT_RUNNER_INSTALL_HINT,
+        )
+        return path
 
     def _append_if_nonempty(self, output: Tensor) -> None:
         if not self.collect_output or output.shape[self._time_dim] == 0:
@@ -288,12 +386,43 @@ class RunnerVideoOutputStream:
         return output
 
 
+def prepare_video_for_mp4(
+    video: Tensor,
+    *,
+    layout: VideoTensorLayout | str,
+) -> tuple[Tensor, str]:
+    """Convert a stream output into a layout accepted by runner MP4 I/O."""
+    if layout in {"thwc", "tchw", "btchw", "bcthw"}:
+        return video, layout
+    if layout == "bvtchw":
+        if video.ndim != 6:
+            raise ValueError(
+                "layout='bvtchw' expects a 6D [B,V,T,C,H,W] tensor, "
+                f"got {tuple(video.shape)}."
+            )
+        if video.shape[0] != 1:
+            raise ValueError(
+                "layout='bvtchw' MP4 writing expects a single batch element, "
+                f"got {tuple(video.shape)}."
+            )
+        _, views, frames, channels, height, width = video.shape
+        canvas = (
+            video[0]
+            .permute(1, 3, 0, 4, 2)
+            .contiguous()
+            .reshape(frames, height, views * width, channels)
+        )
+        return canvas, "thwc"
+    raise ValueError(f"unsupported video layout for MP4: {layout!r}")
+
+
 __all__ = [
     "LazyRGBFrame",
-    "RunnerVideoOutputStream",
+    "VideoOutputStream",
     "VideoStepResult",
     "infer_video_num_frames",
     "lazy_rgb_frames_from_video_tensor",
+    "prepare_video_for_mp4",
     "video_layout_time_dim",
     "video_tensor_to_hwc_uint8",
 ]

@@ -41,6 +41,7 @@ from flashdreams.core.distributed.rank_orchestration import (
 )
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
+from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
@@ -55,8 +56,6 @@ from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
     WebRTCControlSignal,
-    WebRTCStepResult,
-    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from lingbot.encoder.utils import preprocess_example_poses
@@ -589,6 +588,12 @@ class LingbotInferenceRuntime:
 
         self.pose_integrator = CameraPoseIntegrator()
         self.autoregressive_index = 0
+        self._output_stream = VideoOutputStream(
+            postprocess_stream=None,
+            output_layout="tchw",
+            collect_output=False,
+            move_to_cpu=False,
+        )
 
         self._device: torch.device | None = None
         self._pipeline: Any | None = None
@@ -675,7 +680,7 @@ class LingbotInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         """Generate one autoregressive chunk from a piecewise-constant timeline.
 
         Args:
@@ -687,7 +692,7 @@ class LingbotInferenceRuntime:
                 :meth:`peek_next_chunk_num_frames` at call time.
 
         Returns:
-            :class:`WebRTCStepResult` carrying the produced video chunk
+            :class:`VideoStepResult` carrying the produced video chunk
             and the post-generation pipeline stats.
 
         Raises:
@@ -758,7 +763,7 @@ class LingbotInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
     @distributed_op(WebRTCControlSignal.EVENT)
@@ -1135,7 +1140,7 @@ class LingbotInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         if (
             self._pipeline is None
             or self._cache is None
@@ -1177,11 +1182,9 @@ class LingbotInferenceRuntime:
             input=camctrl_input,
         )
         stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
-
-        result = make_webrtc_step_result(
-            chunk_index=self.autoregressive_index,
-            video_chunk=video_chunk,
-            layout="tchw",
+        result = self._output_stream.make_step_result(
+            video_chunk,
+            autoregressive_index=self.autoregressive_index,
             stats=stats,
             sync_device=self._device,
         )

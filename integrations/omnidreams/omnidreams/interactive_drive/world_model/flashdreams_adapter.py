@@ -31,7 +31,10 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
-from flashdreams.infra.video_output import lazy_rgb_frames_from_video_tensor
+from flashdreams.infra.video_output import (
+    VideoOutputStream,
+    lazy_rgb_frames_from_video_tensor,
+)
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -499,7 +502,7 @@ class FlashdreamsWorldModelSession:
         self._next_block_index = 0
         self._postprocess = postprocess or VideoPostprocessChainConfig()
         self._postprocess_enabled = self._postprocess.is_enabled()
-        self._postprocess_stream: VideoPostprocessStream | None = None
+        self._output_stream: VideoOutputStream | None = None
 
     @property
     def pipeline(self) -> Any:
@@ -636,7 +639,7 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
-            video = self._postprocess_video(video, autoregressive_index=0)
+            video = self._process_video(video, autoregressive_index=0)
             model_frames = self._video_tensor_to_frames(video)
             _synchronize_cuda_frame_event(model_frames)
         self._pending_finalization_index = 0
@@ -665,7 +668,7 @@ class FlashdreamsWorldModelSession:
                 cache=self._cache,
                 hdmap=self._condition_tensor(condition_frames),
             )
-            video = self._postprocess_video(
+            video = self._process_video(
                 video, autoregressive_index=self._next_block_index
             )
             model_frames = self._video_tensor_to_frames(video)
@@ -717,21 +720,31 @@ class FlashdreamsWorldModelSession:
             self._postprocess.preset,
         )
 
-    def _postprocess_video(
-        self, video: torch.Tensor, *, autoregressive_index: int
-    ) -> torch.Tensor:
-        if not self._postprocess_enabled:
-            return video
-        if self._postprocess_stream is None:
-            self._postprocess_stream = VideoPostprocessStream(
+    def _new_output_stream(self) -> VideoOutputStream:
+        postprocess_stream = None
+        if self._postprocess_enabled:
+            postprocess_stream = VideoPostprocessStream(
                 postprocess=self._postprocess,
                 output_layout="bvtchw",
                 fps=self.manifest.fps,
                 per_view=False,
                 world_size=1,
             )
-        processed = self._postprocess_stream.process(
-            video, autoregressive_index=autoregressive_index
+        return VideoOutputStream(
+            postprocess_stream=postprocess_stream,
+            output_layout="bvtchw",
+            collect_output=False,
+            move_to_cpu=False,
+        )
+
+    def _process_video(
+        self, video: torch.Tensor, *, autoregressive_index: int
+    ) -> torch.Tensor:
+        if self._output_stream is None:
+            self._output_stream = self._new_output_stream()
+        processed = self._output_stream.process(
+            video,
+            autoregressive_index=autoregressive_index,
         )
         if processed.shape[2] != video.shape[2]:
             raise RuntimeError(
@@ -742,10 +755,10 @@ class FlashdreamsWorldModelSession:
         return processed
 
     def _close_postprocess_stream(self) -> None:
-        if self._postprocess_stream is None:
+        if self._output_stream is None:
             return
-        self._postprocess_stream.finish()
-        self._postprocess_stream = None
+        self._output_stream.finish()
+        self._output_stream = None
 
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
         if self.manifest.synthetic_model:

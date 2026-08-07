@@ -20,13 +20,11 @@ from loguru import logger
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     load_first_frame_tensor,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
-from flashdreams.infra.video_output import RunnerVideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
 from flashdreams.runtime import (
     CanonicalInputSchema,
     InferenceConfig,
@@ -607,7 +605,7 @@ def _require_step_tensor(
 class LingbotRunnerOutputTarget:
     """Runner-compatible MP4/stats output target for Lingbot replay results."""
 
-    output_stream: RunnerVideoOutputStream
+    output_stream: VideoOutputStream
     output_dir: Path
     runner_name: str
     fps: int | float
@@ -635,23 +633,17 @@ class LingbotRunnerOutputTarget:
     def close(self) -> tuple[OutputArtifact, ...]:
         self._opened = False
         artifacts: list[OutputArtifact] = []
-        video = self.output_stream.finish()
-        if video is None:
-            return ()
-
-        ensure_output_dir(self.output_dir)
         video_path = runner_artifact_path(self.output_dir, self.runner_name, "mp4")
-        write_video_tensor(
-            video,
+        video_path = self.output_stream.finish_to_mp4(
             video_path,
             fps=self.fps,
-            layout="tchw",
             install_hint=self.install_hint,
         )
+        if video_path is None:
+            return ()
         logger.info(
-            "[{}] wrote video {} -> {}",
+            "[{}] wrote video -> {}",
             self.runner_name,
-            tuple(video.shape),
             video_path.resolve(),
         )
         artifacts.append(
