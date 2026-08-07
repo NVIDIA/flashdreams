@@ -6,7 +6,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
+from typing import TypedDict
 
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.plugins.registry import discover_postprocess_presets
+from flashdreams.serving.realtime.timing import TraceSink
 from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
@@ -28,10 +32,6 @@ from omnidreams.interactive_drive.world_model.manifest import (
     resolve_world_model_manifest_path,
 )
 from omnidreams.scenes import local_scene_archive_path
-
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
-from flashdreams.plugins.registry import discover_postprocess_presets
-from flashdreams.serving.realtime.timing import TraceSink
 
 # Package root (from this file's location) so packaged-asset defaults below
 # resolve relative to the install, not the user's cwd. Bundled configs live at
@@ -377,7 +377,15 @@ def _parse_resolution(value: str) -> tuple[int, int]:
     return width, height
 
 
-def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
+class _OobKwargs(TypedDict, total=False):
+    oob_warn_proximity: float
+    oob_respawn_proximity: float
+    oob_respawn_debounce_chunks: int
+    oob_margin_m: float
+    oob_warning_zone_m: float
+
+
+def _oob_kwargs(args: argparse.Namespace) -> _OobKwargs:
     """Forward only the OOB flags the user actually passed.
 
     Each ``--oob-*`` flag defaults to ``None`` so the
@@ -385,7 +393,7 @@ def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
     a kwarg to the ``AppConfig(**kwargs)`` call when the user passed
     an explicit value.
     """
-    overrides: dict[str, float | int] = {}
+    overrides: _OobKwargs = {}
     if args.oob_warn_proximity is not None:
         overrides["oob_warn_proximity"] = float(args.oob_warn_proximity)
     if args.oob_respawn_proximity is not None:
@@ -409,15 +417,8 @@ def main() -> None:
     run(build_parser().parse_args())
 
 
-def prepare_config_and_backend(
-    args: argparse.Namespace,
-) -> tuple[AppConfig, RenderBackend]:
-    """Build the :class:`AppConfig` and :class:`RenderBackend` for ``args``.
-
-    Split out of :func:`run` so the demo wrappers build the backend once and
-    hand it to a long-lived :class:`InteractiveDriveApp` that switches scenes in
-    place (keeping the warmed model resident).
-    """
+def prepare_app_config(args: argparse.Namespace) -> AppConfig:
+    """Resolve interactive-drive arguments into application configuration."""
     # Stamp the resolved HF org into the env var before anything fetches
     # (manifest, scene staging, model build read it lazily).
     resolved_org = apply_cli_to_env(args.hf_org)
@@ -477,8 +478,19 @@ def prepare_config_and_backend(
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         presenter_backend=getattr(args, "presenter_backend", "legacy"),
+        window_width=getattr(args, "window_width", 1920),
+        window_height=getattr(args, "window_height", 1080),
+        window_title=getattr(args, "window_title", "interactive-drive (local-window)"),
         **_oob_kwargs(args),
     )
+    return config
+
+
+def prepare_config_and_backend(
+    args: argparse.Namespace,
+) -> tuple[AppConfig, RenderBackend]:
+    """Build app configuration and a cold model/render backend."""
+    config = prepare_app_config(args)
 
     backend: RenderBackend
     if config.backend == "raster":
@@ -525,4 +537,21 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
     configure_logging()
     config, backend = prepare_config_and_backend(args)
     app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
+    _bind_postprocess_control(app, config)
     app.run()
+
+
+def _bind_postprocess_control(app: InteractiveDriveApp, config: AppConfig) -> None:
+    """Let a presenter that draws a post-process toggle drive the pipeline.
+
+    Presenters on this path range from a bare window with no chrome to the
+    shared local window, so this is opt-in by capability rather than assumed.
+    """
+    bind = getattr(app.presenter, "set_postprocess_control", None)
+    if not callable(bind):
+        return
+    bind(
+        preset=config.postprocess.preset,
+        enabled=config.postprocess.is_enabled(),
+        callback=app.set_postprocess_enabled,
+    )

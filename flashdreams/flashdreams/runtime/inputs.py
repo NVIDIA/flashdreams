@@ -101,7 +101,7 @@ class UserInputCapability:
                 raise ValueError("payload field names must be non-empty.")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
-    def is_satisfied_by(self, provider: "UserInputCapability") -> bool:
+    def is_satisfied_by(self, provider: UserInputCapability) -> bool:
         """Return whether ``provider`` can satisfy this consumed capability."""
         if self.event_type != provider.event_type:
             return False
@@ -160,7 +160,7 @@ class UserInputSchema:
             for provider in self.declared_capabilities()
         )
 
-    def validate_event(self, event: "UserInputEvent") -> None:
+    def validate_event(self, event: UserInputEvent) -> None:
         """Validate one event against the event types this source declares."""
         matching = [
             capability
@@ -187,11 +187,11 @@ class UserInputSchema:
                 f"fields: {expected}."
             )
 
-    def missing_snapshot(self, inputs: "UserInputs") -> tuple[str, ...]:
+    def missing_snapshot(self, inputs: UserInputs) -> tuple[str, ...]:
         """Return required snapshot fields absent from ``inputs``."""
         return _missing_required(self.snapshot_fields, inputs.snapshot)
 
-    def require_snapshot(self, inputs: "UserInputs") -> None:
+    def require_snapshot(self, inputs: UserInputs) -> None:
         """Raise if required snapshot fields are absent."""
         missing = self.missing_snapshot(inputs)
         if missing:
@@ -253,18 +253,18 @@ class InferenceInputSchema:
             if input_field.required is required
         )
 
-    def missing_global_conditioning(self, inputs: "InferenceInput") -> tuple[str, ...]:
+    def missing_global_conditioning(self, inputs: InferenceInput) -> tuple[str, ...]:
         """Return required global conditioning fields absent from ``inputs``."""
         return _missing_required(
             self.global_conditioning_fields,
             inputs.global_conditioning,
         )
 
-    def missing_step(self, inputs: "InferenceInput") -> tuple[str, ...]:
+    def missing_step(self, inputs: InferenceInput) -> tuple[str, ...]:
         """Return required per-step fields absent from ``inputs``."""
         return _missing_required(self.step_fields, inputs.step)
 
-    def require_global_conditioning(self, inputs: "InferenceInput") -> None:
+    def require_global_conditioning(self, inputs: InferenceInput) -> None:
         """Raise if required global conditioning fields are absent."""
         missing = self.missing_global_conditioning(inputs)
         if missing:
@@ -272,7 +272,7 @@ class InferenceInputSchema:
                 f"Missing required global conditioning input(s): {missing}"
             )
 
-    def require_step(self, inputs: "InferenceInput") -> None:
+    def require_step(self, inputs: InferenceInput) -> None:
         """Raise if required per-step fields are absent."""
         missing = self.missing_step(inputs)
         if missing:
@@ -330,7 +330,7 @@ class UserInputs:
         object.__setattr__(self, "snapshot", freeze_mapping(self.snapshot))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
-    def window(self, time_window: TimeWindow) -> "UserInputs":
+    def window(self, time_window: TimeWindow) -> UserInputs:
         """Return inputs with events filtered to ``time_window``."""
         return UserInputs(
             events=tuple(
@@ -374,7 +374,7 @@ class CanonicalModality:
                 raise ValueError("payload field names must be non-empty.")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
-    def is_satisfied_by(self, provider: "CanonicalModality") -> bool:
+    def is_satisfied_by(self, provider: CanonicalModality) -> bool:
         """Return whether ``provider`` can satisfy this consumed modality."""
         return self.name == provider.name and self.payload_fields.issubset(
             provider.payload_fields

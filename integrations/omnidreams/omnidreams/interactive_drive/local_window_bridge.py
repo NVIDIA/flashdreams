@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Run interactive-drive on the shared local-window presenter.
+"""Compatibility bridge from the retired engine frame contract to presentation.
 
-A deliberately small overlay plus the adapter between the engine's
-``PresenterBackend`` and
-:class:`~flashdreams.serving.presentation.LocalWindowPresenter`. The full
-driving chrome still lives in :mod:`.slangpy_hud_presenter`; this path exists
-so the shared presenter can be exercised end to end while that chrome is
-ported across a piece at a time.
+The plug-compatible app/runtime route does not use this module. It remains for
+the explicit legacy ``interactive-drive --presenter-backend local-window``
+fallback until that command is removed.
 """
 
 from __future__ import annotations
@@ -17,33 +14,36 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from loguru import logger
-from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
-from interactive_drive_app.input.keyboard import KeyboardState
-from interactive_drive_app.overlays import (
-    BEV_OVERLAY_KEY,
-    BevOverlay,
-    DrivingPanelOverlay,
-    PedalsOverlay,
-    SceneHeaderOverlay,
-    SpeedOverlay,
-    WheelOverlay,
-)
-from omnidreams.interactive_drive.types import PresentedFrame
-from PIL import Image, ImageDraw
-
 from flashdreams.serving.presentation import (
     CompositeOverlay,
     DisplayFrame,
     KeyEvent,
     LocalWindowPresenter,
-    PanelLayout,
+    PanelOverlay,
     PointerEvent,
     Rect,
     WindowConfig,
     measure_text,
     resolve_font,
 )
+from interactive_drive_app.input.keyboard import KeyboardState
+from interactive_drive_app.overlays import (
+    BEV_OVERLAY_KEY,
+    MIN_CAMERA_WIDTH,
+    NVIDIA_GREEN,
+    PANEL_BG,
+    PANEL_WIDTH,
+    BevWidget,
+    PedalsWidget,
+    SceneHeaderWidget,
+    SpeedWidget,
+    TitleWidget,
+    WheelWidget,
+)
+from loguru import logger
+from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
+from omnidreams.interactive_drive.types import PresentedFrame
+from PIL import Image, ImageDraw
 
 BG_COLOR: tuple[int, int, int] = (20, 20, 30)
 TEXT_COLOR: tuple[int, int, int] = (220, 220, 230)
@@ -59,16 +59,31 @@ _DRIVE_KEYS: frozenset[str] = frozenset(
 lower-case vocabulary, unlike the HUD's capitalised keysyms."""
 
 
+class _KeyboardSlot:
+    """Indirection letting a scene switch swap the keyboard under live chrome.
+
+    ``LocalWindowPresenter`` and its compositor capture the overlay once at
+    construction, so rebuilding the overlay on a scene change would leave them
+    drawing the old one. The overlay graph therefore has to outlive the switch;
+    only the state it reads is replaced.
+    """
+
+    __slots__ = ("keyboard",)
+
+    def __init__(self, keyboard: KeyboardState) -> None:
+        self.keyboard = keyboard
+
+
 class MinimalDrivingOverlay:
     """Corner readout over a full-window camera.
 
-    Intentionally not the driving HUD: no panel, speedometer, wheel, pedals,
-    minimap, or scene picker. It draws only what confirms the presenter is
-    live, so the shared window path can be validated before that chrome moves.
+    Sits under the panel and owns the driving key bindings: it turns the
+    presenter's normalized key events into ``KeyboardState`` writes, and draws
+    the corner readout that confirms frames and input are arriving.
     """
 
-    def __init__(self, keyboard: KeyboardState) -> None:
-        self._keyboard = keyboard
+    def __init__(self, slot: _KeyboardSlot) -> None:
+        self._slot = slot
         self._font = resolve_font(18)
         self._frames = 0
         self._held: set[str] = set()
@@ -120,17 +135,17 @@ class MinimalDrivingOverlay:
             return True
         pressed = event.action == "press"
         if event.key in _DRIVE_KEYS:
-            self._keyboard.set_key(event.key, pressed)
+            self._slot.keyboard.set_key(event.key, pressed)
             self._held.add(event.key) if pressed else self._held.discard(event.key)
             return True
         if not pressed:
             return True
         if event.key == "r":
-            self._keyboard.request_reset()
+            self._slot.keyboard.request_reset()
         elif event.key == "1":
-            self._keyboard.set_view_mode("model_rgb")
+            self._slot.keyboard.set_view_mode("model_rgb")
         elif event.key == "2":
-            self._keyboard.set_view_mode("rgb")
+            self._slot.keyboard.set_view_mode("rgb")
         return True
 
     def on_pointer(self, event: PointerEvent) -> bool:
@@ -175,11 +190,16 @@ class LocalWindowPresenterBridge:
         scene_label: str = "Scene",
         variant_label: str = "default",
     ) -> None:
-        self._scene_label = scene_label
-        self._variant_label = variant_label
-        self._overlay = self._make_overlay(keyboard)
+        self._slot = _KeyboardSlot(keyboard)
+        self._header = SceneHeaderWidget(
+            scene_label=lambda: scene_label,
+            variant_label=lambda: variant_label,
+        )
         self._presenter = LocalWindowPresenter(
-            overlay=self._overlay,
+            overlay=_build_overlay(
+                self._slot,
+                header=self._header,
+            ),
             config=WindowConfig(
                 width=width,
                 height=height,
@@ -209,60 +229,69 @@ class LocalWindowPresenterBridge:
         self._presenter.close()
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
-        """Rebind to a new engine's keyboard across a scene switch."""
-        self._overlay = self._make_overlay(keyboard)
+        """Point the live chrome at a new engine's keyboard.
 
-    def _make_overlay(self, keyboard: KeyboardState) -> CompositeOverlay:
-        return _build_overlay(
-            keyboard,
-            scene_label=self._scene_label,
-            variant_label=self._variant_label,
-        )
+        The demo builds this presenter against a placeholder keyboard and then
+        hands over the engine's real one, and does so again on every scene
+        switch. Swapping the slot rather than the overlay is what makes that
+        work, since the presenter already captured the overlay.
+        """
+        self._slot.keyboard = keyboard
 
     def set_model_status(self, **kwargs: Any) -> None:
         """Accept the HUD's status wiring so demo callers stay uniform."""
         del kwargs
 
-    def set_postprocess_control(self, **kwargs: Any) -> None:
-        del kwargs
+    def set_postprocess_control(
+        self,
+        *,
+        preset: str,
+        enabled: bool,
+        callback: Callable[[bool], None],
+    ) -> None:
+        """Bind the panel's post-process toggle to the model pipeline."""
+        self._header.set_postprocess_control(
+            preset=preset, enabled=enabled, callback=callback
+        )
 
 
 def _build_overlay(
-    keyboard: KeyboardState,
+    slot: _KeyboardSlot,
     *,
-    scene_label: str = "Scene",
-    variant_label: str = "default",
+    header: SceneHeaderWidget | None = None,
     control_assets: Any | None = None,
 ) -> CompositeOverlay:
     """Stack the chrome this demo wants over the shared presenter.
 
-    The panel layer must come first: it reserves the column and opens the
-    shared layout that every widget after it reserves rows from, in draw
-    order. Widgets are added here as they move across from the legacy HUD.
+    The panel owns its widgets and lays them out top to bottom in the order
+    listed here, so reordering the column is a matter of reordering this
+    tuple. Widgets are added as they move across from the legacy HUD.
     """
-    layout = PanelLayout()
-    drive_state = _DriveStateReader(keyboard)
+    drive_state = _DriveStateReader(slot)
     if control_assets is None:
         control_assets = _bundled_control_assets()
-    return CompositeOverlay(
-        layers=(
-            MinimalDrivingOverlay(keyboard),
-            DrivingPanelOverlay(layout),
-            SceneHeaderOverlay(
-                layout,
-                scene_label=lambda: scene_label,
-                variant_label=lambda: variant_label,
+    panel = PanelOverlay(
+        width=PANEL_WIDTH,
+        min_camera_width=MIN_CAMERA_WIDTH,
+        background=PANEL_BG,
+        accent=NVIDIA_GREEN,
+        children=(
+            TitleWidget(),
+            header
+            if header is not None
+            else SceneHeaderWidget(
+                scene_label=lambda: "Scene", variant_label=lambda: "default"
             ),
-            SpeedOverlay(layout, lambda: _current_speed_mps(keyboard)),
-            WheelOverlay(layout, drive_state, control_assets=control_assets),
-            PedalsOverlay(layout, drive_state, control_assets=control_assets),
-            BevOverlay(
-                layout,
+            SpeedWidget(lambda: _current_speed_mps(slot)),
+            WheelWidget(drive_state, control_assets=control_assets),
+            PedalsWidget(drive_state, control_assets=control_assets),
+            BevWidget(
                 marker_y_fraction=_bev_marker_y_fraction,
                 recolor=_bev_recolor(),
             ),
-        )
+        ),
     )
+    return CompositeOverlay(layers=(MinimalDrivingOverlay(slot), panel))
 
 
 def _bundled_control_assets() -> Any | None:
@@ -291,10 +320,10 @@ class _DriveStateReader:
     of either representation.
     """
 
-    keyboard: KeyboardState
+    slot: _KeyboardSlot
 
     def __call__(self) -> _DriveValues:
-        command = self.keyboard.command()
+        command = self.slot.keyboard.command()
         return _DriveValues(
             steering=float(command.steer),
             throttle=float(command.throttle),
@@ -309,13 +338,13 @@ class _DriveValues:
     brake: float
 
 
-def _current_speed_mps(keyboard: KeyboardState) -> float:
+def _current_speed_mps(slot: _KeyboardSlot) -> float:
     """Read ego speed from the telemetry the loop publishes each chunk.
 
     Returns ``0.0`` before the first chunk publishes state, and after a reset
     clears it.
     """
-    state = keyboard.vehicle_state
+    state = slot.keyboard.vehicle_state
     return 0.0 if state is None else float(state.speed_mps)
 
 

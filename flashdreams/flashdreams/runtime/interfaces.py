@@ -14,6 +14,7 @@ from flashdreams.runtime.inputs import (
     InferenceInputSchema,
 )
 from flashdreams.runtime.mapping import InputMapping
+from flashdreams.runtime.output_schema import InferenceOutputSchema
 from flashdreams.runtime.types import StepRequest, StepResult
 
 
@@ -41,6 +42,11 @@ class InferenceSession(Protocol):
 @runtime_checkable
 class InferenceRuntime(Protocol):
     """Heavyweight reusable runtime created from :class:`InferenceConfig`."""
+
+    @property
+    def config(self) -> InferenceConfig:
+        """Return the immutable config this runtime was created from."""
+        ...
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
         """Create an isolated session from global conditioning inputs."""
@@ -75,6 +81,11 @@ class ModelAdapter(Protocol):
     @property
     def canonical_input_schema(self) -> CanonicalInputSchema | None:
         """Canonical modalities the adapter's default mapping consumes."""
+        ...
+
+    @property
+    def inference_output_schema(self) -> InferenceOutputSchema:
+        """Semantic result modality and runtime type produced by sessions."""
         ...
 
     def default_input_mapping(self) -> InputMapping | None:

@@ -12,7 +12,7 @@ from flashdreams.runtime.output import OutputArtifact, OutputTarget
 from flashdreams.runtime.runner import run_inference_session
 
 from .outputs import build_output_target
-from .spec import DemoAdapter, DemoSpec, OutputSpec, WebRTCOutputSpec
+from .spec import DemoAdapter, DemoRoute, DemoSpec, OutputSpec, WebRTCOutputSpec
 
 OutputTargetFactory = Callable[[OutputSpec], OutputTarget]
 InferenceSessionRunner = Callable[..., Sequence[OutputArtifact]]
@@ -27,25 +27,16 @@ def run_replay_demo(
     runner: InferenceSessionRunner = run_inference_session,
 ) -> tuple[OutputArtifact, ...]:
     """Run one prepared demo scenario through the shared runtime runner."""
-    _require_supported_mode(
-        mode=spec.input_mode,
-        supported=adapter.supported_input_modes(),
-        label="input_mode",
-    )
+    _require_supported_route(spec=spec, supported=adapter.supported_routes())
     if spec.input_mode != "replay":
         raise ValueError(
             "run_replay_demo requires input_mode='replay', "
             f"got input_mode={spec.input_mode!r}."
         )
-    _require_supported_mode(
-        mode=spec.output.mode,
-        supported=adapter.supported_output_modes(),
-        label="output.mode",
-    )
     if isinstance(spec.output, WebRTCOutputSpec):
-        raise ValueError("run_replay_demo does not support WebRTC output.")
+        raise TypeError("run_replay_demo does not support WebRTC output.")
 
-    prepared = adapter.prepare_scenario(spec)
+    prepared = adapter.prepare_session(spec)
     mapping = prepared.mapping or adapter.default_input_mapping()
     if mapping is None:
         raise ValueError(
@@ -68,21 +59,30 @@ def run_replay_demo(
             initial_inputs=prepared.initial_inputs,
             output=output,
             metrics=metrics_recorder,
+            inference_input_schema=prepared.inference_input_schema,
         )
     )
 
 
-def _require_supported_mode(
+def _require_supported_route(
     *,
-    mode: str,
-    supported: tuple[str, ...],
-    label: str,
+    spec: DemoSpec,
+    supported: tuple[DemoRoute, ...],
 ) -> None:
-    if mode in supported:
+    route = DemoRoute(
+        input_mode=spec.input_mode,
+        output_mode=spec.output.mode,
+    )
+    if route in supported:
         return
-    supported_text = ", ".join(repr(each) for each in supported) or "<none>"
+    supported_text = (
+        ", ".join(f"({each.input_mode!r}, {each.output_mode!r})" for each in supported)
+        or "<none>"
+    )
     raise ValueError(
-        f"Unsupported demo {label}={mode!r}; supported modes: {supported_text}."
+        "Unsupported demo route "
+        f"({route.input_mode!r}, {route.output_mode!r}); "
+        f"supported routes: {supported_text}."
     )
 
 

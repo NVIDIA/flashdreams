@@ -18,7 +18,7 @@ from interactive_drive_app.input.keyboard import (
 from omnidreams.interactive_drive.presenter import SlangPyPresenter
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
-    PresenterBackend,
+    DrivePresenter,
     run_main_loop,
 )
 from omnidreams.interactive_drive.scene_loader import (
@@ -65,7 +65,7 @@ class InteractiveDriveApp:
         self,
         config: AppConfig,
         backend: RenderBackend,
-        presenter: PresenterBackend | None = None,
+        presenter: DrivePresenter | None = None,
         *,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
@@ -148,7 +148,7 @@ class InteractiveDriveApp:
         self._preload_done = threading.Event()
 
     @property
-    def presenter(self) -> PresenterBackend:
+    def presenter(self) -> DrivePresenter:
         return self._presenter
 
     @property
@@ -564,7 +564,7 @@ class InteractiveDriveApp:
             self._presenter.close()
 
 
-def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBackend:
+def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> DrivePresenter:
     """Default presenter factory.
 
     Returns an :class:`MJPEGStreamingPresenter` when
@@ -595,6 +595,9 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
         logger.info("[presenter] backend=local-window (shared presentation)")
         return LocalWindowPresenterBridge(
             keyboard,
+            width=config.window_width,
+            height=config.window_height,
+            title=config.window_title,
             scene_label=config.scene_path.stem,
             variant_label=config.variant,
         )

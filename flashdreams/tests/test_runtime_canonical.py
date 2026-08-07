@@ -14,7 +14,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-
 from flashdreams.runtime import (
     DRIVER_COMMAND,
     CanonicalInputs,
@@ -114,6 +113,8 @@ class WheelToDriverCommand:
                 "steer": self._steer,
                 "stop": False,
                 "reverse": False,
+                "steer_is_direct": True,
+                "manual_control": True,
             }
         )
 
@@ -509,6 +510,8 @@ def _scripted() -> InputCanonicalizer:
                             "steer": 0.0,
                             "stop": False,
                             "reverse": False,
+                            "steer_is_direct": False,
+                            "manual_control": False,
                         },
                     ),
                     (
@@ -519,6 +522,8 @@ def _scripted() -> InputCanonicalizer:
                             "steer": 1.0,
                             "stop": False,
                             "reverse": False,
+                            "steer_is_direct": False,
+                            "manual_control": False,
                         },
                     ),
                 ],

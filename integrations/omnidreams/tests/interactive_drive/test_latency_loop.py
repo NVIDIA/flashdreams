@@ -189,7 +189,7 @@ class _CountingPresenter:
             self._closed = True
 
     def close(self) -> None:
-        # ``PresenterBackend`` declares ``close`` because every concrete
+        # ``DrivePresenter`` declares ``close`` because every concrete
         # presenter the engine ships needs it for teardown. The test
         # fixture has nothing to release, so this is a no-op; it just
         # exists to satisfy the Protocol.

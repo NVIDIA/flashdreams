@@ -8,40 +8,34 @@ from flashdreams.runtime.demo.app import (
     serve_flashdreams_demo,
     show_flashdreams_demo,
 )
-from flashdreams.runtime.demo.local_window import (
-    LocalWindowApp,
-    LocalWindowDemo,
-    build_local_window_demo,
-    run_local_window_demo,
-)
 from flashdreams.runtime.demo.outputs import build_output_target
+from flashdreams.runtime.demo.registry import discover_demo_adapters
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.spec import (
     DemoAdapter,
+    DemoRoute,
     DemoSpec,
     LocalWindowOutputSpec,
     Mp4OutputSpec,
     NullOutputSpec,
     OutputSpec,
-    PreparedScenario,
+    PreparedSession,
     WebRTCOutputSpec,
 )
 
 __all__ = [
     "DemoAdapter",
+    "DemoRoute",
     "DemoSpec",
-    "LocalWindowApp",
-    "LocalWindowDemo",
     "LocalWindowOutputSpec",
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",
-    "PreparedScenario",
+    "PreparedSession",
     "WebRTCOutputSpec",
-    "build_local_window_demo",
     "build_output_target",
+    "discover_demo_adapters",
     "run_flashdreams_demo",
-    "run_local_window_demo",
     "run_replay_demo",
     "serve_flashdreams_demo",
     "show_flashdreams_demo",

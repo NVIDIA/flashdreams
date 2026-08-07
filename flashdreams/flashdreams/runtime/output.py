@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
+from flashdreams.runtime.output_schema import OutputTargetRequirement
 from flashdreams.runtime.types import StepResult
 
 
@@ -48,6 +49,20 @@ class OutputTarget(Protocol):
         ...
 
 
+@runtime_checkable
+class PollableOutputTarget(Protocol):
+    """Interactive target that pumps events and can request session stop."""
+
+    @property
+    def should_stop(self) -> bool:
+        """Return whether the driving loop should stop before another step."""
+        ...
+
+    def poll(self) -> None:
+        """Process pending transport or window events."""
+        ...
+
+
 @dataclass(slots=True)
 class NullOutputTarget:
     """Output target for headless runs and throughput measurements."""
@@ -60,6 +75,11 @@ class NullOutputTarget:
     @property
     def closed(self) -> bool:
         return not self._opened
+
+    @property
+    def output_requirement(self) -> OutputTargetRequirement:
+        """Accept every model result without inspecting it."""
+        return OutputTargetRequirement(modalities=None)
 
     def open(self) -> None:
         self._opened = True

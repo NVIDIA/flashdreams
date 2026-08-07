@@ -111,7 +111,17 @@ class DeviceConverter(Protocol):
 
 DRIVER_COMMAND = CanonicalModality(
     name="driver_command",
-    payload_fields=frozenset({"throttle", "brake", "steer", "stop", "reverse"}),
+    payload_fields=frozenset(
+        {
+            "throttle",
+            "brake",
+            "steer",
+            "stop",
+            "reverse",
+            "steer_is_direct",
+            "manual_control",
+        }
+    ),
     description=(
         "Normalized driving intent. throttle/brake are in [0, 1], steer is in "
         "[-1, 1] with positive meaning left."
@@ -208,6 +218,8 @@ class KeyboardToDriverCommand:
                 "steer": steer,
                 "stop": held("stop"),
                 "reverse": held("reverse"),
+                "steer_is_direct": False,
+                "manual_control": False,
             }
         )
 

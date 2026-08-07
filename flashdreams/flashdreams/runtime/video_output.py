@@ -22,6 +22,10 @@ from flashdreams.infra.runner_io import (
 )
 from flashdreams.infra.video_output import RunnerVideoOutputStream, VideoStepResult
 from flashdreams.runtime.output import OutputArtifact
+from flashdreams.runtime.output_schema import (
+    RGB_VIDEO,
+    OutputTargetRequirement,
+)
 from flashdreams.runtime.types import StepResult
 
 VideoWriter = Callable[..., Path]
@@ -47,6 +51,15 @@ class Mp4VideoOutputTarget:
     @property
     def closed(self) -> bool:
         return not self._opened
+
+    @property
+    def output_requirement(self) -> OutputTargetRequirement:
+        """Require decoded RGB video chunks."""
+        return OutputTargetRequirement(
+            modalities=frozenset({RGB_VIDEO}),
+            python_type=VideoStepResult,
+            layouts=frozenset({self.output_layout}),
+        )
 
     def open(self) -> None:
         self._stream = RunnerVideoOutputStream(

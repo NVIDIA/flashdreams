@@ -29,17 +29,34 @@ license = "Apache-2.0"
 # on a model. That keeps the package importable by the integration that
 # currently owns the engine, without a cycle.
 dependencies = [
-    "flashdreams",
-    "Pillow>=10.0",
+    "flashdreams[local-window]",
+    "loguru>=0.7",
+    "numpy>=1.24",
+    "PyYAML>=6.0",
 ]
 
+[project.scripts]
+flashdreams-interactive-drive = "interactive_drive_app.cli:main"
+
 [project.optional-dependencies]
+omnidreams = [
+    "flashdreams-omnidreams",
+]
+lingbot = [
+    "flashdreams-lingbot",
+]
+all-models = [
+    "flashdreams-lingbot",
+    "flashdreams-omnidreams",
+]
 dev = [
     "pytest>=8.0",
 ]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-lingbot = { workspace = true }
+flashdreams-omnidreams = { workspace = true }
 
 [tool.setuptools.packages.find]
 include = ["interactive_drive_app*"]

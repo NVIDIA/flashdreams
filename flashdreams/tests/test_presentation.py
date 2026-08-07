@@ -14,9 +14,10 @@ from flashdreams.serving.presentation import (
     DisplayFrame,
     FrameCompositor,
     HudOverlay,
-    InputSink,
     KeyEvent,
     LRUCache,
+    PanelOverlay,
+    PanelWidget,
     PointerEvent,
     Rect,
     allocate_canvas,
@@ -120,18 +121,6 @@ class _FixedAreaOverlay(_RecordingOverlay):
     def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
         del canvas_size
         return self._area
-
-
-class _RecordingSink:
-    def __init__(self) -> None:
-        self.keys: list[KeyEvent] = []
-        self.pointers: list[PointerEvent] = []
-
-    def key_event(self, event: KeyEvent) -> None:
-        self.keys.append(event)
-
-    def pointer_event(self, event: PointerEvent) -> None:
-        self.pointers.append(event)
 
 
 class _LazyCudaFrame:
@@ -331,10 +320,6 @@ def test_recording_overlay_satisfies_the_overlay_protocol() -> None:
     assert isinstance(_RecordingOverlay(), HudOverlay)
 
 
-def test_recording_sink_satisfies_the_input_sink_protocol() -> None:
-    assert isinstance(_RecordingSink(), InputSink)
-
-
 ## DisplayFrame
 
 
@@ -492,3 +477,165 @@ def test_as_rgb_host_uint8_drops_alpha_and_returns_contiguous_rgb() -> None:
 
     assert rgb.shape == (2, 3, 3)
     assert rgb.flags["C_CONTIGUOUS"]
+
+
+## PanelOverlay
+
+
+class _StubWidget:
+    """Panel child that records the row it was handed."""
+
+    def __init__(
+        self,
+        height: int | None,
+        *,
+        name: str = "widget",
+        draw_log: list[str] | None = None,
+        consume: bool = False,
+    ) -> None:
+        self._height = height
+        self._name = name
+        self._draw_log = draw_log if draw_log is not None else []
+        self._consume = consume
+        self.rects: list[Rect] = []
+        self.prepared = 0
+        self.resized: list[tuple[int, int]] = []
+        self.closed = False
+        self.pointers: list[PointerEvent] = []
+
+    def measure(self, panel_width: int) -> int | None:
+        del panel_width
+        return self._height
+
+    def draw(
+        self,
+        canvas: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        *,
+        frame: DisplayFrame,
+        rect: Rect,
+    ) -> None:
+        del canvas, draw, frame
+        self.rects.append(rect)
+        self._draw_log.append(self._name)
+
+    def prepare(self, frame: DisplayFrame) -> None:
+        del frame
+        self.prepared += 1
+
+    def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
+        self.resized.append(canvas_size)
+
+    def on_pointer(self, event: PointerEvent) -> bool:
+        self.pointers.append(event)
+        return self._consume
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _draw_panel(panel: PanelOverlay, canvas_size: tuple[int, int]) -> None:
+    canvas = Image.new("RGBA", canvas_size, BLACK + (255,))
+    panel.draw(
+        canvas,
+        ImageDraw.Draw(canvas),
+        frame=DisplayFrame(),
+        camera_area=panel.camera_area(canvas_size),
+    )
+
+
+def test_stub_widget_satisfies_the_panel_widget_protocol() -> None:
+    assert isinstance(_StubWidget(10), PanelWidget)
+
+
+def test_panel_stacks_children_in_declaration_order() -> None:
+    """Order comes from the children tuple, not from draw-call sequencing."""
+    first, second = _StubWidget(40, name="first"), _StubWidget(60, name="second")
+    panel = PanelOverlay(children=(first, second), width=200, top_inset=0, gap=0)
+
+    _draw_panel(panel, (800, 600))
+
+    assert first.rects == [(600, 0, 800, 40)]
+    assert second.rects == [(600, 40, 800, 100)]
+
+
+def test_panel_gives_a_flexible_child_the_space_the_others_left() -> None:
+    """A minimap fills the column without knowing what sits above it."""
+    fixed, flexible = _StubWidget(100), _StubWidget(None)
+    panel = PanelOverlay(children=(fixed, flexible), width=200, top_inset=0, gap=0)
+
+    _draw_panel(panel, (800, 600))
+
+    assert flexible.rects == [(600, 100, 800, 600)]
+
+
+def test_panel_reordering_children_moves_them_without_touching_the_widgets() -> None:
+    """The same widget instances lay out differently purely from tuple order."""
+    top, bottom = _StubWidget(40, name="a"), _StubWidget(40, name="b")
+    _draw_panel(
+        PanelOverlay(children=(top, bottom), width=200, top_inset=0, gap=0), (800, 600)
+    )
+    forward = (top.rects[-1], bottom.rects[-1])
+
+    _draw_panel(
+        PanelOverlay(children=(bottom, top), width=200, top_inset=0, gap=0), (800, 600)
+    )
+
+    assert (bottom.rects[-1], top.rects[-1]) == forward
+
+
+def test_panel_drops_the_column_when_the_camera_would_be_crushed() -> None:
+    widget = _StubWidget(40)
+    panel = PanelOverlay(children=(widget,), width=200, min_camera_width=700)
+
+    assert panel.camera_area((800, 600)) == (0, 0, 800, 600)
+
+
+def test_panel_skips_children_that_fall_past_the_bottom_edge() -> None:
+    """A short window clips the tail instead of drawing off-canvas."""
+    visible, clipped = _StubWidget(500, name="visible"), _StubWidget(80, name="clipped")
+    panel = PanelOverlay(children=(visible, clipped), width=200, top_inset=0, gap=0)
+
+    _draw_panel(panel, (800, 500))
+
+    assert visible.rects == [(600, 0, 800, 500)]
+    assert clipped.rects == []
+
+
+def test_panel_routes_pointers_front_to_back() -> None:
+    """The widget drawn last sits on top, so it sees the click first."""
+    under, over = _StubWidget(40), _StubWidget(40, consume=True)
+    panel = PanelOverlay(children=(under, over), width=200)
+
+    assert panel.on_pointer(
+        PointerEvent(action="press", position=(1, 2), timestamp_s=0.0, button="left")
+    )
+    assert under.pointers == []
+
+
+def test_panel_fans_lifecycle_calls_out_to_every_child() -> None:
+    first, second = _StubWidget(40), _StubWidget(40)
+    panel = PanelOverlay(children=(first, second), width=200)
+
+    panel.prepare(DisplayFrame())
+    panel.on_canvas_resized((800, 600))
+    panel.close()
+
+    assert (first.prepared, second.prepared) == (1, 1)
+    assert first.resized == second.resized == [(800, 600)]
+    assert first.closed and second.closed
+
+
+def test_panel_closes_every_child_even_when_one_raises() -> None:
+    """One leaky widget must not orphan the executor of the next."""
+
+    class _Failing(_StubWidget):
+        def close(self) -> None:
+            raise RuntimeError("close failed")
+
+    failing, survivor = _Failing(40), _StubWidget(40)
+    panel = PanelOverlay(children=(failing, survivor), width=200)
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        panel.close()
+    assert survivor.closed

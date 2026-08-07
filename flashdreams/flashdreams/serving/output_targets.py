@@ -133,17 +133,23 @@ def _local_window_spec(
     else:
         manifest_arg = str(manifest)
 
-    argv = ["--manifest", manifest_arg]
+    argv = [
+        "local-window",
+        "--preset-id",
+        name,
+        "--manifest",
+        manifest_arg,
+    ]
     _append_postprocess_preset(argv, config)
     return OutputTargetSpec(
         mode="local-window",
         label="Omnidreams local interactive window",
-        module="omnidreams.interactive_drive",
+        module="omnidreams.demo.cli",
         argv=tuple(argv),
         notes=(
             (
-                "Local-window uses the Omnidreams interactive-drive manifest for "
-                "scene, resolution, and runtime-specific controls."
+                "Local-window launches the canonical OmniDreams DemoSpec route; "
+                "use --presenter-backend legacy on omnidreams-demo for fallback."
             ),
         ),
     )

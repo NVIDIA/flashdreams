@@ -10,8 +10,9 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from flashdreams.serving.presentation.base import Rect
 from PIL import Image, ImageDraw, ImageFont
+
+from flashdreams.serving.presentation.base import Rect
 
 _FONT_CANDIDATES: tuple[str, ...] = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",

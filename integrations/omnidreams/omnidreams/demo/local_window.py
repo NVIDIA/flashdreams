@@ -29,7 +29,7 @@ class OmnidreamsLocalWindowScenario:
     camera_name: str | None = None
     variant: str | None = None
     postprocess_preset: str = ""
-    presenter_backend: str = "legacy"
+    presenter_backend: str = "local-window"
     """``local-window`` swaps the driving HUD for the shared presenter."""
 
     auto_start: bool = False
@@ -52,6 +52,60 @@ class InteractiveDriveApp:
         run_parsed_args(build_parser().parse_args(list(self.argv)))
 
 
+@dataclass(slots=True)
+class PlugCompatibleInteractiveDriveApp:
+    """OmniDreams session runner using the app-owned standard runtime path."""
+
+    spec: DemoSpec
+    adapter: Any
+
+    def run(self) -> None:
+        from interactive_drive_app import InteractiveDriveApplication
+
+        sessions = self.adapter.list_sessions(self.spec)
+        if not sessions:
+            raise RuntimeError("OmniDreams adapter returned no driving sessions.")
+        index = 0
+        app = InteractiveDriveApplication(
+            adapter=self.adapter,
+            initial_spec=sessions[index],
+        )
+        try:
+            while True:
+                outcome = app.run_session(
+                    spec=sessions[index],
+                    session_id=f"session-{index}",
+                )
+                if outcome.action == "reset":
+                    continue
+                if outcome.action == "next":
+                    index = (index + 1) % len(sessions)
+                    continue
+                if outcome.action == "previous":
+                    index = (index - 1) % len(sessions)
+                    continue
+                break
+        finally:
+            app.close()
+
+
+def build_omnidreams_local_window_app(
+    *,
+    spec: DemoSpec,
+    adapter: Any,
+) -> InteractiveDriveApp | PlugCompatibleInteractiveDriveApp:
+    """Select the standard app route or the legacy compatibility app."""
+    scenario = spec.scenario or OmnidreamsLocalWindowScenario()
+    if not isinstance(scenario, OmnidreamsLocalWindowScenario):
+        raise TypeError(
+            "OmniDreams local-window scenario must be an "
+            f"OmnidreamsLocalWindowScenario, got {type(scenario).__name__}."
+        )
+    if scenario.presenter_backend == "local-window":
+        return PlugCompatibleInteractiveDriveApp(spec=spec, adapter=adapter)
+    return build_interactive_drive_app(spec)
+
+
 def build_interactive_drive_app(spec: DemoSpec) -> InteractiveDriveApp:
     """Translate ``spec`` into interactive-drive arguments.
 
@@ -60,7 +114,7 @@ def build_interactive_drive_app(spec: DemoSpec) -> InteractiveDriveApp:
     """
     output = spec.output
     if not isinstance(output, LocalWindowOutputSpec):
-        raise ValueError(
+        raise TypeError(
             "OmniDreams local-window output requires LocalWindowOutputSpec."
         )
     scenario = spec.scenario or OmnidreamsLocalWindowScenario()
@@ -73,6 +127,9 @@ def build_interactive_drive_app(spec: DemoSpec) -> InteractiveDriveApp:
     argv: list[str] = []
     if not output.show_hud:
         argv.append("--no-hud")
+    argv.extend(("--window-width", str(output.width)))
+    argv.extend(("--window-height", str(output.height)))
+    argv.extend(("--window-title", output.title))
     _append_option(argv, "--scene-dir", scenario.scene_dir)
     _append_option(argv, "--scene", scenario.scene)
     _append_option(argv, "--manifest", scenario.manifest)
@@ -103,5 +160,7 @@ def _append_option(argv: list[str], flag: str, value: Any) -> None:
 __all__ = [
     "InteractiveDriveApp",
     "OmnidreamsLocalWindowScenario",
+    "PlugCompatibleInteractiveDriveApp",
     "build_interactive_drive_app",
+    "build_omnidreams_local_window_app",
 ]

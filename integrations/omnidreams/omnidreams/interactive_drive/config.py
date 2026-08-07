@@ -148,3 +148,10 @@ class AppConfig:
     # ``flashdreams.serving.presentation`` presenter with a minimal overlay
     # while that chrome is ported across.
     presenter_backend: Literal["legacy", "local-window"] = "legacy"
+    # Initial window size. The window manager may clamp this, and a
+    # larger-than-window model frame grows it, so it is a starting point
+    # rather than a fixed size. Only the ``local-window`` backend reads it;
+    # the legacy HUD hard-codes its own.
+    window_width: int = 1920
+    window_height: int = 1080
+    window_title: str = "interactive-drive (local-window)"

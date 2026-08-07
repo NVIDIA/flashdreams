@@ -7,6 +7,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from flashdreams.serving.presentation import (
+    DisplayFrame,
+    PointerEvent,
+    Rect,
+    resolve_font,
+    truncate_text_to_width,
+)
+from PIL import Image, ImageDraw
+
 from interactive_drive_app.overlays.theme import (
     ACTIVE_BG,
     HEADER_BG,
@@ -14,17 +23,6 @@ from interactive_drive_app.overlays.theme import (
     NVIDIA_GREEN,
     PANEL_BG,
     TEXT_COLOR,
-)
-from PIL import Image, ImageDraw
-
-from flashdreams.serving.presentation import (
-    DisplayFrame,
-    KeyEvent,
-    PanelLayout,
-    PointerEvent,
-    Rect,
-    resolve_font,
-    truncate_text_to_width,
 )
 
 _BAR_HEIGHT = 32
@@ -35,7 +33,7 @@ _LABEL_INSET = 26
 _ARROW_INSET = 24
 
 
-class SceneHeaderOverlay:
+class SceneHeaderWidget:
     """Scene and variant bars with an optional post-processing toggle.
 
     The bars render the current selection; they are not a picker. Switching
@@ -47,7 +45,6 @@ class SceneHeaderOverlay:
 
     def __init__(
         self,
-        layout: PanelLayout,
         *,
         scene_label: Callable[[], str],
         variant_label: Callable[[], str],
@@ -55,7 +52,6 @@ class SceneHeaderOverlay:
         postprocess_enabled: bool = False,
         on_postprocess_toggled: Callable[[bool], None] | None = None,
     ) -> None:
-        self._layout = layout
         self._scene_label = scene_label
         self._variant_label = variant_label
         self._preset = postprocess_preset
@@ -66,8 +62,28 @@ class SceneHeaderOverlay:
         self._chrome: Image.Image | None = None
         self._chrome_key: tuple[object, ...] | None = None
 
-    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
-        return (0, 0, canvas_size[0], canvas_size[1])
+    def set_postprocess_control(
+        self,
+        *,
+        preset: str,
+        enabled: bool,
+        callback: Callable[[bool], None],
+    ) -> None:
+        """Bind the toggle to the pipeline after the window already exists.
+
+        The presenter captures its overlay at construction, but the pipeline
+        this drives is built afterwards, so the binding arrives late. Without
+        a preset the row is not drawn at all.
+        """
+        self._preset = preset
+        self._postprocess_enabled = bool(enabled and preset)
+        self._on_toggled = callback
+        self._chrome = None
+        self._chrome_key = None
+
+    def measure(self, panel_width: int) -> int:
+        del panel_width
+        return self._rows() * (_BAR_HEIGHT + _BAR_GAP)
 
     def draw(
         self,
@@ -75,12 +91,11 @@ class SceneHeaderOverlay:
         draw: ImageDraw.ImageDraw,
         *,
         frame: DisplayFrame,
-        camera_area: Rect,
+        rect: Rect,
     ) -> None:
-        del draw, frame, camera_area
-        rows = 3 if self._preset else 2
-        row = self._layout.reserve(rows * (_BAR_HEIGHT + _BAR_GAP))
-        left, top, right, bottom = row
+        del draw, frame
+        rows = self._rows()
+        left, top, right, bottom = rect
         width = right - left - _MARGIN * 2
         if bottom - top <= 0 or width <= 0:
             self._toggle_rect = None
@@ -100,11 +115,6 @@ class SceneHeaderOverlay:
         else:
             self._toggle_rect = None
 
-    def draw_placeholder(
-        self, canvas: Image.Image, draw: ImageDraw.ImageDraw, *, camera_area: Rect
-    ) -> None:
-        del canvas, draw, camera_area
-
     def prepare(self, frame: DisplayFrame) -> None:
         del frame
 
@@ -112,10 +122,6 @@ class SceneHeaderOverlay:
         del canvas_size
         self._chrome = None
         self._chrome_key = None
-
-    def on_key(self, event: KeyEvent) -> bool:
-        del event
-        return False
 
     def on_pointer(self, event: PointerEvent) -> bool:
         if event.action != "press" or event.button != "left":
@@ -130,6 +136,9 @@ class SceneHeaderOverlay:
 
     def close(self) -> None:
         return
+
+    def _rows(self) -> int:
+        return 3 if self._preset else 2
 
     def _chrome_image(self, size: tuple[int, int]) -> Image.Image:
         """Render the bars, cached until their contents change.
@@ -213,4 +222,4 @@ def _contains(rect: Rect, position: tuple[int, int]) -> bool:
     return rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
 
 
-__all__ = ["SceneHeaderOverlay"]
+__all__ = ["SceneHeaderWidget"]

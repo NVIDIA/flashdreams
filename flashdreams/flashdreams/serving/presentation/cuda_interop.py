@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+
 from flashdreams.serving.presentation.base import Rect
 from flashdreams.serving.presentation.canvas import fit_rect
 

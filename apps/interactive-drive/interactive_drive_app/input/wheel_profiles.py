@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from loguru import logger
 
 # fcntl is Linux-only (used for the evdev ioctls below). It's absent on Windows,
@@ -41,7 +42,9 @@ from loguru import logger
 try:
     import fcntl
 except ImportError:  # Windows / non-Linux
-    fcntl = None  # type: ignore[assignment]
+    # Keeps the declared type as the module so the ioctl call sites below stay
+    # checked; the entry points guard on None before reaching them.
+    fcntl = None  # ty: ignore[invalid-assignment]
 
 # --- evdev wire format / ioctl constants -------------------------------
 # Linux input_event struct: two longs (timeval), two u16, one s32.
@@ -56,11 +59,11 @@ FF_GAIN = 0x60
 # Number of FF effect codes; a 16-byte bitmap covers them all.
 FF_CNT = 0x80
 # EVIOCGABS(axis): read an absolute axis' value/min/max range.
-EVIOCGABS = lambda axis: 0x80184540 + axis  # noqa: E731
+EVIOCGABS = lambda axis: 0x80184540 + axis
 # EVIOCGNAME(len): read the device's human-readable name.
-EVIOCGNAME = lambda length: 0x80004506 + (length << 16)  # noqa: E731
+EVIOCGNAME = lambda length: 0x80004506 + (length << 16)
 # EVIOCGBIT(EV_FF, len): read the device's supported FFB effect bitmap.
-EVIOCGBIT_FF = lambda length: 0x80004535 + (length << 16)  # noqa: E731
+EVIOCGBIT_FF = lambda length: 0x80004535 + (length << 16)
 # EVIOCSFF: upload a struct ff_effect (48 bytes) to the device.
 EVIOCSFF = 0x40304580
 
@@ -309,14 +312,9 @@ def list_device_axes(path: Path) -> dict[int, AxisRange]:
 def user_wheel_profiles_dir() -> Path:
     """User-writable directory where generated profiles are stored.
 
-    Resolves to ``$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels`` (the
-    same cache convention the scene staging uses). Read on every call so
-    tests that monkeypatch :data:`omnidreams.scenes.FLASHDREAMS_CACHE_DIR`
-    see the override.
+    Resolves to ``$FLASHDREAMS_CACHE_DIR/interactive-drive/wheels``.
     """
-    from omnidreams.scenes import FLASHDREAMS_CACHE_DIR
-
-    return FLASHDREAMS_CACHE_DIR / "interactive-drive" / "wheels"
+    return default_flashdreams_cache_dir() / "interactive-drive" / "wheels"
 
 
 def _binding_from_data(value, fallback_device: int = 0) -> Binding:
@@ -396,7 +394,7 @@ def load_wheel_profile_files(
     (:func:`load_wheel_profiles`).
     """
     if not profiles_dir.is_dir():
-        return tuple()
+        return ()
     entries: list[tuple[Path, WheelProfile]] = []
     for path in sorted(profiles_dir.glob("*.yaml")):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

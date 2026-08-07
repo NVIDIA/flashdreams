@@ -74,12 +74,12 @@ Initial scope:
 | T2 | Complete | Event-based `UserInputs`. | Yes, after T1 direction is agreed. | T1. | User inputs are primarily timestamped events; replay traces and derived snapshots are supported where needed. |
 | T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
 | T4 | Complete | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
-| T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
-| T6 | Deferred | LingBot migration. | Yes, but out of scope for this branch. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
+| T5 | Partially complete | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
+| T6 | Partially complete | LingBot migration. | Yes, but out of scope for this branch. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
 | T7 | Partially complete | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams replay and WebRTC run through the shared demo API path; remaining work is output/stat integration, legacy demo retirement, and cleanup. |
 | T8 | Partially complete | Benchmark/smoke verification for OmniDreams. | Preparation can run early; final gate is late. | T5, T7. | Existing or updated benchmark tooling can run the migrated OmniDreams demo and produce enough evidence that it still works. |
 | T9 | Planned | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
-| T10 | Planned | CLI compatibility, legacy retirement, and migration cleanup. | Yes, after demo migrations start. | T5, T7, T8. | Required demo commands are restored or replaced, old interactive-drive and old OmniDreams demo/server paths are removed or reduced to compatibility shims, code used only by retired demos is removed, and user-facing docs/notes match the branch behavior. |
+| T10 | Partially complete | CLI compatibility, legacy retirement, and migration cleanup. | Yes, after demo migrations start. | T5, T7, T8. | Required demo commands are restored or replaced, old interactive-drive and old OmniDreams demo/server paths are removed or reduced to compatibility shims, code used only by retired demos is removed, and user-facing docs/notes match the branch behavior. |
 | T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T5, T7-T10. | OmniDreams passes agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
 
 Current OmniDreams migration status:
@@ -87,6 +87,18 @@ Current OmniDreams migration status:
 - The shared `flashdreams.runtime.demo` API and OmniDreams demo adapter exist.
 - OmniDreams MP4 replay runs through the shared replay runner and MP4 output
   target.
+- Model adapters can declare their semantic result modality and runtime type;
+  the standard runner rejects an incompatible declared output target before
+  model initialization.
+- The shared native-window path has a session-relative input source, app-owned
+  UI/event loop, worker-owned model runtime, bounded result queue, and decoded
+  RGB output target. The presenter and warmed model survive sequential scene
+  sessions.
+- `omnidreams-demo local-window` selects the standard app/runtime path by
+  default; `--presenter-backend legacy` remains the explicit feature-parity
+  fallback while the old picker/wheel integration is retired.
+- OmniDreams and LingBot both declare keyboard-driving/local-window routes and
+  map the canonical `driver_command` modality into their own session inputs.
 - The one-minute benchmark comparison can run the legacy replay path and the new
   shared demo replay path side by side.
 - OmniDreams WebRTC runs through `serve_flashdreams_demo(...)` and the shared

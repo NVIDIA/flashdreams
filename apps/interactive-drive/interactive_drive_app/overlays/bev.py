@@ -8,14 +8,8 @@ from __future__ import annotations
 import concurrent.futures
 from collections.abc import Callable
 
-from loguru import logger
-from interactive_drive_app.overlays.theme import LABEL_COLOR
-from PIL import Image, ImageDraw
-
 from flashdreams.serving.presentation import (
     DisplayFrame,
-    KeyEvent,
-    PanelLayout,
     PointerEvent,
     Rect,
     as_rgb_host_uint8,
@@ -23,6 +17,10 @@ from flashdreams.serving.presentation import (
     prefetch_frame,
     resolve_font,
 )
+from loguru import logger
+from PIL import Image, ImageDraw
+
+from interactive_drive_app.overlays.theme import LABEL_COLOR
 
 BEV_OVERLAY_KEY = "bev"
 """``DisplayFrame.overlay_data`` key carrying the lazy BEV frame."""
@@ -30,13 +28,12 @@ BEV_OVERLAY_KEY = "bev"
 _MIN_HEIGHT = 100
 _SIDE_MARGIN = 14
 _BOTTOM_MARGIN = 12
-_TOP_GAP = 12
 _INNER_INSET = 4
 
 _PanelKey = tuple[int, int, int, int]
 
 
-class BevOverlay:
+class BevWidget:
     """Minimap with an ego chevron, resized and recoloured off the render thread.
 
     Materializing and filtering the BEV frame costs several milliseconds, so a
@@ -47,12 +44,10 @@ class BevOverlay:
 
     def __init__(
         self,
-        layout: PanelLayout,
         *,
         marker_y_fraction: Callable[[], float] = lambda: 0.5,
         recolor: Callable[[Image.Image], Image.Image] | None = None,
     ) -> None:
-        self._layout = layout
         self._marker_y_fraction = marker_y_fraction
         self._recolor = recolor or (lambda image: image)
         self._font = resolve_font(14)
@@ -69,8 +64,9 @@ class BevOverlay:
             concurrent.futures.Future[tuple[_PanelKey, Image.Image]] | None
         ) = None
 
-    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
-        return (0, 0, canvas_size[0], canvas_size[1])
+    def measure(self, panel_width: int) -> int | None:
+        del panel_width
+        return None  # Fills whatever the widgets above did not claim.
 
     def prepare(self, frame: DisplayFrame) -> None:
         """Stage the incoming BEV frame off the presentation thread."""
@@ -92,13 +88,11 @@ class BevOverlay:
         draw: ImageDraw.ImageDraw,
         *,
         frame: DisplayFrame,
-        camera_area: Rect,
+        rect: Rect,
     ) -> None:
-        del frame, camera_area
-        row = self._layout.reserve(
-            self._layout.remaining - _BOTTOM_MARGIN, gap=_TOP_GAP
-        )
-        left, top, right, bottom = row
+        del frame
+        left, top, right, bottom = rect
+        bottom -= _BOTTOM_MARGIN
         if bottom - top < _MIN_HEIGHT:
             return
         panel = (left + _SIDE_MARGIN, top, right - _SIDE_MARGIN, bottom)
@@ -129,19 +123,10 @@ class BevOverlay:
             max(10, min(inner_width, inner_height) // 14),
         )
 
-    def draw_placeholder(
-        self, canvas: Image.Image, draw: ImageDraw.ImageDraw, *, camera_area: Rect
-    ) -> None:
-        del canvas, draw, camera_area
-
     def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
         del canvas_size
         self._cache = None
         self._cache_key = None
-
-    def on_key(self, event: KeyEvent) -> bool:
-        del event
-        return False
 
     def on_pointer(self, event: PointerEvent) -> bool:
         del event
@@ -183,7 +168,7 @@ class BevOverlay:
         if pending is not None and pending.done():
             try:
                 self._cache_key, self._cache = pending.result()
-            except Exception as exc:  # noqa: BLE001 -- a stale minimap is survivable
+            except Exception as exc:
                 logger.warning(f"[presenter] BEV panel processing failed: {exc}")
             self._pending = None
 
@@ -249,4 +234,4 @@ def _draw_marker(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int) -> None
     )
 
 
-__all__ = ["BEV_OVERLAY_KEY", "BevOverlay"]
+__all__ = ["BEV_OVERLAY_KEY", "BevWidget"]

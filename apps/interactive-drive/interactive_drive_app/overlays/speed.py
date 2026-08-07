@@ -7,19 +7,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from interactive_drive_app.overlays.theme import LABEL_COLOR, NVIDIA_GREEN
-from PIL import Image, ImageDraw
-
 from flashdreams.serving.presentation import (
     DisplayFrame,
-    KeyEvent,
     LRUCache,
-    PanelLayout,
     PointerEvent,
     Rect,
     measure_text,
     resolve_font,
 )
+from PIL import Image, ImageDraw
+
+from interactive_drive_app.overlays.theme import LABEL_COLOR, NVIDIA_GREEN
 
 MPS_TO_MPH = 2.2369362920544
 
@@ -30,7 +28,7 @@ a 76pt glyph run every tick."""
 _UNIT_GAP = 6
 
 
-class SpeedOverlay:
+class SpeedWidget:
     """Large speed digit in miles per hour, with a ``mph`` label beneath.
 
     Reads its value through a callable rather than holding engine state, so
@@ -40,22 +38,20 @@ class SpeedOverlay:
 
     def __init__(
         self,
-        layout: PanelLayout,
         speed_mps: Callable[[], float],
         *,
         digit_size: int = 76,
         label_size: int = 18,
     ) -> None:
-        self._layout = layout
         self._speed_mps = speed_mps
         self._font_digit = resolve_font(digit_size)
         self._font_label = resolve_font(label_size)
         self._chips: LRUCache = LRUCache(maxsize=_DIGIT_CACHE_SIZE)
         self._row_height = digit_size + label_size + _UNIT_GAP + 8
 
-    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
-        # Drawn over the camera; reserves no layout of its own.
-        return (0, 0, canvas_size[0], canvas_size[1])
+    def measure(self, panel_width: int) -> int:
+        del panel_width
+        return self._row_height
 
     def draw(
         self,
@@ -63,16 +59,13 @@ class SpeedOverlay:
         draw: ImageDraw.ImageDraw,
         *,
         frame: DisplayFrame,
-        camera_area: Rect,
+        rect: Rect,
     ) -> None:
-        del frame, camera_area
-        row = self._layout.reserve(self._row_height, gap=12)
-        if row[3] - row[1] <= 0:
-            return
+        del frame
         mph = max(0, int(self._speed_mps() * MPS_TO_MPH))
         chip = self._chips.get_or_compute(mph, lambda: self._render_chip(mph))
-        x = self._layout.center_x - chip.width // 2
-        y = row[1]
+        x = (rect[0] + rect[2]) // 2 - chip.width // 2
+        y = rect[1]
         canvas.alpha_composite(chip, (x, y))
 
         label_bbox = measure_text(self._font_label, "mph")
@@ -86,24 +79,11 @@ class SpeedOverlay:
             font=self._font_label,
         )
 
-    def draw_placeholder(
-        self,
-        canvas: Image.Image,
-        draw: ImageDraw.ImageDraw,
-        *,
-        camera_area: Rect,
-    ) -> None:
-        del canvas, draw, camera_area
-
     def prepare(self, frame: DisplayFrame) -> None:
         del frame
 
     def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
         del canvas_size
-
-    def on_key(self, event: KeyEvent) -> bool:
-        del event
-        return False
 
     def on_pointer(self, event: PointerEvent) -> bool:
         del event
@@ -124,4 +104,4 @@ class SpeedOverlay:
         return chip
 
 
-__all__ = ["MPS_TO_MPH", "SpeedOverlay"]
+__all__ = ["MPS_TO_MPH", "SpeedWidget"]

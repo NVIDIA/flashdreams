@@ -4,19 +4,19 @@
 import threading
 import time
 
-from interactive_drive_app.input.backend import InputBackend, SampledInput
-from interactive_drive_app.types import (
-    ControlSnapshot,
-    DriverCommand,
-    VehicleState,
-)
-
 from flashdreams.serving.realtime.input import (
     DRIVING_SUPPORTED_KEYS,
     normalize_key,
 )
 from flashdreams.serving.realtime.input import (
     KeyboardState as RealtimeKeyboardState,
+)
+
+from interactive_drive_app.input.backend import InputBackend, SampledInput
+from interactive_drive_app.types import (
+    ControlSnapshot,
+    DriverCommand,
+    VehicleState,
 )
 
 

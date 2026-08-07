@@ -237,9 +237,7 @@ def test_profile_filename_is_slugged() -> None:
 
 
 def test_user_dir_follows_cache_env(monkeypatch, tmp_path) -> None:
-    from omnidreams import scenes
-
-    monkeypatch.setattr(scenes, "FLASHDREAMS_CACHE_DIR", tmp_path)
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
     assert user_wheel_profiles_dir() == tmp_path / "interactive-drive" / "wheels"
 
 

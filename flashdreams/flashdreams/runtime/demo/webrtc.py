@@ -12,11 +12,17 @@ from typing import Any
 
 from aiohttp import web
 
+from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime.output_schema import (
+    RGB_VIDEO,
+    OutputTargetRequirement,
+    require_output_compatibility,
+)
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import create_webrtc_app
 
-from .replay import _require_supported_mode
+from .replay import _require_supported_route
 from .spec import DemoAdapter, DemoSpec, WebRTCOutputSpec
 
 
@@ -79,16 +85,14 @@ def build_webrtc_demo(
 ) -> WebRTCDemo:
     """Build shared WebRTC manager/app pieces for a demo adapter runtime."""
     if not isinstance(spec.output, WebRTCOutputSpec):
-        raise ValueError("build_webrtc_demo requires WebRTCOutputSpec output.")
-    _require_supported_mode(
-        mode=spec.input_mode,
-        supported=adapter.supported_input_modes(),
-        label="input_mode",
-    )
-    _require_supported_mode(
-        mode=spec.output.mode,
-        supported=adapter.supported_output_modes(),
-        label="output.mode",
+        raise TypeError("build_webrtc_demo requires WebRTCOutputSpec output.")
+    _require_supported_route(spec=spec, supported=adapter.supported_routes())
+    require_output_compatibility(
+        produced=adapter.inference_output_schema,
+        required=OutputTargetRequirement(
+            modalities=frozenset({RGB_VIDEO}),
+            python_type=VideoStepResult,
+        ),
     )
 
     output = spec.output
@@ -167,7 +171,7 @@ def _create_runtime_config(
 
     output = spec.output
     if not isinstance(output, WebRTCOutputSpec):
-        raise ValueError("WebRTC runtime config creation requires WebRTCOutputSpec.")
+        raise TypeError("WebRTC runtime config creation requires WebRTCOutputSpec.")
     return WebRTCDemoRuntimeConfig(
         video_width=output.video_width,
         video_height=output.video_height,
@@ -225,7 +229,7 @@ def _create_app(
 ) -> web.Application:
     output = spec.output
     if not isinstance(output, WebRTCOutputSpec):
-        raise ValueError("WebRTC app creation requires WebRTCOutputSpec output.")
+        raise TypeError("WebRTC app creation requires WebRTCOutputSpec output.")
     factory = getattr(adapter, "create_webrtc_app", None)
     if callable(factory):
         return factory(

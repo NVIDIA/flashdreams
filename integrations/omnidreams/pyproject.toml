@@ -129,6 +129,9 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
 "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
 
+[project.entry-points."flashdreams.demo_adapters"]
+omnidreams = "omnidreams.demo.adapter:OmnidreamsDemoAdapter"
+
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]
 exclude = ["tests"]

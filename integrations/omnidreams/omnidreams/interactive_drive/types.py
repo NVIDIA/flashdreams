@@ -4,18 +4,13 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-
-from flashdreams.serving.realtime.timing import VideoModelTimings
-
-# Driving vocabulary lives with the app that owns the simulation; re-exported
-# here so existing imports keep resolving while the engine moves across.
-from interactive_drive_app.types import (  # noqa: E402
+from flashdreams.runtime.driving import (
     ControlSnapshot,
     DriverCommand,
     FloatArray,
@@ -24,6 +19,7 @@ from interactive_drive_app.types import (  # noqa: E402
     UInt8Array,
     VehicleState,
 )
+from flashdreams.serving.realtime.timing import VideoModelTimings
 
 
 def _normalized_quaternion_xyzw(quaternion_xyzw: FloatArray) -> FloatArray:
@@ -200,3 +196,22 @@ class RasterChunk:
     frames: tuple[PresentedFrame, ...]
 
 
+__all__ = [
+    "CameraCalibration",
+    "ControlSnapshot",
+    "DriverCommand",
+    "FloatArray",
+    "FrameChunk",
+    "Int32Array",
+    "PresentedFrame",
+    "RasterChunk",
+    "SceneBundle",
+    "TrajectoryChunk",
+    "UInt8Array",
+    "VehicleState",
+    "VideoModelTimings",
+    "WorldLineSegments",
+    "WorldPolygonList",
+    "WorldTriangleList",
+    "WorldVehicleBBoxTrack",
+]

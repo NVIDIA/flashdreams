@@ -8,8 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
-from flashdreams.serving.presentation.frame import DisplayFrame
 from PIL import Image, ImageDraw
+
+from flashdreams.serving.presentation.frame import DisplayFrame
 
 Rect = tuple[int, int, int, int]
 """Axis-aligned ``(left, top, right, bottom)`` rectangle in canvas pixels."""
@@ -102,11 +103,12 @@ class SupportsPrepareFrame(Protocol):
 
 @runtime_checkable
 class HudOverlay(Protocol):
-    """Integration-owned chrome and interaction for a presenter's canvas.
+    """Demo-owned chrome and interaction for a presenter's canvas.
 
-    Splits every model-specific concern out of a presenter: the presenter
-    owns the window, swapchain, and camera composite; the overlay owns
-    layout, chrome pixels, and what a key or click means.
+    The presenter owns the window, swapchain, and camera composite; the demo
+    owns layout, chrome pixels, and UI-local interactions. Model controls that
+    the demo does not consume should flow into a ``UserInputSource`` rather
+    than mutate a model integration directly.
     """
 
     def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
@@ -161,8 +163,8 @@ class HudOverlay(Protocol):
         """Handle a key event.
 
         Returns:
-            ``True`` when the overlay consumed the event, which stops the
-            presenter forwarding it to the input sink.
+            ``True`` when the overlay consumed the event, so a composite
+            stops offering it to the layers underneath.
         """
         ...
 
@@ -179,30 +181,54 @@ class HudOverlay(Protocol):
         ...
 
 
-@runtime_checkable
-class InputSink(Protocol):
-    """Destination for timestamped user input a presenter observed.
+class NullOverlay:
+    """No-op chrome for a full-canvas camera view."""
 
-    Keeps presenters independent of how an application represents control
-    state: a presenter reports normalized, timestamped events and never
-    learns whether they become key state, a replay trace, or an event queue
-    feeding an inference session.
-    """
+    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
+        return (0, 0, canvas_size[0], canvas_size[1])
 
-    def key_event(self, event: KeyEvent) -> None:
-        """Record a key transition the overlay did not consume."""
-        ...
+    def draw(
+        self,
+        canvas: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        *,
+        frame: DisplayFrame,
+        camera_area: Rect,
+    ) -> None:
+        del canvas, draw, frame, camera_area
 
-    def pointer_event(self, event: PointerEvent) -> None:
-        """Record a pointer transition the overlay did not consume."""
-        ...
+    def draw_placeholder(
+        self,
+        canvas: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        *,
+        camera_area: Rect,
+    ) -> None:
+        del canvas, draw, camera_area
+
+    def prepare(self, frame: DisplayFrame) -> None:
+        del frame
+
+    def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
+        del canvas_size
+
+    def on_key(self, event: KeyEvent) -> bool:
+        del event
+        return False
+
+    def on_pointer(self, event: PointerEvent) -> bool:
+        del event
+        return False
+
+    def close(self) -> None:
+        return
 
 
 __all__ = [
     "HudOverlay",
-    "InputSink",
     "KeyAction",
     "KeyEvent",
+    "NullOverlay",
     "PointerAction",
     "PointerEvent",
     "PresenterBackend",

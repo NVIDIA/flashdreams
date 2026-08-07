@@ -14,9 +14,16 @@ from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.canonical import InputCanonicalizer
 from flashdreams.runtime.config import InferenceConfig
-from flashdreams.runtime.inputs import InferenceInput, UserInputs, UserInputSchema
-from flashdreams.runtime.interfaces import ModelAdapter
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    InferenceInputSchema,
+    UserInputs,
+    UserInputSchema,
+)
+from flashdreams.runtime.interfaces import InferenceRuntime, ModelAdapter
 from flashdreams.runtime.mapping import InputMapping
+from flashdreams.runtime.output_schema import InferenceOutputSchema
+from flashdreams.runtime.sources import UserInputSource
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -25,6 +32,10 @@ class NullOutputSpec:
 
     mode: Literal["null"] = "null"
     store_results: bool = False
+
+    def __post_init__(self) -> None:
+        if self.mode != "null":
+            raise ValueError("NullOutputSpec.mode must be 'null'.")
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -38,6 +49,8 @@ class Mp4OutputSpec:
     move_to_cpu: bool = True
 
     def __post_init__(self) -> None:
+        if self.mode != "mp4":
+            raise ValueError("Mp4OutputSpec.mode must be 'mp4'.")
         if float(self.fps) <= 0:
             raise ValueError("Mp4OutputSpec.fps must be > 0.")
         object.__setattr__(self, "path", Path(self.path))
@@ -61,6 +74,8 @@ class WebRTCOutputSpec:
     preload_name: str | None = None
 
     def __post_init__(self) -> None:
+        if self.mode != "webrtc":
+            raise ValueError("WebRTCOutputSpec.mode must be 'webrtc'.")
         if not self.host.strip():
             raise ValueError("WebRTCOutputSpec.host must be non-empty.")
         if not (0 < int(self.port) < 65536):
@@ -99,6 +114,8 @@ class LocalWindowOutputSpec:
     show_hud: bool = True
 
     def __post_init__(self) -> None:
+        if self.mode != "local-window":
+            raise ValueError("LocalWindowOutputSpec.mode must be 'local-window'.")
         if self.width <= 0 or self.height <= 0:
             raise ValueError("LocalWindowOutputSpec dimensions must be > 0.")
         if not self.title.strip():
@@ -108,6 +125,23 @@ class LocalWindowOutputSpec:
 OutputSpec: TypeAlias = (
     NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec | LocalWindowOutputSpec
 )
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DemoRoute:
+    """One supported demo input/output mode pair."""
+
+    input_mode: str
+    """Application input mode."""
+
+    output_mode: str
+    """Selected output mode."""
+
+    def __post_init__(self) -> None:
+        if not self.input_mode.strip():
+            raise ValueError("DemoRoute.input_mode must be non-empty.")
+        if not self.output_mode.strip():
+            raise ValueError("DemoRoute.output_mode must be non-empty.")
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -153,13 +187,17 @@ class DemoSpec:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class PreparedScenario:
-    """Runtime-ready scenario prepared by a model demo adapter."""
+class PreparedSession:
+    """Runtime-ready inputs prepared for one model session."""
 
     __hash__ = None
 
     initial_inputs: InferenceInput
-    user_inputs: UserInputs = field(default_factory=UserInputs)
+    inference_input_schema: InferenceInputSchema | None = None
+    """Route-specific model input schema; ``None`` uses the adapter default."""
+
+    user_inputs: UserInputSource = field(default_factory=UserInputs)
+    """Replay batch or live source consumed one requested window at a time."""
     source_schema: UserInputSchema = field(default_factory=UserInputSchema)
     canonicalizer: InputCanonicalizer = field(default_factory=InputCanonicalizer)
     mapping: InputMapping | None = None
@@ -172,16 +210,25 @@ class PreparedScenario:
 class DemoAdapter(ModelAdapter, Protocol):
     """Model-owned adapter surface consumed by shared demo launchers."""
 
-    def supported_input_modes(self) -> tuple[str, ...]:
-        """Return demo input modes this adapter can prepare."""
+    @property
+    def inference_output_schema(self) -> InferenceOutputSchema:
+        """Return the semantic result type produced by shared runtime sessions."""
         ...
 
-    def supported_output_modes(self) -> tuple[str, ...]:
-        """Return demo output modes this adapter can run."""
+    def supported_routes(self) -> tuple[DemoRoute, ...]:
+        """Return supported demo input/output mode pairs."""
         ...
 
-    def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
-        """Validate and materialize scenario inputs before runtime creation."""
+    def prepare_session(self, spec: DemoSpec) -> PreparedSession:
+        """Materialize one route-independent model session from ``spec``."""
+        ...
+
+    def create_demo_runtime(self, spec: DemoSpec) -> InferenceRuntime:
+        """Create the runtime implementation selected by this demo route."""
+        ...
+
+    def list_sessions(self, spec: DemoSpec) -> tuple[DemoSpec, ...]:
+        """Return selectable session specs for this demo route."""
         ...
 
     def create_webrtc_runtime(self, spec: DemoSpec) -> Any:
@@ -191,11 +238,12 @@ class DemoAdapter(ModelAdapter, Protocol):
 
 __all__ = [
     "DemoAdapter",
+    "DemoRoute",
     "DemoSpec",
     "LocalWindowOutputSpec",
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",
-    "PreparedScenario",
+    "PreparedSession",
     "WebRTCOutputSpec",
 ]

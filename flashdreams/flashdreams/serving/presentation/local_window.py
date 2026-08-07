@@ -19,20 +19,18 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+
 from flashdreams.serving.presentation.base import (
     HudOverlay,
-    InputSink,
     KeyAction,
     KeyEvent,
     PointerEvent,
-    Rect,
 )
 from flashdreams.serving.presentation.canvas import fit_rect
 from flashdreams.serving.presentation.compositor import FrameCompositor
 from flashdreams.serving.presentation.cuda_interop import CudaRGBInterop
 from flashdreams.serving.presentation.frame import (
     DisplayFrame,
-    as_rgb_host_uint8,
     has_cuda_tensor,
     prefetch_frame,
     rgb_source_size,
@@ -100,7 +98,6 @@ class LocalWindowPresenter:
         self,
         *,
         overlay: HudOverlay,
-        input_sink: InputSink | None = None,
         config: WindowConfig | None = None,
         cuda_interop_disabled: bool = False,
     ) -> None:
@@ -115,7 +112,6 @@ class LocalWindowPresenter:
         self._spy = spy
         self._config = config or WindowConfig()
         self._overlay = overlay
-        self._input_sink = input_sink
         self._cuda_interop_requested = not cuda_interop_disabled
         self._cuda_interop_unavailable_reason: str | None = None
         self._cuda_error_logged = False
@@ -773,10 +769,7 @@ class LocalWindowPresenter:
             self._should_close_flag = True
             return
         normalized = KeyEvent(key=key, action=action, timestamp_s=time.monotonic())
-        if self._overlay.on_key(normalized):
-            return
-        if self._input_sink is not None:
-            self._input_sink.key_event(normalized)
+        self._overlay.on_key(normalized)
 
     def _on_mouse_event(self, event: Any) -> None:
         spy = self._spy
@@ -807,10 +800,7 @@ class LocalWindowPresenter:
             timestamp_s=time.monotonic(),
             button=button,
         )
-        if self._overlay.on_pointer(normalized):
-            return
-        if self._input_sink is not None:
-            self._input_sink.pointer_event(normalized)
+        self._overlay.on_pointer(normalized)
 
     def _build_key_names(self) -> dict[Any, str]:
         """Map slangpy key codes to normalized names, skipping absent codes."""

@@ -9,22 +9,20 @@ import math
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from interactive_drive_app.overlays.theme import (
-    ACCENT_AMBER,
-    NVIDIA_GREEN,
-    TEXT_COLOR,
-)
-from PIL import Image, ImageDraw
-
 from flashdreams.serving.presentation import (
     DisplayFrame,
-    KeyEvent,
     LRUCache,
-    PanelLayout,
     PointerEvent,
     Rect,
     measure_text,
     resolve_font,
+)
+from PIL import Image, ImageDraw
+
+from interactive_drive_app.overlays.theme import (
+    ACCENT_AMBER,
+    NVIDIA_GREEN,
+    TEXT_COLOR,
 )
 
 WHEEL_ROTATION_QUANTUM_DEG = 3
@@ -44,7 +42,7 @@ class DriveState(Protocol):
     brake: float
 
 
-class WheelOverlay:
+class WheelWidget:
     """Steering wheel sprite, rotated to the current steering angle.
 
     Falls back to a drawn circle with an angle indicator when the optional
@@ -54,13 +52,11 @@ class WheelOverlay:
 
     def __init__(
         self,
-        layout: PanelLayout,
         drive_state: Callable[[], DriveState],
         *,
         control_assets: Any | None = None,
         radius: int = 112,
     ) -> None:
-        self._layout = layout
         self._drive_state = drive_state
         self._control_assets = control_assets
         self._radius = radius
@@ -69,8 +65,9 @@ class WheelOverlay:
         self._base_radius: int | None = None
         self._rotations: LRUCache = LRUCache(maxsize=480)
 
-    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
-        return (0, 0, canvas_size[0], canvas_size[1])
+    def measure(self, panel_width: int) -> int:
+        del panel_width
+        return self._radius * 2 + 40
 
     def draw(
         self,
@@ -78,21 +75,18 @@ class WheelOverlay:
         draw: ImageDraw.ImageDraw,
         *,
         frame: DisplayFrame,
-        camera_area: Rect,
+        rect: Rect,
     ) -> None:
-        del frame, camera_area
-        row = self._layout.reserve(self._radius * 2 + 40, gap=16)
-        if row[3] - row[1] <= 0:
-            return
+        del frame
         state = self._drive_state()
-        centre = (self._layout.center_x, row[1] + self._radius)
+        centre = ((rect[0] + rect[2]) // 2, rect[1] + self._radius)
 
         base = self._wheel_base()
         if base is None:
             self._draw_fallback(draw, centre, state.steering)
         else:
             bucket = (
-                int(round(state.steering * MAX_STEER_DEG / WHEEL_ROTATION_QUANTUM_DEG))
+                round(state.steering * MAX_STEER_DEG / WHEEL_ROTATION_QUANTUM_DEG)
                 * WHEEL_ROTATION_QUANTUM_DEG
             )
             rotated = self._rotations.get_or_compute(
@@ -118,20 +112,11 @@ class WheelOverlay:
             font=self._font,
         )
 
-    def draw_placeholder(
-        self, canvas: Image.Image, draw: ImageDraw.ImageDraw, *, camera_area: Rect
-    ) -> None:
-        del canvas, draw, camera_area
-
     def prepare(self, frame: DisplayFrame) -> None:
         del frame
 
     def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
         del canvas_size
-
-    def on_key(self, event: KeyEvent) -> bool:
-        del event
-        return False
 
     def on_pointer(self, event: PointerEvent) -> bool:
         del event
@@ -179,7 +164,7 @@ class WheelOverlay:
         )
 
 
-class PedalsOverlay:
+class PedalsWidget:
     """Throttle and brake, as sprites when available and fill bars otherwise.
 
     Bars fill upward from the bottom, matching how a pedal travels.
@@ -187,21 +172,20 @@ class PedalsOverlay:
 
     def __init__(
         self,
-        layout: PanelLayout,
         drive_state: Callable[[], DriveState],
         *,
         control_assets: Any | None = None,
         pedal_size: tuple[int, int] = (80, 160),
     ) -> None:
-        self._layout = layout
         self._drive_state = drive_state
         self._control_assets = control_assets
         self._pedal_width, self._pedal_height = pedal_size
         self._font = resolve_font(14)
         self._sprites: LRUCache = LRUCache(maxsize=16)
 
-    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
-        return (0, 0, canvas_size[0], canvas_size[1])
+    def measure(self, panel_width: int) -> int:
+        del panel_width
+        return self._pedal_height + 30
 
     def draw(
         self,
@@ -209,15 +193,12 @@ class PedalsOverlay:
         draw: ImageDraw.ImageDraw,
         *,
         frame: DisplayFrame,
-        camera_area: Rect,
+        rect: Rect,
     ) -> None:
-        del frame, camera_area
-        row = self._layout.reserve(self._pedal_height + 30, gap=20)
-        if row[3] - row[1] <= 0:
-            return
+        del frame
         state = self._drive_state()
-        top = row[1]
-        centre_x = self._layout.center_x
+        top = rect[1]
+        centre_x = (rect[0] + rect[2]) // 2
         gap = 24
         throttle_x = centre_x + gap
         brake_x = centre_x - gap - self._pedal_width
@@ -256,20 +237,11 @@ class PedalsOverlay:
                 font=self._font,
             )
 
-    def draw_placeholder(
-        self, canvas: Image.Image, draw: ImageDraw.ImageDraw, *, camera_area: Rect
-    ) -> None:
-        del canvas, draw, camera_area
-
     def prepare(self, frame: DisplayFrame) -> None:
         del frame
 
     def on_canvas_resized(self, canvas_size: tuple[int, int]) -> None:
         del canvas_size
-
-    def on_key(self, event: KeyEvent) -> bool:
-        del event
-        return False
 
     def on_pointer(self, event: PointerEvent) -> bool:
         del event
@@ -324,7 +296,7 @@ class PedalsOverlay:
         inner_top, inner_bottom = y + 4, y + height - 4
         inner_height = inner_bottom - inner_top
         fraction = max(0.0, min(1.0, float(value)))
-        fill_height = int(round(inner_height * fraction))
+        fill_height = round(inner_height * fraction)
         if inner_height <= 0 or fill_height <= 0:
             return
         draw.rounded_rectangle(
@@ -338,6 +310,6 @@ __all__ = [
     "MAX_STEER_DEG",
     "WHEEL_ROTATION_QUANTUM_DEG",
     "DriveState",
-    "PedalsOverlay",
-    "WheelOverlay",
+    "PedalsWidget",
+    "WheelWidget",
 ]

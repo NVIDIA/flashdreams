@@ -44,11 +44,9 @@ def build_output_target(
             move_to_cpu=output.move_to_cpu,
         )
     if isinstance(output, WebRTCOutputSpec):
-        raise ValueError("WebRTC output does not create a replay OutputTarget.")
+        raise TypeError("WebRTC output does not create a replay OutputTarget.")
     if isinstance(output, LocalWindowOutputSpec):
-        raise ValueError(
-            "Local-window output does not create a replay OutputTarget."
-        )
+        raise TypeError("Local-window output does not create a replay OutputTarget.")
     raise TypeError(f"Unsupported demo output spec: {type(output).__name__}.")
 
 

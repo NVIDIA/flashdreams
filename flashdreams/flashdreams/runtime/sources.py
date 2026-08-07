@@ -28,6 +28,15 @@ class UserInputSource(Protocol):
         ...
 
 
+@runtime_checkable
+class SessionAwareUserInputSource(UserInputSource, Protocol):
+    """Live source whose clock/state restarts with each model session."""
+
+    def start_session(self) -> None:
+        """Discard pending events and start a new session timeline."""
+        ...
+
+
 class QueuedUserInputSource:
     """Live event queue fed by a transport and drained by the standard loop.
 
@@ -107,4 +116,8 @@ class QueuedUserInputSource:
             return len(self._events)
 
 
-__all__ = ["QueuedUserInputSource", "UserInputSource"]
+__all__ = [
+    "QueuedUserInputSource",
+    "SessionAwareUserInputSource",
+    "UserInputSource",
+]

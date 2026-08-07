@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
-
 from flashdreams.runtime import (
     DRIVER_COMMAND,
     CanonicalInputs,
@@ -18,6 +17,7 @@ from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
+    InferenceOutputSchema,
     InferenceRuntime,
     InferenceSession,
     InMemoryMetricsRecorder,
@@ -27,6 +27,7 @@ from flashdreams.runtime import (
     InputMappingSchema,
     NullOutputTarget,
     OutputArtifact,
+    OutputTargetRequirement,
     QueuedUserInputSource,
     RuntimeMetricSample,
     StepRequest,
@@ -72,6 +73,89 @@ def test_run_inference_session_completes_two_step_run() -> None:
     assert [sample.name for sample in metrics.samples] == ["model_step", "model_step"]
     assert [sample.step_index for sample in metrics.samples] == [0, 1]
     assert metrics.closed
+
+
+def test_pollable_output_can_stop_before_another_model_step() -> None:
+    adapter = _FakeAdapter()
+    output = _StopsImmediatelyOutput()
+
+    run_inference_session(
+        adapter=adapter,
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=_ChunkIndexMapping(),
+        canonicalizer=InputCanonicalizer(),
+        source_schema=UserInputSchema(),
+        user_inputs=UserInputs(),
+        initial_inputs=InferenceInput(global_conditioning={"prompt": "drive forward"}),
+        output=output,
+        metrics=InMemoryMetricsRecorder(),
+    )
+
+    assert output.poll_count == 1
+    assert output.output_count == 0
+    assert adapter.runtime is not None
+    assert adapter.runtime.session is not None
+    assert adapter.runtime.session.step_inputs == []
+
+
+def test_preloaded_runtime_is_reused_across_sequential_sessions() -> None:
+    adapter = _FakeAdapter()
+    config = InferenceConfig(model_id="fake-model")
+    runtime = adapter.create_runtime(config)
+    assert isinstance(runtime, _FakeRuntime)
+
+    def run_once() -> _FakeSession:
+        run_inference_session(
+            adapter=adapter,
+            config=config,
+            mapping=_ChunkIndexMapping(),
+            canonicalizer=InputCanonicalizer(),
+            source_schema=UserInputSchema(),
+            user_inputs=UserInputs(),
+            initial_inputs=InferenceInput(
+                global_conditioning={"prompt": "drive forward"}
+            ),
+            output=NullOutputTarget(),
+            metrics=InMemoryMetricsRecorder(),
+            runtime=runtime,
+        )
+        assert runtime.session is not None
+        return runtime.session
+
+    first_session = run_once()
+    second_session = run_once()
+
+    assert first_session is not second_session
+    assert first_session.closed and second_session.closed
+    assert not runtime.closed
+    assert adapter.create_runtime_count == 1
+    runtime.close()
+
+
+def test_preloaded_runtime_rejects_a_different_session_config() -> None:
+    adapter = _FakeAdapter()
+    runtime = adapter.create_runtime(InferenceConfig(model_id="fake-model"))
+
+    with pytest.raises(ValueError, match="does not match this session config"):
+        run_inference_session(
+            adapter=adapter,
+            config=InferenceConfig(
+                model_id="fake-model",
+                preset_id="different-preset",
+            ),
+            mapping=_ChunkIndexMapping(),
+            canonicalizer=InputCanonicalizer(),
+            source_schema=UserInputSchema(),
+            user_inputs=UserInputs(),
+            initial_inputs=InferenceInput(
+                global_conditioning={"prompt": "drive forward"}
+            ),
+            output=NullOutputTarget(),
+            metrics=InMemoryMetricsRecorder(),
+            runtime=runtime,
+        )
+
+    runtime.close()
 
 
 def test_runner_preserves_initial_step_inputs_for_identity_mapping() -> None:
@@ -122,6 +206,27 @@ def test_runner_validates_mapping_before_runtime_creation() -> None:
 
     assert mapping.validated
     assert adapter.created_runtime_after_validate
+
+
+def test_runner_rejects_declared_output_mismatch_before_runtime_creation() -> None:
+    adapter = _DeclaredTextAdapter()
+
+    with pytest.raises(ValueError, match="incompatible with the selected output"):
+        run_inference_session(
+            adapter=adapter,
+            config=InferenceConfig(model_id="fake-model"),
+            mapping=_ChunkIndexMapping(),
+            canonicalizer=InputCanonicalizer(),
+            source_schema=UserInputSchema(),
+            user_inputs=UserInputs(),
+            initial_inputs=InferenceInput(
+                global_conditioning={"prompt": "drive forward"}
+            ),
+            output=_VideoOnlyOutput(),
+            metrics=InMemoryMetricsRecorder(),
+        )
+
+    assert adapter.runtime is None
 
 
 def test_runner_closes_runtime_when_session_start_fails() -> None:
@@ -243,6 +348,25 @@ def test_runner_closes_opened_resources_after_output_failure() -> None:
         "runtime.close",
         "metrics.close",
     ]
+
+
+def test_live_input_source_resets_after_session_start() -> None:
+    events: list[str] = []
+
+    run_inference_session(
+        adapter=_RecordingAdapter(events=events),
+        config=InferenceConfig(model_id="fake-model"),
+        mapping=_ChunkIndexMapping(),
+        canonicalizer=InputCanonicalizer(),
+        source_schema=UserInputSchema(),
+        user_inputs=_RecordingResettableSource(events),
+        initial_inputs=InferenceInput(global_conditioning={"prompt": "drive forward"}),
+        output=_RecordingOutputTarget(events=events),
+        metrics=_RecordingMetricsRecorder(events=events),
+    )
+
+    assert events.index("runtime.start_session") < events.index("input.reset")
+    assert events.index("input.reset") < events.index("output.open")
 
 
 def test_runner_attempts_later_cleanup_when_output_close_fails() -> None:
@@ -439,6 +563,40 @@ class _CountingDeviceConverter:
         return _STATEFUL_COUNTER.value({"count": self.count})
 
 
+class _RecordingResettableSource:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def start_session(self) -> None:
+        self._events.append("input.reset")
+
+    def window(self, time_window: TimeWindow) -> UserInputs:
+        del time_window
+        return UserInputs()
+
+
+class _StopsImmediatelyOutput(NullOutputTarget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.poll_count = 0
+
+    @property
+    def should_stop(self) -> bool:
+        return self.poll_count > 0
+
+    def poll(self) -> None:
+        self.poll_count += 1
+
+
+class _VideoOnlyOutput(NullOutputTarget):
+    @property
+    def output_requirement(self) -> OutputTargetRequirement:
+        return OutputTargetRequirement(
+            modalities=frozenset({"video/rgb"}),
+            python_type=dict,
+        )
+
+
 class _FakeAdapter:
     model_id = "fake-model"
     inference_input_schema = InferenceInputSchema(
@@ -446,10 +604,15 @@ class _FakeAdapter:
         step_fields=(InputField(name="chunk_index"),),
     )
     canonical_input_schema = CanonicalInputSchema()
+    inference_output_schema = InferenceOutputSchema(
+        modality="text/plain",
+        python_type=str,
+    )
 
     def __init__(self) -> None:
         self.runtime: _FakeRuntime | None = None
         self.create_runtime_called = False
+        self.create_runtime_count = 0
 
     def default_input_mapping(self) -> InputMapping:
         return _ChunkIndexMapping()
@@ -461,8 +624,21 @@ class _FakeAdapter:
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
         self.create_runtime_called = True
-        self.runtime = _FakeRuntime(inference_input_schema=self.inference_input_schema)
+        self.create_runtime_count += 1
+        self.runtime = _FakeRuntime(
+            config=config,
+            inference_input_schema=self.inference_input_schema,
+        )
         return self.runtime
+
+
+class _DeclaredTextAdapter(_FakeAdapter):
+    @property
+    def inference_output_schema(self) -> InferenceOutputSchema:
+        return InferenceOutputSchema(
+            modality="text/plain",
+            python_type=str,
+        )
 
 
 class _DrivingAdapter(_FakeAdapter):
@@ -486,7 +662,10 @@ class _OrderCheckingAdapter(_FakeAdapter):
         self.validate_config(config)
         self.created_runtime_after_validate = self._mapping.validated
         self.create_runtime_called = True
-        self.runtime = _FakeRuntime(inference_input_schema=self.inference_input_schema)
+        self.runtime = _FakeRuntime(
+            config=config,
+            inference_input_schema=self.inference_input_schema,
+        )
         return self.runtime
 
 
@@ -495,7 +674,7 @@ class _FailingStartAdapter(_FakeAdapter):
         self.validate_config(config)
         self.create_runtime_called = True
         self.runtime = _FailingRuntime(
-            inference_input_schema=self.inference_input_schema
+            config=config, inference_input_schema=self.inference_input_schema
         )
         return self.runtime
 
@@ -509,6 +688,7 @@ class _RecordingAdapter(_FakeAdapter):
         self.validate_config(config)
         self.create_runtime_called = True
         self.runtime = _RecordingRuntime(
+            config=config,
             inference_input_schema=self.inference_input_schema,
             events=self._events,
         )
@@ -516,7 +696,13 @@ class _RecordingAdapter(_FakeAdapter):
 
 
 class _FakeRuntime:
-    def __init__(self, *, inference_input_schema: InferenceInputSchema) -> None:
+    def __init__(
+        self,
+        *,
+        config: InferenceConfig,
+        inference_input_schema: InferenceInputSchema,
+    ) -> None:
+        self.config = config
         self._inference_input_schema = inference_input_schema
         self.session: _FakeSession | None = None
         self.closed = False
@@ -540,10 +726,14 @@ class _RecordingRuntime(_FakeRuntime):
     def __init__(
         self,
         *,
+        config: InferenceConfig,
         inference_input_schema: InferenceInputSchema,
         events: list[str],
     ) -> None:
-        super().__init__(inference_input_schema=inference_input_schema)
+        super().__init__(
+            config=config,
+            inference_input_schema=inference_input_schema,
+        )
         self._events = events
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:

@@ -10,8 +10,6 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
-
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
@@ -27,6 +25,7 @@ from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
 )
+from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
 from .adapter import OmnidreamsDemoAdapter
 from .local_window import OmnidreamsLocalWindowScenario
@@ -103,7 +102,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     local_window.add_argument("--no-wheel", action="store_true")
     local_window.add_argument("--no-hud", action="store_true")
     local_window.add_argument(
-        "--presenter-backend", choices=("legacy", "local-window"), default="legacy"
+        "--presenter-backend",
+        choices=("legacy", "local-window"),
+        default="local-window",
     )
     local_window.add_argument("--window-width", type=int, default=1920)
     local_window.add_argument("--window-height", type=int, default=1080)

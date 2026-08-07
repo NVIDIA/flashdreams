@@ -13,6 +13,7 @@ from flashdreams.runtime.inputs import (
     CanonicalInputs,
     CanonicalInputSchema,
     InferenceInput,
+    InferenceInputSchema,
     TimeWindow,
     UserInputSchema,
 )
@@ -27,8 +28,17 @@ from flashdreams.runtime.mapping import (
     check_mapping_compatibility,
 )
 from flashdreams.runtime.metrics import MetricsRecorder
-from flashdreams.runtime.output import OutputArtifact, OutputTarget
-from flashdreams.runtime.sources import UserInputSource
+from flashdreams.runtime.output import (
+    OutputArtifact,
+    OutputTarget,
+    PollableOutputTarget,
+)
+from flashdreams.runtime.output_schema import (
+    DeclaresInferenceOutput,
+    DeclaresOutputRequirement,
+    require_output_compatibility,
+)
+from flashdreams.runtime.sources import SessionAwareUserInputSource, UserInputSource
 from flashdreams.runtime.types import StepResult
 
 _DEFAULT_SESSION_HORIZON_S = 3600.0
@@ -45,6 +55,8 @@ def run_inference_session(
     initial_inputs: InferenceInput,
     output: OutputTarget,
     metrics: MetricsRecorder,
+    runtime: InferenceRuntime | None = None,
+    inference_input_schema: InferenceInputSchema | None = None,
 ) -> tuple[OutputArtifact, ...]:
     """Run one sequential inference session through the standard loop.
 
@@ -55,9 +67,13 @@ def run_inference_session(
     ``user_inputs`` is windowed once per step rather than read whole, so a
     fully-known replay batch and a live queue drive the same loop. See
     :class:`~flashdreams.runtime.sources.UserInputSource`.
+
+    Passing a preloaded ``runtime`` lets an application reuse heavyweight model
+    state across sequential sessions. ``None`` creates, owns, and closes one
+    runtime for this call.
     """
 
-    runtime: InferenceRuntime | None = None
+    owns_runtime = runtime is None
     session: InferenceSession | None = None
     output_opened = False
     output_artifacts: tuple[OutputArtifact, ...] = ()
@@ -65,23 +81,30 @@ def run_inference_session(
 
     try:
         adapter.validate_config(config)
+        if runtime is not None:
+            _validate_reused_runtime(runtime=runtime, config=config)
+        selected_input_schema = inference_input_schema or adapter.inference_input_schema
         canonical_schema = canonicalizer.canonical_schema(source_schema)
         _check_declared_mapping_compatibility(
             mapping=mapping,
             canonical_schema=canonical_schema,
-            adapter=adapter,
+            inference_input_schema=selected_input_schema,
         )
         mapping.validate(
             canonical_schema=canonical_schema,
-            inference_input_schema=adapter.inference_input_schema,
+            inference_input_schema=selected_input_schema,
         )
+        _check_declared_output_compatibility(adapter=adapter, output=output)
         canonicalizer.reset()
         mapped_initial_inputs = mapping.map_global_conditioning_inputs(
             canonical_inputs=CanonicalInputs(),
             inference_input=initial_inputs,
         )
-        runtime = adapter.create_runtime(config)
+        if runtime is None:
+            runtime = adapter.create_runtime(config)
         session = runtime.start_session(mapped_initial_inputs)
+        if isinstance(user_inputs, SessionAwareUserInputSource):
+            user_inputs.start_session()
         output.open()
         output_opened = True
         step_base_inputs = InferenceInput(
@@ -91,7 +114,14 @@ def run_inference_session(
 
         default_window = _default_user_input_window(user_inputs)
 
-        while (request := session.next_step_request()) is not None:
+        while True:
+            if isinstance(output, PollableOutputTarget):
+                output.poll()
+                if output.should_stop:
+                    break
+            request = session.next_step_request()
+            if request is None:
+                break
             window = request.user_input_window or default_window
             step_inputs = mapping.map_step_inputs(
                 canonical_inputs=canonicalizer.canonicalize(
@@ -112,7 +142,7 @@ def run_inference_session(
         cleanup_error, output_artifacts = _close_run_resources(
             output=output if output_opened else None,
             session=session,
-            runtime=runtime,
+            runtime=runtime if owns_runtime else None,
             metrics=metrics,
         )
         if cleanup_error is not None and primary_error is None:
@@ -121,17 +151,50 @@ def run_inference_session(
     return output_artifacts
 
 
+def _validate_reused_runtime(
+    *,
+    runtime: InferenceRuntime,
+    config: InferenceConfig,
+) -> None:
+    runtime_config = getattr(runtime, "config", None)
+    if not isinstance(runtime_config, InferenceConfig):
+        raise TypeError(
+            "A reused runtime must expose the InferenceConfig it was created from "
+            "as runtime.config."
+        )
+    if runtime_config != config:
+        raise ValueError(
+            "Reused runtime config does not match this session config: "
+            f"runtime={runtime_config!r}, session={config!r}."
+        )
+
+
+def _check_declared_output_compatibility(
+    *,
+    adapter: ModelAdapter,
+    output: OutputTarget,
+) -> None:
+    if not isinstance(adapter, DeclaresInferenceOutput):
+        return
+    if not isinstance(output, DeclaresOutputRequirement):
+        return
+    require_output_compatibility(
+        produced=adapter.inference_output_schema,
+        required=output.output_requirement,
+    )
+
+
 def _check_declared_mapping_compatibility(
     *,
     mapping: InputMapping,
     canonical_schema: CanonicalInputSchema,
-    adapter: ModelAdapter,
+    inference_input_schema: InferenceInputSchema,
 ) -> None:
     if not isinstance(mapping, DeclaresMappingSchema):
         return
     compatibility = check_mapping_compatibility(
         canonical_schema=canonical_schema,
-        inference_input_schema=adapter.inference_input_schema,
+        inference_input_schema=inference_input_schema,
         mapping_schema=mapping.mapping_schema,
     )
     compatibility.raise_if_incompatible()

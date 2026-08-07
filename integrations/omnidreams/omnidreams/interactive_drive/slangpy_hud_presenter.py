@@ -255,7 +255,7 @@ class KeyboardStateDriveSink:
 class SlangPyHudPresenter:
     """Single-process slangpy-window HUD with PIL-rendered chrome.
 
-    Implements the ``PresenterBackend`` Protocol that
+    Implements the ``DrivePresenter`` Protocol that
     :class:`~omnidreams.interactive_drive.app.InteractiveDriveApp` expects. Owns
     a :class:`slangpy.Window` (the same SDL3-backed Vulkan swapchain
     ``--no-hud`` uses), a CPU-side PIL canvas where chrome is composited
@@ -483,7 +483,7 @@ class SlangPyHudPresenter:
         # returning, which is below conscious latency.
         self._pending_drive_releases: dict[str, float] = {}
 
-    # -- PresenterBackend protocol ---------------------------------
+    # -- DrivePresenter protocol ---------------------------------
 
     @property
     def should_close(self) -> bool:

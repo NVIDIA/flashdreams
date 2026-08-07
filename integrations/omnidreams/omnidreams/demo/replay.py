@@ -13,9 +13,6 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
-from loguru import logger
-from omnidreams.runner import _load_video
-
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
@@ -27,6 +24,8 @@ from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import StepRequest, StepResult
+from loguru import logger
+from omnidreams.runner import _load_video
 
 from .spec import OmnidreamsReplayScenario
 

@@ -530,6 +530,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--window-width",
+        type=int,
+        default=1920,
+        help=(
+            "Initial window width for --presenter-backend local-window. The"
+            " window manager may clamp it and a larger model frame grows it."
+        ),
+    )
+    parser.add_argument(
+        "--window-height",
+        type=int,
+        default=1080,
+        help="Initial window height for --presenter-backend local-window.",
+    )
+    parser.add_argument(
+        "--window-title",
+        default="interactive-drive (local-window)",
+        help="Window title for --presenter-backend local-window.",
+    )
+    parser.add_argument(
         "--scene-dir",
         type=Path,
         default=scenes_cache_root(),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import omnidreams.demo.spec as spec_module
@@ -12,6 +13,25 @@ import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
 from aiohttp import web
+from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime import (
+    InferenceConfig,
+    InferenceInput,
+    OutputArtifact,
+    OutputTarget,
+    StepResult,
+)
+from flashdreams.runtime.demo import (
+    DemoRoute,
+    DemoSpec,
+    LocalWindowOutputSpec,
+    Mp4OutputSpec,
+    WebRTCOutputSpec,
+    serve_flashdreams_demo,
+)
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
+from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 from omnidreams.config import OMNIDREAMS_RUNNERS
 from omnidreams.demo import (
     DEFAULT_OMNIDREAMS_PRESET,
@@ -27,24 +47,6 @@ from omnidreams.demo.replay import (
 )
 from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
 
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime import (
-    InferenceConfig,
-    InferenceInput,
-    OutputArtifact,
-    OutputTarget,
-    StepResult,
-)
-from flashdreams.runtime.demo import (
-    DemoSpec,
-    Mp4OutputSpec,
-    WebRTCOutputSpec,
-    serve_flashdreams_demo,
-)
-from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
-from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
-
 pytestmark = pytest.mark.ci_cpu
 
 
@@ -55,12 +57,39 @@ def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
     assert not args.preset_id.endswith("-perf")
 
 
-def test_omnidreams_demo_adapter_declares_its_supported_modes() -> None:
+def test_omnidreams_demo_adapter_declares_its_supported_routes() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc", "local-window")
+    assert adapter.supported_routes() == (
+        DemoRoute(input_mode="replay", output_mode="mp4"),
+        DemoRoute(input_mode="keyboard-driving", output_mode="webrtc"),
+        DemoRoute(input_mode="keyboard-driving", output_mode="local-window"),
+    )
+
+
+def test_omnidreams_adapter_prepares_driving_mapping(monkeypatch) -> None:
+    adapter = OmnidreamsDemoAdapter()
+    scenario = cast(
+        Any,
+        SimpleNamespace(
+            scene=SimpleNamespace(scene_path=Path("town.usdz")),
+        ),
+    )
+    monkeypatch.setattr(adapter, "_prepare_driving_scenario", lambda spec: scenario)
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        input_mode="keyboard-driving",
+        output=LocalWindowOutputSpec(),
+    )
+
+    prepared = adapter.prepare_session(spec)
+
+    assert prepared.inference_input_schema is not None
+    assert prepared.mapping is not None
+    mapping = cast(Any, prepared.mapping)
+    assert mapping.mapping_schema.consumes[0].name == "driver_command"
+    assert prepared.initial_inputs.global_conditioning["driving_scenario"] is scenario
 
 
 def test_omnidreams_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
@@ -178,17 +207,16 @@ def test_omnidreams_replay_cli_defaults_to_hf_example_data(
     args = parse_args(["replay", "--output", str(tmp_path / "demo.mp4")])
     spec = _replay_spec(args)
 
-    prepared = OmnidreamsDemoAdapter().prepare_scenario(spec)
+    prepared = OmnidreamsDemoAdapter().prepare_session(spec)
 
     scenario = prepared.initial_inputs.global_conditioning["scenario"]
     assert isinstance(scenario, OmnidreamsReplayScenario)
+    runner = cast(Any, OMNIDREAMS_RUNNERS[DEFAULT_OMNIDREAMS_PRESET])
     assert synced_uuids == ["239560dc-33d1-11ef-9720-00044bcbccac"]
     assert scenario.hdmap_video_paths == (hdmap,)
     assert scenario.first_frame_paths == (first_frame,)
     assert scenario.camera_names == ("camera_front_wide_120fov",)
-    assert scenario.prompts == (
-        str(getattr(OMNIDREAMS_RUNNERS[DEFAULT_OMNIDREAMS_PRESET], "prompt")),
-    )
+    assert scenario.prompts == (str(runner.prompt),)
 
 
 def test_omnidreams_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
@@ -198,7 +226,7 @@ def test_omnidreams_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
     spec = _replay_spec(args)
 
     with pytest.raises(ValueError, match="requires hdmap_video_paths"):
-        OmnidreamsDemoAdapter().prepare_scenario(spec)
+        OmnidreamsDemoAdapter().prepare_session(spec)
 
 
 def test_omnidreams_replay_runtime_generates_video_step_result(

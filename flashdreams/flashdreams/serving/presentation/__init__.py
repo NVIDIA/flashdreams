@@ -5,7 +5,7 @@
 
 The core an integration builds a native demo on: it owns window creation,
 device and swapchain setup, resize recovery, and the camera composite, and
-delegates every model-specific pixel and control decision to a
+delegates demo-owned chrome and local interaction to a
 :class:`~flashdreams.serving.presentation.base.HudOverlay`.
 
 Requires the ``local-window`` extra for Pillow and SlangPy. Importing the
@@ -17,9 +17,9 @@ time, so contracts and geometry stay usable on hosts with no GPU or display.
 
 from flashdreams.serving.presentation.base import (
     HudOverlay,
-    InputSink,
     KeyAction,
     KeyEvent,
+    NullOverlay,
     PointerAction,
     PointerEvent,
     PresenterBackend,
@@ -47,24 +47,25 @@ from flashdreams.serving.presentation.frame import (
     prefetch_frame,
     rgb_source_size,
 )
-from flashdreams.serving.presentation.layout import PanelLayout
 from flashdreams.serving.presentation.local_window import (
     LocalWindowPresenter,
     WindowConfig,
 )
+from flashdreams.serving.presentation.panel import PanelOverlay, PanelWidget
 
 __all__ = [
     "CameraMode",
     "CompositeOverlay",
-    "FrameCompositor",
     "DisplayFrame",
+    "FrameCompositor",
     "HudOverlay",
-    "InputSink",
     "KeyAction",
     "KeyEvent",
     "LRUCache",
     "LocalWindowPresenter",
-    "PanelLayout",
+    "NullOverlay",
+    "PanelOverlay",
+    "PanelWidget",
     "PointerAction",
     "PointerEvent",
     "PresenterBackend",

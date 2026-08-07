@@ -86,7 +86,15 @@ def _record_input_to_present_for_profile(
         logger.info(summary.log_message())
 
 
-class PresenterBackend(Protocol):
+class DrivePresenter(Protocol):
+    """What :func:`run_main_loop` requires of a display target.
+
+    Distinct from ``flashdreams.serving.presentation.PresenterBackend``, which
+    is model-agnostic and speaks ``DisplayFrame``. This one carries
+    interactive-drive's ``PresentedFrame`` and ``view_mode``, so a generic
+    presenter reaches this loop through an adapter rather than directly.
+    """
+
     @property
     def should_close(self) -> bool: ...
 
@@ -221,7 +229,7 @@ def make_chunk_request(
 
 def present_queued_frame(
     queued_frame: QueuedFrame,
-    presenter: PresenterBackend,
+    presenter: DrivePresenter,
     view_mode: str,
     oob_message: str | None = None,
     trace_context: TraceContext | None = None,
@@ -388,7 +396,7 @@ def push_telemetry(
 
 def _prepare_queued_frame(
     queued_frame: QueuedFrame,
-    presenter: PresenterBackend,
+    presenter: DrivePresenter,
     view_mode: str,
 ) -> None:
     prepare_frame = getattr(presenter, "prepare_frame", None)
@@ -400,7 +408,7 @@ def _drain_pipeline_frames(
     *,
     pipeline: ChunkPipeline,
     ready_frames: "deque[QueuedFrame]",
-    presenter: PresenterBackend,
+    presenter: DrivePresenter,
     view_mode: str,
 ) -> None:
     current_generation = pipeline.current_generation
@@ -418,7 +426,7 @@ def _drain_pipeline_frames(
 
 
 def run_main_loop(
-    presenter: PresenterBackend,
+    presenter: DrivePresenter,
     runtime_controls: RuntimeControls,
     initial_presented_frame: PresentedFrame,
     input_backend: InputBackend,

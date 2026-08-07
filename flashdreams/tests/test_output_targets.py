@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.serving import output_targets as output_targets_module
 from flashdreams.serving.output_targets import (
@@ -120,8 +119,11 @@ def test_omnidreams_local_window_target_uses_manifest_override() -> None:
         options=OutputLaunchOptions(local_window_manifest=Path("custom.yaml")),
     )
 
-    assert spec.module == "omnidreams.interactive_drive"
+    assert spec.module == "omnidreams.demo.cli"
     assert spec.argv == (
+        "local-window",
+        "--preset-id",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
         "--manifest",
         "custom.yaml",
         "--postprocess-preset",
