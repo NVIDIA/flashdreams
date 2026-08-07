@@ -20,7 +20,10 @@ import json
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import as_file, files
+from os import PathLike
 from pathlib import Path
+from socket import socket
+from socketserver import BaseServer
 from urllib.parse import urlsplit
 
 WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
@@ -31,12 +34,20 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
 
     def __init__(
         self,
-        *args: object,
+        request: socket | tuple[bytes, socket],
+        client_address: tuple[str, int],
+        server: BaseServer,
+        *,
+        directory: str | PathLike[str] | None = None,
         model_web_dir: Path | None = None,
-        **kwargs: object,
     ) -> None:
         self.model_web_dir = model_web_dir
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            request,
+            client_address,
+            server,
+            directory=directory,
+        )
 
     def _rewrite_path(self) -> bool:
         path = urlsplit(self.path).path

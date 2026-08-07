@@ -57,6 +57,7 @@ from lingbot.transformer import (
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime import InferenceConfig, InferenceInput
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -68,10 +69,9 @@ def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> 
     np.save(poses, trajectory)
     np.save(
         intrinsics,
-        np.tile(
-            np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)
-        ),
+        np.tile(np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)),
     )
+
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
@@ -236,10 +236,13 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
 
     assert isinstance(captured["adapter"], LingbotModelAdapter)
     config = captured["config"]
-    assert getattr(config, "model_id") == LINGBOT_MODEL_ID
-    assert getattr(config, "device") == "cpu"
+    assert isinstance(config, InferenceConfig)
+    assert config.model_id == LINGBOT_MODEL_ID
+    assert config.device == "cpu"
     assert config.runtime_options["pipeline"] is pipeline
-    inputs = captured["initial_inputs"].global_conditioning
+    initial_inputs = captured["initial_inputs"]
+    assert isinstance(initial_inputs, InferenceInput)
+    inputs = initial_inputs.global_conditioning
     assert inputs[FIELD_PROMPT] == "drive through a city"
     assert inputs[FIELD_FIRST_FRAME_PATH] == image
     assert inputs[FIELD_TOTAL_BLOCKS] == 1

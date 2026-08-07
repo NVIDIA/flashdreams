@@ -36,9 +36,7 @@ pytestmark = pytest.mark.ci_cpu
 
 _KEYBOARD_SOURCE = UserInputSchema(
     capabilities=(
-        UserInputCapability(
-            event_type="key_down", payload_fields=frozenset({"key"})
-        ),
+        UserInputCapability(event_type="key_down", payload_fields=frozenset({"key"})),
         UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"})),
         UserInputCapability(
             event_type="text_event", payload_fields=frozenset({"event_id"})
@@ -71,7 +69,9 @@ def test_keyboard_events_become_camera_command_axes() -> None:
     converter = KeyboardToCameraCommand()
     inputs = UserInputs(
         events=(
-            UserInputEvent(timestamp_s=0.0, event_type="key_down", payload={"key": "w"}),
+            UserInputEvent(
+                timestamp_s=0.0, event_type="key_down", payload={"key": "w"}
+            ),
         )
     )
     window = TimeWindow(start_s=0.0, end_s=1.0)
@@ -93,7 +93,9 @@ def test_camera_command_segments_preserve_sub_window_timing() -> None:
     window = TimeWindow(start_s=0.0, end_s=1.0)
     inputs = UserInputs(
         events=(
-            UserInputEvent(timestamp_s=0.5, event_type="key_down", payload={"key": "w"}),
+            UserInputEvent(
+                timestamp_s=0.5, event_type="key_down", payload={"key": "w"}
+            ),
         )
     )
 
@@ -111,7 +113,9 @@ def test_key_events_drive_a_camera_trajectory() -> None:
     mapping = _live_mapping()
     user_inputs = UserInputs(
         events=(
-            UserInputEvent(timestamp_s=0.0, event_type="key_down", payload={"key": "w"}),
+            UserInputEvent(
+                timestamp_s=0.0, event_type="key_down", payload={"key": "w"}
+            ),
         )
     )
     request = _step_request(step_index=0, frame_start=0, num_frames=4)
@@ -422,7 +426,7 @@ def test_event_driven_scenario_builds_a_live_mapping(tmp_path: Path) -> None:
 
     prepared = LingbotDemoAdapter().prepare_scenario(spec)
 
-    assert prepared.mapping is not None
+    assert isinstance(prepared.mapping, LingbotInputMapping)
     assert prepared.mapping.mapping_schema.consumes == (CAMERA_COMMAND, TEXT_EVENT)
     assert len(prepared.user_inputs.events) == 2
     # The declared source must actually cover the trace it carries, or the

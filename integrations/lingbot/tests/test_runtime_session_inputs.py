@@ -8,9 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import lingbot.runtime as runtime_module
 import pytest
 import torch
-import lingbot.runtime as runtime_module
 from lingbot.input_mapping import FIELD_CAMERA_INTRINSICS, FIELD_CAMERA_TRAJECTORY
 from lingbot.runtime import (
     LINGBOT_MODEL_ID,
@@ -267,7 +267,9 @@ def test_text_event_prompt_update_swaps_the_rollout_context(
     )
 
     assert pipeline.text_encoder_calls == [["a violent storm"]]
-    assert len(pipeline.diffusion_model.transformer.replaced) == 1
+    transformer = pipeline.diffusion_model.transformer
+    assert isinstance(transformer, _FakeTransformer)
+    assert len(transformer.replaced) == 1
 
     # Re-sending the same prompt must not re-encode or re-swap.
     session.step(
