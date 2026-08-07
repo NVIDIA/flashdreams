@@ -10,16 +10,34 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from flashdreams.serving.presentation.base import Rect
+from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
+
+from flashdreams.serving.presentation.base import Rect
 
 _FONT_CANDIDATES: tuple[str, ...] = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/gnu-free/FreeSans.ttf",
+    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
     "/Library/Fonts/Arial.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
     "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
 )
-"""Host TrueType paths probed in order; PIL ships no system-font resolver."""
+"""Host TrueType paths probed in order; PIL ships no system-font resolver.
+
+Deliberately broad: minimal server images often carry none of DejaVu,
+Liberation, or Noto, and the bitmap fallback renders digits as empty boxes.
+"""
+
+_fallback_warned = False
 
 
 def allocate_canvas(
@@ -68,12 +86,27 @@ class LRUCache(OrderedDict):
 
 
 def resolve_font(size: int) -> Any:
-    """Load a host TrueType font at ``size``, falling back to PIL's default."""
+    """Load a host TrueType font at ``size``, falling back to PIL's default.
+
+    Warns once when no TrueType font is found: the bitmap fallback has patchy
+    glyph coverage and draws digits as boxes, which reads as a corrupt overlay
+    rather than a missing font.
+    """
+    global _fallback_warned
+
     for path in _FONT_CANDIDATES:
         try:
             return ImageFont.truetype(path, size=size)
         except OSError:
             continue
+
+    if not _fallback_warned:
+        logger.warning(
+            "[presentation] no TrueType font found; overlay text falls back to "
+            "PIL's bitmap font and will render digits as boxes. Install one, "
+            "e.g. `apt-get install fonts-dejavu-core`.",
+        )
+        _fallback_warned = True
     try:
         return ImageFont.load_default(size=size)
     except TypeError:
