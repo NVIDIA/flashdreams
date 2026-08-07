@@ -48,12 +48,15 @@ from flashdreams.serving.webrtc.server import (
 from flashdreams.serving.webrtc.server import (
     close_package_resources as _close_package_resources,
 )
-from lingbot.runner import (
+from flashdreams.runtime import InferenceConfig
+from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
-    EXAMPLE_DATA_BASE_URL,
-    EXAMPLE_DATA_DIR_LOCAL,
     ensure_example_data_downloaded,
-    example_data_dirname,
+)
+from lingbot.runtime import (
+    LINGBOT_MODEL_ID,
+    LingbotModelAdapter,
+    build_lingbot_webrtc_runtime_config,
 )
 from lingbot.webrtc.session import (
     LingbotImagePayload,
@@ -104,6 +107,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="cuda:0",
         help="Torch device used for the Lingbot runtime.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Base random seed for the Lingbot rollout.",
     )
     parser.add_argument(
         "--warmup_chunks",
@@ -335,34 +344,31 @@ def build_runtime_config(
         raise ValueError("--video-height and --video-width must be > 0")
     if args.video_height % 16 != 0 or args.video_width % 16 != 0:
         raise ValueError("--video-height and --video-width must be divisible by 16")
-    example_idx = getattr(args, "example_idx", 0)
-    example_dirname = example_data_dirname(example_idx)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
-    if (
-        example_idx == 0
-        and not example_dir.exists()
-        and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
-    ):
-        example_dir = EXAMPLE_DATA_DIR_LOCAL
-    return LingbotRuntimeConfig(
-        config_name=args.config_name,
+
+    inference_config = InferenceConfig(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=args.config_name,
+        device=device_override or args.device,
+        compile=not args.no_compile,
+        runtime_options={"context_parallel_size": context_parallel_size},
+    )
+    adapter = LingbotModelAdapter()
+    adapter.validate_config(inference_config)
+    return build_lingbot_webrtc_runtime_config(
+        preset_id=adapter.preset_id(inference_config),
+        pipeline_config=adapter.pipeline_config(inference_config),
+        device=inference_config.device or args.device,
+        seed=int(getattr(args, "seed", 42)),
         compile_network=not args.no_compile,
         context_parallel_size=context_parallel_size,
-        device=device_override or args.device,
-        warmup_chunks=args.warmup_chunks,
-        warmup_timeout_s=args.warmup_timeout_s,
         video_height=args.video_height,
         video_width=args.video_width,
         fps=args.fps,
-        encoder_backend=(
-            "default" if getattr(args, "prefer_sw_encoder", False) else "auto"
-        ),
-        example_data_dir=example_dir,
-        default_image_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/image.jpg",
-        default_intrinsics_url=(
-            f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/intrinsics.npy"
-        ),
-        default_poses_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/poses.npy",
+        warmup_chunks=args.warmup_chunks,
+        warmup_timeout_s=args.warmup_timeout_s,
+        example_idx=getattr(args, "example_idx", 0),
+        prefer_sw_encoder=getattr(args, "prefer_sw_encoder", False),
+        runtime_options=inference_config.runtime_options,
     )
 
 

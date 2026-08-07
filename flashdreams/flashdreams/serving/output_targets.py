@@ -154,7 +154,8 @@ def _lingbot_webrtc_spec(
     options: OutputLaunchOptions,
 ) -> OutputTargetSpec:
     argv = [
-        "--config_name",
+        "webrtc",
+        "--preset-id",
         _pipeline_name(config),
         "--device",
         _device(config),
@@ -166,15 +167,20 @@ def _lingbot_webrtc_spec(
         str(getattr(config, "pixel_width", 832)),
     ]
     if _compile_network(config) is False:
-        argv.append("--no_compile")
+        argv.append("--no-compile")
     example_idx = getattr(config, "example_idx", None)
     if example_idx is not None:
         argv.extend(("--example-idx", str(example_idx)))
-    _append_webrtc_bind_args(argv, options)
+    if options.host:
+        argv.extend(("--host", options.host))
+    if options.port is not None:
+        argv.extend(("--port", str(options.port)))
+    if options.prefer_sw_encoder:
+        argv.append("--prefer-sw-encoder")
     return OutputTargetSpec(
         mode="webrtc",
-        label="LingBot WebRTC server",
-        module="lingbot.webrtc.server",
+        label="LingBot shared demo WebRTC server",
+        module="lingbot.demo.cli",
         argv=tuple(argv),
     )
 

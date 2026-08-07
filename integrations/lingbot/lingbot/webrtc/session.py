@@ -476,6 +476,8 @@ class LingbotRuntimeConfig:
     text_events: tuple[TextEventSpec, ...] = field(
         default_factory=lambda: DEFAULT_TEXT_EVENTS
     )
+    pipeline_config: Any | None = None
+    """Optional pre-resolved pipeline config used by shared demo adapters."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -775,13 +777,16 @@ class LingbotInferenceRuntime:
         if self._pipeline is not None:
             return
 
-        pipeline_configs = _pipeline_configs()
-        if self.config.config_name not in pipeline_configs:
-            supported = ", ".join(sorted(pipeline_configs))
-            raise ValueError(
-                f"Unknown config_name={self.config.config_name!r}. "
-                f"Supported: {supported}"
-            )
+        pipeline_config_base = self.config.pipeline_config
+        if pipeline_config_base is None:
+            pipeline_configs = _pipeline_configs()
+            if self.config.config_name not in pipeline_configs:
+                supported = ", ".join(sorted(pipeline_configs))
+                raise ValueError(
+                    f"Unknown config_name={self.config.config_name!r}. "
+                    f"Supported: {supported}"
+                )
+            pipeline_config_base = pipeline_configs[self.config.config_name]
 
         self._device = torch.device(self.config.device)
         if self._device.type == "cuda" and not torch.cuda.is_available():
@@ -796,7 +801,7 @@ class LingbotInferenceRuntime:
             else self.config.seed
         )
         pipeline_config = derive_config(
-            base_config=pipeline_configs[self.config.config_name],
+            base_config=pipeline_config_base,
             enable_sync_and_profile=True,
             diffusion_model=dict(
                 seed=rollout_seed,
@@ -1204,16 +1209,20 @@ class LingbotWebRTCSessionManager(
     def __init__(
         self,
         *,
+        runtime: LingbotInferenceRuntime | None = None,
         runtime_config: LingbotRuntimeConfig | None = None,
         fps: int | None = None,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
-        runtime_config = runtime_config or LingbotRuntimeConfig()
+        runtime_config = runtime_config or getattr(runtime, "config", None)
+        if not isinstance(runtime_config, LingbotRuntimeConfig):
+            runtime_config = LingbotRuntimeConfig()
         fps = runtime_config.fps if fps is None else fps
         if fps <= 0:
             raise ValueError("fps must be > 0")
+        runtime = runtime or LingbotInferenceRuntime(config=runtime_config)
         super().__init__(
-            runtime=LingbotInferenceRuntime(config=runtime_config),
+            runtime=runtime,
             runtime_config=runtime_config,
             fps=fps,
             client_liveness_timeout_s=client_liveness_timeout_s,

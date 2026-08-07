@@ -21,9 +21,11 @@ import sys
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
+from lingbot import example_data as example_data_mod
 from lingbot import runner as runner_mod
 from lingbot.config import (
     LINGBOT_WORLD_V2_CHECKPOINT_PATH,
@@ -39,6 +41,14 @@ from lingbot.runner import (
     LingbotWorldRunnerConfig,
     example_data_dirname,
 )
+from lingbot.runtime import (
+    FIELD_FIRST_FRAME_PATH,
+    FIELD_PROMPT,
+    FIELD_TOTAL_BLOCKS,
+    LINGBOT_MODEL_ID,
+    LingbotModelAdapter,
+    LingbotRunnerOutputTarget,
+)
 from lingbot.transformer import (
     LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB,
     LingbotWorldTransformer,
@@ -49,6 +59,19 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> None:
+    """Write real .npy camera assets; the input mapping loads them for real."""
+    trajectory = np.tile(np.eye(4, dtype=np.float32), (frames, 1, 1))
+    trajectory[:, 2, 3] = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+    np.save(poses, trajectory)
+    np.save(
+        intrinsics,
+        np.tile(
+            np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)
+        ),
+    )
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
@@ -77,10 +100,10 @@ def test_examples_download_from_canonical_v2_repository(
         del cache_dir, filename
         urls.append(url)
 
-    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
-    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+    monkeypatch.setattr(example_data_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(example_data_mod, "download_to_cache", _record_download)
 
-    runner_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
+    example_data_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
 
     expected_base_url = (
         "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
@@ -105,10 +128,10 @@ def test_promptless_examples_skip_the_prompt_download(
     def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
         downloads.append((url, cache_dir, filename))
 
-    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
-    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+    monkeypatch.setattr(example_data_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(example_data_mod, "download_to_cache", _record_download)
 
-    cache_dir = runner_mod.ensure_example_data_downloaded(
+    cache_dir = example_data_mod.ensure_example_data_downloaded(
         is_rank_zero=True,
         example_idx=example_idx,
     )
@@ -160,6 +183,69 @@ def test_promptless_example_resolves_to_empty_string(
     assert warnings == [
         "LingBot prompt.txt is missing; proceeding with an empty prompt."
     ]
+
+
+def test_runner_delegates_to_runtime_api_with_direct_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep the CLI runner on the new runtime path, not the old rollout loop."""
+    image = tmp_path / "image.jpg"
+    poses = tmp_path / "poses.npy"
+    intrinsics = tmp_path / "intrinsics.npy"
+    image.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics)
+    runner = object.__new__(LingbotWorldRunner)
+    runner_config = cast(
+        LingbotWorldRunnerConfig,
+        derive_config(
+            RUNNER_CONFIGS["lingbot-world-fast-taehv-window15-sink3"],
+            prompt="drive through a city",
+            image_path=image,
+            pose_path=poses,
+            intrinsic_path=intrinsics,
+            total_blocks=1,
+            device="cpu",
+        ),
+    )
+    pipeline = object()
+    output_stream = object()
+    captured: dict[str, object] = {}
+
+    def _fake_run_inference_session(**kwargs: object) -> tuple[object, ...]:
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setattr(
+        runner,
+        "create_video_output_stream",
+        lambda **_kwargs: output_stream,
+    )
+    monkeypatch.setattr(
+        runner_mod,
+        "run_inference_session",
+        _fake_run_inference_session,
+    )
+    runner.config = runner_config
+    runner.pipeline = pipeline
+    runner.local_rank = 0
+    runner.world_size = 1
+    runner.is_rank_zero = True
+
+    runner.run()
+
+    assert isinstance(captured["adapter"], LingbotModelAdapter)
+    config = captured["config"]
+    assert getattr(config, "model_id") == LINGBOT_MODEL_ID
+    assert getattr(config, "device") == "cpu"
+    assert config.runtime_options["pipeline"] is pipeline
+    inputs = captured["initial_inputs"].global_conditioning
+    assert inputs[FIELD_PROMPT] == "drive through a city"
+    assert inputs[FIELD_FIRST_FRAME_PATH] == image
+    assert inputs[FIELD_TOTAL_BLOCKS] == 1
+    output = captured["output"]
+    assert isinstance(output, LingbotRunnerOutputTarget)
+    assert output.output_stream is output_stream
 
 
 def test_runners_dict_is_non_empty() -> None:
