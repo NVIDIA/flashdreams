@@ -147,3 +147,113 @@ class _FakeCudaLingbotPipeline:
     def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
         del autoregressive_index, cache
         return {"denoise_s": 0.25}
+
+
+def test_event_driven_camera_control_on_cuda(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive the CUDA session from key events instead of a fixed pose trace."""
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required.")
+
+    from lingbot.input_mapping import (
+        FIELD_CAMERA_TRAJECTORY,
+        KeyboardToCameraCommand,
+    )
+
+    from flashdreams.runtime import (
+        InputCanonicalizer,
+        UserInputCapability,
+        UserInputEvent,
+        UserInputs,
+        UserInputSchema,
+    )
+
+    image = tmp_path / "image.jpg"
+    image.write_bytes(b"fake")
+    pipeline = _FakeCudaLingbotPipeline()
+
+    def _fake_load_first_frame_tensor(path: Path, **kwargs: Any) -> torch.Tensor:
+        del path
+        return torch.zeros((1, 3, 2, 2), device=kwargs["device"], dtype=kwargs["dtype"])
+
+    monkeypatch.setattr(
+        runtime_module,
+        "load_first_frame_tensor",
+        _fake_load_first_frame_tensor,
+    )
+
+    runtime = LingbotReplayRuntime(
+        config=InferenceConfig(model_id=LINGBOT_MODEL_ID, device="cuda"),
+        options=LingbotReplayRuntimeOptions(
+            pipeline_config=object(),
+            pipeline_factory=lambda _pipeline_config, _device: pipeline,
+        ),
+    )
+    adapter = LingbotModelAdapter()
+    mapping = adapter.create_live_input_mapping(
+        fps=16,
+        base_intrinsics=torch.tensor([416.0, 416.0, 416.0, 240.0]),
+        world_scale=1.0,
+        prompt="drive",
+    )
+    initial_inputs = mapping.map_global_conditioning_inputs(
+        canonical_inputs=CanonicalInputs(),
+        inference_input=InferenceInput(
+            global_conditioning={
+                "prompt": "drive",
+                "first_frame_path": image,
+                "total_blocks": 1,
+                "pixel_height": 2,
+                "pixel_width": 2,
+                "fps": 16,
+            }
+        ),
+    )
+    canonicalizer = InputCanonicalizer([KeyboardToCameraCommand()])
+    source = UserInputSchema(
+        capabilities=(
+            UserInputCapability(
+                event_type="key_down", payload_fields=frozenset({"key"})
+            ),
+            UserInputCapability(
+                event_type="key_up", payload_fields=frozenset({"key"})
+            ),
+        )
+    )
+    user_inputs = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.0, event_type="key_down", payload={"key": "w"}
+            ),
+        )
+    )
+
+    session = runtime.start_session(initial_inputs)
+    try:
+        request = session.next_step_request()
+        assert request is not None
+        assert request.user_input_window is not None
+        step_inputs = mapping.map_step_inputs(
+            canonical_inputs=canonicalizer.canonicalize(
+                user_inputs,
+                window=request.user_input_window,
+                source_schema=source,
+            ),
+            inference_input=InferenceInput(),
+            request=request,
+        )
+        # Holding forward must produce real motion before it reaches the model.
+        # This chunk is one frame, so compare against the identity start pose
+        # rather than across frames: 0.8 m/s at 16fps advances 0.05 along +z.
+        poses = step_inputs.step[FIELD_CAMERA_TRAJECTORY]
+        assert poses[-1][2, 3].item() == pytest.approx(0.05, abs=1e-4)
+        result = session.step(step_inputs)
+        torch.cuda.synchronize()
+    finally:
+        session.close()
+        runtime.close()
+
+    assert result.output.video_chunk.is_cuda
+    assert pipeline.generate_world_scales == [1.0]
