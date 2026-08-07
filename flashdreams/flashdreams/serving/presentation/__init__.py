@@ -35,6 +35,7 @@ from flashdreams.serving.presentation.canvas import (
     resolve_font,
     truncate_text_to_width,
 )
+from flashdreams.serving.presentation.composite import CompositeOverlay
 from flashdreams.serving.presentation.frame import (
     DisplayFrame,
     as_rgb_host_uint8,
@@ -42,9 +43,13 @@ from flashdreams.serving.presentation.frame import (
     prefetch_frame,
     rgb_source_size,
 )
-from flashdreams.serving.presentation.local_window import LocalWindowPresenter, WindowConfig
+from flashdreams.serving.presentation.local_window import (
+    LocalWindowPresenter,
+    WindowConfig,
+)
 
 __all__ = [
+    "CompositeOverlay",
     "DisplayFrame",
     "HudOverlay",
     "InputSink",

@@ -10,6 +10,7 @@ import dataclasses
 import numpy as np
 import pytest
 from flashdreams.serving.presentation import (
+    CompositeOverlay,
     DisplayFrame,
     HudOverlay,
     InputSink,
@@ -35,9 +36,22 @@ BLACK = (0, 0, 0)
 class _RecordingOverlay:
     """Minimal overlay that records the calls a presenter would make."""
 
-    def __init__(self, *, reserved_width: int = 0, consume: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        reserved_width: int = 0,
+        consume: bool = False,
+        name: str = "overlay",
+        draw_log: list[str] | None = None,
+        key_log: list[str] | None = None,
+        close_error: BaseException | None = None,
+    ) -> None:
         self._reserved_width = reserved_width
         self._consume = consume
+        self._name = name
+        self._draw_log = draw_log
+        self._key_log = key_log
+        self._close_error = close_error
         self.drawn: list[DisplayFrame] = []
         self.placeholders = 0
         self.prepared: list[DisplayFrame] = []
@@ -60,6 +74,8 @@ class _RecordingOverlay:
     ) -> None:
         del canvas, draw, camera_area
         self.drawn.append(frame)
+        if self._draw_log is not None:
+            self._draw_log.append(self._name)
 
     def draw_placeholder(
         self,
@@ -79,6 +95,8 @@ class _RecordingOverlay:
 
     def on_key(self, event: KeyEvent) -> bool:
         self.keys.append(event)
+        if self._key_log is not None:
+            self._key_log.append(self._name)
         return self._consume
 
     def on_pointer(self, event: PointerEvent) -> bool:
@@ -87,6 +105,8 @@ class _RecordingOverlay:
 
     def close(self) -> None:
         self.closed = True
+        if self._close_error is not None:
+            raise self._close_error
 
 
 class _RecordingSink:
@@ -112,6 +132,79 @@ class _LazyCudaFrame:
 
     def to_numpy(self) -> np.ndarray:
         return self._array
+
+
+## Overlay composition
+
+
+def test_composite_intersects_each_layer_camera_area() -> None:
+    """A layer reserving panel space shrinks the camera without coordination."""
+    composite = CompositeOverlay(
+        layers=(_RecordingOverlay(), _RecordingOverlay(reserved_width=300))
+    )
+
+    assert composite.camera_area((1000, 500)) == (0, 0, 700, 500)
+
+
+def test_composite_falls_back_to_the_full_canvas_when_layers_collapse_it() -> None:
+    composite = CompositeOverlay(
+        layers=(
+            _RecordingOverlay(reserved_width=600),
+            _RecordingOverlay(reserved_width=600),
+        )
+    )
+
+    assert composite.camera_area((1000, 500)) == (0, 0, 1000, 500)
+
+
+def test_composite_draws_layers_back_to_front() -> None:
+    order: list[str] = []
+    first = _RecordingOverlay(draw_log=order, name="first")
+    second = _RecordingOverlay(draw_log=order, name="second")
+
+    CompositeOverlay(layers=(first, second)).draw(
+        Image.new("RGBA", (8, 8)),
+        ImageDraw.Draw(Image.new("RGBA", (8, 8))),
+        frame=DisplayFrame(),
+        camera_area=(0, 0, 8, 8),
+    )
+
+    assert order == ["first", "second"]
+
+
+def test_composite_offers_input_front_to_back_and_stops_at_the_consumer() -> None:
+    """The layer drawn on top gets first refusal on a click."""
+    order: list[str] = []
+    back = _RecordingOverlay(key_log=order, name="back")
+    front = _RecordingOverlay(key_log=order, name="front", consume=True)
+
+    handled = CompositeOverlay(layers=(back, front)).on_key(
+        KeyEvent(key="w", action="press", timestamp_s=0.0)
+    )
+
+    assert handled
+    assert order == ["front"]
+
+
+def test_composite_forwards_resize_and_prepare_to_every_layer() -> None:
+    layers = (_RecordingOverlay(), _RecordingOverlay())
+    composite = CompositeOverlay(layers=layers)
+
+    composite.on_canvas_resized((640, 480))
+    composite.prepare(DisplayFrame())
+
+    assert all(layer.resizes == [(640, 480)] for layer in layers)
+    assert all(len(layer.prepared) == 1 for layer in layers)
+
+
+def test_composite_closes_every_layer_even_when_one_raises() -> None:
+    failing = _RecordingOverlay(close_error=RuntimeError("layer down"))
+    healthy = _RecordingOverlay()
+
+    with pytest.raises(RuntimeError, match="layer down"):
+        CompositeOverlay(layers=(failing, healthy)).close()
+
+    assert healthy.closed
 
 
 ## Protocol conformance
