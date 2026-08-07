@@ -22,18 +22,19 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
 )
-from pydantic import BaseModel, ConfigDict, validate_call, with_config
-from typing_extensions import NotRequired, TypedDict
+from pydantic import BaseModel, ConfigDict, validate_call
 
 
-@with_config(ConfigDict(arbitrary_types_allowed=True, extra="forbid"))
-class InferenceUserCondition(TypedDict):
-    """Base typed dictionary for per-step user conditions."""
+class InferenceUserCondition(BaseModel):
+    """Base model for per-step user conditions."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
-@with_config(ConfigDict(arbitrary_types_allowed=True, extra="forbid"))
-class InferenceGlobalCondition(TypedDict):
-    """Base typed dictionary for rollout-wide conditions."""
+class InferenceGlobalCondition(BaseModel):
+    """Base model for rollout-wide conditions."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 UserConditionT = TypeVar("UserConditionT", bound=InferenceUserCondition)
@@ -43,14 +44,15 @@ GlobalConditionT = TypeVar("GlobalConditionT", bound=InferenceGlobalCondition)
 """Global-condition type parameter for :class:`InferenceInput`."""
 
 
-@with_config(ConfigDict(arbitrary_types_allowed=True, extra="forbid"))
-class InferenceInput(TypedDict, Generic[UserConditionT, GlobalConditionT]):
+class InferenceInput(BaseModel, Generic[UserConditionT, GlobalConditionT]):
     """Validated conditions consumed by one inference step."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     user_condition: UserConditionT
     """Required per-step user condition."""
 
-    global_condition: NotRequired[GlobalConditionT | None]
+    global_condition: GlobalConditionT | None = None
     """Optional rollout-wide condition."""
 
 

@@ -30,9 +30,9 @@ from flashdreams.runtime.inference_session import (
     InferenceUserCondition as BaseInferenceUserCondition,
 )
 from omnidreams.pipeline import OmnidreamsPipeline, OmnidreamsPipelineCache
-from pydantic import AfterValidator, TypeAdapter, ValidationInfo
+from pydantic import AfterValidator, Field, TypeAdapter, ValidationInfo
 from torch import Tensor
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 
 def _validate_tensor_shape(
@@ -110,7 +110,7 @@ class InferenceGlobalCondition(BaseInferenceGlobalCondition):
     text_embeddings: _TextEmbeddingsTensor
     """Text embeddings ``[B, V, L, D]`` for the rollout prompts."""
 
-    negative_text_embeddings: NotRequired[_TextEmbeddingsTensor | None]
+    negative_text_embeddings: _TextEmbeddingsTensor | None = None
     """Optional negative-prompt embeddings ``[B, V, L, D]`` used for CFG."""
 
     image_embeddings: _ImageEmbeddingsTensor
@@ -141,12 +141,12 @@ def _validate_condition_shapes(
     validation_info: ValidationInfo,
 ) -> InferenceInput:
     """Validate shape relationships between per-step and rollout conditions."""
-    global_condition = inference_input.get("global_condition")
-    hdmap = inference_input["user_condition"]["hdmap"]
+    global_condition = inference_input.global_condition
+    hdmap = inference_input.user_condition.hdmap
 
     if global_condition is not None:
-        text_embeddings = global_condition["text_embeddings"]
-        image_embeddings = global_condition["image_embeddings"]
+        text_embeddings = global_condition.text_embeddings
+        image_embeddings = global_condition.image_embeddings
         batch_view_shapes = {
             "hdmap": tuple(hdmap.shape[:2]),
             "text_embeddings": tuple(text_embeddings.shape[:2]),
@@ -158,7 +158,7 @@ def _validate_condition_shapes(
                 f"[B, V] dimensions; got {batch_view_shapes}"
             )
 
-        negative_text_embeddings = global_condition.get("negative_text_embeddings")
+        negative_text_embeddings = global_condition.negative_text_embeddings
         if (
             negative_text_embeddings is not None
             and negative_text_embeddings.shape != text_embeddings.shape
@@ -202,7 +202,7 @@ def _validate_condition_shapes(
             hdmap_resolution[0] // compression,
             hdmap_resolution[1] // compression,
         )
-        image_embeddings = global_condition["image_embeddings"]
+        image_embeddings = global_condition.image_embeddings
         image_latent_resolution = (
             int(image_embeddings.shape[-2]),
             int(image_embeddings.shape[-1]),
@@ -222,8 +222,8 @@ _ValidatedInferenceInput: TypeAlias = Annotated[
 
 _INFERENCE_INPUT_ADAPTER = TypeAdapter(_ValidatedInferenceInput)
 
-_PRESENTATION_FPS = 30.0
-"""Presentation rate used by the 30 FPS OmniDreams model."""
+_PresentationFps: TypeAlias = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+_PRESENTATION_FPS_ADAPTER = TypeAdapter(_PresentationFps)
 
 
 class InferenceSession(BaseInferenceSession):
@@ -238,11 +238,34 @@ class InferenceSession(BaseInferenceSession):
     autoregressive_index: int
     """Zero-based index assigned to the next inference step."""
 
+    presentation_fps: _PresentationFps
+    """Frame rate used for output presentation timestamps."""
+
     _rollout_resolution: tuple[int, int] | None
     """HDMap pixel resolution fixed by the first successful rollout step."""
 
     _presented_frame_count: int
     """Number of frames emitted on the current presentation timeline."""
+
+    def __init__(
+        self,
+        pipeline: OmnidreamsPipeline,
+        *,
+        presentation_fps: _PresentationFps = 30.0,
+    ) -> None:
+        """Initialize the session with a presentation frame rate.
+
+        Args:
+            pipeline: OmniDreams pipeline to drive.
+            presentation_fps: Frame rate for output presentation timestamps.
+
+        Raises:
+            ValidationError: ``presentation_fps`` is not positive and finite.
+        """
+        self.presentation_fps = _PRESENTATION_FPS_ADAPTER.validate_python(
+            presentation_fps
+        )
+        super().__init__(pipeline)
 
     def reset(self) -> None:
         """Reset the session to await rollout-wide embedding conditions."""
@@ -273,20 +296,18 @@ class InferenceSession(BaseInferenceSession):
                 rollout_resolution=self._rollout_resolution,
             ),
         )
-        global_condition = inference_input.get("global_condition")
+        global_condition = inference_input.global_condition
         if self.cache is None:
             if global_condition is None:
                 raise ValueError(
                     "global_condition is required on the first step after reset()."
                 )
             self.cache = self.pipeline.initialize_cache_from_embeddings(
-                text_embeddings=global_condition["text_embeddings"],
-                image_embeddings=global_condition["image_embeddings"],
-                negative_text_embeddings=global_condition.get(
-                    "negative_text_embeddings"
-                ),
+                text_embeddings=global_condition.text_embeddings,
+                image_embeddings=global_condition.image_embeddings,
+                negative_text_embeddings=global_condition.negative_text_embeddings,
             )
-            hdmap = inference_input["user_condition"]["hdmap"]
+            hdmap = inference_input.user_condition.hdmap
             self._rollout_resolution = (
                 int(hdmap.shape[-2]),
                 int(hdmap.shape[-1]),
@@ -300,17 +321,17 @@ class InferenceSession(BaseInferenceSession):
         video = self.pipeline.generate(
             autoregressive_index=self.autoregressive_index,
             cache=self.cache,
-            hdmap=inference_input["user_condition"]["hdmap"],
+            hdmap=inference_input.user_condition.hdmap,
         )
         self.pipeline.finalize(
             autoregressive_index=self.autoregressive_index,
             cache=self.cache,
         )
-        start_timestamp = self._presented_frame_count / _PRESENTATION_FPS
+        start_timestamp = self._presented_frame_count / self.presentation_fps
         self._presented_frame_count += int(video.shape[2])
         self.autoregressive_index += 1
         return FrameChunkOutput(
             value=video,
             start_timestamp=start_timestamp,
-            fps=_PRESENTATION_FPS,
+            fps=self.presentation_fps,
         )

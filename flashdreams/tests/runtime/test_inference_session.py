@@ -88,7 +88,7 @@ class _MockGlobalCondition(InferenceGlobalCondition):
     """Embedded latent tensor describing prompt conditioning."""
 
 
-# Specialize both nested dictionaries so ``validate_call`` sees their fields.
+# Specialize both nested models so ``validate_call`` sees their fields.
 _MockInferenceInput: TypeAlias = InferenceInput[
     _MockUserCondition, _MockGlobalCondition
 ]
@@ -108,11 +108,11 @@ class _MockInferenceSession(InferenceSession[_MockStreamInferencePipeline]):
     @validate_call
     def step(self, inference_input: _MockInferenceInput) -> _MockInferenceOutput:
         """Return a frame chunk from the validated inference input."""
-        global_condition = inference_input.get("global_condition")
+        global_condition = inference_input.global_condition
         frame_chunk = (
-            global_condition["frame"]
+            global_condition.frame
             if global_condition is not None
-            else inference_input["user_condition"]["camera"]
+            else inference_input.user_condition.camera
         )
         return _MockInferenceOutput(frame_chunk=frame_chunk)
 
@@ -157,7 +157,7 @@ def test_step_validates_nested_conditions(session: _MockInferenceSession) -> Non
     # Pass a raw mapping so ``step`` performs Pydantic validation and conversion.
     output = session.step(inference_input)
 
-    assert torch.equal(output.frame_chunk, global_condition["frame"])
+    assert torch.equal(output.frame_chunk, global_condition.frame)
 
 
 def test_step_accepts_missing_optional_global_condition(
@@ -169,7 +169,7 @@ def test_step_accepts_missing_optional_global_condition(
 
     output = session.step(inference_input)
 
-    assert torch.equal(output.frame_chunk, user_condition["camera"])
+    assert torch.equal(output.frame_chunk, user_condition.camera)
 
 
 ## Rejected session inputs
@@ -195,7 +195,7 @@ def test_step_rejects_missing_user_field(
     missing_field: str,
 ) -> None:
     """Verify step rejects a user condition missing a required tensor field."""
-    user_condition = dict(_user_condition())
+    user_condition = _user_condition().model_dump()
     del user_condition[missing_field]
     inference_input: Any = {
         "user_condition": user_condition,
@@ -217,7 +217,7 @@ def test_step_rejects_missing_global_field(
     missing_field: str,
 ) -> None:
     """Verify step rejects a global condition missing a required tensor field."""
-    global_condition = dict(_global_condition())
+    global_condition = _global_condition().model_dump()
     del global_condition[missing_field]
     inference_input: Any = {
         "user_condition": _user_condition(),

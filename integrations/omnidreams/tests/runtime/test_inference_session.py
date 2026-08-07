@@ -48,7 +48,7 @@ from torch import Tensor
 pytestmark = pytest.mark.ci_cpu
 
 
-# ---------------------- Mock Pipeline  ---------------------- #
+## Mock Pipeline
 
 # OmnidreamsPipeline requires a Wan or TAEHV decoder. This lightweight TAEHV
 # subclass preserves that concrete contract without downloading decoder weights;
@@ -151,7 +151,7 @@ def session(pipeline: OmnidreamsPipeline) -> InferenceSession:
     return InferenceSession(pipeline)
 
 
-# ------------------- Condition Factories  ------------------- #
+## Condition Factories
 
 
 def _user_condition(
@@ -173,18 +173,19 @@ def _global_condition(
     latent_height: int = 1,
     latent_width: int = 1,
 ) -> InferenceGlobalCondition:
-    condition = InferenceGlobalCondition(
+    negative_text_embeddings = (
+        torch.full((1, 1, 2, 4), value + 2) if include_negative else None
+    )
+    return InferenceGlobalCondition(
         text_embeddings=torch.full((1, 1, 2, 4), value),
+        negative_text_embeddings=negative_text_embeddings,
         image_embeddings=torch.full(
             (1, 1, 1, 16, latent_height, latent_width), value + 1
         ),
     )
-    if include_negative:
-        condition["negative_text_embeddings"] = torch.full((1, 1, 2, 4), value + 2)
-    return condition
 
 
-# ------------------- Session Conditioning ------------------- #
+## Session Conditioning
 
 
 def test_step_runs_actual_pipeline_with_global_conditions(
@@ -216,7 +217,39 @@ def test_step_runs_actual_pipeline_with_global_conditions(
     assert torch.isfinite(output.value).all()
     assert output.start_timestamp == pytest.approx(0.0)
     assert output.fps == pytest.approx(30.0)
+    assert output.fps == session.presentation_fps
     assert output.frame_present_time == pytest.approx(1.0 / 30.0)
+
+
+def test_step_uses_session_presentation_fps(
+    pipeline: OmnidreamsPipeline,
+) -> None:
+    """Verify output timing uses the session-specific presentation rate."""
+    session = InferenceSession(pipeline, presentation_fps=24.0)
+
+    output = session.step(
+        InferenceInput(
+            user_condition=_user_condition(2.0),
+            global_condition=_global_condition(3.0),
+        )
+    )
+
+    assert session.presentation_fps == pytest.approx(24.0)
+    assert output.fps == pytest.approx(24.0)
+    assert output.frame_present_time == pytest.approx(1.0 / 24.0)
+
+
+@pytest.mark.parametrize(
+    "presentation_fps",
+    [0.0, -1.0, float("nan"), float("inf")],
+)
+def test_session_rejects_invalid_presentation_fps(
+    pipeline: OmnidreamsPipeline,
+    presentation_fps: float,
+) -> None:
+    """Verify sessions reject non-positive and non-finite presentation rates."""
+    with pytest.raises(ValidationError):
+        InferenceSession(pipeline, presentation_fps=presentation_fps)
 
 
 def test_step_reuses_actual_pipeline_cache_with_different_user_conditions(
@@ -324,7 +357,7 @@ def test_step_rejects_global_conditions_during_active_rollout(
     assert session.autoregressive_index == 1
 
 
-# ---------------- Pydantic Schema Validation ---------------- #
+## Pydantic Schema Validation
 
 
 @pytest.mark.parametrize(
@@ -375,8 +408,8 @@ def test_step_validates_omnidreams_condition_tensor_ranks(
     """Verify Pydantic rejects condition tensors with the wrong rank."""
     # Begin with a fully valid input and replace one field so the reported
     # Pydantic location identifies only the dimension under test.
-    user_condition = dict(_user_condition(1.0))
-    global_condition = dict(_global_condition(2.0, include_negative=True))
+    user_condition = _user_condition(1.0).model_dump()
+    global_condition = _global_condition(2.0, include_negative=True).model_dump()
     condition = user_condition if field_name == "hdmap" else global_condition
     condition[field_name] = torch.zeros((1,) * (expected_rank - 1))
     inference_input: Any = {
@@ -439,8 +472,8 @@ def test_step_validates_omnidreams_condition_tensor_shapes(
 ) -> None:
     """Verify Pydantic rejects fixed-axis and empty condition shapes."""
     # Keep every other field valid to isolate fixed-axis and empty-axis checks.
-    user_condition = dict(_user_condition(1.0))
-    global_condition = dict(_global_condition(2.0, include_negative=True))
+    user_condition = _user_condition(1.0).model_dump()
+    global_condition = _global_condition(2.0, include_negative=True).model_dump()
     condition = user_condition if field_name == "hdmap" else global_condition
     condition[field_name] = invalid_tensor
     inference_input: Any = {
@@ -493,8 +526,8 @@ def test_step_validates_condition_shape_relationships(
 ) -> None:
     """Verify Pydantic validates shapes shared by multiple conditions."""
     # These tensors are individually valid; only their shared dimensions differ.
-    user_condition = dict(_user_condition(1.0))
-    global_condition = dict(_global_condition(2.0, include_negative=True))
+    user_condition = _user_condition(1.0).model_dump()
+    global_condition = _global_condition(2.0, include_negative=True).model_dump()
     condition = user_condition if field_name == "hdmap" else global_condition
     condition[field_name] = invalid_tensor
     inference_input: Any = {
@@ -510,7 +543,7 @@ def test_step_validates_condition_shape_relationships(
     assert session.autoregressive_index == 0
 
 
-# ------------ Pipeline-aware Pydantic Validation ------------ #
+## Pipeline-aware Pydantic Validation
 
 
 def test_step_validates_hdmap_resolution_alignment_with_pipeline(
