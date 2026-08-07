@@ -48,7 +48,9 @@ from flashdreams.infra.runner_io import (
     load_video_tensor,
     runner_artifact_path,
     write_runner_stats,
+    write_video_tensor,
 )
+from flashdreams.infra.video_output import VideoResultCollector
 
 DEFAULT_VIDEO_HEIGHT = 704
 """Pixel-space rollout height (matches the trained 720p chassis)."""
@@ -391,6 +393,10 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             torch.distributed.barrier()
 
         output_stream = self.create_video_output_stream(fps=cfg.output_fps)
+        output_collector = VideoResultCollector(
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
         start = 0
         for i in range(cfg.total_blocks):
             num_frames = self.pipeline.get_num_frames(i)
@@ -408,10 +414,19 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 hdmap=hdmap_videos_t[:, :, start:end],
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            output_stream.process(video_chunk, autoregressive_index=i, stats=stats)
+            output_collector.add(
+                output_stream.process(
+                    video_chunk,
+                    autoregressive_index=i,
+                    metrics=stats,
+                )
+            )
             start = end
 
-        video = output_stream.finish()
+        tail = output_stream.finish()
+        if tail is not None:
+            output_collector.add(tail)
+        video = output_collector.finish()
         if video is None:
             return
         generated_num_frames = video.shape[2]
@@ -427,7 +442,7 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             )
 
         video_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        video_path = output_stream.write_mp4(
+        video_path = write_video_tensor(
             canvas,
             video_path,
             fps=cfg.output_fps,
@@ -440,9 +455,11 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             f"-> {video_path.resolve()}"
         )
 
-        if output_stream.stats_history:
+        if output_collector.stats_history:
             stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, output_stream.stats_history
+                cfg.output_dir,
+                cfg.runner_name,
+                output_collector.stats_history,
             )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

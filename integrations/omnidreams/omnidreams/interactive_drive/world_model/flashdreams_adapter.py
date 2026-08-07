@@ -733,8 +733,6 @@ class FlashdreamsWorldModelSession:
         return VideoOutputStream(
             postprocess_stream=postprocess_stream,
             output_layout="bvtchw",
-            collect_output=False,
-            move_to_cpu=False,
         )
 
     def _process_video(
@@ -742,10 +740,11 @@ class FlashdreamsWorldModelSession:
     ) -> torch.Tensor:
         if self._output_stream is None:
             self._output_stream = self._new_output_stream()
-        processed = self._output_stream.process(
+        result = self._output_stream.process(
             video,
             autoregressive_index=autoregressive_index,
         )
+        processed = result.video_chunk
         if processed.shape[2] != video.shape[2]:
             raise RuntimeError(
                 "Interactive post-processing must emit one display frame for "

@@ -76,10 +76,9 @@ def test_mp4_video_output_target_writes_artifact_on_close(tmp_path: Path) -> Non
     ]
     assert artifacts[0].metadata["stats_history"] == (
         {
-            "autoregressive_index": 3,
-            "model_step_s": 0.5,
             "step_index": 3,
             "frames": 4,
+            "model_step_s": 0.5,
             "output_start_s": 1.0,
             "output_end_s": 2.0,
         },

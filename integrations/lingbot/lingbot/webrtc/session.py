@@ -607,8 +607,6 @@ class LingbotInferenceRuntime:
         self._output_stream = VideoOutputStream(
             postprocess_stream=None,
             output_layout="tchw",
-            collect_output=False,
-            move_to_cpu=False,
         )
 
         self._device: torch.device | None = None
@@ -1334,11 +1332,10 @@ class LingbotInferenceRuntime:
             input=camctrl_input,
         )
         stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
-        result = self._output_stream.make_step_result(
+        result = self._output_stream.process(
             video_chunk,
             autoregressive_index=self.autoregressive_index,
-            stats=stats,
-            sync_device=self._device,
+            metrics=stats,
         )
         if result.frame_count != num_frames:
             raise LingbotRuntimeError(

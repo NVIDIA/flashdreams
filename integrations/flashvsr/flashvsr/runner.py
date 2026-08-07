@@ -37,6 +37,7 @@ from flashdreams.infra.runner_io import (
     runner_artifact_path,
     write_runner_stats,
 )
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
     FlashVSRPipeline,
@@ -423,6 +424,14 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
         cache = self._initialize_cache()
 
         output_stream = self.create_video_output_stream(fps=fps)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=fps,
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         for chunk_idx, (start, size) in enumerate(chunks):
             clip = video_t[:, :, start : start + size]
             video_chunk = self.pipeline.generate(
@@ -432,7 +441,7 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             )
             pipeline_frames = int(video_chunk.shape[2])
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
-            stats_extra: dict[str, float | int] | None = None
+            metrics = dict(stats or {})
             if stats is not None:
                 # Pipeline throughput is based on this AR step's direct output.
                 # Postprocess emission/buffering is reported separately.
@@ -442,27 +451,40 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     if chunk_total_ms > 0
                     else 0.0
                 )
-                stats_extra = {"frames": pipeline_frames, "fps": chunk_fps}
-            output_stream.process(
-                video_chunk,
-                autoregressive_index=chunk_idx,
-                stats=stats,
-                stats_extra=stats_extra,
+                metrics.update(
+                    {
+                        "pipeline_frames": pipeline_frames,
+                        "pipeline_fps": chunk_fps,
+                    }
+                )
+            output_target.write(
+                output_stream.process(
+                    video_chunk,
+                    autoregressive_index=chunk_idx,
+                    metrics=metrics,
+                )
             )
 
-        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        video_path = output_stream.finish_to_mp4(video_path, fps=fps)
-        if video_path is None:
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
+        video_artifact = artifacts[0]
+        video_path = Path(video_artifact.uri)
 
         logger.info(
-            f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
+            f"[{config.runner_name}] wrote video {video_artifact.metadata['shape']} "
             f"-> {video_path.resolve()}"
         )
 
-        if output_stream.stats_history:
+        stats_history = video_artifact.metadata["stats_history"]
+        if stats_history:
             stats_path = write_runner_stats(
-                config.output_dir, config.runner_name, output_stream.stats_history
+                config.output_dir,
+                config.runner_name,
+                list(stats_history),
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> "

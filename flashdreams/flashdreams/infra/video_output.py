@@ -17,8 +17,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Literal, TypeAlias, cast
 
 import torch
@@ -27,6 +26,7 @@ from torch import Tensor
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.postprocess import VideoPostprocessStream, VideoTensorLayout
 from flashdreams.infra.results import StepResult
+from flashdreams.infra.time import TimeWindow
 
 WritableVideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
 
@@ -149,178 +149,119 @@ def lazy_rgb_frames_from_video_tensor(
 
 
 class VideoOutputStream:
-    """Post-process and optionally collect generated video tensors.
-
-    Runner CLI, realtime serving, and local presentation all use this same
-    tensor-in/tensor-out boundary. Transport-specific result envelopes and
-    frame conversions happen after :meth:`process`.
-    """
+    """Turn generated tensors into post-processed step results."""
 
     def __init__(
         self,
         *,
         postprocess_stream: VideoPostprocessStream | None,
         output_layout: VideoTensorLayout,
-        collect_output: bool = True,
-        move_to_cpu: bool = True,
-        empty_message: str = "runner emitted no video frames",
     ) -> None:
         self.postprocess_stream = postprocess_stream
         self.output_layout = output_layout
-        self._time_dim = video_layout_time_dim(output_layout)
-        self._collect_output = collect_output
-        self.move_to_cpu = move_to_cpu
-        self.empty_message = empty_message
-        self._chunks: list[Tensor] = []
         self._closed = False
-        self.stats_history: list[dict[str, object]] = []
-
-    @property
-    def collect_output(self) -> bool:
-        """Return whether this stream collects chunks for rank-zero writing."""
-        return self._collect_output
+        self._last_step_index: int | None = None
 
     def process(
         self,
         video_chunk: Tensor,
         *,
         autoregressive_index: int,
-        stats: dict[str, float] | None = None,
-        stats_extra: Mapping[str, object] | None = None,
-    ) -> Tensor:
-        """Process one chunk, optionally collect it, and return emitted frames."""
+        metrics: Mapping[str, float | int] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        output_window: TimeWindow | None = None,
+    ) -> StepResult:
+        """Post-process one generated chunk into the shared result boundary."""
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
         processed = video_chunk
+        result_metadata = dict(metadata or {})
         if self.postprocess_stream is not None:
             processed = self.postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=autoregressive_index,
             )
-        self._append_if_nonempty(processed)
-        if self.collect_output and stats is not None:
-            if self.postprocess_stream is None:
-                combined_stats: dict[str, object] = dict(stats)
-            else:
-                combined_stats = self.postprocess_stream.add_process_stats(stats)
-            entry: dict[str, object] = {
-                "autoregressive_index": autoregressive_index,
-                **combined_stats,
-            }
-            if stats_extra is not None:
-                entry.update(stats_extra)
-            self.stats_history.append(entry)
-        return processed
-
-    def finish(self) -> Tensor | None:
-        """Flush post-processing and return the collected rank-zero video."""
-        if self._closed:
-            return None
-        self._closed = True
-        if self.postprocess_stream is not None:
-            flushed = self.postprocess_stream.finish()
-            if flushed is not None:
-                self._append_if_nonempty(flushed)
-        return self._collected_output()
-
-    def make_step_result(
-        self,
-        video_chunk: Tensor,
-        *,
-        autoregressive_index: int,
-        stats: dict[str, float] | None = None,
-        metadata: Mapping[str, Any] | None = None,
-        sync_device: torch.device | str | None = None,
-    ) -> StepResult:
-        """Process a chunk and package the emitted frames for a live consumer.
-
-        ``sync_device`` is useful for consumers such as WebRTC that hand a
-        GPU-resident result to another subsystem immediately after generation.
-        It synchronizes only when it names a CUDA device and never moves the
-        emitted tensor to the host.
-        """
-        processed = self.process(
-            video_chunk,
-            autoregressive_index=autoregressive_index,
-            stats=stats,
-        )
-        if sync_device is not None:
-            device = torch.device(sync_device)
-            if device.type == "cuda":
-                torch.cuda.current_stream(device).synchronize()
+            postprocess_stats = self.postprocess_stream.last_process_stats
+            if postprocess_stats is not None:
+                result_metadata["postprocess"] = postprocess_stats.as_dict()
+        self._last_step_index = autoregressive_index
         return StepResult.from_video_chunk(
             step_index=autoregressive_index,
             video_chunk=processed.detach(),
             layout=self.output_layout,
-            metrics=stats,
-            metadata=metadata,
+            output_window=output_window,
+            metrics=metrics,
+            metadata=result_metadata,
         )
 
-    def finish_to_mp4(
-        self,
-        output_path: str | Path,
-        *,
-        fps: int | float,
-        writer: Callable[..., Path] | None = None,
-        install_hint: str | None = None,
-    ) -> Path | None:
-        """Finish this collecting stream and write its frames as one MP4.
-
-        The stream converts its declared output layout to the runner I/O
-        layout, including tiling ``bvtchw`` views horizontally.
-        """
-        video = self.finish()
-        if video is None:
+    def finish(self) -> StepResult | None:
+        """Close the stream and return a post-processing tail, when present."""
+        if self._closed:
             return None
-        return self.write_mp4(
-            video,
-            output_path,
-            fps=fps,
+        self._closed = True
+        if self.postprocess_stream is None:
+            return None
+        flushed = self.postprocess_stream.finish()
+        if flushed is None:
+            return None
+        if self._last_step_index is None:
+            raise RuntimeError("post-processing emitted a tail before any video step")
+        return StepResult.from_video_chunk(
+            step_index=self._last_step_index,
+            video_chunk=flushed.detach(),
             layout=self.output_layout,
-            writer=writer,
-            install_hint=install_hint,
+            metadata={"postprocess_tail": True},
         )
 
-    def write_mp4(
+
+class VideoResultCollector:
+    """Collect video results for persistence or composed presentation."""
+
+    def __init__(
         self,
-        video: Tensor,
-        output_path: str | Path,
         *,
-        fps: int | float,
-        layout: VideoTensorLayout | str | None = None,
-        writer: Callable[..., Path] | None = None,
-        install_hint: str | None = None,
-    ) -> Path:
-        """Write video frames as MP4 using this stream's runner output path.
+        output_layout: VideoTensorLayout,
+        enabled: bool = True,
+        move_to_cpu: bool = True,
+        empty_message: str = "runner emitted no video frames",
+    ) -> None:
+        self.output_layout = output_layout
+        self.enabled = enabled
+        self.move_to_cpu = move_to_cpu
+        self.empty_message = empty_message
+        self._time_dim = video_layout_time_dim(output_layout)
+        self._chunks: list[Tensor] = []
+        self.stats_history: list[dict[str, object]] = []
 
-        ``layout`` defaults to :attr:`output_layout`; callers that compose a
-        presentation canvas can pass the runner-I/O ``thwc`` layout directly.
-        """
-        from flashdreams.infra.runner_io import (
-            DEFAULT_RUNNER_INSTALL_HINT,
-            write_video_tensor,
-        )
-
-        writable_video, writable_layout = prepare_video_for_mp4(
-            video, layout=layout or self.output_layout
-        )
-        output_writer = writer or write_video_tensor
-        path = output_writer(
-            writable_video,
-            output_path,
-            fps=fps,
-            layout=writable_layout,
-            install_hint=install_hint or DEFAULT_RUNNER_INSTALL_HINT,
-        )
-        return path
-
-    def _append_if_nonempty(self, output: Tensor) -> None:
-        if not self.collect_output or output.shape[self._time_dim] == 0:
+    def add(self, result: StepResult) -> None:
+        """Collect one video result and its serializable statistics."""
+        if result.layout != self.output_layout:
+            raise ValueError(
+                f"collector expected layout {self.output_layout!r}, "
+                f"got {result.layout!r}."
+            )
+        if not self.enabled:
             return
-        self._chunks.append(output.cpu() if self.move_to_cpu else output)
+        if result.frame_count > 0:
+            chunk = result.video_chunk
+            self._chunks.append(chunk.cpu() if self.move_to_cpu else chunk)
+        entry: dict[str, object] = {
+            "step_index": result.step_index,
+            "frames": result.frame_count,
+            **result.metrics,
+        }
+        if result.output_window is not None:
+            entry["output_start_s"] = result.output_window.start_s
+            entry["output_end_s"] = result.output_window.end_s
+        if "postprocess" in result.metadata:
+            entry["postprocess"] = result.metadata["postprocess"]
+        if result.metadata.get("postprocess_tail"):
+            entry["postprocess_tail"] = True
+        self.stats_history.append(entry)
 
-    def _collected_output(self) -> Tensor | None:
-        if not self.collect_output:
+    def finish(self) -> Tensor | None:
+        """Concatenate and return all collected video chunks."""
+        if not self.enabled:
             return None
         if not self._chunks:
             raise ValueError(self.empty_message)
@@ -364,6 +305,7 @@ def prepare_video_for_mp4(
 __all__ = [
     "LazyRGBFrame",
     "VideoOutputStream",
+    "VideoResultCollector",
     "infer_video_num_frames",
     "lazy_rgb_frames_from_video_tensor",
     "prepare_video_for_mp4",

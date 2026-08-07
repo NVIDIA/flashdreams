@@ -156,7 +156,7 @@ Make the stream the only raw-tensor-to-generated-result stage:
 result = output_stream.process(
     video_chunk,
     autoregressive_index=step_index,
-    stats=stats,
+    metrics=metrics,
 )
 ```
 
@@ -165,16 +165,16 @@ result = output_stream.process(
 
 #### TODO
 
-- [ ] Change `VideoOutputStream.process` to return `StepResult`.
-- [ ] Remove `VideoOutputStream.make_step_result`.
-- [ ] Keep streaming post-processing and result construction in the stream.
-- [ ] Move MP4 collection and writing into `Mp4VideoOutputTarget`.
-- [ ] Move runner statistics persistence into the runner/MP4 target.
-- [ ] Remove transport-specific CUDA synchronization from the stream.
-- [ ] Define how `finish` reports a buffered post-processor tail without
+- [x] Change `VideoOutputStream.process` to return `StepResult`.
+- [x] Remove `VideoOutputStream.make_step_result`.
+- [x] Keep streaming post-processing and result construction in the stream.
+- [x] Move MP4 collection and writing into `Mp4VideoOutputTarget`.
+- [x] Move runner statistics persistence into the runner/MP4 target.
+- [x] Remove transport-specific CUDA synchronization from the stream.
+- [x] Define how `finish` reports a buffered post-processor tail without
       introducing a second result type.
-- [ ] Verify that a disabled postprocessor preserves tensor identity and device.
-- [ ] Verify that stateful postprocessors are reset between sessions.
+- [x] Verify that a disabled postprocessor preserves tensor identity and device.
+- [x] Verify that stateful postprocessors are reset between sessions.
 
 Acceptance criteria:
 

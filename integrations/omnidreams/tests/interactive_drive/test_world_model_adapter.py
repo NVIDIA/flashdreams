@@ -288,6 +288,7 @@ def test_session_postprocesses_local_frames_and_supports_live_toggle(
             self.kwargs = kwargs
             self.calls: list[int] = []
             self.finished = False
+            self.last_process_stats = None
             streams.append(self)
 
         def process(

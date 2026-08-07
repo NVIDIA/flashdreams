@@ -1002,8 +1002,6 @@ class OmnidreamsInferenceRuntime:
         return VideoOutputStream(
             postprocess_stream=postprocess_stream,
             output_layout="bvtchw",
-            collect_output=False,
-            move_to_cpu=False,
         )
 
     def _generate_one_chunk_sync(
@@ -1087,10 +1085,9 @@ class OmnidreamsInferenceRuntime:
                 layout="bvtchw",
             )
         else:
-            result = self._output_stream.make_step_result(
+            result = self._output_stream.process(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
-                sync_device=self._device,
             )
         self.autoregressive_index += 1
         return result

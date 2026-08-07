@@ -199,7 +199,7 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
 
     captured: dict[str, object] = {}
 
-    def _fake_make_step_result(
+    def _fake_process(
         _stream: VideoOutputStream, video_chunk: object, **kwargs: object
     ) -> StepResult:
         captured["video_chunk"] = video_chunk
@@ -221,8 +221,8 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     runtime._base_intrinsics = torch.ones(4)
     monkeypatch.setattr(
         VideoOutputStream,
-        "make_step_result",
-        _fake_make_step_result,
+        "process",
+        _fake_process,
     )
 
     result = runtime._generate_one_chunk_sync(
@@ -231,7 +231,7 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     )
 
     assert captured["video_chunk"] is pipeline.output
-    assert captured["sync_device"] == torch.device("cpu")
+    assert captured["metrics"] == {"total_ms": 3.0}
     assert pipeline.output.detach_calls == 0
     assert result.metrics == {"total_ms": 3.0}
     assert runtime.autoregressive_index == 1

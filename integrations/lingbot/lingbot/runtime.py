@@ -31,6 +31,7 @@ from flashdreams.runtime import (
     InferenceInput,
     InferenceInputSchema,
     InputField,
+    Mp4VideoOutputTarget,
     OutputArtifact,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
@@ -614,8 +615,17 @@ class LingbotRunnerOutputTarget:
     fps: int | float
     install_hint: str = _INSTALL_HINT
     _opened: bool = False
+    _mp4_target: Mp4VideoOutputTarget | None = None
 
     def open(self) -> None:
+        video_path = runner_artifact_path(self.output_dir, self.runner_name, "mp4")
+        self._mp4_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=self.fps,
+            output_layout=self.output_stream.output_layout,
+            install_hint=self.install_hint,
+        )
+        self._mp4_target.open()
         self._opened = True
 
     def write(self, result: StepResult) -> None:
@@ -625,36 +635,41 @@ class LingbotRunnerOutputTarget:
             raise TypeError(
                 "LingbotRunnerOutputTarget requires a video StepResult with layout."
             )
-        self.output_stream.process(
+        if self._mp4_target is None:
+            raise RuntimeError("Lingbot MP4 target is not open.")
+        processed = self.output_stream.process(
             result.video_chunk,
             autoregressive_index=result.step_index,
-            stats=dict(result.metrics) or None,
+            metrics=result.metrics,
+            metadata=result.metadata,
+            output_window=result.output_window,
         )
+        self._mp4_target.write(processed)
 
     def close(self) -> tuple[OutputArtifact, ...]:
         self._opened = False
-        artifacts: list[OutputArtifact] = []
-        video_path = runner_artifact_path(self.output_dir, self.runner_name, "mp4")
-        video_path = self.output_stream.finish_to_mp4(
-            video_path,
-            fps=self.fps,
-            install_hint=self.install_hint,
-        )
-        if video_path is None:
+        target = self._mp4_target
+        self._mp4_target = None
+        if target is None:
             return ()
+        tail = self.output_stream.finish()
+        if tail is not None:
+            target.write(tail)
+        artifacts = list(target.close())
+        if not artifacts:
+            return ()
+        video_path = Path(artifacts[0].uri)
         logger.info(
             "[{}] wrote video -> {}",
             self.runner_name,
             video_path.resolve(),
         )
-        artifacts.append(
-            OutputArtifact(kind="video/mp4", uri=str(video_path.resolve()))
-        )
-        if self.output_stream.stats_history:
+        stats_history = artifacts[0].metadata.get("stats_history", ())
+        if stats_history:
             stats_path = write_runner_stats(
                 self.output_dir,
                 self.runner_name,
-                self.output_stream.stats_history,
+                list(stats_history),
             )
             logger.info(
                 "[{}] wrote per-AR-step stats -> {}",

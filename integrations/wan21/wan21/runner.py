@@ -39,6 +39,7 @@ from flashdreams.recipes.wan import (
     WanInferencePipeline,
     WanInferencePipelineCache,
 )
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 __all__ = [
     "Wan21I2VRunnerConfig",
@@ -171,13 +172,27 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
 
         # Generate the output in one AR step.
         output_stream = self.create_video_output_stream(fps=config.fps)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=config.fps,
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        output_stream.process(generated, autoregressive_index=0, stats=stats)
-        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        video_path = output_stream.finish_to_mp4(video_path, fps=config.fps)
-        if video_path is None:
+        output_target.write(
+            output_stream.process(generated, autoregressive_index=0, metrics=stats)
+        )
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
+        video_artifact = artifacts[0]
+        video_path = Path(video_artifact.uri)
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
@@ -185,11 +200,12 @@ class Wan21T2VRunner(Runner[Wan21T2VRunnerConfig, WanInferencePipeline]):
         )
 
         # Write the perf stats.
-        if output_stream.stats_history:
+        stats_history = video_artifact.metadata["stats_history"]
+        if stats_history:
             stats_path = write_runner_stats(
                 config.output_dir,
                 config.runner_name,
-                output_stream.stats_history,
+                list(stats_history),
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

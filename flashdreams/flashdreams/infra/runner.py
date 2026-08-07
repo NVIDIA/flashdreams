@@ -183,9 +183,8 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self,
         *,
         fps: float | None = None,
-        move_to_cpu: bool = True,
     ) -> VideoOutputStream:
-        """Create the standard runner video output stream for one rollout."""
+        """Create the standard post-processing stream for one rollout."""
         layout = self.config.postprocess_output_layout
         if layout is None:
             raise ValueError(
@@ -194,8 +193,6 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         return VideoOutputStream(
             postprocess_stream=self.create_postprocess_stream(fps=fps),
             output_layout=layout,
-            collect_output=self.is_rank_zero,
-            move_to_cpu=move_to_cpu,
         )
 
     @abstractmethod

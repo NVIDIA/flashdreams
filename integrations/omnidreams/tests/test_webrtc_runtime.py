@@ -241,6 +241,7 @@ def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
     class _FakePostprocessStream:
         def __init__(self) -> None:
             self.calls: list[int] = []
+            self.last_process_stats = None
 
         def process(
             self, video_chunk: torch.Tensor, *, autoregressive_index: int
