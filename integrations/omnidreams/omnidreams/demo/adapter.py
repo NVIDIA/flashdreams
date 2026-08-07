@@ -10,13 +10,9 @@ from dataclasses import replace
 from typing import Any
 
 from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
-from omnidreams.webrtc.session import (
-    OmnidreamsInferenceRuntime,
-    OmnidreamsRuntimeConfig,
-    create_omnidreams_webrtc_session_manager,
-)
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -35,6 +31,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
+from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
 from .replay import (
@@ -48,7 +45,11 @@ from .spec import (
     resolve_replay_scenario,
     resolve_webrtc_scenario,
 )
-from .webrtc import omnidreams_webrtc_app_resources, validate_postprocess_preset
+from .webrtc import (
+    OmnidreamsWebRTCModelRuntime,
+    OmnidreamsWebRTCModelRuntimeConfig,
+    omnidreams_webrtc_app_resources,
+)
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 WebRTCRuntimeFactory = Callable[..., Any]
@@ -61,7 +62,7 @@ class OmnidreamsDemoAdapter:
         self,
         *,
         replay_runtime_factory: ReplayRuntimeFactory = OmnidreamsReplayRuntime,
-        webrtc_runtime_factory: WebRTCRuntimeFactory = OmnidreamsInferenceRuntime,
+        webrtc_runtime_factory: WebRTCRuntimeFactory = OmnidreamsWebRTCModelRuntime,
         pipeline_factory: PipelineFactory | None = None,
     ) -> None:
         self._replay_runtime_factory = replay_runtime_factory
@@ -151,9 +152,9 @@ class OmnidreamsDemoAdapter:
         *,
         spec: DemoSpec,
         runtime: Any,
-    ) -> OmnidreamsRuntimeConfig:
+    ) -> OmnidreamsWebRTCModelRuntimeConfig:
         runtime_config = getattr(runtime, "config", None)
-        if isinstance(runtime_config, OmnidreamsRuntimeConfig):
+        if isinstance(runtime_config, OmnidreamsWebRTCModelRuntimeConfig):
             return runtime_config
         if spec.input_mode != "keyboard-driving":
             raise ValueError(
@@ -167,13 +168,14 @@ class OmnidreamsDemoAdapter:
             raise RuntimeError("DemoSpec.config was not initialized.")
         self.validate_config(config)
         scenario = resolve_webrtc_scenario(spec.scenario)
-        validate_postprocess_preset(scenario.postprocess_preset)
+        if scenario.postprocess_preset:
+            resolve_postprocess_preset(scenario.postprocess_preset)
 
         preset_id = self._preset_id(config)
         pipeline_config = self._pipeline_config(config)
         seed = _option(config, "seed", 42)
         device = config.device or str(_option(config, "device", "cuda:0"))
-        runtime_config = OmnidreamsRuntimeConfig(
+        runtime_config = OmnidreamsWebRTCModelRuntimeConfig(
             pipeline_config_name=preset_id,
             pipeline_config=pipeline_config,
             scene_dir=scenario.scene_dir,
@@ -198,17 +200,23 @@ class OmnidreamsDemoAdapter:
         *,
         spec: DemoSpec,
         runtime: Any,
-        runtime_config: OmnidreamsRuntimeConfig,
+        runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
         fps: int,
         client_liveness_timeout_s: float,
     ) -> BaseWebRTCSessionManager[
-        OmnidreamsInferenceRuntime,
-        OmnidreamsRuntimeConfig,
+        OmnidreamsWebRTCModelRuntime,
+        OmnidreamsWebRTCModelRuntimeConfig,
     ]:
         del spec, fps
-        return create_omnidreams_webrtc_session_manager(
+        return BaseWebRTCSessionManager(
             runtime=runtime,
             runtime_config=runtime_config,
+            fps=runtime_config.fps,
+            identity=runtime_config.pipeline_config_name,
+            busy_message="An OmniDreams session is already active.",
+            warmup_label="OmniDreams WebRTC",
+            supported_control_keys=WSAD_SUPPORTED_KEYS,
+            fatal_generation_errors=True,
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
 
@@ -246,9 +254,9 @@ def _option(config: InferenceConfig, name: str, default: Any) -> Any:
 
 
 def _apply_webrtc_runtime_options(
-    runtime_config: OmnidreamsRuntimeConfig,
+    runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
     options: Any,
-) -> OmnidreamsRuntimeConfig:
+) -> OmnidreamsWebRTCModelRuntimeConfig:
     if not isinstance(options, dict):
         options = dict(options)
     overrides: dict[str, Any] = {}
