@@ -24,9 +24,11 @@ from lingbot.demo.replay import (
     LingbotReplayRuntimeOptions,
 )
 from lingbot.demo.webrtc import LingbotDemoWebRTCSessionManager
+from lingbot.input_mapping import (
+    FIELD_CAMERA_INTRINSICS,
+    FIELD_CAMERA_TRAJECTORY,
+)
 from lingbot.runtime import (
-    FIELD_CAMERA_INTRINSICS_PATH,
-    FIELD_CAMERA_POSES_PATH,
     FIELD_FIRST_FRAME_PATH,
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -39,6 +41,7 @@ from lingbot.webrtc.session import LingbotRuntimeConfig
 
 from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
+    CanonicalInputs,
     InferenceConfig,
     InferenceInput,
     OutputArtifact,
@@ -56,6 +59,19 @@ from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> None:
+    """Write real .npy camera assets; the input mapping loads them for real."""
+    trajectory = np.tile(np.eye(4, dtype=np.float32), (frames, 1, 1))
+    trajectory[:, 2, 3] = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+    np.save(poses, trajectory)
+    np.save(
+        intrinsics,
+        np.tile(
+            np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)
+        ),
+    )
 
 
 def test_lingbot_demo_defaults_to_interactive_preset() -> None:
@@ -78,13 +94,16 @@ def test_lingbot_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
     assert {
         FIELD_PROMPT,
         FIELD_FIRST_FRAME_PATH,
-        FIELD_CAMERA_POSES_PATH,
-        FIELD_CAMERA_INTRINSICS_PATH,
         FIELD_TOTAL_BLOCKS,
         FIELD_PIXEL_HEIGHT,
         FIELD_PIXEL_WIDTH,
         FIELD_FPS,
     }.issubset(fields)
+    # Camera control is per-step model input, not session-global scenario data.
+    step_fields = {
+        field.name for field in adapter.inference_input_schema.step_fields
+    }
+    assert step_fields == {FIELD_CAMERA_TRAJECTORY, FIELD_CAMERA_INTRINSICS}
 
 
 def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
@@ -92,8 +111,7 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
     image.write_bytes(b"fake")
-    poses.write_bytes(b"fake")
-    intrinsics.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics)
     pipeline_config = object()
     adapter = LingbotDemoAdapter()
     output = _RecordingOutputTarget()
@@ -136,8 +154,6 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
     inputs = calls[0]["initial_inputs"].global_conditioning
     assert inputs[FIELD_PROMPT] == "drive through a city"
     assert inputs[FIELD_FIRST_FRAME_PATH] == image
-    assert inputs[FIELD_CAMERA_POSES_PATH] == poses
-    assert inputs[FIELD_CAMERA_INTRINSICS_PATH] == intrinsics
     assert inputs[FIELD_TOTAL_BLOCKS] == 1
 
 
@@ -192,8 +208,9 @@ def test_lingbot_replay_cli_defaults_to_example_data(
     example_dir = tmp_path / "example"
     example_dir.mkdir()
     (example_dir / "image.jpg").write_bytes(b"fake")
-    (example_dir / "poses.npy").write_bytes(b"fake")
-    (example_dir / "intrinsics.npy").write_bytes(b"fake")
+    _write_camera_assets(
+        example_dir / "poses.npy", example_dir / "intrinsics.npy"
+    )
     (example_dir / "prompt.txt").write_text("drive through a forest\n")
     downloaded: list[int] = []
 
@@ -215,8 +232,6 @@ def test_lingbot_replay_cli_defaults_to_example_data(
     inputs = prepared.initial_inputs.global_conditioning
     assert downloaded == [0]
     assert inputs[FIELD_FIRST_FRAME_PATH] == example_dir / "image.jpg"
-    assert inputs[FIELD_CAMERA_POSES_PATH] == example_dir / "poses.npy"
-    assert inputs[FIELD_CAMERA_INTRINSICS_PATH] == example_dir / "intrinsics.npy"
     assert inputs[FIELD_PROMPT] == "drive through a forest"
 
 
@@ -240,23 +255,12 @@ def test_lingbot_replay_runtime_generates_video_step_result(
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
     image.write_bytes(b"fake")
-    np.save(poses, np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)))
-    np.save(intrinsics, np.ones((2, 4), dtype=np.float32))
+    _write_camera_assets(poses, intrinsics, frames=16)
     pipeline = _FakeLingbotPipeline()
     monkeypatch.setattr(
         runtime_module,
         "load_first_frame_tensor",
         lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
-    )
-    monkeypatch.setattr(
-        runtime_module,
-        "get_Ks_transformed",
-        lambda intrinsics_t, **kwargs: intrinsics_t,
-    )
-    monkeypatch.setattr(
-        runtime_module,
-        "preprocess_example_poses",
-        lambda c2ws: (c2ws, 2.5),
     )
 
     runtime = LingbotReplayRuntime(
@@ -276,12 +280,31 @@ def test_lingbot_replay_runtime_generates_video_step_result(
         pixel_width=2,
         fps=16,
     )
-    session = runtime.start_session(inference_input_from_replay_inputs(replay_inputs))
+    adapter = LingbotDemoAdapter()
+    mapping = adapter.create_input_mapping(replay_inputs)
+    initial_inputs = mapping.map_global_conditioning_inputs(
+        canonical_inputs=CanonicalInputs(),
+        inference_input=inference_input_from_replay_inputs(replay_inputs),
+    )
+    session = runtime.start_session(initial_inputs)
 
     request = session.next_step_request()
     assert request is not None
     assert request.step_index == 0
-    result = session.step(InferenceInput())
+    # The session asks for exactly this chunk's slice of the input timeline.
+    assert request.user_input_window is not None
+    assert request.user_input_window.start_s == 0.0
+    assert request.user_input_window.end_s == 1 / 16
+    assert request.metadata["num_frames"] == 1
+
+    step_inputs = mapping.map_step_inputs(
+        canonical_inputs=CanonicalInputs(),
+        inference_input=InferenceInput(),
+        request=request,
+    )
+    assert step_inputs.step[FIELD_CAMERA_TRAJECTORY].shape == (1, 4, 4)
+    assert step_inputs.step[FIELD_CAMERA_INTRINSICS].shape == (1, 4)
+    result = session.step(step_inputs)
 
     assert result.step_index == 0
     assert result.frame_count == 1
@@ -301,7 +324,7 @@ def test_lingbot_replay_runtime_generates_video_step_result(
             "autoregressive_index": 0,
             "intrinsics_shape": (1, 4),
             "poses_shape": (1, 4, 4),
-            "world_scale": 2.5,
+            "world_scale": pytest.approx(mapping.camera_trace.world_scale),
         }
     ]
     runtime.close()

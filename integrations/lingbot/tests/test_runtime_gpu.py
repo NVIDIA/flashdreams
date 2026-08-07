@@ -12,6 +12,7 @@ import torch
 from lingbot import runtime as runtime_module
 from lingbot.runtime import (
     LINGBOT_MODEL_ID,
+    LingbotModelAdapter,
     LingbotReplayInputs,
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,
@@ -19,7 +20,7 @@ from lingbot.runtime import (
 )
 
 from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime import InferenceConfig, InferenceInput
+from flashdreams.runtime import CanonicalInputs, InferenceConfig, InferenceInput
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -36,8 +37,13 @@ def test_lingbot_replay_runtime_accepts_direct_inputs_on_cuda(
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
     image.write_bytes(b"fake")
-    np.save(poses, np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)))
-    np.save(intrinsics, np.ones((2, 4), dtype=np.float32))
+    trajectory = np.tile(np.eye(4, dtype=np.float32), (32, 1, 1))
+    trajectory[:, 2, 3] = np.arange(32, dtype=np.float32)
+    np.save(poses, trajectory)
+    np.save(
+        intrinsics,
+        np.tile(np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (32, 1)),
+    )
     pipeline = _FakeCudaLingbotPipeline()
 
     def _fake_load_first_frame_tensor(
@@ -56,17 +62,6 @@ def test_lingbot_replay_runtime_accepts_direct_inputs_on_cuda(
         "load_first_frame_tensor",
         _fake_load_first_frame_tensor,
     )
-    monkeypatch.setattr(
-        runtime_module,
-        "get_Ks_transformed",
-        lambda intrinsics_t, **_kwargs: intrinsics_t,
-    )
-    monkeypatch.setattr(
-        runtime_module,
-        "preprocess_example_poses",
-        lambda c2ws: (c2ws, 2.5),
-    )
-
     runtime = LingbotReplayRuntime(
         config=InferenceConfig(model_id=LINGBOT_MODEL_ID, device="cuda"),
         options=LingbotReplayRuntimeOptions(
@@ -84,9 +79,25 @@ def test_lingbot_replay_runtime_accepts_direct_inputs_on_cuda(
         pixel_width=2,
         fps=16,
     )
-    session = runtime.start_session(inference_input_from_replay_inputs(replay_inputs))
+    # Camera inputs now reach the session per step through the mapping, so the
+    # GPU path has to be driven the same way the standard loop drives it.
+    mapping = LingbotModelAdapter().create_input_mapping(replay_inputs)
+    session = runtime.start_session(
+        mapping.map_global_conditioning_inputs(
+            canonical_inputs=CanonicalInputs(),
+            inference_input=inference_input_from_replay_inputs(replay_inputs),
+        )
+    )
     try:
-        result = session.step(InferenceInput())
+        request = session.next_step_request()
+        assert request is not None
+        result = session.step(
+            mapping.map_step_inputs(
+                canonical_inputs=CanonicalInputs(),
+                inference_input=InferenceInput(),
+                request=request,
+            )
+        )
         torch.cuda.synchronize()
     finally:
         session.close()
@@ -97,7 +108,7 @@ def test_lingbot_replay_runtime_accepts_direct_inputs_on_cuda(
     assert result.output.video_chunk.is_cuda
     assert result.output.video_chunk.shape == (1, 3, 2, 2)
     assert pipeline.initialize_cache_devices == ["cuda"]
-    assert pipeline.generate_world_scales == [2.5]
+    assert pipeline.generate_world_scales == [mapping.camera_trace.world_scale]
 
 
 class _FakeCudaLingbotPipeline:

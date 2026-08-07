@@ -29,7 +29,6 @@ from flashdreams.infra.runner_io import (
 from flashdreams.infra.video_output import RunnerVideoOutputStream, VideoStepResult
 from flashdreams.runtime import (
     CanonicalInputSchema,
-    IdentityInputMapping,
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
@@ -39,7 +38,6 @@ from flashdreams.runtime import (
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.types import StepRequest, StepResult, TimeWindow
 from lingbot.encoder.camctrl import CamCtrlInput
-from lingbot.encoder.utils import get_Ks_transformed, preprocess_example_poses
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     EXAMPLE_DATA_DIR_LOCAL,
@@ -47,6 +45,16 @@ from lingbot.example_data import (
     ensure_example_data_downloaded,
     example_asset_urls,
     example_data_dirname,
+)
+from lingbot.input_mapping import (
+    CAMERA_COMMAND,
+    FIELD_CAMERA_INTRINSICS,
+    FIELD_CAMERA_TRAJECTORY,
+    FIELD_TOTAL_CAMERA_FRAMES,
+    TEXT_EVENT,
+    LingbotCameraTrace,
+    LingbotInputMapping,
+    load_camera_trace,
 )
 
 LINGBOT_MODEL_ID = "lingbot"
@@ -106,6 +114,40 @@ class LingbotReplayInputs:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class LingbotSessionInputs:
+    """Session-global Lingbot state established at session start or reset.
+
+    The camera trajectory is deliberately absent: it arrives per step through
+    ``InferenceInput.step``, built by the selected input mapping from either a
+    fixed trace or live user events.
+    """
+
+    prompt: str
+    first_frame_path: Path
+    total_blocks: int
+    pixel_height: int
+    pixel_width: int
+    fps: int
+    world_scale: float
+    total_camera_frames: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.total_blocks <= 0:
+            raise ValueError("LingbotSessionInputs.total_blocks must be > 0.")
+        if self.pixel_height <= 0 or self.pixel_width <= 0:
+            raise ValueError("LingbotSessionInputs pixel dimensions must be > 0.")
+        if self.fps <= 0:
+            raise ValueError("LingbotSessionInputs.fps must be > 0.")
+        if self.world_scale < 0:
+            raise ValueError("LingbotSessionInputs.world_scale must be >= 0.")
+        if self.total_camera_frames is not None and self.total_camera_frames <= 0:
+            raise ValueError(
+                "LingbotSessionInputs.total_camera_frames must be > 0 when set."
+            )
+        object.__setattr__(self, "first_frame_path", Path(self.first_frame_path))
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class LingbotReplayRuntimeOptions:
     """Construction knobs for the Lingbot replay runtime."""
 
@@ -126,7 +168,6 @@ class LingbotModelAdapter:
     ) -> None:
         self._runtime_factory = runtime_factory or LingbotReplayRuntime
         self._pipeline_factory = pipeline_factory
-        self._mapping = IdentityInputMapping()
 
     @property
     def model_id(self) -> str:
@@ -135,31 +176,22 @@ class LingbotModelAdapter:
     @property
     def inference_input_schema(self) -> InferenceInputSchema:
         return InferenceInputSchema(
-            description="Lingbot replay model inputs.",
+            description="Lingbot camera-control model inputs.",
             global_conditioning_fields=(
                 InputField(
                     name=FIELD_PROMPT,
                     input_modality="text",
                     frequency_consumed="once",
-                    description="Prompt text for the rollout.",
+                    description=(
+                        "Prompt text for the rollout. A non-empty value passed "
+                        "to step() requests a text-event context swap."
+                    ),
                 ),
                 InputField(
                     name=FIELD_FIRST_FRAME_PATH,
                     input_modality="image/path",
                     frequency_consumed="once",
                     description="First-frame RGB image path.",
-                ),
-                InputField(
-                    name=FIELD_CAMERA_POSES_PATH,
-                    input_modality="camera/poses-path",
-                    frequency_consumed="per_step",
-                    description="Path to [T,4,4] camera-to-world poses.",
-                ),
-                InputField(
-                    name=FIELD_CAMERA_INTRINSICS_PATH,
-                    input_modality="camera/intrinsics-path",
-                    frequency_consumed="per_step",
-                    description="Path to [T,4] camera intrinsics.",
                 ),
                 InputField(name=FIELD_TOTAL_BLOCKS, input_modality="count"),
                 InputField(name=FIELD_PIXEL_HEIGHT, input_modality="pixel-height"),
@@ -170,16 +202,97 @@ class LingbotModelAdapter:
                     required=False,
                     input_modality="scale",
                     frequency_consumed="once",
+                    description="Pose normalizer; supplied by the input mapping.",
+                ),
+                InputField(
+                    name=FIELD_TOTAL_CAMERA_FRAMES,
+                    required=False,
+                    input_modality="count",
+                    frequency_consumed="once",
+                    description=(
+                        "Frames the input source can supply. Absent means "
+                        "unbounded, so only total_blocks ends the rollout."
+                    ),
+                ),
+            ),
+            step_fields=(
+                InputField(
+                    name=FIELD_CAMERA_TRAJECTORY,
+                    input_modality="c2w_sequence",
+                    frequency_consumed="per_step",
+                    metadata={"shape": "[T,4,4]", "frame": "camera_to_world"},
+                    description="Camera-to-world poses for this chunk's frames.",
+                ),
+                InputField(
+                    name=FIELD_CAMERA_INTRINSICS,
+                    input_modality="intrinsics_vec4_sequence",
+                    frequency_consumed="per_step",
+                    metadata={"shape": "[T,4]"},
+                    description="Per-frame intrinsics for this chunk's frames.",
                 ),
             ),
         )
 
     @property
     def canonical_input_schema(self) -> CanonicalInputSchema | None:
-        return CanonicalInputSchema()
+        return CanonicalInputSchema(
+            modalities=(CAMERA_COMMAND, TEXT_EVENT),
+            description="Lingbot live camera control and text events.",
+        )
 
-    def default_input_mapping(self) -> IdentityInputMapping:
-        return self._mapping
+    def default_input_mapping(self) -> LingbotInputMapping | None:
+        """Return no default mapping; Lingbot mappings are scenario-bound.
+
+        Both trajectory sources need scenario data the adapter does not have
+        here: a fixed trace needs its ``.npy`` files, and live control needs
+        base intrinsics and a world scale. Callers build one with
+        :meth:`create_input_mapping`.
+        """
+        return None
+
+    def create_input_mapping(
+        self,
+        replay_inputs: LingbotReplayInputs,
+        *,
+        text_event_prompts: Mapping[str, str] | None = None,
+    ) -> LingbotInputMapping:
+        """Build the fixed-trace mapping for a resolved replay scenario."""
+        mapping = LingbotInputMapping(
+            fps=replay_inputs.fps,
+            trace=load_camera_trace(
+                camera_poses_path=replay_inputs.camera_poses_path,
+                camera_intrinsics_path=replay_inputs.camera_intrinsics_path,
+                pixel_height=replay_inputs.pixel_height,
+                pixel_width=replay_inputs.pixel_width,
+                intrinsics_reference_height=_INTRINSICS_REFERENCE_HEIGHT,
+                intrinsics_reference_width=_INTRINSICS_REFERENCE_WIDTH,
+                world_scale=replay_inputs.world_scale,
+            ),
+            text_event_prompts=text_event_prompts,
+        )
+        mapping.set_base_prompt(replay_inputs.prompt)
+        return mapping
+
+    def create_live_input_mapping(
+        self,
+        *,
+        fps: int,
+        base_intrinsics: Any,
+        world_scale: float,
+        prompt: str = "",
+        text_event_prompts: Mapping[str, str] | None = None,
+        trace: LingbotCameraTrace | None = None,
+    ) -> LingbotInputMapping:
+        """Build the event-driven mapping used by keyboard-driving scenarios."""
+        mapping = LingbotInputMapping(
+            fps=fps,
+            trace=trace,
+            base_intrinsics=base_intrinsics,
+            world_scale=world_scale,
+            text_event_prompts=text_event_prompts,
+        )
+        mapping.set_base_prompt(prompt)
+        return mapping
 
     def validate_config(self, config: InferenceConfig) -> None:
         if config.model_id != self.model_id:
@@ -266,10 +379,10 @@ class LingbotReplayRuntime:
             self._owns_pipeline = True
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
-        replay_inputs = replay_inputs_from_inference_input(inputs)
+        session_inputs = session_inputs_from_inference_input(inputs)
         return LingbotReplaySession(
             pipeline=self.pipeline,
-            replay_inputs=replay_inputs,
+            session_inputs=session_inputs,
             device=torch.device(f"cuda:{self.local_rank}")
             if dist.is_initialized()
             else torch.device(self.config.device or "cuda"),
@@ -290,19 +403,19 @@ class LingbotReplayRuntime:
 
 
 class LingbotReplaySession:
-    """One Lingbot rollout over resolved replay inputs."""
+    """One Lingbot rollout driven by per-step camera inputs."""
 
     def __init__(
         self,
         *,
         pipeline: Any,
-        replay_inputs: LingbotReplayInputs,
+        session_inputs: LingbotSessionInputs,
         device: torch.device,
         is_rank_zero: bool,
         output_layout: VideoTensorLayout,
     ) -> None:
         self.pipeline = pipeline
-        self.inputs = replay_inputs
+        self.inputs = session_inputs
         self.device = device
         self.is_rank_zero = is_rank_zero
         self.output_layout = output_layout
@@ -310,12 +423,8 @@ class LingbotReplaySession:
         self._closed = False
         self._step_index = 0
         self._frame_start = 0
+        self._active_prompt = session_inputs.prompt
         self._cache = self._initialize_cache()
-        (
-            self._camera_intrinsics,
-            self._camera_poses,
-            self._world_scale,
-        ) = self._load_camera_controls()
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device=self.device)
         if dist.is_initialized():
@@ -327,21 +436,44 @@ class LingbotReplaySession:
         if self._step_index >= self.inputs.total_blocks:
             return None
         num_frames = int(self.pipeline.get_num_output_frames(self._step_index))
-        if self._frame_start + num_frames > self._camera_poses.shape[0]:
+        frame_end = self._frame_start + num_frames
+        total_frames = self.inputs.total_camera_frames
+        if total_frames is not None and frame_end > total_frames:
             return None
-        return StepRequest(step_index=self._step_index)
+        fps = self.inputs.fps
+        return StepRequest(
+            step_index=self._step_index,
+            # The window is what lets a mapping slice user events for exactly
+            # this chunk instead of replaying the whole session history.
+            user_input_window=TimeWindow(
+                start_s=self._frame_start / fps,
+                end_s=frame_end / fps,
+            ),
+            metadata={
+                "num_frames": num_frames,
+                "frame_start": self._frame_start,
+            },
+        )
 
     def step(self, inputs: InferenceInput) -> StepResult:
-        del inputs
         if self._closed:
             raise RuntimeError("Lingbot replay session is closed.")
 
         step_index = self._step_index
         num_frames = int(self.pipeline.get_num_output_frames(step_index))
+        self._apply_global_conditioning_update(inputs)
+        camera_poses = _require_step_tensor(
+            inputs,
+            FIELD_CAMERA_TRAJECTORY,
+            expected_shape=(num_frames, 4, 4),
+        )
+        camera_intrinsics = _require_step_tensor(
+            inputs,
+            FIELD_CAMERA_INTRINSICS,
+            expected_shape=(num_frames, 4),
+        )
         frame_start = self._frame_start
         frame_end = frame_start + num_frames
-        if frame_end > self._camera_poses.shape[0]:
-            raise RuntimeError("Lingbot replay inputs ran out of camera frames.")
 
         if self.is_rank_zero:
             logger.info(
@@ -351,9 +483,9 @@ class LingbotReplaySession:
                 frame_end,
             )
         camctrl_input = CamCtrlInput(
-            intrinsics=self._camera_intrinsics[frame_start:frame_end],
-            poses=self._camera_poses[frame_start:frame_end],
-            world_scale=self._world_scale,
+            intrinsics=camera_intrinsics.to(device=self.device, dtype=torch.float32),
+            poses=camera_poses.to(device=self.device, dtype=torch.float32),
+            world_scale=self.inputs.world_scale,
         )
         start_t = time.perf_counter()
         video_chunk = self.pipeline.generate(
@@ -389,15 +521,42 @@ class LingbotReplaySession:
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None:
-            replay_inputs = replay_inputs_from_inference_input(inputs)
-            if replay_inputs != self.inputs:
+            session_inputs = session_inputs_from_inference_input(inputs)
+            if session_inputs != self.inputs:
                 raise ValueError("Lingbot replay reset cannot swap inputs.")
         cache = getattr(self, "_cache", None)
         if cache is not None:
             del self._cache
+        self._active_prompt = self.inputs.prompt
         self._cache = self._initialize_cache()
         self._step_index = 0
         self._frame_start = 0
+
+    def _apply_global_conditioning_update(self, inputs: InferenceInput) -> None:
+        """Apply a mid-rollout text-event context swap, when one was requested.
+
+        Text events reach the model as a session-global prompt update rather
+        than a per-step field, because they replace the rollout's whole
+        cross-attention text context. Not every pipeline can do this, so the
+        capability is probed the same way the WebRTC runtime probes it, and
+        only when a swap is actually requested.
+        """
+        prompt = inputs.global_conditioning.get(FIELD_PROMPT)
+        if prompt is None or prompt == self._active_prompt:
+            return
+        transformer = self.pipeline.diffusion_model.transformer
+        replace_text_embeddings = getattr(transformer, "replace_text_embeddings", None)
+        if not callable(replace_text_embeddings):
+            raise RuntimeError(
+                "Lingbot text events need a pipeline whose transformer supports "
+                "replace_text_embeddings; this pipeline does not."
+            )
+        self.pipeline._ensure_oneshot_encoders_loaded()
+        embeddings = self.pipeline.text_encoder([prompt]).to(device=self.device)
+        replace_text_embeddings(self._cache.transformer_cache, embeddings)
+        self._active_prompt = prompt
+        if self.is_rank_zero:
+            logger.info("Lingbot text context updated at step {}", self._step_index)
 
     def close(self) -> None:
         self._closed = True
@@ -420,43 +579,28 @@ class LingbotReplaySession:
             image=first_frames,
         )
 
-    def _load_camera_controls(self) -> tuple[torch.Tensor, torch.Tensor, float]:
-        intrinsics = np.load(self.inputs.camera_intrinsics_path)
-        intrinsics_t = torch.from_numpy(np.asarray(intrinsics)).to(
-            device=self.device,
-            dtype=torch.float32,
-        )
-        camera_intrinsics_t = get_Ks_transformed(
-            intrinsics_t,
-            height_org=_INTRINSICS_REFERENCE_HEIGHT,
-            width_org=_INTRINSICS_REFERENCE_WIDTH,
-            height_resize=self.inputs.pixel_height,
-            width_resize=self.inputs.pixel_width,
-            height_final=self.inputs.pixel_height,
-            width_final=self.inputs.pixel_width,
-        )
 
-        poses = np.load(self.inputs.camera_poses_path)
-        poses, inferred_world_scale = preprocess_example_poses(np.asarray(poses))
-        camera_poses_t = torch.from_numpy(poses).to(
-            device=self.device,
-            dtype=torch.float32,
+def _require_step_tensor(
+    inputs: InferenceInput,
+    name: str,
+    *,
+    expected_shape: tuple[int, ...],
+) -> torch.Tensor:
+    """Return one required per-step camera tensor, shape-checked."""
+    if name not in inputs.step:
+        raise ValueError(
+            f"Lingbot step inputs are missing {name!r}. The selected input "
+            f"mapping must produce it for every step."
         )
-        if self.is_rank_zero:
-            logger.info(
-                "Loaded Lingbot camera controls intrinsics={} poses={}",
-                tuple(camera_intrinsics_t.shape),
-                tuple(camera_poses_t.shape),
-            )
-        return (
-            camera_intrinsics_t,
-            camera_poses_t,
-            float(
-                self.inputs.world_scale
-                if self.inputs.world_scale is not None
-                else inferred_world_scale
-            ),
+    value = inputs.step[name]
+    if not isinstance(value, torch.Tensor):
+        value = torch.as_tensor(np.asarray(value), dtype=torch.float32)
+    if tuple(value.shape) != expected_shape:
+        raise ValueError(
+            f"Lingbot step input {name!r} must have shape {expected_shape}, got "
+            f"{tuple(value.shape)}."
         )
+    return value
 
 
 @dataclass(slots=True)
@@ -562,8 +706,19 @@ def inference_input_from_runner_config(
     *,
     is_rank_zero: bool,
 ) -> InferenceInput:
-    """Build model-facing runtime inputs directly from a Lingbot runner config."""
-    replay_inputs = replay_inputs_from_mapping(
+    """Build session-global runtime inputs from a Lingbot runner config."""
+    return inference_input_from_replay_inputs(
+        replay_inputs_from_runner_config(runner_config, is_rank_zero=is_rank_zero)
+    )
+
+
+def replay_inputs_from_runner_config(
+    runner_config: Any,
+    *,
+    is_rank_zero: bool,
+) -> LingbotReplayInputs:
+    """Resolve a Lingbot runner config into scenario-level replay inputs."""
+    return replay_inputs_from_mapping(
         {
             FIELD_PROMPT: getattr(runner_config, "prompt", ""),
             "prompt_path": getattr(runner_config, "prompt_path", None),
@@ -601,8 +756,6 @@ def inference_input_from_replay_inputs(
     payload: dict[str, Any] = {
         FIELD_PROMPT: replay_inputs.prompt,
         FIELD_FIRST_FRAME_PATH: replay_inputs.first_frame_path,
-        FIELD_CAMERA_POSES_PATH: replay_inputs.camera_poses_path,
-        FIELD_CAMERA_INTRINSICS_PATH: replay_inputs.camera_intrinsics_path,
         FIELD_TOTAL_BLOCKS: replay_inputs.total_blocks,
         FIELD_PIXEL_HEIGHT: replay_inputs.pixel_height,
         FIELD_PIXEL_WIDTH: replay_inputs.pixel_width,
@@ -613,27 +766,32 @@ def inference_input_from_replay_inputs(
     return InferenceInput(global_conditioning=payload)
 
 
-def replay_inputs_from_inference_input(inputs: InferenceInput) -> LingbotReplayInputs:
-    """Decode and validate model-facing Lingbot replay inputs."""
+def session_inputs_from_inference_input(
+    inputs: InferenceInput,
+) -> LingbotSessionInputs:
+    """Decode and validate session-global Lingbot inputs."""
     missing = LingbotModelAdapter().inference_input_schema.missing_global_conditioning(
         inputs
     )
     if missing:
-        raise ValueError(f"Lingbot replay inputs missing required fields: {missing}.")
+        raise ValueError(f"Lingbot session inputs missing required fields: {missing}.")
     gc = inputs.global_conditioning
-    return LingbotReplayInputs(
+    if gc.get(FIELD_WORLD_SCALE) is None:
+        raise ValueError(
+            "Lingbot session inputs require 'world_scale'; the selected input "
+            "mapping supplies it from the camera trace or live control setup."
+        )
+    total_camera_frames = gc.get(FIELD_TOTAL_CAMERA_FRAMES)
+    return LingbotSessionInputs(
         prompt=str(gc[FIELD_PROMPT]),
         first_frame_path=Path(gc[FIELD_FIRST_FRAME_PATH]),
-        camera_poses_path=Path(gc[FIELD_CAMERA_POSES_PATH]),
-        camera_intrinsics_path=Path(gc[FIELD_CAMERA_INTRINSICS_PATH]),
         total_blocks=int(gc[FIELD_TOTAL_BLOCKS]),
         pixel_height=int(gc[FIELD_PIXEL_HEIGHT]),
         pixel_width=int(gc[FIELD_PIXEL_WIDTH]),
         fps=int(gc[FIELD_FPS]),
-        world_scale=(
-            None
-            if FIELD_WORLD_SCALE not in gc or gc[FIELD_WORLD_SCALE] is None
-            else float(gc[FIELD_WORLD_SCALE])
+        world_scale=float(gc[FIELD_WORLD_SCALE]),
+        total_camera_frames=(
+            None if total_camera_frames is None else int(total_camera_frames)
         ),
     )
 

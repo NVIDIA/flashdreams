@@ -43,7 +43,8 @@ from lingbot.runtime import (
     LingbotModelAdapter,
     LingbotRunnerOutputTarget,
     inference_config_from_runner_config,
-    inference_input_from_runner_config,
+    inference_input_from_replay_inputs,
+    replay_inputs_from_runner_config,
 )
 
 __all__ = [
@@ -170,17 +171,18 @@ class LingbotWorldRunner(
             device=f"cuda:{self.local_rank}" if self.world_size > 1 else cfg.device,
             pipeline=self.pipeline,
         )
-        initial_inputs = inference_input_from_runner_config(
+        replay_inputs = replay_inputs_from_runner_config(
             cfg,
             is_rank_zero=self.is_rank_zero,
         )
+        initial_inputs = inference_input_from_replay_inputs(replay_inputs)
         output_target = LingbotRunnerOutputTarget(
             output_stream=self.create_video_output_stream(fps=cfg.fps),
             output_dir=cfg.output_dir,
             runner_name=cfg.runner_name,
             fps=cfg.fps,
         )
-        mapping = adapter.default_input_mapping()
+        mapping = adapter.create_input_mapping(replay_inputs)
         run_inference_session(
             adapter=adapter,
             config=inference_config,

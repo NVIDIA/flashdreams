@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
@@ -41,8 +42,6 @@ from lingbot.runner import (
     example_data_dirname,
 )
 from lingbot.runtime import (
-    FIELD_CAMERA_INTRINSICS_PATH,
-    FIELD_CAMERA_POSES_PATH,
     FIELD_FIRST_FRAME_PATH,
     FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
@@ -60,6 +59,19 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> None:
+    """Write real .npy camera assets; the input mapping loads them for real."""
+    trajectory = np.tile(np.eye(4, dtype=np.float32), (frames, 1, 1))
+    trajectory[:, 2, 3] = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+    np.save(poses, trajectory)
+    np.save(
+        intrinsics,
+        np.tile(
+            np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)
+        ),
+    )
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
@@ -182,8 +194,7 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
     image.write_bytes(b"fake")
-    poses.write_bytes(b"fake")
-    intrinsics.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics)
     runner = object.__new__(LingbotWorldRunner)
     runner_config = cast(
         LingbotWorldRunnerConfig,
@@ -231,8 +242,6 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
     inputs = captured["initial_inputs"].global_conditioning
     assert inputs[FIELD_PROMPT] == "drive through a city"
     assert inputs[FIELD_FIRST_FRAME_PATH] == image
-    assert inputs[FIELD_CAMERA_POSES_PATH] == poses
-    assert inputs[FIELD_CAMERA_INTRINSICS_PATH] == intrinsics
     assert inputs[FIELD_TOTAL_BLOCKS] == 1
     output = captured["output"]
     assert isinstance(output, LingbotRunnerOutputTarget)
