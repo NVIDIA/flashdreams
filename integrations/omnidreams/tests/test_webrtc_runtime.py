@@ -20,8 +20,9 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from omnidreams import scenes
 from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.webrtc import postprocess as webrtc_postprocess
+from omnidreams.webrtc import scene_assets, session
 from omnidreams.webrtc import server as webrtc_server
-from omnidreams.webrtc import session
 from omnidreams.webrtc.model_session import OmnidreamsConditioningSessionCore
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
@@ -37,6 +38,7 @@ from flashdreams.infra.postprocess import (
 )
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import StepRequest, StepResult
+from flashdreams.serving.webrtc import runtime as webrtc_runtime
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -45,7 +47,10 @@ from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
     DefaultRTCEncoder,
 )
-from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+from flashdreams.serving.webrtc.manager import (
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
+)
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -286,7 +291,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
 ) -> None:
     preset_config = VideoPostProcessorConfig()
     monkeypatch.setattr(
-        session,
+        webrtc_postprocess,
         "resolve_postprocess_preset",
         lambda name: preset_config,
     )
@@ -305,7 +310,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
     first_stream = runtime._model_session.postprocess_stream
 
     assert isinstance(first_stream, VideoPostprocessStream)
-    assert runtime.postprocess_preset == "fake-preset"
+    assert runtime._postprocess_preset == "fake-preset"
 
     runtime._reset_postprocess_stream(
         session.OmnidreamsSessionInput(postprocess_preset="")
@@ -313,7 +318,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
 
     assert first_stream._closed is True
     assert runtime._model_session.postprocess_stream is None
-    assert runtime.postprocess_preset == ""
+    assert runtime._postprocess_preset == ""
 
 
 def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
@@ -353,7 +358,7 @@ def test_prepare_clipgt_dir_stages_unprefixed_parquets(
         config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
     )
 
-    staged = runtime._prepare_clipgt_dir(clipgt)
+    staged, temp_dir = scene_assets.prepare_clipgt_dir(clipgt)
 
     assert staged != clipgt
     assert (staged / "clip.calibration_estimate.parquet").exists()
@@ -361,8 +366,14 @@ def test_prepare_clipgt_dir_stages_unprefixed_parquets(
     assert (staged / "clip.lane.parquet").exists()
 
     monkeypatch.chdir(tmp_path)
-    staged_from_relative = runtime._prepare_clipgt_dir(Path("clipgt"))
+    staged_from_relative, relative_temp_dir = scene_assets.prepare_clipgt_dir(
+        Path("clipgt")
+    )
     assert (staged_from_relative / "clip.calibration_estimate.parquet").exists()
+    assert temp_dir is not None
+    assert relative_temp_dir is not None
+    temp_dir.cleanup()
+    relative_temp_dir.cleanup()
 
 
 def test_prepare_clipgt_dir_stages_nested_unprefixed_parquets(tmp_path: Path) -> None:
@@ -379,12 +390,14 @@ def test_prepare_clipgt_dir_stages_nested_unprefixed_parquets(tmp_path: Path) ->
         config=OmnidreamsRuntimeConfig(device="cpu", fps=30)
     )
 
-    staged = runtime._prepare_clipgt_dir(clipgt)
+    staged, temp_dir = scene_assets.prepare_clipgt_dir(clipgt)
 
     assert staged != clipgt
     assert (staged / "clip.calibration_estimate.parquet").exists()
     assert (staged / "clip.egomotion_estimate.parquet").exists()
     assert (staged / "clip.lane.parquet").exists()
+    assert temp_dir is not None
+    temp_dir.cleanup()
 
 
 def test_link_or_copy_file_falls_back_to_copy(
@@ -398,10 +411,10 @@ def test_link_or_copy_file_falls_back_to_copy(
         del args, kwargs
         raise OSError("links unavailable")
 
-    monkeypatch.setattr(session.os, "symlink", _raise_link_error)
-    monkeypatch.setattr(session.os, "link", _raise_link_error)
+    monkeypatch.setattr(scene_assets.os, "symlink", _raise_link_error)
+    monkeypatch.setattr(scene_assets.os, "link", _raise_link_error)
 
-    session._link_or_copy_file(source, target)
+    scene_assets._link_or_copy_file(source, target)
 
     assert target.read_bytes() == source.read_bytes()
     assert not target.is_symlink()
@@ -419,7 +432,7 @@ def test_hf_webrtc_scene_sync_requires_usdz_first_frame(
         zf.writestr("prompt.txt", "archive prompt")
 
     def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
-        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_id == scenes.hf_scenes_repo_id()
         assert repo_type == "dataset"
         assert filename == archive_repo_path
         return str(archive_path)
@@ -438,10 +451,10 @@ def test_hf_webrtc_scene_sync_requires_usdz_first_frame(
         _fake_hf_hub_download,
     )
 
-    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+    scene_dir = scene_assets.ensure_hf_scene_synced(scene_uuid)
 
     with pytest.raises(FileNotFoundError, match="first_image"):
-        session._resolve_webrtc_scene_assets(
+        scene_assets.resolve_scene_assets(
             scene_dir,
             prompt_filename="prompt.txt",
             clipgt_dirname="clipgt",
@@ -461,7 +474,7 @@ def test_hf_webrtc_scene_sync_uses_extracted_first_image(
         zf.writestr("prompt.txt", "archive prompt")
 
     def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
-        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_id == scenes.hf_scenes_repo_id()
         assert repo_type == "dataset"
         assert filename == archive_repo_path
         return str(archive_path)
@@ -480,7 +493,7 @@ def test_hf_webrtc_scene_sync_uses_extracted_first_image(
         _fake_hf_hub_download,
     )
 
-    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+    scene_dir = scene_assets.ensure_hf_scene_synced(scene_uuid)
 
     assert (scene_dir / "clipgt" / "first_image.png").read_text(
         encoding="utf-8"
@@ -489,7 +502,7 @@ def test_hf_webrtc_scene_sync_uses_extracted_first_image(
         encoding="utf-8"
     ) == "archive prompt"
 
-    clipgt_dir, first_frame_path, prompt_path = session._resolve_webrtc_scene_assets(
+    clipgt_dir, first_frame_path, prompt_path = scene_assets.resolve_scene_assets(
         scene_dir,
         prompt_filename="prompt.txt",
         clipgt_dirname="clipgt",
@@ -511,7 +524,7 @@ def test_hf_webrtc_scene_sync_requires_usdz_prompt(
         zf.writestr("first_image.png", "first image")
 
     def _fake_hf_hub_download(repo_id: str, repo_type: str, filename: str) -> str:
-        assert repo_id == session.hf_scenes_repo_id()
+        assert repo_id == scenes.hf_scenes_repo_id()
         assert repo_type == "dataset"
         assert filename == archive_repo_path
         return str(archive_path)
@@ -522,10 +535,10 @@ def test_hf_webrtc_scene_sync_requires_usdz_prompt(
         _fake_hf_hub_download,
     )
 
-    scene_dir = session._ensure_hf_webrtc_scene_synced(scene_uuid)
+    scene_dir = scene_assets.ensure_hf_scene_synced(scene_uuid)
 
     with pytest.raises(FileNotFoundError, match="prompt.txt"):
-        session._resolve_webrtc_scene_assets(
+        scene_assets.resolve_scene_assets(
             scene_dir,
             prompt_filename="prompt.txt",
             clipgt_dirname="clipgt",
@@ -539,7 +552,7 @@ def test_resolved_empty_prompt_keeps_runtime_default_behavior(tmp_path: Path) ->
     (clipgt_dir / "first_image.png").write_text("first image", encoding="utf-8")
     (clipgt_dir / "prompt.txt").write_text("", encoding="utf-8")
 
-    _, _, prompt_path = session._resolve_webrtc_scene_assets(
+    _, _, prompt_path = scene_assets.resolve_scene_assets(
         scene_dir,
         prompt_filename="prompt.txt",
         clipgt_dirname="clipgt",
@@ -760,12 +773,12 @@ def test_runtime_initialization_passes_manifest_pipeline_config(
 
     monkeypatch.setattr(
         session,
-        "_extract_local_webrtc_scene_if_needed",
+        "extract_local_scene",
         lambda scene_dir, **_kwargs: scene_dir,
     )
     monkeypatch.setattr(
         session,
-        "_resolve_webrtc_scene_assets",
+        "resolve_scene_assets",
         lambda scene_dir, **_kwargs: (clipgt_dir, first_frame_path, prompt_path),
     )
     monkeypatch.setattr(
@@ -807,10 +820,9 @@ def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
         scene_uuid: str,
         *,
         variant: str = "default",
-        prompt_filename: str,
         clipgt_dirname: str,
     ) -> Path:
-        del prompt_filename, clipgt_dirname, variant
+        del clipgt_dirname, variant
         calls.append(scene_uuid)
         return staged_scene_dir
 
@@ -828,12 +840,12 @@ def test_runtime_uses_default_scene_uuid_when_scene_is_unspecified(
 
     monkeypatch.setattr(
         session,
-        "_ensure_hf_webrtc_scene_synced",
+        "ensure_hf_scene_synced",
         _fake_ensure_hf_webrtc_scene_synced,
     )
     monkeypatch.setattr(
         session,
-        "_resolve_webrtc_scene_assets",
+        "resolve_scene_assets",
         _fake_resolve_webrtc_scene_assets,
     )
     monkeypatch.setattr(session, "load_scene", lambda *args, **kwargs: None)
@@ -895,7 +907,7 @@ def test_session_input_validation_rejects_unlaunched_postprocess_preset() -> Non
     )
 
     with pytest.raises(ValueError, match="not enabled for this server"):
-        session.validate_requested_postprocess_preset(
+        webrtc_postprocess.validate_requested_postprocess_preset(
             requested_preset="fake-preset",
             configured_preset=manager.runtime_config.postprocess.preset,
         )
@@ -906,7 +918,7 @@ def test_session_input_validation_rejects_non_launched_postprocess_preset(
 ) -> None:
     preset_config = VideoPostProcessorConfig()
     monkeypatch.setattr(
-        session,
+        webrtc_postprocess,
         "resolve_postprocess_preset",
         lambda name: preset_config,
     )
@@ -918,7 +930,7 @@ def test_session_input_validation_rejects_non_launched_postprocess_preset(
     )
 
     with pytest.raises(ValueError, match="must match the launched preset"):
-        session.validate_requested_postprocess_preset(
+        webrtc_postprocess.validate_requested_postprocess_preset(
             requested_preset="other-preset",
             configured_preset=manager.runtime_config.postprocess.preset,
         )
@@ -1123,7 +1135,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
     )
-    managed_session = session._ManagedOmnidreamsSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),
@@ -1154,7 +1166,7 @@ async def test_client_liveness_timeout_closes_active_session(
     )
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
-    managed_session = session._ManagedOmnidreamsSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),
@@ -1186,7 +1198,7 @@ async def test_disconnect_message_closes_active_session(
     )
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
-    managed_session = session._ManagedOmnidreamsSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),
@@ -1275,7 +1287,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
     control_channel = _FakeChannel()
     first_action_received = asyncio.Event()
     first_action_received.set()
-    managed_session = session._ManagedOmnidreamsSession(
+    managed_session = ManagedWebRTCSession(
         runtime=runtime,
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),
@@ -1357,8 +1369,8 @@ class _FakeTransceiver:
 
 def _sdp_fallback_managed_session(
     hw_encoder: _HardwareEncoderStub,
-) -> session._ManagedOmnidreamsSession:
-    return session._ManagedOmnidreamsSession(
+) -> ManagedWebRTCSession:
+    return ManagedWebRTCSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=hw_encoder,
@@ -1460,7 +1472,7 @@ def test_initialize_video_encoder_sync_skips_on_non_master(
         )
 
     monkeypatch.setattr(
-        session,
+        webrtc_runtime,
         "select_encoder",
         _select_encoder_should_not_be_called,
     )
@@ -1487,7 +1499,7 @@ def test_initialize_video_encoder_sync_runs_on_master(
         calls.append(kwargs)
         return stub
 
-    monkeypatch.setattr(session, "select_encoder", _fake_select_encoder)
+    monkeypatch.setattr(webrtc_runtime, "select_encoder", _fake_select_encoder)
 
     runtime = OmnidreamsInferenceRuntime(
         config=OmnidreamsRuntimeConfig(device="cpu", fps=30)

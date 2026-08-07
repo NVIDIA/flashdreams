@@ -3,11 +3,9 @@
 
 """Video encoder backends for the WebRTC serving path.
 
-Integrations that opt in to hardware encoding call :func:`select_encoder`
-from their own session init (omnidreams does this today via
-``omnidreams.webrtc.session._initialize_video_encoder_sync``); those that
-do not opt in pick up :class:`DefaultRTCEncoder` transparently through
-:meth:`BaseWebRTCSessionManager._resolve_video_encoder`.
+Thread-affine WebRTC runtimes call :func:`select_encoder` during shared runtime
+initialization. Runtimes that do not opt in pick up :class:`DefaultRTCEncoder`
+transparently through :meth:`BaseWebRTCSessionManager._resolve_video_encoder`.
 
 **This module deliberately does not import** ``PyNvVideoCodec``. The
 hardware encoder lives in a sibling module (:mod:`nvenc`) that

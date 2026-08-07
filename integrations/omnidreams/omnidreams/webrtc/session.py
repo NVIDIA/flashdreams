@@ -3,21 +3,16 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-import shutil
 import tempfile
 import time
-import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
-from typing import AbstractSet, Any
+from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
-from filelock import FileLock
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
@@ -29,362 +24,43 @@ from omnidreams.conditioning.world_scenario.data_loaders import load_scene
 from omnidreams.conditioning.world_scenario.settings import SETTINGS
 from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.scenes import (
-    HF_DATASET_BROWSER_URL,
     SCENE_CLIPGT_DIRNAME,
-    SCENE_FRAME_SUFFIXES,
-    SCENE_FRAMES_DIRNAME,
-    SCENE_IMAGE_SUFFIXES,
     SCENE_PROMPT_FILENAME,
     SCENE_VARIANT_DEFAULT,
-    hf_hub_download_scene,
-    hf_scenes_repo_id,
-    prompt_variant_for_scene_variant,
-    scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.model_session import OmnidreamsConditioningSessionCore
-
-from flashdreams.core.distributed.rank_orchestration import (
-    RankCoordinator,
-    distributed_op,
+from omnidreams.webrtc.postprocess import validate_requested_postprocess_preset
+from omnidreams.webrtc.scene_assets import (
+    ensure_hf_scene_synced,
+    extract_local_scene,
+    prepare_clipgt_dir,
+    resolve_scene_assets,
 )
+
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
-    VideoPostprocessStream,
+    create_video_postprocess_stream,
 )
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.plugins.registry import resolve_postprocess_preset
-from flashdreams.runtime import StepRequest, StepResult, ThreadAffineRuntimeWorker
+from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
     PoseSegment,
 )
-from flashdreams.serving.webrtc.encoders import (
-    EncoderBackend,
-    VideoEncoder,
-    select_encoder,
-)
+from flashdreams.serving.webrtc.encoders import EncoderBackend
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     BaseWebRTCSessionManager,
-    ManagedWebRTCSession,
-    WebRTCControlSignal,
 )
-from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.serving.webrtc.runtime import (
+    ThreadAffineDistributedWebRTCRuntime,
+)
 
 # Default scene (clear-weather base archive). Weather siblings are selected
 # via OmnidreamsRuntimeConfig.scene_variant / the server's --scene-variant.
 DEFAULT_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-# Back-compat aliases for ``omnidreams.scenes`` constants used by external imports.
-WEBRTC_SCENES_HF_BROWSER_URL = HF_DATASET_BROWSER_URL
-WEBRTC_SCENE_IMAGE_SUFFIXES = SCENE_IMAGE_SUFFIXES
-
-
-def _resolve_cuda_device(device_spec: str | torch.device) -> torch.device:
-    """Resolve a device spec, filling in the active CUDA index when unspecified."""
-    device = torch.device(device_spec)
-    if device.type == "cuda" and device.index is None:
-        device = torch.device(
-            f"cuda:{torch.cuda.current_device()}"
-            if torch.cuda.is_available()
-            else "cuda:0"
-        )
-    return device
-
-
-def _choose_existing_asset(
-    directory: Path,
-    *,
-    exact_name: str | None = None,
-    fallback_stems: tuple[str, ...] = (),
-    fallback_prefixes: tuple[str, ...] = (),
-    allowed_suffixes: AbstractSet[str] | None = None,
-    preferred_stems: tuple[str, ...] = (),
-) -> Path | None:
-    if not directory.is_dir():
-        return None
-
-    if exact_name is not None:
-        exact_path = directory / exact_name
-        if exact_path.is_file() and (
-            allowed_suffixes is None or exact_path.suffix.lower() in allowed_suffixes
-        ):
-            return exact_path
-
-    candidates = []
-    for path in directory.iterdir():
-        if not path.is_file():
-            continue
-        if allowed_suffixes is not None and path.suffix.lower() not in allowed_suffixes:
-            continue
-        if (
-            path.stem in preferred_stems
-            or path.stem in fallback_stems
-            or any(path.stem.startswith(f"{prefix}-") for prefix in fallback_prefixes)
-        ):
-            candidates.append(path)
-
-    if not candidates:
-        return None
-
-    preferred_order = {stem: index for index, stem in enumerate(preferred_stems)}
-    return sorted(
-        candidates,
-        key=lambda path: (
-            preferred_order.get(path.stem, len(preferred_order)),
-            path.name,
-        ),
-    )[0]
-
-
-def _camera_name_candidates(camera_name: str) -> tuple[str, ...]:
-    """Colon/underscore spellings of ``camera_name`` (dataset uses underscores)."""
-    underscore = camera_name.replace(":", "_")
-    colon = camera_name.replace("_", ":")
-    return tuple(dict.fromkeys((camera_name, underscore, colon)))
-
-
-def _first_frame_sort_key(path: Path) -> tuple[int, str]:
-    stem = path.stem
-    return (int(stem), path.name) if stem.isdigit() else (2**63 - 1, path.name)
-
-
-def _resolve_webrtc_first_frame(clipgt_dir: Path, camera_name: str) -> Path | None:
-    """Earliest GT frame under ``clipgt/frames/<camera>/``, else ``None``.
-
-    ``None`` when the bundle ships no such frames, so the caller can fall back
-    to ``first_image.*``.
-    """
-    frames_root = clipgt_dir / SCENE_FRAMES_DIRNAME
-    if not frames_root.is_dir():
-        return None
-    candidate_dirs = [
-        frames_root / name
-        for name in _camera_name_candidates(camera_name)
-        if (frames_root / name).is_dir()
-    ]
-    if not candidate_dirs:
-        # Fall back to any single camera directory present.
-        candidate_dirs = [
-            path for path in sorted(frames_root.iterdir()) if path.is_dir()
-        ]
-    for directory in candidate_dirs:
-        frames = [
-            path
-            for path in directory.iterdir()
-            if path.is_file() and path.suffix.lower() in SCENE_FRAME_SUFFIXES
-        ]
-        if frames:
-            return sorted(frames, key=_first_frame_sort_key)[0]
-    return None
-
-
-def _resolve_webrtc_scene_assets(
-    scene_dir: Path,
-    *,
-    prompt_filename: str,
-    clipgt_dirname: str,
-    camera_name: str = "camera_front_wide_120fov",
-    variant: str = SCENE_VARIANT_DEFAULT,
-) -> tuple[Path, Path, Path]:
-    missing_assets = []
-    clipgt_dir = scene_dir / clipgt_dirname
-    if not clipgt_dir.is_dir():
-        missing_assets.append(str(scene_dir / clipgt_dirname))
-        clipgt_dir = None
-
-    # Prefer the GT camera frame; fall back to ``first_image.*`` for bundles
-    # with no per-camera frames.
-    first_frame_path = (
-        None
-        if clipgt_dir is None
-        else _resolve_webrtc_first_frame(clipgt_dir, camera_name)
-    )
-    if first_frame_path is None and clipgt_dir is not None:
-        first_frame_path = _choose_existing_asset(
-            clipgt_dir,
-            fallback_stems=("first_image_1",),
-            allowed_suffixes=WEBRTC_SCENE_IMAGE_SUFFIXES,
-            preferred_stems=("first_image",),
-        )
-    if first_frame_path is None:
-        missing_assets.append(
-            f"frames/<camera>/*.jpeg or first_image.* under {clipgt_dir}/"
-        )
-
-    # Prompt matching the weather variant (``promptN.txt``); fall back to a
-    # bare ``prompt.txt`` for older bundles.
-    weather_prompt_stem = f"prompt{prompt_variant_for_scene_variant(variant)}"
-    prompt_path = (
-        None
-        if clipgt_dir is None
-        else _choose_existing_asset(
-            clipgt_dir,
-            fallback_stems=("prompt1", "prompt2", "prompt3", "prompt"),
-            allowed_suffixes={".txt"},
-            preferred_stems=(weather_prompt_stem, "prompt"),
-        )
-    )
-    if prompt_path is None:
-        missing_assets.append(f"{prompt_filename} under {clipgt_dir}/")
-
-    if missing_assets:
-        raise FileNotFoundError(
-            "Missing Omnidreams WebRTC scene assets: " + ", ".join(missing_assets)
-        )
-
-    assert clipgt_dir is not None
-    assert first_frame_path is not None
-    assert prompt_path is not None
-    return clipgt_dir, first_frame_path, prompt_path
-
-
-def _safe_extract_zip(source: Path, destination: Path) -> None:
-    if destination.exists():
-        if destination.is_file() or destination.is_symlink():
-            destination.unlink()
-        else:
-            shutil.rmtree(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    destination_root = destination.resolve()
-    with zipfile.ZipFile(source) as zf:
-        for member in zf.infolist():
-            member_path = PurePosixPath(member.filename)
-            if (
-                member_path.is_absolute()
-                or not member_path.parts
-                or any(part in {"", ".", ".."} for part in member_path.parts)
-            ):
-                raise ValueError(
-                    f"Unsafe archive member in {source}: {member.filename}"
-                )
-            target = destination / Path(*member_path.parts)
-            target_resolved = target.resolve()
-            if destination_root != target_resolved and destination_root not in (
-                target_resolved.parents
-            ):
-                raise ValueError(
-                    f"Archive member escapes destination: {member.filename}"
-                )
-            if member.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as src, target.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-
-
-def _variant_dir_suffix(variant: str | None) -> str:
-    """Cache subdir / filename suffix for ``variant`` (``""`` for default)."""
-    slug = (variant or SCENE_VARIANT_DEFAULT).strip()
-    return "" if slug in ("", SCENE_VARIANT_DEFAULT) else f"-{slug}"
-
-
-def _extract_local_webrtc_scene_if_needed(
-    scene_dir: Path,
-    *,
-    scene_uuid: str | None,
-    variant: str = SCENE_VARIANT_DEFAULT,
-    clipgt_dirname: str,
-) -> Path:
-    """Extract the ``scene_uuid`` (+ variant) archive into the local layout."""
-    if scene_uuid is None:
-        return scene_dir
-
-    scene_uuid = scene_uuid.strip()
-    assert scene_uuid, "scene_uuid must be non-empty when provided."
-    if not scene_dir.is_dir():
-        raise FileNotFoundError(f"scene_dir does not exist: {scene_dir}")
-
-    suffix = _variant_dir_suffix(variant)
-    expected_names = (
-        f"clipgt-{scene_uuid}{suffix}.usdz",
-        f"{scene_uuid}{suffix}.usdz",
-    )
-    archive_path = _choose_existing_asset(scene_dir, exact_name=expected_names[0]) or (
-        _choose_existing_asset(scene_dir, exact_name=expected_names[1])
-    )
-    if archive_path is None:
-        # Prefer the variant suffix but accept the base archive too.
-        archive_path = _choose_existing_asset(
-            scene_dir,
-            fallback_prefixes=(
-                f"clipgt-{scene_uuid}{suffix}",
-                f"{scene_uuid}{suffix}",
-                f"clipgt-{scene_uuid}",
-                scene_uuid,
-            ),
-            allowed_suffixes={".usdz"},
-            preferred_stems=(
-                f"clipgt-{scene_uuid}{suffix}",
-                f"{scene_uuid}{suffix}",
-                f"clipgt-{scene_uuid}",
-                scene_uuid,
-            ),
-        )
-    if archive_path is None:
-        raise FileNotFoundError(
-            "scene_uuid is set but no local USDZ archive was found in "
-            f"{scene_dir}. Expected one of: {', '.join(expected_names)}."
-        )
-
-    normalized_scene_dir = scene_dir / f"{scene_uuid}{suffix}"
-    normalized_clipgt_root = normalized_scene_dir / clipgt_dirname
-    _safe_extract_zip(archive_path, normalized_clipgt_root)
-    return normalized_scene_dir
-
-
-def _ensure_hf_webrtc_scene_synced(
-    scene_uuid: str,
-    *,
-    variant: str = SCENE_VARIANT_DEFAULT,
-    prompt_filename: str = SCENE_PROMPT_FILENAME,
-    clipgt_dirname: str = SCENE_CLIPGT_DIRNAME,
-) -> Path:
-    """Stage an HF scene variant into the WebRTC cache layout.
-
-    Downloads ``scenes/clipgt-<uuid>[-<variant>].usdz`` and extracts it under
-    ``FLASHDREAMS_CACHE_DIR/omnidreams-scenes/<uuid>[-<variant>]/clipgt/``. The
-    per-uuid+variant directory coexists with the desktop demo's archive files
-    in the same root.
-    """
-    del prompt_filename  # accepted for call-site symmetry; assets resolved later
-    scene_uuid = scene_uuid.strip()
-    assert scene_uuid, "scene_uuid must be set."
-    suffix = _variant_dir_suffix(variant)
-    cache_root = scenes_cache_root()
-    scene_dir = cache_root / f"{scene_uuid}{suffix}"
-    lock_path = cache_root / ".locks" / f"{scene_uuid}{suffix}.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with FileLock(str(lock_path)):
-        archive_path = hf_hub_download_scene(scene_uuid, variant)
-        _safe_extract_zip(archive_path, scene_dir / clipgt_dirname)
-
-    logger.info(
-        "Synced Omnidreams WebRTC scene {} (variant {}) from Hugging Face ({}) to {}",
-        scene_uuid,
-        variant,
-        hf_scenes_repo_id(),
-        scene_dir,
-    )
-    return scene_dir
-
-
-def _link_or_copy_file(source: Path, target: Path) -> None:
-    """Stage a file efficiently without requiring Windows symlink privileges."""
-    try:
-        os.symlink(source, target)
-        return
-    except OSError:
-        pass
-
-    try:
-        os.link(source, target)
-        return
-    except OSError:
-        shutil.copy2(source, target)
 
 
 class OmnidreamsRuntimeError(RuntimeError):
@@ -436,38 +112,26 @@ class OmnidreamsSessionInput:
     """Launched preset selection; ``None`` keeps the CLI default and ``""`` disables it."""
 
 
-def validate_requested_postprocess_preset(
-    *, requested_preset: str, configured_preset: str
-) -> None:
-    if not configured_preset:
-        raise ValueError(
-            "Post-processing is not enabled for this server; restart with "
-            "--postprocess-preset to make a preset available."
-        )
-    if requested_preset != configured_preset:
-        raise ValueError(
-            "Post-processing preset must match the launched preset "
-            f"{configured_preset!r}; got {requested_preset!r}."
-        )
-    resolve_postprocess_preset(requested_preset)
-
-
-class OmnidreamsInferenceRuntime:
+class OmnidreamsInferenceRuntime(
+    ThreadAffineDistributedWebRTCRuntime[
+        OmnidreamsRuntimeConfig,
+        OmnidreamsSessionInput,
+    ]
+):
     """Single-scene, single-view Omnidreams runtime for WebRTC control."""
 
     def __init__(self, config: OmnidreamsRuntimeConfig | None = None) -> None:
-        self.config = config or OmnidreamsRuntimeConfig()
-        self.MASTER_RANK = 0
-        self.rank = 0 if not dist.is_initialized() else dist.get_rank()
-
-        control_device = _resolve_cuda_device(self.config.device)
+        super().__init__(
+            config=config or OmnidreamsRuntimeConfig(),
+            runtime_error_type=OmnidreamsRuntimeError,
+            thread_name="omnidreams-webrtc-runtime",
+        )
 
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
             coordinate_system="FLU",
         )
-        self._device: torch.device | None = None
         self._wrapper: OmnidreamsConditioningWrapper | None = None
         self._model_session: OmnidreamsConditioningSessionCore | None = None
         self._renderer: Any | None = None
@@ -478,149 +142,25 @@ class OmnidreamsInferenceRuntime:
         self._initial_ego_pose: np.ndarray | None = None
         self._next_timestamp_us: int = 0
         self._postprocess_preset = self.config.postprocess.preset
-        self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
-        # Selected once at initialization; the concrete backend is chosen
-        # by ``select_encoder`` based on ``config.encoder_backend`` and
-        # the driver's ``GetEncoderCaps`` response at
-        # ``config.video_width`` / ``config.video_height``.
-        self._video_encoder: VideoEncoder | None = None
-        self._worker = ThreadAffineRuntimeWorker(
-            device=control_device,
-            thread_name="omnidreams-webrtc-runtime",
-        )
 
-        self._step_lock = asyncio.Lock()
-        self.rank_coordinator = RankCoordinator(
-            device=control_device,
-            signal_type=WebRTCControlSignal,
-            is_master=self.is_master,
-            master_rank=self.MASTER_RANK,
-        )
-        self.rank_coordinator.register_distributed_ops(self)
+    def _is_runtime_initialized(self) -> bool:
+        return self._wrapper is not None and self._model_session is not None
 
-    @property
-    def is_master(self) -> bool:
-        return self.rank == self.MASTER_RANK
-
-    @property
-    def autoregressive_index(self) -> int:
-        return 0 if self._model_session is None else self._model_session.step_index
-
-    @property
-    def postprocess_preset(self) -> str:
-        """Preset active for the current rollout, or an empty string when off."""
-        return self._postprocess_preset
-
-    @property
-    def video_encoder(self) -> VideoEncoder:
-        """Return the encoder selected at :meth:`initialize` time."""
-        if self._video_encoder is None:
-            raise OmnidreamsRuntimeError(
-                "Video encoder is not initialized; call runtime.initialize() first."
-            )
-        return self._video_encoder
-
-    def wait_for_termination(self) -> None:
-        self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
-
-    def send_exit_signal(self) -> None:
-        if self.is_master:
-            self.rank_coordinator.send_exit(exit_signal=WebRTCControlSignal.EXIT)
-
-    async def initialize(self) -> None:
-        if self._wrapper is not None:
-            return
-        await self._worker.call(self._initialize_sync_all_ranks)
-
-    async def reset_for_new_session(
-        self, session_input: OmnidreamsSessionInput | None = None
-    ) -> None:
-        if self._closed:
-            raise OmnidreamsRuntimeError("Runtime is closed.")
-        if self._wrapper is None:
+    def _runtime_step_index(self) -> int:
+        if self._model_session is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        await self._worker.call(
-            self._reset_rollout_sync_all_ranks,
-            session_input,
-        )
+        return self._model_session.step_index
 
-    async def close(self) -> None:
-        self._closed = True
-        try:
-            await self._worker.call(self._close_sync_all_ranks)
-        finally:
-            await self._worker.close()
-
-    async def step(
-        self,
-        *,
-        request: StepRequest,
-        segments: list[PoseSegment],
-        frame_times: list[float],
-    ) -> StepResult:
-        if self._closed:
-            raise OmnidreamsRuntimeError("Session is closed.")
-        if self._wrapper is None:
-            raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        if request.step_index != self.autoregressive_index:
-            raise OmnidreamsRuntimeError(
-                f"Expected request step {self.autoregressive_index}, "
-                f"got {request.step_index}."
-            )
-
-        async with self._step_lock:
-            if self._closed:
-                raise OmnidreamsRuntimeError("Session is closed.")
-            return await self._worker.call(
-                self._generate_chunk_sync_all_ranks,
-                segments,
-                frame_times,
-            )
-
-    def peek_next_chunk_num_frames(self) -> int:
+    def _next_input_frame_count(self) -> int:
         if self._model_session is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         return self._model_session.next_num_frames()
 
-    def peek_input_fps(self) -> float:
-        return float(self.config.fps)
-
-    def next_step_request(self) -> StepRequest:
-        return StepRequest(
-            step_index=self.autoregressive_index,
-            metadata={"input_frame_count": self.peek_next_chunk_num_frames()},
-        )
-
-    def peek_steady_chunk_num_frames(self) -> int:
+    def _steady_output_frame_count(self) -> int:
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         return int(self._wrapper.frame_chunk_size)
-
-    def peek_steady_output_num_frames(self) -> int:
-        return self.peek_steady_chunk_num_frames()
-
-    @distributed_op(WebRTCControlSignal.INITIALIZE)
-    def _initialize_sync_all_ranks(self) -> None:
-        self._initialize_sync()
-
-    @distributed_op(WebRTCControlSignal.RESET_SESSION)
-    def _reset_rollout_sync_all_ranks(
-        self, session_input: OmnidreamsSessionInput | None = None
-    ) -> None:
-        self._reset_rollout_sync(session_input=session_input)
-
-    @distributed_op(WebRTCControlSignal.ACTION_STEP)
-    def _generate_chunk_sync_all_ranks(
-        self,
-        segments: list[PoseSegment],
-        frame_times: list[float],
-    ) -> StepResult:
-        return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
-
-    @distributed_op(WebRTCControlSignal.CLOSE)
-    def _close_sync_all_ranks(self) -> None:
-        self._close_sync()
 
     def _initialize_sync(self) -> None:
         if self._wrapper is not None:
@@ -630,14 +170,13 @@ class OmnidreamsInferenceRuntime:
         cfg = self.config
         if cfg.scene_dir is None:
             scene_uuid = cfg.scene_uuid or DEFAULT_WEBRTC_SCENE_UUID
-            scene_dir = _ensure_hf_webrtc_scene_synced(
+            scene_dir = ensure_hf_scene_synced(
                 scene_uuid,
                 variant=cfg.scene_variant,
-                prompt_filename=cfg.prompt_filename,
                 clipgt_dirname=cfg.clipgt_dirname,
             )
         else:
-            scene_dir = _extract_local_webrtc_scene_if_needed(
+            scene_dir = extract_local_scene(
                 cfg.scene_dir,
                 scene_uuid=cfg.scene_uuid,
                 variant=cfg.scene_variant,
@@ -645,7 +184,7 @@ class OmnidreamsInferenceRuntime:
             )
 
         cfg.scene_dir = scene_dir
-        clipgt_dir, first_frame_path, prompt_path = _resolve_webrtc_scene_assets(
+        clipgt_dir, first_frame_path, prompt_path = resolve_scene_assets(
             scene_dir,
             prompt_filename=cfg.prompt_filename,
             clipgt_dirname=cfg.clipgt_dirname,
@@ -676,7 +215,6 @@ class OmnidreamsInferenceRuntime:
                 f"{cfg.pipeline_config_name!r} has num_views={transformer_cfg.num_views}."
             )
 
-        self._device = torch.device(cfg.device)
         if self._device.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for Omnidreams WebRTC runtime.")
 
@@ -702,7 +240,7 @@ class OmnidreamsInferenceRuntime:
         prompt = prompt_path.read_text(encoding="utf-8").strip() or AV_POSITIVE_PROMPT
         self._text_prompts = [TextPrompt(positive=prompt)]
 
-        loadable_clipgt_dir = self._prepare_clipgt_dir(clipgt_dir)
+        loadable_clipgt_dir, self._clipgt_temp_dir = prepare_clipgt_dir(clipgt_dir)
         logger.info("Loading Omnidreams scene data from {}", loadable_clipgt_dir)
         scene_t0 = time.perf_counter()
         scene_data = load_scene(
@@ -772,8 +310,9 @@ class OmnidreamsInferenceRuntime:
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
         self._model_session = OmnidreamsConditioningSessionCore(
             wrapper=self._wrapper,
-            output_stream_factory=lambda: self._new_output_stream(
-                postprocess_stream=None
+            output_stream_factory=lambda: VideoOutputStream(
+                postprocess_stream=None,
+                output_layout="bvtchw",
             ),
         )
         self._reset_rollout_sync()
@@ -782,79 +321,6 @@ class OmnidreamsInferenceRuntime:
             "Omnidreams runtime initialization complete in {:.1f}s.",
             time.perf_counter() - init_t0,
         )
-
-    def _initialize_video_encoder_sync(self) -> None:
-        """Select the video encoder for this runtime.
-
-        Runs on the runtime executor thread so any GPU-side probe
-        (``CreateEncoder``) sees the same CUDA context the model uses.
-
-        Non-master ranks skip encoder initialization. WebRTC media is
-        served only by the master rank, so allocating an NVENC session
-        on a worker would consume one of the local GPU's concurrent
-        session slots without ever encoding a frame — and could fail
-        the worker's startup if the pool cannot accommodate one
-        allocation per rank.
-        """
-        if not self.is_master:
-            return
-        if self._video_encoder is not None:
-            self._video_encoder.close()
-            self._video_encoder = None
-        device = (
-            self._device
-            if self._device is not None
-            else _resolve_cuda_device(
-                self.config.device,
-            )
-        )
-        gpu_id = device.index if device.index is not None else 0
-        self._video_encoder = select_encoder(
-            backend=self.config.encoder_backend,
-            width=self.config.video_width,
-            height=self.config.video_height,
-            fps=self.config.fps,
-            bitrate=self.config.encoder_bitrate_bps,
-            gpu_id=gpu_id,
-            gop=self.config.encoder_gop,
-        )
-
-    def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
-        def _has_prefixed_parquets(path: Path) -> bool:
-            return any(path.glob("*.calibration_estimate.parquet"))
-
-        def _has_unprefixed_parquets(path: Path) -> bool:
-            return (path / "calibration_estimate.parquet").exists()
-
-        if _has_prefixed_parquets(clipgt_dir):
-            return clipgt_dir
-
-        parquet_source_dir: Path | None = None
-        if _has_unprefixed_parquets(clipgt_dir):
-            parquet_source_dir = clipgt_dir
-        else:
-            # Some HF scenes extract into ``clipgt/clipgt`` (or another single
-            # nested directory) while first_image/prompt stay one level up.
-            # Discover that nested parquet root and normalize it for loader use.
-            nested_candidates = [
-                child for child in clipgt_dir.iterdir() if child.is_dir()
-            ]
-            for candidate in nested_candidates:
-                if _has_prefixed_parquets(candidate):
-                    return candidate
-                if _has_unprefixed_parquets(candidate):
-                    parquet_source_dir = candidate
-                    break
-
-        if parquet_source_dir is None:
-            return clipgt_dir
-
-        self._clipgt_temp_dir = tempfile.TemporaryDirectory(prefix="omnidreams-clipgt-")
-        staged = Path(self._clipgt_temp_dir.name)
-        for source in parquet_source_dir.glob("*.parquet"):
-            target = staged / f"clip.{source.name}"
-            _link_or_copy_file(source.resolve(), target)
-        return staged
 
     def _reset_rollout_sync(
         self, session_input: OmnidreamsSessionInput | None = None
@@ -896,10 +362,6 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
-        if self._video_encoder is not None:
-            self._video_encoder.close()
-            self._video_encoder = None
-
         if model_session is not None:
             model_session.close()
         if wrapper is not None:
@@ -908,7 +370,7 @@ class OmnidreamsInferenceRuntime:
             self._clipgt_temp_dir.cleanup()
             self._clipgt_temp_dir = None
 
-        if self._device is not None and self._device.type == "cuda":
+        if self._device.type == "cuda":
             torch.cuda.synchronize(device=self._device)
             torch.cuda.empty_cache()
 
@@ -932,38 +394,28 @@ class OmnidreamsInferenceRuntime:
             preset=preset,
         )
         world_size = dist.get_world_size() if dist.is_initialized() else 1
-        postprocess.validate_execution(world_size=world_size)
         self._postprocess_preset = preset
-        postprocess_stream = None
-        if postprocess.is_enabled() and (
-            self.is_master or postprocess.requires_all_ranks(world_size=world_size)
-        ):
-            postprocess_stream = VideoPostprocessStream(
-                postprocess=postprocess,
-                output_layout="bvtchw",
-                fps=self.config.fps,
-                per_view=False,
-                world_size=world_size,
-            )
+        postprocess_stream = create_video_postprocess_stream(
+            postprocess=postprocess,
+            output_layout="bvtchw",
+            fps=self.config.fps,
+            per_view=False,
+            world_size=world_size,
+            is_rank_zero=self.is_master,
+        )
         if self._model_session is None:
             raise OmnidreamsRuntimeError("Runtime model session is not initialized.")
         self._model_session.replace_output_stream(
-            lambda: self._new_output_stream(postprocess_stream=postprocess_stream)
+            lambda: VideoOutputStream(
+                postprocess_stream=postprocess_stream,
+                output_layout="bvtchw",
+            )
         )
         if postprocess_stream is not None:
             logger.info(
                 "Omnidreams WebRTC post-processing enabled with preset {!r}.",
                 preset,
             )
-
-    @staticmethod
-    def _new_output_stream(
-        *, postprocess_stream: VideoPostprocessStream | None
-    ) -> VideoOutputStream:
-        return VideoOutputStream(
-            postprocess_stream=postprocess_stream,
-            output_layout="bvtchw",
-        )
 
     def _generate_one_chunk_sync(
         self,
@@ -980,19 +432,15 @@ class OmnidreamsInferenceRuntime:
             or self._camera_to_rig is None
         ):
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        if self._device is None:
-            raise OmnidreamsRuntimeError("Runtime device is not initialized.")
-
-        num_frames = self.peek_next_chunk_num_frames()
+        step_index = self._runtime_step_index()
+        num_frames = self._next_input_frame_count()
         if len(frame_times) != num_frames:
             raise OmnidreamsRuntimeError(
-                f"Expected {num_frames} frame_times for chunk={self.autoregressive_index}, "
+                f"Expected {num_frames} frame_times for chunk={step_index}, "
                 f"got {len(frame_times)}."
             )
         if not segments:
-            raise OmnidreamsRuntimeError(
-                f"Chunk={self.autoregressive_index} received empty segments."
-            )
+            raise OmnidreamsRuntimeError(f"Chunk={step_index} received empty segments.")
 
         ego_poses = self.pose_integrator.integrate_chunk(
             segments=segments, frame_times=frame_times
@@ -1012,7 +460,7 @@ class OmnidreamsInferenceRuntime:
                 serve_hdmaps=serve_hdmaps,
                 metadata={
                     "stream": "hdmap" if serve_hdmaps else "rgb",
-                    "postprocess_preset": self.postprocess_preset,
+                    "postprocess_preset": self._postprocess_preset,
                 },
             )
         except RuntimeError as exc:
@@ -1023,9 +471,6 @@ class OmnidreamsInferenceRuntime:
         timestamps = [self._next_timestamp_us + i * step_us for i in range(num_frames)]
         self._next_timestamp_us += num_frames * step_us
         return timestamps
-
-
-_ManagedOmnidreamsSession = ManagedWebRTCSession
 
 
 def create_omnidreams_webrtc_session_manager(

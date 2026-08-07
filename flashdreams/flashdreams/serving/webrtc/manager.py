@@ -12,7 +12,6 @@ import json
 from collections import deque
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
-from enum import IntEnum
 from typing import Any, Generic, TypeVar
 
 from aiortc import (
@@ -41,6 +40,7 @@ from flashdreams.serving.webrtc.messages import (
     make_event_ack_payload,
 )
 from flashdreams.serving.webrtc.runtime import (
+    WebRTCControlSignal,
     WebRTCRuntimeConfig,
     WebRTCSessionRuntime,
 )
@@ -120,19 +120,6 @@ def _stat_ms(stats: dict[str, float], name: str, default_ms: float = 0.0) -> flo
 
 def _stat_int(stats: dict[str, float], name: str) -> int:
     return int(round(_stat_float(stats, name)))
-
-
-class WebRTCControlSignal(IntEnum):
-    """Rank-orchestration signals shared by the single-session runtimes."""
-
-    INITIALIZE = 0
-    RESET_SESSION = 1
-    ACTION_STEP = 2
-    CLOSE = 3
-    EVENT = 4
-    SESSION_STEP = 5
-    """One step driven by mapped ``InferenceInput`` rather than pose segments."""
-    EXIT = 99
 
 
 @dataclass(slots=True)
@@ -309,7 +296,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Return the encoder to use for the next session.
 
         Default: read ``runtime.video_encoder`` if the runtime provides
-        one (omnidreams does, via ``_initialize_video_encoder_sync``);
+        one through the shared thread-affine runtime;
         otherwise construct a session-scope :class:`DefaultRTCEncoder`.
         Runtimes that do not participate in encoder selection
         transparently get the software path without having to opt in.
@@ -376,7 +363,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # is drained. Otherwise ``ManagedWebRTCSession.close()`` would
         # only ever see the fallback track and never clean this one up.
         # The hardware encoder itself is owned by the runtime (created
-        # once in ``_initialize_video_encoder_sync`` and reused across
+        # once during runtime initialization and reused across
         # sessions), so it is intentionally NOT closed here — subsequent
         # sessions read the same object via ``runtime.video_encoder``
         # and expect it live. Runtime shutdown releases it.

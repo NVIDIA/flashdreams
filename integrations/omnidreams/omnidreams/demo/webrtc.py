@@ -8,11 +8,8 @@ from __future__ import annotations
 from typing import Protocol, cast
 
 from aiohttp import web
-from omnidreams.webrtc.session import (
-    OmnidreamsRuntimeConfig,
-    OmnidreamsSessionInput,
-    validate_requested_postprocess_preset,
-)
+from omnidreams.webrtc.postprocess import validate_requested_postprocess_preset
+from omnidreams.webrtc.session import OmnidreamsRuntimeConfig, OmnidreamsSessionInput
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime.demo import DemoSpec, WebRTCAppResources

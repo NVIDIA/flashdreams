@@ -94,7 +94,7 @@ def normalise_scene_uuid(scene_uuid: str) -> str:
     return parse_scene_stem(scene_uuid)[0]
 
 
-def _variant_suffix(variant: str | None) -> str:
+def scene_variant_suffix(variant: str | None) -> str:
     """Filename suffix for ``variant`` (``""`` for the default/base archive)."""
     slug = (variant or SCENE_VARIANT_DEFAULT).strip()
     return "" if slug in ("", SCENE_VARIANT_DEFAULT) else f"-{slug}"
@@ -108,7 +108,10 @@ def scene_archive_filename(
     ``variant`` selects a weather sibling (``-rain`` / ``-snow``); the default
     maps to the base ``scenes/clipgt-<uuid>.usdz``.
     """
-    return f"scenes/clipgt-{normalise_scene_uuid(scene_uuid)}{_variant_suffix(variant)}.usdz"
+    return (
+        f"scenes/clipgt-{normalise_scene_uuid(scene_uuid)}"
+        f"{scene_variant_suffix(variant)}.usdz"
+    )
 
 
 def prompt_variant_for_scene_variant(variant: str) -> str:
@@ -133,7 +136,9 @@ def resolve_variant_archive(scene_path: Path, variant: str) -> Path:
     """
     scene_path = Path(scene_path)
     uuid, _current = parse_scene_stem(scene_path.stem)
-    candidate = scene_path.with_name(f"clipgt-{uuid}{_variant_suffix(variant)}.usdz")
+    candidate = scene_path.with_name(
+        f"clipgt-{uuid}{scene_variant_suffix(variant)}.usdz"
+    )
     if candidate != scene_path and candidate.exists():
         return candidate
     return scene_path
@@ -161,7 +166,7 @@ def local_scene_archive_path(
     """
     return (
         scenes_cache_root()
-        / f"clipgt-{normalise_scene_uuid(scene_uuid)}{_variant_suffix(variant)}.usdz"
+        / f"clipgt-{normalise_scene_uuid(scene_uuid)}{scene_variant_suffix(variant)}.usdz"
     )
 
 

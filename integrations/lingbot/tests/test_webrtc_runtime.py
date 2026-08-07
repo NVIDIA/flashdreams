@@ -31,7 +31,11 @@ from lingbot.webrtc.session import (
 
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import StepRequest, StepResult
-from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+from flashdreams.serving.webrtc import runtime as webrtc_runtime
+from flashdreams.serving.webrtc.manager import (
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -63,7 +67,7 @@ class _FakeCloseable:
 
 
 class _FakeVideoEncoder:
-    """Minimal ``VideoEncoder``-shaped stub for ``_ManagedLingbotSession``
+    """Minimal ``VideoEncoder``-shaped stub for ``ManagedWebRTCSession``
     construction. Enough to satisfy the dataclass field; the tests here do
     not exercise ``create_track`` / ``deliver_chunk`` on it."""
 
@@ -122,7 +126,9 @@ def test_initialize_video_encoder_sync_skips_on_non_master(
     def _select_encoder_should_not_be_called(**_kw: object) -> object:
         raise AssertionError("worker ranks must not initialize WebRTC encoders")
 
-    monkeypatch.setattr(session, "select_encoder", _select_encoder_should_not_be_called)
+    monkeypatch.setattr(
+        webrtc_runtime, "select_encoder", _select_encoder_should_not_be_called
+    )
     runtime = session.LingbotInferenceRuntime(
         config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
     )
@@ -144,7 +150,7 @@ def test_initialize_video_encoder_sync_selects_runtime_encoder(
         calls.append(kwargs)
         return stub
 
-    monkeypatch.setattr(session, "select_encoder", _fake_select_encoder)
+    monkeypatch.setattr(webrtc_runtime, "select_encoder", _fake_select_encoder)
     runtime = session.LingbotInferenceRuntime(
         config=LingbotRuntimeConfig(
             device="cuda:2",
@@ -245,7 +251,8 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     assert float(metrics["model_step_s"]) >= 0.0
     assert pipeline.output.detach_calls == 0
     assert result.metrics == {"total_ms": 3.0}
-    assert runtime.autoregressive_index == 1
+    assert runtime._model_session is not None
+    assert runtime._model_session.step_index == 1
 
 
 def test_validate_remote_url_normalizes_github_blob_image_url(
@@ -594,7 +601,7 @@ def test_apply_conditioning_update_swaps_precomputed_text_embeddings() -> None:
     )
     runtime = _FakeRuntime()
     channel = _FakeControlChannel()
-    managed_session = session._ManagedLingbotSession(
+    managed_session = ManagedWebRTCSession(
         runtime=runtime,
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
@@ -645,7 +652,7 @@ async def test_clear_event_message_does_not_require_event_id_and_preserves_ack_f
     )
     runtime = _FakeRuntime()
     channel = _FakeControlChannel()
-    managed_session = session._ManagedLingbotSession(
+    managed_session = ManagedWebRTCSession(
         runtime=runtime,
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
@@ -690,21 +697,15 @@ async def test_event_message_without_id_is_rejected_for_trigger(
     manager = create_lingbot_webrtc_session_manager(
         runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
     )
-    transformer_cache = object()
-    cache = type("_FakeCache", (), {"transformer_cache": transformer_cache})()
-    base_text = torch.zeros((1, 2, 3))
-    event_text = torch.ones((1, 2, 3))
-    runtime._pipeline = _FakePipeline()
-    runtime._cache = cache
-    runtime._prompt = "base prompt"
-    runtime._event_embeddings = {"portal": event_text}
-    runtime._prompt_embeddings = {
-        "base prompt": base_text,
-        "a glowing portal opens": event_text,
-    }
-
-    runtime._apply_conditioning_update_sync(
-        InferenceInput(global_conditioning={"prompt": "a glowing portal opens"})
+    runtime = _FakeRuntime()
+    channel = _FakeControlChannel()
+    managed_session = ManagedWebRTCSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=object(),  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
     )
 
     transformer = runtime._pipeline.diffusion_model.transformer
@@ -1169,7 +1170,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     manager = create_lingbot_webrtc_session_manager(
         runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
     )
-    managed_session = session._ManagedLingbotSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
@@ -1200,7 +1201,7 @@ async def test_client_liveness_timeout_closes_active_session(
     )
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
-    managed_session = session._ManagedLingbotSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
@@ -1232,7 +1233,7 @@ async def test_disconnect_message_closes_active_session(
     )
     video_track = _FakeCloseable()
     peer_connection = _FakeCloseable()
-    managed_session = session._ManagedLingbotSession(
+    managed_session = ManagedWebRTCSession(
         runtime=object(),
         video_track=video_track,  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]

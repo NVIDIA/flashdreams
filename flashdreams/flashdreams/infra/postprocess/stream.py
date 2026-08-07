@@ -212,6 +212,36 @@ class VideoPostprocessStream:
         self._prepared = True
 
 
+def create_video_postprocess_stream(
+    *,
+    postprocess: VideoPostprocessChainConfig,
+    output_layout: VideoTensorLayout,
+    fps: float | None,
+    per_view: bool,
+    world_size: int,
+    is_rank_zero: bool = True,
+    profile: bool = False,
+) -> VideoPostprocessStream | None:
+    """Create a post-processing stream for one generated video rollout."""
+    if not postprocess.is_enabled():
+        return None
+    postprocess.validate_execution(world_size=world_size)
+    if (
+        world_size > 1
+        and not is_rank_zero
+        and not postprocess.requires_all_ranks(world_size=world_size)
+    ):
+        return None
+    return VideoPostprocessStream(
+        postprocess=postprocess,
+        output_layout=output_layout,
+        fps=fps,
+        per_view=per_view,
+        world_size=world_size,
+        profile=profile,
+    )
+
+
 def create_runner_postprocess_stream(
     config: RunnerConfigT,
     *,
@@ -223,14 +253,6 @@ def create_runner_postprocess_stream(
     postprocess = getattr(config, "postprocess")
     if not postprocess.is_enabled():
         return None
-    postprocess.validate_execution(world_size=world_size)
-    if (
-        world_size > 1
-        and not is_rank_zero
-        and not postprocess.requires_all_ranks(world_size=world_size)
-    ):
-        return None
-
     output_layout = getattr(config, "postprocess_output_layout")
     if output_layout is None:
         raise ValueError(
@@ -242,12 +264,13 @@ def create_runner_postprocess_stream(
     if configured_fps is None:
         configured_fps = getattr(config, "fps", getattr(config, "output_fps", None))
 
-    return VideoPostprocessStream(
+    return create_video_postprocess_stream(
         postprocess=postprocess,
         output_layout=output_layout,
         fps=configured_fps,
         per_view=getattr(config, "postprocess_per_view"),
         world_size=world_size,
+        is_rank_zero=is_rank_zero,
         profile=bool(
             getattr(getattr(config, "pipeline", None), "enable_sync_and_profile", False)
         ),

@@ -27,11 +27,11 @@ from omnidreams.interactive_drive.world_model.manifest import (
     resolve_world_model_manifest_path,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc.postprocess import validate_requested_postprocess_preset
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
     create_omnidreams_webrtc_session_manager,
-    validate_requested_postprocess_preset,
 )
 
 from flashdreams.core.distributed import (
