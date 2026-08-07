@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from loguru import logger
-from omnidreams.interactive_drive.input.backend import InputBackend
+from interactive_drive_app.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
 from omnidreams.interactive_drive.simulation.backend import SimulationBackend
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame

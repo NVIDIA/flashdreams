@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from interactive_drive_app.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 

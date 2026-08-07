@@ -7,7 +7,7 @@ from typing import Protocol
 class RuntimeControls(Protocol):
     """Live application/UI state read once per loop iteration.
 
-    Distinct from :class:`~omnidreams.interactive_drive.input.backend.InputBackend`,
+    Distinct from :class:`~interactive_drive_app.input.backend.InputBackend`,
     which produces continuous driving commands (throttle/brake/steer).
     These are discrete UI affordances: the current view mode and a
     rising-edge reset request.

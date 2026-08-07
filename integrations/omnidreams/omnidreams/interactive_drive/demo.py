@@ -23,7 +23,7 @@ from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from interactive_drive_app.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
     EVDEV_EVENT_FORMAT,
@@ -750,7 +750,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     window stay alive across switches (``close_presenter_on_exit=False``); the
     wheel binds once to the app's single ``KeyboardState``.
     """
-    from omnidreams.interactive_drive.input.keyboard import KeyboardState
+    from interactive_drive_app.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.slangpy_hud_presenter import (
         KeyboardStateDriveSink,
         SlangPyHudPresenter,
@@ -912,7 +912,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
     alive across scene swaps while only the scene is rebuilt. Scene options are
     serialised to JSON for the in-browser ``/scenes`` dropdown.
     """
-    from omnidreams.interactive_drive.input.keyboard import KeyboardState
+    from interactive_drive_app.input.keyboard import KeyboardState
     from omnidreams.interactive_drive.streaming_presenter import (
         MJPEGStreamingPresenter,
         parse_bind,

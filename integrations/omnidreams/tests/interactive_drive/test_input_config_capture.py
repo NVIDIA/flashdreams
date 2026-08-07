@@ -10,7 +10,7 @@ resting at zero) correctly from captured raw samples.
 
 from __future__ import annotations
 
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from interactive_drive_app.input.wheel_profiles import (
     AxisRange,
     Binding,
     DeviceSpec,

@@ -9,7 +9,7 @@ exactly one ``consume_reset_request`` call returns ``True`` per call to
 processed twice.
 """
 
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from interactive_drive_app.input.keyboard import KeyboardState
 
 
 def test_consume_reset_request_returns_false_when_no_reset_pending() -> None:

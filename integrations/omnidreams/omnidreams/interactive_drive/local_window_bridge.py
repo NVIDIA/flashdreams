@@ -13,12 +13,13 @@ ported across a piece at a time.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from interactive_drive_app.input.keyboard import KeyboardState
 from interactive_drive_app.overlays import (
     BEV_OVERLAY_KEY,
     BevOverlay,
@@ -255,7 +256,11 @@ def _build_overlay(
             SpeedOverlay(layout, lambda: _current_speed_mps(keyboard)),
             WheelOverlay(layout, drive_state, control_assets=control_assets),
             PedalsOverlay(layout, drive_state, control_assets=control_assets),
-            BevOverlay(layout, marker_y_fraction=_bev_marker_y_fraction),
+            BevOverlay(
+                layout,
+                marker_y_fraction=_bev_marker_y_fraction,
+                recolor=_bev_recolor(),
+            ),
         )
     )
 
@@ -329,6 +334,21 @@ def _display_frame(frame: PresentedFrame, view_mode: str) -> DisplayFrame:
         allow_window_resize=show_model,
         overlay_data={BEV_OVERLAY_KEY: frame.bev_host_uint8},
     )
+
+
+def _bev_recolor() -> Callable[[Image.Image], Image.Image] | None:
+    """The map palette the legacy minimap uses.
+
+    Returns ``None`` when unavailable, which leaves the minimap in the
+    renderer's raw colours rather than failing the whole overlay.
+    """
+    try:
+        from omnidreams.interactive_drive.demo import _apply_googlemaps_filter
+
+        return _apply_googlemaps_filter
+    except Exception as exc:  # noqa: BLE001 -- recolouring is cosmetic
+        logger.info(f"[presenter] BEV recolour unavailable ({exc})")
+        return None
 
 
 def _bev_marker_y_fraction() -> float:

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
-from omnidreams.interactive_drive.input.keyboard import command_from_snapshot
+from interactive_drive_app.input.keyboard import command_from_snapshot
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     integrate_vehicle,
     sample_chunk_trajectory,

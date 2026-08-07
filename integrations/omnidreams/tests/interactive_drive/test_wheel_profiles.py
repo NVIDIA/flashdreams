@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from omnidreams.interactive_drive.input import wheel_profiles
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from interactive_drive_app.input import wheel_profiles
+from interactive_drive_app.input.wheel_profiles import (
     FF_AUTOCENTER,
     FF_CONSTANT,
     AutocenterFFB,

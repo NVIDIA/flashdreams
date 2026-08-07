@@ -26,7 +26,7 @@ import threading
 import time
 from pathlib import Path
 
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from interactive_drive_app.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
     EVDEV_EVENT_FORMAT,

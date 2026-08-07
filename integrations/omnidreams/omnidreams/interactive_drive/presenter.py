@@ -11,7 +11,7 @@ from omnidreams.interactive_drive.cuda_env import (
     DISABLE_CUDA_INTEROP_ENV,
     env_truthy,
 )
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from interactive_drive_app.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.types import PresentedFrame
 

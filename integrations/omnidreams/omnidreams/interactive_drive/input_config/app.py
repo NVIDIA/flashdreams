@@ -10,7 +10,7 @@ feedback, then writing a local profile YAML the demo runtime auto-discovers.
 
 The GUI is intentionally thin: all calibration logic lives in
 :mod:`omnidreams.interactive_drive.input_config.capture` and all profile
-IO in :mod:`omnidreams.interactive_drive.input.wheel_profiles`.
+IO in :mod:`interactive_drive_app.input.wheel_profiles`.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 from loguru import logger
-from omnidreams.interactive_drive.input.wheel_profiles import (
+from interactive_drive_app.input.wheel_profiles import (
     AutocenterFFB,
     Binding,
     ConstantForceFFB,

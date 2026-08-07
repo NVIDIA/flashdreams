@@ -11,7 +11,7 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
-from omnidreams.interactive_drive.input.keyboard import (
+from interactive_drive_app.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
 )

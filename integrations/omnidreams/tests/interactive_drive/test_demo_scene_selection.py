@@ -165,7 +165,7 @@ def test_run_streaming_auto_start_skips_scene_picker(
     )
     monkeypatch.setattr(demo_mod, "InteractiveDriveApp", lambda **_k: app)
     # The streaming presenter is imported lazily inside _run_streaming
-    import omnidreams.interactive_drive.input.keyboard as kbd_mod
+    import interactive_drive_app.input.keyboard as kbd_mod
     import omnidreams.interactive_drive.streaming_presenter as sp_mod
 
     monkeypatch.setattr(sp_mod, "MJPEGStreamingPresenter", lambda **_k: presenter)

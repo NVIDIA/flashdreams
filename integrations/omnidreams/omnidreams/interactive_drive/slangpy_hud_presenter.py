@@ -24,7 +24,7 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from interactive_drive_app.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,

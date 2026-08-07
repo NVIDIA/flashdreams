@@ -14,7 +14,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-from omnidreams.interactive_drive.input.backend import SampledInput
+from interactive_drive_app.input.backend import SampledInput
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
     present_queued_frame,
