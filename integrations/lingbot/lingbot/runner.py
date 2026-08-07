@@ -29,9 +29,6 @@ from flashdreams.runtime.metrics import NullMetricsRecorder
 from flashdreams.runtime.runner import run_inference_session
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
-    EXAMPLE_DATA_BASE_URL,
-    EXAMPLE_DATA_DIR_LOCAL,
-    EXAMPLE_DATA_FILENAMES,
     EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS,
     ensure_example_data_downloaded,
     example_data_dirname,
@@ -48,8 +45,10 @@ from lingbot.runtime import (
 )
 
 __all__ = [
+    "EXAMPLE_DATA_AVAILABLE_IDXS",
     "LingbotWorldRunnerConfig",
     "LingbotWorldRunner",
+    "example_data_dirname",
 ]
 
 
@@ -61,6 +60,7 @@ land on the right pixel centers at the runner's actual frame size."""
 _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
+
 @dataclass(kw_only=True)
 class LingbotWorldRunnerConfig(RunnerConfig):
     """Runner config for every shipped LingBot-World variant."""
@@ -68,6 +68,7 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     _target: type["LingbotWorldRunner"] = field(
         default_factory=lambda: LingbotWorldRunner
     )
+    output_adapter: str | None = "lingbot.output_targets:OUTPUT_TARGET_ADAPTER"
 
     prompt: str = ""
     """Text prompt. A non-empty value wins; otherwise the runner reads

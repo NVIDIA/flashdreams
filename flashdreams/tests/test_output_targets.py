@@ -31,6 +31,11 @@ def _runner_config(
     num_views: int = 1,
     compile_network: bool = True,
 ) -> RunnerConfig:
+    output_adapter = None
+    if runner_name.startswith("lingbot-world"):
+        output_adapter = "lingbot.output_targets:OUTPUT_TARGET_ADAPTER"
+    elif runner_name.startswith("omnidreams-"):
+        output_adapter = "omnidreams.output_targets:OUTPUT_TARGET_ADAPTER"
     transformer = SimpleNamespace(
         num_views=num_views,
         compile_network=compile_network,
@@ -43,6 +48,7 @@ def _runner_config(
         RunnerConfig,
         SimpleNamespace(
             runner_name=runner_name,
+            output_adapter=output_adapter,
             pipeline=pipeline,
             device="cuda:1",
             pixel_height=480,
@@ -107,6 +113,74 @@ def test_omnidreams_webrtc_target_rejects_multi_view() -> None:
             config,
             mode="webrtc",
         )
+
+
+def test_omnidreams_webrtc_target_uses_shared_demo_entry_point() -> None:
+    config = _runner_config(
+        runner_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+    )
+
+    spec = resolve_output_target(
+        config,
+        mode="webrtc",
+        options=OutputLaunchOptions(
+            host="127.0.0.1",
+            port=9011,
+            prefer_sw_encoder=True,
+        ),
+    )
+
+    assert spec.module == "omnidreams.demo.cli"
+    assert spec.argv == (
+        "webrtc",
+        "--preset-id",
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "--device",
+        "cuda:1",
+        "--fps",
+        "24",
+        "--video-height",
+        "480",
+        "--video-width",
+        "832",
+        "--seed",
+        "42",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "9011",
+        "--prefer-sw-encoder",
+    )
+
+
+def test_output_capabilities_can_be_added_without_shared_routing_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeAdapter:
+        def supported_modes(self, config, options):
+            del config, options
+            return ("webrtc",)
+
+        def resolve(self, config, *, mode, options):
+            del config, options
+            if mode != "webrtc":
+                return None
+            return OutputTargetSpec(
+                mode="webrtc",
+                label="plugin demo",
+                module="plugin.demo",
+            )
+
+    config = _runner_config(runner_name="third-party-model")
+    config.output_adapter = "plugin:adapter"
+    monkeypatch.setattr(
+        output_targets_module,
+        "_load_output_adapter",
+        lambda path: _FakeAdapter(),
+    )
+
+    assert available_output_modes(config) == ("cli", "webrtc")
+    assert resolve_output_target(config, mode="webrtc").module == "plugin.demo"
 
 
 def test_omnidreams_local_window_target_uses_manifest_override() -> None:

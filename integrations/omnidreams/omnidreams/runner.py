@@ -156,6 +156,7 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     """
 
     _target: type["OmnidreamsRunner"] = field(default_factory=lambda: OmnidreamsRunner)
+    output_adapter: str | None = "omnidreams.output_targets:OUTPUT_TARGET_ADAPTER"
 
     prompt: str = ""
     """Default text prompt applied to every camera. Override per-camera

@@ -63,6 +63,9 @@ class RunnerConfig(InstantiateConfig):
     per-runner ``--help`` (it's metadata, not a knob); a non-empty
     value is enforced for in-tree runners by the registry test."""
 
+    output_adapter: Annotated[str | None, tyro.conf.Suppress] = None
+    """Optional ``module:attribute`` implementing non-CLI output capabilities."""
+
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
 

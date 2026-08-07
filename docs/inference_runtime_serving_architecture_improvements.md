@@ -337,14 +337,14 @@ runner-name prefix checks.
 
 #### TODO
 
-- [ ] Let adapters declare supported input and output modes.
-- [ ] Resolve `cli`, `webrtc`, and `local-window` through adapter capabilities.
-- [ ] Remove `_is_lingbot_runner` and `_is_omnidreams_runner` branches from
+- [x] Let adapters declare supported input and output modes.
+- [x] Resolve `cli`, `webrtc`, and `local-window` through adapter capabilities.
+- [x] Remove `_is_lingbot_runner` and `_is_omnidreams_runner` branches from
       shared output routing.
-- [ ] Launch Lingbot and OmniDreams WebRTC through the same shared demo entry
+- [x] Launch Lingbot and OmniDreams WebRTC through the same shared demo entry
       point.
-- [ ] Keep local-window manifest selection inside the OmniDreams integration.
-- [ ] Add registry tests proving a new adapter can add an output without editing
+- [x] Keep local-window manifest selection inside the OmniDreams integration.
+- [x] Add registry tests proving a new adapter can add an output without editing
       shared routing code.
 
 Acceptance criteria:
