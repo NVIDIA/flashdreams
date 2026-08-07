@@ -31,6 +31,7 @@ from aiortc import MediaStreamTrack
 from av.packet import Packet
 from loguru import logger
 
+from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 
 # Runtime imports ``PyNvVideoCodec`` unconditionally (the isolation
@@ -71,13 +72,12 @@ def _payload_contains_nal_type(payload: bytes, nal_type: int) -> bool:
         i = nal_start + 1
 
 
-def _chunk_to_abgr_cuda_frames(chunk: torch.Tensor) -> torch.Tensor:
-    """Convert a model-output chunk to NVENC-``ABGR``-formatted CUDA frames.
+def _result_to_abgr_frames(result: StepResult) -> torch.Tensor:
+    """Convert a declared video result to NVENC-``ABGR``-formatted frames.
 
-    Accepts ``[T, 3, H, W]`` or ``[1, 1, T, 3, H, W]`` (the shape produced
-    by the omnidreams runtime) in either ``uint8`` or float dtype
-    (float assumed to be in ``[-1, 1]``). Returns a contiguous
-    ``[T, H, W, 4]`` ``uint8`` CUDA tensor with alpha=255.
+    The result layout selects the time, channel, batch, and view axes; tensor
+    rank is never used to guess the model's output contract. The returned
+    contiguous ``[T, H, W, 4]`` uint8 tensor stays on the source device.
 
     **NVENC ``NV_ENC_BUFFER_FORMAT_ABGR`` is a word-ordered token, not
     memory-ordered.** From ``nvEncodeAPI.h``: "a pixel is represented by
@@ -93,25 +93,7 @@ def _chunk_to_abgr_cuda_frames(chunk: torch.Tensor) -> torch.Tensor:
     conversion handles the colour transform, sparing us a bespoke NV12
     kernel.
     """
-    if not chunk.is_cuda:
-        raise ValueError("expected CUDA tensor for hardware encode path")
-    if chunk.ndim == 6:
-        if chunk.shape[0] != 1 or chunk.shape[1] != 1:
-            raise ValueError(
-                "expected single-batch, single-view chunk [1, 1, T, 3, H, W]; "
-                f"got {tuple(chunk.shape)}"
-            )
-        chunk = chunk[0, 0]
-    if chunk.ndim != 4 or chunk.shape[1] != 3:
-        raise ValueError(
-            "expected chunk shape [T, 3, H, W] or [1, 1, T, 3, H, W]; "
-            f"got {tuple(chunk.shape)}"
-        )
-    if chunk.dtype == torch.uint8:
-        rgb = chunk.permute(0, 2, 3, 1)
-    else:
-        rgb = ((chunk.float() + 1.0) / 2.0 * 255.0).clamp(0, 255).byte()
-        rgb = rgb.permute(0, 2, 3, 1)
+    rgb = result.video_hwc_uint8()
     t, h, w, _ = rgb.shape
     a = torch.full((t, h, w, 1), 255, dtype=torch.uint8, device=rgb.device)
     # Channel-last [R, G, B, A] → little-endian bytes [R, G, B, A] →
@@ -260,7 +242,7 @@ class PyNvHardwareEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -297,7 +279,7 @@ class PyNvHardwareEncoder:
 
         _num_frames, num_keyframes, encode_ms = await asyncio.to_thread(
             self.encode_chunk_sync,
-            chunk,
+            result,
             force_keyframe=force_keyframe,
             on_packet=_stream,
         )
@@ -317,18 +299,20 @@ class PyNvHardwareEncoder:
 
     def encode_chunk_sync(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
         *,
         force_keyframe: bool = False,
         on_packet: Callable[[Packet], None] | None = None,
     ) -> tuple[int, int, float]:
-        """Encode a chunk synchronously; returns ``(num_frames, num_keyframes, encode_ms)``.
+        """Encode a result and return frame, keyframe, and timing counts.
 
         Kept public because callers (e.g. tests) that already run on a
         worker thread should not have to route through :meth:`deliver_chunk`
         just to get access to the emitted packets.
         """
-        frames = _chunk_to_abgr_cuda_frames(chunk)
+        frames = _result_to_abgr_frames(result)
+        if not frames.is_cuda:
+            raise ValueError("expected CUDA tensor for hardware encode path")
         num_frames = frames.shape[0]
         num_keyframes = 0
         start_s = time.perf_counter()

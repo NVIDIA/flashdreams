@@ -1336,6 +1336,7 @@ class LingbotInferenceRuntime:
             video_chunk,
             autoregressive_index=self.autoregressive_index,
             metrics=stats,
+            metadata={"active_event_id": self._active_event_id},
         )
         if result.frame_count != num_frames:
             raise LingbotRuntimeError(
@@ -1492,9 +1493,6 @@ class LingbotWebRTCSessionManager(
 
     def _model_name(self) -> str:
         return self.runtime_config.config_name
-
-    def _chunk_done_extra(self) -> dict[str, object]:
-        return {"active_event_id": getattr(self._runtime, "_active_event_id", None)}
 
     def _peek_pending_session_input(self) -> LingbotSessionInput | None:
         return self._pending_session_input

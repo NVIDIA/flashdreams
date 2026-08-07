@@ -77,19 +77,19 @@ class _FakeVideoEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: Any,
+        result: StepResult,
         track: Any,
         *,
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
         del force_keyframe
-        self.delivered_chunks.append(chunk)
-        # If a real BufferedVideoTrack was provided, thread the chunk
+        self.delivered_chunks.append(result)
+        # If a real BufferedVideoTrack was provided, thread the result
         # through its enqueue path so downstream consumers see frames.
         if isinstance(track, BufferedVideoTrack):
-            enqueued = await track.enqueue_chunk(chunk)
+            enqueued = await track.enqueue_result(result)
         else:
-            enqueued = int(chunk.shape[2]) if chunk.ndim == 6 else int(chunk.shape[0])
+            enqueued = result.frame_count
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,
@@ -1301,12 +1301,12 @@ class _HardwareEncoderStub:
 
     async def deliver_chunk(
         self,
-        chunk: Any,
+        result: StepResult,
         track: Any,
         *,
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
-        del chunk, track, force_keyframe
+        del result, track, force_keyframe
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=0,

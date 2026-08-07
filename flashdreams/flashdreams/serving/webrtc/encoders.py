@@ -28,6 +28,8 @@ import torch
 from aiortc import MediaStreamTrack
 from loguru import logger
 
+from flashdreams.runtime import StepResult
+
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 
@@ -71,7 +73,7 @@ class VideoEncoder(Protocol):
 
     async def deliver_chunk(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -112,7 +114,7 @@ class DefaultRTCEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -128,7 +130,7 @@ class DefaultRTCEncoder:
                 "DefaultRTCEncoder requires a BufferedVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
-        enqueued = await track.enqueue_chunk(chunk)
+        enqueued = await track.enqueue_result(result)
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,

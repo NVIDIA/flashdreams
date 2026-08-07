@@ -62,12 +62,6 @@ class OmnidreamsDemoWebRTCSessionManager(SharedDemoWebRTCSessionManager):
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
 
-    def _chunk_done_extra(self) -> dict[str, Any]:
-        return {
-            "stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb",
-            "postprocess_preset": self._runtime.postprocess_preset,
-        }
-
     def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
         return self._pending_session_input
 

@@ -189,16 +189,16 @@ The WebRTC manager and encoders should consume the complete generated result.
 
 #### TODO
 
-- [ ] Change `VideoEncoder.deliver_chunk` to accept `StepResult`.
-- [ ] Pass the result directly from the session manager to the encoder.
-- [ ] Make software frame conversion use `result.layout`.
-- [ ] Make NVENC conversion use `result.layout` instead of tensor-rank
+- [x] Change `VideoEncoder.deliver_chunk` to accept `StepResult`.
+- [x] Pass the result directly from the session manager to the encoder.
+- [x] Make software frame conversion use `result.layout`.
+- [x] Make NVENC conversion use `result.layout` instead of tensor-rank
       heuristics.
-- [ ] Move model-specific `chunk_done` fields into `result.metadata`.
-- [ ] Keep transport measurements such as enqueue time, queue depth, and
+- [x] Move model-specific `chunk_done` fields into `result.metadata`.
+- [x] Keep transport measurements such as enqueue time, queue depth, and
       control latency in the WebRTC manager.
-- [ ] Test `tchw` and `bvtchw` delivery through both software and NVENC fakes.
-- [ ] Test that no host copy occurs before the software path requests one.
+- [x] Test `tchw` and `bvtchw` delivery through both software and NVENC fakes.
+- [x] Test that no host copy occurs before the software path requests one.
 
 Acceptance criteria:
 

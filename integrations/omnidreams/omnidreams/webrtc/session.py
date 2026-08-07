@@ -1083,11 +1083,19 @@ class OmnidreamsInferenceRuntime:
                 step_index=self.autoregressive_index,
                 video_chunk=video_chunk.detach(),
                 layout="bvtchw",
+                metadata={
+                    "stream": "hdmap",
+                    "postprocess_preset": self.postprocess_preset,
+                },
             )
         else:
             result = self._output_stream.process(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
+                metadata={
+                    "stream": "rgb",
+                    "postprocess_preset": self.postprocess_preset,
+                },
             )
         self.autoregressive_index += 1
         return result
@@ -1132,12 +1140,6 @@ class OmnidreamsWebRTCSessionManager(
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
-
-    def _chunk_done_extra(self) -> dict[str, Any]:
-        return {
-            "stream": "hdmap" if self.runtime_config.debug_serve_hdmaps else "rgb",
-            "postprocess_preset": self._runtime.postprocess_preset,
-        }
 
     def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
         return self._pending_session_input

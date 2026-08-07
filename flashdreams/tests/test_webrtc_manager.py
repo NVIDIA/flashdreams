@@ -39,8 +39,8 @@ class _FakeVideoTrack:
     def __init__(self) -> None:
         self.closed = False
 
-    async def enqueue_chunk(self, chunk: Any) -> int:
-        del chunk
+    async def enqueue_result(self, result: StepResult) -> int:
+        del result
         return 1
 
     def qsize(self) -> int:
@@ -53,8 +53,8 @@ class _FakeVideoTrack:
 class _FakeVideoEncoder:
     """``VideoEncoder``-shaped stub for ``ManagedWebRTCSession`` construction
     and the base manager's generation-worker path. ``deliver_chunk``
-    delegates to the paired track's ``enqueue_chunk`` so the manager
-    tests that drive one chunk end-to-end see the frames land."""
+    delegates to the paired track's ``enqueue_result`` so the manager
+    tests that drive one result end-to-end see the frames land."""
 
     fps = 30
     backend = "fake"
@@ -62,13 +62,13 @@ class _FakeVideoEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: Any,
+        result: StepResult,
         track: Any,
         *,
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
         del force_keyframe
-        enqueued = await track.enqueue_chunk(chunk)
+        enqueued = await track.enqueue_result(result)
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,
@@ -116,8 +116,8 @@ class _RecordingResampler(_FakeResampler):
 
 
 class _CountingVideoTrack(_FakeVideoTrack):
-    async def enqueue_chunk(self, chunk: Any) -> int:
-        return int(chunk.shape[0])
+    async def enqueue_result(self, result: StepResult) -> int:
+        return result.frame_count
 
 
 class _BaseTestManager(BaseWebRTCSessionManager):
@@ -561,14 +561,11 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
                 step_index=0,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
                 layout="bvtchw",
+                metadata={"stream": "rgb"},
             )
 
-    class _ExtraManager(_BaseTestManager):
-        def _chunk_done_extra(self) -> dict[str, Any]:
-            return {"stream": "rgb"}
-
     runtime = _OneChunkRuntime()
-    manager = _make_manager(_ExtraManager, runtime)
+    manager = _make_manager(_BaseTestManager, runtime)
     managed, _video_track, _peer, channel = _managed_session(runtime)
     runtime.managed_session = managed
     manager._active_session = managed
