@@ -162,7 +162,11 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
         manager_fps.append(fps)
         return fake_manager
 
-    monkeypatch.setattr(server, "LingbotWebRTCSessionManager", _make_manager)
+    monkeypatch.setattr(
+        server,
+        "create_lingbot_webrtc_session_manager",
+        _make_manager,
+    )
     monkeypatch.setattr(server, "get_external_ip", lambda: "203.0.113.10")
 
     def _create_app(*, session_manager, request_session_url=None):
@@ -213,7 +217,11 @@ def test_main_worker_rank_waits_for_termination(
         manager_fps.append(fps)
         return fake_manager
 
-    monkeypatch.setattr(server, "LingbotWebRTCSessionManager", _make_manager)
+    monkeypatch.setattr(
+        server,
+        "create_lingbot_webrtc_session_manager",
+        _make_manager,
+    )
 
     server.main()
 

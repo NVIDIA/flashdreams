@@ -26,7 +26,7 @@ from omnidreams.webrtc.model_session import OmnidreamsConditioningSessionCore
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
-    OmnidreamsWebRTCSessionManager,
+    create_omnidreams_webrtc_session_manager,
 )
 
 import flashdreams.plugins.registry as plugin_registry
@@ -45,6 +45,7 @@ from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
     DefaultRTCEncoder,
 )
+from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.media import BufferedVideoTrack
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -119,7 +120,7 @@ def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
 
 
 def test_session_manager_hooks_are_wired() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu")
     )
 
@@ -878,7 +879,7 @@ def test_build_runtime_config_clears_scene_uuid_for_local_scene(tmp_path: Path) 
 
 
 def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu")
     )
     session_input = session.OmnidreamsSessionInput(postprocess_preset="")
@@ -888,18 +889,19 @@ def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
     assert manager.pending_session_input == session_input
 
 
-def test_session_manager_rejects_unlaunched_postprocess_preset() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+def test_session_input_validation_rejects_unlaunched_postprocess_preset() -> None:
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu")
     )
 
     with pytest.raises(ValueError, match="not enabled for this server"):
-        manager.set_pending_session_input(
-            session.OmnidreamsSessionInput(postprocess_preset="fake-preset")
+        session.validate_requested_postprocess_preset(
+            requested_preset="fake-preset",
+            configured_preset=manager.runtime_config.postprocess.preset,
         )
 
 
-def test_session_manager_rejects_non_launched_postprocess_preset(
+def test_session_input_validation_rejects_non_launched_postprocess_preset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_config = VideoPostProcessorConfig()
@@ -908,7 +910,7 @@ def test_session_manager_rejects_non_launched_postprocess_preset(
         "resolve_postprocess_preset",
         lambda name: preset_config,
     )
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(
             device="cpu",
             postprocess=VideoPostprocessChainConfig(preset="launched-preset"),
@@ -916,14 +918,15 @@ def test_session_manager_rejects_non_launched_postprocess_preset(
     )
 
     with pytest.raises(ValueError, match="must match the launched preset"):
-        manager.set_pending_session_input(
-            session.OmnidreamsSessionInput(postprocess_preset="other-preset")
+        session.validate_requested_postprocess_preset(
+            requested_preset="other-preset",
+            configured_preset=manager.runtime_config.postprocess.preset,
         )
 
 
 @pytest.mark.asyncio
 async def test_postprocess_options_hide_unlaunched_presets() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu")
     )
     app = web.Application()
@@ -938,7 +941,7 @@ async def test_postprocess_options_hide_unlaunched_presets() -> None:
 
 @pytest.mark.asyncio
 async def test_postprocess_options_exposes_only_launch_preset() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(
             device="cpu",
             postprocess=VideoPostprocessChainConfig(preset="launched-preset"),
@@ -1004,18 +1007,18 @@ async def test_session_manager_preload_runs_loopback_warmup_once(
         return fake_runtime
 
     async def _fake_loopback_warmup(
-        self: OmnidreamsWebRTCSessionManager, *, num_chunks: int
+        self: BaseWebRTCSessionManager, *, num_chunks: int
     ) -> None:
         del self
         warmup_calls.append(num_chunks)
 
     monkeypatch.setattr(session, "OmnidreamsInferenceRuntime", _fake_runtime_factory)
     monkeypatch.setattr(
-        OmnidreamsWebRTCSessionManager,
+        BaseWebRTCSessionManager,
         "_run_loopback_warmup_session",
         _fake_loopback_warmup,
     )
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=2)
     )
 
@@ -1093,7 +1096,7 @@ async def test_loopback_warmup_drives_session_generation(
         return fake_runtime
 
     monkeypatch.setattr(session, "OmnidreamsInferenceRuntime", _fake_runtime_factory)
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(
             device="cpu",
             fps=30,
@@ -1117,7 +1120,7 @@ async def test_heartbeat_message_refreshes_client_liveness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(session, "OmnidreamsInferenceRuntime", _fake_runtime_factory)
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     managed_session = session._ManagedOmnidreamsSession(
@@ -1145,7 +1148,7 @@ async def test_client_liveness_timeout_closes_active_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(session, "OmnidreamsInferenceRuntime", _fake_runtime_factory)
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
         client_liveness_timeout_s=0.01,
     )
@@ -1178,7 +1181,7 @@ async def test_disconnect_message_closes_active_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(session, "OmnidreamsInferenceRuntime", _fake_runtime_factory)
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     video_track = _FakeCloseable()
@@ -1263,7 +1266,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
         def send(self, message: str) -> None:
             self.messages.append(message)
 
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0)
     )
     runtime = _FailingRuntime()
@@ -1368,7 +1371,7 @@ def _sdp_fallback_managed_session(
 async def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264() -> (
     None
 ):
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
     hw_encoder = _HardwareEncoderStub(fps=30)
@@ -1394,7 +1397,7 @@ async def test_enforce_h264_or_fallback_swaps_when_negotiation_lands_on_non_h264
 
 @pytest.mark.asyncio
 async def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
     hw_encoder = _HardwareEncoderStub(fps=30)
@@ -1418,7 +1421,7 @@ async def test_enforce_h264_or_fallback_keeps_hardware_when_h264_negotiated() ->
 
 @pytest.mark.asyncio
 async def test_enforce_h264_or_fallback_swaps_when_no_codecs_negotiated() -> None:
-    manager = OmnidreamsWebRTCSessionManager(
+    manager = create_omnidreams_webrtc_session_manager(
         runtime_config=OmnidreamsRuntimeConfig(device="cpu", warmup_chunks=0),
     )
     hw_encoder = _HardwareEncoderStub(fps=30)

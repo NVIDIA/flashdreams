@@ -23,6 +23,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
+from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from lingbot.input_mapping import (
     KeyboardToCameraCommand,
     TextEventSelection,
@@ -37,7 +38,7 @@ from lingbot.runtime import (
 from lingbot.webrtc.session import (
     LingbotInferenceRuntime,
     LingbotRuntimeConfig,
-    LingbotWebRTCSessionManager,
+    create_lingbot_webrtc_session_manager,
 )
 
 from .spec import (
@@ -178,9 +179,9 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         runtime_config: LingbotRuntimeConfig,
         fps: int,
         client_liveness_timeout_s: float,
-    ) -> LingbotWebRTCSessionManager:
+    ) -> BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]:
         del spec
-        return LingbotWebRTCSessionManager(
+        return create_lingbot_webrtc_session_manager(
             runtime=runtime,
             runtime_config=runtime_config,
             fps=fps,

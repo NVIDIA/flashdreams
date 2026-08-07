@@ -372,40 +372,6 @@ def _ensure_hf_webrtc_scene_synced(
     return scene_dir
 
 
-def _summarize_sdp_candidates(sdp: str) -> str:
-    candidates = [
-        line.removeprefix("a=candidate:")
-        for line in sdp.splitlines()
-        if line.startswith("a=candidate:")
-    ]
-    if not candidates:
-        return "0 candidates"
-
-    protocols: dict[str, int] = {}
-    addresses: set[str] = set()
-    endpoints: list[str] = []
-    for candidate in candidates:
-        parts = candidate.split()
-        if len(parts) >= 5:
-            protocols[parts[2].lower()] = protocols.get(parts[2].lower(), 0) + 1
-            addresses.add(parts[4])
-        if len(parts) >= 6:
-            endpoints.append(f"{parts[2].lower()}://{parts[4]}:{parts[5]}")
-    protocol_summary = ",".join(
-        f"{key}={value}" for key, value in sorted(protocols.items())
-    )
-    address_summary = ",".join(sorted(addresses)[:8])
-    if len(addresses) > 8:
-        address_summary += f",+{len(addresses) - 8} more"
-    endpoint_summary = ",".join(endpoints[:12])
-    if len(endpoints) > 12:
-        endpoint_summary += f",+{len(endpoints) - 12} more"
-    return (
-        f"{len(candidates)} candidates protocols=[{protocol_summary}] "
-        f"addresses=[{address_summary}] endpoints=[{endpoint_summary}]"
-    )
-
-
 def _link_or_copy_file(source: Path, target: Path) -> None:
     """Stage a file efficiently without requiring Windows symlink privileges."""
     try:
@@ -470,7 +436,7 @@ class OmnidreamsSessionInput:
     """Launched preset selection; ``None`` keeps the CLI default and ``""`` disables it."""
 
 
-def _validate_requested_postprocess_preset(
+def validate_requested_postprocess_preset(
     *, requested_preset: str, configured_preset: str
 ) -> None:
     if not configured_preset:
@@ -957,7 +923,7 @@ class OmnidreamsInferenceRuntime:
             else configured.preset
         )
         if preset:
-            _validate_requested_postprocess_preset(
+            validate_requested_postprocess_preset(
                 requested_preset=preset,
                 configured_preset=configured.preset,
             )
@@ -1062,64 +1028,28 @@ class OmnidreamsInferenceRuntime:
 _ManagedOmnidreamsSession = ManagedWebRTCSession
 
 
-class OmnidreamsWebRTCSessionManager(
-    BaseWebRTCSessionManager[OmnidreamsInferenceRuntime, OmnidreamsRuntimeConfig]
-):
-    """Owns one active WebRTC session and forwards WSAD actions."""
-
-    def __init__(
-        self,
-        *,
-        runtime: OmnidreamsInferenceRuntime | None = None,
-        runtime_config: OmnidreamsRuntimeConfig | None = None,
-        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
-    ) -> None:
-        runtime_config = runtime_config or getattr(runtime, "config", None)
-        if not isinstance(runtime_config, OmnidreamsRuntimeConfig):
-            runtime_config = OmnidreamsRuntimeConfig()
-        runtime = runtime or OmnidreamsInferenceRuntime(config=runtime_config)
-        super().__init__(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=runtime_config.fps,
-            identity=runtime_config.pipeline_config_name,
-            busy_message="An Omnidreams session is already active.",
-            warmup_label="Omnidreams WebRTC",
-            supported_control_keys=WSAD_SUPPORTED_KEYS,
-            fatal_generation_errors=True,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    def set_pending_session_input(self, session_input: OmnidreamsSessionInput) -> None:
-        preset = session_input.postprocess_preset
-        if preset:
-            _validate_requested_postprocess_preset(
-                requested_preset=preset,
-                configured_preset=self.runtime_config.postprocess.preset,
-            )
-        super().set_pending_session_input(session_input)
-
-    def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
-        @peer_connection.on("iceconnectionstatechange")
-        def on_iceconnectionstatechange() -> None:
-            logger.info(
-                "Peer ICE connection state changed: {}",
-                peer_connection.iceConnectionState,
-            )
-
-        @peer_connection.on("icegatheringstatechange")
-        def on_icegatheringstatechange() -> None:
-            logger.debug(
-                "Peer ICE gathering state changed: {}",
-                peer_connection.iceGatheringState,
-            )
-
-    def _on_offer_received(self, offer_sdp: str) -> None:
-        logger.info(
-            "Received WebRTC offer with {}.", _summarize_sdp_candidates(offer_sdp)
-        )
-
-    def _on_answer_created(self, answer_sdp: str) -> None:
-        logger.info(
-            "Created WebRTC answer with {}.", _summarize_sdp_candidates(answer_sdp)
-        )
+def create_omnidreams_webrtc_session_manager(
+    *,
+    runtime: OmnidreamsInferenceRuntime | None = None,
+    runtime_config: OmnidreamsRuntimeConfig | None = None,
+    client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+) -> BaseWebRTCSessionManager[
+    OmnidreamsInferenceRuntime,
+    OmnidreamsRuntimeConfig,
+]:
+    """Configure the shared WebRTC manager for the OmniDreams runtime."""
+    runtime_config = runtime_config or getattr(runtime, "config", None)
+    if not isinstance(runtime_config, OmnidreamsRuntimeConfig):
+        runtime_config = OmnidreamsRuntimeConfig()
+    runtime = runtime or OmnidreamsInferenceRuntime(config=runtime_config)
+    return BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime_config,
+        fps=runtime_config.fps,
+        identity=runtime_config.pipeline_config_name,
+        busy_message="An Omnidreams session is already active.",
+        warmup_label="Omnidreams WebRTC",
+        supported_control_keys=WSAD_SUPPORTED_KEYS,
+        fatal_generation_errors=True,
+        client_liveness_timeout_s=client_liveness_timeout_s,
+    )

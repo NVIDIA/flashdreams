@@ -73,6 +73,40 @@ _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
 
 
+def _summarize_sdp_candidates(sdp: str) -> str:
+    candidates = [
+        line.removeprefix("a=candidate:")
+        for line in sdp.splitlines()
+        if line.startswith("a=candidate:")
+    ]
+    if not candidates:
+        return "0 candidates"
+
+    protocols: dict[str, int] = {}
+    addresses: set[str] = set()
+    endpoints: list[str] = []
+    for candidate in candidates:
+        parts = candidate.split()
+        if len(parts) >= 5:
+            protocols[parts[2].lower()] = protocols.get(parts[2].lower(), 0) + 1
+            addresses.add(parts[4])
+        if len(parts) >= 6:
+            endpoints.append(f"{parts[2].lower()}://{parts[4]}:{parts[5]}")
+    protocol_summary = ",".join(
+        f"{key}={value}" for key, value in sorted(protocols.items())
+    )
+    address_summary = ",".join(sorted(addresses)[:8])
+    if len(addresses) > 8:
+        address_summary += f",+{len(addresses) - 8} more"
+    endpoint_summary = ",".join(endpoints[:12])
+    if len(endpoints) > 12:
+        endpoint_summary += f",+{len(endpoints) - 12} more"
+    return (
+        f"{len(candidates)} candidates protocols=[{protocol_summary}] "
+        f"addresses=[{address_summary}] endpoints=[{endpoint_summary}]"
+    )
+
+
 def _stat_float(stats: dict[str, float], name: str, default: float = 0.0) -> float:
     value = stats.get(name)
     if value is None:
@@ -201,6 +235,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Input that will be applied to the next successfully negotiated session."""
         return self._pending_session_input
 
+    @property
+    def runtime(self) -> _RuntimeT:
+        """Model runtime driven by this transport manager."""
+        return self._runtime
+
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""
         if self.has_active_session():
@@ -265,9 +304,6 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             runtime.peek_steady_output_num_frames(),
             label="peek_steady_output_num_frames",
         )
-
-    def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
-        """Register optional extra peer-connection event handlers."""
 
     def _resolve_video_encoder(self) -> VideoEncoder:
         """Return the encoder to use for the next session.
@@ -351,12 +387,6 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         transceiver.sender.replaceTrack(fallback_track)
         managed_session.video_encoder = fallback_encoder
         managed_session.video_track = fallback_track
-
-    def _on_offer_received(self, offer_sdp: str) -> None:
-        """Hook invoked with the remote offer SDP before negotiation."""
-
-    def _on_answer_created(self, answer_sdp: str) -> None:
-        """Hook invoked with the local answer SDP after negotiation."""
 
     async def _handle_event_message(
         self,
@@ -582,11 +612,26 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             }:
                 await self.close_active_session()
 
-        self._register_extra_peer_handlers(peer_connection)
+        @peer_connection.on("iceconnectionstatechange")
+        def on_iceconnectionstatechange() -> None:
+            logger.info(
+                "Peer ICE connection state changed: {}",
+                peer_connection.iceConnectionState,
+            )
+
+        @peer_connection.on("icegatheringstatechange")
+        def on_icegatheringstatechange() -> None:
+            logger.debug(
+                "Peer ICE gathering state changed: {}",
+                peer_connection.iceGatheringState,
+            )
 
         try:
             offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
-            self._on_offer_received(offer_sdp)
+            logger.info(
+                "Received WebRTC offer with {}.",
+                _summarize_sdp_candidates(offer_sdp),
+            )
             await peer_connection.setRemoteDescription(offer)
             answer = await peer_connection.createAnswer()
             await peer_connection.setLocalDescription(answer)
@@ -600,7 +645,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             local_description = peer_connection.localDescription
             if local_description is None:
                 raise RuntimeError("Peer connection did not produce local description.")
-            self._on_answer_created(local_description.sdp)
+            logger.info(
+                "Created WebRTC answer with {}.",
+                _summarize_sdp_candidates(local_description.sdp),
+            )
             return {"sdp": local_description.sdp, "type": local_description.type}
         except Exception:
             logger.exception("WebRTC negotiation failed while creating an answer.")

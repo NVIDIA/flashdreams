@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Protocol, cast
 
 from aiohttp import web
 from omnidreams.webrtc.session import (
+    OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
-    OmnidreamsWebRTCSessionManager,
+    validate_requested_postprocess_preset,
 )
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
@@ -18,7 +19,17 @@ from flashdreams.runtime.demo import DemoSpec, WebRTCAppResources
 from flashdreams.serving.webrtc.server import (
     SESSION_MANAGER_KEY,
     SessionBusyError,
+    WebRTCSessionManager,
 )
+
+
+class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
+    runtime_config: OmnidreamsRuntimeConfig
+
+    def set_pending_session_input(
+        self,
+        session_input: OmnidreamsSessionInput,
+    ) -> None: ...
 
 
 async def postprocess_options(request: web.Request) -> web.StreamResponse:
@@ -50,6 +61,11 @@ async def session_input(request: web.Request) -> web.StreamResponse:
 
     manager = _get_omnidreams_manager(request.app)
     try:
+        if preset:
+            validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=manager.runtime_config.postprocess.preset,
+            )
         manager.set_pending_session_input(
             OmnidreamsSessionInput(postprocess_preset=preset)
         )
@@ -84,8 +100,8 @@ def validate_postprocess_preset(preset: str) -> None:
         resolve_postprocess_preset(preset)
 
 
-def _get_omnidreams_manager(app: web.Application) -> OmnidreamsWebRTCSessionManager:
-    return cast(OmnidreamsWebRTCSessionManager, app[SESSION_MANAGER_KEY])
+def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
+    return cast(_OmnidreamsSessionManager, app[SESSION_MANAGER_KEY])
 
 
 __all__ = [

@@ -1375,46 +1375,57 @@ class LingbotWebRTCInferenceSession:
 _ManagedLingbotSession = ManagedWebRTCSession
 
 
-class LingbotWebRTCSessionManager(
-    BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]
-):
-    """Owns one active WebRTC session and forwards actions into Lingbot runtime."""
+def create_lingbot_webrtc_session_manager(
+    *,
+    runtime: LingbotInferenceRuntime | None = None,
+    runtime_config: LingbotRuntimeConfig | None = None,
+    fps: int | None = None,
+    client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+) -> BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]:
+    """Configure the shared WebRTC manager for the Lingbot runtime."""
+    runtime_config = runtime_config or getattr(runtime, "config", None)
+    if not isinstance(runtime_config, LingbotRuntimeConfig):
+        runtime_config = LingbotRuntimeConfig()
+    fps = runtime_config.fps if fps is None else fps
+    if fps <= 0:
+        raise ValueError("fps must be > 0")
+    runtime = runtime or LingbotInferenceRuntime(config=runtime_config)
+    return BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime_config,
+        fps=fps,
+        identity=runtime_config.config_name,
+        busy_message="A Lingbot session is already active.",
+        warmup_label="Lingbot WebRTC",
+        client_liveness_timeout_s=client_liveness_timeout_s,
+    )
+
+
+class LingbotWebRTCSessionController:
+    """Own Lingbot browser inputs and preview data outside the transport manager."""
 
     def __init__(
         self,
-        *,
-        runtime: LingbotInferenceRuntime | None = None,
-        runtime_config: LingbotRuntimeConfig | None = None,
-        fps: int | None = None,
-        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        manager: BaseWebRTCSessionManager[
+            LingbotInferenceRuntime,
+            LingbotRuntimeConfig,
+        ],
     ) -> None:
-        runtime_config = runtime_config or getattr(runtime, "config", None)
-        if not isinstance(runtime_config, LingbotRuntimeConfig):
-            runtime_config = LingbotRuntimeConfig()
-        fps = runtime_config.fps if fps is None else fps
-        if fps <= 0:
-            raise ValueError("fps must be > 0")
-        runtime = runtime or LingbotInferenceRuntime(config=runtime_config)
-        super().__init__(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            identity=runtime_config.config_name,
-            busy_message="A Lingbot session is already active.",
-            warmup_label="Lingbot WebRTC",
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
+        self._manager = manager
+        self._runtime = manager.runtime
+        self._runtime_config = manager.runtime_config
 
     def _effective_text_events(self) -> tuple[TextEventSpec, ...]:
+        pending_session_input = self._manager.pending_session_input
         if (
-            self._pending_session_input is not None
-            and self._pending_session_input.text_events is not None
+            pending_session_input is not None
+            and pending_session_input.text_events is not None
         ):
-            return self._pending_session_input.text_events
-        return self.runtime_config.text_events
+            return pending_session_input.text_events
+        return self._runtime_config.text_events
 
     def get_initial_scene(self) -> dict[str, object]:
-        pending_input = self._pending_session_input
+        pending_input = self._manager.pending_session_input
         text_events = self._effective_text_events()
         prompt = (
             normalize_prompt_text(pending_input.prompt)
@@ -1424,11 +1435,11 @@ class LingbotWebRTCSessionManager(
         if pending_input is not None and pending_input.first_frame_image_url:
             image_url = pending_input.first_frame_image_url
         else:
-            image_url = self.runtime_config.default_image_url
+            image_url = self._runtime_config.default_image_url
         input_source = "uploaded" if pending_input is not None else "default"
         first_frame_path = (
-            self.runtime_config.example_data_dir
-            / self.runtime_config.first_frame_filename
+            self._runtime_config.example_data_dir
+            / self._runtime_config.first_frame_filename
         )
         has_first_frame = (
             bool(
@@ -1439,27 +1450,27 @@ class LingbotWebRTCSessionManager(
                 )
             )
             or first_frame_path.exists()
-            or bool(self.runtime_config.default_image_url)
+            or bool(self._runtime_config.default_image_url)
         )
         return {
             "first_frame_url": "/api/session/first_frame",
             "image_url": image_url,
-            "default_image_url": self.runtime_config.default_image_url,
+            "default_image_url": self._runtime_config.default_image_url,
             "has_first_frame": has_first_frame,
             "prompt": prompt,
             "input_source": input_source,
-            "model": self.runtime_config.config_name,
+            "model": self._runtime_config.config_name,
             "capabilities": {"text_events": bool(text_events)},
             "event_catalog": [event.as_public_dict() for event in text_events],
             "active_event_id": getattr(self._runtime, "_active_event_id", None),
             "resolution": {
-                "width": self.runtime_config.video_width,
-                "height": self.runtime_config.video_height,
+                "width": self._runtime_config.video_width,
+                "height": self._runtime_config.video_height,
             },
         }
 
     def get_first_frame(self) -> LingbotImagePayload:
-        pending_input = self._pending_session_input
+        pending_input = self._manager.pending_session_input
         if pending_input is not None and pending_input.first_frame_image_bytes:
             return LingbotImagePayload(
                 data=pending_input.first_frame_image_bytes,
@@ -1479,8 +1490,8 @@ class LingbotWebRTCSessionManager(
             return LingbotImagePayload(data=image_bytes, content_type=content_type)
 
         first_frame_path = (
-            self.runtime_config.example_data_dir
-            / self.runtime_config.first_frame_filename
+            self._runtime_config.example_data_dir
+            / self._runtime_config.first_frame_filename
         )
         if first_frame_path.exists():
             return LingbotImagePayload(
@@ -1495,11 +1506,11 @@ class LingbotWebRTCSessionManager(
         return LingbotImagePayload(data=encoded.tobytes(), content_type="image/jpeg")
 
     def set_pending_session_input(self, session_input: LingbotSessionInput) -> None:
-        if self.has_active_session():
+        if self._manager.has_active_session():
             raise SessionBusyError(
                 "Cannot update Lingbot input while a session is active."
             )
-        current = self._pending_session_input
+        current = self._manager.pending_session_input
 
         first_frame_image_bytes = (
             current.first_frame_image_bytes if current is not None else None
@@ -1547,7 +1558,7 @@ class LingbotWebRTCSessionManager(
             if session_input.text_events is not None
             else (current.text_events if current is not None else None)
         )
-        super().set_pending_session_input(
+        self._manager.set_pending_session_input(
             LingbotSessionInput(
                 prompt=(
                     normalize_prompt_text(session_input.prompt)

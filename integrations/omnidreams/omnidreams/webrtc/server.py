@@ -30,7 +30,8 @@ from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
-    OmnidreamsWebRTCSessionManager,
+    create_omnidreams_webrtc_session_manager,
+    validate_requested_postprocess_preset,
 )
 
 from flashdreams.core.distributed import (
@@ -209,6 +210,11 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
 
     manager = _get_omnidreams_manager(request.app)
     try:
+        if preset:
+            validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=manager.runtime_config.postprocess.preset,
+            )
         manager.set_pending_session_input(
             OmnidreamsSessionInput(postprocess_preset=preset)
         )
@@ -229,7 +235,7 @@ def create_app(
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
 ) -> web.Application:
-    manager = session_manager or OmnidreamsWebRTCSessionManager()
+    manager = session_manager or create_omnidreams_webrtc_session_manager()
     return create_packaged_webrtc_app(
         web_resource=WEB_DIR_RESOURCE,
         model_web_resource=MODEL_WEB_DIR_RESOURCE,
@@ -355,7 +361,9 @@ def main() -> None:
         default_device=runtime_config.device
     )
     runtime_config = replace(runtime_config, device=str(runtime_device))
-    session_manager = OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
+    session_manager = create_omnidreams_webrtc_session_manager(
+        runtime_config=runtime_config
+    )
     app = None
     if world_rank == 0:
         external_ip = get_external_ip()

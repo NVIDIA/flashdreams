@@ -24,7 +24,6 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
 )
-from omnidreams.webrtc.session import OmnidreamsWebRTCSessionManager
 
 from flashdreams.runtime import (
     InferenceConfig,
@@ -42,6 +41,7 @@ from flashdreams.runtime.demo import (
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
+from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
@@ -362,7 +362,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     demo = build_webrtc_demo(spec=spec, adapter=adapter)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert isinstance(demo.session_manager, OmnidreamsWebRTCSessionManager)
+    assert type(demo.session_manager) is BaseWebRTCSessionManager
     assert demo.session_manager._runtime is demo.runtime
     assert demo.session_manager.runtime_config is demo.runtime.config
     assert demo.runtime_config is demo.runtime.config
@@ -489,7 +489,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     assert server_calls[0]["app"] is demo.app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8082
-    assert isinstance(demo.session_manager, OmnidreamsWebRTCSessionManager)
+    assert type(demo.session_manager) is BaseWebRTCSessionManager
 
 
 class _RecordingOutputTarget:

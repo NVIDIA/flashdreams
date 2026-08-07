@@ -285,8 +285,9 @@ sampling, generation scheduling, encoding, and delivery.
 - [x] Replace integration-specific runtime-error tuples with shared runtime
       errors.
 - [x] Delete no-op manager wrappers.
-- [x] Keep only capability hooks that change WebRTC behavior, such as supported
-      control keys or fatal-on-generation-error policy.
+- [x] Remove integration-specific manager subclasses; integration factories
+      configure the shared manager's control keys and generation-error policy.
+- [x] Move model-specific HTTP input and preview behavior to app controllers.
 - [x] Cover session negotiation, reset, reconnect, error, and warmup behavior in
       shared CPU tests.
 
