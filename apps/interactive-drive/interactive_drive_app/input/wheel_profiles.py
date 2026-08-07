@@ -41,7 +41,7 @@ from loguru import logger
 try:
     import fcntl
 except ImportError:  # Windows / non-Linux
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 # --- evdev wire format / ioctl constants -------------------------------
 # Linux input_event struct: two longs (timeval), two u16, one s32.

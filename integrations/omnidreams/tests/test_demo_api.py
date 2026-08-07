@@ -55,12 +55,12 @@ def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
     assert not args.preset_id.endswith("-perf")
 
 
-def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
+def test_omnidreams_demo_adapter_declares_its_supported_modes() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
     assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    assert adapter.supported_output_modes() == ("mp4", "webrtc", "local-window")
 
 
 def test_omnidreams_replay_demo_uses_shared_runner(tmp_path: Path) -> None:

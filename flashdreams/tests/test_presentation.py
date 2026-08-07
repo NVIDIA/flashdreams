@@ -110,6 +110,18 @@ class _RecordingOverlay:
             raise self._close_error
 
 
+class _FixedAreaOverlay(_RecordingOverlay):
+    """Claims one specific rectangle, whatever the canvas size."""
+
+    def __init__(self, area: Rect) -> None:
+        super().__init__()
+        self._area = area
+
+    def camera_area(self, canvas_size: tuple[int, int]) -> Rect:
+        del canvas_size
+        return self._area
+
+
 class _RecordingSink:
     def __init__(self) -> None:
         self.keys: list[KeyEvent] = []
@@ -147,11 +159,24 @@ def test_composite_intersects_each_layer_camera_area() -> None:
     assert composite.camera_area((1000, 500)) == (0, 0, 700, 500)
 
 
-def test_composite_falls_back_to_the_full_canvas_when_layers_collapse_it() -> None:
+def test_composite_intersects_layers_reserving_from_the_same_side() -> None:
+    """Two panels on the same edge yield the narrower camera, not the sum."""
     composite = CompositeOverlay(
         layers=(
             _RecordingOverlay(reserved_width=600),
-            _RecordingOverlay(reserved_width=600),
+            _RecordingOverlay(reserved_width=400),
+        )
+    )
+
+    assert composite.camera_area((1000, 500)) == (0, 0, 400, 500)
+
+
+def test_composite_falls_back_to_the_full_canvas_when_layers_collapse_it() -> None:
+    """Layers claiming opposite halves leave no camera, so the claim is ignored."""
+    composite = CompositeOverlay(
+        layers=(
+            _FixedAreaOverlay((0, 0, 400, 500)),
+            _FixedAreaOverlay((600, 0, 1000, 500)),
         )
     )
 

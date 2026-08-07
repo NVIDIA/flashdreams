@@ -69,11 +69,12 @@ def build_local_window_demo(
         return LocalWindowDemo(app=app_factory(spec=spec), output=spec.output)
 
     overlay_factory = getattr(adapter, "create_local_window_overlay", None)
-    if callable(overlay_factory):
+    frames_factory = getattr(adapter, "local_window_frames", None)
+    if callable(overlay_factory) and callable(frames_factory):
         return LocalWindowDemo(
             app=_OverlayDrivenApp(
                 overlay=overlay_factory(spec=spec),
-                frames=adapter.local_window_frames(spec=spec),
+                frames=frames_factory(spec=spec),
                 output=spec.output,
             ),
             output=spec.output,
@@ -81,8 +82,8 @@ def build_local_window_demo(
 
     raise ValueError(
         f"Adapter {type(adapter).__name__} supports local-window output but "
-        "provides neither create_local_window_app nor "
-        "create_local_window_overlay."
+        "provides neither create_local_window_app nor the "
+        "create_local_window_overlay / local_window_frames pair."
     )
 
 
