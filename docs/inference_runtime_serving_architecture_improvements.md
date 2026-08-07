@@ -250,16 +250,16 @@ thread so CUDA, Triton, and CUDA-graph state remain thread-affine.
 
 #### TODO
 
-- [ ] Add a shared single-thread runtime worker under `flashdreams.runtime`.
-- [ ] Route runtime initialization, session creation/reset, step, and close
+- [x] Add a shared single-thread runtime worker under `flashdreams.runtime`.
+- [x] Route runtime initialization, session creation/reset, step, and close
       through that worker.
-- [ ] Set the CUDA device when the worker thread starts.
-- [ ] Keep distributed rank coordination inside model-owned operations.
-- [ ] Remove per-call `asyncio.to_thread` use from integration runtimes.
-- [ ] Make cancellation stop awaiting a call without abandoning runtime
+- [x] Set the CUDA device when the worker thread starts.
+- [x] Keep distributed rank coordination inside model-owned operations.
+- [x] Remove per-call `asyncio.to_thread` use from integration runtimes.
+- [x] Make cancellation stop awaiting a call without abandoning runtime
       cleanup.
-- [ ] Add CPU tests for call ordering, exception propagation, and shutdown.
-- [ ] Add a GPU regression test that runs enough chunks to exercise Triton and
+- [x] Add CPU tests for call ordering, exception propagation, and shutdown.
+- [x] Add a GPU regression test that runs enough chunks to exercise Triton and
       CUDA-graph reuse on one thread.
 
 Acceptance criteria:

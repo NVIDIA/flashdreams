@@ -59,6 +59,7 @@ from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputT
 from flashdreams.runtime.runner import run_inference_session
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget
+from flashdreams.runtime.worker import ThreadAffineRuntimeWorker
 
 __all__ = [
     "CanonicalInputs",
@@ -101,6 +102,7 @@ __all__ = [
     "StepRequest",
     "StepResult",
     "TimeWindow",
+    "ThreadAffineRuntimeWorker",
     "run_inference_session",
     "undeclared_inference_inputs",
     "UserInputCapability",

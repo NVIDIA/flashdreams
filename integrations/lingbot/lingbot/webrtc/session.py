@@ -43,7 +43,7 @@ from flashdreams.core.distributed.rank_orchestration import (
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime import StepResult, ThreadAffineRuntimeWorker
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
@@ -625,6 +625,10 @@ class LingbotInferenceRuntime:
         self._world_scale = 1.0
         self._video_encoder: VideoEncoder | None = None
         self._closed = False
+        self._worker = ThreadAffineRuntimeWorker(
+            device=control_device,
+            thread_name="lingbot-webrtc-runtime",
+        )
 
         self._step_lock = asyncio.Lock()
         self.rank_coordinator = RankCoordinator(
@@ -658,7 +662,7 @@ class LingbotInferenceRuntime:
     async def initialize(self) -> None:
         if self._pipeline is not None:
             return
-        await asyncio.to_thread(self._initialize_sync_all_ranks)
+        await self._worker.call(self._initialize_sync_all_ranks)
 
     async def reset_for_new_session(
         self, session_input: LingbotSessionInput | None = None
@@ -667,11 +671,14 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Runtime is closed.")
         if self._pipeline is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        await asyncio.to_thread(self._reset_rollout_sync_all_ranks, session_input)
+        await self._worker.call(self._reset_rollout_sync_all_ranks, session_input)
 
     async def close(self) -> None:
         self._closed = True
-        await asyncio.to_thread(self._close_sync_all_ranks)
+        try:
+            await self._worker.call(self._close_sync_all_ranks)
+        finally:
+            await self._worker.close()
 
     async def trigger_event(
         self, *, event_id: str, state: str = "trigger"
@@ -687,7 +694,7 @@ class LingbotInferenceRuntime:
                 raise LingbotRuntimeError("Runtime is closed.")
             if self._pipeline is None or self._cache is None:
                 raise LingbotRuntimeError("Runtime is not initialized.")
-            return await asyncio.to_thread(
+            return await self._worker.call(
                 self._trigger_event_sync_all_ranks,
                 event_id,
                 state,
@@ -817,7 +824,7 @@ class LingbotInferenceRuntime:
         async with self._step_lock:
             if self._closed:
                 raise LingbotRuntimeError("Session is closed.")
-            return await asyncio.to_thread(
+            return await self._worker.call(
                 self._generate_chunk_sync_all_ranks, segments, frame_times
             )
 

@@ -9,10 +9,9 @@ import shutil
 import tempfile
 import time
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import AbstractSet, Any, Callable, TypeVar
+from typing import AbstractSet, Any
 
 import cv2
 import numpy as np
@@ -55,7 +54,7 @@ from flashdreams.infra.postprocess import (
 )
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.plugins.registry import resolve_postprocess_preset
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime import StepResult, ThreadAffineRuntimeWorker
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -74,7 +73,6 @@ from flashdreams.serving.webrtc.manager import (
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 
-_T = TypeVar("_T")
 # Default scene (clear-weather base archive). Weather siblings are selected
 # via OmnidreamsRuntimeConfig.scene_variant / the server's --scene-variant.
 DEFAULT_WEBRTC_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
@@ -524,12 +522,9 @@ class OmnidreamsInferenceRuntime:
         # the driver's ``GetEncoderCaps`` response at
         # ``config.video_width`` / ``config.video_height``.
         self._video_encoder: VideoEncoder | None = None
-        # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
-        # graph capture/replay state is thread-local, so spreading calls across
-        # workers (e.g. asyncio.to_thread) crashes capture after a few chunks.
-        self._executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="omnidreams-webrtc-runtime",
+        self._worker = ThreadAffineRuntimeWorker(
+            device=control_device,
+            thread_name="omnidreams-webrtc-runtime",
         )
 
         self._step_lock = asyncio.Lock()
@@ -569,7 +564,7 @@ class OmnidreamsInferenceRuntime:
     async def initialize(self) -> None:
         if self._wrapper is not None:
             return
-        await self._run_on_runtime_thread(self._initialize_sync_all_ranks)
+        await self._worker.call(self._initialize_sync_all_ranks)
 
     async def reset_for_new_session(
         self, session_input: OmnidreamsSessionInput | None = None
@@ -578,7 +573,7 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        await self._run_on_runtime_thread(
+        await self._worker.call(
             self._reset_rollout_sync_all_ranks,
             session_input,
         )
@@ -586,9 +581,9 @@ class OmnidreamsInferenceRuntime:
     async def close(self) -> None:
         self._closed = True
         try:
-            await self._run_on_runtime_thread(self._close_sync_all_ranks)
+            await self._worker.call(self._close_sync_all_ranks)
         finally:
-            self._executor.shutdown(wait=False, cancel_futures=True)
+            await self._worker.close()
 
     async def generate_chunk(
         self,
@@ -604,36 +599,11 @@ class OmnidreamsInferenceRuntime:
         async with self._step_lock:
             if self._closed:
                 raise OmnidreamsRuntimeError("Session is closed.")
-            return await self._run_on_runtime_thread(
+            return await self._worker.call(
                 self._generate_chunk_sync_all_ranks,
                 segments,
                 frame_times,
             )
-
-    async def _run_on_runtime_thread(
-        self,
-        func: Callable[..., _T],
-        *args: Any,
-    ) -> _T:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._runtime_thread_entry,
-            func,
-            args,
-        )
-
-    def _runtime_thread_entry(
-        self,
-        func: Callable[..., _T],
-        args: tuple[Any, ...],
-    ) -> _T:
-        device = self._device
-        if device is None:
-            device = _resolve_cuda_device(self.config.device)
-        if device.type == "cuda":
-            torch.cuda.set_device(device)
-        return func(*args)
 
     def peek_next_chunk_num_frames(self) -> int:
         if self._wrapper is None:
