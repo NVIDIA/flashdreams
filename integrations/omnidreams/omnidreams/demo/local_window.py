@@ -130,6 +130,8 @@ def build_interactive_drive_app(spec: DemoSpec) -> InteractiveDriveApp:
     argv.extend(("--window-width", str(output.width)))
     argv.extend(("--window-height", str(output.height)))
     argv.extend(("--window-title", output.title))
+    if scenario.manifest is not None:
+        argv.extend(("--backend", "omnidreams"))
     _append_option(argv, "--scene-dir", scenario.scene_dir)
     _append_option(argv, "--scene", scenario.scene)
     _append_option(argv, "--manifest", scenario.manifest)

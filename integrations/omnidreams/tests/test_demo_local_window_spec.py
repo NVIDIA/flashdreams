@@ -165,6 +165,19 @@ def test_scene_selection_reaches_the_parser() -> None:
     assert args.variant == "night"
 
 
+def test_manifest_selects_the_world_model_backend() -> None:
+    args = _parsed(
+        _spec(
+            scenario=OmnidreamsLocalWindowScenario(
+                manifest="configs/omnidreams.yaml",
+            )
+        )
+    )
+
+    assert args.backend == "omnidreams"
+    assert str(args.manifest) == "configs/omnidreams.yaml"
+
+
 def test_a_wrongly_typed_scenario_is_rejected() -> None:
     spec = DemoSpec(
         model_id="omnidreams",
