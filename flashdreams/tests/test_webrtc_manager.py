@@ -291,6 +291,30 @@ def test_record_user_event_does_not_evict_unrelated_event_for_release(
     ]
 
 
+def test_input_clock_snap_is_disabled_for_inference_session() -> None:
+    runtime = object()
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+
+    assert _BaseTestManager._should_snap_input_clock(
+        managed_session=managed,
+        lag=2.0,
+        chunk_duration=1.0,
+    )
+
+    managed.inference_session = object()
+
+    assert not _BaseTestManager._should_snap_input_clock(
+        managed_session=managed,
+        lag=2.0,
+        chunk_duration=1.0,
+    )
+    assert not _BaseTestManager._should_snap_input_clock(
+        managed_session=managed,
+        lag=1.0,
+        chunk_duration=1.0,
+    )
+
+
 @pytest.mark.asyncio
 async def test_action_keyup_evicts_unsupported_release_when_release_cap_full(
     monkeypatch: pytest.MonkeyPatch,

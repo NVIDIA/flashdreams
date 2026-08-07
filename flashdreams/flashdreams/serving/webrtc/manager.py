@@ -475,6 +475,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             for event in managed_session.user_events
         )
 
+    @staticmethod
+    def _should_snap_input_clock(
+        *,
+        managed_session: ManagedWebRTCSession,
+        lag: float,
+        chunk_duration: float,
+    ) -> bool:
+        """Return whether the input clock may skip over unrendered windows."""
+        return managed_session.inference_session is None and lag > chunk_duration
+
     def _validate_user_event_payload(
         self,
         *,
@@ -1049,12 +1059,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
                 # Catch the virtual clock up to wall if it has fallen more
                 # than one chunk behind so end-to-end latency stays bounded.
-                # Held-key continuity is preserved because ``sample_chunk``
-                # folds every event below the new window start into the
-                # carried state.
+                # Held-key continuity is preserved on the segment branch
+                # because ``sample_chunk`` folds skipped edges into carried
+                # state. ``InferenceSession`` runtimes consume raw event
+                # windows instead, so they must not skip uncanonicalized input
+                # windows here.
                 now = loop.time()
                 lag = now - (resampler.next_chunk_start_v + chunk_duration)
-                if lag > chunk_duration:
+                if self._should_snap_input_clock(
+                    managed_session=managed_session,
+                    lag=lag,
+                    chunk_duration=chunk_duration,
+                ):
                     resampler.next_chunk_start_v = now - chunk_duration
 
                 t_before_gen = loop.time()
