@@ -17,10 +17,12 @@ from typing import Any
 
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV, env_truthy
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.overlays import SpeedOverlay
 from omnidreams.interactive_drive.types import PresentedFrame
 from PIL import Image, ImageDraw
 
 from flashdreams.serving.presentation import (
+    CompositeOverlay,
     DisplayFrame,
     KeyEvent,
     LocalWindowPresenter,
@@ -159,7 +161,7 @@ class LocalWindowPresenterBridge:
         height: int = 1080,
         title: str = "interactive-drive (local-window)",
     ) -> None:
-        self._overlay = MinimalDrivingOverlay(keyboard)
+        self._overlay = _build_overlay(keyboard)
         self._presenter = LocalWindowPresenter(
             overlay=self._overlay,
             config=WindowConfig(
@@ -192,7 +194,7 @@ class LocalWindowPresenterBridge:
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Rebind to a new engine's keyboard across a scene switch."""
-        self._overlay = MinimalDrivingOverlay(keyboard)
+        self._overlay = _build_overlay(keyboard)
 
     def set_model_status(self, **kwargs: Any) -> None:
         """Accept the HUD's status wiring so demo callers stay uniform."""
@@ -200,6 +202,31 @@ class LocalWindowPresenterBridge:
 
     def set_postprocess_control(self, **kwargs: Any) -> None:
         del kwargs
+
+
+def _build_overlay(keyboard: KeyboardState) -> CompositeOverlay:
+    """Stack the chrome this demo wants over the shared presenter.
+
+    Widgets are added here as they move across from the legacy HUD; the
+    base layer stays so the control hint and frame counter survive until
+    their replacements exist.
+    """
+    return CompositeOverlay(
+        layers=(
+            MinimalDrivingOverlay(keyboard),
+            SpeedOverlay(lambda: _current_speed_mps(keyboard)),
+        )
+    )
+
+
+def _current_speed_mps(keyboard: KeyboardState) -> float:
+    """Read ego speed from the telemetry the loop publishes each chunk.
+
+    Returns ``0.0`` before the first chunk publishes state, and after a reset
+    clears it.
+    """
+    state = keyboard.vehicle_state
+    return 0.0 if state is None else float(state.speed_mps)
 
 
 def _display_frame(frame: PresentedFrame, view_mode: str) -> DisplayFrame:

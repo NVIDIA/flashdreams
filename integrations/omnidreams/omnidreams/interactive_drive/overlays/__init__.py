@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+"""Driving chrome as stackable overlays over the shared local-window presenter.
+
+Each widget from the legacy HUD lands here as its own
+:class:`~flashdreams.serving.presentation.HudOverlay`, so a demo composes the
+chrome it wants instead of inheriting one class that owns every widget.
+"""
+
+from omnidreams.interactive_drive.overlays.speed import SpeedOverlay
+from omnidreams.interactive_drive.overlays.theme import (
+    ACCENT_AMBER,
+    BG_COLOR,
+    LABEL_COLOR,
+    NVIDIA_GREEN,
+    PANEL_BG,
+    TEXT_COLOR,
+)
+
+__all__ = [
+    "ACCENT_AMBER",
+    "BG_COLOR",
+    "LABEL_COLOR",
+    "NVIDIA_GREEN",
+    "PANEL_BG",
+    "SpeedOverlay",
+    "TEXT_COLOR",
+]
