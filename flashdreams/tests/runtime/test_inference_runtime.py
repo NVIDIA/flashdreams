@@ -95,9 +95,7 @@ class _MockInferenceSession(InferenceSession[_MockStreamInferencePipeline]):
         return InferenceOutput()
 
 
-class _MockInferenceRuntime(
-    InferenceRuntime[_MockStreamInferencePipeline, _MockInferenceSession]
-):
+class _MockInferenceRuntime(InferenceRuntime[_MockInferenceSession]):
     """Concrete runtime mock with a no-op warmup."""
 
     def warmup(self) -> None:

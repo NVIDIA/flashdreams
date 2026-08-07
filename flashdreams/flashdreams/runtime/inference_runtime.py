@@ -21,8 +21,11 @@ from typing import Generic, TypeVar
 
 import torch
 from flashdreams.core.distributed import init as init_distributed
-from flashdreams.infra.pipeline import StreamInferencePipelineConfig
-from flashdreams.runtime.inference_session import InferenceSession, PipelineT
+from flashdreams.infra.pipeline import (
+    StreamInferencePipeline,
+    StreamInferencePipelineConfig,
+)
+from flashdreams.runtime.inference_session import InferenceSession
 
 
 def _is_torchrun_env() -> bool:
@@ -34,11 +37,13 @@ SessionT = TypeVar("SessionT", bound=InferenceSession)
 """Session type parameter for :class:`InferenceRuntime`."""
 
 
-class InferenceRuntime(ABC, Generic[PipelineT, SessionT]):
+class InferenceRuntime(ABC, Generic[SessionT]):
     """Shared pipeline runtime for distributed inference sessions.
 
     Construction initializes PyTorch distributed when launched by ``torchrun``,
     records rank metadata, and constructs one pipeline shared by every session.
+    The concrete session type associates the runtime with its pipeline type, so
+    callers only parameterize the runtime with ``SessionT``.
     Subclasses implement :meth:`warmup` for integration-specific model execution.
     """
 
@@ -56,7 +61,7 @@ class InferenceRuntime(ABC, Generic[PipelineT, SessionT]):
     is_rank_zero: bool
     """Whether this process is the global rank-zero process."""
 
-    pipeline: PipelineT
+    pipeline: StreamInferencePipeline
     """Pipeline constructed once and shared by all sessions."""
 
     session_type: type[SessionT]
