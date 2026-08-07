@@ -217,9 +217,7 @@ def test_event_driven_camera_control_on_cuda(
             UserInputCapability(
                 event_type="key_down", payload_fields=frozenset({"key"})
             ),
-            UserInputCapability(
-                event_type="key_up", payload_fields=frozenset({"key"})
-            ),
+            UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"})),
         )
     )
     user_inputs = UserInputs(

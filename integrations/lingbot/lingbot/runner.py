@@ -61,6 +61,7 @@ land on the right pixel centers at the runner's actual frame size."""
 _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
+
 @dataclass(kw_only=True)
 class LingbotWorldRunnerConfig(RunnerConfig):
     """Runner config for every shipped LingBot-World variant."""

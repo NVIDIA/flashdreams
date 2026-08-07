@@ -101,8 +101,7 @@ def resolve_user_input_events(value: Any) -> UserInputs:
             continue
         if not isinstance(record, Mapping):
             raise TypeError(
-                "Lingbot scenario events must be UserInputEvent objects or "
-                "mappings."
+                "Lingbot scenario events must be UserInputEvent objects or mappings."
             )
         payload = {
             key: item
@@ -113,8 +112,7 @@ def resolve_user_input_events(value: Any) -> UserInputs:
         event_type = record.get("type", record.get("event_type"))
         if timestamp_s is None or event_type is None:
             raise ValueError(
-                "Lingbot scenario events require a timestamp ('t') and a "
-                "type ('type')."
+                "Lingbot scenario events require a timestamp ('t') and a type ('type')."
             )
         events.append(
             UserInputEvent(

@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -78,6 +78,12 @@ FIELD_FPS = "fps"
 FIELD_WORLD_SCALE = "world_scale"
 
 PipelineFactory = Callable[[Any, str], Any]
+
+
+def _as_video_tensor_layout(value: object) -> VideoTensorLayout:
+    if value not in ("tchw", "btchw", "bcthw", "bvtchw"):
+        raise ValueError(f"Unsupported LingBot output layout: {value!r}.")
+    return cast(VideoTensorLayout, value)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -310,7 +316,9 @@ class LingbotModelAdapter:
                 pipeline_config=self.pipeline_config(config),
                 pipeline=config.runtime_options.get("pipeline"),
                 pipeline_factory=self._pipeline_factory,
-                output_layout=str(config.runtime_options.get("output_layout", "tchw")),
+                output_layout=_as_video_tensor_layout(
+                    config.runtime_options.get("output_layout", "tchw")
+                ),
             ),
         )
 
@@ -938,7 +946,9 @@ def build_lingbot_webrtc_runtime_config(
     return _apply_webrtc_runtime_options(runtime_config, runtime_options or {})
 
 
-def _apply_webrtc_runtime_options(runtime_config: Any, options: Mapping[str, Any]) -> Any:
+def _apply_webrtc_runtime_options(
+    runtime_config: Any, options: Mapping[str, Any]
+) -> Any:
     overrides: dict[str, Any] = {}
     for name in (
         "world_scale",
@@ -992,15 +1002,19 @@ def _resolve_example_data_default(value: Mapping[str, Any]) -> bool:
     explicit = value.get("example_data")
     if explicit is not None:
         return _bool_value(explicit)
-    return not (
-        _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
-        or _has_nonempty_value(value, "image_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
-        or _has_nonempty_value(value, "pose_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
-        or _has_nonempty_value(value, "intrinsic_path")
+    return (
+        not (
+            _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
+            or _has_nonempty_value(value, "image_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
+            or _has_nonempty_value(value, "pose_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
+            or _has_nonempty_value(value, "intrinsic_path")
+        )
     )
 
 
@@ -1037,7 +1051,9 @@ def _require_path_value(value: Path | None, *, label: str) -> Path:
 
 def _require_existing_replay_paths(replay_inputs: LingbotReplayInputs) -> None:
     _require_existing_path(replay_inputs.first_frame_path, label=FIELD_FIRST_FRAME_PATH)
-    _require_existing_path(replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH)
+    _require_existing_path(
+        replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH
+    )
     _require_existing_path(
         replay_inputs.camera_intrinsics_path,
         label=FIELD_CAMERA_INTRINSICS_PATH,

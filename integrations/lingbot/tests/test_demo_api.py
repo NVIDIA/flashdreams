@@ -68,9 +68,7 @@ def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> 
     np.save(poses, trajectory)
     np.save(
         intrinsics,
-        np.tile(
-            np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)
-        ),
+        np.tile(np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)),
     )
 
 
@@ -100,9 +98,7 @@ def test_lingbot_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
         FIELD_FPS,
     }.issubset(fields)
     # Camera control is per-step model input, not session-global scenario data.
-    step_fields = {
-        field.name for field in adapter.inference_input_schema.step_fields
-    }
+    step_fields = {field.name for field in adapter.inference_input_schema.step_fields}
     assert step_fields == {FIELD_CAMERA_TRAJECTORY, FIELD_CAMERA_INTRINSICS}
 
 
@@ -208,9 +204,7 @@ def test_lingbot_replay_cli_defaults_to_example_data(
     example_dir = tmp_path / "example"
     example_dir.mkdir()
     (example_dir / "image.jpg").write_bytes(b"fake")
-    _write_camera_assets(
-        example_dir / "poses.npy", example_dir / "intrinsics.npy"
-    )
+    _write_camera_assets(example_dir / "poses.npy", example_dir / "intrinsics.npy")
     (example_dir / "prompt.txt").write_text("drive through a forest\n")
     downloaded: list[int] = []
 

@@ -22,16 +22,16 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
+from lingbot.input_mapping import (
+    KeyboardToCameraCommand,
+    TextEventSelection,
+)
 from lingbot.runtime import (
     LingbotModelAdapter,
     LingbotReplayRuntime,
     PipelineFactory,
     build_lingbot_webrtc_runtime_config,
     inference_input_from_replay_inputs,
-)
-from lingbot.input_mapping import (
-    KeyboardToCameraCommand,
-    TextEventSelection,
 )
 from lingbot.webrtc.session import (
     LingbotInferenceRuntime,
