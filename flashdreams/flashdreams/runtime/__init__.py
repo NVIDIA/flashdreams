@@ -4,7 +4,8 @@
 """Experimental inference runtime API envelope.
 
 This package defines the small v0 boundary above ``flashdreams.infra``. It is
-intentionally additive while integrations migrate onto it.
+intentionally additive while integrations migrate onto it, and re-exports the
+runtime/session/input/output pieces model adapters and demo launchers consume.
 """
 
 from flashdreams.runtime.canonical import (

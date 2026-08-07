@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared WebRTC demo construction."""
+"""Shared WebRTC demo construction.
+
+This file owns demo-level WebRTC app/session-manager construction, shared route
+registration, pending session input lifecycle, and server startup wiring. Model
+demos provide runtimes, static assets, and semantic hooks through options.
+"""
 
 from __future__ import annotations
 

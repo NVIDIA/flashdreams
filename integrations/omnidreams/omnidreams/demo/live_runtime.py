@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""OmniDreams live generation runtime used by the new shared WebRTC demo.
+
+This file owns model-specific scene loading, Ludus conditioning, rollout reset,
+chunk generation, postprocessing, and encoder selection; shared WebRTC serving
+and session lifecycle live in ``flashdreams.runtime.demo.webrtc``.
+"""
+
 from __future__ import annotations
 
 import asyncio

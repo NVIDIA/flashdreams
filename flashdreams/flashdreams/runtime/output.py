@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Output target boundary for generated inference results."""
+"""Output target boundary for generated inference results.
+
+Output targets consume ``StepResult`` objects and decide whether to store,
+stream, display, or discard them. Model sessions return data; output targets own
+presentation and persistence.
+"""
 
 from __future__ import annotations
 

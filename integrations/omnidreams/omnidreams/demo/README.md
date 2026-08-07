@@ -50,9 +50,9 @@ compile/cache behavior is reliable enough for the demo path.
 
 ## WebRTC
 
-WebRTC uses the shared demo launcher around the existing Omnidreams live WebRTC
-runtime. It is still scene-driven and uses Ludus to render HDMap conditioning
-from a scene:
+WebRTC uses the shared demo launcher and shared WebRTC session manager around
+the OmniDreams demo-owned live runtime. It is still scene-driven and uses Ludus
+to render HDMap conditioning from a scene:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-demo webrtc \

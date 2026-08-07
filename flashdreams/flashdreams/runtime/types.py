@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Plain data carriers shared by runtime protocols and adapters."""
+"""Plain data carriers shared by runtime protocols and adapters.
+
+These shapes describe what a session requests next and what it produced. They
+avoid putting runner, output-target, or model-specific behavior into the data
+objects themselves.
+"""
 
 from __future__ import annotations
 

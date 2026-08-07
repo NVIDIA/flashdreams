@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""OmniDreams WebRTC hooks for the shared demo API."""
+"""OmniDreams hooks for configuring the shared WebRTC demo session.
+
+This file supplies model-specific options, routes, payload parsing, and
+postprocess validation while shared code owns the WebRTC app and session
+manager.
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Video output targets for the runtime API."""
+"""Video output targets for the runtime API.
+
+This file adapts runtime ``VideoStepResult`` chunks into concrete video
+artifacts such as MP4 files. It stays model-agnostic and is used by replay/demo
+output selection.
+"""
 
 from __future__ import annotations
 

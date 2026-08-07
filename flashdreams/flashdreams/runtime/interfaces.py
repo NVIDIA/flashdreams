@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Protocols for model adapters, reusable runtimes, and sessions."""
+"""Protocols for model adapters, reusable runtimes, and sessions.
+
+This file is the model boundary: adapters describe capabilities, runtimes own
+heavyweight setup, and sessions own one rollout or stream of model state.
+"""
 
 from __future__ import annotations
 

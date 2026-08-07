@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""OmniDreams demo-specific scenario shapes."""
+"""OmniDreams demo-specific scenario shapes and normalization.
+
+This file validates replay assets and live scene options before the shared demo
+launchers create runtimes, output targets, or WebRTC servers.
+"""
 
 from __future__ import annotations
 

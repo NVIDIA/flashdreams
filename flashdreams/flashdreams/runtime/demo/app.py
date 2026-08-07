@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental shared demo entrypoints."""
+"""Experimental shared demo entrypoints.
+
+This file chooses the shared replay or WebRTC launcher from ``DemoSpec`` output
+mode. Model demos should enter here instead of directly owning mode-specific
+run loops.
+"""
 
 from __future__ import annotations
 

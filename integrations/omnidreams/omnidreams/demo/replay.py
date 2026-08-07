@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""OmniDreams replay runtime for the shared demo runner."""
+"""OmniDreams replay runtime for the shared demo runner.
+
+This file adapts benchmark-style fixed assets into an ``InferenceSession`` so
+the shared replay loop can write MP4/null outputs without OmniDreams demo code
+owning that loop.
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared demo output-target construction."""
+"""Shared demo output-target construction.
+
+This file converts demo output specs into runtime ``OutputTarget`` objects for
+replay-style demos. Realtime WebRTC serving is selected here but constructed by
+the shared WebRTC launcher.
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CLI for the experimental shared OmniDreams demo path."""
+"""CLI for the experimental shared OmniDreams demo path.
+
+This file turns command-line arguments into ``DemoSpec`` objects and then
+delegates execution to the shared replay or WebRTC demo launcher.
+"""
 
 from __future__ import annotations
 

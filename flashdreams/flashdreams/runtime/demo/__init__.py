@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental shared demo API above the inference runtime API."""
+"""Experimental shared demo API above the inference runtime API.
+
+This package owns demo-level specs and launchers so integrations can provide
+small adapters instead of writing replay loops, output-target setup, or WebRTC
+server/session plumbing.
+"""
 
 from flashdreams.runtime.demo.app import run_flashdreams_demo, serve_flashdreams_demo
 from flashdreams.runtime.demo.outputs import build_output_target

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Input mapping boundary from canonical inputs to encoded inference inputs."""
+"""Input mapping boundary from canonical inputs to encoded inference inputs.
+
+Mappings are model- or app-provided translators. They let a shared runner feed
+one runtime session without baking model-specific prompt/control semantics into
+the runner.
+"""
 
 from __future__ import annotations
 

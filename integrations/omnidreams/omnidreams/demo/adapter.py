@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""OmniDreams adapter for the shared demo API."""
+"""OmniDreams model adapter for the shared demo API.
+
+This file binds OmniDreams-specific scenario/config/runtime construction to the
+shared replay and WebRTC launchers without owning the demo loops themselves.
+"""
 
 from __future__ import annotations
 

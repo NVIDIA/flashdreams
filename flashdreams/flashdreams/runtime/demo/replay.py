@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared replay demo runner."""
+"""Shared replay demo runner.
+
+This file validates a demo spec, asks the adapter for a prepared scenario, then
+delegates execution to ``run_inference_session`` with a selected output target.
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Runtime-facing configuration envelope."""
+"""Runtime-facing configuration envelope.
+
+This file defines execution settings that affect model construction and
+optimization. User inputs, demo scenarios, output paths, and transport choices
+live outside this config so runtimes stay reusable across apps.
+"""
 
 from __future__ import annotations
 

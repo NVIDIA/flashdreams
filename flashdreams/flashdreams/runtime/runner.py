@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Minimal synchronous standard runner for the runtime API."""
+"""Minimal synchronous standard runner for the runtime API.
+
+This file owns the replay/headless loop: create a runtime, start one session,
+map requested inputs for each step, write outputs, record metrics, and close
+resources.
+"""
 
 from __future__ import annotations
 

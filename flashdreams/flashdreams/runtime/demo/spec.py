@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental shared demo API data shapes."""
+"""Experimental shared demo API data shapes.
+
+This file defines the high-level demo contract: what model to run, which
+scenario/input mode to use, and which output mode to build. Model adapters fill
+in model-specific preparation behind these generic shapes.
+"""
 
 from __future__ import annotations
 

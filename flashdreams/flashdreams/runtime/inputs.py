@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""User- and model-input envelopes for the experimental runtime API."""
+"""User- and model-input envelopes for the experimental runtime API.
+
+This file separates timestamped user/control inputs, canonicalized inputs, and
+the model-facing ``InferenceInput`` payloads passed to runtime sessions.
+"""
 
 from __future__ import annotations
 

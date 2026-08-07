@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Runtime metrics boundary for inference sessions."""
+"""Runtime metrics boundary for inference sessions.
+
+This file defines the small recorder interface used by shared runners to emit
+timing, throughput, and model/demo metrics without coupling to a report format.
+"""
 
 from __future__ import annotations
 
