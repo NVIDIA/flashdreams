@@ -13,6 +13,7 @@ from omnidreams.interactive_drive.overlays.controls import (
     PedalsOverlay,
     WheelOverlay,
 )
+from omnidreams.interactive_drive.overlays.header import SceneHeaderOverlay
 from omnidreams.interactive_drive.overlays.panel import (
     PANEL_WIDTH,
     DrivingPanelOverlay,
@@ -38,6 +39,7 @@ __all__ = [
     "PANEL_WIDTH",
     "DrivingPanelOverlay",
     "PedalsOverlay",
+    "SceneHeaderOverlay",
     "SpeedOverlay",
     "WheelOverlay",
     "TEXT_COLOR",

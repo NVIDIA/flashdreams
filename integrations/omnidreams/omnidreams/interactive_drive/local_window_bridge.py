@@ -24,6 +24,7 @@ from omnidreams.interactive_drive.overlays import (
     BevOverlay,
     DrivingPanelOverlay,
     PedalsOverlay,
+    SceneHeaderOverlay,
     SpeedOverlay,
     WheelOverlay,
 )
@@ -170,8 +171,12 @@ class LocalWindowPresenterBridge:
         width: int = 1920,
         height: int = 1080,
         title: str = "interactive-drive (local-window)",
+        scene_label: str = "Scene",
+        variant_label: str = "default",
     ) -> None:
-        self._overlay = _build_overlay(keyboard)
+        self._scene_label = scene_label
+        self._variant_label = variant_label
+        self._overlay = self._make_overlay(keyboard)
         self._presenter = LocalWindowPresenter(
             overlay=self._overlay,
             config=WindowConfig(
@@ -204,7 +209,14 @@ class LocalWindowPresenterBridge:
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Rebind to a new engine's keyboard across a scene switch."""
-        self._overlay = _build_overlay(keyboard)
+        self._overlay = self._make_overlay(keyboard)
+
+    def _make_overlay(self, keyboard: KeyboardState) -> CompositeOverlay:
+        return _build_overlay(
+            keyboard,
+            scene_label=self._scene_label,
+            variant_label=self._variant_label,
+        )
 
     def set_model_status(self, **kwargs: Any) -> None:
         """Accept the HUD's status wiring so demo callers stay uniform."""
@@ -215,7 +227,11 @@ class LocalWindowPresenterBridge:
 
 
 def _build_overlay(
-    keyboard: KeyboardState, *, control_assets: Any | None = None
+    keyboard: KeyboardState,
+    *,
+    scene_label: str = "Scene",
+    variant_label: str = "default",
+    control_assets: Any | None = None,
 ) -> CompositeOverlay:
     """Stack the chrome this demo wants over the shared presenter.
 
@@ -231,6 +247,11 @@ def _build_overlay(
         layers=(
             MinimalDrivingOverlay(keyboard),
             DrivingPanelOverlay(layout),
+            SceneHeaderOverlay(
+                layout,
+                scene_label=lambda: scene_label,
+                variant_label=lambda: variant_label,
+            ),
             SpeedOverlay(layout, lambda: _current_speed_mps(keyboard)),
             WheelOverlay(layout, drive_state, control_assets=control_assets),
             PedalsOverlay(layout, drive_state, control_assets=control_assets),
