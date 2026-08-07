@@ -29,6 +29,10 @@ from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
+from omnidreams.interactive_drive.world_model.uplift import (
+    UpliftStreamClient,
+    UpliftStreamConfig,
+)
 from PIL import Image
 
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
@@ -60,6 +64,7 @@ class WorldModelRenderBackend(RenderBackend):
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
+        self._uplift: UpliftStreamClient | None = self._build_uplift_client()
 
     @property
     def can_prewarm(self) -> bool:
@@ -114,6 +119,7 @@ class WorldModelRenderBackend(RenderBackend):
         self._session.prepare_for_scene(
             initial_rgb=scene.initial_rgb, prompt=scene.prompt
         )
+        self._reset_uplift_stream()
         prepare_end = time.perf_counter()
         logger.info(
             "[world-model] load_scene "
@@ -161,10 +167,12 @@ class WorldModelRenderBackend(RenderBackend):
             scene.initial_rgb, condition_frames, scene.prompt
         )
         model_end = time.perf_counter()
+        uplift_status = self._submit_uplift(model_frames)
         merged_frames = self._merge_frames(
             display_frames,
             model_frames,
             annotate_first_transition=True,
+            status_message=uplift_status,
         )
         merge_end = time.perf_counter()
         logger.info(
@@ -200,7 +208,12 @@ class WorldModelRenderBackend(RenderBackend):
         condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
         model_frames = self._session.continue_generation(condition_frames)
         model_end = time.perf_counter()
-        merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
+        uplift_status = self._submit_uplift(model_frames)
+        merged_frames = self._merge_frames(
+            raster_chunk.frames,
+            model_frames,
+            status_message=uplift_status,
+        )
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
         total_ms = (merge_end - chunk_start) * 1000.0
@@ -235,17 +248,60 @@ class WorldModelRenderBackend(RenderBackend):
     def reset(self) -> None:
         self._session.reset()
         self._next_chunk_count = 0
+        self._reset_uplift_stream()
 
     def reset_scene_conditioning(self) -> None:
         self._session.reset(clear_precomputed_embeddings=True)
         self._next_chunk_count = 0
+        self._reset_uplift_stream()
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
         self._session.set_postprocess_enabled(enabled)
 
     def close(self) -> None:
+        if self._uplift is not None:
+            self._uplift.close()
+            self._uplift = None
         self._session.close()
         self._rasterizer.cleanup()
+
+    def _build_uplift_client(self) -> UpliftStreamClient | None:
+        if not self._manifest.upsampling_enabled:
+            return None
+        config = UpliftStreamConfig(
+            server=self._manifest.upsampling_server,
+            scale=self._manifest.upsampling_scale,
+            sparse_ratio=self._manifest.upsampling_sparse_ratio,
+            input_format=self._manifest.upsampling_input_format,  # type: ignore[arg-type]
+            input_jpeg_quality=self._manifest.upsampling_input_jpeg_quality,
+            return_frames=self._manifest.upsampling_return_frames,
+            max_queue_chunks=self._manifest.upsampling_max_queue_chunks,
+            max_message_mb=self._manifest.upsampling_max_message_mb,
+        )
+        logger.info(
+            "[world-model] uplift enabled server={} scale={}x queue_depth={} "
+            "input_format={} return_frames={}",
+            config.server,
+            config.scale,
+            config.max_queue_chunks,
+            config.input_format,
+            config.return_frames,
+        )
+        client = UpliftStreamClient(config)
+        client.start()
+        return client
+
+    def _reset_uplift_stream(self) -> None:
+        if not self._manifest.upsampling_enabled:
+            return
+        if self._uplift is not None:
+            self._uplift.close()
+        self._uplift = self._build_uplift_client()
+
+    def _submit_uplift(self, model_frames: list[object]) -> str | None:
+        if self._uplift is None:
+            return None
+        return self._uplift.submit(model_frames)
 
     def _require_scene(self) -> SceneBundle:
         if self._scene is None:
@@ -281,6 +337,7 @@ class WorldModelRenderBackend(RenderBackend):
         model_frames: Sequence[object],
         *,
         annotate_first_transition: bool = False,
+        status_message: str | None = None,
     ) -> tuple[PresentedFrame, ...]:
         if len(raster_frames) != len(model_frames):
             raise ValueError(
@@ -293,6 +350,14 @@ class WorldModelRenderBackend(RenderBackend):
         for index, (raster_frame, model_rgb) in enumerate(
             zip(raster_frames, model_frames, strict=True)
         ):
+            frame_status = _combine_status_messages(
+                (
+                    _FIRST_STEADY_STATE_WARMUP_MESSAGE
+                    if annotate_first_transition and index == last_index
+                    else None
+                ),
+                status_message,
+            )
             merged.append(
                 PresentedFrame(
                     timestamp_us=raster_frame.timestamp_us,
@@ -302,11 +367,7 @@ class WorldModelRenderBackend(RenderBackend):
                     depth_native=raster_frame.depth_native,
                     model_rgb_host_uint8=model_rgb,
                     bev_host_uint8=raster_frame.bev_host_uint8,
-                    status_message=(
-                        _FIRST_STEADY_STATE_WARMUP_MESSAGE
-                        if annotate_first_transition and index == last_index
-                        else None
-                    ),
+                    status_message=frame_status,
                 )
             )
         return tuple(merged)
@@ -324,3 +385,10 @@ def _log_prompt_handoff(stage: str, scene: SceneBundle) -> None:
         f"length={len(prompt)} "
         f"text={prompt_text!r}",
     )
+
+
+def _combine_status_messages(*messages: str | None) -> str | None:
+    parts = [message for message in messages if message]
+    if not parts:
+        return None
+    return " | ".join(parts)
