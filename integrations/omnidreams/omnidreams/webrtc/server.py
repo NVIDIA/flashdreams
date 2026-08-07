@@ -55,7 +55,7 @@ from flashdreams.serving.webrtc.server import (
     close_package_resources as _close_package_resources,
 )
 
-WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
+WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
 
 
 class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):

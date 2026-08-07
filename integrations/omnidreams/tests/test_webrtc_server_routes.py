@@ -84,7 +84,7 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         web_dir = static_resources[0].get_info()["directory"]
         assert web_dir.is_dir()
         assert (
-            "Omnidreams WebRTC Drive" in (web_dir / "request_session.html").read_text()
+            "FlashDreams WebRTC Drive" in (web_dir / "request_session.html").read_text()
         )
     finally:
         app[PACKAGE_RESOURCE_STACK_KEY].close()
@@ -132,7 +132,7 @@ async def test_request_session_serves_html() -> None:
         response = await client.get("/request_session")
         body = await response.text()
         assert response.status == 200
-        assert "Omnidreams WebRTC Drive" in body
+        assert "FlashDreams WebRTC Drive" in body
     finally:
         await client.close()
 

@@ -432,27 +432,22 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     assert demo.port == 8080
 
 
-def test_lingbot_webrtc_demo_installs_model_routes(
+def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import lingbot.demo.webrtc as demo_webrtc_module
 
     app_calls: list[dict[str, Any]] = []
 
-    async def _ok(request: web.Request) -> web.Response:
-        del request
-        return web.Response(text="ok")
-
-    def fake_create_app(**kwargs: Any) -> web.Application:
+    def fake_create_packaged_app(**kwargs: Any) -> web.Application:
         app_calls.append(kwargs)
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
-        app.router.add_get("/api/session/initial_scene", _ok)
-        app.router.add_get("/api/session/first_frame", _ok)
-        app.router.add_post("/api/session/input", _ok)
         return app
 
-    monkeypatch.setattr(demo_webrtc_module, "create_app", fake_create_app)
+    monkeypatch.setattr(
+        demo_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
+    )
     adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
@@ -479,10 +474,8 @@ def test_lingbot_webrtc_demo_installs_model_routes(
     assert app_calls[0]["request_session_url"] == (
         "http://127.0.0.1:8080/request_session"
     )
-    route_paths = {resource.canonical for resource in demo.app.router.resources()}
-    assert "/api/session/initial_scene" in route_paths
-    assert "/api/session/first_frame" in route_paths
-    assert "/api/session/input" in route_paths
+    assert app_calls[0]["preload_name"] == "Lingbot"
+    assert str(app_calls[0]["web_resource"]).endswith("serving/webrtc/web")
 
 
 def test_lingbot_webrtc_demo_serves_through_shared_runner(
@@ -492,7 +485,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
 
     server_calls: list[dict[str, Any]] = []
 
-    def fake_create_app(**kwargs: Any) -> web.Application:
+    def fake_create_packaged_app(**kwargs: Any) -> web.Application:
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
         return app
@@ -500,7 +493,9 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     def fake_server_runner(**kwargs: Any) -> None:
         server_calls.append(kwargs)
 
-    monkeypatch.setattr(demo_webrtc_module, "create_app", fake_create_app)
+    monkeypatch.setattr(
+        demo_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
+    )
     adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,

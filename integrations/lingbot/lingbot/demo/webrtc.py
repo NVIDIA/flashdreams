@@ -5,12 +5,16 @@
 
 from __future__ import annotations
 
+from importlib.resources import as_file, files
 from typing import Any
 
 from aiohttp import web
 
 from flashdreams.runtime.demo import DemoSpec
-from lingbot.webrtc.server import create_app
+from flashdreams.serving.webrtc.server import (
+    close_package_resources,
+    create_packaged_webrtc_app,
+)
 from lingbot.webrtc.session import (
     LingbotInferenceRuntime,
     LingbotRuntimeConfig,
@@ -43,11 +47,15 @@ def create_lingbot_webrtc_app(
     session_manager: Any,
     request_session_url: str,
 ) -> web.Application:
-    """Create the packaged Lingbot browser app through existing serving glue."""
+    """Create Lingbot's shared browser app through generic serving glue."""
     del spec
-    return create_app(
+    return create_packaged_webrtc_app(
+        web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
         session_manager=session_manager,
+        preload_name="Lingbot",
         request_session_url=request_session_url,
+        as_file_fn=as_file,
+        cleanup_callback=close_package_resources,
     )
 
 

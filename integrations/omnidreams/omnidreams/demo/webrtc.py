@@ -148,7 +148,7 @@ def create_omnidreams_webrtc_app(
     output_preload_name = getattr(spec.output, "preload_name", None)
     preload_name = output_preload_name if isinstance(output_preload_name, str) else ""
     return create_packaged_webrtc_app(
-        web_resource=files("omnidreams.webrtc").joinpath("web"),
+        web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
         session_manager=session_manager,
         preload_name=preload_name or "Omnidreams",
         request_session_url=request_session_url,

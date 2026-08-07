@@ -50,7 +50,7 @@ const metrics = {
   rttMs: null,
   resolution: null,
   step: null,
-  model: "Omnidreams",
+  model: "World Model",
 }
 
 function normalizeKey(rawKey) {
@@ -83,7 +83,7 @@ function formatMs(value) {
 }
 
 function logEvent(message, { source = "server", level = "info" } = {}) {
-  const consoleMessage = `[Omnidreams WebRTC][${source}] ${message}`
+  const consoleMessage = `[FlashDreams WebRTC][${source}] ${message}`
   if (level === "error") {
     console.error(consoleMessage)
   } else {
@@ -123,11 +123,22 @@ function setVideoVisible(visible) {
 }
 
 function setPostprocessDisabled(disabled) {
+  if (!postprocessSelect) {
+    return
+  }
   postprocessSelect.disabled = disabled || !postprocessControlAvailable
 }
 
 async function loadPostprocessOptions() {
+  if (!postprocessField || !postprocessSelect) {
+    return
+  }
   const response = await fetch("/api/postprocess/options")
+  if (response.status === 404) {
+    postprocessControlAvailable = false
+    postprocessField.hidden = true
+    return
+  }
   if (!response.ok) {
     throw new Error(`post-process options failed (${response.status})`)
   }
@@ -158,6 +169,9 @@ async function loadPostprocessOptions() {
 }
 
 async function configureSessionInput() {
+  if (!postprocessControlAvailable || !postprocessSelect) {
+    return
+  }
   const postprocessPreset = postprocessSelect.value
   const response = await fetch("/api/session/input", {
     method: "POST",
@@ -181,7 +195,7 @@ function renderMetrics() {
   latencyValue.textContent = formatMs(latency)
   resolutionValue.textContent = metrics.resolution || "--"
   stepValue.textContent = metrics.step === null ? "--" : String(metrics.step)
-  modelValue.textContent = metrics.model || "Omnidreams"
+  modelValue.textContent = metrics.model || "World Model"
 }
 
 function recordActionSent(action) {
@@ -633,7 +647,7 @@ async function dumpPeerStats(reason) {
     for (const report of stats.values()) {
       reports.set(report.id, report)
     }
-    console.group(`[Omnidreams WebRTC] peer stats: ${reason}`)
+    console.group(`[FlashDreams WebRTC] peer stats: ${reason}`)
     for (const report of stats.values()) {
       if (report.type !== "candidate-pair") {
         continue
@@ -655,7 +669,7 @@ async function dumpPeerStats(reason) {
     }
     console.groupEnd()
   } catch (error) {
-    console.warn("[Omnidreams WebRTC] getStats failed", error)
+    console.warn("[FlashDreams WebRTC] getStats failed", error)
   }
 }
 

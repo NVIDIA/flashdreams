@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from importlib.resources import files
 
 import numpy as np
 import pytest
@@ -171,6 +172,17 @@ def test_packaged_webrtc_app_closes_resource_when_setup_fails(tmp_path) -> None:
         )
 
     assert closed
+
+
+def test_shared_viewer_treats_postprocess_routes_as_optional() -> None:
+    web_dir = files("flashdreams.serving.webrtc").joinpath("web")
+    html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
+    javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
+
+    assert "/static/request_session.js?v=shared-webrtc-v1" in html
+    assert "if (!postprocessField || !postprocessSelect)" in javascript
+    assert "if (response.status === 404)" in javascript
+    assert "if (!postprocessControlAvailable || !postprocessSelect)" in javascript
 
 
 @pytest.mark.asyncio

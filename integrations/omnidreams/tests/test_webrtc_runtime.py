@@ -953,7 +953,7 @@ async def test_postprocess_options_exposes_only_launch_preset() -> None:
 
 
 def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
-    web_dir = files("omnidreams.webrtc").joinpath("web")
+    web_dir = files("flashdreams.serving.webrtc").joinpath("web")
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 

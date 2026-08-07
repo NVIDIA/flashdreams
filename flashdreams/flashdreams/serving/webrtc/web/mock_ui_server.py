@@ -21,7 +21,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import as_file, files
 from urllib.parse import urlsplit
 
-WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
+WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
 
 
 class MockUIRequestHandler(SimpleHTTPRequestHandler):
@@ -52,7 +52,7 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Serve the Lingbot mock UI.")
+    parser = argparse.ArgumentParser(description="Serve the shared WebRTC mock UI.")
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8090)
     return parser.parse_args()
@@ -64,7 +64,7 @@ def main() -> None:
         handler = partial(MockUIRequestHandler, directory=str(web_dir))
         server = ThreadingHTTPServer((args.host, args.port), handler)
         print(
-            f"Serving mock UI at http://{args.host}:{args.port}/request_session?mock=1"
+            f"Serving shared mock UI at http://{args.host}:{args.port}/request_session?mock=1"
         )
         try:
             server.serve_forever()

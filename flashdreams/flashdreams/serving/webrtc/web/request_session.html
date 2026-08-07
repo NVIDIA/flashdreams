@@ -8,13 +8,13 @@ SPDX-License-Identifier: Apache-2.0
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omnidreams WebRTC Drive</title>
-  <link rel="stylesheet" href="/static/request_session.css">
+  <title>FlashDreams WebRTC Drive</title>
+  <link rel="stylesheet" href="/static/request_session.css?v=shared-webrtc-v1">
 </head>
 <body>
   <main class="appShell">
-    <section class="stage" aria-label="Omnidreams WebRTC Drive">
-      <h1 class="srOnly">Omnidreams WebRTC Drive</h1>
+    <section class="stage" aria-label="FlashDreams WebRTC Drive">
+      <h1 class="srOnly">FlashDreams WebRTC Drive</h1>
       <div class="stageBackdrop" aria-hidden="true"></div>
       <canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>
       <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
@@ -86,12 +86,12 @@ SPDX-License-Identifier: Apache-2.0
         </div>
         <div class="metric">
           <span>World Model</span>
-          <strong id="modelValue">Omnidreams</strong>
+          <strong id="modelValue">World Model</strong>
         </div>
       </section>
     </section>
   </main>
 
-  <script src="/static/request_session.js" type="module"></script>
+  <script src="/static/request_session.js?v=shared-webrtc-v1" type="module"></script>
 </body>
 </html>

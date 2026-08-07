@@ -135,6 +135,9 @@ version = {attr = "flashdreams._version.__version__"}
 include = ["flashdreams*", "tools*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
 
+[tool.setuptools.package-data]
+"flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
+
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to
 # PyPI's CUDA-13 manylinux wheel, Windows is captured by the unconditional
