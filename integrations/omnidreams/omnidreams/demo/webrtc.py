@@ -10,16 +10,13 @@ from typing import Any, cast
 from aiohttp import web
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
-    OmnidreamsRuntimeError,
     OmnidreamsSessionInput,
+    OmnidreamsWebRTCSessionManager,
     _validate_requested_postprocess_preset,
 )
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime.demo import DemoSpec
-from flashdreams.runtime.demo.webrtc import SharedDemoWebRTCSessionManager
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
-from flashdreams.serving.webrtc.manager import DEFAULT_CLIENT_LIVENESS_TIMEOUT_S
 from flashdreams.serving.webrtc.server import (
     SESSION_MANAGER_KEY,
     SessionBusyError,
@@ -28,61 +25,6 @@ from flashdreams.serving.webrtc.server import (
 from flashdreams.serving.webrtc.server import (
     close_package_resources as _close_package_resources,
 )
-
-
-class OmnidreamsDemoWebRTCSessionManager(SharedDemoWebRTCSessionManager):
-    """Shared WebRTC manager customized for OmniDreams session semantics."""
-
-    _busy_message = "An Omnidreams session is already active."
-    _warmup_label = "Omnidreams WebRTC"
-    _runtime_error_types = (OmnidreamsRuntimeError,)
-    _close_session_on_generation_error = True
-    _resampler_supported_keys = WSAD_SUPPORTED_KEYS
-
-    runtime_config: OmnidreamsRuntimeConfig
-    _runtime: Any
-
-    def __init__(
-        self,
-        *,
-        runtime: Any,
-        runtime_config: OmnidreamsRuntimeConfig,
-        fps: int,
-        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
-    ) -> None:
-        super().__init__(
-            model_name=runtime_config.pipeline_config_name,
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-        self._pending_session_input: OmnidreamsSessionInput | None = None
-
-    def _model_name(self) -> str:
-        return self.runtime_config.pipeline_config_name
-
-    def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
-        return self._pending_session_input
-
-    def _clear_pending_session_input(self) -> None:
-        self._pending_session_input = None
-
-    async def _reset_runtime_for_session(
-        self, session_input: OmnidreamsSessionInput | None
-    ) -> None:
-        await self._runtime.reset_for_new_session(session_input=session_input)
-
-    def set_pending_session_input(self, session_input: OmnidreamsSessionInput) -> None:
-        if self.has_active_session():
-            raise SessionBusyError(self._busy_message)
-        preset = session_input.postprocess_preset
-        if preset:
-            _validate_requested_postprocess_preset(
-                requested_preset=preset,
-                configured_preset=self.runtime_config.postprocess.preset,
-            )
-        self._pending_session_input = session_input
 
 
 async def postprocess_options(request: web.Request) -> web.StreamResponse:
@@ -159,12 +101,11 @@ def validate_postprocess_preset(preset: str) -> None:
         resolve_postprocess_preset(preset)
 
 
-def _get_omnidreams_manager(app: web.Application) -> OmnidreamsDemoWebRTCSessionManager:
-    return cast(OmnidreamsDemoWebRTCSessionManager, app[SESSION_MANAGER_KEY])
+def _get_omnidreams_manager(app: web.Application) -> OmnidreamsWebRTCSessionManager:
+    return cast(OmnidreamsWebRTCSessionManager, app[SESSION_MANAGER_KEY])
 
 
 __all__ = [
-    "OmnidreamsDemoWebRTCSessionManager",
     "configure_omnidreams_webrtc_app",
     "create_omnidreams_webrtc_app",
     "postprocess_options",

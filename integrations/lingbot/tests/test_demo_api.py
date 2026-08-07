@@ -23,7 +23,6 @@ from lingbot.demo.replay import (
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,
 )
-from lingbot.demo.webrtc import LingbotDemoWebRTCSessionManager
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
     FIELD_CAMERA_TRAJECTORY,
@@ -37,7 +36,7 @@ from lingbot.runtime import (
     FIELD_TOTAL_BLOCKS,
     inference_input_from_replay_inputs,
 )
-from lingbot.webrtc.session import LingbotRuntimeConfig
+from lingbot.webrtc.session import LingbotRuntimeConfig, LingbotWebRTCSessionManager
 
 from flashdreams.runtime import (
     CanonicalInputs,
@@ -407,7 +406,7 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     demo = build_webrtc_demo(spec=spec, adapter=adapter)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert isinstance(demo.session_manager, LingbotDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, LingbotWebRTCSessionManager)
     assert demo.session_manager._runtime is demo.runtime
     assert demo.session_manager.runtime_config is demo.runtime.config
     assert demo.runtime_config is demo.runtime.config
@@ -420,7 +419,7 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     assert demo.runtime_config.fps == 24
     assert demo.runtime_config.encoder_backend == "default"
     assert demo.runtime_config.example_data_dir.name == "02"
-    assert demo.session_manager._model_name() == DEFAULT_LINGBOT_PRESET
+    assert demo.session_manager.identity == DEFAULT_LINGBOT_PRESET
     assert demo.host == "0.0.0.0"
     assert demo.port == 8080
 
@@ -531,7 +530,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     assert server_calls[0]["app"] is demo.app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8080
-    assert isinstance(demo.session_manager, LingbotDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, LingbotWebRTCSessionManager)
 
 
 class _RecordingOutputTarget:

@@ -25,7 +25,7 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
 )
-from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+from omnidreams.webrtc.session import OmnidreamsWebRTCSessionManager
 
 from flashdreams.runtime import (
     InferenceConfig,
@@ -362,7 +362,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     demo = build_webrtc_demo(spec=spec, adapter=adapter)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, OmnidreamsWebRTCSessionManager)
     assert demo.session_manager._runtime is demo.runtime
     assert demo.session_manager.runtime_config is demo.runtime.config
     assert demo.runtime_config is demo.runtime.config
@@ -377,7 +377,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert demo.runtime_config.fps == 24
     assert demo.runtime_config.debug_serve_hdmaps is True
     assert demo.runtime_config.encoder_backend == "default"
-    assert demo.session_manager._model_name() == DEFAULT_OMNIDREAMS_PRESET
+    assert demo.session_manager.identity == DEFAULT_OMNIDREAMS_PRESET
     assert demo.host == "0.0.0.0"
     assert demo.port == 8082
 
@@ -485,7 +485,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     assert server_calls[0]["app"] is demo.app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8082
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, OmnidreamsWebRTCSessionManager)
 
 
 class _RecordingOutputTarget:

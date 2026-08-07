@@ -30,30 +30,6 @@ class WebRTCDemoRuntimeConfig:
     warmup_timeout_s: float
 
 
-class SharedDemoWebRTCSessionManager(BaseWebRTCSessionManager[Any, Any]):
-    """Generic session manager wrapper for demo adapters."""
-
-    def __init__(
-        self,
-        *,
-        model_name: str,
-        runtime: Any,
-        runtime_config: Any,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> None:
-        self._demo_model_name = model_name
-        super().__init__(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    def _model_name(self) -> str:
-        return self._demo_model_name
-
-
 @dataclass(frozen=True, kw_only=True, slots=True)
 class WebRTCDemo:
     """Constructed WebRTC demo pieces, before or after serving."""
@@ -207,11 +183,11 @@ def _create_session_manager(
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
 
-    return SharedDemoWebRTCSessionManager(
-        model_name=spec.model_id,
+    return BaseWebRTCSessionManager(
         runtime=runtime,
         runtime_config=runtime_config,
         fps=fps,
+        identity=spec.model_id,
         client_liveness_timeout_s=client_liveness_timeout_s,
     )
 
@@ -266,7 +242,6 @@ def _request_session_url(output: WebRTCOutputSpec) -> str:
 __all__ = [
     "CreateWebRTCApp",
     "RunWebRTCServer",
-    "SharedDemoWebRTCSessionManager",
     "WebRTCDemo",
     "WebRTCDemoRuntimeConfig",
     "build_webrtc_demo",

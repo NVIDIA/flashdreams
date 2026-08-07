@@ -611,10 +611,19 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         return self._model_session.next_num_frames()
 
+    def peek_input_fps(self) -> float:
+        return float(self.config.fps)
+
+    def peek_next_input_num_frames(self) -> int:
+        return self.peek_next_chunk_num_frames()
+
     def peek_steady_chunk_num_frames(self) -> int:
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         return int(self._wrapper.frame_chunk_size)
+
+    def peek_steady_output_num_frames(self) -> int:
+        return self.peek_steady_chunk_num_frames()
 
     @distributed_op(WebRTCControlSignal.INITIALIZE)
     def _initialize_sync_all_ranks(self) -> None:
@@ -1049,53 +1058,37 @@ class OmnidreamsWebRTCSessionManager(
 ):
     """Owns one active WebRTC session and forwards WSAD actions."""
 
-    _busy_message = "An Omnidreams session is already active."
-    _warmup_label = "Omnidreams WebRTC"
-    _runtime_error_types = (OmnidreamsRuntimeError,)
-    # A chunk-generation failure here is fatal to the rollout, so tear the
-    # session down instead of retrying on the next tick.
-    _close_session_on_generation_error = True
-    _resampler_supported_keys = WSAD_SUPPORTED_KEYS
-
     def __init__(
         self,
         *,
+        runtime: OmnidreamsInferenceRuntime | None = None,
         runtime_config: OmnidreamsRuntimeConfig | None = None,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
-        runtime_config = runtime_config or OmnidreamsRuntimeConfig()
+        runtime_config = runtime_config or getattr(runtime, "config", None)
+        if not isinstance(runtime_config, OmnidreamsRuntimeConfig):
+            runtime_config = OmnidreamsRuntimeConfig()
+        runtime = runtime or OmnidreamsInferenceRuntime(config=runtime_config)
         super().__init__(
-            runtime=OmnidreamsInferenceRuntime(config=runtime_config),
+            runtime=runtime,
             runtime_config=runtime_config,
             fps=runtime_config.fps,
+            identity=runtime_config.pipeline_config_name,
+            busy_message="An Omnidreams session is already active.",
+            warmup_label="Omnidreams WebRTC",
+            supported_control_keys=WSAD_SUPPORTED_KEYS,
+            fatal_generation_errors=True,
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
-        self._pending_session_input: OmnidreamsSessionInput | None = None
-
-    def _model_name(self) -> str:
-        return self.runtime_config.pipeline_config_name
-
-    def _peek_pending_session_input(self) -> OmnidreamsSessionInput | None:
-        return self._pending_session_input
-
-    def _clear_pending_session_input(self) -> None:
-        self._pending_session_input = None
-
-    async def _reset_runtime_for_session(
-        self, session_input: OmnidreamsSessionInput | None
-    ) -> None:
-        await self._runtime.reset_for_new_session(session_input=session_input)
 
     def set_pending_session_input(self, session_input: OmnidreamsSessionInput) -> None:
-        if self.has_active_session():
-            raise SessionBusyError(self._busy_message)
         preset = session_input.postprocess_preset
         if preset:
             _validate_requested_postprocess_preset(
                 requested_preset=preset,
                 configured_preset=self.runtime_config.postprocess.preset,
             )
-        self._pending_session_input = session_input
+        super().set_pending_session_input(session_input)
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
         @peer_connection.on("iceconnectionstatechange")

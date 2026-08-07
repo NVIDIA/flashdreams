@@ -279,15 +279,15 @@ sampling, generation scheduling, encoding, and delivery.
       `WebRTCGenerationRuntime.generate_chunk`.
 - [ ] Use `StepRequest`/input mapping to determine the next input window and
       frame count.
-- [ ] Replace model-specific reset hooks with mapped session inputs.
-- [ ] Replace `_model_name` with runtime/adapter identity.
-- [ ] Replace `_chunk_done_extra` with `StepResult.metadata`.
-- [ ] Replace integration-specific runtime-error tuples with shared runtime
+- [x] Replace model-specific reset hooks with mapped session inputs.
+- [x] Replace `_model_name` with runtime/adapter identity.
+- [x] Replace `_chunk_done_extra` with `StepResult.metadata`.
+- [x] Replace integration-specific runtime-error tuples with shared runtime
       errors.
-- [ ] Delete no-op manager wrappers.
-- [ ] Keep only capability hooks that change WebRTC behavior, such as supported
+- [x] Delete no-op manager wrappers.
+- [x] Keep only capability hooks that change WebRTC behavior, such as supported
       control keys or fatal-on-generation-error policy.
-- [ ] Cover session negotiation, reset, reconnect, error, and warmup behavior in
+- [x] Cover session negotiation, reset, reconnect, error, and warmup behavior in
       shared CPU tests.
 
 Acceptance criteria:

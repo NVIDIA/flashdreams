@@ -119,23 +119,14 @@ def _fake_runtime_factory(config: OmnidreamsRuntimeConfig) -> object:
 
 
 def test_session_manager_hooks_are_wired() -> None:
-    # Guards against the shared base-class attribute overrides being dropped
-    # (e.g. losing their leading underscore), which silently reverts behaviour
-    # to the base defaults.
-    assert (
-        OmnidreamsWebRTCSessionManager._busy_message
-        == "An Omnidreams session is already active."
+    manager = OmnidreamsWebRTCSessionManager(
+        runtime_config=OmnidreamsRuntimeConfig(device="cpu")
     )
-    assert OmnidreamsWebRTCSessionManager._warmup_label == "Omnidreams WebRTC"
-    assert OmnidreamsWebRTCSessionManager._runtime_error_types == (
-        session.OmnidreamsRuntimeError,
-    )
-    # A fatal chunk-generation error tears the omnidreams session down.
-    assert OmnidreamsWebRTCSessionManager._close_session_on_generation_error is True
-    # Only the WSAD driving keys are accepted by the resampler.
-    assert (
-        OmnidreamsWebRTCSessionManager._resampler_supported_keys == WSAD_SUPPORTED_KEYS
-    )
+
+    assert manager.busy_message == "An Omnidreams session is already active."
+    assert manager.warmup_label == "Omnidreams WebRTC"
+    assert manager.fatal_generation_errors is True
+    assert manager.supported_control_keys == WSAD_SUPPORTED_KEYS
 
 
 @dataclass
@@ -894,9 +885,7 @@ def test_session_manager_stores_postprocess_override_for_next_rollout() -> None:
 
     manager.set_pending_session_input(session_input)
 
-    assert manager._peek_pending_session_input() == session_input
-    manager._clear_pending_session_input()
-    assert manager._peek_pending_session_input() is None
+    assert manager.pending_session_input == session_input
 
 
 def test_session_manager_rejects_unlaunched_postprocess_preset() -> None:
@@ -1065,10 +1054,13 @@ async def test_loopback_warmup_drives_session_generation(
             del session_input
             self.reset_calls += 1
 
-        def peek_steady_chunk_num_frames(self) -> int:
+        def peek_input_fps(self) -> float:
+            return 30.0
+
+        def peek_steady_output_num_frames(self) -> int:
             return 1
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
@@ -1214,7 +1206,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
         def __init__(self) -> None:
             self.generate_calls = 0
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(

@@ -215,7 +215,7 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
     assert demo.session_manager.runtime_config.video_width == 16
     assert demo.session_manager.runtime_config.video_height == 8
     assert demo.session_manager.fps == 24
-    assert demo.session_manager._model_name() == "fake-demo"
+    assert demo.session_manager.identity == "fake-demo"
     assert demo.app is None
     assert demo.host == "0.0.0.0"
     assert demo.port == 8082
@@ -431,13 +431,16 @@ class _FakeWebRTCRuntime:
     async def initialize(self) -> None:
         return None
 
-    async def reset_for_new_session(self) -> None:
-        return None
+    async def reset_for_new_session(self, *, session_input: Any = None) -> None:
+        del session_input
 
-    def peek_steady_chunk_num_frames(self) -> int:
+    def peek_input_fps(self) -> float:
+        return 24.0
+
+    def peek_steady_output_num_frames(self) -> int:
         return 1
 
-    def peek_next_chunk_num_frames(self) -> int:
+    def peek_next_input_num_frames(self) -> int:
         return 1
 
     async def generate_chunk(

@@ -15,31 +15,7 @@ from flashdreams.serving.webrtc.server import (
     close_package_resources,
     create_packaged_webrtc_app,
 )
-from lingbot.webrtc.session import (
-    LingbotInferenceRuntime,
-    LingbotRuntimeConfig,
-    LingbotWebRTCSessionManager,
-)
 from lingbot.webrtc.server import configure_lingbot_webrtc_app
-
-
-class LingbotDemoWebRTCSessionManager(LingbotWebRTCSessionManager):
-    """Shared demo session manager using Lingbot's existing WebRTC semantics."""
-
-    def __init__(
-        self,
-        *,
-        runtime: LingbotInferenceRuntime,
-        runtime_config: LingbotRuntimeConfig,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> None:
-        super().__init__(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
 
 
 def create_lingbot_webrtc_app(
@@ -63,6 +39,5 @@ def create_lingbot_webrtc_app(
 
 
 __all__ = [
-    "LingbotDemoWebRTCSessionManager",
     "create_lingbot_webrtc_app",
 ]

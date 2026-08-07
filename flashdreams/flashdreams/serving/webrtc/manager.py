@@ -158,11 +158,6 @@ class ManagedWebRTCSession:
 class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     """Owns one active WebRTC session and forwards actions into a model runtime."""
 
-    _busy_message: str = "A WebRTC session is already active."
-    _warmup_label: str = "WebRTC"
-    _runtime_error_types: tuple[type[Exception], ...] = (RuntimeError,)
-    _close_session_on_generation_error: bool = False
-    _resampler_supported_keys: AbstractSet[str] | None = None
     _perf_log_interval_chunks: int = _DEFAULT_PERF_LOG_INTERVAL_CHUNKS
 
     def __init__(
@@ -171,12 +166,26 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         runtime: _RuntimeT,
         runtime_config: _RuntimeConfigT,
         fps: int,
+        identity: str,
+        busy_message: str = "A WebRTC session is already active.",
+        warmup_label: str = "WebRTC",
+        supported_control_keys: AbstractSet[str] | None = None,
+        fatal_generation_errors: bool = False,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
         self.runtime_config = runtime_config
         self.fps = fps
+        self.identity = identity
+        self.busy_message = busy_message
+        self.warmup_label = warmup_label
+        self.supported_control_keys = (
+            None
+            if supported_control_keys is None
+            else frozenset(supported_control_keys)
+        )
+        self.fatal_generation_errors = fatal_generation_errors
         self.client_liveness_timeout_s = client_liveness_timeout_s
         self._runtime = runtime
         self._runtime_ready = False
@@ -184,21 +193,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._active_session: ManagedWebRTCSession | None = None
         self._preload_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
+        self._pending_session_input: Any = None
 
-    def _model_name(self) -> str:
-        """Human-readable model identifier reported in ``chunk_done``."""
-        raise NotImplementedError
+    @property
+    def pending_session_input(self) -> Any:
+        """Input that will be applied to the next successfully negotiated session."""
+        return self._pending_session_input
 
-    def _peek_pending_session_input(self) -> Any:
-        """Session input applied to the next ``create_answer`` (or ``None``)."""
-        return None
-
-    def _clear_pending_session_input(self) -> None:
-        """Clear the pending session input after a successful answer."""
-
-    async def _reset_runtime_for_session(self, session_input: Any) -> None:
-        """Reset the runtime for a new rollout, honoring ``session_input``."""
-        await self._runtime.reset_for_new_session()
+    def set_pending_session_input(self, session_input: Any) -> None:
+        """Store validated model input for the next session."""
+        if self.has_active_session():
+            raise SessionBusyError(self.busy_message)
+        self._pending_session_input = session_input
 
     def _make_resampler(self, *, start_v: float) -> KeyboardResampler:
         return self._make_resampler_at_fps(start_v=start_v, fps=self.fps)
@@ -206,12 +212,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def _make_resampler_at_fps(
         self, *, start_v: float, fps: float
     ) -> KeyboardResampler:
-        if self._resampler_supported_keys is None:
+        if self.supported_control_keys is None:
             return KeyboardResampler(fps=fps, start_v=start_v)
         return KeyboardResampler(
             fps=fps,
             start_v=start_v,
-            supported_keys=frozenset(self._resampler_supported_keys),
+            supported_keys=self.supported_control_keys,
         )
 
     @staticmethod
@@ -235,36 +241,21 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         return parsed
 
     def _runtime_input_fps(self, runtime: Any) -> float:
-        method = getattr(runtime, "peek_input_fps", None)
-        if callable(method):
-            return self._positive_float_runtime_value(
-                method(),
-                label="peek_input_fps",
-            )
-        return float(self.fps)
+        return self._positive_float_runtime_value(
+            runtime.peek_input_fps(),
+            label="peek_input_fps",
+        )
 
     def _runtime_next_input_num_frames(self, runtime: Any) -> int:
-        method = getattr(runtime, "peek_next_input_num_frames", None)
-        if callable(method):
-            return self._positive_int_runtime_value(
-                method(),
-                label="peek_next_input_num_frames",
-            )
         return self._positive_int_runtime_value(
-            runtime.peek_next_chunk_num_frames(),
-            label="peek_next_chunk_num_frames",
+            runtime.peek_next_input_num_frames(),
+            label="peek_next_input_num_frames",
         )
 
     def _runtime_steady_output_num_frames(self, runtime: Any) -> int:
-        method = getattr(runtime, "peek_steady_output_num_frames", None)
-        if callable(method):
-            return self._positive_int_runtime_value(
-                method(),
-                label="peek_steady_output_num_frames",
-            )
         return self._positive_int_runtime_value(
-            runtime.peek_steady_chunk_num_frames(),
-            label="peek_steady_chunk_num_frames",
+            runtime.peek_steady_output_num_frames(),
+            label="peek_steady_output_num_frames",
         )
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:
@@ -474,15 +465,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
         async with self._session_lock:
             if self._active_session is not None and not self._active_session.closed:
-                raise SessionBusyError(self._busy_message)
+                raise SessionBusyError(self.busy_message)
 
-            session_input = self._peek_pending_session_input()
+            session_input = self._pending_session_input
             answer = await self._create_answer_with_runtime_ready_locked(
                 offer_sdp=offer_sdp,
                 offer_type=offer_type,
                 session_input=session_input,
             )
-            self._clear_pending_session_input()
+            self._pending_session_input = None
             return answer
 
     async def _create_answer_with_runtime_ready_locked(
@@ -495,11 +486,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         enable_liveness_watchdog: bool = True,
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
-            raise SessionBusyError(self._busy_message)
+            raise SessionBusyError(self.busy_message)
         if not self._runtime_ready:
-            raise self._runtime_error_types[0]("Runtime is not initialized.")
+            raise RuntimeError("Runtime is not initialized.")
 
-        await self._reset_runtime_for_session(session_input)
+        await self._runtime.reset_for_new_session(session_input=session_input)
 
         peer_connection = RTCPeerConnection(rtc_configuration)
         # Bounded queue sized to one *steady-state* chunk so the producer
@@ -611,13 +602,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
     async def _run_loopback_warmup_session(self, *, num_chunks: int) -> None:
         if not self._runtime_ready:
-            raise self._runtime_error_types[0]("Runtime is not initialized.")
+            raise RuntimeError("Runtime is not initialized.")
         await run_loopback_warmup_session(
             num_chunks=num_chunks,
             warmup_timeout_s=self.runtime_config.warmup_timeout_s,
             create_answer=self._create_loopback_warmup_answer,
             close_active_session=self.close_active_session,
-            label=self._warmup_label,
+            label=self.warmup_label,
             logger=logger,
         )
 
@@ -823,7 +814,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             while not managed_session.closed:
                 try:
                     input_num_frames = self._runtime_next_input_num_frames(runtime)
-                except self._runtime_error_types:
+                except RuntimeError:
                     logger.exception("Runtime not ready; stopping generation worker.")
                     return
                 # Trigger when wallclock reaches the chunk's window end.
@@ -878,7 +869,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     channel = managed_session.control_channel
                     if channel is not None:
                         self._send_json(channel, make_error_payload(str(exc)))
-                    if self._close_session_on_generation_error:
+                    if self.fatal_generation_errors:
                         await self.close_active_session()
                         return
                     continue
@@ -979,7 +970,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                             fps=video_track.fps,
                             width=self.runtime_config.video_width,
                             height=self.runtime_config.video_height,
-                            model=self._model_name(),
+                            model=self.identity,
                             gen_ms=gen_ms,
                             enqueue_ms=enqueue_ms,
                             play_ms=play_ms,

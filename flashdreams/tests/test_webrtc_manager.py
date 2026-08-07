@@ -121,8 +121,7 @@ class _CountingVideoTrack(_FakeVideoTrack):
 
 
 class _BaseTestManager(BaseWebRTCSessionManager):
-    def _model_name(self) -> str:
-        return "fake-model"
+    pass
 
 
 class _WOnlyTestManager(_BaseTestManager):
@@ -130,24 +129,29 @@ class _WOnlyTestManager(_BaseTestManager):
 
 
 def _make_manager(
-    manager_cls: type[BaseWebRTCSessionManager], runtime: Any
+    manager_cls: type[BaseWebRTCSessionManager], runtime: Any, **kwargs: Any
 ) -> BaseWebRTCSessionManager:
     return manager_cls(
         runtime=runtime,
         runtime_config=_runtime_config(),
         fps=30,
+        identity="fake-model",
+        **kwargs,
     )
 
 
-def test_runtime_frame_timing_hooks_default_to_legacy_methods() -> None:
-    class _LegacyRuntime:
-        def peek_next_chunk_num_frames(self) -> int:
+def test_runtime_frame_timing_contract() -> None:
+    class _Runtime:
+        def peek_input_fps(self) -> float:
+            return 30.0
+
+        def peek_next_input_num_frames(self) -> int:
             return 2
 
-        def peek_steady_chunk_num_frames(self) -> int:
+        def peek_steady_output_num_frames(self) -> int:
             return 3
 
-    runtime = _LegacyRuntime()
+    runtime = _Runtime()
     manager = _make_manager(_BaseTestManager, runtime)
 
     assert manager._runtime_input_fps(runtime) == pytest.approx(30.0)
@@ -474,7 +478,7 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
         def __init__(self) -> None:
             self.generate_calls = 0
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
@@ -484,11 +488,12 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
             self.generate_calls += 1
             raise RuntimeError("boom")
 
-    class _ClosingManager(_BaseTestManager):
-        _close_session_on_generation_error = True
-
     runtime = _ClosingRuntime()
-    manager = _make_manager(_ClosingManager, runtime)
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        fatal_generation_errors=True,
+    )
     managed, video_track, peer, channel = _managed_session(runtime)
     manager._active_session = managed
 
@@ -511,7 +516,7 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
             self.generate_calls = 0
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
@@ -548,7 +553,7 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
         def __init__(self) -> None:
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
@@ -669,7 +674,7 @@ async def test_generation_worker_logs_periodic_perf_stats(
             self.managed_session: ManagedWebRTCSession | None = None
             self.chunk_index = 0
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
@@ -720,10 +725,11 @@ async def test_generation_worker_logs_periodic_perf_stats(
 
 @pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
-    class _BusyManager(_BaseTestManager):
-        _busy_message = "custom busy message"
-
-    manager = _make_manager(_BusyManager, runtime=SimpleNamespace())
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime=SimpleNamespace(),
+        busy_message="custom busy message",
+    )
     manager._runtime_ready = True
     manager._warmup_complete = True
     existing, *_ = _managed_session(runtime=SimpleNamespace())
@@ -734,12 +740,11 @@ async def test_create_answer_raises_busy_with_subclass_message() -> None:
 
 
 def test_make_resampler_honors_supported_keys() -> None:
-    class _WsadManager(_BaseTestManager):
-        _resampler_supported_keys = WSAD_SUPPORTED_KEYS
-
-    wsad = _make_manager(_WsadManager, runtime=SimpleNamespace())._make_resampler(
-        start_v=1.0
-    )
+    wsad = _make_manager(
+        _BaseTestManager,
+        runtime=SimpleNamespace(),
+        supported_control_keys=WSAD_SUPPORTED_KEYS,
+    )._make_resampler(start_v=1.0)
     wsad.on_edge(arrival_t=0.5, event="keydown", key="q")
     wsad_segments, _ = wsad.sample_chunk(num_frames=1)
     # 'q' is not a WSAD driving key, so it is rejected and never held.

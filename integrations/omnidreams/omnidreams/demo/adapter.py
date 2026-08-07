@@ -13,6 +13,7 @@ from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
+    OmnidreamsWebRTCSessionManager,
 )
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
@@ -45,11 +46,7 @@ from .spec import (
     resolve_replay_scenario,
     resolve_webrtc_scenario,
 )
-from .webrtc import (
-    OmnidreamsDemoWebRTCSessionManager,
-    create_omnidreams_webrtc_app,
-    validate_postprocess_preset,
-)
+from .webrtc import create_omnidreams_webrtc_app, validate_postprocess_preset
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 WebRTCRuntimeFactory = Callable[..., Any]
@@ -202,12 +199,11 @@ class OmnidreamsDemoAdapter:
         runtime_config: OmnidreamsRuntimeConfig,
         fps: int,
         client_liveness_timeout_s: float,
-    ) -> OmnidreamsDemoWebRTCSessionManager:
-        del spec
-        return OmnidreamsDemoWebRTCSessionManager(
+    ) -> OmnidreamsWebRTCSessionManager:
+        del spec, fps
+        return OmnidreamsWebRTCSessionManager(
             runtime=runtime,
             runtime_config=runtime_config,
-            fps=fps,
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
 

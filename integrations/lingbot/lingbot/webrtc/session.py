@@ -839,6 +839,12 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Runtime is not initialized.")
         return self._model_session.next_num_frames()
 
+    def peek_input_fps(self) -> float:
+        return float(self.config.fps)
+
+    def peek_next_input_num_frames(self) -> int:
+        return self.peek_next_chunk_num_frames()
+
     # Arbitrary index well past the AR-step transient; for the Wan/lingbot
     # pipelines used here the per-step count is constant for any index
     # ``>= 1`` (only AR 0 emits fewer frames due to causal first-frame
@@ -865,6 +871,9 @@ class LingbotInferenceRuntime:
         return int(
             self._pipeline.get_num_output_frames(self._STEADY_STATE_AR_PROBE_INDEX)
         )
+
+    def peek_steady_output_num_frames(self) -> int:
+        return self.peek_steady_chunk_num_frames()
 
     @distributed_op(WebRTCControlSignal.INITIALIZE)
     def _initialize_sync_all_ranks(self) -> None:
@@ -1456,10 +1465,6 @@ class LingbotWebRTCSessionManager(
 ):
     """Owns one active WebRTC session and forwards actions into Lingbot runtime."""
 
-    _busy_message = "A Lingbot session is already active."
-    _warmup_label = "Lingbot WebRTC"
-    _runtime_error_types = (LingbotRuntimeError,)
-
     def __init__(
         self,
         *,
@@ -1479,23 +1484,11 @@ class LingbotWebRTCSessionManager(
             runtime=runtime,
             runtime_config=runtime_config,
             fps=fps,
+            identity=runtime_config.config_name,
+            busy_message="A Lingbot session is already active.",
+            warmup_label="Lingbot WebRTC",
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
-        self._pending_session_input: LingbotSessionInput | None = None
-
-    def _model_name(self) -> str:
-        return self.runtime_config.config_name
-
-    def _peek_pending_session_input(self) -> LingbotSessionInput | None:
-        return self._pending_session_input
-
-    def _clear_pending_session_input(self) -> None:
-        self._pending_session_input = None
-
-    async def _reset_runtime_for_session(
-        self, session_input: LingbotSessionInput | None
-    ) -> None:
-        await self._runtime.reset_for_new_session(session_input=session_input)
 
     def _effective_text_events(self) -> tuple[TextEventSpec, ...]:
         if (
@@ -1639,15 +1632,17 @@ class LingbotWebRTCSessionManager(
             if session_input.text_events is not None
             else (current.text_events if current is not None else None)
         )
-        self._pending_session_input = LingbotSessionInput(
-            prompt=(
-                normalize_prompt_text(session_input.prompt)
-                if session_input.prompt is not None
-                else (current.prompt if current is not None else None)
-            ),
-            first_frame_image_bytes=first_frame_image_bytes,
-            first_frame_image_url=first_frame_image_url,
-            first_frame_content_type=first_frame_content_type,
-            first_frame_remote_payload=first_frame_remote_payload,
-            text_events=text_events,
+        super().set_pending_session_input(
+            LingbotSessionInput(
+                prompt=(
+                    normalize_prompt_text(session_input.prompt)
+                    if session_input.prompt is not None
+                    else (current.prompt if current is not None else None)
+                ),
+                first_frame_image_bytes=first_frame_image_bytes,
+                first_frame_image_url=first_frame_image_url,
+                first_frame_content_type=first_frame_content_type,
+                first_frame_remote_payload=first_frame_remote_payload,
+                text_events=text_events,
+            )
         )

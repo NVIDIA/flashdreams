@@ -80,19 +80,13 @@ def _fake_runtime_factory(config: LingbotRuntimeConfig) -> object:
 
 
 def test_session_manager_hooks_are_wired() -> None:
-    # Guards against the shared base-class attribute overrides being dropped
-    # (e.g. losing their leading underscore), which silently reverts behaviour
-    # to the base defaults.
-    assert (
-        LingbotWebRTCSessionManager._busy_message
-        == "A Lingbot session is already active."
+    manager = LingbotWebRTCSessionManager(
+        runtime_config=LingbotRuntimeConfig(device="cpu")
     )
-    assert LingbotWebRTCSessionManager._warmup_label == "Lingbot WebRTC"
-    assert LingbotWebRTCSessionManager._runtime_error_types == (
-        session.LingbotRuntimeError,
-    )
-    # Lingbot keeps streaming after a per-chunk failure rather than tearing down.
-    assert LingbotWebRTCSessionManager._close_session_on_generation_error is False
+
+    assert manager.busy_message == "A Lingbot session is already active."
+    assert manager.warmup_label == "Lingbot WebRTC"
+    assert manager.fatal_generation_errors is False
 
 
 def test_runtime_defaults_use_canonical_v2_examples() -> None:
@@ -943,10 +937,13 @@ async def test_loopback_warmup_drives_session_generation(
             del session_input
             self.reset_calls += 1
 
-        def peek_steady_chunk_num_frames(self) -> int:
+        def peek_input_fps(self) -> float:
+            return 30.0
+
+        def peek_steady_output_num_frames(self) -> int:
             return 1
 
-        def peek_next_chunk_num_frames(self) -> int:
+        def peek_next_input_num_frames(self) -> int:
             return 1
 
         async def generate_chunk(
