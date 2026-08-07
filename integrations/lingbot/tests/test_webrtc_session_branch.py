@@ -11,6 +11,7 @@ LingBot's live path onto the runtime API would silently change how it drives.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import numpy as np
@@ -85,6 +86,7 @@ class _FakeSession:
 
 class _FakeRuntime:
     def __init__(self, *, text_event_prompts: dict[str, str] | None = None) -> None:
+        self.text_event_prompts = dict(text_event_prompts or {})
         self.input_canonicalizer = InputCanonicalizer(
             [KeyboardToCameraCommand(), TextEventSelection()]
         )
@@ -101,10 +103,38 @@ class _FakeRuntime:
     async def start_inference_session(self) -> _FakeSession:
         return self.session
 
+    def validate_user_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if event_type != "text_event":
+            return payload
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        clear_states = {"clear", "release", "off", "none"}
+        trigger_states = {"trigger", "hold", "on"}
+        if state not in clear_states and state not in trigger_states:
+            raise ValueError(f"Unsupported text event state {state!r}.")
+        event_id = payload.get("event_id")
+        if event_id is None or state in clear_states:
+            return {"event_id": None, "state": state}
+        event_id = str(event_id)
+        if event_id not in self.text_event_prompts:
+            raise ValueError(f"Unknown Lingbot text event_id={event_id!r}.")
+        return {"event_id": event_id, "state": state}
+
 
 class _Manager(BaseWebRTCSessionManager[Any, Any]):
     def _model_name(self) -> str:
         return "fake"
+
+
+class _FakeControlChannel:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    def send(self, payload: str) -> None:
+        decoded = json.loads(payload)
+        assert isinstance(decoded, dict)
+        self.messages.append(decoded)
 
 
 def _managed_session(runtime: _FakeRuntime) -> ManagedWebRTCSession:
@@ -270,6 +300,44 @@ async def test_text_event_becomes_a_buffered_user_event() -> None:
 
     assert len(runtime.session.steps) == 1
     assert runtime.session.steps[0].global_conditioning["prompt"] == "a violent storm"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        pytest.param(
+            {"event_id": "unknown", "state": "trigger"},
+            "Unknown Lingbot text event_id='unknown'",
+            id="unknown_event",
+        ),
+        pytest.param(
+            {"event_id": "storm", "state": "explode"},
+            "Unsupported text event state 'explode'",
+            id="bad_state",
+        ),
+    ],
+)
+async def test_text_event_rejects_invalid_payload_before_ack(
+    payload: dict[str, str],
+    message: str,
+) -> None:
+    runtime = _FakeRuntime(text_event_prompts={"storm": "a violent storm"})
+    manager = _manager(runtime)
+    managed = _managed_session(runtime)
+    channel = _FakeControlChannel()
+    managed.control_channel = channel
+
+    handled = await manager._handle_event_message(
+        managed_session=managed,
+        payload=payload,
+    )
+
+    assert handled is False
+    assert list(managed.user_events) == []
+    assert channel.messages[0]["type"] == "error"
+    assert message in str(channel.messages[0]["message"])
+    assert len(channel.messages) == 1
 
 
 def test_real_lingbot_runtime_selects_the_session_branch() -> None:

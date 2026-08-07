@@ -30,7 +30,11 @@ from flashdreams.runtime.inputs import (
     UserInputEvent,
     UserInputs,
 )
-from flashdreams.serving.realtime.input import KeyboardResampler
+from flashdreams.serving.realtime.input import (
+    DEFAULT_SUPPORTED_KEYS,
+    KeyboardResampler,
+    normalize_key,
+)
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     VideoEncoder,
@@ -69,6 +73,11 @@ DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 # How often the liveness watchdog wakes to re-check the elapsed-since-last-message.
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 _DEFAULT_PERF_LOG_INTERVAL_CHUNKS = 5
+_MAX_SESSION_USER_EVENTS = 1024
+"""Maximum unconsumed raw events kept for an ``InferenceSession`` step."""
+_MAX_SESSION_RELEASE_USER_EVENTS = 32
+"""Additional bounded release events allowed after the main queue is full."""
+_RELEASE_USER_EVENT_TYPES = frozenset({"key_up"})
 
 _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
@@ -380,6 +389,17 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         resampler, so a chunk's ``TimeWindow`` selects exactly the events that
         arrived during that chunk's virtual window.
         """
+        if len(managed_session.user_events) >= _MAX_SESSION_USER_EVENTS:
+            if event_type in _RELEASE_USER_EVENT_TYPES:
+                self._make_room_for_release_event(
+                    managed_session=managed_session,
+                    event_type=event_type,
+                    payload=payload,
+                )
+            else:
+                raise RuntimeError(
+                    "Too many queued WebRTC user events; wait for inference to catch up."
+                )
         managed_session.user_events.append(
             UserInputEvent(
                 timestamp_s=timestamp_s,
@@ -388,6 +408,93 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 source="webrtc",
             )
         )
+
+    def _make_room_for_release_event(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        events = managed_session.user_events
+        if not events:
+            return
+        if event_type == "key_up":
+            released_key = payload.get("key")
+            normalized_released_key = (
+                normalize_key(released_key) if isinstance(released_key, str) else None
+            )
+            if normalized_released_key is not None:
+                for index, queued_event in enumerate(events):
+                    queued_key = queued_event.payload.get("key")
+                    if (
+                        queued_event.event_type == "key_down"
+                        and isinstance(queued_key, str)
+                        and normalize_key(queued_key) == normalized_released_key
+                    ):
+                        del events[index]
+                        return
+                for index, queued_event in enumerate(events):
+                    queued_key = queued_event.payload.get("key")
+                    if (
+                        queued_event.event_type == "key_up"
+                        and isinstance(queued_key, str)
+                        and normalize_key(queued_key) == normalized_released_key
+                    ):
+                        del events[index]
+                        return
+        if self._queued_release_event_count(managed_session) >= self._release_cap():
+            for index, queued_event in enumerate(events):
+                queued_key = queued_event.payload.get("key")
+                normalized_queued_key = (
+                    normalize_key(queued_key) if isinstance(queued_key, str) else None
+                )
+                if (
+                    queued_event.event_type in _RELEASE_USER_EVENT_TYPES
+                    and normalized_queued_key not in self._supported_release_keys()
+                ):
+                    del events[index]
+                    return
+            raise RuntimeError(
+                "Too many queued WebRTC user events; wait for inference to catch up."
+            )
+
+    def _release_cap(self) -> int:
+        return max(_MAX_SESSION_RELEASE_USER_EVENTS, len(self._supported_release_keys()))
+
+    def _supported_release_keys(self) -> frozenset[str]:
+        supported_keys = self._resampler_supported_keys
+        if supported_keys is None:
+            supported_keys = DEFAULT_SUPPORTED_KEYS
+        return frozenset(normalize_key(key) for key in supported_keys)
+
+    @staticmethod
+    def _queued_release_event_count(managed_session: ManagedWebRTCSession) -> int:
+        return sum(
+            event.event_type in _RELEASE_USER_EVENT_TYPES
+            for event in managed_session.user_events
+        )
+
+    def _validate_user_event_payload(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return a runtime-validated user-event payload."""
+        validate = getattr(managed_session.runtime, "validate_user_event", None)
+        if not callable(validate):
+            return payload
+        result = validate(event_type=event_type, payload=dict(payload))
+        if result is None:
+            return payload
+        if not isinstance(result, dict):
+            raise TypeError(
+                "validate_user_event must return a payload dict or None, got "
+                f"{type(result).__name__}."
+            )
+        return result
 
     @staticmethod
     def _prune_consumed_user_events(
@@ -493,22 +600,36 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             # the mapping turns it into a session-global conditioning update
             # applied by the next step, so there is no separate runtime call.
             clears = state in clear_states
-            self._record_user_event(
-                managed_session=managed_session,
-                timestamp_s=asyncio.get_running_loop().time(),
-                event_type="text_event",
-                payload={
-                    "event_id": None if clears else event_id,
-                    "state": state,
-                },
-            )
+            try:
+                event_payload = self._validate_user_event_payload(
+                    managed_session=managed_session,
+                    event_type="text_event",
+                    payload={
+                        "event_id": None if clears else event_id,
+                        "state": state,
+                    },
+                )
+                self._record_user_event(
+                    managed_session=managed_session,
+                    timestamp_s=asyncio.get_running_loop().time(),
+                    event_type="text_event",
+                    payload=event_payload,
+                )
+            except Exception as exc:
+                if channel is not None:
+                    self._send_json(channel, make_error_payload(str(exc)))
+                return False
             if channel is not None:
+                active_event_id = event_payload.get("event_id")
+                ack_event_id = (
+                    None if active_event_id is None else str(active_event_id)
+                )
                 self._send_json(
                     channel,
                     make_event_ack_payload(
-                        event_id=None if clears else (event_id or None),
-                        state=state,
-                        result={"active_event_id": None if clears else event_id},
+                        event_id=ack_event_id,
+                        state=str(event_payload.get("state", state)),
+                        result={"active_event_id": ack_event_id},
                     ),
                 )
             return True
@@ -852,14 +973,19 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # resampler's ``next_chunk_start_v`` so virtual-time comparisons in
         # ``KeyboardResampler.sample_chunk`` are well-defined.
         arrival_t = asyncio.get_running_loop().time()
-        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
         if managed_session.inference_session is not None:
-            self._record_user_event(
-                managed_session=managed_session,
-                timestamp_s=arrival_t,
-                event_type="key_down" if event == "keydown" else "key_up",
-                payload={"key": key},
-            )
+            try:
+                self._record_user_event(
+                    managed_session=managed_session,
+                    timestamp_s=arrival_t,
+                    event_type="key_down" if event == "keydown" else "key_up",
+                    payload={"key": key},
+                )
+            except Exception as exc:
+                self._send_json(channel, make_error_payload(str(exc)))
+                if event != "keyup":
+                    return
+        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
         managed_session.pending_action_arrivals.append(arrival_t)
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.

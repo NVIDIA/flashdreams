@@ -671,6 +671,36 @@ def test_trigger_event_sync_swaps_precomputed_text_embeddings() -> None:
     assert transformer.calls[-1] == (transformer_cache, base_text)
 
 
+def test_validate_user_event_rejects_invalid_text_events() -> None:
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
+    )
+    runtime._event_embeddings = {"portal": torch.ones((1, 2, 3))}
+
+    assert runtime.validate_user_event(
+        event_type="text_event",
+        payload={"event_id": "portal", "state": "trigger"},
+    ) == {"event_id": "portal", "state": "trigger"}
+    assert runtime.validate_user_event(
+        event_type="text_event",
+        payload={"event_id": None, "state": "clear"},
+    ) == {"event_id": None, "state": "clear"}
+    with pytest.raises(ValueError, match="Unknown event_id='unknown'"):
+        runtime.validate_user_event(
+            event_type="text_event",
+            payload={"event_id": "unknown", "state": "trigger"},
+        )
+    with pytest.raises(ValueError, match="Event state must be one of"):
+        runtime.validate_user_event(
+            event_type="text_event",
+            payload={"event_id": "portal", "state": "explode"},
+        )
+
+
 def test_reset_rollout_precomputes_session_text_events() -> None:
     class _FakePipeline:
         def __init__(self) -> None:

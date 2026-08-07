@@ -724,6 +724,19 @@ class LingbotInferenceRuntime:
     def input_source_schema(self) -> UserInputSchema:
         return LINGBOT_WEBRTC_SOURCE_SCHEMA
 
+    def validate_user_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate one raw WebRTC user event before it is acknowledged."""
+        if event_type != "text_event":
+            return payload
+        event_id_value = payload.get("event_id")
+        event_id = "" if event_id_value is None else str(event_id_value)
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        clears = state in {"clear", "release", "off", "none"}
+        return {"event_id": None if clears else event_id, "state": state}
+
     def _build_input_layers_sync(
         self, text_events: tuple[TextEventSpec, ...]
     ) -> None:
