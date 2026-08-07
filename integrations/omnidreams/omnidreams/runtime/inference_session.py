@@ -229,10 +229,10 @@ _PRESENTATION_FPS_ADAPTER = TypeAdapter(_PresentationFps)
 class InferenceSession(BaseInferenceSession):
     """Stateful OmniDreams inference session backed by a per-rollout cache."""
 
-    pipeline: OmnidreamsPipeline
+    _pipeline: OmnidreamsPipeline
     """OmniDreams pipeline shared with the inference runtime."""
 
-    cache: OmnidreamsPipelineCache | None
+    _cache: OmnidreamsPipelineCache | None
     """Per-rollout cache; ``None`` until global conditions initialize it."""
 
     autoregressive_index: int
@@ -269,7 +269,7 @@ class InferenceSession(BaseInferenceSession):
 
     def reset(self) -> None:
         """Reset the session to await rollout-wide embedding conditions."""
-        self.cache = None
+        self._cache = None
         self.autoregressive_index = 0
         self._rollout_resolution = None
         self._presented_frame_count = 0
@@ -291,18 +291,18 @@ class InferenceSession(BaseInferenceSession):
         inference_input = _INFERENCE_INPUT_ADAPTER.validate_python(
             inference_input,
             context=_InferenceValidationContext(
-                pipeline=self.pipeline,
+                pipeline=self._pipeline,
                 autoregressive_index=self.autoregressive_index,
                 rollout_resolution=self._rollout_resolution,
             ),
         )
         global_condition = inference_input.global_condition
-        if self.cache is None:
+        if self._cache is None:
             if global_condition is None:
                 raise ValueError(
                     "global_condition is required on the first step after reset()."
                 )
-            self.cache = self.pipeline.initialize_cache_from_embeddings(
+            self._cache = self._pipeline.initialize_cache_from_embeddings(
                 text_embeddings=global_condition.text_embeddings,
                 image_embeddings=global_condition.image_embeddings,
                 negative_text_embeddings=global_condition.negative_text_embeddings,
@@ -318,14 +318,14 @@ class InferenceSession(BaseInferenceSession):
                 "global_condition can only be supplied on the first step after reset()."
             )
 
-        video = self.pipeline.generate(
+        video = self._pipeline.generate(
             autoregressive_index=self.autoregressive_index,
-            cache=self.cache,
+            cache=self._cache,
             hdmap=inference_input.user_condition.hdmap,
         )
-        self.pipeline.finalize(
+        self._pipeline.finalize(
             autoregressive_index=self.autoregressive_index,
-            cache=self.cache,
+            cache=self._cache,
         )
         start_timestamp = self._presented_frame_count / self.presentation_fps
         self._presented_frame_count += int(video.shape[2])

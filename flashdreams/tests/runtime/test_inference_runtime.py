@@ -128,7 +128,7 @@ def runtime_bundle(
 ## Runtime ownership behavior
 
 
-def test_runtime_sets_up_and_holds_pipeline(
+def test_runtime_sets_up_and_privately_holds_pipeline(
     runtime_bundle: tuple[
         _MockInferenceRuntime,
         _MockStreamInferencePipelineConfig,
@@ -139,15 +139,15 @@ def test_runtime_sets_up_and_holds_pipeline(
     runtime, pipeline_config, pipeline = runtime_bundle
 
     assert pipeline_config.setup_calls == 1
-    assert runtime.pipeline is pipeline
-    assert runtime.session_type is _MockInferenceSession
-    assert runtime.local_rank == 0
-    assert runtime.global_rank == 0
-    assert runtime.world_size == 1
-    assert runtime.is_rank_zero
+    assert runtime._pipeline is pipeline
+    assert runtime._session_type is _MockInferenceSession
+    assert runtime._local_rank == 0
+    assert runtime._global_rank == 0
+    assert runtime._world_size == 1
+    assert runtime._is_rank_zero
 
 
-def test_create_session_shares_pipeline_and_initializes_fresh_cache(
+def test_create_session_privately_shares_pipeline_and_initializes_fresh_cache(
     runtime_bundle: tuple[
         _MockInferenceRuntime,
         _MockStreamInferencePipelineConfig,
@@ -162,9 +162,9 @@ def test_create_session_shares_pipeline_and_initializes_fresh_cache(
 
     assert pipeline_config.setup_calls == 1
     assert first_session is not second_session
-    assert first_session.pipeline is pipeline
-    assert second_session.pipeline is pipeline
-    assert isinstance(first_session.cache, _MockStreamInferencePipelineCache)
-    assert isinstance(second_session.cache, _MockStreamInferencePipelineCache)
-    assert first_session.cache is not second_session.cache
+    assert first_session._pipeline is pipeline
+    assert second_session._pipeline is pipeline
+    assert isinstance(first_session._cache, _MockStreamInferencePipelineCache)
+    assert isinstance(second_session._cache, _MockStreamInferencePipelineCache)
+    assert first_session._cache is not second_session._cache
     assert pipeline.initialize_cache_calls == 2

@@ -73,10 +73,10 @@ class InferenceSession(ABC, Generic[PipelineT]):
     Subclasses implement :meth:`step` for integration-specific rollout I/O.
     """
 
-    pipeline: PipelineT
+    _pipeline: PipelineT
     """Pipeline owned and driven by the inference session."""
 
-    cache: StreamInferencePipelineCache
+    _cache: StreamInferencePipelineCache
     """Current per-session cache initialized by the pipeline."""
 
     def __init__(self, pipeline: PipelineT) -> None:
@@ -85,12 +85,12 @@ class InferenceSession(ABC, Generic[PipelineT]):
         Args:
             pipeline: Pipeline to drive.
         """
-        self.pipeline = pipeline
+        self._pipeline = pipeline
         self.reset()
 
     def reset(self) -> None:
         """Reset the session with a fresh pipeline cache."""
-        self.cache = self.pipeline.initialize_cache()
+        self._cache = self._pipeline.initialize_cache()
 
     @abstractmethod
     @validate_call

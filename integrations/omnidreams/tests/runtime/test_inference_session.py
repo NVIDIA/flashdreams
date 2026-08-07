@@ -206,12 +206,12 @@ def test_step_runs_actual_pipeline_with_global_conditions(
     # Exact type equality prevents a test double from silently replacing the
     # integration pipeline while preserving isinstance compatibility.
     assert type(pipeline) is OmnidreamsPipeline
-    assert session.cache is not None
+    assert session._cache is not None
     # Pipeline caches record the last generated index; the session index points
     # to the next step that will be generated.
-    assert session.cache.autoregressive_index == 0
-    assert isinstance(session.cache.encoder_cache, PixelShuffleVAEEncoderCache)
-    assert session.cache.encoder_cache.autoregressive_index == 0
+    assert session._cache.autoregressive_index == 0
+    assert isinstance(session._cache.encoder_cache, PixelShuffleVAEEncoderCache)
+    assert session._cache.encoder_cache.autoregressive_index == 0
     assert session.autoregressive_index == 1
     assert output.value.shape == (1, 1, 1, 3, 1, 1)
     assert torch.isfinite(output.value).all()
@@ -262,14 +262,14 @@ def test_step_reuses_actual_pipeline_cache_with_different_user_conditions(
             global_condition=_global_condition(2.0),
         )
     )
-    cache = session.cache
+    cache = session._cache
     second_output = session.step(
         InferenceInput(user_condition=_user_condition(7.0, num_frames=4))
     )
 
     # The second user condition advances the same rollout cache rather than
     # rebuilding global text/image conditioning.
-    assert session.cache is cache
+    assert session._cache is cache
     assert cache is not None
     assert cache.autoregressive_index == 1
     assert isinstance(cache.encoder_cache, PixelShuffleVAEEncoderCache)
@@ -295,7 +295,7 @@ def test_step_uses_different_global_conditions_after_reset(
             global_condition=_global_condition(1.0),
         )
     )
-    first_cache = session.cache
+    first_cache = session._cache
     assert first_cache is not None
     first_image = first_cache.transformer_cache.image.clone()
 
@@ -313,7 +313,7 @@ def test_step_uses_different_global_conditions_after_reset(
         )
     )
 
-    second_cache = session.cache
+    second_cache = session._cache
     assert second_cache is not None
     assert second_cache is not first_cache
     assert not torch.equal(second_cache.transformer_cache.image, first_image)
@@ -340,7 +340,7 @@ def test_step_rejects_global_conditions_during_active_rollout(
             global_condition=_global_condition(2.0),
         )
     )
-    cache = session.cache
+    cache = session._cache
 
     with pytest.raises(ValueError, match="can only be supplied on the first step"):
         session.step(
@@ -351,7 +351,7 @@ def test_step_rejects_global_conditions_during_active_rollout(
         )
 
     # Rejection happens before pipeline generation and leaves both indices intact.
-    assert session.cache is cache
+    assert session._cache is cache
     assert cache is not None
     assert cache.autoregressive_index == 0
     assert session.autoregressive_index == 1
@@ -425,7 +425,7 @@ def test_step_validates_omnidreams_condition_tensor_ranks(
     ]
     assert len(matching_errors) == 1
     assert f"rank-{expected_rank}" in matching_errors[0]["msg"]
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -489,7 +489,7 @@ def test_step_validates_omnidreams_condition_tensor_shapes(
     ]
     assert len(matching_errors) == 1
     assert expected_message in matching_errors[0]["msg"]
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -539,7 +539,7 @@ def test_step_validates_condition_shape_relationships(
         session.step(inference_input)
 
     assert expected_message in str(exc_info.value)
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -560,7 +560,7 @@ def test_step_validates_hdmap_resolution_alignment_with_pipeline(
         session.step(inference_input)
 
     assert "must be divisible by 8" in str(exc_info.value)
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -578,7 +578,7 @@ def test_step_validates_image_embedding_resolution_against_hdmap(
         session.step(inference_input)
 
     assert "expected image_embeddings latent resolution (2, 1)" in str(exc_info.value)
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -598,7 +598,7 @@ def test_step_validates_first_hdmap_frame_count_with_pipeline(
     assert "expected hdmap T=1 at autoregressive index 0; got T=4" in str(
         exc_info.value
     )
-    assert session.cache is None
+    assert session._cache is None
     assert session.autoregressive_index == 0
 
 
@@ -612,7 +612,7 @@ def test_step_validates_later_hdmap_frame_count_with_pipeline(
             global_condition=_global_condition(2.0),
         )
     )
-    cache = session.cache
+    cache = session._cache
 
     # Steady-state PixelShuffle/TAEHV geometry requires four input frames.
     with pytest.raises(ValidationError) as exc_info:
@@ -621,7 +621,7 @@ def test_step_validates_later_hdmap_frame_count_with_pipeline(
     assert "expected hdmap T=4 at autoregressive index 1; got T=1" in str(
         exc_info.value
     )
-    assert session.cache is cache
+    assert session._cache is cache
     assert cache is not None
     assert cache.autoregressive_index == 0
     assert session.autoregressive_index == 1
@@ -637,7 +637,7 @@ def test_step_validates_hdmap_resolution_is_stable_during_rollout(
             global_condition=_global_condition(2.0),
         )
     )
-    cache = session.cache
+    cache = session._cache
 
     # 16x8 is independently aligned; only changing the active rollout size is invalid.
     with pytest.raises(ValidationError) as exc_info:
@@ -646,7 +646,7 @@ def test_step_validates_hdmap_resolution_is_stable_during_rollout(
         )
 
     assert "expected hdmap resolution (8, 8)" in str(exc_info.value)
-    assert session.cache is cache
+    assert session._cache is cache
     assert cache is not None
     assert cache.autoregressive_index == 0
     assert session.autoregressive_index == 1

@@ -47,24 +47,24 @@ class InferenceRuntime(ABC, Generic[SessionT]):
     Subclasses implement :meth:`warmup` for integration-specific model execution.
     """
 
-    # ---------------- PyTorch Distributed State  ---------------- #
+    ## Distributed state
 
-    local_rank: int
+    _local_rank: int
     """Process-local rank; ``0`` outside distributed runs."""
 
-    global_rank: int
+    _global_rank: int
     """Global process rank; ``0`` outside distributed runs."""
 
-    world_size: int
+    _world_size: int
     """Number of distributed processes; ``1`` outside distributed runs."""
 
-    is_rank_zero: bool
+    _is_rank_zero: bool
     """Whether this process is the global rank-zero process."""
 
-    pipeline: StreamInferencePipeline
+    _pipeline: StreamInferencePipeline
     """Pipeline constructed once and shared by all sessions."""
 
-    session_type: type[SessionT]
+    _session_type: type[SessionT]
     """Concrete session type created by :meth:`create_session`."""
 
     def __init__(
@@ -86,17 +86,17 @@ class InferenceRuntime(ABC, Generic[SessionT]):
         # Snapshot launch metadata for rank-gated runtime work while preserving
         # stable single-process defaults for ordinary Python processes.
         if torch.distributed.is_initialized():
-            self.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-            self.global_rank = torch.distributed.get_rank()
-            self.world_size = torch.distributed.get_world_size()
+            self._local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+            self._global_rank = torch.distributed.get_rank()
+            self._world_size = torch.distributed.get_world_size()
         else:
-            self.local_rank = 0
-            self.global_rank = 0
-            self.world_size = 1
-        self.is_rank_zero = self.global_rank == 0
+            self._local_rank = 0
+            self._global_rank = 0
+            self._world_size = 1
+        self._is_rank_zero = self._global_rank == 0
 
-        self.pipeline = pipeline_config.setup()
-        self.session_type = session_type
+        self._pipeline = pipeline_config.setup()
+        self._session_type = session_type
 
     def create_session(self) -> SessionT:
         """Create a session backed by the shared pipeline.
@@ -104,7 +104,7 @@ class InferenceRuntime(ABC, Generic[SessionT]):
         Returns:
             Fresh session with its own pipeline cache.
         """
-        return self.session_type(self.pipeline)
+        return self._session_type(self._pipeline)
 
     @abstractmethod
     def warmup(self) -> None:
