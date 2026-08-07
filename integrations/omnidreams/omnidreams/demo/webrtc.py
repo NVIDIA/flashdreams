@@ -9,12 +9,6 @@ from importlib.resources import files
 from typing import Any, cast
 
 from aiohttp import web
-from omnidreams.webrtc.session import (
-    OmnidreamsRuntimeConfig,
-    OmnidreamsRuntimeError,
-    OmnidreamsSessionInput,
-    _validate_requested_postprocess_preset,
-)
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime.demo import DemoSpec
@@ -27,6 +21,13 @@ from flashdreams.runtime.demo.webrtc import (
     session_input_route,
 )
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
+
+from .live_runtime import (
+    OmnidreamsRuntimeConfig,
+    OmnidreamsRuntimeError,
+    OmnidreamsSessionInput,
+    validate_requested_postprocess_preset,
+)
 
 _BUSY_MESSAGE = "An Omnidreams session is already active."
 _WARMUP_LABEL = "Omnidreams WebRTC"
@@ -120,7 +121,7 @@ def validate_omnidreams_session_input(
     omnidreams_input = cast(OmnidreamsSessionInput, session_input)
     preset = omnidreams_input.postprocess_preset
     if preset:
-        _validate_requested_postprocess_preset(
+        validate_requested_postprocess_preset(
             requested_preset=preset,
             configured_preset=runtime_config.postprocess.preset,
         )

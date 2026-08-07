@@ -10,10 +10,6 @@ from dataclasses import replace
 from typing import Any
 
 from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
-from omnidreams.webrtc.session import (
-    OmnidreamsInferenceRuntime,
-    OmnidreamsRuntimeConfig,
-)
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.runtime import (
@@ -41,6 +37,7 @@ from .replay import (
     OmnidreamsReplayRuntimeOptions,
     PipelineFactory,
 )
+from .live_runtime import OmnidreamsInferenceRuntime, OmnidreamsRuntimeConfig
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,

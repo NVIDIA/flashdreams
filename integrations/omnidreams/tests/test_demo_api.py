@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
+import omnidreams.demo as demo_package
 import omnidreams.demo.spec as spec_module
 import pytest
 import torch
@@ -24,7 +26,7 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
 )
-from omnidreams.webrtc.session import OmnidreamsSessionInput
+from omnidreams.demo.live_runtime import OmnidreamsSessionInput
 
 import flashdreams.runtime.demo.webrtc as runtime_demo_webrtc_module
 from flashdreams.infra.video_output import VideoStepResult
@@ -65,6 +67,26 @@ def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
     assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
     assert adapter.supported_output_modes() == ("mp4", "webrtc")
+
+
+def test_omnidreams_demo_does_not_import_legacy_webrtc_session() -> None:
+    demo_dir = Path(demo_package.__file__).parent
+    offenders: list[str] = []
+
+    for path in sorted(demo_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module == "omnidreams.webrtc.session":
+                    offenders.append(path.name)
+            elif isinstance(node, ast.Import):
+                if any(
+                    alias.name == "omnidreams.webrtc.session"
+                    for alias in node.names
+                ):
+                    offenders.append(path.name)
+
+    assert offenders == []
 
 
 def test_omnidreams_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
