@@ -38,7 +38,7 @@ from torch import Tensor, nn
 pytestmark = pytest.mark.ci_cpu
 
 
-# ---------------------- Mock Pipeline  ---------------------- #
+## Pipeline test doubles
 
 
 class _MockStreamInferencePipelineCache(StreamInferencePipelineCache):
@@ -65,7 +65,7 @@ class _MockStreamInferencePipeline(StreamInferencePipeline):
         return _MockStreamInferencePipelineCache()
 
 
-# ------------------ Mock Inference Session ------------------ #
+## Session condition and output contracts
 
 
 class _MockUserCondition(InferenceUserCondition):
@@ -117,15 +117,17 @@ class _MockInferenceSession(InferenceSession[_MockStreamInferencePipeline]):
         return _MockInferenceOutput(frame_chunk=frame_chunk)
 
 
-# ---------------------- Test Fixtures  ---------------------- #
+## Fixtures and condition factories
 
 
 @pytest.fixture
 def session() -> _MockInferenceSession:
+    """Create a session backed by the lightweight pipeline double."""
     return _MockInferenceSession(_MockStreamInferencePipeline())
 
 
 def _user_condition() -> _MockUserCondition:
+    """Build a complete per-step condition for validation tests."""
     return _MockUserCondition(
         movement=torch.tensor([1.0, 0.0, -1.0]),
         camera=torch.eye(4),
@@ -133,15 +135,14 @@ def _user_condition() -> _MockUserCondition:
 
 
 def _global_condition() -> _MockGlobalCondition:
+    """Build a complete rollout-wide condition for validation tests."""
     return _MockGlobalCondition(
         frame=torch.zeros(3, 8, 8),
         prompt=torch.ones(4, 16),
     )
 
 
-# ------------------------------------------------------------ #
-#                      PyTest Test Cases                       #
-# ------------------------------------------------------------ #
+## Accepted session inputs
 
 
 def test_step_validates_nested_conditions(session: _MockInferenceSession) -> None:
@@ -156,7 +157,7 @@ def test_step_validates_nested_conditions(session: _MockInferenceSession) -> Non
     # Pass a raw mapping so ``step`` performs Pydantic validation and conversion.
     output = session.step(inference_input)
 
-    assert torch.equal(output["frame_chunk"], global_condition["frame"])
+    assert torch.equal(output.frame_chunk, global_condition["frame"])
 
 
 def test_step_accepts_missing_optional_global_condition(
@@ -168,7 +169,10 @@ def test_step_accepts_missing_optional_global_condition(
 
     output = session.step(inference_input)
 
-    assert torch.equal(output["frame_chunk"], user_condition["camera"])
+    assert torch.equal(output.frame_chunk, user_condition["camera"])
+
+
+## Rejected session inputs
 
 
 def test_step_rejects_missing_user_condition(

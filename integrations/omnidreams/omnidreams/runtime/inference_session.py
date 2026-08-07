@@ -18,13 +18,11 @@
 from typing import Annotated, TypeAlias, cast
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.runtime.builtin.inference_output.frame_chunk import FrameChunkOutput
 from flashdreams.runtime.inference_session import (
     InferenceGlobalCondition as BaseInferenceGlobalCondition,
 )
 from flashdreams.runtime.inference_session import InferenceInput as BaseInferenceInput
-from flashdreams.runtime.inference_session import (
-    InferenceOutput as BaseInferenceOutput,
-)
 from flashdreams.runtime.inference_session import (
     InferenceSession as BaseInferenceSession,
 )
@@ -224,12 +222,8 @@ _ValidatedInferenceInput: TypeAlias = Annotated[
 
 _INFERENCE_INPUT_ADAPTER = TypeAdapter(_ValidatedInferenceInput)
 
-
-class InferenceOutput(BaseInferenceOutput):
-    """Output produced by one OmniDreams inference step."""
-
-    video: Tensor
-    """Decoded video chunk produced for the step."""
+_PRESENTATION_FPS = 30.0
+"""Presentation rate used by the 30 FPS OmniDreams model."""
 
 
 class InferenceSession(BaseInferenceSession):
@@ -247,13 +241,17 @@ class InferenceSession(BaseInferenceSession):
     _rollout_resolution: tuple[int, int] | None
     """HDMap pixel resolution fixed by the first successful rollout step."""
 
+    _presented_frame_count: int
+    """Number of frames emitted on the current presentation timeline."""
+
     def reset(self) -> None:
         """Reset the session to await rollout-wide embedding conditions."""
         self.cache = None
         self.autoregressive_index = 0
         self._rollout_resolution = None
+        self._presented_frame_count = 0
 
-    def step(self, inference_input: InferenceInput) -> InferenceOutput:
+    def step(self, inference_input: InferenceInput) -> FrameChunkOutput:
         """Generate one video chunk from validated OmniDreams conditions.
 
         Args:
@@ -308,5 +306,11 @@ class InferenceSession(BaseInferenceSession):
             autoregressive_index=self.autoregressive_index,
             cache=self.cache,
         )
+        start_timestamp = self._presented_frame_count / _PRESENTATION_FPS
+        self._presented_frame_count += int(video.shape[2])
         self.autoregressive_index += 1
-        return InferenceOutput(video=video)
+        return FrameChunkOutput(
+            value=video,
+            start_timestamp=start_timestamp,
+            fps=_PRESENTATION_FPS,
+        )

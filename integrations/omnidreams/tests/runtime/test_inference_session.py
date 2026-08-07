@@ -212,8 +212,11 @@ def test_step_runs_actual_pipeline_with_global_conditions(
     assert isinstance(session.cache.encoder_cache, PixelShuffleVAEEncoderCache)
     assert session.cache.encoder_cache.autoregressive_index == 0
     assert session.autoregressive_index == 1
-    assert output["video"].shape == (1, 1, 1, 3, 1, 1)
-    assert torch.isfinite(output["video"]).all()
+    assert output.value.shape == (1, 1, 1, 3, 1, 1)
+    assert torch.isfinite(output.value).all()
+    assert output.start_timestamp == pytest.approx(0.0)
+    assert output.fps == pytest.approx(30.0)
+    assert output.frame_present_time == pytest.approx(1.0 / 30.0)
 
 
 def test_step_reuses_actual_pipeline_cache_with_different_user_conditions(
@@ -239,9 +242,14 @@ def test_step_reuses_actual_pipeline_cache_with_different_user_conditions(
     assert isinstance(cache.encoder_cache, PixelShuffleVAEEncoderCache)
     assert cache.encoder_cache.autoregressive_index == 1
     assert session.autoregressive_index == 2
-    assert first_output["video"].shape == second_output["video"].shape
-    assert torch.isfinite(first_output["video"]).all()
-    assert torch.isfinite(second_output["video"]).all()
+    assert first_output.value.shape == second_output.value.shape
+    assert torch.isfinite(first_output.value).all()
+    assert torch.isfinite(second_output.value).all()
+    assert first_output.start_timestamp == pytest.approx(0.0)
+    assert second_output.start_timestamp == pytest.approx(
+        first_output.value.shape[2] * first_output.frame_present_time
+    )
+    assert second_output.fps == first_output.fps
 
 
 def test_step_uses_different_global_conditions_after_reset(
@@ -276,7 +284,8 @@ def test_step_uses_different_global_conditions_after_reset(
     assert second_cache is not None
     assert second_cache is not first_cache
     assert not torch.equal(second_cache.transformer_cache.image, first_image)
-    assert not torch.equal(second_output["video"], first_output["video"])
+    assert not torch.equal(second_output.value, first_output.value)
+    assert second_output.start_timestamp == pytest.approx(0.0)
     assert session.autoregressive_index == 1
 
 

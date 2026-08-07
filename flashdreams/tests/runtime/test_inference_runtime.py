@@ -35,7 +35,7 @@ from torch import nn
 pytestmark = pytest.mark.ci_cpu
 
 
-# ---------------- Mock Pipeline and Sessions ---------------- #
+## Runtime test doubles
 
 
 class _MockStreamInferencePipelineCache(StreamInferencePipelineCache):
@@ -102,7 +102,7 @@ class _MockInferenceRuntime(InferenceRuntime[_MockInferenceSession]):
         """Complete warmup without running model computation."""
 
 
-# ---------------------- Test Fixtures  ---------------------- #
+## Fixtures
 
 
 @pytest.fixture
@@ -114,6 +114,7 @@ def runtime_bundle(
     _MockStreamInferencePipeline,
 ]:
     """Build a single-process runtime with mocked pipeline setup."""
+    # Keep the fixture on the deterministic non-distributed initialization path.
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("WORLD_SIZE", raising=False)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
@@ -124,9 +125,7 @@ def runtime_bundle(
     return runtime, pipeline_config, pipeline
 
 
-# ------------------------------------------------------------ #
-#                      PyTest Test Cases                       #
-# ------------------------------------------------------------ #
+## Runtime ownership behavior
 
 
 def test_runtime_sets_up_and_holds_pipeline(
