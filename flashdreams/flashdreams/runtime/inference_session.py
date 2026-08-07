@@ -22,7 +22,7 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineCache,
 )
-from pydantic import ConfigDict, validate_call, with_config
+from pydantic import BaseModel, ConfigDict, validate_call, with_config
 from typing_extensions import NotRequired, TypedDict
 
 
@@ -54,9 +54,10 @@ class InferenceInput(TypedDict, Generic[UserConditionT, GlobalConditionT]):
     """Optional rollout-wide condition."""
 
 
-@with_config(ConfigDict(arbitrary_types_allowed=True, extra="forbid"))
-class InferenceOutput(TypedDict):
-    """Base typed dictionary for outputs produced by one inference step."""
+class InferenceOutput(BaseModel):
+    """Base model for outputs produced by one inference step."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 # TODO: Replace StreamInferencePipeline with the flashdreams.pipeline module.
