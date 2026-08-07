@@ -45,12 +45,12 @@ from flashdreams.runtime.inputs import (
 )
 from flashdreams.runtime.mapping import InputMappingSchema
 from flashdreams.runtime.types import StepRequest
+from flashdreams.serving.realtime.input import DEFAULT_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     KeyboardState,
     PoseSegment,
 )
-from flashdreams.serving.realtime.input import DEFAULT_SUPPORTED_KEYS
 
 FIELD_CAMERA_TRAJECTORY = "camera_trajectory"
 FIELD_CAMERA_INTRINSICS = "camera_intrinsics"
@@ -333,9 +333,7 @@ def load_camera_trace(
     return LingbotCameraTrace(
         poses=torch.from_numpy(np.ascontiguousarray(poses)).to(torch.float32),
         intrinsics=intrinsics.to(torch.float32),
-        world_scale=float(
-            inferred_world_scale if world_scale is None else world_scale
-        ),
+        world_scale=float(inferred_world_scale if world_scale is None else world_scale),
     )
 
 
@@ -575,9 +573,11 @@ class LingbotInputMapping:
 
         window = request.user_input_window
         start_s = window.start_s if window is not None else frame_start / self._fps
-        end_s = window.end_s if window is not None else (
-            frame_start + num_frames
-        ) / self._fps
+        end_s = (
+            window.end_s
+            if window is not None
+            else (frame_start + num_frames) / self._fps
+        )
         segments = _pose_segments(command, start_s=start_s, end_s=end_s)
         frame_times = [start_s + (index + 1) / self._fps for index in range(num_frames)]
         # The integrator rejects frame times outside the segment span, and float

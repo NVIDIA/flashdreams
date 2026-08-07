@@ -32,6 +32,7 @@ from loguru import logger
 from flashdreams.core.distributed import (
     init as distributed_init,
 )
+from flashdreams.runtime import InferenceConfig
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
@@ -48,7 +49,6 @@ from flashdreams.serving.webrtc.server import (
 from flashdreams.serving.webrtc.server import (
     close_package_resources as _close_package_resources,
 )
-from flashdreams.runtime import InferenceConfig
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     ensure_example_data_downloaded,

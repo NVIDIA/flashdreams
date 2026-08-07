@@ -55,5 +55,7 @@ async def test_compiled_cuda_graph_replays_stay_on_runtime_thread() -> None:
     finally:
         await worker.close()
 
-    expected = [float(torch.sin(torch.tensor(float(index))) + 1.0) for index in range(8)]
+    expected = [
+        float(torch.sin(torch.tensor(float(index))) + 1.0) for index in range(8)
+    ]
     assert values == pytest.approx(expected)
