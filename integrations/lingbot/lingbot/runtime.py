@@ -746,7 +746,6 @@ def replay_inputs_from_runner_config(
         },
         is_rank_zero=is_rank_zero,
     )
-    return inference_input_from_replay_inputs(replay_inputs)
 
 
 def inference_input_from_replay_inputs(
