@@ -443,6 +443,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
         app_calls.append(kwargs)
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
+        kwargs["configure_app"](app)
         return app
 
     monkeypatch.setattr(
@@ -476,6 +477,12 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     )
     assert app_calls[0]["preload_name"] == "Lingbot"
     assert str(app_calls[0]["web_resource"]).endswith("serving/webrtc/web")
+    assert str(app_calls[0]["model_web_resource"]).endswith("lingbot/webrtc/web")
+    assert callable(app_calls[0]["configure_app"])
+    route_paths = {resource.canonical for resource in demo.app.router.resources()}
+    assert "/api/session/initial_scene" in route_paths
+    assert "/api/session/first_frame" in route_paths
+    assert "/api/session/input" in route_paths
 
 
 def test_lingbot_webrtc_demo_serves_through_shared_runner(
@@ -488,6 +495,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     def fake_create_packaged_app(**kwargs: Any) -> web.Application:
         app = web.Application()
         app[SESSION_MANAGER_KEY] = kwargs["session_manager"]
+        kwargs["configure_app"](app)
         return app
 
     def fake_server_runner(**kwargs: Any) -> None:

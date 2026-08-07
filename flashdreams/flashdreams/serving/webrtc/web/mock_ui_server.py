@@ -16,16 +16,27 @@
 from __future__ import annotations
 
 import argparse
+import json
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import as_file, files
+from pathlib import Path
 from urllib.parse import urlsplit
 
 WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
 
 
 class MockUIRequestHandler(SimpleHTTPRequestHandler):
-    """Serve the static viewer without preloading the Lingbot runtime."""
+    """Serve the static viewer without preloading a model runtime."""
+
+    def __init__(
+        self,
+        *args: object,
+        model_web_dir: Path | None = None,
+        **kwargs: object,
+    ) -> None:
+        self.model_web_dir = model_web_dir
+        super().__init__(*args, **kwargs)
 
     def _rewrite_path(self) -> bool:
         path = urlsplit(self.path).path
@@ -41,27 +52,85 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
         return False
 
     def do_GET(self) -> None:
+        if self._serve_ui_config():
+            return
+        if self._serve_model_asset(head_only=False):
+            return
         if self._rewrite_path():
             return
         super().do_GET()
 
     def do_HEAD(self) -> None:
+        if self._serve_ui_config():
+            return
+        if self._serve_model_asset(head_only=True):
+            return
         if self._rewrite_path():
             return
         super().do_HEAD()
+
+    def _serve_ui_config(self) -> bool:
+        if urlsplit(self.path).path != "/api/ui/config":
+            return False
+        adapter_module = (
+            "/model-static/adapter.js?v=model-ui-v1"
+            if self.model_web_dir is not None
+            and (self.model_web_dir / "adapter.js").is_file()
+            else None
+        )
+        payload = json.dumps({"adapter_module": adapter_module}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(payload)
+        return True
+
+    def _serve_model_asset(self, *, head_only: bool) -> bool:
+        path = urlsplit(self.path).path
+        if not path.startswith("/model-static/") or self.model_web_dir is None:
+            return False
+        relative = Path(path.removeprefix("/model-static/"))
+        if relative.is_absolute() or ".." in relative.parts:
+            self.send_error(404)
+            return True
+        original_directory = self.directory
+        original_path = self.path
+        try:
+            self.directory = str(self.model_web_dir)
+            self.path = "/" + relative.as_posix()
+            if head_only:
+                super().do_HEAD()
+            else:
+                super().do_GET()
+        finally:
+            self.directory = original_directory
+            self.path = original_path
+        return True
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve the shared WebRTC mock UI.")
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8090)
+    parser.add_argument(
+        "--model-web-dir",
+        type=Path,
+        default=None,
+        help="Optional integration web directory containing adapter.js.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     with as_file(WEB_DIR_RESOURCE) as web_dir:
-        handler = partial(MockUIRequestHandler, directory=str(web_dir))
+        handler = partial(
+            MockUIRequestHandler,
+            directory=str(web_dir),
+            model_web_dir=args.model_web_dir,
+        )
         server = ThreadingHTTPServer((args.host, args.port), handler)
         print(
             f"Serving shared mock UI at http://{args.host}:{args.port}/request_session?mock=1"

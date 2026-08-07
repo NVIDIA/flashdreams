@@ -56,6 +56,7 @@ from flashdreams.serving.webrtc.server import (
 )
 
 WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
+MODEL_WEB_DIR_RESOURCE = files("omnidreams.webrtc").joinpath("web")
 
 
 class _OmnidreamsSessionManager(WebRTCSessionManager, Protocol):
@@ -231,6 +232,7 @@ def create_app(
     manager = session_manager or OmnidreamsWebRTCSessionManager()
     return create_packaged_webrtc_app(
         web_resource=WEB_DIR_RESOURCE,
+        model_web_resource=MODEL_WEB_DIR_RESOURCE,
         session_manager=manager,
         preload_name="Omnidreams",
         request_session_url=request_session_url,

@@ -20,6 +20,7 @@ from lingbot.webrtc.session import (
     LingbotRuntimeConfig,
     LingbotWebRTCSessionManager,
 )
+from lingbot.webrtc.server import configure_lingbot_webrtc_app
 
 
 class LingbotDemoWebRTCSessionManager(LingbotWebRTCSessionManager):
@@ -51,9 +52,11 @@ def create_lingbot_webrtc_app(
     del spec
     return create_packaged_webrtc_app(
         web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
+        model_web_resource=files("lingbot.webrtc").joinpath("web"),
         session_manager=session_manager,
         preload_name="Lingbot",
         request_session_url=request_session_url,
+        configure_app=configure_lingbot_webrtc_app,
         as_file_fn=as_file,
         cleanup_callback=close_package_resources,
     )

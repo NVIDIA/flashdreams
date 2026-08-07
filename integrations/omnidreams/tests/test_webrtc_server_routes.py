@@ -154,10 +154,8 @@ async def test_request_session_uses_lingbot_aligned_viewer_shell() -> None:
         assert "Connect Session" in body
         assert 'id="logState"' in body
         assert "World Model" in body
-        for key in ("w", "a", "s", "d"):
-            assert f'data-control-key="{key}"' in body
-        for key in ("q", "e", "i", "j", "k", "l"):
-            assert f'data-control-key="{key}"' not in body
+        assert 'id="controlRows"' in body
+        assert 'id="modelStatusSlot"' in body
     finally:
         await client.close()
 
@@ -204,17 +202,35 @@ async def test_static_js_requests_recvonly_video_transceiver() -> None:
 
 
 @pytest.mark.asyncio
-async def test_static_js_keeps_omnidreams_controls_and_lingbot_status_helpers() -> None:
+async def test_static_js_keeps_generic_controls_and_status_helpers() -> None:
     manager = FakeSessionManager()
     client = await _build_client(manager)
     try:
         response = await client.get("/static/request_session.js")
         body = await response.text()
         assert response.status == 200
-        assert 'const allowedKeys = new Set(["w", "a", "s", "d"])' in body
+        assert "const defaultControls = [" in body
+        assert "function renderControls(groups)" in body
         assert 'const logState = document.getElementById("logState")' in body
         assert 'logState.textContent = state === "idle" ? "Waiting" : message' in body
         assert "eventLog.prepend(entry)" in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_omnidreams_model_adapter_is_served() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        config = await (await client.get("/api/ui/config")).json()
+        assert config["adapter_module"].startswith("/model-static/adapter.js")
+        response = await client.get("/model-static/adapter.js")
+        body = await response.text()
+        assert response.status == 200
+        assert 'modelName: "OmniDreams"' in body
+        assert "enablePostprocess: true" in body
+        assert "/api/postprocess/options" not in body
+        assert "RTCPeerConnection" not in body
     finally:
         await client.close()
 

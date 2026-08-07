@@ -88,6 +88,22 @@ select {
   transition: opacity 220ms ease;
 }
 
+.modelStageSlot {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+}
+
+.modelPanelSlot {
+  display: contents;
+}
+
+.modelStatusSlot:empty,
+.modelControlSlot:empty {
+  display: none;
+}
+
 body.has-video .stageVideo {
   opacity: 1;
 }

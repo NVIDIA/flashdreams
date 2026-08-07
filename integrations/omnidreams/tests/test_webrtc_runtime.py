@@ -953,18 +953,23 @@ async def test_postprocess_options_exposes_only_launch_preset() -> None:
 
 
 def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
-    web_dir = files("flashdreams.serving.webrtc").joinpath("web")
-    html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
-    javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
+    shared_web_dir = files("flashdreams.serving.webrtc").joinpath("web")
+    javascript = shared_web_dir.joinpath("request_session.js").read_text(
+        encoding="utf-8"
+    )
+    adapter = (
+        files("omnidreams.webrtc")
+        .joinpath("web", "adapter.js")
+        .read_text(encoding="utf-8")
+    )
 
-    assert 'id="postprocessField"' in html
-    assert "hidden" in html
-    assert 'id="postprocessSelect"' in html
     assert 'fetch("/api/postprocess/options")' in javascript
     assert 'fetch("/api/session/input"' in javascript
-    assert "postprocessControlAvailable" in javascript
-    assert "postprocessField.hidden = !postprocessControlAvailable" in javascript
+    assert "postprocessAvailable" in javascript
+    assert "postprocessField.hidden = !postprocessAvailable" in javascript
     assert "postprocess_preset: postprocessPreset" in javascript
+    assert "enablePostprocess: true" in adapter
+    assert "/api/postprocess/options" not in adapter
 
 
 @pytest.mark.asyncio

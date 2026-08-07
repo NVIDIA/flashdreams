@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FlashDreams WebRTC Drive</title>
-  <link rel="stylesheet" href="/static/request_session.css?v=shared-webrtc-v1">
+  <link rel="stylesheet" href="/static/request_session.css?v=shared-webrtc-v3">
 </head>
 <body>
   <main class="appShell">
@@ -18,6 +18,7 @@ SPDX-License-Identifier: Apache-2.0
       <div class="stageBackdrop" aria-hidden="true"></div>
       <canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>
       <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
+      <div id="modelStageSlot" class="modelStageSlot"></div>
       <div class="stageVignette" aria-hidden="true"></div>
 
       <header class="brandOverlay" aria-label="FlashDreams World Model">
@@ -30,32 +31,26 @@ SPDX-License-Identifier: Apache-2.0
           <span id="statusDot" class="statusDot" aria-hidden="true"></span>
           <strong id="statusText">Idle</strong>
         </div>
-        <button id="connectButton" class="connectButton" type="button">Connect Session</button>
+        <button id="connectButton" class="connectButton" type="button" disabled>Connect Session</button>
         <label id="postprocessField" class="postprocessField" for="postprocessSelect" hidden>
           <span>Post-process</span>
           <select id="postprocessSelect">
             <option value="">Off</option>
           </select>
         </label>
+        <div id="modelStatusSlot" class="modelStatusSlot"></div>
         <div class="flowLine">
           <span>Flow</span>
           <strong id="flowText">waiting</strong>
         </div>
       </section>
 
+      <div id="modelPanelSlot" class="modelPanelSlot"></div>
+
       <section class="controlCard overlayPanel" aria-label="Controls">
         <h2><span aria-hidden="true"></span>Controls</h2>
-        <div class="controlRows">
-          <div class="controlRow">
-            <div class="keyCluster keyClusterWide">
-              <button class="controlKey" type="button" data-control-key="w" aria-label="Forward">W</button>
-              <button class="controlKey" type="button" data-control-key="a" aria-label="Turn left">A</button>
-              <button class="controlKey" type="button" data-control-key="s" aria-label="Backward">S</button>
-              <button class="controlKey" type="button" data-control-key="d" aria-label="Turn right">D</button>
-            </div>
-            <span>Drive / Turn</span>
-          </div>
-        </div>
+        <div id="controlRows" class="controlRows"></div>
+        <div id="modelControlSlot" class="modelControlSlot"></div>
       </section>
 
       <section class="logCard overlayPanel" aria-label="Client Logs">
@@ -92,6 +87,6 @@ SPDX-License-Identifier: Apache-2.0
     </section>
   </main>
 
-  <script src="/static/request_session.js?v=shared-webrtc-v1" type="module"></script>
+  <script src="/static/request_session.js?v=shared-webrtc-v3" type="module"></script>
 </body>
 </html>

@@ -427,6 +427,7 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
         "http://127.0.0.1:8082/request_session"
     )
     assert app_calls[0]["preload_name"] == "Test Omnidreams"
+    assert str(app_calls[0]["model_web_resource"]).endswith("omnidreams/webrtc/web")
     route_paths = {resource.canonical for resource in demo.app.router.resources()}
     assert "/api/postprocess/options" in route_paths
     assert "/api/session/input" in route_paths

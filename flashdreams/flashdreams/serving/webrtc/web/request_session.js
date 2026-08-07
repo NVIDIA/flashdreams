@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+const mockMode = new URLSearchParams(window.location.search).has("mock")
+
 const connectButton = document.getElementById("connectButton")
 const statusText = document.getElementById("statusText")
 const flowText = document.getElementById("flowText")
@@ -15,9 +17,23 @@ const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
-const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
+const modelStageSlot = document.getElementById("modelStageSlot")
+const modelStatusSlot = document.getElementById("modelStatusSlot")
+const modelPanelSlot = document.getElementById("modelPanelSlot")
+const modelControlSlot = document.getElementById("modelControlSlot")
+const controlRows = document.getElementById("controlRows")
 
-const allowedKeys = new Set(["w", "a", "s", "d"])
+const defaultControls = [
+  {
+    label: "Drive / Turn",
+    keys: [
+      { key: "w", label: "Forward" },
+      { key: "a", label: "Turn left" },
+      { key: "s", label: "Backward" },
+      { key: "d", label: "Turn right" },
+    ],
+  },
+]
 const keyAliases = new Map([
   ["arrowup", "w"],
   ["arrowleft", "a"],
@@ -32,6 +48,10 @@ const pendingActions = []
 const maxPendingActions = 32
 const heartbeatIntervalMs = 2000
 
+let allowedKeys = new Set()
+let controlButtons = []
+let modelAdapter = null
+
 let peerConnection = null
 let controlChannel = null
 let statsTimer = null
@@ -41,7 +61,7 @@ let inferenceInFlight = false
 let connected = false
 let disconnecting = false
 let heldKeySequence = 0
-let postprocessControlAvailable = false
+let postprocessAvailable = false
 
 const metrics = {
   fps: null,
@@ -56,6 +76,21 @@ const metrics = {
 function normalizeKey(rawKey) {
   const key = String(rawKey || "").toLowerCase()
   return keyAliases.get(key) || key
+}
+
+function isEditableControlTarget(target) {
+  if (!target || typeof target !== "object") {
+    return false
+  }
+  if (target.isContentEditable === true) {
+    return true
+  }
+  const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : ""
+  if (["input", "textarea", "select"].includes(tagName)) {
+    return true
+  }
+  return typeof target.closest === "function"
+    && target.closest("input, textarea, select, [contenteditable]") !== null
 }
 
 function formatTime() {
@@ -120,56 +155,76 @@ function setFlow(message) {
 
 function setVideoVisible(visible) {
   document.body.classList.toggle("has-video", visible)
+  modelAdapter?.onVideoVisibilityChanged?.(visible, modelContext)
+}
+
+function renderControls(groups) {
+  controlRows.replaceChildren()
+  allowedKeys = new Set()
+  for (const group of groups) {
+    if (!group || !Array.isArray(group.keys) || group.keys.length === 0) {
+      continue
+    }
+    const row = document.createElement("div")
+    row.className = "controlRow"
+    const cluster = document.createElement("div")
+    cluster.className = group.keys.length > 2 ? "keyCluster keyClusterWide" : "keyCluster"
+    for (const item of group.keys) {
+      const key = normalizeKey(typeof item === "string" ? item : item?.key)
+      if (!key) {
+        continue
+      }
+      allowedKeys.add(key)
+      const button = document.createElement("button")
+      button.className = "controlKey"
+      button.type = "button"
+      button.dataset.controlKey = key
+      button.textContent = key.toUpperCase()
+      button.setAttribute("aria-label", typeof item === "string" ? key : (item.label || key))
+      cluster.append(button)
+    }
+    const label = document.createElement("span")
+    label.textContent = String(group.label || "Controls")
+    row.append(cluster, label)
+    controlRows.append(row)
+  }
+  controlButtons = Array.from(controlRows.querySelectorAll("[data-control-key]"))
 }
 
 function setPostprocessDisabled(disabled) {
-  if (!postprocessSelect) {
-    return
-  }
-  postprocessSelect.disabled = disabled || !postprocessControlAvailable
+  postprocessSelect.disabled = disabled || !postprocessAvailable
 }
 
 async function loadPostprocessOptions() {
-  if (!postprocessField || !postprocessSelect) {
-    return
-  }
-  const response = await fetch("/api/postprocess/options")
-  if (response.status === 404) {
-    postprocessControlAvailable = false
-    postprocessField.hidden = true
-    return
-  }
-  if (!response.ok) {
-    throw new Error(`post-process options failed (${response.status})`)
-  }
-  const payload = await response.json()
+  const payload = mockMode
+    ? { default_preset: "rtx-super-resolution", presets: ["rtx-super-resolution"] }
+    : await fetch("/api/postprocess/options").then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`post-process options failed (${response.status})`)
+        }
+        return response.json()
+      })
   const presets = Array.isArray(payload.presets) ? payload.presets : []
   const defaultPreset = typeof payload.default_preset === "string"
     ? payload.default_preset
     : ""
-  postprocessControlAvailable = Boolean(defaultPreset && presets.includes(defaultPreset))
-  postprocessField.hidden = !postprocessControlAvailable
-  postprocessSelect.replaceChildren()
-
-  const offOption = document.createElement("option")
-  offOption.value = ""
-  offOption.textContent = "Off"
-  postprocessSelect.append(offOption)
+  postprocessAvailable = Boolean(defaultPreset && presets.includes(defaultPreset))
+  postprocessField.hidden = !postprocessAvailable
+  postprocessSelect.replaceChildren(new Option("Off", ""))
   for (const preset of presets) {
-    if (typeof preset !== "string" || !preset) {
-      continue
+    if (typeof preset === "string" && preset) {
+      postprocessSelect.append(new Option(preset, preset))
     }
-    const option = document.createElement("option")
-    option.value = preset
-    option.textContent = preset
-    postprocessSelect.append(option)
   }
-  postprocessSelect.value = postprocessControlAvailable ? defaultPreset : ""
+  postprocessSelect.value = postprocessAvailable ? defaultPreset : ""
   setPostprocessDisabled(false)
+  if (postprocessAvailable) {
+    logEvent(`post-process=${postprocessSelect.value}`, { source: "client" })
+  }
 }
 
-async function configureSessionInput() {
-  if (!postprocessControlAvailable || !postprocessSelect) {
+async function configurePostprocessSession() {
+  if (!postprocessAvailable || mockMode) {
     return
   }
   const postprocessPreset = postprocessSelect.value
@@ -182,10 +237,97 @@ async function configureSessionInput() {
     const text = await response.text()
     throw new Error(`session configuration failed (${response.status}): ${text}`)
   }
-  logEvent(
-    `post-process=${postprocessPreset || "off"}`,
-    { source: "client" }
-  )
+  logEvent(`post-process=${postprocessPreset || "off"}`, { source: "client" })
+}
+
+function sendModelMessage(payload) {
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    return false
+  }
+  controlChannel.send(JSON.stringify(payload))
+  return true
+}
+
+function sendModelCommand(payload, label = "model command") {
+  if (!sendModelMessage(payload)) {
+    setFlow("connect session first")
+    return false
+  }
+  inferenceInFlight = true
+  setStatus("Generating", "generating")
+  setFlow(`sent ${label}`)
+  logEvent(label, { source: "client" })
+  return true
+}
+
+const modelContext = {
+  slots: {
+    stage: modelStageSlot,
+    status: modelStatusSlot,
+    panel: modelPanelSlot,
+    controls: modelControlSlot,
+  },
+  isVideoVisible: () => document.body.classList.contains("has-video"),
+  logEvent,
+  releaseControls: releaseAllKeys,
+  sendCommand: sendModelCommand,
+  setModelName(name) {
+    if (typeof name === "string" && name) {
+      metrics.model = name
+      renderMetrics()
+    }
+  },
+  setResolution(width, height) {
+    if (Number.isFinite(Number(width)) && Number.isFinite(Number(height))) {
+      metrics.resolution = `${Number(width)}x${Number(height)}`
+      renderMetrics()
+    }
+  },
+}
+
+async function loadModelAdapter() {
+  let adapter = {}
+  try {
+    const response = await fetch("/api/ui/config")
+    if (response.ok) {
+      const config = await response.json()
+      if (typeof config.adapter_module === "string" && config.adapter_module) {
+        const module = await import(config.adapter_module)
+        if (module.default && typeof module.default === "object") {
+          adapter = module.default
+        }
+      }
+    }
+  } catch (error) {
+    logEvent(`model UI unavailable: ${error.message}`, { source: "client", level: "error" })
+  }
+
+  modelAdapter = adapter
+  if (typeof adapter.stylesheet === "string" && adapter.stylesheet) {
+    const stylesheet = document.createElement("link")
+    stylesheet.rel = "stylesheet"
+    stylesheet.href = adapter.stylesheet
+    document.head.append(stylesheet)
+  }
+  const modelControls = Array.isArray(adapter.controls) ? adapter.controls : []
+  renderControls([...defaultControls, ...modelControls])
+  if (typeof adapter.modelName === "string") {
+    modelContext.setModelName(adapter.modelName)
+  }
+  if (adapter.enablePostprocess === true) {
+    try {
+      await loadPostprocessOptions()
+    } catch (error) {
+      postprocessAvailable = false
+      postprocessField.hidden = true
+      setPostprocessDisabled(false)
+      logEvent(`post-process unavailable: ${error.message}`, {
+        source: "client",
+        level: "error",
+      })
+    }
+  }
+  await adapter.mount?.(modelContext)
 }
 
 function renderMetrics() {
@@ -437,6 +579,7 @@ function sendControlAction(action) {
       action,
     })
   )
+  modelAdapter?.onActionSent?.(action, modelContext)
   recordActionSent(action)
   setStatus("Generating", "generating")
   setFlow(`sent ${actionLabel(action)}, waiting=${inferenceInFlight}`)
@@ -544,6 +687,11 @@ function handleControlMessage(rawMessage) {
     if (activeKeys.size > 0) {
       enqueueHeldKeyRepeats()
     }
+    modelAdapter?.onControlMessage?.(payload, modelContext)
+    return
+  }
+
+  if (modelAdapter?.onControlMessage?.(payload, modelContext)) {
     return
   }
 
@@ -710,6 +858,7 @@ function disconnectSession({ notify = true } = {}) {
   connected = false
   connectButton.disabled = false
   setPostprocessDisabled(false)
+  modelAdapter?.onDisconnect?.(modelContext)
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
       controlChannel.send(JSON.stringify({ type: "disconnect" }))
@@ -739,7 +888,8 @@ async function connectSession() {
   disconnecting = false
 
   try {
-    await configureSessionInput()
+    await configurePostprocessSession()
+    await modelAdapter?.beforeConnect?.(modelContext)
     const pc = new RTCPeerConnection()
     const channel = pc.createDataChannel("controls")
     peerConnection = pc
@@ -755,6 +905,7 @@ async function connectSession() {
     }
     channel.onclose = () => {
       connected = false
+      setPostprocessDisabled(false)
       if (document.body.dataset.status !== "error") {
         setStatus("Closed", "idle")
       }
@@ -762,6 +913,7 @@ async function connectSession() {
       logEvent("control data channel closed", { source: "client" })
       stopHeartbeat()
       stopStatsPolling()
+      modelAdapter?.onDisconnect?.(modelContext)
       if (!disconnecting && pc.connectionState !== "closed") {
         pc.close()
       }
@@ -799,6 +951,7 @@ async function connectSession() {
         connected = false
         connectButton.disabled = false
         setPostprocessDisabled(false)
+        modelAdapter?.onDisconnect?.(modelContext)
         stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
@@ -854,10 +1007,14 @@ async function connectSession() {
     logEvent(`connect failed: ${error.message}`, { source: "client", level: "error" })
     connectButton.disabled = false
     setPostprocessDisabled(false)
+    modelAdapter?.onDisconnect?.(modelContext)
   }
 }
 
 function handleKeyDown(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -871,6 +1028,9 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
+  if (isEditableControlTarget(event.target)) {
+    return
+  }
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -920,20 +1080,16 @@ function startVideoFrameMonitor() {
   remoteVideo.requestVideoFrameCallback(onFrame)
 }
 
-function initialize() {
+async function initialize() {
   document.body.dataset.status = "idle"
   logEvent("viewer ready", { source: "client" })
   setFlow("waiting")
   renderMetrics()
+  await loadModelAdapter()
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
-  void loadPostprocessOptions().catch((error) => {
-    logEvent(`post-process options unavailable: ${error.message}`, {
-      source: "client",
-      level: "error",
-    })
-  })
+  connectButton.disabled = false
 }
 
 connectButton.addEventListener("click", () => {
@@ -957,4 +1113,4 @@ window.addEventListener("beforeunload", () => {
   disconnectSession()
 })
 
-initialize()
+void initialize()
