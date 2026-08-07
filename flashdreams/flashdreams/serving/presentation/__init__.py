@@ -36,6 +36,10 @@ from flashdreams.serving.presentation.canvas import (
     truncate_text_to_width,
 )
 from flashdreams.serving.presentation.composite import CompositeOverlay
+from flashdreams.serving.presentation.compositor import (
+    CameraMode,
+    FrameCompositor,
+)
 from flashdreams.serving.presentation.frame import (
     DisplayFrame,
     as_rgb_host_uint8,
@@ -50,7 +54,9 @@ from flashdreams.serving.presentation.local_window import (
 )
 
 __all__ = [
+    "CameraMode",
     "CompositeOverlay",
+    "FrameCompositor",
     "DisplayFrame",
     "HudOverlay",
     "InputSink",

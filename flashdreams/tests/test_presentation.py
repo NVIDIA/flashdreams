@@ -12,6 +12,7 @@ import pytest
 from flashdreams.serving.presentation import (
     CompositeOverlay,
     DisplayFrame,
+    FrameCompositor,
     HudOverlay,
     InputSink,
     KeyEvent,
@@ -205,6 +206,84 @@ def test_composite_closes_every_layer_even_when_one_raises() -> None:
         CompositeOverlay(layers=(failing, healthy)).close()
 
     assert healthy.closed
+
+
+## Frame compositor
+
+
+def _compositor(overlay: _RecordingOverlay) -> FrameCompositor:
+    return FrameCompositor(
+        overlay=overlay,
+        background=BLACK,
+        text_color=(255, 255, 255),
+        size=(64, 32),
+    )
+
+
+def test_compositor_buffer_aliases_the_canvas() -> None:
+    """Transports upload the buffer, so chrome must land in it directly."""
+    compositor = _compositor(_RecordingOverlay())
+
+    ImageDraw.Draw(compositor.canvas).rectangle((0, 0, 63, 31), fill=(9, 8, 7, 255))
+
+    assert np.array_equal(
+        compositor.canvas_buffer[0, 0], np.array([9, 8, 7, 255], dtype=np.uint8)
+    )
+
+
+def test_compositor_draws_the_placeholder_before_any_camera_frame() -> None:
+    overlay = _RecordingOverlay()
+    compositor = _compositor(overlay)
+
+    compositor.render(DisplayFrame(), camera_mode="composite")
+
+    assert overlay.placeholders == 1
+    assert len(overlay.drawn) == 1
+
+
+def test_compositor_composites_the_camera_and_reports_the_area() -> None:
+    overlay = _RecordingOverlay(reserved_width=24)
+    compositor = _compositor(overlay)
+    compositor.set_camera(np.full((32, 40, 3), 200, dtype=np.uint8))
+
+    area = compositor.render(DisplayFrame(image=object()), camera_mode="composite")
+
+    assert area == (0, 0, 40, 32)
+    assert overlay.placeholders == 0
+    assert compositor.camera_source_size == (40, 32)
+
+
+def test_compositor_leaves_a_hole_in_transparent_mode() -> None:
+    """The GPU path alpha-blends chrome over the image, so the region must clear."""
+    compositor = _compositor(_RecordingOverlay())
+    compositor.set_camera(np.full((32, 64, 3), 200, dtype=np.uint8))
+
+    compositor.render(DisplayFrame(image=object()), camera_mode="transparent")
+
+    assert compositor.canvas_buffer[0, 0, 3] == 0
+
+
+def test_compositor_reset_camera_restores_the_placeholder() -> None:
+    overlay = _RecordingOverlay()
+    compositor = _compositor(overlay)
+    compositor.set_camera(np.full((32, 64, 3), 200, dtype=np.uint8))
+
+    compositor.reset_camera()
+    compositor.render(DisplayFrame(), camera_mode="composite")
+
+    assert compositor.camera_source_size is None
+    assert overlay.placeholders == 1
+
+
+def test_compositor_resize_reallocates_and_notifies_the_overlay() -> None:
+    overlay = _RecordingOverlay()
+    compositor = _compositor(overlay)
+
+    compositor.resize(20, 10)
+
+    assert compositor.size == (20, 10)
+    assert compositor.canvas_buffer.shape == (10, 20, 4)
+    assert overlay.resizes == [(20, 10)]
 
 
 ## Protocol conformance

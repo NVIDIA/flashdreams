@@ -27,12 +27,8 @@ from flashdreams.serving.presentation.base import (
     PointerEvent,
     Rect,
 )
-from flashdreams.serving.presentation.canvas import (
-    allocate_canvas,
-    draw_status_overlay,
-    fit_rect,
-    resolve_font,
-)
+from flashdreams.serving.presentation.canvas import fit_rect
+from flashdreams.serving.presentation.compositor import FrameCompositor
 from flashdreams.serving.presentation.cuda_interop import CudaRGBInterop
 from flashdreams.serving.presentation.frame import (
     DisplayFrame,
@@ -41,7 +37,6 @@ from flashdreams.serving.presentation.frame import (
     prefetch_frame,
     rgb_source_size,
 )
-from PIL import Image, ImageDraw
 
 _ARROW_ALIASES: dict[str, tuple[str, ...]] = {
     "up": ("up", "arrow_up"),
@@ -158,22 +153,20 @@ class LocalWindowPresenter:
         self._pending_resize: tuple[int, int] | None = None
         self._auto_sized_source_size: tuple[int, int] | None = None
 
-        self._canvas_buffer, self._canvas = allocate_canvas(
-            *self._configured_size, background=self._config.background
+        self._compositor = FrameCompositor(
+            overlay=overlay,
+            background=self._config.background,
+            text_color=self._config.text_color,
+            size=self._configured_size,
+            status_font_size=self._config.status_font_size,
         )
-        self._status_font = resolve_font(self._config.status_font_size)
 
-        self._camera_image: Image.Image | None = None
-        self._camera_src_size: tuple[int, int] | None = None
         self._camera_rgba: np.ndarray | None = None
         self._camera_rgba_staging: np.ndarray | None = None
         self._camera_texture: Any | None = None
         self._camera_texture_size: tuple[int, int] | None = None
         self._camera_fit_texture: Any | None = None
         self._camera_fit_size: tuple[int, int] | None = None
-        self._camera_resize_cache: Image.Image | None = None
-        self._camera_resize_cache_key: tuple[int, int, int] | None = None
-        self._has_camera_frame = False
 
         self._key_names = self._build_key_names()
         self._pointer_buttons = self._build_pointer_buttons()
@@ -229,8 +222,13 @@ class LocalWindowPresenter:
             self._disable_cuda_interop(exc)
 
         if image is not None:
-            self._update_camera_image(image)
-        self._render_canvas(frame)
+            self._compositor.set_camera(image)
+        # With no status text the GPU stamps the image in after the canvas
+        # upload, so only the letterbox bars need painting here.
+        self._compositor.render(
+            frame,
+            camera_mode="deferred" if frame.status_message is None else "composite",
+        )
         self._present_canvas(use_gpu_camera=frame.status_message is None)
 
     def close(self) -> None:
@@ -254,7 +252,9 @@ class LocalWindowPresenter:
         """Paint ``message`` over the current canvas during blocking setup work."""
         if process_events:
             self.process_events()
-        self._render_canvas(DisplayFrame(status_message=message))
+        self._compositor.render(
+            DisplayFrame(status_message=message), camera_mode="composite"
+        )
         self._present_canvas(use_gpu_camera=False)
 
     @property
@@ -269,13 +269,9 @@ class LocalWindowPresenter:
         or rollout -- because the resize cache is keyed on buffer identity and
         a fresh producer would otherwise ghost the previous run's last frame.
         """
-        self._camera_image = None
-        self._camera_src_size = None
+        self._compositor.reset_camera()
         self._camera_rgba = None
-        self._camera_resize_cache = None
-        self._camera_resize_cache_key = None
         self._auto_sized_source_size = None
-        self._has_camera_frame = False
 
     ## CUDA composite path
 
@@ -298,15 +294,14 @@ class LocalWindowPresenter:
             self._submit_ready_cuda_buffer()
             return True
 
-        self._has_camera_frame = True
-        self._render_canvas(frame, camera_transparent=True)
-        overlay_rgba = np.array(self._canvas, dtype=np.uint8)
+        camera_area = self._compositor.render(frame, camera_mode="transparent")
+        overlay_rgba = np.array(self._compositor.canvas, dtype=np.uint8)
 
         submitted = self._submit_ready_cuda_buffer()
         queued = self._cuda_interop.enqueue_camera_to_shared_rgba(
             cuda_frame,
             overlay_rgba=overlay_rgba,
-            camera_area=self._camera_area(),
+            camera_area=camera_area,
             background=self._config.background,
         )
         if not queued:
@@ -385,10 +380,10 @@ class LocalWindowPresenter:
         surface_texture = self._acquire_surface_texture()
         if surface_texture is None:
             return
-        # ``_canvas_buffer`` is the same memory PIL drew into this tick, so
+        # The compositor's buffer is the memory PIL drew into this tick, so
         # this is a direct upload with no PIL-to-numpy memcpy.
         try:
-            self._display_texture.copy_from_numpy(self._canvas_buffer)
+            self._display_texture.copy_from_numpy(self._compositor.canvas_buffer)
             encoder = self._device.create_command_encoder()
             if use_gpu_camera:
                 self._composite_camera_gpu(encoder)
@@ -408,9 +403,10 @@ class LocalWindowPresenter:
         Hardware bilinear blit plus a sub-region copy over the chrome canvas
         the caller already uploaded, filling only the centred fit rect.
         """
-        if self._camera_src_size is None:
+        source_size = self._compositor.camera_source_size
+        if source_size is None:
             return
-        target = fit_rect(source_size=self._camera_src_size, area=self._camera_area())
+        target = fit_rect(source_size=source_size, area=self._compositor.camera_area())
         if target is None:
             return
         offset_x, offset_y, right, bottom = target
@@ -442,9 +438,11 @@ class LocalWindowPresenter:
         the per-tick cost is a single RGB slice copy rather than a fresh
         allocation and concatenate.
         """
-        if self._camera_image is None or self._camera_src_size is None:
+        camera_image = self._compositor.camera_image
+        source_size = self._compositor.camera_source_size
+        if camera_image is None or source_size is None:
             return False
-        src_w, src_h = self._camera_src_size
+        src_w, src_h = source_size
         if self._camera_texture is None or self._camera_texture_size != (src_w, src_h):
             spy = self._spy
             self._camera_texture = self._device.create_texture(
@@ -467,7 +465,7 @@ class LocalWindowPresenter:
             self._camera_rgba_staging[..., 3] = 255
             self._camera_rgba = None
         if self._camera_rgba is None:
-            self._camera_rgba_staging[..., :3] = np.asarray(self._camera_image)
+            self._camera_rgba_staging[..., :3] = np.asarray(camera_image)
             self._camera_rgba = self._camera_rgba_staging
         self._camera_texture.copy_from_numpy(self._camera_rgba)
         return True
@@ -487,106 +485,6 @@ class LocalWindowPresenter:
             label="local_window_camera_fit",
         )
         self._camera_fit_size = (fit_w, fit_h)
-
-    def _update_camera_image(self, image: object) -> None:
-        rgb = as_rgb_host_uint8(image)
-        # ``Image.fromarray`` over a contiguous buffer is zero-copy at the C
-        # level; this image is only ever used as a paste source, which does
-        # not trigger a copy either.
-        if not rgb.flags["C_CONTIGUOUS"]:
-            rgb = np.ascontiguousarray(rgb)
-        self._camera_image = Image.fromarray(rgb, mode="RGB")
-        src_h, src_w = rgb.shape[:2]
-        self._camera_src_size = (src_w, src_h)
-        # Producers reuse their scratch buffers, so identity is stable across
-        # frames with different contents; drop the derived caches explicitly
-        # rather than relying on a key comparison.
-        self._camera_rgba = None
-        self._camera_resize_cache_key = None
-        self._camera_resize_cache = None
-        self._has_camera_frame = True
-
-    ## Canvas rendering
-
-    def _camera_area(self) -> Rect:
-        return self._overlay.camera_area(self._canvas.size)
-
-    def _render_canvas(
-        self, frame: DisplayFrame, *, camera_transparent: bool = False
-    ) -> None:
-        """Composite camera and chrome into the canvas for this tick.
-
-        No full-canvas clear: the overlay and camera paths cover their own
-        regions every frame and the letterbox bars stay at the background
-        colour, which saves a 2 MP RGBA fill per tick at 1080p.
-        """
-        canvas = self._canvas
-        camera_area = self._camera_area()
-        draw = ImageDraw.Draw(canvas)
-        background = self._config.background
-
-        if camera_transparent:
-            # The GPU composite supplies the camera pixels, so leave a hole
-            # for it and let chrome drawn afterwards sit on top.
-            draw.rectangle(camera_area, fill=(0, 0, 0, 0))
-        elif self._camera_image is not None:
-            if frame.status_message is None:
-                # The GPU fills the centred fit rect after this canvas is
-                # uploaded; repaint only the letterbox bars so they don't
-                # show the previous frame when the fit rect changes size.
-                draw.rectangle(camera_area, fill=background + (255,))
-            else:
-                # CPU composite so the status callout sits over the image.
-                self._draw_camera(canvas, camera_area)
-        else:
-            # Wipe first so the previous tick doesn't ghost behind the
-            # placeholder; placeholder ticks only, so cheaper than an
-            # always-on full-canvas clear.
-            draw.rectangle(camera_area, fill=background + (255,))
-            self._overlay.draw_placeholder(canvas, draw, camera_area=camera_area)
-
-        self._overlay.draw(canvas, draw, frame=frame, camera_area=camera_area)
-
-        if frame.status_message:
-            draw_status_overlay(
-                draw,
-                area=camera_area,
-                message=frame.status_message,
-                font=self._status_font,
-                text_color=self._config.text_color,
-            )
-
-    def _draw_camera(self, canvas: Image.Image, area: Rect) -> None:
-        camera = self._camera_image
-        if camera is None:
-            return
-        target = fit_rect(source_size=camera.size, area=area)
-        if target is None:
-            return
-        left, top, right, bottom = target
-        target_w, target_h = right - left, bottom - top
-        cache_key = (id(camera), target_w, target_h)
-        if (
-            cache_key != self._camera_resize_cache_key
-            or self._camera_resize_cache is None
-        ):
-            if (target_w, target_h) == camera.size:
-                resized = camera
-            else:
-                resized = camera.resize(
-                    (target_w, target_h),
-                    Image.Resampling.LANCZOS
-                    if target_w < camera.size[0]
-                    else Image.Resampling.BILINEAR,
-                )
-            self._camera_resize_cache = resized
-            self._camera_resize_cache_key = cache_key
-        else:
-            resized = self._camera_resize_cache
-        if resized.mode == "RGBA":
-            canvas.alpha_composite(resized, (left, top))
-        else:
-            canvas.paste(resized, (left, top))
 
     ## Device, surface, and resize plumbing
 
@@ -751,9 +649,6 @@ class LocalWindowPresenter:
             return True
         try:
             display_texture = self._build_display_texture(width, height)
-            canvas_buffer, canvas = allocate_canvas(
-                width, height, background=self._config.background
-            )
             self._configure_surface(width, height)
         except Exception as exc:  # noqa: BLE001 -- keep presenting at the old size
             logger.warning(
@@ -768,16 +663,12 @@ class LocalWindowPresenter:
         self._display_texture = display_texture
         if size_changed:
             self._recreate_cuda_interop_after_resize(width, height)
-        self._canvas_buffer, self._canvas = canvas_buffer, canvas
         # The fit texture is sized from the camera area, which moved. The
         # source-sized camera texture only tracks producer dimensions and
         # stays valid across window resizes.
         self._camera_fit_texture = None
         self._camera_fit_size = None
-        self._camera_resize_cache_key = None
-        self._camera_resize_cache = None
-        if size_changed:
-            self._overlay.on_canvas_resized((width, height))
+        self._compositor.resize(width, height)
         return True
 
     def _on_resize(self, width: int, height: int) -> None:
@@ -804,8 +695,8 @@ class LocalWindowPresenter:
             return False
         source_width, source_height = source_size
         current_width, current_height = self._current_window_size()
-        left, _top, right, _bottom = self._camera_area()
-        reserved_width = max(0, self._canvas.size[0] - (right - left))
+        left, _top, right, _bottom = self._compositor.camera_area()
+        reserved_width = max(0, self._compositor.size[0] - (right - left))
         target_size = (
             max(current_width, source_width + reserved_width),
             max(current_height, source_height, self._config.min_height),
