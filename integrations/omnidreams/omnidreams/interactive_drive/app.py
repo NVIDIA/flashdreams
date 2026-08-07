@@ -571,9 +571,9 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
     ``config.stream_mjpeg_bind`` is set (a HOST:PORT bind address) --
     that path renders no window and has no graphics-GPU dependency, so
     it works on compute-only SKUs (e.g. GB300) where SlangPy can't
-    create a Vulkan swapchain. Otherwise returns the default
-    :class:`SlangPyPresenter` -- a local Vulkan window.
-
+    create a Vulkan swapchain. ``presenter_backend="local-window"`` selects
+    the shared ``flashdreams.serving.presentation`` presenter. Otherwise
+    returns the default :class:`SlangPyPresenter` -- a local Vulkan window.
 
     For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
     (a separate entry point) is the preferred path; this MJPEG fallback
@@ -587,16 +587,16 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
             bind_host=host,
             bind_port=port,
         )
-        if config.presenter_backend == "local-window":
-            from omnidreams.interactive_drive.local_window_bridge import (
-                LocalWindowPresenterBridge,
-            )
+    if config.presenter_backend == "local-window":
+        from omnidreams.interactive_drive.local_window_bridge import (
+            LocalWindowPresenterBridge,
+        )
 
-            logger.info("[presenter] backend=local-window (shared presentation)")
-            return LocalWindowPresenterBridge(
-                keyboard,
-                scene_label=config.scene_path.stem,
-                variant_label=config.variant,
-            )
+        logger.info("[presenter] backend=local-window (shared presentation)")
+        return LocalWindowPresenterBridge(
+            keyboard,
+            scene_label=config.scene_path.stem,
+            variant_label=config.variant,
+        )
     logger.info("[presenter] backend=bare-window (legacy SlangPyPresenter)")
     return SlangPyPresenter(raster=config.raster, keyboard=keyboard)
