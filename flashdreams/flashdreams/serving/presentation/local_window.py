@@ -162,6 +162,7 @@ class LocalWindowPresenter:
         )
 
         self._camera_rgba: np.ndarray | None = None
+        self._uploaded_camera_generation: int | None = None
         self._camera_rgba_staging: np.ndarray | None = None
         self._camera_texture: Any | None = None
         self._camera_texture_size: tuple[int, int] | None = None
@@ -271,6 +272,7 @@ class LocalWindowPresenter:
         """
         self._compositor.reset_camera()
         self._camera_rgba = None
+        self._uploaded_camera_generation = None
         self._auto_sized_source_size = None
 
     ## CUDA composite path
@@ -464,9 +466,11 @@ class LocalWindowPresenter:
             # One-time alpha fill; this path only ever writes the RGB slice.
             self._camera_rgba_staging[..., 3] = 255
             self._camera_rgba = None
-        if self._camera_rgba is None:
+        generation = self._compositor.camera_generation
+        if self._camera_rgba is None or self._uploaded_camera_generation != generation:
             self._camera_rgba_staging[..., :3] = np.asarray(camera_image)
             self._camera_rgba = self._camera_rgba_staging
+            self._uploaded_camera_generation = generation
         self._camera_texture.copy_from_numpy(self._camera_rgba)
         return True
 

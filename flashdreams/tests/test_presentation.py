@@ -263,6 +263,19 @@ def test_compositor_leaves_a_hole_in_transparent_mode() -> None:
     assert compositor.canvas_buffer[0, 0, 3] == 0
 
 
+def test_compositor_bumps_the_generation_for_each_new_frame() -> None:
+    """Producers reuse buffers, so identity cannot signal a new frame."""
+    compositor = _compositor(_RecordingOverlay())
+    scratch = np.zeros((32, 64, 3), dtype=np.uint8)
+
+    compositor.set_camera(scratch)
+    first = compositor.camera_generation
+    scratch[:] = 255
+    compositor.set_camera(scratch)
+
+    assert compositor.camera_generation != first
+
+
 def test_compositor_reset_camera_restores_the_placeholder() -> None:
     overlay = _RecordingOverlay()
     compositor = _compositor(overlay)

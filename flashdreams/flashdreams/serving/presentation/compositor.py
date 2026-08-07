@@ -54,6 +54,7 @@ class FrameCompositor:
         self._buffer, self._canvas = allocate_canvas(*size, background=background)
         self._camera_image: Image.Image | None = None
         self._camera_source_size: tuple[int, int] | None = None
+        self._camera_generation = 0
         self._resize_cache: Image.Image | None = None
         self._resize_cache_key: tuple[int, int, int] | None = None
 
@@ -93,6 +94,17 @@ class FrameCompositor:
         """Source ``(width, height)``, or ``None`` before the first frame."""
         return self._camera_source_size
 
+    @property
+    def camera_generation(self) -> int:
+        """Counter bumped whenever the retained frame changes.
+
+        Producers reuse their scratch buffers, so object identity is stable
+        across frames with different pixels and cannot be used to detect a new
+        one. Callers holding derived copies -- a GPU texture, an encoded
+        surface -- compare this instead of the image itself.
+        """
+        return self._camera_generation
+
     def camera_area(self) -> Rect:
         return self._overlay.camera_area(self._canvas.size)
 
@@ -107,8 +119,7 @@ class FrameCompositor:
         self._camera_image = Image.fromarray(rgb, mode="RGB")
         height, width = rgb.shape[:2]
         self._camera_source_size = (width, height)
-        # Producers reuse scratch buffers, so identity is stable across frames
-        # with different contents; drop derived caches rather than comparing.
+        self._camera_generation += 1
         self._resize_cache = None
         self._resize_cache_key = None
 
@@ -116,6 +127,7 @@ class FrameCompositor:
         """Forget the retained frame so a new producer does not ghost the old."""
         self._camera_image = None
         self._camera_source_size = None
+        self._camera_generation += 1
         self._resize_cache = None
         self._resize_cache_key = None
 
