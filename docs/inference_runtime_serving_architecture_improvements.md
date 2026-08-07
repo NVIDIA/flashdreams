@@ -376,13 +376,13 @@ those changes separate makes output parity and UI regressions easier to locate.
 
 ### Static and CPU checks
 
-- [ ] `uv run --locked --group lint ty check`
-- [ ] `uv run --locked --group lint pre-commit run --all-files`
-- [ ] Runtime/result/output unit tests.
-- [ ] WebRTC manager, message, encoder, and server unit tests.
-- [ ] Lingbot and OmniDreams demo API CPU tests.
-- [ ] Local-window adapter and frame-conversion CPU tests.
-- [ ] Every new pytest test has exactly one CI marker.
+- [x] `uv run --locked --group lint ty check`
+- [x] `uv run --locked --group lint pre-commit run --all-files`
+- [x] Runtime/result/output unit tests.
+- [x] WebRTC manager, message, encoder, and server unit tests.
+- [x] Lingbot and OmniDreams demo API CPU tests.
+- [x] Local-window adapter and frame-conversion CPU tests.
+- [x] Every new pytest test has exactly one CI marker.
 
 ### GPU checks
 
@@ -392,12 +392,12 @@ those changes separate makes output parity and UI regressions easier to locate.
 - [ ] OmniDreams WebRTC runs multiple chunks with post-processing off and on.
 - [ ] OmniDreams local window renders multiple chunks and resets scenes.
 - [ ] Software and NVENC WebRTC delivery both work.
-- [ ] Compiled and CUDA-graph configurations run beyond capture/replay startup.
+- [x] Compiled and CUDA-graph configurations run beyond capture/replay startup.
 - [ ] Multi-GPU rank coordination still advances every AR step in order.
 
 ### Parity checks
 
-- [ ] Equivalent replay and live per-step inputs reach the same model session
+- [x] Equivalent replay and live per-step inputs reach the same model session
       shape and layout.
 - [ ] Post-processing is applied once, with matching output across consumers.
 - [ ] Frame count, step index, metrics, and metadata agree across CLI, WebRTC,
