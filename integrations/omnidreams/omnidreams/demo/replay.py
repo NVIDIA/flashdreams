@@ -6,14 +6,14 @@
 from __future__ import annotations
 
 import os
-import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 import torch.distributed as dist
 from loguru import logger
+from omnidreams.model_session import OmnidreamsModelSessionCore
 from omnidreams.runner import _load_video
 
 from flashdreams.core.distributed import init as init_distributed
@@ -22,6 +22,7 @@ from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
     load_first_frame_tensor,
 )
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceSession
@@ -113,9 +114,15 @@ class OmnidreamsReplaySession:
         self.output_layout = output_layout
         self.dtype = torch.bfloat16
         self._closed = False
-        self._step_index = 0
         self._frame_start = 0
-        self._cache = self._initialize_cache()
+        self._model_session = OmnidreamsModelSessionCore(
+            pipeline=pipeline,
+            output_stream_factory=lambda: VideoOutputStream(
+                postprocess_stream=None,
+                output_layout=self.output_layout,
+            ),
+        )
+        self._model_session.reset(self._initialize_cache)
         self._hdmap_videos = self._load_hdmaps()
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device=self.device)
@@ -125,20 +132,21 @@ class OmnidreamsReplaySession:
     def next_step_request(self) -> StepRequest | None:
         if self._closed:
             return None
-        if self._step_index >= self.scenario.total_blocks:
+        step_index = self._model_session.step_index
+        if step_index >= self.scenario.total_blocks:
             return None
-        num_frames = int(self.pipeline.get_num_frames(self._step_index))
+        num_frames = self._model_session.next_num_frames()
         if self._frame_start + num_frames > self._hdmap_videos.shape[2]:
             return None
-        return StepRequest(step_index=self._step_index)
+        return StepRequest(step_index=step_index)
 
     def step(self, inputs: InferenceInput) -> StepResult:
         del inputs
         if self._closed:
             raise RuntimeError("OmniDreams replay session is closed.")
 
-        step_index = self._step_index
-        num_frames = int(self.pipeline.get_num_frames(step_index))
+        step_index = self._model_session.step_index
+        num_frames = self._model_session.next_num_frames()
         frame_end = self._frame_start + num_frames
         logger.info(
             "OmniDreams demo replay step {} frames=[{}, {})",
@@ -146,46 +154,23 @@ class OmnidreamsReplaySession:
             self._frame_start,
             frame_end,
         )
-        start_t = time.perf_counter()
-        video_chunk = self.pipeline.generate(
-            autoregressive_index=step_index,
-            cache=self._cache,
-            hdmap=self._hdmap_videos[:, :, self._frame_start : frame_end],
+        result = self._model_session.step(
+            self._hdmap_videos[:, :, self._frame_start : frame_end]
         )
-        stats = self.pipeline.finalize(
-            autoregressive_index=step_index,
-            cache=self._cache,
-        )
-        elapsed_s = time.perf_counter() - start_t
-        self._step_index += 1
         self._frame_start = frame_end
-
-        metrics = _numeric_stats(stats)
-        metrics.setdefault("model_step_s", elapsed_s)
-        return StepResult.from_video_chunk(
-            step_index=step_index,
-            video_chunk=video_chunk,
-            layout=self.output_layout,
-            metrics=metrics,
-        )
+        return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None:
             scenario = _scenario_from_inputs(inputs)
             if scenario != self.scenario:
                 raise ValueError("OmniDreams replay reset cannot swap scenarios.")
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            del self._cache
-        self._cache = self._initialize_cache()
-        self._step_index = 0
+        self._model_session.reset(self._initialize_cache)
         self._frame_start = 0
 
     def close(self) -> None:
         self._closed = True
-        cache = getattr(self, "_cache", None)
-        if cache is not None:
-            del self._cache
+        self._model_session.close()
 
     def _initialize_cache(self) -> Any:
         scenario = self.scenario
@@ -247,16 +232,6 @@ def _scenario_from_inputs(inputs: InferenceInput) -> OmnidreamsReplayScenario:
             "to be an OmnidreamsReplayScenario."
         )
     return scenario
-
-
-def _numeric_stats(stats: Any) -> dict[str, float | int]:
-    if not isinstance(stats, Mapping):
-        return {}
-    return {
-        str(key): value
-        for key, value in stats.items()
-        if isinstance(value, (float, int)) and not isinstance(value, bool)
-    }
 
 
 def _is_torchrun_env() -> bool:

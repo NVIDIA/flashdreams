@@ -22,6 +22,7 @@ from omnidreams import scenes
 from omnidreams.config import OMNIDREAMS_CONFIGS
 from omnidreams.webrtc import server as webrtc_server
 from omnidreams.webrtc import session
+from omnidreams.webrtc.model_session import OmnidreamsConditioningSessionCore
 from omnidreams.webrtc.session import (
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
@@ -32,7 +33,9 @@ import flashdreams.plugins.registry as plugin_registry
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostProcessorConfig,
+    VideoPostprocessStream,
 )
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
@@ -209,6 +212,18 @@ def _build_fake_runtime() -> tuple[OmnidreamsInferenceRuntime, _FakeWrapper]:
     runtime._next_timestamp_us = 1000
     runtime.pose_integrator = CameraPoseIntegrator()
     runtime.pose_integrator.reset()
+    runtime._model_session = OmnidreamsConditioningSessionCore(
+        wrapper=wrapper,  # ty:ignore[invalid-argument-type]
+        output_stream_factory=lambda: VideoOutputStream(
+            postprocess_stream=None,
+            output_layout="bvtchw",
+        ),
+    )
+    runtime._model_session.reset(
+        renderer=runtime._renderer,
+        text_prompts=runtime._text_prompts,
+        initial_rgb_frames=runtime._initial_rgb_frames,
+    )
     return runtime, wrapper
 
 
@@ -255,8 +270,12 @@ def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
 
     runtime, _wrapper = _build_fake_runtime()
     postprocess_stream = _FakePostprocessStream()
-    runtime._output_stream.postprocess_stream = (  # ty:ignore[invalid-assignment]
-        postprocess_stream
+    assert runtime._model_session is not None
+    runtime._model_session.replace_output_stream(
+        lambda: VideoOutputStream(
+            postprocess_stream=postprocess_stream,  # ty:ignore[invalid-argument-type]
+            output_layout="bvtchw",
+        )
     )
 
     result = runtime._generate_one_chunk_sync(
@@ -284,20 +303,16 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
         "resolve_postprocess_preset",
         lambda name: preset_config,
     )
-    runtime = OmnidreamsInferenceRuntime(
-        config=OmnidreamsRuntimeConfig(
-            device="cpu",
-            fps=30,
-            postprocess=VideoPostprocessChainConfig(preset="fake-preset"),
-        )
-    )
+    runtime, _wrapper = _build_fake_runtime()
+    runtime.config.postprocess = VideoPostprocessChainConfig(preset="fake-preset")
 
     runtime._reset_postprocess_stream(
         session.OmnidreamsSessionInput(postprocess_preset="fake-preset")
     )
-    first_stream = runtime._output_stream.postprocess_stream
+    assert runtime._model_session is not None
+    first_stream = runtime._model_session.postprocess_stream
 
-    assert first_stream is not None
+    assert isinstance(first_stream, VideoPostprocessStream)
     assert runtime.postprocess_preset == "fake-preset"
 
     runtime._reset_postprocess_stream(
@@ -305,7 +320,7 @@ def test_session_postprocess_override_replaces_the_rollout_stream(
     )
 
     assert first_stream._closed is True
-    assert runtime._output_stream.postprocess_stream is None
+    assert runtime._model_session.postprocess_stream is None
     assert runtime.postprocess_preset == ""
 
 

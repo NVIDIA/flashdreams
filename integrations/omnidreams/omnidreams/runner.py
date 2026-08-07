@@ -33,6 +33,7 @@ from pathlib import Path
 import torch
 from einops import rearrange
 from loguru import logger
+from omnidreams.model_session import OmnidreamsModelSessionCore
 from omnidreams.pipeline import (
     OmnidreamsPipeline,
     OmnidreamsPipelineCache,
@@ -392,14 +393,20 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        output_stream = self.create_video_output_stream(fps=cfg.output_fps)
         output_collector = VideoResultCollector(
-            output_layout=output_stream.output_layout,
+            output_layout=self.config.postprocess_output_layout or "bvtchw",
             enabled=self.is_rank_zero,
         )
+        model_session = OmnidreamsModelSessionCore(
+            pipeline=self.pipeline,
+            output_stream_factory=lambda: self.create_video_output_stream(
+                fps=cfg.output_fps
+            ),
+        )
+        model_session.reset(lambda: cache)
         start = 0
         for i in range(cfg.total_blocks):
-            num_frames = self.pipeline.get_num_frames(i)
+            num_frames = model_session.next_num_frames()
             end = start + num_frames
             if end > hdmap_num_frames:
                 break
@@ -408,24 +415,13 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                     f"[{cfg.runner_name}] AR step {i}/{cfg.total_blocks}, "
                     f"num_frames={num_frames}, frames=[{start}, {end})"
                 )
-            video_chunk = self.pipeline.generate(
-                autoregressive_index=i,
-                cache=cache,
-                hdmap=hdmap_videos_t[:, :, start:end],
-            )
-            stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            output_collector.add(
-                output_stream.process(
-                    video_chunk,
-                    autoregressive_index=i,
-                    metrics=stats,
-                )
-            )
+            output_collector.add(model_session.step(hdmap_videos_t[:, :, start:end]))
             start = end
 
-        tail = output_stream.finish()
+        tail = model_session.finish_output()
         if tail is not None:
             output_collector.add(tail)
+        model_session.close()
         video = output_collector.finish()
         if video is None:
             return

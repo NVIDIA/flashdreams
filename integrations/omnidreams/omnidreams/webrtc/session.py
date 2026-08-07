@@ -21,7 +21,6 @@ from filelock import FileLock
 from loguru import logger
 from omnidreams.conditioning.conditioning_wrapper import (
     AV_POSITIVE_PROMPT,
-    OmnidreamsConditioningState,
     OmnidreamsConditioningWrapper,
     TextPrompt,
 )
@@ -43,6 +42,7 @@ from omnidreams.scenes import (
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc.model_session import OmnidreamsConditioningSessionCore
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -501,11 +501,9 @@ class OmnidreamsInferenceRuntime:
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
             coordinate_system="FLU",
         )
-        self.autoregressive_index = 0
-
         self._device: torch.device | None = None
         self._wrapper: OmnidreamsConditioningWrapper | None = None
-        self._state: OmnidreamsConditioningState | None = None
+        self._model_session: OmnidreamsConditioningSessionCore | None = None
         self._renderer: Any | None = None
         self._scene_data: Any | None = None
         self._initial_rgb_frames: torch.Tensor | None = None
@@ -513,7 +511,6 @@ class OmnidreamsInferenceRuntime:
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
         self._next_timestamp_us: int = 0
-        self._output_stream = self._new_output_stream(postprocess_stream=None)
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -539,6 +536,10 @@ class OmnidreamsInferenceRuntime:
     @property
     def is_master(self) -> bool:
         return self.rank == self.MASTER_RANK
+
+    @property
+    def autoregressive_index(self) -> int:
+        return 0 if self._model_session is None else self._model_session.step_index
 
     @property
     def postprocess_preset(self) -> str:
@@ -606,11 +607,9 @@ class OmnidreamsInferenceRuntime:
             )
 
     def peek_next_chunk_num_frames(self) -> int:
-        if self._wrapper is None:
+        if self._model_session is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
-        if self._state is None:
-            return int(self._wrapper.initial_frame_chunk_size)
-        return int(self._wrapper.frame_chunk_size)
+        return self._model_session.next_num_frames()
 
     def peek_steady_chunk_num_frames(self) -> int:
         if self._wrapper is None:
@@ -787,6 +786,12 @@ class OmnidreamsInferenceRuntime:
         )
         self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
+        self._model_session = OmnidreamsConditioningSessionCore(
+            wrapper=self._wrapper,
+            output_stream_factory=lambda: self._new_output_stream(
+                postprocess_stream=None
+            ),
+        )
         self._reset_rollout_sync()
         self._initialize_video_encoder_sync()
         logger.info(
@@ -870,29 +875,36 @@ class OmnidreamsInferenceRuntime:
     def _reset_rollout_sync(
         self, session_input: OmnidreamsSessionInput | None = None
     ) -> None:
-        if self._wrapper is None or self._renderer is None:
+        if (
+            self._wrapper is None
+            or self._model_session is None
+            or self._renderer is None
+        ):
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
         if self._initial_ego_pose is None or self._scene_data is None:
             raise OmnidreamsRuntimeError("Scene state is not initialized.")
 
         self._reset_postprocess_stream(session_input)
-        if self._state is not None and self._state.pipeline_cache is not None:
-            del self._state.pipeline_cache
-        self._state = None
         self.pose_integrator = CameraPoseIntegrator(
             move_speed_per_s=self.config.move_speed_per_s,
             rotate_speed_rad_per_s=self.config.rotate_speed_rad_per_s,
             coordinate_system="FLU",
         )
         self.pose_integrator.reset(self._initial_ego_pose)
-        self.autoregressive_index = 0
         self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
         self._wrapper.set_rollout_seed(self.config.seed)
+        if self._text_prompts is None or self._initial_rgb_frames is None:
+            raise OmnidreamsRuntimeError("Runtime conditioning is not initialized.")
+        self._model_session.reset(
+            renderer=self._renderer,
+            text_prompts=self._text_prompts,
+            initial_rgb_frames=self._initial_rgb_frames,
+        )
 
     def _close_sync(self) -> None:
-        state = self._state
+        model_session = self._model_session
         wrapper = self._wrapper
-        self._state = None
+        self._model_session = None
         self._wrapper = None
         self._renderer = None
         self._scene_data = None
@@ -900,13 +912,12 @@ class OmnidreamsInferenceRuntime:
         self._text_prompts = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
-        self._close_postprocess_stream()
         if self._video_encoder is not None:
             self._video_encoder.close()
             self._video_encoder = None
 
-        if state is not None and wrapper is not None:
-            wrapper.cleanup(state)
+        if model_session is not None:
+            model_session.close()
         if wrapper is not None:
             del wrapper
         if self._clipgt_temp_dir is not None:
@@ -920,7 +931,6 @@ class OmnidreamsInferenceRuntime:
     def _reset_postprocess_stream(
         self, session_input: OmnidreamsSessionInput | None
     ) -> None:
-        self._close_postprocess_stream()
         configured = self.config.postprocess
         preset = (
             session_input.postprocess_preset
@@ -940,30 +950,27 @@ class OmnidreamsInferenceRuntime:
         world_size = dist.get_world_size() if dist.is_initialized() else 1
         postprocess.validate_execution(world_size=world_size)
         self._postprocess_preset = preset
-        if not postprocess.is_enabled():
-            return
-        if not self.is_master and not postprocess.requires_all_ranks(
-            world_size=world_size
+        postprocess_stream = None
+        if postprocess.is_enabled() and (
+            self.is_master or postprocess.requires_all_ranks(world_size=world_size)
         ):
-            return
-        postprocess_stream = VideoPostprocessStream(
-            postprocess=postprocess,
-            output_layout="bvtchw",
-            fps=self.config.fps,
-            per_view=False,
-            world_size=world_size,
+            postprocess_stream = VideoPostprocessStream(
+                postprocess=postprocess,
+                output_layout="bvtchw",
+                fps=self.config.fps,
+                per_view=False,
+                world_size=world_size,
+            )
+        if self._model_session is None:
+            raise OmnidreamsRuntimeError("Runtime model session is not initialized.")
+        self._model_session.replace_output_stream(
+            lambda: self._new_output_stream(postprocess_stream=postprocess_stream)
         )
-        self._output_stream = self._new_output_stream(
-            postprocess_stream=postprocess_stream,
-        )
-        logger.info(
-            "Omnidreams WebRTC post-processing enabled with preset {!r}.",
-            preset,
-        )
-
-    def _close_postprocess_stream(self) -> None:
-        self._output_stream.finish()
-        self._output_stream = self._new_output_stream(postprocess_stream=None)
+        if postprocess_stream is not None:
+            logger.info(
+                "Omnidreams WebRTC post-processing enabled with preset {!r}.",
+                preset,
+            )
 
     @staticmethod
     def _new_output_stream(
@@ -982,6 +989,7 @@ class OmnidreamsInferenceRuntime:
     ) -> StepResult:
         if (
             self._wrapper is None
+            or self._model_session is None
             or self._renderer is None
             or self._initial_rgb_frames is None
             or self._text_prompts is None
@@ -1011,64 +1019,20 @@ class OmnidreamsInferenceRuntime:
         camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
         frame_timestamps_us = self._consume_timestamps(num_frames)
 
-        camera_names = [self.config.camera_name]
-        camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
-        if self._state is None:
-            output = self._wrapper.start_generation(
-                text_prompts=self._text_prompts,
-                initial_rgb_frames=self._initial_rgb_frames,
-                renderer=self._renderer,
-                camera_names=camera_names,
-                camera_poses_per_view=camera_poses_per_view,
+        try:
+            return self._model_session.step(
+                camera_names=[self.config.camera_name],
+                camera_poses_per_view={self.config.camera_name: camera_poses},
                 frame_timestamps_us=frame_timestamps_us,
-                skip_video_generation=serve_hdmaps,
-            )
-            self._state = output.state
-        else:
-            output = self._wrapper.continue_generation(
-                state=self._state,
-                camera_names=camera_names,
-                camera_poses_per_view=camera_poses_per_view,
-                frame_timestamps_us=frame_timestamps_us,
-                skip_video_generation=serve_hdmaps,
-            )
-            self._state = output.state
-
-        if self._state.pipeline_cache is not None:
-            self._wrapper.finalize_block_generation(
-                self._state.pipeline_cache,
-                output.finalization_state,
-            )
-
-        if serve_hdmaps:
-            video_chunk = output.condition_frames
-        elif output.rgb_frames is None:
-            raise OmnidreamsRuntimeError("Omnidreams WebRTC received no RGB frames.")
-        else:
-            video_chunk = output.rgb_frames
-
-        if serve_hdmaps:
-            result = StepResult.from_video_chunk(
-                step_index=self.autoregressive_index,
-                video_chunk=video_chunk.detach(),
-                layout="bvtchw",
+                serve_hdmaps=serve_hdmaps,
                 metadata={
-                    "stream": "hdmap",
+                    "stream": "hdmap" if serve_hdmaps else "rgb",
                     "postprocess_preset": self.postprocess_preset,
                 },
             )
-        else:
-            result = self._output_stream.process(
-                video_chunk,
-                autoregressive_index=self.autoregressive_index,
-                metadata={
-                    "stream": "rgb",
-                    "postprocess_preset": self.postprocess_preset,
-                },
-            )
-        self.autoregressive_index += 1
-        return result
+        except RuntimeError as exc:
+            raise OmnidreamsRuntimeError(str(exc)) from exc
 
     def _consume_timestamps(self, num_frames: int) -> list[int]:
         step_us = int(round(1_000_000 / self.config.fps))

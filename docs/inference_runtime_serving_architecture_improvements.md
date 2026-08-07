@@ -226,16 +226,16 @@ the model-specific inputs for replay, WebRTC, or local use.
 
 #### OmniDreams TODO
 
-- [ ] Extract shared pipeline/wrapper state, cache/finalization state, AR index,
+- [x] Extract shared pipeline/wrapper state, cache/finalization state, AR index,
       post-processing, reset, and close logic.
-- [ ] Reuse the core from replay and WebRTC.
-- [ ] Adapt interactive-drive trajectories to the same session-step input.
-- [ ] Return `StepResult` to the local presenter and use
+- [x] Reuse the model-session boundary from replay and WebRTC.
+- [x] Adapt interactive-drive trajectories to the same session-step input.
+- [x] Carry `StepResult` to the local presentation boundary and use
       `lazy_rgb_frames()` for presentation.
-- [ ] Preserve delayed-finalization behavior required by interactive drive.
-- [ ] Delete duplicate OmniDreams generation implementations after parity is
+- [x] Preserve delayed-finalization behavior required by interactive drive.
+- [x] Delete duplicate OmniDreams generation implementations after parity is
       established.
-- [ ] Test RGB, debug-HDMap, post-process on/off, and scene-reset behavior.
+- [x] Test RGB, debug-HDMap, post-process on/off, and scene-reset behavior.
 
 Acceptance criteria:
 
