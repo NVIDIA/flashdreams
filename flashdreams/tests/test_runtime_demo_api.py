@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import pytest
 import torch
+from aiohttp import web
 
 from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
@@ -43,8 +45,14 @@ from flashdreams.runtime.demo import (
     build_output_target,
     run_replay_demo,
 )
-from flashdreams.runtime.demo.webrtc import build_webrtc_demo
+from flashdreams.runtime.demo.webrtc import (
+    SharedDemoWebRTCSessionManager,
+    WebRTCAppExtension,
+    WebRTCManagerOptions,
+    build_webrtc_demo,
+)
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+from flashdreams.serving.webrtc.server import PACKAGE_RESOURCE_STACK_KEY
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -224,6 +232,161 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
     assert not adapter.create_runtime_called
 
 
+def test_webrtc_demo_builds_app_from_extension_routes() -> None:
+    async def fake_route(_: web.Request) -> web.StreamResponse:
+        return web.json_response({"ok": True})
+
+    def configure_app(app: web.Application) -> None:
+        app.router.add_get("/api/fake/model-info", fake_route)
+
+    app_extension = WebRTCAppExtension(
+        web_resource=files("flashdreams.runtime.demo"),
+        preload_name="Fake WebRTC",
+        configure_app=configure_app,
+    )
+    adapter = _FakeDemoAdapter(app_extension=app_extension)
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(
+            host="0.0.0.0",
+            port=8082,
+            fps=24,
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        ),
+    )
+
+    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+
+    assert demo.app is not None
+    route_paths = {resource.canonical for resource in demo.app.router.resources()}
+    assert "/api/fake/model-info" in route_paths
+    assert adapter.create_webrtc_app_extension_calls == [
+        {
+            "spec": spec,
+            "session_manager": demo.session_manager,
+            "request_session_url": "http://127.0.0.1:8082/request_session",
+        }
+    ]
+    demo.app[PACKAGE_RESOURCE_STACK_KEY].close()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_demo_manager_options_configure_shared_manager() -> None:
+    class FakeRuntimeError(RuntimeError):
+        pass
+
+    reset_calls: list[tuple[Any, Any]] = []
+    pending_inputs: list[object] = [object()]
+    clear_calls = 0
+    peer_hooks: list[Any] = []
+    offers: list[str] = []
+    answers: list[str] = []
+
+    async def reset_runtime(runtime: Any, session_input: Any) -> None:
+        reset_calls.append((runtime, session_input))
+
+    def clear_pending() -> None:
+        nonlocal clear_calls
+        clear_calls += 1
+
+    manager_options = WebRTCManagerOptions(
+        model_name="fake-model-v2",
+        busy_message="fake session busy",
+        warmup_label="Fake Warmup",
+        runtime_error_types=(FakeRuntimeError,),
+        close_session_on_generation_error=True,
+        supported_keys=frozenset({"w"}),
+        peek_pending_session_input=lambda: pending_inputs[0],
+        clear_pending_session_input=clear_pending,
+        reset_runtime_for_session=reset_runtime,
+        chunk_done_extra=lambda runtime, runtime_config: {
+            "runtime": runtime.marker,
+            "width": runtime_config.video_width,
+        },
+        register_extra_peer_handlers=peer_hooks.append,
+        on_offer_received=offers.append,
+        on_answer_created=answers.append,
+    )
+    adapter = _FakeDemoAdapter(manager_options=manager_options)
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(
+            fps=24,
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        ),
+    )
+
+    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    manager = demo.session_manager
+
+    assert isinstance(manager, SharedDemoWebRTCSessionManager)
+    assert manager._model_name() == "fake-model-v2"
+    assert manager._busy_message == "fake session busy"
+    assert manager._warmup_label == "Fake Warmup"
+    assert manager._runtime_error_types == (FakeRuntimeError,)
+    assert manager._close_session_on_generation_error is True
+    assert manager._peek_pending_session_input() is pending_inputs[0]
+    manager._clear_pending_session_input()
+    assert clear_calls == 1
+    await manager._reset_runtime_for_session(pending_inputs[0])
+    assert reset_calls == [(demo.runtime, pending_inputs[0])]
+    assert manager._chunk_done_extra() == {"runtime": "fake-webrtc", "width": 16}
+
+    peer = object()
+    manager._register_extra_peer_handlers(peer)
+    manager._on_offer_received("offer-sdp")
+    manager._on_answer_created("answer-sdp")
+    assert peer_hooks == [peer]
+    assert offers == ["offer-sdp"]
+    assert answers == ["answer-sdp"]
+
+    resampler = manager._make_resampler(start_v=1.0)
+    resampler.on_edge(arrival_t=0.5, event="keydown", key="q")
+    segments, _ = resampler.sample_chunk(num_frames=1)
+    assert segments[0][2] == frozenset()
+
+    resampler = manager._make_resampler(start_v=1.0)
+    resampler.on_edge(arrival_t=0.5, event="keydown", key="w")
+    segments, _ = resampler.sample_chunk(num_frames=1)
+    assert segments[0][2] == frozenset({"w"})
+
+
+def test_webrtc_app_extension_rejects_ambiguous_static_sources(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="either web_resource or web_dir"):
+        WebRTCAppExtension(web_resource=object(), web_dir=tmp_path)
+
+
+def test_webrtc_app_extension_requires_static_source_before_serving() -> None:
+    adapter = _FakeDemoAdapter(
+        app_extension=WebRTCAppExtension(configure_app=lambda app: None)
+    )
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(
+            fps=24,
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="requires web_resource or web_dir"):
+        build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+
+
 class _ChunkIndexMapping:
     mapping_schema = InputMappingSchema(
         name="chunk-index",
@@ -278,11 +441,15 @@ class _FakeDemoAdapter:
         video_output: bool = False,
         input_modes: tuple[str, ...] = ("replay", "keyboard-driving"),
         output_modes: tuple[str, ...] = ("null", "mp4", "webrtc"),
+        manager_options: WebRTCManagerOptions | None = None,
+        app_extension: WebRTCAppExtension | None = None,
     ) -> None:
         self._scenario_valid = scenario_valid
         self._video_output = video_output
         self._input_modes = input_modes
         self._output_modes = output_modes
+        self._manager_options = manager_options
+        self._app_extension = app_extension
         self.mapping = _ChunkIndexMapping()
         self.prepared_scenario = PreparedScenario(
             initial_inputs=InferenceInput(
@@ -298,6 +465,8 @@ class _FakeDemoAdapter:
         self.runtime: _FakeRuntime | None = None
         self.webrtc_runtime: _FakeWebRTCRuntime | None = None
         self.create_webrtc_runtime_calls: list[DemoSpec] = []
+        self.create_webrtc_manager_options_calls: list[dict[str, Any]] = []
+        self.create_webrtc_app_extension_calls: list[dict[str, Any]] = []
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return self._input_modes
@@ -331,6 +500,38 @@ class _FakeDemoAdapter:
         self.create_webrtc_runtime_calls.append(spec)
         self.webrtc_runtime = _FakeWebRTCRuntime()
         return self.webrtc_runtime
+
+    def create_webrtc_manager_options(
+        self,
+        *,
+        spec: DemoSpec,
+        runtime: "_FakeWebRTCRuntime",
+        runtime_config: Any,
+    ) -> WebRTCManagerOptions:
+        self.create_webrtc_manager_options_calls.append(
+            {
+                "spec": spec,
+                "runtime": runtime,
+                "runtime_config": runtime_config,
+            }
+        )
+        return self._manager_options or WebRTCManagerOptions()
+
+    def create_webrtc_app_extension(
+        self,
+        *,
+        spec: DemoSpec,
+        session_manager: BaseWebRTCSessionManager[Any, Any],
+        request_session_url: str,
+    ) -> WebRTCAppExtension | None:
+        self.create_webrtc_app_extension_calls.append(
+            {
+                "spec": spec,
+                "session_manager": session_manager,
+                "request_session_url": request_session_url,
+            }
+        )
+        return self._app_extension
 
 
 class _FakeRuntime:
@@ -427,6 +628,8 @@ class _RecordingOutputTarget:
 
 
 class _FakeWebRTCRuntime:
+    marker = "fake-webrtc"
+
     async def initialize(self) -> None:
         return None
 

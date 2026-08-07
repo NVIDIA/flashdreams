@@ -15,6 +15,7 @@ from flashdreams.runtime.demo.spec import (
     PreparedScenario,
     WebRTCOutputSpec,
 )
+from flashdreams.runtime.demo.webrtc import WebRTCAppExtension, WebRTCManagerOptions
 
 __all__ = [
     "DemoAdapter",
@@ -23,6 +24,8 @@ __all__ = [
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
+    "WebRTCAppExtension",
+    "WebRTCManagerOptions",
     "WebRTCOutputSpec",
     "build_output_target",
     "run_flashdreams_demo",
