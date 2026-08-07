@@ -54,7 +54,7 @@ from flashdreams.infra.postprocess import (
 )
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.plugins.registry import resolve_postprocess_preset
-from flashdreams.runtime import StepResult, ThreadAffineRuntimeWorker
+from flashdreams.runtime import StepRequest, StepResult, ThreadAffineRuntimeWorker
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -586,9 +586,10 @@ class OmnidreamsInferenceRuntime:
         finally:
             await self._worker.close()
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> StepResult:
@@ -596,6 +597,11 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
+        if request.step_index != self.autoregressive_index:
+            raise OmnidreamsRuntimeError(
+                f"Expected request step {self.autoregressive_index}, "
+                f"got {request.step_index}."
+            )
 
         async with self._step_lock:
             if self._closed:
@@ -614,8 +620,11 @@ class OmnidreamsInferenceRuntime:
     def peek_input_fps(self) -> float:
         return float(self.config.fps)
 
-    def peek_next_input_num_frames(self) -> int:
-        return self.peek_next_chunk_num_frames()
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(
+            step_index=self.autoregressive_index,
+            metadata={"input_frame_count": self.peek_next_chunk_num_frames()},
+        )
 
     def peek_steady_chunk_num_frames(self) -> int:
         if self._wrapper is None:

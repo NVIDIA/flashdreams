@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.runtime import StepResult
+from flashdreams.runtime import StepRequest, StepResult
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -30,6 +30,13 @@ def _runtime_config() -> SimpleNamespace:
         video_height=4,
         warmup_chunks=0,
         warmup_timeout_s=1.0,
+    )
+
+
+def _step_request(step_index: int = 0, input_frame_count: int = 1) -> StepRequest:
+    return StepRequest(
+        step_index=step_index,
+        metadata={"input_frame_count": input_frame_count},
     )
 
 
@@ -145,8 +152,8 @@ def test_runtime_frame_timing_contract() -> None:
         def peek_input_fps(self) -> float:
             return 30.0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 2
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=2)
 
         def peek_steady_output_num_frames(self) -> int:
             return 3
@@ -155,7 +162,10 @@ def test_runtime_frame_timing_contract() -> None:
     manager = _make_manager(_BaseTestManager, runtime)
 
     assert manager._runtime_input_fps(runtime) == pytest.approx(30.0)
-    assert manager._runtime_next_input_num_frames(runtime) == 2
+    assert manager._runtime_next_step_request(runtime) == (
+        _step_request(input_frame_count=2),
+        2,
+    )
     assert manager._runtime_steady_output_num_frames(runtime) == 3
 
 
@@ -164,8 +174,8 @@ def test_runtime_frame_timing_hooks_can_split_input_and_output() -> None:
         def peek_input_fps(self) -> float:
             return 6.0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 4
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=4)
 
         def peek_steady_output_num_frames(self) -> int:
             return 16
@@ -178,7 +188,10 @@ def test_runtime_frame_timing_hooks_can_split_input_and_output() -> None:
     )
 
     assert resampler.dt == pytest.approx(1.0 / 6.0)
-    assert manager._runtime_next_input_num_frames(runtime) == 4
+    assert manager._runtime_next_step_request(runtime) == (
+        _step_request(input_frame_count=4),
+        4,
+    )
     assert manager._runtime_steady_output_num_frames(runtime) == 16
 
 
@@ -478,13 +491,13 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
         def __init__(self) -> None:
             self.generate_calls = 0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.generate_calls)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
         ) -> StepResult:
-            del segments, frame_times
+            del request, segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")
 
@@ -516,13 +529,13 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
             self.generate_calls = 0
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_input_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.generate_calls)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
         ) -> StepResult:
-            del segments, frame_times
+            del request, segments, frame_times
             self.generate_calls += 1
             # Stop the loop after the second attempt without tearing down.
             if self.generate_calls >= 2 and self.managed_session is not None:
@@ -553,13 +566,13 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
         def __init__(self) -> None:
             self.managed_session: ManagedWebRTCSession | None = None
 
-        def peek_next_input_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request()
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
         ) -> StepResult:
-            del segments, frame_times
+            del request, segments, frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
             return StepResult.from_video_chunk(
@@ -617,13 +630,17 @@ async def test_generation_worker_uses_split_input_and_output_frame_counts() -> N
         def peek_input_fps(self) -> float:
             return 6.0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 2
+        def next_step_request(self) -> StepRequest:
+            return _step_request(input_frame_count=2)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: list[float]
+        async def step(
+            self,
+            *,
+            request: StepRequest,
+            segments: Any,
+            frame_times: list[float],
         ) -> StepResult:
-            del segments
+            del request, segments
             self.frame_times = frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
@@ -674,13 +691,13 @@ async def test_generation_worker_logs_periodic_perf_stats(
             self.managed_session: ManagedWebRTCSession | None = None
             self.chunk_index = 0
 
-        def peek_next_input_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return _step_request(step_index=self.chunk_index)
 
-        async def generate_chunk(
-            self, *, segments: Any, frame_times: Any
+        async def step(
+            self, *, request: StepRequest, segments: Any, frame_times: Any
         ) -> StepResult:
-            del segments, frame_times
+            del request, segments, frame_times
             chunk_index = self.chunk_index
             self.chunk_index += 1
             if chunk_index >= 2 and self.managed_session is not None:

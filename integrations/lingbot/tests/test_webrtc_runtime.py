@@ -30,7 +30,7 @@ from lingbot.webrtc.session import (
 )
 
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.runtime import StepResult
+from flashdreams.runtime import StepRequest, StepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -943,20 +943,23 @@ async def test_loopback_warmup_drives_session_generation(
         def peek_steady_output_num_frames(self) -> int:
             return 1
 
-        def peek_next_input_num_frames(self) -> int:
-            return 1
+        def next_step_request(self) -> StepRequest:
+            return StepRequest(
+                step_index=len(self.generated_segments),
+                metadata={"input_frame_count": 1},
+            )
 
-        async def generate_chunk(
+        async def step(
             self,
             *,
+            request: StepRequest,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
         ) -> StepResult:
             del frame_times
-            chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
             return StepResult.from_video_chunk(
-                step_index=chunk_index,
+                step_index=request.step_index,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
                 layout="bvtchw",
             )

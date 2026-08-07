@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import Any, Protocol
 
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.realtime.input import PoseSegment
 
 
@@ -43,18 +43,20 @@ class WebRTCSessionRuntime(WebRTCServerLifecycle, Protocol):
 
     def peek_input_fps(self) -> float: ...
 
-    def peek_next_input_num_frames(self) -> int: ...
+    def next_step_request(self) -> StepRequest: ...
 
     def peek_steady_output_num_frames(self) -> int: ...
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> StepResult: ...
 
     async def close(self) -> None: ...
+
 
 class WebRTCEventRuntime(Protocol):
     """Optional runtime capability for model-specific data-channel events."""

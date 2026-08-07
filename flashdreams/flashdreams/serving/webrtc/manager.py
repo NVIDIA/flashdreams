@@ -23,7 +23,8 @@ from aiortc import (
 )
 from loguru import logger
 
-from flashdreams.runtime.types import StepResult
+from flashdreams.runtime.inputs import TimeWindow
+from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
@@ -246,11 +247,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             label="peek_input_fps",
         )
 
-    def _runtime_next_input_num_frames(self, runtime: Any) -> int:
-        return self._positive_int_runtime_value(
-            runtime.peek_next_input_num_frames(),
-            label="peek_next_input_num_frames",
+    def _runtime_next_step_request(self, runtime: Any) -> tuple[StepRequest, int]:
+        request = runtime.next_step_request()
+        if not isinstance(request, StepRequest):
+            raise TypeError(
+                "next_step_request must return StepRequest, "
+                f"got {type(request).__name__}."
+            )
+        input_num_frames = self._positive_int_runtime_value(
+            request.metadata.get("input_frame_count"),
+            label="StepRequest.metadata['input_frame_count']",
         )
+        return request, input_num_frames
 
     def _runtime_steady_output_num_frames(self, runtime: Any) -> int:
         return self._positive_int_runtime_value(
@@ -813,7 +821,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         try:
             while not managed_session.closed:
                 try:
-                    input_num_frames = self._runtime_next_input_num_frames(runtime)
+                    request, input_num_frames = self._runtime_next_step_request(runtime)
                 except RuntimeError:
                     logger.exception("Runtime not ready; stopping generation worker.")
                     return
@@ -840,10 +848,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
                 t_before_gen = loop.time()
                 chunk_start_v = resampler.next_chunk_start_v
-                # Sampled on both branches: the resampler owns the virtual
-                # clock, so it must advance even when its segments are unused.
                 segments, frame_times = resampler.sample_chunk(input_num_frames)
                 chunk_end_v = resampler.next_chunk_start_v
+                request = replace(
+                    request,
+                    user_input_window=TimeWindow(
+                        start_s=chunk_start_v,
+                        end_s=chunk_end_v,
+                    ),
+                )
                 consumed_action_arrivals: list[float] = []
                 while (
                     managed_session.pending_action_arrivals
@@ -853,16 +866,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         managed_session.pending_action_arrivals.popleft()
                     )
                 try:
-                    if managed_session.inference_session is not None:
-                        result = await self._step_inference_session(
-                            managed_session=managed_session,
-                            window=TimeWindow(
-                                start_s=chunk_start_v, end_s=chunk_end_v
-                            ),
-                        )
-                    else:
-                        result = await runtime.generate_chunk(
-                            segments=segments, frame_times=frame_times
+                    result = await runtime.step(
+                        request=request, segments=segments, frame_times=frame_times
+                    )
+                    if result.step_index != request.step_index:
+                        raise RuntimeError(
+                            "Runtime result step does not match its request: "
+                            f"requested {request.step_index}, "
+                            f"got {result.step_index}."
                         )
                 except Exception as exc:
                     logger.exception("Chunk generation failed.")

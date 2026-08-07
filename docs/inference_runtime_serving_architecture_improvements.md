@@ -275,9 +275,9 @@ sampling, generation scheduling, encoding, and delivery.
 
 #### TODO
 
-- [ ] Drive the canonical model session instead of
-      `WebRTCGenerationRuntime.generate_chunk`.
-- [ ] Use `StepRequest`/input mapping to determine the next input window and
+- [x] Drive the canonical `StepRequest -> StepResult` runtime boundary instead
+      of a WebRTC-only `generate_chunk` method.
+- [x] Use `StepRequest` metadata to determine the next input window and
       frame count.
 - [x] Replace model-specific reset hooks with mapped session inputs.
 - [x] Replace `_model_name` with runtime/adapter identity.

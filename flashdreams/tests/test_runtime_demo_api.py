@@ -477,16 +477,17 @@ class _FakeWebRTCRuntime:
     def peek_steady_output_num_frames(self) -> int:
         return 1
 
-    def peek_next_input_num_frames(self) -> int:
-        return 1
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(step_index=0, metadata={"input_frame_count": 1})
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[Any],
         frame_times: list[float],
     ) -> Any:
-        del segments, frame_times
+        del request, segments, frame_times
         return None
 
     async def close(self) -> None:

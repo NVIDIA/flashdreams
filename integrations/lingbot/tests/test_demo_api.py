@@ -44,6 +44,7 @@ from flashdreams.runtime import (
     InferenceInput,
     OutputArtifact,
     OutputTarget,
+    StepRequest,
     StepResult,
 )
 from flashdreams.runtime.demo import (
@@ -595,19 +596,23 @@ class _FakeWebRTCRuntime:
     async def reset_for_new_session(self, *args: Any, **kwargs: Any) -> None:
         return None
 
-    def peek_steady_chunk_num_frames(self) -> int:
+    def peek_input_fps(self) -> float:
+        return 16.0
+
+    def peek_steady_output_num_frames(self) -> int:
         return 1
 
-    def peek_next_chunk_num_frames(self) -> int:
-        return 1
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(step_index=0, metadata={"input_frame_count": 1})
 
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[Any],
         frame_times: list[float],
     ) -> Any:
-        del segments, frame_times
+        del request, segments, frame_times
         return None
 
     async def close(self) -> None:

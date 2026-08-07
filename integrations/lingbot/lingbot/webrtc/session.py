@@ -43,7 +43,7 @@ from flashdreams.core.distributed.rank_orchestration import (
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.runtime import StepResult, ThreadAffineRuntimeWorker
+from flashdreams.runtime import StepRequest, StepResult, ThreadAffineRuntimeWorker
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
@@ -700,103 +700,10 @@ class LingbotInferenceRuntime:
                 state,
             )
 
-    async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
-        """Return an ``InferenceSession`` view of the current rollout.
-
-        The shared manager canonicalizes raw key and text events and maps them
-        into per-step model inputs before stepping the session.
-        """
-        if self._closed:
-            raise LingbotRuntimeError("Runtime is closed.")
-        if self._input_mapping is None:
-            raise LingbotRuntimeError(
-                "Runtime input mapping is not initialized; reset the rollout first."
-            )
-        return LingbotWebRTCInferenceSession(runtime=self)
-
-    @property
-    def input_mapping(self) -> LingbotInputMapping:
-        if self._input_mapping is None:
-            raise LingbotRuntimeError("Runtime input mapping is not initialized.")
-        return self._input_mapping
-
-    @property
-    def input_canonicalizer(self) -> InputCanonicalizer:
-        if self._input_canonicalizer is None:
-            raise LingbotRuntimeError("Runtime canonicalizer is not initialized.")
-        return self._input_canonicalizer
-
-    @property
-    def input_source_schema(self) -> UserInputSchema:
-        return LINGBOT_WEBRTC_SOURCE_SCHEMA
-
-    def validate_user_event(
-        self, *, event_type: str, payload: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """Validate one raw WebRTC user event before it is acknowledged."""
-        if event_type != "text_event":
-            return payload
-        event_id_value = payload.get("event_id")
-        event_id = "" if event_id_value is None else str(event_id_value)
-        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
-        event_id, state = self._validate_event_request(event_id=event_id, state=state)
-        clears = state in {"clear", "release", "off", "none"}
-        return {"event_id": None if clears else event_id, "state": state}
-
-    def _build_input_layers_sync(
-        self, text_events: tuple[TextEventSpec, ...]
-    ) -> None:
-        """Build the canonicalizer and mapping for the current rollout.
-
-        A rollout can be reset before intrinsics are resolved; the mapping is
-        then left unbuilt and ``start_inference_session`` reports it.
-        """
-        if self._base_intrinsics is None:
-            self._input_mapping = None
-            self._input_canonicalizer = None
-            return
-        self._input_canonicalizer = InputCanonicalizer(
-            [KeyboardToCameraCommand(), TextEventSelection()]
-        )
-        # Mapping runs on the transport's event-loop thread, so hand it a CPU
-        # copy rather than the device tensor used inside generation.
-        self._input_mapping = LingbotInputMapping(
-            fps=int(self.config.fps),
-            base_intrinsics=self._base_intrinsics.detach().reshape(4).cpu(),
-            world_scale=self._world_scale or 1.0,
-            text_event_prompts={
-                event.event_id: event.prompt for event in text_events
-            },
-        )
-        self._input_mapping.set_base_prompt(self._prompt or "")
-
-    def _next_step_request_sync(self) -> StepRequest:
-        """Describe the next chunk for the mapping.
-
-        The manager overrides ``user_input_window`` with its own clock; the
-        frame counter here only tells the mapping how much trajectory to build.
-        """
-        num_frames = self.peek_next_chunk_num_frames()
-        return StepRequest(
-            step_index=self.autoregressive_index,
-            metadata={
-                "num_frames": num_frames,
-                "frame_start": self.autoregressive_index * num_frames,
-            },
-        )
-
-    def _step_blocking(self, inputs: InferenceInput) -> StepResult:
-        """Run one mapped step. Called from the manager's executor thread."""
-        if self._closed:
-            raise LingbotRuntimeError("Session is closed.")
-        with self._sync_step_lock:
-            if self._closed:
-                raise LingbotRuntimeError("Session is closed.")
-            return self._step_sync_all_ranks(inputs)
-
-    async def generate_chunk(
+    async def step(
         self,
         *,
+        request: StepRequest,
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> StepResult:
@@ -820,6 +727,11 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Session is closed.")
         if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
+        if request.step_index != self.autoregressive_index:
+            raise LingbotRuntimeError(
+                f"Expected request step {self.autoregressive_index}, "
+                f"got {request.step_index}."
+            )
 
         async with self._step_lock:
             if self._closed:
@@ -842,8 +754,11 @@ class LingbotInferenceRuntime:
     def peek_input_fps(self) -> float:
         return float(self.config.fps)
 
-    def peek_next_input_num_frames(self) -> int:
-        return self.peek_next_chunk_num_frames()
+    def next_step_request(self) -> StepRequest:
+        return StepRequest(
+            step_index=self.autoregressive_index,
+            metadata={"input_frame_count": self.peek_next_chunk_num_frames()},
+        )
 
     # Arbitrary index well past the AR-step transient; for the Wan/lingbot
     # pipelines used here the per-step count is constant for any index
