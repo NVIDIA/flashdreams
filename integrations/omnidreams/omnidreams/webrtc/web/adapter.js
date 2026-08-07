@@ -3,5 +3,16 @@
 
 export default {
   modelName: "OmniDreams",
-  enablePostprocess: true,
+  controls: [
+    {
+      label: "Drive / Turn",
+      keys: [
+        { key: "w", label: "Forward" },
+        { key: "a", label: "Turn left" },
+        { key: "s", label: "Backward" },
+        { key: "d", label: "Turn right" },
+      ],
+    },
+  ],
+  capabilities: { postprocess: true },
 }

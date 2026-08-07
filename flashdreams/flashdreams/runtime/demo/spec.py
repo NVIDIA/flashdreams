@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias
@@ -87,6 +87,15 @@ OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class WebRTCAppResources:
+    """Model-owned resources attached to the shared WebRTC application."""
+
+    model_web_resource: Any | None = None
+    configure_app: Callable[[Any], None] | None = None
+    preload_name: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class DemoSpec:
     """User-facing shared demo run description."""
 
@@ -164,6 +173,26 @@ class DemoAdapter(ModelAdapter, Protocol):
         """Create the model-owned runtime consumed by the shared WebRTC manager."""
         ...
 
+    def create_webrtc_runtime_config(self, *, spec: DemoSpec, runtime: Any) -> Any:
+        """Return the declared manager-facing configuration for ``runtime``."""
+        ...
+
+    def create_webrtc_session_manager(
+        self,
+        *,
+        spec: DemoSpec,
+        runtime: Any,
+        runtime_config: Any,
+        fps: int,
+        client_liveness_timeout_s: float,
+    ) -> Any:
+        """Construct the shared session manager with model capabilities."""
+        ...
+
+    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
+        """Return model assets and routes attached to the shared WebRTC app."""
+        ...
+
 
 __all__ = [
     "DemoAdapter",
@@ -173,4 +202,5 @@ __all__ = [
     "OutputSpec",
     "PreparedScenario",
     "WebRTCOutputSpec",
+    "WebRTCAppResources",
 ]

@@ -13,6 +13,7 @@ from flashdreams.runtime.demo.spec import (
     NullOutputSpec,
     OutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
 )
 
@@ -23,6 +24,7 @@ __all__ = [
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
+    "WebRTCAppResources",
     "WebRTCOutputSpec",
     "build_output_target",
     "run_flashdreams_demo",

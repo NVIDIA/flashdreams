@@ -19,6 +19,7 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
@@ -45,7 +46,7 @@ from .spec import (
     resolve_user_input_events,
     resolve_webrtc_scenario,
 )
-from .webrtc import create_lingbot_webrtc_app
+from .webrtc import lingbot_webrtc_app_resources
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 WebRTCRuntimeFactory = Callable[..., Any]
@@ -186,18 +187,8 @@ class LingbotDemoAdapter(LingbotModelAdapter):
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
 
-    def create_webrtc_app(
-        self,
-        *,
-        spec: DemoSpec,
-        session_manager: Any,
-        request_session_url: str,
-    ) -> Any:
-        return create_lingbot_webrtc_app(
-            spec=spec,
-            session_manager=session_manager,
-            request_session_url=request_session_url,
-        )
+    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
+        return lingbot_webrtc_app_resources(spec)
 
 
 def _option(config: InferenceConfig, name: str, default: Any) -> Any:

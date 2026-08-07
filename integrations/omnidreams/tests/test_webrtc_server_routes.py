@@ -209,7 +209,7 @@ async def test_static_js_keeps_generic_controls_and_status_helpers() -> None:
         response = await client.get("/static/request_session.js")
         body = await response.text()
         assert response.status == 200
-        assert "const defaultControls = [" in body
+        assert "renderControls(modelControls)" in body
         assert "function renderControls(groups)" in body
         assert 'const logState = document.getElementById("logState")' in body
         assert 'logState.textContent = state === "idle" ? "Waiting" : message' in body
@@ -228,7 +228,7 @@ async def test_omnidreams_model_adapter_is_served() -> None:
         body = await response.text()
         assert response.status == 200
         assert 'modelName: "OmniDreams"' in body
-        assert "enablePostprocess: true" in body
+        assert "capabilities: { postprocess: true }" in body
         assert "/api/postprocess/options" not in body
         assert "RTCPeerConnection" not in body
     finally:

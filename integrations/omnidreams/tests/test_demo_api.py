@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import omnidreams.demo.spec as spec_module
-import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
 from aiohttp import web
@@ -385,6 +384,8 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
 def test_omnidreams_webrtc_demo_installs_model_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+
     app_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
@@ -395,7 +396,7 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
         return app
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        shared_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
@@ -435,6 +436,8 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+
     server_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_webrtc_app(**kwargs: Any) -> web.Application:
@@ -447,7 +450,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         server_calls.append(kwargs)
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        shared_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )

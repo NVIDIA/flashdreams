@@ -339,7 +339,9 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert "sendCommand: sendModelCommand" in javascript
     assert 'id="postprocessField"' in html
     assert 'fetch("/api/postprocess/options")' in javascript
-    assert "adapter.enablePostprocess === true" in javascript
+    assert "@typedef {Object} WebRTCModelAdapter" in javascript
+    assert "adapter.capabilities?.postprocess === true" in javascript
+    assert "renderControls(modelControls)" in javascript
     assert "/api/session/initial_scene" not in javascript
 
 

@@ -974,7 +974,8 @@ def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
     assert "postprocessAvailable" in javascript
     assert "postprocessField.hidden = !postprocessAvailable" in javascript
     assert "postprocess_preset: postprocessPreset" in javascript
-    assert "enablePostprocess: true" in adapter
+    assert "capabilities: { postprocess: true }" in adapter
+    assert 'label: "Drive / Turn"' in adapter
     assert "/api/postprocess/options" not in adapter
 
 

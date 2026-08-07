@@ -427,7 +427,7 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
 def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import lingbot.demo.webrtc as demo_webrtc_module
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
 
     app_calls: list[dict[str, Any]] = []
 
@@ -439,7 +439,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
         return app
 
     monkeypatch.setattr(
-        demo_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
+        shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
     adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
@@ -467,7 +467,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     assert app_calls[0]["request_session_url"] == (
         "http://127.0.0.1:8080/request_session"
     )
-    assert app_calls[0]["preload_name"] == "Lingbot"
+    assert app_calls[0]["preload_name"] == "Test Lingbot"
     assert str(app_calls[0]["web_resource"]).endswith("serving/webrtc/web")
     assert str(app_calls[0]["model_web_resource"]).endswith("lingbot/webrtc/web")
     assert callable(app_calls[0]["configure_app"])
@@ -480,7 +480,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
 def test_lingbot_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import lingbot.demo.webrtc as demo_webrtc_module
+    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
 
     server_calls: list[dict[str, Any]] = []
 
@@ -494,7 +494,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
         server_calls.append(kwargs)
 
     monkeypatch.setattr(
-        demo_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
+        shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
     adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(

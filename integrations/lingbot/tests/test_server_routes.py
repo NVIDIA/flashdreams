@@ -199,7 +199,7 @@ async def test_lingbot_model_adapter_is_served() -> None:
         assert response.status == 200
         assert 'modelName: "Lingbot"' in body
         assert "/api/session/initial_scene" in body
-        assert '{ key: "w"' not in body
+        assert '{ key: "w"' in body
         assert '{ key: "q"' in body
         assert "enablePostprocess" not in body
         assert "RTCPeerConnection" not in body

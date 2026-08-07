@@ -302,26 +302,26 @@ Replace dynamic optional methods with explicit extension surfaces.
 
 #### Server TODO
 
-- [ ] Declare a typed WebRTC demo-adapter protocol.
-- [ ] Replace `getattr` discovery of runtime-config, manager, and app factories.
-- [ ] Always construct the shared aiohttp/WebRTC app in shared code.
-- [ ] Let integrations provide model web resources and optional route
+- [x] Declare a typed WebRTC demo-adapter protocol.
+- [x] Replace `getattr` discovery of runtime-config, manager, and app factories.
+- [x] Always construct the shared aiohttp/WebRTC app in shared code.
+- [x] Let integrations provide model web resources and optional route
       registration, not a complete replacement app factory.
-- [ ] Provide one generic session-input route that delegates parsing/validation
+- [x] Provide one generic session-input route that delegates parsing/validation
       to the model adapter where practical.
-- [ ] Keep offer, health, static assets, preload, and shutdown routes shared.
+- [x] Keep offer, health, static assets, preload, and shutdown routes shared.
 
 #### Browser TODO
 
-- [ ] Document the `adapter.js` interface with a JSDoc typedef or equivalent.
-- [ ] Keep peer connection, video, heartbeat, metrics, and common control
+- [x] Document the `adapter.js` interface with a JSDoc typedef or equivalent.
+- [x] Keep peer connection, video, heartbeat, metrics, and common control
       rendering in the shared client.
-- [ ] Make control groups declarative instead of hardcoded as universal WSAD
+- [x] Make control groups declarative instead of hardcoded as universal WSAD
       controls.
-- [ ] Move model-specific session forms and control-message handling into the
+- [x] Move model-specific session forms and control-message handling into the
       model adapter.
-- [ ] Represent optional post-processing as an explicit capability.
-- [ ] Add shared adapter-contract tests for Lingbot and OmniDreams.
+- [x] Represent optional post-processing as an explicit capability.
+- [x] Add shared adapter-contract tests for Lingbot and OmniDreams.
 
 Acceptance criteria:
 

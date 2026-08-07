@@ -31,6 +31,7 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
@@ -46,7 +47,7 @@ from .spec import (
     resolve_replay_scenario,
     resolve_webrtc_scenario,
 )
-from .webrtc import create_omnidreams_webrtc_app, validate_postprocess_preset
+from .webrtc import omnidreams_webrtc_app_resources, validate_postprocess_preset
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 WebRTCRuntimeFactory = Callable[..., Any]
@@ -207,18 +208,8 @@ class OmnidreamsDemoAdapter:
             client_liveness_timeout_s=client_liveness_timeout_s,
         )
 
-    def create_webrtc_app(
-        self,
-        *,
-        spec: DemoSpec,
-        session_manager: Any,
-        request_session_url: str,
-    ) -> Any:
-        return create_omnidreams_webrtc_app(
-            spec=spec,
-            session_manager=session_manager,
-            request_session_url=request_session_url,
-        )
+    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
+        return omnidreams_webrtc_app_resources(spec)
 
     def _preset_id(self, config: InferenceConfig | None) -> str:
         return (

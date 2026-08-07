@@ -5,25 +5,19 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 from aiohttp import web
 from omnidreams.webrtc.session import (
-    OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
     OmnidreamsWebRTCSessionManager,
-    _validate_requested_postprocess_preset,
 )
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
-from flashdreams.runtime.demo import DemoSpec
+from flashdreams.runtime.demo import DemoSpec, WebRTCAppResources
 from flashdreams.serving.webrtc.server import (
     SESSION_MANAGER_KEY,
     SessionBusyError,
-    create_packaged_webrtc_app,
-)
-from flashdreams.serving.webrtc.server import (
-    close_package_resources as _close_package_resources,
 )
 
 
@@ -72,26 +66,15 @@ def configure_omnidreams_webrtc_app(app: web.Application) -> None:
     app.router.add_post("/api/session/input", session_input)
 
 
-def create_omnidreams_webrtc_app(
-    *,
-    spec: DemoSpec,
-    session_manager: Any,
-    request_session_url: str,
-) -> web.Application:
-    """Create the packaged OmniDreams browser app through shared serving glue."""
-    from importlib.resources import as_file, files
+def omnidreams_webrtc_app_resources(spec: DemoSpec) -> WebRTCAppResources:
+    """Return OmniDreams assets and routes for the shared WebRTC app."""
+    from importlib.resources import files
 
-    output_preload_name = getattr(spec.output, "preload_name", None)
-    preload_name = output_preload_name if isinstance(output_preload_name, str) else ""
-    return create_packaged_webrtc_app(
-        web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
+    del spec
+    return WebRTCAppResources(
         model_web_resource=files("omnidreams.webrtc").joinpath("web"),
-        session_manager=session_manager,
-        preload_name=preload_name or "Omnidreams",
-        request_session_url=request_session_url,
+        preload_name="Omnidreams",
         configure_app=configure_omnidreams_webrtc_app,
-        as_file_fn=as_file,
-        cleanup_callback=_close_package_resources,
     )
 
 
@@ -107,7 +90,7 @@ def _get_omnidreams_manager(app: web.Application) -> OmnidreamsWebRTCSessionMana
 
 __all__ = [
     "configure_omnidreams_webrtc_app",
-    "create_omnidreams_webrtc_app",
+    "omnidreams_webrtc_app_resources",
     "postprocess_options",
     "session_input",
     "validate_postprocess_preset",

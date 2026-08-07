@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,11 @@ from aiohttp import web
 
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
-from flashdreams.serving.webrtc.server import create_webrtc_app
+from flashdreams.serving.webrtc.server import (
+    close_package_resources,
+    create_packaged_webrtc_app,
+    create_webrtc_app,
+)
 
 from .replay import _require_supported_mode
 from .spec import DemoAdapter, DemoSpec, WebRTCOutputSpec
@@ -133,35 +138,7 @@ def _create_runtime_config(
     adapter: DemoAdapter,
     runtime: Any,
 ) -> Any:
-    factory = getattr(adapter, "create_webrtc_runtime_config", None)
-    if callable(factory):
-        return factory(spec=spec, runtime=runtime)
-
-    runtime_config = getattr(runtime, "config", None)
-    if _looks_like_webrtc_runtime_config(runtime_config):
-        return runtime_config
-
-    output = spec.output
-    if not isinstance(output, WebRTCOutputSpec):
-        raise ValueError("WebRTC runtime config creation requires WebRTCOutputSpec.")
-    return WebRTCDemoRuntimeConfig(
-        video_width=output.video_width,
-        video_height=output.video_height,
-        warmup_chunks=output.warmup_chunks,
-        warmup_timeout_s=output.warmup_timeout_s,
-    )
-
-
-def _looks_like_webrtc_runtime_config(value: Any) -> bool:
-    return all(
-        hasattr(value, name)
-        for name in (
-            "video_width",
-            "video_height",
-            "warmup_chunks",
-            "warmup_timeout_s",
-        )
-    )
+    return adapter.create_webrtc_runtime_config(spec=spec, runtime=runtime)
 
 
 def _create_session_manager(
@@ -173,21 +150,11 @@ def _create_session_manager(
     fps: int,
     client_liveness_timeout_s: float,
 ) -> BaseWebRTCSessionManager[Any, Any]:
-    factory = getattr(adapter, "create_webrtc_session_manager", None)
-    if callable(factory):
-        return factory(
-            spec=spec,
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    return BaseWebRTCSessionManager(
+    return adapter.create_webrtc_session_manager(
+        spec=spec,
         runtime=runtime,
         runtime_config=runtime_config,
         fps=fps,
-        identity=spec.model_id,
         client_liveness_timeout_s=client_liveness_timeout_s,
     )
 
@@ -202,18 +169,23 @@ def _create_app(
     output = spec.output
     if not isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC app creation requires WebRTCOutputSpec output.")
-    factory = getattr(adapter, "create_webrtc_app", None)
-    if callable(factory):
-        return factory(
-            spec=spec,
+    resources = adapter.webrtc_app_resources(spec)
+    if output.web_dir is not None:
+        return _build_webrtc_app(
+            output=output,
             session_manager=session_manager,
-            request_session_url=_request_session_url(output),
+            create_app_fn=create_app_fn,
+            preload_name=output.preload_name or resources.preload_name or spec.model_id,
         )
-    return _build_webrtc_app(
-        output=output,
+    return create_packaged_webrtc_app(
+        web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
+        model_web_resource=resources.model_web_resource,
         session_manager=session_manager,
+        request_session_url=_request_session_url(output),
+        preload_name=output.preload_name or resources.preload_name or spec.model_id,
+        configure_app=resources.configure_app,
         create_app_fn=create_app_fn,
-        preload_name=output.preload_name or spec.model_id,
+        cleanup_callback=close_package_resources,
     )
 
 

@@ -5,6 +5,15 @@ const mockMode = new URLSearchParams(window.location.search).has("mock")
 
 const controls = [
   {
+    label: "Drive / Turn",
+    keys: [
+      { key: "w", label: "Forward" },
+      { key: "a", label: "Turn left" },
+      { key: "s", label: "Backward" },
+      { key: "d", label: "Turn right" },
+    ],
+  },
+  {
     label: "Strafe",
     keys: [
       { key: "q", label: "Strafe left" },

@@ -38,11 +38,15 @@ from flashdreams.runtime.demo import (
     Mp4OutputSpec,
     NullOutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
     WebRTCOutputSpec,
     build_output_target,
     run_replay_demo,
 )
-from flashdreams.runtime.demo.webrtc import build_webrtc_demo
+from flashdreams.runtime.demo.webrtc import (
+    WebRTCDemoRuntimeConfig,
+    build_webrtc_demo,
+)
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
 pytestmark = pytest.mark.ci_cpu
@@ -330,6 +334,39 @@ class _FakeDemoAdapter:
         self.create_webrtc_runtime_calls.append(spec)
         self.webrtc_runtime = _FakeWebRTCRuntime()
         return self.webrtc_runtime
+
+    def create_webrtc_runtime_config(
+        self, *, spec: DemoSpec, runtime: Any
+    ) -> WebRTCDemoRuntimeConfig:
+        del runtime
+        assert isinstance(spec.output, WebRTCOutputSpec)
+        return WebRTCDemoRuntimeConfig(
+            video_width=spec.output.video_width,
+            video_height=spec.output.video_height,
+            warmup_chunks=spec.output.warmup_chunks,
+            warmup_timeout_s=spec.output.warmup_timeout_s,
+        )
+
+    def create_webrtc_session_manager(
+        self,
+        *,
+        spec: DemoSpec,
+        runtime: Any,
+        runtime_config: Any,
+        fps: int,
+        client_liveness_timeout_s: float,
+    ) -> BaseWebRTCSessionManager:
+        return BaseWebRTCSessionManager(
+            runtime=runtime,
+            runtime_config=runtime_config,
+            fps=fps,
+            identity=spec.model_id,
+            client_liveness_timeout_s=client_liveness_timeout_s,
+        )
+
+    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
+        del spec
+        return WebRTCAppResources(preload_name="Fake demo")
 
 
 class _FakeRuntime:

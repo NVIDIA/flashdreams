@@ -3,6 +3,20 @@
 
 const mockMode = new URLSearchParams(window.location.search).has("mock")
 
+/**
+ * @typedef {Object} WebRTCModelAdapter
+ * @property {string=} modelName
+ * @property {string=} stylesheet
+ * @property {Array<{label: string, keys: Array<string|{key: string, label?: string}>}>=} controls
+ * @property {{postprocess?: boolean}=} capabilities
+ * @property {(context: Object) => (void|Promise<void>)=} mount
+ * @property {(context: Object) => (void|Promise<void>)=} beforeConnect
+ * @property {(action: Object, context: Object) => void=} onActionSent
+ * @property {(payload: Object, context: Object) => boolean=} onControlMessage
+ * @property {(visible: boolean, context: Object) => void=} onVideoVisibilityChanged
+ * @property {(context: Object) => void=} onDisconnect
+ */
+
 const connectButton = document.getElementById("connectButton")
 const statusText = document.getElementById("statusText")
 const flowText = document.getElementById("flowText")
@@ -23,17 +37,6 @@ const modelPanelSlot = document.getElementById("modelPanelSlot")
 const modelControlSlot = document.getElementById("modelControlSlot")
 const controlRows = document.getElementById("controlRows")
 
-const defaultControls = [
-  {
-    label: "Drive / Turn",
-    keys: [
-      { key: "w", label: "Forward" },
-      { key: "a", label: "Turn left" },
-      { key: "s", label: "Backward" },
-      { key: "d", label: "Turn right" },
-    ],
-  },
-]
 const keyAliases = new Map([
   ["arrowup", "w"],
   ["arrowleft", "a"],
@@ -50,6 +53,7 @@ const heartbeatIntervalMs = 2000
 
 let allowedKeys = new Set()
 let controlButtons = []
+/** @type {WebRTCModelAdapter|null} */
 let modelAdapter = null
 
 let peerConnection = null
@@ -310,11 +314,11 @@ async function loadModelAdapter() {
     document.head.append(stylesheet)
   }
   const modelControls = Array.isArray(adapter.controls) ? adapter.controls : []
-  renderControls([...defaultControls, ...modelControls])
+  renderControls(modelControls)
   if (typeof adapter.modelName === "string") {
     modelContext.setModelName(adapter.modelName)
   }
-  if (adapter.enablePostprocess === true) {
+  if (adapter.capabilities?.postprocess === true) {
     try {
       await loadPostprocessOptions()
     } catch (error) {
