@@ -275,6 +275,47 @@ def test_consumed_events_are_pruned() -> None:
 
 
 @pytest.mark.asyncio
+async def test_catch_up_window_clears_release_and_renders_latest_step() -> None:
+    runtime = _FakeRuntime()
+    manager = _manager(runtime)
+    managed = _managed_session(runtime)
+    manager._record_user_event(
+        managed_session=managed,
+        timestamp_s=0.1,
+        event_type="key_down",
+        payload={"key": "w"},
+    )
+    manager._record_user_event(
+        managed_session=managed,
+        timestamp_s=0.2,
+        event_type="key_up",
+        payload={"key": "w"},
+    )
+    manager._record_user_event(
+        managed_session=managed,
+        timestamp_s=0.8,
+        event_type="key_down",
+        payload={"key": "w"},
+    )
+
+    manager._catch_up_input_clock(
+        managed_session=managed,
+        now=1.0,
+        chunk_duration=_NUM_FRAMES / _FPS,
+    )
+    await manager._step_inference_session(
+        managed_session=managed,
+        window=TimeWindow(start_s=0.75, end_s=1.0),
+    )
+
+    assert [(event.timestamp_s, event.event_type) for event in managed.user_events] == [
+        (pytest.approx(0.8), "key_down")
+    ]
+    poses = runtime.session.steps[0].step[FIELD_CAMERA_TRAJECTORY]
+    assert not torch.allclose(poses[:, :3, 3], torch.zeros_like(poses[:, :3, 3]))
+
+
+@pytest.mark.asyncio
 async def test_text_event_becomes_a_buffered_user_event() -> None:
     runtime = _FakeRuntime(text_event_prompts={"storm": "a violent storm"})
     manager = _manager(runtime)

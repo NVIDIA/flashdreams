@@ -75,9 +75,8 @@ _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 _DEFAULT_PERF_LOG_INTERVAL_CHUNKS = 5
 _MAX_SESSION_USER_EVENTS = 1024
 """Maximum unconsumed raw events kept for an ``InferenceSession`` step."""
-_MAX_SESSION_RELEASE_USER_EVENTS = 32
-"""Additional bounded release events allowed after the main queue is full."""
 _RELEASE_USER_EVENT_TYPES = frozenset({"key_up"})
+_KEY_USER_EVENT_TYPES = frozenset({"key_down", "key_up"})
 
 _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
@@ -126,6 +125,8 @@ class ManagedWebRTCSession:
     pending_action_arrivals: deque[float] = field(default_factory=deque)
     inference_session: Any | None = None
     """Active ``InferenceSession``; ``None`` means call ``runtime.generate_chunk``."""
+    session_steps_completed: int = 0
+    session_input_state_advanced: bool = False
     user_events: deque[UserInputEvent] = field(default_factory=deque)
     """Raw user events awaiting canonicalization, oldest first."""
     last_client_message_at: float = 0.0
@@ -389,6 +390,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         resampler, so a chunk's ``TimeWindow`` selects exactly the events that
         arrived during that chunk's virtual window.
         """
+        if event_type in _KEY_USER_EVENT_TYPES and not self._supports_key_payload(
+            payload
+        ):
+            return
         if len(managed_session.user_events) >= _MAX_SESSION_USER_EVENTS:
             if event_type in _RELEASE_USER_EVENT_TYPES:
                 self._make_room_for_release_event(
@@ -443,47 +448,66 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     ):
                         del events[index]
                         return
-        if self._queued_release_event_count(managed_session) >= self._release_cap():
-            for index, queued_event in enumerate(events):
-                queued_key = queued_event.payload.get("key")
-                normalized_queued_key = (
-                    normalize_key(queued_key) if isinstance(queued_key, str) else None
-                )
-                if (
-                    queued_event.event_type in _RELEASE_USER_EVENT_TYPES
-                    and normalized_queued_key not in self._supported_release_keys()
-                ):
-                    del events[index]
-                    return
-            raise RuntimeError(
-                "Too many queued WebRTC user events; wait for inference to catch up."
-            )
 
-    def _release_cap(self) -> int:
-        return max(_MAX_SESSION_RELEASE_USER_EVENTS, len(self._supported_release_keys()))
-
-    def _supported_release_keys(self) -> frozenset[str]:
+    def _supported_key_names(self) -> frozenset[str]:
         supported_keys = self._resampler_supported_keys
         if supported_keys is None:
             supported_keys = DEFAULT_SUPPORTED_KEYS
         return frozenset(normalize_key(key) for key in supported_keys)
 
-    @staticmethod
-    def _queued_release_event_count(managed_session: ManagedWebRTCSession) -> int:
-        return sum(
-            event.event_type in _RELEASE_USER_EVENT_TYPES
-            for event in managed_session.user_events
-        )
+    def _supports_key_payload(self, payload: dict[str, Any]) -> bool:
+        key = payload.get("key")
+        return isinstance(key, str) and normalize_key(key) in self._supported_key_names()
 
-    @staticmethod
-    def _should_snap_input_clock(
+    def _catch_up_input_clock(
+        self,
         *,
         managed_session: ManagedWebRTCSession,
-        lag: float,
+        now: float,
         chunk_duration: float,
-    ) -> bool:
-        """Return whether the input clock may skip over unrendered windows."""
-        return managed_session.inference_session is None and lag > chunk_duration
+    ) -> None:
+        """Skip stale input windows without skipping session input state."""
+        resampler = managed_session.resampler
+        lag = now - (resampler.next_chunk_start_v + chunk_duration)
+        if lag <= chunk_duration:
+            return
+        latest_chunk_start = now - chunk_duration
+        if managed_session.inference_session is not None:
+            catch_up_start = (
+                0.0
+                if managed_session.session_steps_completed == 0
+                else resampler.next_chunk_start_v
+            )
+            if latest_chunk_start > catch_up_start:
+                self._advance_inference_input_state(
+                    managed_session=managed_session,
+                    window=TimeWindow(
+                        start_s=catch_up_start,
+                        end_s=latest_chunk_start,
+                    ),
+                )
+        resampler.next_chunk_start_v = latest_chunk_start
+
+    def _advance_inference_input_state(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        window: TimeWindow,
+    ) -> None:
+        """Advance session input converters over a skipped raw-event window."""
+        if managed_session.inference_session is None or window.end_s <= window.start_s:
+            return
+        runtime = managed_session.runtime
+        runtime.input_canonicalizer.canonicalize(
+            UserInputs(events=tuple(managed_session.user_events)),
+            window=window,
+            source_schema=runtime.input_source_schema,
+        )
+        managed_session.session_input_state_advanced = True
+        self._prune_consumed_user_events(
+            managed_session,
+            before_s=window.end_s,
+        )
 
     def _validate_user_event_payload(
         self,
@@ -536,7 +560,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # The transport owns input windowing. The session derives its own
         # window from its frame counter, but live events are stamped on the
         # manager's monotonic clock, so the manager's window wins.
-        if request.step_index == 0:
+        if request.step_index == 0 and not managed_session.session_input_state_advanced:
             # The resampler's clock is re-anchored to "now" at first
             # interaction, but events that triggered it were stamped just
             # before that anchor. Widening chunk 0 back to the session start
@@ -559,6 +583,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 "WebRTC session steps must produce VideoStepResult output, got "
                 f"{type(output).__name__}."
             )
+        managed_session.session_steps_completed += 1
         return output
 
     def _build_step_inputs(
@@ -1059,19 +1084,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
                 # Catch the virtual clock up to wall if it has fallen more
                 # than one chunk behind so end-to-end latency stays bounded.
-                # Held-key continuity is preserved on the segment branch
-                # because ``sample_chunk`` folds skipped edges into carried
-                # state. ``InferenceSession`` runtimes consume raw event
-                # windows instead, so they must not skip uncanonicalized input
-                # windows here.
+                # The segment branch folds skipped edges through the resampler;
+                # the session branch first advances its input canonicalizer
+                # across the skipped raw-event window.
                 now = loop.time()
-                lag = now - (resampler.next_chunk_start_v + chunk_duration)
-                if self._should_snap_input_clock(
+                self._catch_up_input_clock(
                     managed_session=managed_session,
-                    lag=lag,
+                    now=now,
                     chunk_duration=chunk_duration,
-                ):
-                    resampler.next_chunk_start_v = now - chunk_duration
+                )
 
                 t_before_gen = loop.time()
                 chunk_start_v = resampler.next_chunk_start_v

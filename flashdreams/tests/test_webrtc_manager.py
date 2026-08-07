@@ -255,7 +255,6 @@ def test_record_user_event_does_not_evict_unrelated_event_for_release(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(manager_module, "_MAX_SESSION_USER_EVENTS", 1)
-    monkeypatch.setattr(manager_module, "_MAX_SESSION_RELEASE_USER_EVENTS", 1)
     runtime = object()
     manager = _make_manager(_BaseTestManager, runtime)
     managed, _video_track, _peer, _channel = _managed_session(runtime)
@@ -291,112 +290,111 @@ def test_record_user_event_does_not_evict_unrelated_event_for_release(
     ]
 
 
-def test_input_clock_snap_is_disabled_for_inference_session() -> None:
-    runtime = object()
-    managed, _video_track, _peer, _channel = _managed_session(runtime)
-
-    assert _BaseTestManager._should_snap_input_clock(
-        managed_session=managed,
-        lag=2.0,
-        chunk_duration=1.0,
-    )
-
-    managed.inference_session = object()
-
-    assert not _BaseTestManager._should_snap_input_clock(
-        managed_session=managed,
-        lag=2.0,
-        chunk_duration=1.0,
-    )
-    assert not _BaseTestManager._should_snap_input_clock(
-        managed_session=managed,
-        lag=1.0,
-        chunk_duration=1.0,
-    )
-
-
-@pytest.mark.asyncio
-async def test_action_keyup_evicts_unsupported_release_when_release_cap_full(
+def test_record_user_event_ignores_unsupported_key_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(manager_module, "_MAX_SESSION_USER_EVENTS", 1)
-    monkeypatch.setattr(manager_module, "_MAX_SESSION_RELEASE_USER_EVENTS", 1)
     runtime = object()
     manager = _make_manager(_WOnlyTestManager, runtime)
-    managed, _video_track, _peer, channel = _managed_session(runtime)
-    managed.inference_session = object()
-    managed.first_action_received.clear()
-    resampler = _RecordingResampler()
-    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
     manager._record_user_event(
         managed_session=managed,
         timestamp_s=0.0,
         event_type="text_event",
         payload={"event_id": "storm"},
     )
+
     manager._record_user_event(
         managed_session=managed,
         timestamp_s=0.1,
         event_type="key_up",
         payload={"key": "z"},
     )
-
-    await manager._handle_datachannel_message(
+    manager._record_user_event(
         managed_session=managed,
-        raw_message='{"type":"action","action":{"event":"keyup","key":"w"}}',
+        timestamp_s=0.2,
+        event_type="key_down",
+        payload={"key": "z"},
     )
 
     assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("text_event", {"event_id": "storm"}),
-        ("key_up", {"key": "w"}),
+        ("text_event", {"event_id": "storm"})
     ]
-    assert managed.first_action_received.is_set()
-    assert len(managed.pending_action_arrivals) == 1
-    assert len(resampler.edges) == 1
-    assert resampler.edges[0][1:] == ("keyup", "w")
-    assert channel.messages == []
 
 
-@pytest.mark.asyncio
-async def test_action_keyup_updates_state_when_release_queue_rejects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(manager_module, "_MAX_SESSION_USER_EVENTS", 1)
-    monkeypatch.setattr(manager_module, "_MAX_SESSION_RELEASE_USER_EVENTS", 1)
-    runtime = object()
-    manager = _make_manager(_WOnlyTestManager, runtime)
-    managed, _video_track, _peer, channel = _managed_session(runtime)
-    managed.inference_session = object()
-    managed.first_action_received.clear()
-    resampler = _RecordingResampler()
-    managed.resampler = resampler  # ty:ignore[invalid-assignment]
-    manager._record_user_event(
-        managed_session=managed,
-        timestamp_s=0.0,
-        event_type="text_event",
-        payload={"event_id": "storm"},
+def test_catch_up_input_clock_advances_session_input_state() -> None:
+    class _RecordingCanonicalizer:
+        def __init__(self) -> None:
+            self.windows: list[tuple[float, float]] = []
+            self.event_batches: list[list[tuple[float, str]]] = []
+
+        def canonicalize(
+            self,
+            user_inputs: Any,
+            *,
+            window: Any,
+            source_schema: Any,
+        ) -> object:
+            del source_schema
+            self.windows.append((window.start_s, window.end_s))
+            self.event_batches.append(
+                [
+                    (event.timestamp_s, event.event_type)
+                    for event in user_inputs.events
+                ]
+            )
+            return object()
+
+    canonicalizer = _RecordingCanonicalizer()
+    runtime = SimpleNamespace(
+        input_canonicalizer=canonicalizer,
+        input_source_schema=object(),
     )
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.inference_session = object()
+    managed.resampler.next_chunk_start_v = 0.0
     manager._record_user_event(
         managed_session=managed,
-        timestamp_s=0.1,
+        timestamp_s=0.5,
         event_type="key_up",
         payload={"key": "w"},
     )
-
-    await manager._handle_datachannel_message(
+    manager._record_user_event(
         managed_session=managed,
-        raw_message='{"type":"action","action":{"event":"keyup","key":"a"}}',
+        timestamp_s=2.0,
+        event_type="key_down",
+        payload={"key": "w"},
     )
 
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("text_event", {"event_id": "storm"}),
-        ("key_up", {"key": "w"}),
+    manager._catch_up_input_clock(
+        managed_session=managed,
+        now=3.0,
+        chunk_duration=1.0,
+    )
+
+    assert managed.resampler.next_chunk_start_v == pytest.approx(2.0)
+    assert managed.session_input_state_advanced
+    assert canonicalizer.windows == [(0.0, 2.0)]
+    assert canonicalizer.event_batches == [[(0.5, "key_up"), (2.0, "key_down")]]
+    assert [(event.timestamp_s, event.event_type) for event in managed.user_events] == [
+        (pytest.approx(2.0), "key_down")
     ]
-    assert managed.first_action_received.is_set()
-    assert len(managed.pending_action_arrivals) == 1
-    assert len(resampler.edges) == 1
-    assert resampler.edges[0][1:] == ("keyup", "a")
-    assert [json.loads(message)["type"] for message in channel.messages] == ["error"]
+
+
+def test_catch_up_input_clock_snaps_legacy_path_without_canonicalizer() -> None:
+    runtime = object()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.resampler.next_chunk_start_v = 0.0
+
+    manager._catch_up_input_clock(
+        managed_session=managed,
+        now=3.0,
+        chunk_duration=1.0,
+    )
+
+    assert managed.resampler.next_chunk_start_v == pytest.approx(2.0)
 
 
 @pytest.mark.asyncio
