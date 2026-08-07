@@ -13,9 +13,17 @@ import numpy.typing as npt
 
 from flashdreams.serving.realtime.timing import VideoModelTimings
 
-FloatArray = npt.NDArray[np.float32]
-UInt8Array = npt.NDArray[np.uint8]
-Int32Array = npt.NDArray[np.int32]
+# Driving vocabulary lives with the app that owns the simulation; re-exported
+# here so existing imports keep resolving while the engine moves across.
+from interactive_drive_app.types import (  # noqa: E402
+    ControlSnapshot,
+    DriverCommand,
+    FloatArray,
+    Int32Array,
+    TrajectoryChunk,
+    UInt8Array,
+    VehicleState,
+)
 
 
 def _normalized_quaternion_xyzw(quaternion_xyzw: FloatArray) -> FloatArray:
@@ -164,36 +172,6 @@ class SceneBundle:
     ground_mesh_faces: Int32Array | None = None
 
 
-@dataclass(frozen=True)
-class DriverCommand:
-    throttle: float = 0.0
-    brake: float = 0.0
-    steer: float = 0.0
-    stop: bool = False
-    reverse: bool = False
-    steer_is_direct: bool = False
-    manual_control: bool = False
-
-
-@dataclass
-class VehicleState:
-    x_m: float
-    y_m: float
-    z_m: float
-    yaw_rad: float
-    speed_mps: float
-    steer_rad: float
-    pitch_rad: float = 0.0
-    roll_rad: float = 0.0
-
-
-@dataclass(frozen=True)
-class TrajectoryChunk:
-    timestamps_us: npt.NDArray[np.int64]
-    rig_poses_world: FloatArray
-    boundary_state_after_chunk: VehicleState
-
-
 @dataclass
 class PresentedFrame:
     timestamp_us: int
@@ -222,7 +200,3 @@ class RasterChunk:
     frames: tuple[PresentedFrame, ...]
 
 
-@dataclass
-class ControlSnapshot:
-    pressed: set[str] = field(default_factory=set)
-    view_mode: str = "rgb"

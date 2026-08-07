@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-from dataclasses import dataclass
-from typing import Protocol
+"""Compatibility re-export; this module now lives in the app package.
 
-from omnidreams.interactive_drive.types import DriverCommand
+Kept so existing imports resolve while the engine moves to
+``apps/interactive-drive``. Import from :mod:`interactive_drive_app.input`
+in new code.
+"""
 
+from interactive_drive_app.input.backend import (
+    InputBackend,
+    SampledInput,
+)
 
-@dataclass(frozen=True)
-class SampledInput:
-    command: DriverCommand
-    sample_time: float
-
-
-class InputBackend(Protocol):
-    def sample(self) -> SampledInput:
-        """Sample control inputs and return command + sample timestamp."""
-        ...
+__all__ = [
+    "InputBackend",
+    "SampledInput",
+]
