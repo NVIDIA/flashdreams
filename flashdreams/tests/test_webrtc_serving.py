@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
 from importlib.resources import files
+from typing import Any
 
 import numpy as np
 import pytest
@@ -19,6 +21,10 @@ from flashdreams.serving.webrtc.controls import (
     KeyboardState,
 )
 from flashdreams.serving.webrtc.media import tensor_chunk_to_rgb_frames
+from flashdreams.serving.webrtc.manager import (
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
+)
 from flashdreams.serving.webrtc.messages import (
     make_chunk_done_payload,
     make_error_payload,
@@ -117,6 +123,147 @@ class _FakeSessionManager:
 
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
+
+
+class _FakeCloseable:
+    async def close(self) -> None:
+        return
+
+
+class _FakeControlChannel:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    def send(self, payload: str) -> None:
+        decoded = json.loads(payload)
+        assert isinstance(decoded, dict)
+        self.messages.append(decoded)
+
+
+class _Manager(BaseWebRTCSessionManager[Any, object]):
+    def _model_name(self) -> str:
+        return "fake"
+
+
+def _managed_session_with_channel(
+    runtime: object,
+) -> tuple[ManagedWebRTCSession, _FakeControlChannel]:
+    channel = _FakeControlChannel()
+    managed_session = ManagedWebRTCSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=KeyboardResampler(fps=30, start_v=0.0),
+        control_channel=channel,
+    )
+    return managed_session, channel
+
+
+@pytest.mark.asyncio
+async def test_event_message_dispatches_to_runtime_and_acknowledges() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {"active_event_id": event_id}
+
+    runtime = _FakeRuntime()
+    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","event_id":"portal","state":"trigger"}',
+    )
+
+    assert runtime.calls == [("portal", "trigger")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": "portal",
+            "state": "trigger",
+            "active_event_id": "portal",
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_clear_event_message_preserves_ack_fields() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {
+                "type": "not_event_ack",
+                "event_id": "overwritten",
+                "state": "overwritten",
+                "active_event_id": None,
+            }
+
+    runtime = _FakeRuntime()
+    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"clear"}',
+    )
+
+    assert runtime.calls == [("", "clear")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": None,
+            "state": "clear",
+            "active_event_id": None,
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_event_message_without_id_is_rejected_for_trigger() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            del event_id, state
+            self.calls += 1
+            return {}
+
+    runtime = _FakeRuntime()
+    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"trigger"}',
+    )
+
+    assert runtime.calls == 0
+    assert channel.messages == [
+        {
+            "type": "error",
+            "message": (
+                "Event payload must include non-empty 'event_id' "
+                "unless state clears the active event."
+            ),
+        }
+    ]
+    assert not managed_session.first_action_received.is_set()
 
 
 def test_packaged_webrtc_app_keeps_resource_materialized(tmp_path) -> None:

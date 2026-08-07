@@ -116,7 +116,7 @@ class ManagedWebRTCSession:
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
     pending_action_arrivals: deque[float] = field(default_factory=deque)
     inference_session: Any | None = None
-    """Set only on the session branch; ``None`` means legacy generate_chunk."""
+    """Active ``InferenceSession``; ``None`` means call ``runtime.generate_chunk``."""
     user_events: deque[UserInputEvent] = field(default_factory=deque)
     """Raw user events awaiting canonicalization, oldest first."""
     last_client_message_at: float = 0.0
@@ -363,7 +363,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
     @staticmethod
     def _drives_inference_session(runtime: Any) -> bool:
-        """Return whether ``runtime`` opts into the InferenceSession branch."""
+        """Return whether ``runtime`` should be driven through ``InferenceSession``."""
         return callable(getattr(runtime, "start_inference_session", None))
 
     def _record_user_event(

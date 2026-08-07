@@ -697,9 +697,8 @@ class LingbotInferenceRuntime:
     async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
         """Return an ``InferenceSession`` view of the current rollout.
 
-        Opting into this makes the shared manager canonicalize raw key and text
-        events and map them into per-step model inputs, instead of handing this
-        runtime pre-integrated pose segments.
+        The shared manager canonicalizes raw key and text events and maps them
+        into per-step model inputs before stepping the session.
         """
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
@@ -731,8 +730,7 @@ class LingbotInferenceRuntime:
         """Build the canonicalizer and mapping for the current rollout.
 
         A rollout can be reset before intrinsics are resolved; the mapping is
-        then left unbuilt and ``start_inference_session`` reports it, rather
-        than failing a reset that the legacy path does not need it for.
+        then left unbuilt and ``start_inference_session`` reports it.
         """
         if self._base_intrinsics is None:
             self._input_mapping = None
@@ -786,16 +784,14 @@ class LingbotInferenceRuntime:
         """Generate one autoregressive chunk from a piecewise-constant timeline.
 
         Args:
-            segments: Piecewise-constant keyboard-state segments
-                covering the chunk's virtual-time window; produced by
-                :meth:`KeyboardResampler.sample_chunk`.
-            frame_times: Virtual times at which to sample the camera
-                pose; must have length equal to
-                :meth:`peek_next_chunk_num_frames` at call time.
+            segments: Piecewise-constant keyboard-state segments covering the
+                chunk's virtual-time window.
+            frame_times: Virtual times at which to sample the camera pose; must
+                have length equal to :meth:`peek_next_chunk_num_frames` at call
+                time.
 
         Returns:
-            :class:`VideoStepResult` carrying the produced video chunk
-            and the post-generation pipeline stats.
+            Video chunk and post-generation pipeline stats.
 
         Raises:
             LingbotRuntimeError: Runtime is closed or not initialized.
@@ -1302,8 +1298,8 @@ class LingbotInferenceRuntime:
     ) -> VideoStepResult:
         """Generate one chunk from an already-resolved camera trajectory.
 
-        Shared by the legacy segment path and the mapped-input session path so
-        both reach the model through identical conditioning.
+        Shared by the segment path and the mapped-input session path so both
+        reach the model through identical conditioning.
         """
         if self._pipeline is None or self._cache is None:
             raise LingbotRuntimeError("Runtime is not initialized.")

@@ -1,13 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""The manager's InferenceSession branch must match the legacy segment branch.
+"""The manager's ``InferenceSession`` branch must preserve camera controls.
 
-The legacy branch hands ``KeyboardResampler`` segments straight to
-``generate_chunk``. The session branch buffers raw events, canonicalizes them
-over the chunk window, and maps them into per-step ``InferenceInput``. Both
-must put the same camera trajectory in front of the model, or moving LingBot's
-live path onto the runtime API would silently change how it drives.
+The session branch buffers raw events, canonicalizes them over the chunk
+window, and maps them into per-step ``InferenceInput``. The resulting camera
+trajectory must match the direct resampler/integrator reference, or moving
+LingBot's live path onto the runtime API would silently change how it drives.
 """
 
 from __future__ import annotations
@@ -123,7 +122,9 @@ def _manager(runtime: _FakeRuntime) -> _Manager:
     return _Manager(runtime=runtime, runtime_config=_FakeRuntimeConfig(), fps=_FPS)
 
 
-def _legacy_poses(edges: list[tuple[float, str, str]], *, chunks: int) -> np.ndarray:
+def _reference_poses(
+    edges: list[tuple[float, str, str]], *, chunks: int
+) -> np.ndarray:
     resampler = KeyboardResampler(fps=_FPS, start_v=0.0)
     integrator = CameraPoseIntegrator()
     for timestamp_s, event, key in edges:
@@ -187,14 +188,14 @@ def _session_branch_poses(
         pytest.param([], id="idle"),
     ],
 )
-def test_session_branch_matches_legacy_branch(
+def test_session_branch_matches_reference_camera_integration(
     edges: list[tuple[float, str, str]],
 ) -> None:
-    legacy = _legacy_poses(edges, chunks=3)
+    reference = _reference_poses(edges, chunks=3)
     session_branch = _session_branch_poses(edges, chunks=3)
 
-    assert legacy.shape == session_branch.shape
-    np.testing.assert_allclose(session_branch, legacy, atol=1e-5)
+    assert reference.shape == session_branch.shape
+    np.testing.assert_allclose(session_branch, reference, atol=1e-5)
 
 
 def test_session_branch_supplies_intrinsics_for_every_step() -> None:
@@ -248,8 +249,6 @@ async def test_text_event_becomes_a_buffered_user_event() -> None:
     runtime = _FakeRuntime(text_event_prompts={"storm": "a violent storm"})
     manager = _manager(runtime)
     managed = _managed_session(runtime)
-    # The legacy branch would call runtime.trigger_event; the session branch
-    # must not, because the swap now travels with the next step's inputs.
     assert not hasattr(runtime, "trigger_event")
 
     handled = await manager._handle_event_message(
@@ -274,14 +273,12 @@ async def test_text_event_becomes_a_buffered_user_event() -> None:
 
 
 def test_real_lingbot_runtime_selects_the_session_branch() -> None:
-    """The shipped runtime must actually opt in, not just be capable of it."""
+    """The shipped runtime must be session-capable while retaining segment stepping."""
     from lingbot.webrtc.session import LingbotInferenceRuntime, LingbotRuntimeConfig
 
     runtime = LingbotInferenceRuntime(config=LingbotRuntimeConfig(device="cpu"))
 
     assert BaseWebRTCSessionManager._drives_inference_session(runtime) is True
-    # The legacy entry point stays callable so a rollback is a one-line change
-    # to the capability check rather than a revert of the runtime.
     assert callable(runtime.generate_chunk)
 
 
