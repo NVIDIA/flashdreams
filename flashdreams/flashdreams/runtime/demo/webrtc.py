@@ -16,6 +16,8 @@ from aiohttp import web
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import (
+    SESSION_MANAGER_KEY,
+    SessionBusyError,
     create_packaged_webrtc_app,
     create_webrtc_app,
 )
@@ -42,6 +44,134 @@ ChunkDoneExtraHook = Callable[[Any, Any], Mapping[str, Any]]
 PeerConnectionHook = Callable[[Any], None]
 SdpHook = Callable[[str], None]
 ConfigureWebRTCApp = Callable[[web.Application], None]
+WebRTCRouteHandler = Callable[
+    [web.Request, Any], Awaitable[web.StreamResponse] | web.StreamResponse
+]
+JsonRoutePayload = Mapping[str, Any]
+RouteResponse = web.StreamResponse | JsonRoutePayload
+JsonRouteBuilder = Callable[[Any], Awaitable[JsonRoutePayload] | JsonRoutePayload]
+SessionInputParser = Callable[[web.Request, Any], Awaitable[Any] | Any]
+SessionInputResponseBuilder = Callable[
+    [Any, Any],
+    Awaitable[RouteResponse] | RouteResponse,
+]
+SessionInputValidator = Callable[[Any], None]
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class WebRTCRoute:
+    """Model-provided route registered on a shared demo WebRTC app."""
+
+    method: str
+    path: str
+    handler: WebRTCRouteHandler
+
+    def __post_init__(self) -> None:
+        method = self.method.strip().upper()
+        path = self.path.strip()
+        if not method:
+            raise ValueError("WebRTCRoute.method must be non-empty.")
+        if not path.startswith("/"):
+            raise ValueError("WebRTCRoute.path must start with '/'.")
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "path", path)
+
+
+@dataclass(slots=True)
+class PendingSessionInputState:
+    """Shared storage and busy handling for next-session WebRTC input."""
+
+    busy_message: str
+    input_type: type[Any] | tuple[type[Any], ...] | None = None
+    validate_input: SessionInputValidator | None = None
+    pending_session_input: Any = None
+
+    def __post_init__(self) -> None:
+        if not self.busy_message.strip():
+            raise ValueError("PendingSessionInputState.busy_message must be non-empty.")
+
+    def peek(self) -> Any:
+        return self.pending_session_input
+
+    def clear(self) -> None:
+        self.pending_session_input = None
+
+    def set(self, manager: Any, session_input: Any) -> None:
+        if self.input_type is not None and not isinstance(
+            session_input, self.input_type
+        ):
+            expected = _type_name(self.input_type)
+            raise TypeError(f"Expected {expected}.")
+        if manager.has_active_session():
+            raise SessionBusyError(self.busy_message)
+        if self.validate_input is not None:
+            self.validate_input(session_input)
+        self.pending_session_input = session_input
+
+
+def json_get_route(path: str, build_payload: JsonRouteBuilder) -> WebRTCRoute:
+    """Create a shared JSON GET route backed by a model payload hook."""
+
+    async def handler(request: web.Request, manager: Any) -> web.StreamResponse:
+        del request
+        return await _as_route_response(build_payload(manager))
+
+    return WebRTCRoute(method="GET", path=path, handler=handler)
+
+
+def session_input_route(
+    path: str,
+    *,
+    parse_input: SessionInputParser,
+    build_response: SessionInputResponseBuilder | None = None,
+) -> WebRTCRoute:
+    """Create a shared session-input POST route around model hooks."""
+
+    async def handler(request: web.Request, manager: Any) -> web.StreamResponse:
+        try:
+            session_input = await _maybe_await(parse_input(request, manager))
+        except web.HTTPException:
+            raise
+        except ValueError as exc:
+            raise web.HTTPBadRequest(reason=str(exc)) from exc
+
+        try:
+            result = manager.set_pending_session_input(session_input)
+            if inspect.isawaitable(result):
+                await result
+        except web.HTTPException:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise web.HTTPBadRequest(reason=str(exc)) from exc
+        except SessionBusyError as exc:
+            raise web.HTTPConflict(reason=str(exc)) from exc
+
+        if build_response is None:
+            return web.json_response({})
+        return await _as_route_response(build_response(session_input, manager))
+
+    return WebRTCRoute(method="POST", path=path, handler=handler)
+
+
+async def _maybe_await(value: Awaitable[Any] | Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _as_route_response(
+    value: Awaitable[RouteResponse] | RouteResponse,
+) -> web.StreamResponse:
+    resolved = await _maybe_await(value)
+    if isinstance(resolved, web.StreamResponse):
+        return resolved
+    return web.json_response(resolved)
+
+
+def _type_name(input_type: type[Any] | tuple[type[Any], ...]) -> str:
+    if isinstance(input_type, tuple):
+        return " or ".join(sorted(t.__name__ for t in input_type))
+    return input_type.__name__
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -92,6 +222,7 @@ class WebRTCAppExtension:
     web_dir: str | Path | None = None
     preload_name: str | None = None
     index_filename: str = "request_session.html"
+    routes: tuple[WebRTCRoute, ...] = ()
     configure_app: ConfigureWebRTCApp | None = None
 
     def __post_init__(self) -> None:
@@ -105,6 +236,7 @@ class WebRTCAppExtension:
             raise ValueError("WebRTCAppExtension.index_filename must be non-empty.")
         if self.preload_name is not None and not self.preload_name.strip():
             raise ValueError("WebRTCAppExtension.preload_name must be non-empty.")
+        object.__setattr__(self, "routes", tuple(self.routes))
 
 
 class SharedDemoWebRTCSessionManager(BaseWebRTCSessionManager[Any, Any]):
@@ -450,13 +582,14 @@ def _build_webrtc_app_from_extension(
     fallback_preload_name: str,
 ) -> web.Application:
     preload_name = extension.preload_name or fallback_preload_name
+    configure_app = _configure_app_from_extension(extension)
     if extension.web_resource is not None:
         return create_packaged_webrtc_app(
             web_resource=extension.web_resource,
             session_manager=session_manager,
             request_session_url=request_session_url,
             preload_name=preload_name,
-            configure_app=extension.configure_app,
+            configure_app=configure_app,
             index_filename=extension.index_filename,
             create_app_fn=create_app_fn,
         )
@@ -471,9 +604,32 @@ def _build_webrtc_app_from_extension(
         preload_name=preload_name,
         index_filename=extension.index_filename,
     )
-    if extension.configure_app is not None:
-        extension.configure_app(app)
+    if configure_app is not None:
+        configure_app(app)
     return app
+
+
+def _configure_app_from_extension(
+    extension: WebRTCAppExtension,
+) -> ConfigureWebRTCApp | None:
+    if not extension.routes and extension.configure_app is None:
+        return None
+
+    def configure(app: web.Application) -> None:
+        for route in extension.routes:
+            _register_webrtc_route(app, route)
+        if extension.configure_app is not None:
+            extension.configure_app(app)
+
+    return configure
+
+
+def _register_webrtc_route(app: web.Application, route: WebRTCRoute) -> None:
+    async def handler(request: web.Request) -> web.StreamResponse:
+        manager = request.app[SESSION_MANAGER_KEY]
+        return await _maybe_await(route.handler(request, manager))
+
+    app.router.add_route(route.method, route.path, handler)
 
 
 def _build_webrtc_app(
@@ -500,12 +656,16 @@ def _request_session_url(output: WebRTCOutputSpec) -> str:
 
 __all__ = [
     "CreateWebRTCApp",
+    "PendingSessionInputState",
     "RunWebRTCServer",
     "SharedDemoWebRTCSessionManager",
     "WebRTCAppExtension",
     "WebRTCDemo",
     "WebRTCManagerOptions",
+    "WebRTCRoute",
     "WebRTCDemoRuntimeConfig",
     "build_webrtc_demo",
+    "json_get_route",
+    "session_input_route",
     "serve_webrtc_demo",
 ]

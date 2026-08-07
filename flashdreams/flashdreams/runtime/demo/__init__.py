@@ -15,7 +15,14 @@ from flashdreams.runtime.demo.spec import (
     PreparedScenario,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.webrtc import WebRTCAppExtension, WebRTCManagerOptions
+from flashdreams.runtime.demo.webrtc import (
+    PendingSessionInputState,
+    WebRTCAppExtension,
+    WebRTCManagerOptions,
+    WebRTCRoute,
+    json_get_route,
+    session_input_route,
+)
 
 __all__ = [
     "DemoAdapter",
@@ -23,12 +30,16 @@ __all__ = [
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",
+    "PendingSessionInputState",
     "PreparedScenario",
     "WebRTCAppExtension",
     "WebRTCManagerOptions",
+    "WebRTCRoute",
     "WebRTCOutputSpec",
     "build_output_target",
+    "json_get_route",
     "run_flashdreams_demo",
     "run_replay_demo",
+    "session_input_route",
     "serve_flashdreams_demo",
 ]

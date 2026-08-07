@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from importlib.resources import files
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 import pytest
 import torch
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
@@ -46,15 +48,31 @@ from flashdreams.runtime.demo import (
     run_replay_demo,
 )
 from flashdreams.runtime.demo.webrtc import (
+    PendingSessionInputState,
     SharedDemoWebRTCSessionManager,
     WebRTCAppExtension,
     WebRTCManagerOptions,
+    WebRTCRoute,
     build_webrtc_demo,
+    json_get_route,
+    session_input_route,
 )
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
-from flashdreams.serving.webrtc.server import PACKAGE_RESOURCE_STACK_KEY
+from flashdreams.serving.webrtc.server import (
+    PACKAGE_RESOURCE_STACK_KEY,
+    SessionBusyError,
+)
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _json_response_payload(response: web.StreamResponse) -> dict[str, Any]:
+    assert isinstance(response, web.Response)
+    text = response.text
+    assert text is not None
+    payload = json.loads(text)
+    assert isinstance(payload, dict)
+    return payload
 
 
 def test_replay_demo_uses_shared_runner() -> None:
@@ -233,16 +251,15 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
 
 
 def test_webrtc_demo_builds_app_from_extension_routes() -> None:
-    async def fake_route(_: web.Request) -> web.StreamResponse:
-        return web.json_response({"ok": True})
-
-    def configure_app(app: web.Application) -> None:
-        app.router.add_get("/api/fake/model-info", fake_route)
-
     app_extension = WebRTCAppExtension(
         web_resource=files("flashdreams.runtime.demo"),
         preload_name="Fake WebRTC",
-        configure_app=configure_app,
+        routes=(
+            json_get_route(
+                "/api/fake/model-info",
+                lambda manager: {"model": manager._model_name()},
+            ),
+        ),
     )
     adapter = _FakeDemoAdapter(app_extension=app_extension)
     spec = DemoSpec(
@@ -272,6 +289,41 @@ def test_webrtc_demo_builds_app_from_extension_routes() -> None:
             "request_session_url": "http://127.0.0.1:8082/request_session",
         }
     ]
+    demo.app[PACKAGE_RESOURCE_STACK_KEY].close()
+
+
+def test_webrtc_demo_app_extension_keeps_configure_app_callback() -> None:
+    async def fake_route(_: web.Request) -> web.StreamResponse:
+        return web.json_response({"ok": True})
+
+    def configure_app(app: web.Application) -> None:
+        app.router.add_get("/api/fake/configured", fake_route)
+
+    app_extension = WebRTCAppExtension(
+        web_resource=files("flashdreams.runtime.demo"),
+        configure_app=configure_app,
+    )
+    adapter = _FakeDemoAdapter(app_extension=app_extension)
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(
+            host="0.0.0.0",
+            port=8082,
+            fps=24,
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        ),
+    )
+
+    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+
+    assert demo.app is not None
+    route_paths = {resource.canonical for resource in demo.app.router.resources()}
+    assert "/api/fake/configured" in route_paths
     demo.app[PACKAGE_RESOURCE_STACK_KEY].close()
 
 
@@ -359,6 +411,127 @@ async def test_webrtc_demo_manager_options_configure_shared_manager() -> None:
     resampler.on_edge(arrival_t=0.5, event="keydown", key="w")
     segments, _ = resampler.sample_chunk(num_frames=1)
     assert segments[0][2] == frozenset({"w"})
+
+
+@pytest.mark.asyncio
+async def test_json_get_route_builds_payload_from_shared_manager() -> None:
+    class _Manager:
+        def _model_name(self) -> str:
+            return "fake-demo"
+
+    route = json_get_route(
+        "/api/fake/model-info",
+        lambda manager: {"model": manager._model_name()},
+    )
+    request = make_mocked_request("GET", "/api/fake/model-info")
+
+    response = await route.handler(request, _Manager())
+
+    assert _json_response_payload(response) == {"model": "fake-demo"}
+
+
+def test_webrtc_route_normalizes_method_and_requires_absolute_path() -> None:
+    route = WebRTCRoute(
+        method=" get ",
+        path="/api/fake",
+        handler=lambda _request, _manager: web.json_response({}),
+    )
+
+    assert route.method == "GET"
+    assert route.path == "/api/fake"
+
+    with pytest.raises(ValueError, match="path must start"):
+        WebRTCRoute(
+            method="GET",
+            path="api/fake",
+            handler=lambda _request, _manager: web.json_response({}),
+        )
+
+
+def test_pending_session_input_state_stores_valid_input_and_rejects_busy() -> None:
+    class _Manager:
+        active = False
+
+        def has_active_session(self) -> bool:
+            return self.active
+
+    validated: list[str] = []
+    manager = _Manager()
+    state = PendingSessionInputState(
+        busy_message="fake session busy",
+        input_type=str,
+        validate_input=validated.append,
+    )
+
+    state.set(manager, "accepted")
+
+    assert state.peek() == "accepted"
+    assert validated == ["accepted"]
+    state.clear()
+    assert state.peek() is None
+
+    with pytest.raises(TypeError, match="Expected str"):
+        state.set(manager, object())
+
+    manager.active = True
+    with pytest.raises(SessionBusyError, match="fake session busy"):
+        state.set(manager, "next")
+
+
+@pytest.mark.asyncio
+async def test_session_input_route_applies_pending_input_and_maps_errors() -> None:
+    class _Manager:
+        active = False
+
+        def __init__(self) -> None:
+            self.state = PendingSessionInputState(
+                busy_message="fake session busy",
+                input_type=str,
+                validate_input=self._validate,
+            )
+
+        def has_active_session(self) -> bool:
+            return self.active
+
+        def set_pending_session_input(self, session_input: str) -> None:
+            self.state.set(self, session_input)
+
+        def _validate(self, session_input: str) -> None:
+            if session_input == "invalid":
+                raise ValueError("invalid input")
+
+    manager = _Manager()
+    request = make_mocked_request("POST", "/api/fake/session/input")
+    route = session_input_route(
+        "/api/fake/session/input",
+        parse_input=lambda _request, _manager: "accepted",
+        build_response=lambda session_input, _manager: {
+            "accepted": session_input,
+        },
+    )
+
+    response = await route.handler(request, manager)
+
+    assert _json_response_payload(response) == {"accepted": "accepted"}
+    assert manager.state.peek() == "accepted"
+
+    invalid_route = session_input_route(
+        "/api/fake/session/input",
+        parse_input=lambda _request, _manager: "invalid",
+    )
+    with pytest.raises(web.HTTPBadRequest, match="invalid input"):
+        await invalid_route.handler(request, manager)
+
+    wrong_type_route = session_input_route(
+        "/api/fake/session/input",
+        parse_input=lambda _request, _manager: object(),
+    )
+    with pytest.raises(web.HTTPBadRequest, match="Expected str"):
+        await wrong_type_route.handler(request, manager)
+
+    manager.active = True
+    with pytest.raises(web.HTTPConflict, match="fake session busy"):
+        await route.handler(request, manager)
 
 
 def test_webrtc_app_extension_rejects_ambiguous_static_sources(tmp_path: Path) -> None:

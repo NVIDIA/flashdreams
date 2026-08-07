@@ -5,9 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from importlib.resources import files
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from aiohttp import web
 from omnidreams.webrtc.session import (
@@ -19,48 +18,18 @@ from omnidreams.webrtc.session import (
 
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.runtime.demo import DemoSpec
-from flashdreams.runtime.demo.webrtc import WebRTCAppExtension, WebRTCManagerOptions
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
-from flashdreams.serving.webrtc.server import (
-    SESSION_MANAGER_KEY,
-    SessionBusyError,
+from flashdreams.runtime.demo.webrtc import (
+    PendingSessionInputState,
+    WebRTCAppExtension,
+    WebRTCManagerOptions,
+    WebRTCRoute,
+    json_get_route,
+    session_input_route,
 )
+from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 
 _BUSY_MESSAGE = "An Omnidreams session is already active."
 _WARMUP_LABEL = "Omnidreams WebRTC"
-
-
-class _OmnidreamsSessionManager(Protocol):
-    runtime_config: OmnidreamsRuntimeConfig
-
-    def set_pending_session_input(
-        self, session_input: OmnidreamsSessionInput
-    ) -> None: ...
-
-
-@dataclass(slots=True)
-class _OmnidreamsPendingSessionInputState:
-    runtime_config: OmnidreamsRuntimeConfig
-    pending_session_input: OmnidreamsSessionInput | None = None
-
-    def peek(self) -> OmnidreamsSessionInput | None:
-        return self.pending_session_input
-
-    def clear(self) -> None:
-        self.pending_session_input = None
-
-    def set(self, manager: Any, session_input: Any) -> None:
-        if not isinstance(session_input, OmnidreamsSessionInput):
-            raise TypeError("Expected OmnidreamsSessionInput.")
-        if manager.has_active_session():
-            raise SessionBusyError(_BUSY_MESSAGE)
-        preset = session_input.postprocess_preset
-        if preset:
-            _validate_requested_postprocess_preset(
-                requested_preset=preset,
-                configured_preset=self.runtime_config.postprocess.preset,
-            )
-        self.pending_session_input = session_input
 
 
 def create_omnidreams_webrtc_manager_options(
@@ -68,8 +37,13 @@ def create_omnidreams_webrtc_manager_options(
     runtime_config: OmnidreamsRuntimeConfig,
 ) -> WebRTCManagerOptions:
     """Build shared manager options for OmniDreams WebRTC semantics."""
-    session_input_state = _OmnidreamsPendingSessionInputState(
-        runtime_config=runtime_config
+    session_input_state = PendingSessionInputState(
+        busy_message=_BUSY_MESSAGE,
+        input_type=OmnidreamsSessionInput,
+        validate_input=lambda session_input: validate_omnidreams_session_input(
+            session_input,
+            runtime_config=runtime_config,
+        ),
     )
 
     async def reset_runtime(runtime: Any, session_input: Any) -> None:
@@ -97,49 +71,74 @@ def create_omnidreams_webrtc_manager_options(
     )
 
 
-async def postprocess_options(request: web.Request) -> web.StreamResponse:
+def build_postprocess_options_payload(manager: Any) -> dict[str, Any]:
     """Return the postprocess preset selected at server launch."""
-    manager = _get_omnidreams_manager(request.app)
     configured_preset = manager.runtime_config.postprocess.preset
     presets = [configured_preset] if configured_preset else []
-    return web.json_response(
-        {
-            "default_preset": configured_preset,
-            "presets": presets,
-        }
-    )
+    return {
+        "default_preset": configured_preset,
+        "presets": presets,
+    }
 
 
-async def session_input(request: web.Request) -> web.StreamResponse:
-    """Apply browser-selected settings to the next WebRTC rollout."""
+async def parse_omnidreams_session_input(
+    request: web.Request,
+    manager: Any,
+) -> OmnidreamsSessionInput:
+    """Parse browser-selected settings for the next WebRTC rollout."""
+    del manager
     try:
         payload = await request.json()
     except Exception as exc:
-        raise web.HTTPBadRequest(reason="Expected JSON session input.") from exc
+        raise ValueError("Expected JSON session input.") from exc
     if not isinstance(payload, dict):
-        raise web.HTTPBadRequest(reason="Session input must be a JSON object.")
+        raise ValueError("Session input must be a JSON object.")
     preset = payload.get("postprocess_preset")
     if not isinstance(preset, str):
-        raise web.HTTPBadRequest(
-            reason="Session input must include string 'postprocess_preset'."
+        raise ValueError(
+            "Session input must include string 'postprocess_preset'."
+        )
+    return OmnidreamsSessionInput(postprocess_preset=preset)
+
+
+def build_session_input_response(
+    session_input: Any,
+    manager: Any,
+) -> dict[str, Any]:
+    """Return the browser-visible settings accepted for the next rollout."""
+    del manager
+    omnidreams_input = cast(OmnidreamsSessionInput, session_input)
+    return {"postprocess_preset": omnidreams_input.postprocess_preset}
+
+
+def validate_omnidreams_session_input(
+    session_input: Any,
+    *,
+    runtime_config: OmnidreamsRuntimeConfig,
+) -> None:
+    """Validate OmniDreams session input before storing it for next reset."""
+    omnidreams_input = cast(OmnidreamsSessionInput, session_input)
+    preset = omnidreams_input.postprocess_preset
+    if preset:
+        _validate_requested_postprocess_preset(
+            requested_preset=preset,
+            configured_preset=runtime_config.postprocess.preset,
         )
 
-    manager = _get_omnidreams_manager(request.app)
-    try:
-        manager.set_pending_session_input(
-            OmnidreamsSessionInput(postprocess_preset=preset)
-        )
-    except SessionBusyError as exc:
-        raise web.HTTPConflict(reason=str(exc)) from exc
-    except ValueError as exc:
-        raise web.HTTPBadRequest(reason=str(exc)) from exc
-    return web.json_response({"postprocess_preset": preset})
 
-
-def configure_omnidreams_webrtc_app(app: web.Application) -> None:
-    """Register OmniDreams browser support routes on a shared WebRTC app."""
-    app.router.add_get("/api/postprocess/options", postprocess_options)
-    app.router.add_post("/api/session/input", session_input)
+def create_omnidreams_webrtc_routes() -> tuple[WebRTCRoute, ...]:
+    """Describe OmniDreams browser support routes for the shared app builder."""
+    return (
+        json_get_route(
+            "/api/postprocess/options",
+            build_postprocess_options_payload,
+        ),
+        session_input_route(
+            "/api/session/input",
+            parse_input=parse_omnidreams_session_input,
+            build_response=build_session_input_response,
+        ),
+    )
 
 
 def create_omnidreams_webrtc_app_extension(
@@ -155,7 +154,7 @@ def create_omnidreams_webrtc_app_extension(
     return WebRTCAppExtension(
         web_resource=files("omnidreams.webrtc").joinpath("web"),
         preload_name=preload_name or "Omnidreams",
-        configure_app=configure_omnidreams_webrtc_app,
+        routes=create_omnidreams_webrtc_routes(),
     )
 
 
@@ -165,15 +164,13 @@ def validate_postprocess_preset(preset: str) -> None:
         resolve_postprocess_preset(preset)
 
 
-def _get_omnidreams_manager(app: web.Application) -> _OmnidreamsSessionManager:
-    return cast(_OmnidreamsSessionManager, app[SESSION_MANAGER_KEY])
-
-
 __all__ = [
-    "configure_omnidreams_webrtc_app",
+    "build_postprocess_options_payload",
+    "build_session_input_response",
     "create_omnidreams_webrtc_app_extension",
     "create_omnidreams_webrtc_manager_options",
-    "postprocess_options",
-    "session_input",
+    "create_omnidreams_webrtc_routes",
+    "parse_omnidreams_session_input",
+    "validate_omnidreams_session_input",
     "validate_postprocess_preset",
 ]
