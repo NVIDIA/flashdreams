@@ -19,8 +19,12 @@ from lingbot.runtime import (
     inference_input_from_replay_inputs,
 )
 
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime import CanonicalInputs, InferenceConfig, InferenceInput
+from flashdreams.runtime import (
+    CanonicalInputs,
+    InferenceConfig,
+    InferenceInput,
+    StepResult,
+)
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -104,9 +108,9 @@ def test_lingbot_replay_runtime_accepts_direct_inputs_on_cuda(
         runtime.close()
 
     assert result.frame_count == 1
-    assert isinstance(result.output, VideoStepResult)
-    assert result.output.video_chunk.is_cuda
-    assert result.output.video_chunk.shape == (1, 3, 2, 2)
+    assert isinstance(result, StepResult)
+    assert result.video_chunk.is_cuda
+    assert result.video_chunk.shape == (1, 3, 2, 2)
     assert pipeline.initialize_cache_devices == ["cuda"]
     assert pipeline.generate_world_scales == [mapping.camera_trace.world_scale]
 
@@ -217,9 +221,7 @@ def test_event_driven_camera_control_on_cuda(
             UserInputCapability(
                 event_type="key_down", payload_fields=frozenset({"key"})
             ),
-            UserInputCapability(
-                event_type="key_up", payload_fields=frozenset({"key"})
-            ),
+            UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"})),
         )
     )
     user_inputs = UserInputs(
@@ -255,5 +257,6 @@ def test_event_driven_camera_control_on_cuda(
         session.close()
         runtime.close()
 
-    assert result.output.video_chunk.is_cuda
+    assert isinstance(result, StepResult)
+    assert result.video_chunk.is_cuda
     assert pipeline.generate_world_scales == [1.0]

@@ -22,7 +22,6 @@ from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
     load_first_frame_tensor,
 )
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceSession
@@ -163,15 +162,10 @@ class OmnidreamsReplaySession:
 
         metrics = _numeric_stats(stats)
         metrics.setdefault("model_step_s", elapsed_s)
-        return StepResult(
+        return StepResult.from_video_chunk(
             step_index=step_index,
-            output=VideoStepResult.from_video_chunk(
-                chunk_index=step_index,
-                video_chunk=video_chunk,
-                layout=self.output_layout,
-                stats=metrics,
-            ),
-            frame_count=num_frames,
+            video_chunk=video_chunk,
+            layout=self.output_layout,
             metrics=metrics,
         )
 

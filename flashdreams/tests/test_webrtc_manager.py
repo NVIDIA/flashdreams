@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import torch
 
+from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -18,7 +19,6 @@ from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
 )
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.serving.webrtc.server import SessionBusyError
 
 pytestmark = pytest.mark.ci_cpu
@@ -479,7 +479,7 @@ async def test_generation_worker_closes_session_when_flag_set() -> None:
 
         async def generate_chunk(
             self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")
@@ -516,7 +516,7 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
 
         async def generate_chunk(
             self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments, frame_times
             self.generate_calls += 1
             # Stop the loop after the second attempt without tearing down.
@@ -553,15 +553,14 @@ async def test_chunk_done_payload_includes_model_and_extra() -> None:
 
         async def generate_chunk(
             self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments, frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=0,
-                num_frames=1,
+            return StepResult.from_video_chunk(
+                step_index=0,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+                layout="bvtchw",
             )
 
     class _ExtraManager(_BaseTestManager):
@@ -621,16 +620,15 @@ async def test_generation_worker_uses_split_input_and_output_frame_counts() -> N
 
         async def generate_chunk(
             self, *, segments: Any, frame_times: list[float]
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments
             self.frame_times = frame_times
             if self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=0,
-                num_frames=5,
-                video_chunk=torch.zeros((5, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+            return StepResult.from_video_chunk(
+                step_index=0,
+                video_chunk=torch.zeros((5, 3, 2, 2), dtype=torch.uint8),
+                layout="tchw",
             )
 
     runtime = _SplitRuntime()
@@ -679,17 +677,17 @@ async def test_generation_worker_logs_periodic_perf_stats(
 
         async def generate_chunk(
             self, *, segments: Any, frame_times: Any
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments, frame_times
             chunk_index = self.chunk_index
             self.chunk_index += 1
             if chunk_index >= 2 and self.managed_session is not None:
                 self.managed_session.closed = True
-            return VideoStepResult(
-                chunk_index=chunk_index,
-                num_frames=4,
-                video_chunk=torch.zeros((4, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats={
+            return StepResult.from_video_chunk(
+                step_index=chunk_index,
+                video_chunk=torch.zeros((4, 3, 2, 2), dtype=torch.uint8),
+                layout="tchw",
+                metrics={
                     "model_step_s": 0.02,
                     "denoise_s": 0.01,
                     "decode_s": 0.004,

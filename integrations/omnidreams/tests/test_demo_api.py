@@ -27,7 +27,6 @@ from omnidreams.demo.replay import (
 )
 from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
 
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
@@ -251,9 +250,9 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
 
     assert result.step_index == 0
     assert result.frame_count == 1
-    assert isinstance(result.output, VideoStepResult)
-    assert result.output.layout == "bvtchw"
-    assert result.output.video_chunk.shape == (1, 1, 1, 3, 2, 2)
+    assert isinstance(result, StepResult)
+    assert result.layout == "bvtchw"
+    assert result.video_chunk.shape == (1, 1, 1, 3, 2, 2)
     assert result.metrics["denoise_s"] == 0.25
     assert session.next_step_request() is None
     assert pipeline.initialize_cache_calls == [

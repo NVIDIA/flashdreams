@@ -33,7 +33,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostProcessorConfig,
 )
-from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -224,10 +224,10 @@ def test_generate_chunk_dispatches_start_then_continue() -> None:
         frame_times=[3 / 30, 4 / 30, 5 / 30],
     )
 
-    assert result0.chunk_index == 0
-    assert result0.num_frames == 2
-    assert result1.chunk_index == 1
-    assert result1.num_frames == 3
+    assert result0.step_index == 0
+    assert result0.frame_count == 2
+    assert result1.step_index == 1
+    assert result1.frame_count == 3
     assert wrapper.calls[0][0] == "start"
     assert wrapper.calls[0][1] == (2, 4, 4)
     assert wrapper.calls[0][2] == [1000, 34333]
@@ -321,12 +321,12 @@ def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
         frame_times=[3 / 30, 4 / 30, 5 / 30],
     )
 
-    assert result0.chunk_index == 0
-    assert result0.num_frames == 2
+    assert result0.step_index == 0
+    assert result0.frame_count == 2
     assert result0.video_chunk.shape == (1, 1, 2, 3, 4, 5)
     assert result0.video_chunk.unique().tolist() == [31]
-    assert result1.chunk_index == 1
-    assert result1.num_frames == 3
+    assert result1.step_index == 1
+    assert result1.frame_count == 3
     assert result1.video_chunk.shape == (1, 1, 3, 3, 4, 5)
     assert result1.video_chunk.unique().tolist() == [47]
     assert wrapper.skip_video_generation_flags == [True, True]
@@ -959,7 +959,8 @@ def test_webrtc_ui_posts_selected_postprocess_preset() -> None:
     )
     adapter = (
         files("omnidreams.webrtc")
-        .joinpath("web", "adapter.js")
+        .joinpath("web")
+        .joinpath("adapter.js")
         .read_text(encoding="utf-8")
     )
 
@@ -1059,15 +1060,14 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return VideoStepResult(
-                chunk_index=chunk_index,
-                num_frames=1,
+            return StepResult.from_video_chunk(
+                step_index=chunk_index,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                stats=None,
+                layout="bvtchw",
             )
 
         async def close(self) -> None:
@@ -1206,7 +1206,7 @@ async def test_generation_worker_closes_session_after_generation_failure() -> No
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> VideoStepResult:
+        ) -> StepResult:
             del segments, frame_times
             self.generate_calls += 1
             raise RuntimeError("boom")

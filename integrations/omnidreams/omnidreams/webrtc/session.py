@@ -53,8 +53,9 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.plugins.registry import resolve_postprocess_preset
+from flashdreams.runtime.types import StepResult
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -594,7 +595,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         if self._closed:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
@@ -661,7 +662,7 @@ class OmnidreamsInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
     @distributed_op(WebRTCControlSignal.CLOSE)
@@ -1010,7 +1011,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         if (
             self._wrapper is None
             or self._renderer is None
@@ -1080,8 +1081,8 @@ class OmnidreamsInferenceRuntime:
             video_chunk = output.rgb_frames
 
         if serve_hdmaps:
-            result = VideoStepResult.from_video_chunk(
-                chunk_index=self.autoregressive_index,
+            result = StepResult.from_video_chunk(
+                step_index=self.autoregressive_index,
                 video_chunk=video_chunk.detach(),
                 layout="bvtchw",
             )

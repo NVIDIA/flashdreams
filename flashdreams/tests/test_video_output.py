@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
@@ -14,33 +14,69 @@ import torch
 from flashdreams.infra.video_output import (
     LazyRGBFrame,
     VideoOutputStream,
-    VideoStepResult,
     infer_video_num_frames,
     lazy_rgb_frames_from_video_tensor,
     video_tensor_to_hwc_uint8,
 )
+from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_video_step_result_infers_num_frames_from_layout() -> None:
+def test_step_result_infers_video_frame_count_from_layout() -> None:
     video = torch.zeros((1, 2, 4, 3, 5, 6), dtype=torch.float32)
 
-    result = VideoStepResult.from_video_chunk(
-        chunk_index=7,
+    result = StepResult.from_video_chunk(
+        step_index=7,
         video_chunk=video,
         layout="bvtchw",
-        stats={"total_ms": 12.5},
+        metrics={"total_ms": 12.5},
         metadata={"stream": "rgb"},
     )
 
-    assert result.chunk_index == 7
-    assert result.num_frames == 4
+    assert result.step_index == 7
+    assert result.frame_count == 4
     assert result.video_chunk is video
-    assert result.stats == {"total_ms": 12.5}
+    assert result.metrics == {"total_ms": 12.5}
     assert result.layout == "bvtchw"
     assert result.metadata == {"stream": "rgb"}
     assert infer_video_num_frames(video, layout="bvtchw") == 4
+
+
+def test_step_result_validates_video_step_and_layout_shape() -> None:
+    with pytest.raises(ValueError, match="step_index"):
+        StepResult.from_video_chunk(
+            step_index=-1,
+            video_chunk=torch.zeros((1, 3, 2, 4, 5)),
+            layout="bcthw",
+        )
+
+    with pytest.raises(ValueError, match="expects a 5D tensor"):
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((2, 3, 4, 5)),
+            layout="bcthw",
+        )
+
+
+def test_step_result_freezes_video_metadata_and_metrics() -> None:
+    metadata = {"stream": "rgb"}
+    metrics = {"model_step_s": 0.5}
+    result = StepResult.from_video_chunk(
+        step_index=0,
+        video_chunk=torch.zeros((2, 3, 4, 5)),
+        layout="tchw",
+        metadata=metadata,
+        metrics=metrics,
+    )
+
+    metadata["stream"] = "debug"
+    metrics["model_step_s"] = 1.0
+
+    assert result.metadata == {"stream": "rgb"}
+    assert result.metrics == {"model_step_s": 0.5}
+    with pytest.raises(TypeError):
+        cast(Any, result.metadata)["stream"] = "debug"
 
 
 def test_video_output_stream_makes_step_result_without_host_copy() -> None:
@@ -58,14 +94,14 @@ def test_video_output_stream_makes_step_result_without_host_copy() -> None:
         stats={"decode_ms": 1.5},
     )
 
-    assert isinstance(result, VideoStepResult)
-    assert result.chunk_index == 4
-    assert result.num_frames == 3
+    assert isinstance(result, StepResult)
+    assert result.step_index == 4
+    assert result.frame_count == 3
     assert result.video_chunk.device == video.device
     assert result.video_chunk.data_ptr() == video.data_ptr()
     assert result.video_chunk.requires_grad is False
     assert result.layout == "tchw"
-    assert result.stats == {"decode_ms": 1.5}
+    assert result.metrics == {"decode_ms": 1.5}
 
 
 def test_video_tensor_to_hwc_uint8_preserves_device_layout_conversion() -> None:
@@ -93,9 +129,9 @@ def test_lazy_rgb_frames_from_video_tensor_materializes_on_demand() -> None:
     assert frames[1].to_numpy()[2, 3].tolist() == [255, 255, 255]
 
 
-def test_video_step_result_exposes_lazy_rgb_frames() -> None:
-    result = VideoStepResult.from_video_chunk(
-        chunk_index=0,
+def test_step_result_exposes_lazy_rgb_frames() -> None:
+    result = StepResult.from_video_chunk(
+        step_index=0,
         video_chunk=torch.zeros((1, 2, 1, 3, 4, 5), dtype=torch.float32),
         layout="bvtchw",
     )
@@ -184,9 +220,7 @@ def test_video_output_stream_finishes_to_mp4_with_multiview_tiling() -> None:
         output_layout="bvtchw",
         move_to_cpu=False,
     )
-    output_stream.process(
-        torch.zeros((1, 2, 3, 3, 4, 5)), autoregressive_index=0
-    )
+    output_stream.process(torch.zeros((1, 2, 3, 3, 4, 5)), autoregressive_index=0)
 
     written = output_stream.finish_to_mp4(
         Path("output.mp4"), fps=24, writer=fake_writer

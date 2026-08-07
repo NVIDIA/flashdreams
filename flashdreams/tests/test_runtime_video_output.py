@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import Mp4VideoOutputTarget, StepResult, TimeWindow
 
 pytestmark = pytest.mark.ci_cpu
@@ -19,7 +18,7 @@ def test_mp4_video_output_target_rejects_non_video_payload(tmp_path: Path) -> No
     target = Mp4VideoOutputTarget(output_path=tmp_path / "out.mp4", fps=30)
     target.open()
 
-    with pytest.raises(TypeError, match="VideoStepResult"):
+    with pytest.raises(TypeError, match="video StepResult"):
         target.write(StepResult(step_index=0, output="not-video"))
 
 
@@ -53,15 +52,11 @@ def test_mp4_video_output_target_writes_artifact_on_close(tmp_path: Path) -> Non
     )
     target.open()
     target.write(
-        StepResult(
+        StepResult.from_video_chunk(
             step_index=3,
-            output=VideoStepResult.from_video_chunk(
-                chunk_index=3,
-                video_chunk=torch.zeros((1, 2, 4, 3, 5, 6)),
-                layout="bvtchw",
-                stats={"model_step_s": 0.5},
-            ),
-            frame_count=4,
+            video_chunk=torch.zeros((1, 2, 4, 3, 5, 6)),
+            layout="bvtchw",
+            metrics={"model_step_s": 0.5},
             output_window=TimeWindow(start_s=1.0, end_s=2.0),
         )
     )

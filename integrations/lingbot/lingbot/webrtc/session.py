@@ -42,7 +42,8 @@ from flashdreams.core.distributed.rank_orchestration import (
 )
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream
+from flashdreams.runtime.types import StepResult
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
@@ -793,7 +794,7 @@ class LingbotInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         """Generate one autoregressive chunk from a piecewise-constant timeline.
 
         Args:
@@ -804,7 +805,8 @@ class LingbotInferenceRuntime:
                 time.
 
         Returns:
-            Video chunk and post-generation pipeline stats.
+            :class:`StepResult` carrying the produced video chunk
+            and the post-generation pipeline stats.
 
         Raises:
             LingbotRuntimeError: Runtime is closed or not initialized.
@@ -874,7 +876,7 @@ class LingbotInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
     @distributed_op(WebRTCControlSignal.SESSION_STEP)
@@ -1268,7 +1270,7 @@ class LingbotInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult:
+    ) -> StepResult:
         if (
             self._pipeline is None
             or self._cache is None
@@ -1338,10 +1340,10 @@ class LingbotInferenceRuntime:
             stats=stats,
             sync_device=self._device,
         )
-        if result.num_frames != num_frames:
+        if result.frame_count != num_frames:
             raise LingbotRuntimeError(
                 f"Expected generated chunk to contain {num_frames} frames, "
-                f"got {result.num_frames}."
+                f"got {result.frame_count}."
             )
         self.autoregressive_index += 1
         return result

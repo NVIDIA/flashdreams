@@ -8,11 +8,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import Any, Protocol
 
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime.canonical import InputCanonicalizer
-from flashdreams.runtime.inputs import UserInputSchema
-from flashdreams.runtime.interfaces import InferenceSession
-from flashdreams.runtime.mapping import InputMapping
+from flashdreams.runtime.types import StepResult
 from flashdreams.serving.realtime.input import PoseSegment
 
 
@@ -55,7 +51,7 @@ class WebRTCGenerationRuntime(Protocol):
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> VideoStepResult: ...
+    ) -> StepResult: ...
 
     async def close(self) -> None: ...
 

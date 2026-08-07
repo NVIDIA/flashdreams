@@ -23,18 +23,8 @@ from aiortc import (
 )
 from loguru import logger
 
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime.inputs import (
-    InferenceInput,
-    TimeWindow,
-    UserInputEvent,
-    UserInputs,
-)
-from flashdreams.serving.realtime.input import (
-    DEFAULT_SUPPORTED_KEYS,
-    KeyboardResampler,
-    normalize_key,
-)
+from flashdreams.runtime.types import StepResult
+from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     VideoEncoder,
@@ -63,7 +53,7 @@ __all__ = [
     "BaseWebRTCSessionManager",
     "ManagedWebRTCSession",
     "WebRTCControlSignal",
-    "VideoStepResult",
+    "StepResult",
 ]
 
 # Close the active session if no client heartbeat/control message arrives
@@ -1188,7 +1178,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
                 gen_ms = (t_after_gen - t_before_gen) * 1e3
                 enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3
-                play_ms = result.num_frames * 1000.0 / video_track.fps
+                play_ms = result.frame_count * 1000.0 / video_track.fps
                 lag_ms = (t_after_enqueue - resampler.next_chunk_start_v) * 1e3
                 control_latency_ms = (
                     (t_after_enqueue - consumed_action_arrivals[0]) * 1e3
@@ -1196,17 +1186,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     else None
                 )
                 perf_window_chunks += 1
-                perf_window_frames += result.num_frames
-                if result.chunk_index == 0 or (
-                    perf_log_interval > 0
-                    and result.chunk_index % perf_log_interval == 0
+                perf_window_frames += result.frame_count
+                if result.step_index == 0 or (
+                    perf_log_interval > 0 and result.step_index % perf_log_interval == 0
                 ):
                     interval_s = max(t_after_enqueue - perf_window_start, 1.0e-6)
                     interval_fps = perf_window_frames / interval_s
-                    gen_fps = result.num_frames / max(
+                    gen_fps = result.frame_count / max(
                         t_after_gen - t_before_gen, 1.0e-6
                     )
-                    stats = result.stats or {}
+                    stats = result.metrics
                     logger.info(
                         "WebRTC perf chunk={} interval_chunks={} frames={} "
                         "gen_fps={:.1f} interval_fps={:.1f} playback_fps={} "
@@ -1217,7 +1206,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         "queue_depth={} lag_ms={:.0f} control_latency_ms={} "
                         "compile_active={} compile_start_step={} cuda_graph={} "
                         "cache_frames={} cache_tokens={}",
-                        result.chunk_index,
+                        result.step_index,
                         perf_window_chunks,
                         perf_window_frames,
                         gen_fps,
@@ -1252,9 +1241,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     "segments={} enqueued={} "
                     "gen_ms={:.1f} enqueue_ms={:.1f} play_ms={:.1f} queue_depth={} "
                     "lag_ms={:.1f}",
-                    result.chunk_index,
+                    result.step_index,
                     input_num_frames,
-                    result.num_frames,
+                    result.frame_count,
                     len(segments),
                     enqueued,
                     gen_ms,
@@ -1269,8 +1258,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     self._send_json(
                         channel,
                         make_chunk_done_payload(
-                            chunk_index=result.chunk_index,
-                            num_frames=result.num_frames,
+                            chunk_index=result.step_index,
+                            num_frames=result.frame_count,
                             enqueued_frames=enqueued,
                             fps=video_track.fps,
                             width=self.runtime_config.video_width,

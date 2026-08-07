@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -24,7 +24,7 @@ from flashdreams.infra.runner_io import (
     runner_artifact_path,
     write_runner_stats,
 )
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import (
     CanonicalInputSchema,
     InferenceConfig,
@@ -302,13 +302,21 @@ class LingbotModelAdapter:
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
+        output_layout = config.runtime_options.get("output_layout", "tchw")
+        if not isinstance(output_layout, str) or output_layout not in {
+            "tchw",
+            "btchw",
+            "bcthw",
+            "bvtchw",
+        }:
+            raise ValueError(f"Unsupported Lingbot output layout: {output_layout!r}.")
         return self._runtime_factory(
             config=config,
             options=LingbotReplayRuntimeOptions(
                 pipeline_config=self.pipeline_config(config),
                 pipeline=config.runtime_options.get("pipeline"),
                 pipeline_factory=self._pipeline_factory,
-                output_layout=str(config.runtime_options.get("output_layout", "tchw")),
+                output_layout=cast(VideoTensorLayout, output_layout),
             ),
         )
 
@@ -501,15 +509,10 @@ class LingbotReplaySession:
 
         metrics = _numeric_stats(stats)
         metrics.setdefault("model_step_s", elapsed_s)
-        return StepResult(
+        return StepResult.from_video_chunk(
             step_index=step_index,
-            output=VideoStepResult.from_video_chunk(
-                chunk_index=step_index,
-                video_chunk=video_chunk,
-                layout=self.output_layout,
-                stats=metrics,
-            ),
-            frame_count=num_frames,
+            video_chunk=video_chunk,
+            layout=self.output_layout,
             output_window=TimeWindow(
                 start_s=frame_start / self.inputs.fps,
                 end_s=frame_end / self.inputs.fps,
@@ -618,16 +621,14 @@ class LingbotRunnerOutputTarget:
     def write(self, result: StepResult) -> None:
         if not self._opened:
             raise RuntimeError("Cannot write to a closed Lingbot output target.")
-        video_result = result.output
-        if not isinstance(video_result, VideoStepResult):
+        if result.layout is None:
             raise TypeError(
-                "LingbotRunnerOutputTarget requires VideoStepResult output, "
-                f"got {type(video_result).__name__}."
+                "LingbotRunnerOutputTarget requires a video StepResult with layout."
             )
         self.output_stream.process(
-            video_result.video_chunk,
-            autoregressive_index=video_result.chunk_index,
-            stats=video_result.stats or dict(result.metrics),
+            result.video_chunk,
+            autoregressive_index=result.step_index,
+            stats=dict(result.metrics) or None,
         )
 
     def close(self) -> tuple[OutputArtifact, ...]:
@@ -930,7 +931,9 @@ def build_lingbot_webrtc_runtime_config(
     return _apply_webrtc_runtime_options(runtime_config, runtime_options or {})
 
 
-def _apply_webrtc_runtime_options(runtime_config: Any, options: Mapping[str, Any]) -> Any:
+def _apply_webrtc_runtime_options(
+    runtime_config: Any, options: Mapping[str, Any]
+) -> Any:
     overrides: dict[str, Any] = {}
     for name in (
         "world_scale",
@@ -984,15 +987,19 @@ def _resolve_example_data_default(value: Mapping[str, Any]) -> bool:
     explicit = value.get("example_data")
     if explicit is not None:
         return _bool_value(explicit)
-    return not (
-        _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
-        or _has_nonempty_value(value, "image_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
-        or _has_nonempty_value(value, "pose_path")
-    ) or not (
-        _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
-        or _has_nonempty_value(value, "intrinsic_path")
+    return (
+        not (
+            _has_nonempty_value(value, FIELD_FIRST_FRAME_PATH)
+            or _has_nonempty_value(value, "image_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_POSES_PATH)
+            or _has_nonempty_value(value, "pose_path")
+        )
+        or not (
+            _has_nonempty_value(value, FIELD_CAMERA_INTRINSICS_PATH)
+            or _has_nonempty_value(value, "intrinsic_path")
+        )
     )
 
 
@@ -1029,7 +1036,9 @@ def _require_path_value(value: Path | None, *, label: str) -> Path:
 
 def _require_existing_replay_paths(replay_inputs: LingbotReplayInputs) -> None:
     _require_existing_path(replay_inputs.first_frame_path, label=FIELD_FIRST_FRAME_PATH)
-    _require_existing_path(replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH)
+    _require_existing_path(
+        replay_inputs.camera_poses_path, label=FIELD_CAMERA_POSES_PATH
+    )
     _require_existing_path(
         replay_inputs.camera_intrinsics_path,
         label=FIELD_CAMERA_INTRINSICS_PATH,

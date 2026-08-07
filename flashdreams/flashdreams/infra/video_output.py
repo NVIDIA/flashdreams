@@ -18,15 +18,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypeAlias, cast
 
 import torch
 from torch import Tensor
 
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.postprocess import VideoPostprocessStream, VideoTensorLayout
+from flashdreams.infra.results import StepResult
+
+WritableVideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
 
 
 def video_layout_time_dim(layout: VideoTensorLayout) -> int:
@@ -42,6 +44,19 @@ def video_layout_time_dim(layout: VideoTensorLayout) -> int:
 
 def infer_video_num_frames(tensor: Tensor, *, layout: VideoTensorLayout) -> int:
     """Infer a video chunk's frame count from its declared layout."""
+    expected_ndim = {
+        "tchw": 4,
+        "btchw": 5,
+        "bcthw": 5,
+        "bvtchw": 6,
+    }.get(layout)
+    if expected_ndim is None:
+        raise ValueError(f"unsupported video layout: {layout!r}")
+    if tensor.ndim != expected_ndim:
+        raise ValueError(
+            f"layout={layout!r} expects a {expected_ndim}D tensor, "
+            f"got shape {tuple(tensor.shape)}."
+        )
     return int(tensor.shape[video_layout_time_dim(layout)])
 
 
@@ -133,76 +148,6 @@ def lazy_rgb_frames_from_video_tensor(
     ]
 
 
-@dataclass(slots=True)
-class VideoStepResult:
-    """One generated video chunk plus per-step metadata.
-
-    The field names intentionally match the pre-existing WebRTC result shape
-    so serving runtimes and output helpers share layout-aware chunk metadata.
-    """
-
-    chunk_index: int
-    num_frames: int
-    video_chunk: Tensor
-    stats: dict[str, float] | None = None
-    layout: VideoTensorLayout | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_video_chunk(
-        cls,
-        *,
-        chunk_index: int,
-        video_chunk: Tensor,
-        layout: VideoTensorLayout,
-        stats: dict[str, float] | None = None,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> VideoStepResult:
-        """Build a result and infer ``num_frames`` from ``layout``."""
-        return cls(
-            chunk_index=chunk_index,
-            num_frames=infer_video_num_frames(video_chunk, layout=layout),
-            video_chunk=video_chunk,
-            stats=stats,
-            layout=layout,
-            metadata=dict(metadata or {}),
-        )
-
-    def lazy_rgb_frames(
-        self,
-        *,
-        batch_index: int = 0,
-        view_index: int = 0,
-        record_cuda_event: bool = True,
-    ) -> list[LazyRGBFrame]:
-        """Expose this chunk as lazy per-frame RGB handles."""
-        if self.layout is None:
-            raise ValueError("VideoStepResult.layout is required for frame extraction")
-        return lazy_rgb_frames_from_video_tensor(
-            self.video_chunk,
-            layout=self.layout,
-            batch_index=batch_index,
-            view_index=view_index,
-            record_cuda_event=record_cuda_event,
-        )
-
-    def video_hwc_uint8(
-        self,
-        *,
-        batch_index: int = 0,
-        view_index: int = 0,
-    ) -> Tensor:
-        """Return this chunk as a uint8 ``[T,H,W,C]`` tensor on its source device."""
-        if self.layout is None:
-            raise ValueError("VideoStepResult.layout is required for frame extraction")
-        return video_tensor_to_hwc_uint8(
-            self.video_chunk,
-            layout=self.layout,
-            batch_index=batch_index,
-            view_index=view_index,
-        )
-
-
 class VideoOutputStream:
     """Post-process and optionally collect generated video tensors.
 
@@ -286,7 +231,7 @@ class VideoOutputStream:
         stats: dict[str, float] | None = None,
         metadata: Mapping[str, Any] | None = None,
         sync_device: torch.device | str | None = None,
-    ) -> VideoStepResult:
+    ) -> StepResult:
         """Process a chunk and package the emitted frames for a live consumer.
 
         ``sync_device`` is useful for consumers such as WebRTC that hand a
@@ -303,11 +248,11 @@ class VideoOutputStream:
             device = torch.device(sync_device)
             if device.type == "cuda":
                 torch.cuda.current_stream(device).synchronize()
-        return VideoStepResult.from_video_chunk(
-            chunk_index=autoregressive_index,
+        return StepResult.from_video_chunk(
+            step_index=autoregressive_index,
             video_chunk=processed.detach(),
             layout=self.output_layout,
-            stats=stats,
+            metrics=stats,
             metadata=metadata,
         )
 
@@ -390,10 +335,10 @@ def prepare_video_for_mp4(
     video: Tensor,
     *,
     layout: VideoTensorLayout | str,
-) -> tuple[Tensor, str]:
+) -> tuple[Tensor, WritableVideoTensorLayout]:
     """Convert a stream output into a layout accepted by runner MP4 I/O."""
     if layout in {"thwc", "tchw", "btchw", "bcthw"}:
-        return video, layout
+        return video, cast(WritableVideoTensorLayout, layout)
     if layout == "bvtchw":
         if video.ndim != 6:
             raise ValueError(
@@ -419,7 +364,6 @@ def prepare_video_for_mp4(
 __all__ = [
     "LazyRGBFrame",
     "VideoOutputStream",
-    "VideoStepResult",
     "infer_video_num_frames",
     "lazy_rgb_frames_from_video_tensor",
     "prepare_video_for_mp4",

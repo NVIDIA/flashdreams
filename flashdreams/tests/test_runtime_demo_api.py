@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     CanonicalInputs,
     CanonicalInputSchema,
@@ -382,28 +381,30 @@ class _FakeSession:
 
     def step(self, inputs: InferenceInput) -> StepResult:
         self._inference_input_schema.require_step(inputs)
-        output: object
         if self._video_output:
-            output = VideoStepResult.from_video_chunk(
-                chunk_index=self.step_index,
+            result = StepResult.from_video_chunk(
+                step_index=self.step_index,
                 video_chunk=torch.full(
                     (1, 1, 1, 3, 2, 2),
                     self.step_index,
                     dtype=torch.float32,
                 ),
                 layout="bvtchw",
+                output_window=TimeWindow(
+                    start_s=0.5 * self.step_index,
+                    end_s=0.5 * (self.step_index + 1),
+                ),
             )
         else:
-            output = f"chunk-{self.step_index}"
-        result = StepResult(
-            step_index=self.step_index,
-            output=output,
-            frame_count=1,
-            output_window=TimeWindow(
-                start_s=0.5 * self.step_index,
-                end_s=0.5 * (self.step_index + 1),
-            ),
-        )
+            result = StepResult(
+                step_index=self.step_index,
+                output=f"chunk-{self.step_index}",
+                frame_count=1,
+                output_window=TimeWindow(
+                    start_s=0.5 * self.step_index,
+                    end_s=0.5 * (self.step_index + 1),
+                ),
+            )
         self.step_index += 1
         return result
 

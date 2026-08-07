@@ -143,7 +143,10 @@ def _all_user_inputs_window(user_inputs: UserInputs) -> TimeWindow:
     )
 
 
-def _record_timing_metrics(metrics: MetricsRecorder, result: StepResult) -> None:
+def _record_timing_metrics(
+    metrics: MetricsRecorder,
+    result: StepResult,
+) -> None:
     for name, value in result.metrics.items():
         if not name.endswith("_s") or isinstance(value, bool):
             continue

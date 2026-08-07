@@ -33,10 +33,8 @@ from lingbot.webrtc.session import (
     LingbotWebRTCSessionManager,
 )
 
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
-from flashdreams.runtime.canonical import InputCanonicalizer
-from flashdreams.runtime.inputs import InferenceInput
-from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.infra.video_output import VideoOutputStream
+from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -203,15 +201,14 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
 
     def _fake_make_step_result(
         _stream: VideoOutputStream, video_chunk: object, **kwargs: object
-    ) -> VideoStepResult:
+    ) -> StepResult:
         captured["video_chunk"] = video_chunk
         captured.update(kwargs)
-        return VideoStepResult(
-            chunk_index=0,
-            num_frames=2,
+        return StepResult.from_video_chunk(
+            step_index=0,
             video_chunk=torch.zeros((2, 3, 4, 5)),
-            stats={"total_ms": 3.0},
             layout="tchw",
+            metrics={"total_ms": 3.0},
         )
 
     runtime = session.LingbotInferenceRuntime(
@@ -236,7 +233,7 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     assert captured["video_chunk"] is pipeline.output
     assert captured["sync_device"] == torch.device("cpu")
     assert pipeline.output.detach_calls == 0
-    assert result.stats == {"total_ms": 3.0}
+    assert result.metrics == {"total_ms": 3.0}
     assert runtime.autoregressive_index == 1
 
 
@@ -935,8 +932,20 @@ async def test_loopback_warmup_drives_session_generation(
         def peek_next_chunk_num_frames(self) -> int:
             return 1
 
-        async def start_inference_session(self) -> _FakeInferenceSession:
-            return _FakeInferenceSession(self)
+        async def generate_chunk(
+            self,
+            *,
+            segments: list[tuple[float, float, frozenset[str]]],
+            frame_times: list[float],
+        ) -> StepResult:
+            del frame_times
+            chunk_index = len(self.generated_segments)
+            self.generated_segments.append(segments)
+            return StepResult.from_video_chunk(
+                step_index=chunk_index,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                layout="bvtchw",
+            )
 
         async def close(self) -> None:
             self.close_calls += 1

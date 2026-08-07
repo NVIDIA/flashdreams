@@ -14,7 +14,7 @@ from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
     write_video_tensor,
 )
-from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
+from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepResult
 
@@ -23,7 +23,7 @@ VideoWriter = Callable[..., Path]
 
 @dataclass(slots=True)
 class Mp4VideoOutputTarget:
-    """Write runtime ``VideoStepResult`` chunks to one MP4 artifact."""
+    """Write layout-aware runtime step results to one MP4 artifact."""
 
     output_path: Path
     fps: int | float
@@ -54,28 +54,26 @@ class Mp4VideoOutputTarget:
     def write(self, result: StepResult) -> None:
         if not self._opened or self._stream is None:
             raise RuntimeError("Cannot write to a closed output target.")
-        video_result = result.output
-        if not isinstance(video_result, VideoStepResult):
+        if result.layout is None:
             raise TypeError(
-                "Mp4VideoOutputTarget requires StepResult.output to be "
-                f"VideoStepResult, got {type(video_result).__name__}."
+                "Mp4VideoOutputTarget requires a video StepResult with layout."
             )
-        if video_result.layout != self.output_layout:
+        if result.layout != self.output_layout:
             raise ValueError(
                 "Mp4VideoOutputTarget received layout "
-                f"{video_result.layout!r}; expected {self.output_layout!r}."
+                f"{result.layout!r}; expected {self.output_layout!r}."
             )
-        stats = dict(video_result.stats or result.metrics)
+        stats = dict(result.metrics)
         stats_extra: dict[str, object] = {
             "step_index": result.step_index,
-            "frames": video_result.num_frames,
+            "frames": result.frame_count,
         }
         if result.output_window is not None:
             stats_extra["output_start_s"] = result.output_window.start_s
             stats_extra["output_end_s"] = result.output_window.end_s
         self._stream.process(
-            video_result.video_chunk,
-            autoregressive_index=video_result.chunk_index,
+            result.video_chunk,
+            autoregressive_index=result.step_index,
             stats=stats if stats else None,
             stats_extra=stats_extra,
         )
