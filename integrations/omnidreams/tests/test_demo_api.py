@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import omnidreams.demo.spec as spec_module
-import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
 from aiohttp import web
@@ -25,8 +24,9 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
 )
-from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+from omnidreams.webrtc.session import OmnidreamsSessionInput
 
+import flashdreams.runtime.demo.webrtc as runtime_demo_webrtc_module
 from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     InferenceConfig,
@@ -42,7 +42,11 @@ from flashdreams.runtime.demo import (
     serve_flashdreams_demo,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
+from flashdreams.runtime.demo.webrtc import (
+    SharedDemoWebRTCSessionManager,
+    WebRTCDemo,
+    build_webrtc_demo,
+)
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
 pytestmark = pytest.mark.ci_cpu
@@ -363,7 +367,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     demo = build_webrtc_demo(spec=spec, adapter=adapter)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, SharedDemoWebRTCSessionManager)
     assert demo.session_manager._runtime is demo.runtime
     assert demo.session_manager.runtime_config is demo.runtime.config
     assert demo.runtime_config is demo.runtime.config
@@ -379,6 +383,16 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert demo.runtime_config.debug_serve_hdmaps is True
     assert demo.runtime_config.encoder_backend == "default"
     assert demo.session_manager._model_name() == DEFAULT_OMNIDREAMS_PRESET
+    assert (
+        demo.session_manager._busy_message == "An Omnidreams session is already active."
+    )
+    assert demo.session_manager._warmup_label == "Omnidreams WebRTC"
+    assert demo.session_manager._close_session_on_generation_error is True
+    session_input = OmnidreamsSessionInput(postprocess_preset="")
+    demo.session_manager.set_pending_session_input(session_input)
+    assert demo.session_manager._peek_pending_session_input() == session_input
+    demo.session_manager._clear_pending_session_input()
+    assert demo.session_manager._peek_pending_session_input() is None
     assert demo.host == "0.0.0.0"
     assert demo.port == 8082
 
@@ -396,7 +410,7 @@ def test_omnidreams_webrtc_demo_installs_model_routes(
         return app
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        runtime_demo_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
@@ -447,7 +461,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         server_calls.append(kwargs)
 
     monkeypatch.setattr(
-        demo_webrtc_module,
+        runtime_demo_webrtc_module,
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
@@ -485,7 +499,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     assert server_calls[0]["app"] is demo.app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8082
-    assert isinstance(demo.session_manager, OmnidreamsDemoWebRTCSessionManager)
+    assert isinstance(demo.session_manager, SharedDemoWebRTCSessionManager)
 
 
 class _RecordingOutputTarget:

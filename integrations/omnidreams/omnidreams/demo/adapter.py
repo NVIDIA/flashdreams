@@ -30,6 +30,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
+    WebRTCAppExtension,
+    WebRTCManagerOptions,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
@@ -46,8 +48,8 @@ from .spec import (
     resolve_webrtc_scenario,
 )
 from .webrtc import (
-    OmnidreamsDemoWebRTCSessionManager,
-    create_omnidreams_webrtc_app,
+    create_omnidreams_webrtc_app_extension,
+    create_omnidreams_webrtc_manager_options,
     validate_postprocess_preset,
 )
 
@@ -194,31 +196,26 @@ class OmnidreamsDemoAdapter:
         )
         return _apply_webrtc_runtime_options(runtime_config, config.runtime_options)
 
-    def create_webrtc_session_manager(
+    def create_webrtc_manager_options(
         self,
         *,
         spec: DemoSpec,
         runtime: Any,
         runtime_config: OmnidreamsRuntimeConfig,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> OmnidreamsDemoWebRTCSessionManager:
-        del spec
-        return OmnidreamsDemoWebRTCSessionManager(
-            runtime=runtime,
+    ) -> WebRTCManagerOptions:
+        del spec, runtime
+        return create_omnidreams_webrtc_manager_options(
             runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
         )
 
-    def create_webrtc_app(
+    def create_webrtc_app_extension(
         self,
         *,
         spec: DemoSpec,
         session_manager: Any,
         request_session_url: str,
-    ) -> Any:
-        return create_omnidreams_webrtc_app(
+    ) -> WebRTCAppExtension:
+        return create_omnidreams_webrtc_app_extension(
             spec=spec,
             session_manager=session_manager,
             request_session_url=request_session_url,

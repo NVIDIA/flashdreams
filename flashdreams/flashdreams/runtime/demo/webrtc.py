@@ -37,6 +37,7 @@ class WebRTCDemoRuntimeConfig:
 ManagerResetHook = Callable[[Any, Any], Awaitable[None] | None]
 PendingInputHook = Callable[[], Any]
 ClearPendingInputHook = Callable[[], None]
+SetPendingInputHook = Callable[[Any, Any], None]
 ChunkDoneExtraHook = Callable[[Any, Any], Mapping[str, Any]]
 PeerConnectionHook = Callable[[Any], None]
 SdpHook = Callable[[str], None]
@@ -55,6 +56,7 @@ class WebRTCManagerOptions:
     supported_keys: AbstractSet[str] | None = None
     peek_pending_session_input: PendingInputHook | None = None
     clear_pending_session_input: ClearPendingInputHook | None = None
+    set_pending_session_input: SetPendingInputHook | None = None
     reset_runtime_for_session: ManagerResetHook | None = None
     chunk_done_extra: ChunkDoneExtraHook | None = None
     register_extra_peer_handlers: PeerConnectionHook | None = None
@@ -148,6 +150,14 @@ class SharedDemoWebRTCSessionManager(BaseWebRTCSessionManager[Any, Any]):
         hook = self._demo_manager_options.clear_pending_session_input
         if hook is not None:
             hook()
+
+    def set_pending_session_input(self, session_input: Any) -> None:
+        hook = self._demo_manager_options.set_pending_session_input
+        if hook is None:
+            raise NotImplementedError(
+                "This WebRTC demo does not accept pending session input."
+            )
+        hook(self, session_input)
 
     async def _reset_runtime_for_session(self, session_input: Any) -> None:
         hook = self._demo_manager_options.reset_runtime_for_session
