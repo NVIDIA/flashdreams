@@ -23,6 +23,7 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
@@ -41,8 +42,6 @@ from flashdreams.serving.webrtc.messages import (
 from flashdreams.serving.webrtc.runtime import (
     WebRTCRuntimeConfig,
     WebRTCSessionRuntime,
-    WebRTCStepResult,
-    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.warmup import (
@@ -54,8 +53,7 @@ __all__ = [
     "BaseWebRTCSessionManager",
     "ManagedWebRTCSession",
     "WebRTCControlSignal",
-    "WebRTCStepResult",
-    "make_webrtc_step_result",
+    "VideoStepResult",
 ]
 
 # Close the active session if no client heartbeat/control message arrives

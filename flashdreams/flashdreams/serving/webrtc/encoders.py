@@ -202,10 +202,43 @@ def select_encoder(
       — driver bug, session-pool exhaustion, hardware fault, or
       misconfiguration. Log with traceback and re-raise; do not silently
       degrade, because doing so would hide a real problem.
+
+    PyNvVideoCodec may replace the CUDA context current on the calling
+    thread, including when ``GetEncoderCaps`` fails. Preserve an already
+    initialized PyTorch device context so subsequent model work does not
+    inherit the encoder probe's context.
     """
     if backend == "default":
         return DefaultRTCEncoder(fps=fps)
 
+    restore_device = (
+        torch.cuda.current_device() if torch.cuda.is_initialized() else None
+    )
+    try:
+        return _select_hardware_encoder(
+            backend=backend,
+            width=width,
+            height=height,
+            fps=fps,
+            bitrate=bitrate,
+            gpu_id=gpu_id,
+            gop=gop,
+        )
+    finally:
+        if restore_device is not None:
+            torch.cuda.set_device(restore_device)
+
+
+def _select_hardware_encoder(
+    *,
+    backend: Literal["auto", "nvenc"],
+    width: int,
+    height: int,
+    fps: int,
+    bitrate: int,
+    gpu_id: int,
+    gop: int,
+) -> VideoEncoder:
     if not _pynvvideocodec_installed():
         reason = "PyNvVideoCodec library is not installed"
         if backend == "nvenc":

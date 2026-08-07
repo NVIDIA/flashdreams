@@ -31,11 +31,9 @@ from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
 
@@ -353,15 +351,12 @@ class HyWorldPlayWanI2VRunner(
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
                 output_stream.process(chunk, autoregressive_index=ar_idx, stats=stats)
-            video = output_stream.finish()
         elapsed = time.time() - start_time
 
-        if video is None:
-            return
-
-        ensure_output_dir(cfg.output_dir)
         out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        write_video_tensor(video, out_path, fps=cfg.fps, layout="btchw")
+        out_path = output_stream.finish_to_mp4(out_path, fps=cfg.fps)
+        if out_path is None:
+            return
         logger.info(
             f"[{cfg.runner_name}] wrote video "
             f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"

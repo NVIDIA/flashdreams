@@ -53,6 +53,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
+from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
@@ -69,8 +70,6 @@ from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
     WebRTCControlSignal,
-    WebRTCStepResult,
-    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 
@@ -515,7 +514,7 @@ class OmnidreamsInferenceRuntime:
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
         self._next_timestamp_us: int = 0
-        self._postprocess_stream: VideoPostprocessStream | None = None
+        self._output_stream = self._new_output_stream(postprocess_stream=None)
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -595,7 +594,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         if self._closed:
             raise OmnidreamsRuntimeError("Session is closed.")
         if self._wrapper is None:
@@ -662,7 +661,7 @@ class OmnidreamsInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
     @distributed_op(WebRTCControlSignal.CLOSE)
@@ -976,12 +975,15 @@ class OmnidreamsInferenceRuntime:
             world_size=world_size
         ):
             return
-        self._postprocess_stream = VideoPostprocessStream(
+        postprocess_stream = VideoPostprocessStream(
             postprocess=postprocess,
             output_layout="bvtchw",
             fps=self.config.fps,
             per_view=False,
             world_size=world_size,
+        )
+        self._output_stream = self._new_output_stream(
+            postprocess_stream=postprocess_stream,
         )
         logger.info(
             "Omnidreams WebRTC post-processing enabled with preset {!r}.",
@@ -989,17 +991,26 @@ class OmnidreamsInferenceRuntime:
         )
 
     def _close_postprocess_stream(self) -> None:
-        if self._postprocess_stream is None:
-            return
-        self._postprocess_stream.finish()
-        self._postprocess_stream = None
+        self._output_stream.finish()
+        self._output_stream = self._new_output_stream(postprocess_stream=None)
+
+    @staticmethod
+    def _new_output_stream(
+        *, postprocess_stream: VideoPostprocessStream | None
+    ) -> VideoOutputStream:
+        return VideoOutputStream(
+            postprocess_stream=postprocess_stream,
+            output_layout="bvtchw",
+            collect_output=False,
+            move_to_cpu=False,
+        )
 
     def _generate_one_chunk_sync(
         self,
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> VideoStepResult:
         if (
             self._wrapper is None
             or self._renderer is None
@@ -1068,19 +1079,18 @@ class OmnidreamsInferenceRuntime:
         else:
             video_chunk = output.rgb_frames
 
-        if not serve_hdmaps and self._postprocess_stream is not None:
-            video_chunk = self._postprocess_stream.process(
+        if serve_hdmaps:
+            result = VideoStepResult.from_video_chunk(
+                chunk_index=self.autoregressive_index,
+                video_chunk=video_chunk.detach(),
+                layout="bvtchw",
+            )
+        else:
+            result = self._output_stream.make_step_result(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
+                sync_device=self._device,
             )
-
-        result = make_webrtc_step_result(
-            chunk_index=self.autoregressive_index,
-            video_chunk=video_chunk,
-            layout="bvtchw",
-            stats=None,
-            sync_device=self._device,
-        )
         self.autoregressive_index += 1
         return result
 

@@ -60,10 +60,8 @@ exclude = ["tests"]
 
 [tool.setuptools.package-data]
 "lingbot.webrtc.web" = [
-    "*.html",
-    "*.css",
-    "*.js",
-    "assets/*.svg",
+    "adapter.css",
+    "adapter.js",
 ]
 
 [tool.uv]

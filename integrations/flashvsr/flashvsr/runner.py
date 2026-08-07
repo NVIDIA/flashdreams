@@ -30,14 +30,12 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     read_video_fps,
     read_video_rgb,
     resolve_input_path,
     rgb_video_to_normalized_tensor,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
@@ -452,13 +450,10 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                 stats_extra=stats_extra,
             )
 
-        generated = output_stream.finish()
-        if generated is None:
-            return
-
-        ensure_output_dir(config.output_dir)
         video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        write_video_tensor(generated, video_path, fps=fps, layout="bcthw")
+        video_path = output_stream.finish_to_mp4(video_path, fps=fps)
+        if video_path is None:
+            return
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "

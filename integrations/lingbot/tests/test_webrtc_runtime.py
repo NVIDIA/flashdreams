@@ -29,8 +29,7 @@ from lingbot.webrtc.session import (
     LingbotWebRTCSessionManager,
 )
 
-from flashdreams.infra.postprocess import VideoTensorLayout
-from flashdreams.serving.webrtc.manager import WebRTCStepResult
+from flashdreams.infra.video_output import VideoOutputStream, VideoStepResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -173,7 +172,7 @@ def test_initialize_video_encoder_sync_selects_runtime_encoder(
     ]
 
 
-def test_generate_one_chunk_sync_hands_gpu_resident_output_to_webrtc_helper(
+def test_generate_one_chunk_sync_hands_gpu_resident_output_to_output_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _NoCpuChunk:
@@ -205,16 +204,17 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_webrtc_helper(
 
     captured: dict[str, object] = {}
 
-    def _fake_make_webrtc_step_result(**kwargs: object) -> WebRTCStepResult:
+    def _fake_make_step_result(
+        _stream: VideoOutputStream, video_chunk: object, **kwargs: object
+    ) -> VideoStepResult:
+        captured["video_chunk"] = video_chunk
         captured.update(kwargs)
-        stats = cast(dict[str, float] | None, kwargs["stats"])
-        layout = cast(VideoTensorLayout | None, kwargs["layout"])
-        return WebRTCStepResult(
+        return VideoStepResult(
             chunk_index=0,
             num_frames=2,
             video_chunk=torch.zeros((2, 3, 4, 5)),
-            stats=stats,
-            layout=layout,
+            stats={"total_ms": 3.0},
+            layout="tchw",
         )
 
     runtime = session.LingbotInferenceRuntime(
@@ -226,9 +226,9 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_webrtc_helper(
     runtime._cache = object()
     runtime._base_intrinsics = torch.ones(4)
     monkeypatch.setattr(
-        session,
-        "make_webrtc_step_result",
-        _fake_make_webrtc_step_result,
+        VideoOutputStream,
+        "make_step_result",
+        _fake_make_step_result,
     )
 
     result = runtime._generate_one_chunk_sync(
@@ -237,7 +237,6 @@ def test_generate_one_chunk_sync_hands_gpu_resident_output_to_webrtc_helper(
     )
 
     assert captured["video_chunk"] is pipeline.output
-    assert captured["layout"] == "tchw"
     assert captured["sync_device"] == torch.device("cpu")
     assert pipeline.output.detach_calls == 0
     assert result.stats == {"total_ms": 3.0}
@@ -966,11 +965,11 @@ async def test_loopback_warmup_drives_session_generation(
             *,
             segments: list[tuple[float, float, frozenset[str]]],
             frame_times: list[float],
-        ) -> WebRTCStepResult:
+        ) -> VideoStepResult:
             del frame_times
             chunk_index = len(self.generated_segments)
             self.generated_segments.append(segments)
-            return WebRTCStepResult(
+            return VideoStepResult(
                 chunk_index=chunk_index,
                 num_frames=1,
                 video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),

@@ -48,7 +48,6 @@ from flashdreams.infra.runner_io import (
     load_video_tensor,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 
 DEFAULT_VIDEO_HEIGHT = 704
@@ -427,9 +426,8 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
                 video=video,
             )
 
-        ensure_output_dir(cfg.output_dir)
         video_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        write_video_tensor(
+        video_path = output_stream.write_mp4(
             canvas,
             video_path,
             fps=cfg.output_fps,

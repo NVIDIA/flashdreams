@@ -67,7 +67,8 @@ from lingbot.webrtc.session import (
     normalize_text_events,
 )
 
-WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
+WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
+MODEL_WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
 MAX_UPLOAD_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PROMPT_CHARS = 2_000
 
@@ -174,21 +175,24 @@ def create_app(
 ) -> web.Application:
     manager = session_manager or LingbotWebRTCSessionManager()
 
-    def _configure_app(app: web.Application) -> None:
-        app.router.add_get("/api/session/initial_scene", _initial_scene)
-        app.router.add_get("/api/session/first_frame", _first_frame)
-        app.router.add_post("/api/session/input", _session_input)
-
     return create_packaged_webrtc_app(
         web_resource=WEB_DIR_RESOURCE,
+        model_web_resource=MODEL_WEB_DIR_RESOURCE,
         session_manager=manager,
         preload_name="Lingbot",
         request_session_url=request_session_url,
-        configure_app=_configure_app,
+        configure_app=configure_lingbot_webrtc_app,
         as_file_fn=as_file,
         create_app_fn=create_webrtc_app,
         cleanup_callback=_close_package_resources,
     )
+
+
+def configure_lingbot_webrtc_app(app: web.Application) -> None:
+    """Register Lingbot-only initial-scene and session-input routes."""
+    app.router.add_get("/api/session/initial_scene", _initial_scene)
+    app.router.add_get("/api/session/first_frame", _first_frame)
+    app.router.add_post("/api/session/input", _session_input)
 
 
 async def _initial_scene(request: web.Request) -> web.StreamResponse:
