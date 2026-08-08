@@ -135,6 +135,45 @@ RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunnerConfig(
     pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
 )
 
+# 1-step speed mode: one solver step at t=1000, which is exactly the
+# 4-step schedule's first ``(t, sigma)`` (shift, sigma bounds, and
+# timestep dtype are untouched). ~2.2x chunk speedup at quality parity
+# per ``drift_correction/eval_nfe1.py``.
+PIPELINE_LINGBOT_WORLD_FAST_1STEP = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST,
+    name="lingbot-world-fast-1step",
+    diffusion_model=dict(
+        scheduler=dict(num_inference_steps=1, denoising_timesteps=[1000]),
+    ),
+)
+RUNNER_LINGBOT_WORLD_FAST_1STEP = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_1STEP.name,
+    description=(
+        "Lingbot World Fast streaming camera-control I2V "
+        "(Wan VAE decoder, 1-step speed mode)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_1STEP,
+)
+
+# 1-step speed mode on the interactive LightTAE window=15 + sink=3
+# variant: same single solver step at t=1000 as the 1-step preset above.
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    name="lingbot-world-fast-taehv-window15-sink3-1step",
+    diffusion_model=dict(
+        scheduler=dict(num_inference_steps=1, denoising_timesteps=[1000]),
+    ),
+)
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP.name,
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache, "
+        "1-step speed mode)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP,
+)
+
 # LingBot-World v2 uses the same architecture and runtime as v1. The
 # transformer checkpoint is the only model-level substitution.
 PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST = derive_config(
@@ -178,6 +217,8 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     for cfg in (
         PIPELINE_LINGBOT_WORLD_FAST,
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        PIPELINE_LINGBOT_WORLD_FAST_1STEP,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )
@@ -189,6 +230,8 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     for cfg in (
         RUNNER_LINGBOT_WORLD_FAST,
         RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        RUNNER_LINGBOT_WORLD_FAST_1STEP,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )
