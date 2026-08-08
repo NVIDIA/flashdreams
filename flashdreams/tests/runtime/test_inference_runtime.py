@@ -19,18 +19,17 @@ from __future__ import annotations
 
 import pytest
 import torch
-from flashdreams.infra.pipeline import (
-    StreamInferencePipeline,
-    StreamInferencePipelineCache,
-    StreamInferencePipelineConfig,
+from flashdreams.runtime.inference_runtime import (
+    InferenceRuntime,
+    InferenceRuntimeConfig,
 )
-from flashdreams.runtime.inference_runtime import InferenceRuntime
-from flashdreams.runtime.inference_session import (
-    InferenceInput,
-    InferenceOutput,
-    InferenceSession,
+
+from .mocks import (
+    MockInferenceSession,
+    MockStreamInferencePipeline,
+    MockStreamInferencePipelineCache,
+    MockStreamInferencePipelineConfig,
 )
-from torch import nn
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -38,64 +37,7 @@ pytestmark = pytest.mark.ci_cpu
 ## Runtime test doubles
 
 
-class _MockStreamInferencePipelineCache(StreamInferencePipelineCache):
-    """Pipeline cache mock without model-specific state."""
-
-    def __init__(self) -> None:
-        """Initialize an empty cache."""
-
-
-class _MockStreamInferencePipeline(StreamInferencePipeline):
-    """Pipeline mock that records per-session cache initialization."""
-
-    initialize_cache_calls: int
-    """Number of caches initialized for created sessions."""
-
-    def __init__(self) -> None:
-        nn.Module.__init__(self)
-        self.initialize_cache_calls = 0
-
-    def initialize_cache(
-        self,
-        transformer_context: object | None = None,
-        encoder_context: object | None = None,
-        decoder_context: object | None = None,
-    ) -> _MockStreamInferencePipelineCache:
-        """Create and record a fresh mock session cache."""
-        del transformer_context, encoder_context, decoder_context
-        self.initialize_cache_calls += 1
-        return _MockStreamInferencePipelineCache()
-
-
-class _MockStreamInferencePipelineConfig(StreamInferencePipelineConfig):
-    """Pipeline config mock that returns a preconstructed pipeline."""
-
-    pipeline: _MockStreamInferencePipeline
-    """Pipeline returned by the setup method."""
-
-    setup_calls: int
-    """Number of times the setup method has been called."""
-
-    def __init__(self, pipeline: _MockStreamInferencePipeline) -> None:
-        self.pipeline = pipeline
-        self.setup_calls = 0
-
-    def setup(self) -> _MockStreamInferencePipeline:
-        """Return the configured mock pipeline and record the setup call."""
-        self.setup_calls += 1
-        return self.pipeline
-
-
-class _MockInferenceSession(InferenceSession[_MockStreamInferencePipeline]):
-    """Session mock that uses the runtime-owned pipeline."""
-
-    def step(self, inference_input: InferenceInput) -> InferenceOutput:
-        """Return an empty output without running the mock pipeline."""
-        del inference_input
-        return InferenceOutput()
-
-
-class _MockInferenceRuntime(InferenceRuntime[_MockInferenceSession]):
+class _MockInferenceRuntime(InferenceRuntime[MockInferenceSession]):
     """Concrete runtime mock with a no-op warmup."""
 
     def warmup(self) -> None:
@@ -110,8 +52,8 @@ def runtime_bundle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[
     _MockInferenceRuntime,
-    _MockStreamInferencePipelineConfig,
-    _MockStreamInferencePipeline,
+    MockStreamInferencePipelineConfig,
+    MockStreamInferencePipeline,
 ]:
     """Build a single-process runtime with mocked pipeline setup."""
     # Keep the fixture on the deterministic non-distributed initialization path.
@@ -119,9 +61,14 @@ def runtime_bundle(
     monkeypatch.delenv("WORLD_SIZE", raising=False)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
 
-    pipeline = _MockStreamInferencePipeline()
-    pipeline_config = _MockStreamInferencePipelineConfig(pipeline)
-    runtime = _MockInferenceRuntime(pipeline_config, _MockInferenceSession)
+    pipeline = MockStreamInferencePipeline()
+    pipeline_config = MockStreamInferencePipelineConfig(pipeline)
+    runtime_config = InferenceRuntimeConfig(
+        _target=_MockInferenceRuntime,
+        pipeline=pipeline_config,
+        session_type=MockInferenceSession,
+    )
+    runtime = runtime_config.setup()
     return runtime, pipeline_config, pipeline
 
 
@@ -131,8 +78,8 @@ def runtime_bundle(
 def test_runtime_sets_up_and_privately_holds_pipeline(
     runtime_bundle: tuple[
         _MockInferenceRuntime,
-        _MockStreamInferencePipelineConfig,
-        _MockStreamInferencePipeline,
+        MockStreamInferencePipelineConfig,
+        MockStreamInferencePipeline,
     ],
 ) -> None:
     """Verify runtime construction sets up and retains one pipeline."""
@@ -140,7 +87,7 @@ def test_runtime_sets_up_and_privately_holds_pipeline(
 
     assert pipeline_config.setup_calls == 1
     assert runtime._pipeline is pipeline
-    assert runtime._session_type is _MockInferenceSession
+    assert runtime._session_type is MockInferenceSession
     assert runtime._local_rank == 0
     assert runtime._global_rank == 0
     assert runtime._world_size == 1
@@ -150,8 +97,8 @@ def test_runtime_sets_up_and_privately_holds_pipeline(
 def test_create_session_privately_shares_pipeline_and_initializes_fresh_cache(
     runtime_bundle: tuple[
         _MockInferenceRuntime,
-        _MockStreamInferencePipelineConfig,
-        _MockStreamInferencePipeline,
+        MockStreamInferencePipelineConfig,
+        MockStreamInferencePipeline,
     ],
 ) -> None:
     """Verify created sessions share the pipeline but own separate caches."""
@@ -164,7 +111,7 @@ def test_create_session_privately_shares_pipeline_and_initializes_fresh_cache(
     assert first_session is not second_session
     assert first_session._pipeline is pipeline
     assert second_session._pipeline is pipeline
-    assert isinstance(first_session._cache, _MockStreamInferencePipelineCache)
-    assert isinstance(second_session._cache, _MockStreamInferencePipelineCache)
+    assert isinstance(first_session._cache, MockStreamInferencePipelineCache)
+    assert isinstance(second_session._cache, MockStreamInferencePipelineCache)
     assert first_session._cache is not second_session._cache
     assert pipeline.initialize_cache_calls == 2
