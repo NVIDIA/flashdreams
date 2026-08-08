@@ -87,11 +87,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     args = parse_args(argv)
-    adapter = OmnidreamsDemoAdapter()
     if args.command == "replay":
-        run_flashdreams_demo(spec=_replay_spec(args), adapter=adapter)
+        run_flashdreams_demo(
+            spec=_replay_spec(args),
+            adapter=OmnidreamsDemoAdapter(),
+        )
         return
     if args.command == "webrtc":
+        from .webrtc import OmnidreamsWebRTCIntegration
+
         context = initialize_cuda_distributed(
             default_device=args.device,
             distributed_init_fn=distributed_init,
@@ -101,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         serve_flashdreams_demo(
             spec=_webrtc_spec(args, device=str(context.device)),
-            adapter=adapter,
+            integration=OmnidreamsWebRTCIntegration(),
             world_rank=context.world_rank,
         )
         return

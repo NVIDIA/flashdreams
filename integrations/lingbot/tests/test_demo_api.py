@@ -23,6 +23,7 @@ from lingbot.demo.replay import (
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,
 )
+from lingbot.demo.webrtc import LingbotWebRTCIntegration
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
     FIELD_CAMERA_TRAJECTORY,
@@ -78,12 +79,12 @@ def test_lingbot_demo_defaults_to_interactive_preset() -> None:
     assert args.preset_id == "lingbot-world-fast-taehv-window15-sink3"
 
 
-def test_lingbot_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
+def test_lingbot_demo_adapter_declares_replay_modes_only() -> None:
     adapter = LingbotDemoAdapter()
 
     assert adapter.model_id == LINGBOT_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    assert adapter.supported_input_modes() == ("replay",)
+    assert adapter.supported_output_modes() == ("mp4",)
     fields = {
         field.name
         for field in adapter.inference_input_schema.global_conditioning_fields
@@ -382,7 +383,7 @@ def test_lingbot_webrtc_cli_builds_keyboard_driving_spec() -> None:
 
 def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     pipeline_config = object()
-    adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -405,7 +406,7 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    demo = build_webrtc_demo(spec=spec, integration=integration)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
     assert type(demo.session_manager) is BaseWebRTCSessionManager
@@ -443,7 +444,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch.setattr(
         shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
-    adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -462,7 +463,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+    demo = build_webrtc_demo(spec=spec, integration=integration, create_app=True)
 
     assert demo.app is not None
     assert app_calls[0]["session_manager"] is demo.session_manager
@@ -498,7 +499,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     monkeypatch.setattr(
         shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
-    adapter = LingbotDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -520,7 +521,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
         WebRTCDemo,
         serve_flashdreams_demo(
             spec=spec,
-            adapter=adapter,
+            integration=integration,
             world_rank=0,
             server_runner=fake_server_runner,
         ),

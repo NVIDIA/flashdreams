@@ -123,11 +123,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     args = parse_args(argv)
-    adapter = LingbotDemoAdapter()
     if args.command == "replay":
-        run_flashdreams_demo(spec=_replay_spec(args), adapter=adapter)
+        run_flashdreams_demo(
+            spec=_replay_spec(args),
+            adapter=LingbotDemoAdapter(),
+        )
         return
     if args.command == "webrtc":
+        from .webrtc import LingbotWebRTCIntegration
+
         context = initialize_cuda_distributed(
             default_device=args.device,
             distributed_init_fn=distributed_init,
@@ -145,7 +149,7 @@ def main(argv: list[str] | None = None) -> None:
                 device=str(context.device),
                 context_parallel_size=context.world_size,
             ),
-            adapter=adapter,
+            integration=LingbotWebRTCIntegration(),
             world_rank=context.world_rank,
         )
         return

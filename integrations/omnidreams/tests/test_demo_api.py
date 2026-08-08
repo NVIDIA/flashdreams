@@ -27,6 +27,7 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntimeOptions,
 )
 from omnidreams.demo.webrtc import (
+    OmnidreamsWebRTCIntegration,
     OmnidreamsWebRTCModelRuntime,
     OmnidreamsWebRTCModelRuntimeConfig,
 )
@@ -60,12 +61,12 @@ def test_omnidreams_demo_defaults_to_stable_non_perf_preset() -> None:
     assert not args.preset_id.endswith("-perf")
 
 
-def test_omnidreams_demo_adapter_declares_mp4_and_webrtc_modes() -> None:
+def test_omnidreams_demo_adapter_declares_replay_modes_only() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    assert adapter.supported_input_modes() == ("replay",)
+    assert adapter.supported_output_modes() == ("mp4",)
 
 
 def test_omnidreams_demo_does_not_import_legacy_webrtc_package() -> None:
@@ -343,7 +344,7 @@ def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> N
 
 def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     pipeline_config = object()
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -372,7 +373,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    demo = build_webrtc_demo(spec=spec, integration=integration)
 
     assert isinstance(demo.runtime, _FakeWebRTCRuntime)
     assert type(demo.session_manager) is BaseWebRTCSessionManager
@@ -415,7 +416,7 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -434,7 +435,7 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter, create_app=True)
+    demo = build_webrtc_demo(spec=spec, integration=integration, create_app=True)
 
     assert demo.app is not None
     assert app_calls[0]["session_manager"] is demo.session_manager
@@ -468,7 +469,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    adapter = OmnidreamsDemoAdapter(webrtc_runtime_factory=_FakeWebRTCRuntime)
+    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -490,7 +491,7 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         WebRTCDemo,
         serve_flashdreams_demo(
             spec=spec,
-            adapter=adapter,
+            integration=integration,
             world_rank=0,
             server_runner=fake_server_runner,
         ),

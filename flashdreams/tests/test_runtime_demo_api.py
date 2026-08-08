@@ -173,11 +173,11 @@ def test_replay_demo_fails_before_runtime_creation_when_scenario_invalid() -> No
 def test_demo_adapter_declares_supported_modes() -> None:
     adapter = _FakeDemoAdapter(
         input_modes=("replay",),
-        output_modes=("null", "mp4", "webrtc"),
+        output_modes=("null", "mp4"),
     )
 
     assert adapter.supported_input_modes() == ("replay",)
-    assert adapter.supported_output_modes() == ("null", "mp4", "webrtc")
+    assert adapter.supported_output_modes() == ("null", "mp4")
 
     with pytest.raises(ValueError, match="input_mode='keyboard-driving'"):
         run_replay_demo(
@@ -194,8 +194,8 @@ def test_demo_adapter_declares_supported_modes() -> None:
     assert not adapter.create_runtime_called
 
 
-def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> None:
-    adapter = _FakeDemoAdapter()
+def test_webrtc_demo_uses_transport_integration_runtime() -> None:
+    integration = _FakeWebRTCIntegration()
     spec = DemoSpec(
         model_id="fake-demo",
         scenario="valid-scenario",
@@ -211,11 +211,11 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, adapter=adapter)
+    demo = build_webrtc_demo(spec=spec, integration=integration)
 
     assert isinstance(demo.session_manager, BaseWebRTCSessionManager)
-    assert demo.runtime is adapter.webrtc_runtime
-    assert demo.session_manager._runtime is adapter.webrtc_runtime
+    assert demo.runtime is integration.runtime
+    assert demo.session_manager._runtime is integration.runtime
     assert demo.session_manager.runtime_config.video_width == 16
     assert demo.session_manager.runtime_config.video_height == 8
     assert demo.session_manager.fps == 24
@@ -223,8 +223,7 @@ def test_webrtc_demo_uses_existing_session_manager_with_adapter_runtime() -> Non
     assert demo.app is None
     assert demo.host == "0.0.0.0"
     assert demo.port == 8082
-    assert adapter.create_webrtc_runtime_calls == [spec]
-    assert not adapter.create_runtime_called
+    assert integration.create_runtime_calls == [spec]
 
 
 class _ChunkIndexMapping:
@@ -279,8 +278,8 @@ class _FakeDemoAdapter:
         *,
         scenario_valid: bool = True,
         video_output: bool = False,
-        input_modes: tuple[str, ...] = ("replay", "keyboard-driving"),
-        output_modes: tuple[str, ...] = ("null", "mp4", "webrtc"),
+        input_modes: tuple[str, ...] = ("replay",),
+        output_modes: tuple[str, ...] = ("null", "mp4"),
     ) -> None:
         self._scenario_valid = scenario_valid
         self._video_output = video_output
@@ -299,8 +298,6 @@ class _FakeDemoAdapter:
         self.prepare_scenario_calls: list[DemoSpec] = []
         self.create_runtime_called = False
         self.runtime: _FakeRuntime | None = None
-        self.webrtc_runtime: _FakeWebRTCRuntime | None = None
-        self.create_webrtc_runtime_calls: list[DemoSpec] = []
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return self._input_modes
@@ -329,44 +326,6 @@ class _FakeDemoAdapter:
         if not self._scenario_valid:
             raise ValueError("invalid scenario")
         return self.prepared_scenario
-
-    def create_webrtc_runtime(self, spec: DemoSpec) -> "_FakeWebRTCRuntime":
-        self.create_webrtc_runtime_calls.append(spec)
-        self.webrtc_runtime = _FakeWebRTCRuntime()
-        return self.webrtc_runtime
-
-    def create_webrtc_runtime_config(
-        self, *, spec: DemoSpec, runtime: Any
-    ) -> WebRTCDemoRuntimeConfig:
-        del runtime
-        assert isinstance(spec.output, WebRTCOutputSpec)
-        return WebRTCDemoRuntimeConfig(
-            video_width=spec.output.video_width,
-            video_height=spec.output.video_height,
-            warmup_chunks=spec.output.warmup_chunks,
-            warmup_timeout_s=spec.output.warmup_timeout_s,
-        )
-
-    def create_webrtc_session_manager(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-        runtime_config: Any,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> BaseWebRTCSessionManager:
-        return BaseWebRTCSessionManager(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            identity=spec.model_id,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
-        del spec
-        return WebRTCAppResources(preload_name="Fake demo")
 
 
 class _FakeRuntime:
@@ -465,6 +424,9 @@ class _RecordingOutputTarget:
 
 
 class _FakeWebRTCRuntime:
+    def __init__(self, config: WebRTCDemoRuntimeConfig) -> None:
+        self.config = config
+
     async def initialize(self) -> None:
         return None
 
@@ -498,3 +460,43 @@ class _FakeWebRTCRuntime:
 
     def wait_for_termination(self) -> None:
         return None
+
+
+class _FakeWebRTCIntegration:
+    def __init__(self) -> None:
+        self.runtime: _FakeWebRTCRuntime | None = None
+        self.create_runtime_calls: list[DemoSpec] = []
+
+    def supported_input_modes(self) -> tuple[str, ...]:
+        return ("keyboard-driving",)
+
+    def create_runtime(self, spec: DemoSpec) -> _FakeWebRTCRuntime:
+        self.create_runtime_calls.append(spec)
+        assert isinstance(spec.output, WebRTCOutputSpec)
+        config = WebRTCDemoRuntimeConfig(
+            video_width=spec.output.video_width,
+            video_height=spec.output.video_height,
+            warmup_chunks=spec.output.warmup_chunks,
+            warmup_timeout_s=spec.output.warmup_timeout_s,
+        )
+        self.runtime = _FakeWebRTCRuntime(config)
+        return self.runtime
+
+    def create_session_manager(
+        self,
+        *,
+        spec: DemoSpec,
+        runtime: Any,
+    ) -> BaseWebRTCSessionManager:
+        assert isinstance(spec.output, WebRTCOutputSpec)
+        return BaseWebRTCSessionManager(
+            runtime=runtime,
+            runtime_config=runtime.config,
+            fps=spec.output.fps,
+            identity=spec.model_id,
+            client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+        )
+
+    def app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
+        del spec
+        return WebRTCAppResources(preload_name="Fake demo")

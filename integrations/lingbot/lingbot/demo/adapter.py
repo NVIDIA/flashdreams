@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from flashdreams.runtime import (
-    InferenceConfig,
     InputCanonicalizer,
     UserInputCapability,
     UserInputs,
@@ -19,11 +18,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
-    WebRTCAppResources,
-    WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
-from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from lingbot.input_mapping import (
     KeyboardToCameraCommand,
     TextEventSelection,
@@ -32,25 +28,16 @@ from lingbot.runtime import (
     LingbotModelAdapter,
     LingbotReplayRuntime,
     PipelineFactory,
-    build_lingbot_webrtc_runtime_config,
     inference_input_from_replay_inputs,
-)
-from lingbot.webrtc.session import (
-    LingbotInferenceRuntime,
-    LingbotRuntimeConfig,
-    create_lingbot_webrtc_session_manager,
 )
 
 from .spec import (
     resolve_replay_inputs,
     resolve_text_event_prompts,
     resolve_user_input_events,
-    resolve_webrtc_scenario,
 )
-from .webrtc import lingbot_webrtc_app_resources
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
-WebRTCRuntimeFactory = Callable[..., Any]
 
 
 class LingbotDemoAdapter(LingbotModelAdapter):
@@ -60,20 +47,18 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         self,
         *,
         replay_runtime_factory: ReplayRuntimeFactory = LingbotReplayRuntime,
-        webrtc_runtime_factory: WebRTCRuntimeFactory = LingbotInferenceRuntime,
         pipeline_factory: PipelineFactory | None = None,
     ) -> None:
         super().__init__(
             runtime_factory=replay_runtime_factory,
             pipeline_factory=pipeline_factory,
         )
-        self._webrtc_runtime_factory = webrtc_runtime_factory
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "keyboard-driving")
+        return ("replay",)
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "webrtc")
+        return ("mp4",)
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode != "replay":
@@ -101,7 +86,7 @@ class LingbotDemoAdapter(LingbotModelAdapter):
                 # A trace's world scale is derived from how far its poses
                 # travel, so a stationary example yields 0. Live control has no
                 # trajectory to normalize against, so it falls back to the same
-                # unit scale the WebRTC runtime uses.
+                # unit scale the live runtime uses.
                 world_scale=trace.world_scale or 1.0,
                 prompt=replay_inputs.prompt,
                 text_event_prompts=text_event_prompts,
@@ -122,78 +107,6 @@ class LingbotDemoAdapter(LingbotModelAdapter):
                 "preset_id": self.preset_id(spec.config),
             },
         )
-
-    def create_webrtc_runtime(self, spec: DemoSpec) -> Any:
-        runtime_config = self.create_webrtc_runtime_config(spec=spec, runtime=None)
-        return self._webrtc_runtime_factory(config=runtime_config)
-
-    def create_webrtc_runtime_config(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-    ) -> LingbotRuntimeConfig:
-        runtime_config = getattr(runtime, "config", None)
-        if isinstance(runtime_config, LingbotRuntimeConfig):
-            return runtime_config
-        if spec.input_mode != "keyboard-driving":
-            raise ValueError(
-                "Lingbot WebRTC requires input_mode='keyboard-driving', "
-                f"got {spec.input_mode!r}."
-            )
-        if not isinstance(spec.output, WebRTCOutputSpec):
-            raise ValueError("Lingbot WebRTC requires WebRTC output.")
-        config = spec.config
-        if config is None:
-            raise RuntimeError("DemoSpec.config was not initialized.")
-        self.validate_config(config)
-        scenario = resolve_webrtc_scenario(spec.scenario)
-
-        compile_network = (
-            bool(config.compile)
-            if config.compile is not None
-            else bool(_option(config, "compile_network", True))
-        )
-        return build_lingbot_webrtc_runtime_config(
-            preset_id=self.preset_id(config),
-            pipeline_config=self.pipeline_config(config),
-            seed=int(_option(config, "seed", 42)),
-            compile_network=compile_network,
-            context_parallel_size=int(_option(config, "context_parallel_size", 1)),
-            device=config.device or str(_option(config, "device", "cuda:0")),
-            video_height=spec.output.video_height,
-            video_width=spec.output.video_width,
-            fps=spec.output.fps,
-            warmup_chunks=spec.output.warmup_chunks,
-            warmup_timeout_s=spec.output.warmup_timeout_s,
-            example_idx=int(_option(config, "example_idx", scenario.example_idx)),
-            prefer_sw_encoder=scenario.prefer_sw_encoder,
-            runtime_options=config.runtime_options,
-        )
-
-    def create_webrtc_session_manager(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-        runtime_config: LingbotRuntimeConfig,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]:
-        del spec
-        return create_lingbot_webrtc_session_manager(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
-        return lingbot_webrtc_app_resources(spec)
-
-
-def _option(config: InferenceConfig, name: str, default: Any) -> Any:
-    return config.runtime_options.get(name, default)
 
 
 def _camera_source(scenario: Any) -> str:
@@ -263,5 +176,4 @@ def _canonicalizer(text_event_prompts: Mapping[str, str] | None) -> InputCanonic
 __all__ = [
     "LingbotDemoAdapter",
     "ReplayRuntimeFactory",
-    "WebRTCRuntimeFactory",
 ]

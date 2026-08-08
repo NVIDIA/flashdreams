@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .replay import run_replay_demo
 from .spec import DemoAdapter, DemoSpec
+
+if TYPE_CHECKING:
+    from .webrtc import WebRTCIntegration
 
 
 def run_flashdreams_demo(
@@ -24,13 +27,13 @@ def run_flashdreams_demo(
 def serve_flashdreams_demo(
     *,
     spec: DemoSpec,
-    adapter: DemoAdapter,
+    integration: WebRTCIntegration,
     **kwargs: Any,
 ) -> object:
     """Serve a WebRTC demo through the shared serving manager."""
     from .webrtc import serve_webrtc_demo
 
-    return serve_webrtc_demo(spec=spec, adapter=adapter, **kwargs)
+    return serve_webrtc_demo(spec=spec, integration=integration, **kwargs)
 
 
 __all__ = ["run_flashdreams_demo", "serve_flashdreams_demo"]

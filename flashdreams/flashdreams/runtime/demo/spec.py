@@ -155,7 +155,7 @@ class PreparedScenario:
 
 
 class DemoAdapter(ModelAdapter, Protocol):
-    """Model-owned adapter surface consumed by shared demo launchers."""
+    """Transport-neutral model adapter consumed by demo runners."""
 
     def supported_input_modes(self) -> tuple[str, ...]:
         """Return demo input modes this adapter can prepare."""
@@ -167,30 +167,6 @@ class DemoAdapter(ModelAdapter, Protocol):
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         """Validate and materialize scenario inputs before runtime creation."""
-        ...
-
-    def create_webrtc_runtime(self, spec: DemoSpec) -> Any:
-        """Create the model-owned runtime consumed by the shared WebRTC manager."""
-        ...
-
-    def create_webrtc_runtime_config(self, *, spec: DemoSpec, runtime: Any) -> Any:
-        """Return the declared manager-facing configuration for ``runtime``."""
-        ...
-
-    def create_webrtc_session_manager(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-        runtime_config: Any,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> Any:
-        """Construct the shared session manager with model capabilities."""
-        ...
-
-    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
-        """Return model assets and routes attached to the shared WebRTC app."""
         ...
 
 

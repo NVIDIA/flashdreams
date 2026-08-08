@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 from typing import Any
 
 from omnidreams.config import OMNIDREAMS_CONFIGS, OMNIDREAMS_RUNNERS
@@ -25,12 +24,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
-    WebRTCAppResources,
-    WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
-from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
 from .replay import (
     OmnidreamsReplayRuntime,
@@ -41,16 +36,9 @@ from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,
     resolve_replay_scenario,
-    resolve_webrtc_scenario,
-)
-from .webrtc import (
-    OmnidreamsWebRTCModelRuntime,
-    OmnidreamsWebRTCModelRuntimeConfig,
-    omnidreams_webrtc_app_resources,
 )
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
-WebRTCRuntimeFactory = Callable[..., Any]
 
 
 class OmnidreamsDemoAdapter:
@@ -60,11 +48,9 @@ class OmnidreamsDemoAdapter:
         self,
         *,
         replay_runtime_factory: ReplayRuntimeFactory = OmnidreamsReplayRuntime,
-        webrtc_runtime_factory: WebRTCRuntimeFactory = OmnidreamsWebRTCModelRuntime,
         pipeline_factory: PipelineFactory | None = None,
     ) -> None:
         self._replay_runtime_factory = replay_runtime_factory
-        self._webrtc_runtime_factory = webrtc_runtime_factory
         self._pipeline_factory = pipeline_factory
         self._mapping = IdentityInputMapping()
 
@@ -92,10 +78,10 @@ class OmnidreamsDemoAdapter:
         return self._mapping
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "keyboard-driving")
+        return ("replay",)
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "webrtc")
+        return ("mp4",)
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode != "replay":
@@ -141,83 +127,6 @@ class OmnidreamsDemoAdapter:
             ),
         )
 
-    def create_webrtc_runtime(self, spec: DemoSpec) -> Any:
-        runtime_config = self.create_webrtc_runtime_config(spec=spec, runtime=None)
-        return self._webrtc_runtime_factory(config=runtime_config)
-
-    def create_webrtc_runtime_config(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-    ) -> OmnidreamsWebRTCModelRuntimeConfig:
-        runtime_config = getattr(runtime, "config", None)
-        if isinstance(runtime_config, OmnidreamsWebRTCModelRuntimeConfig):
-            return runtime_config
-        if spec.input_mode != "keyboard-driving":
-            raise ValueError(
-                "OmniDreams WebRTC requires input_mode='keyboard-driving', "
-                f"got {spec.input_mode!r}."
-            )
-        if not isinstance(spec.output, WebRTCOutputSpec):
-            raise ValueError("OmniDreams WebRTC requires WebRTC output.")
-        config = spec.config
-        if config is None:
-            raise RuntimeError("DemoSpec.config was not initialized.")
-        self.validate_config(config)
-        scenario = resolve_webrtc_scenario(spec.scenario)
-
-        preset_id = self._preset_id(config)
-        pipeline_config = self._pipeline_config(config)
-        seed = _option(config, "seed", 42)
-        device = config.device or str(_option(config, "device", "cuda:0"))
-        runtime_config = OmnidreamsWebRTCModelRuntimeConfig(
-            pipeline_config_name=preset_id,
-            pipeline_config=pipeline_config,
-            scene_dir=scenario.scene_dir,
-            scene_uuid=scenario.scene_uuid,
-            scene_variant=scenario.scene_variant,
-            seed=None if seed is None else int(seed),
-            device=device,
-            video_height=spec.output.video_height,
-            video_width=spec.output.video_width,
-            fps=spec.output.fps,
-            camera_name=scenario.camera_name,
-            warmup_chunks=spec.output.warmup_chunks,
-            warmup_timeout_s=spec.output.warmup_timeout_s,
-            debug_serve_hdmaps=scenario.debug_serve_hdmaps,
-            encoder_backend="default" if scenario.prefer_sw_encoder else "auto",
-        )
-        return _apply_webrtc_runtime_options(runtime_config, config.runtime_options)
-
-    def create_webrtc_session_manager(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-        runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
-        fps: int,
-        client_liveness_timeout_s: float,
-    ) -> BaseWebRTCSessionManager[
-        OmnidreamsWebRTCModelRuntime,
-        OmnidreamsWebRTCModelRuntimeConfig,
-    ]:
-        del spec, fps
-        return BaseWebRTCSessionManager(
-            runtime=runtime,
-            runtime_config=runtime_config,
-            fps=runtime_config.fps,
-            identity=runtime_config.pipeline_config_name,
-            busy_message="An OmniDreams session is already active.",
-            warmup_label="OmniDreams WebRTC",
-            supported_control_keys=WSAD_SUPPORTED_KEYS,
-            fatal_generation_errors=True,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-
-    def webrtc_app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
-        return omnidreams_webrtc_app_resources(spec)
-
     def _preset_id(self, config: InferenceConfig | None) -> str:
         return (
             DEFAULT_OMNIDREAMS_PRESET
@@ -244,30 +153,7 @@ class OmnidreamsDemoAdapter:
         return "" if runner is None else str(getattr(runner, "prompt", ""))
 
 
-def _option(config: InferenceConfig, name: str, default: Any) -> Any:
-    return config.runtime_options.get(name, default)
-
-
-def _apply_webrtc_runtime_options(
-    runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
-    options: Any,
-) -> OmnidreamsWebRTCModelRuntimeConfig:
-    if not isinstance(options, dict):
-        options = dict(options)
-    overrides: dict[str, Any] = {}
-    for name in (
-        "move_speed_per_s",
-        "rotate_speed_rad_per_s",
-        "encoder_bitrate_bps",
-        "encoder_gop",
-    ):
-        if name in options:
-            overrides[name] = options[name]
-    return replace(runtime_config, **overrides) if overrides else runtime_config
-
-
 __all__ = [
     "OmnidreamsDemoAdapter",
     "ReplayRuntimeFactory",
-    "WebRTCRuntimeFactory",
 ]
