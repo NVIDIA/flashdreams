@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -44,8 +45,7 @@ from flashdreams.runtime.demo import (
     run_replay_demo,
 )
 from flashdreams.runtime.demo.webrtc import (
-    WebRTCDemoRuntimeConfig,
-    build_webrtc_demo,
+    serve_webrtc_demo,
 )
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
@@ -194,8 +194,7 @@ def test_demo_adapter_declares_supported_modes() -> None:
     assert not adapter.create_runtime_called
 
 
-def test_webrtc_demo_uses_transport_integration_runtime() -> None:
-    integration = _FakeWebRTCIntegration()
+def test_webrtc_demo_serves_a_prepared_session_manager() -> None:
     spec = DemoSpec(
         model_id="fake-demo",
         scenario="valid-scenario",
@@ -211,19 +210,46 @@ def test_webrtc_demo_uses_transport_integration_runtime() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, integration=integration)
+    assert isinstance(spec.output, WebRTCOutputSpec)
+    runtime = _FakeWebRTCRuntime(
+        SimpleNamespace(
+            video_width=16,
+            video_height=8,
+            warmup_chunks=0,
+            warmup_timeout_s=1.0,
+        )
+    )
+    manager = BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime.config,
+        fps=24,
+        identity="fake-demo",
+        client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+    )
+    calls: list[dict[str, Any]] = []
 
-    assert isinstance(demo.session_manager, BaseWebRTCSessionManager)
-    assert demo.runtime is integration.runtime
-    assert demo.session_manager._runtime is integration.runtime
-    assert demo.session_manager.runtime_config.video_width == 16
-    assert demo.session_manager.runtime_config.video_height == 8
-    assert demo.session_manager.fps == 24
-    assert demo.session_manager.identity == "fake-demo"
-    assert demo.app is None
-    assert demo.host == "0.0.0.0"
-    assert demo.port == 8082
-    assert integration.create_runtime_calls == [spec]
+    def fake_server_runner(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    app = serve_webrtc_demo(
+        output=spec.output,
+        model_id=spec.model_id,
+        session_manager=manager,
+        app_resources=WebRTCAppResources(preload_name="Fake demo"),
+        world_rank=1,
+        server_runner=fake_server_runner,
+    )
+
+    assert app is None
+    assert calls == [
+        {
+            "world_rank": 1,
+            "session_manager": manager,
+            "app": None,
+            "host": "0.0.0.0",
+            "port": 8082,
+        }
+    ]
 
 
 class _ChunkIndexMapping:
@@ -424,7 +450,7 @@ class _RecordingOutputTarget:
 
 
 class _FakeWebRTCRuntime:
-    def __init__(self, config: WebRTCDemoRuntimeConfig) -> None:
+    def __init__(self, config: Any) -> None:
         self.config = config
 
     async def initialize(self) -> None:
@@ -460,43 +486,3 @@ class _FakeWebRTCRuntime:
 
     def wait_for_termination(self) -> None:
         return None
-
-
-class _FakeWebRTCIntegration:
-    def __init__(self) -> None:
-        self.runtime: _FakeWebRTCRuntime | None = None
-        self.create_runtime_calls: list[DemoSpec] = []
-
-    def supported_input_modes(self) -> tuple[str, ...]:
-        return ("keyboard-driving",)
-
-    def create_runtime(self, spec: DemoSpec) -> _FakeWebRTCRuntime:
-        self.create_runtime_calls.append(spec)
-        assert isinstance(spec.output, WebRTCOutputSpec)
-        config = WebRTCDemoRuntimeConfig(
-            video_width=spec.output.video_width,
-            video_height=spec.output.video_height,
-            warmup_chunks=spec.output.warmup_chunks,
-            warmup_timeout_s=spec.output.warmup_timeout_s,
-        )
-        self.runtime = _FakeWebRTCRuntime(config)
-        return self.runtime
-
-    def create_session_manager(
-        self,
-        *,
-        spec: DemoSpec,
-        runtime: Any,
-    ) -> BaseWebRTCSessionManager:
-        assert isinstance(spec.output, WebRTCOutputSpec)
-        return BaseWebRTCSessionManager(
-            runtime=runtime,
-            runtime_config=runtime.config,
-            fps=spec.output.fps,
-            identity=spec.model_id,
-            client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
-        )
-
-    def app_resources(self, spec: DemoSpec) -> WebRTCAppResources:
-        del spec
-        return WebRTCAppResources(preload_name="Fake demo")

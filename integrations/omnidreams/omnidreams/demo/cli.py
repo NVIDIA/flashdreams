@@ -18,9 +18,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
-    run_flashdreams_demo,
-    serve_flashdreams_demo,
 )
+from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
@@ -88,13 +87,13 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging()
     args = parse_args(argv)
     if args.command == "replay":
-        run_flashdreams_demo(
+        run_replay_demo(
             spec=_replay_spec(args),
             adapter=OmnidreamsDemoAdapter(),
         )
         return
     if args.command == "webrtc":
-        from .webrtc import OmnidreamsWebRTCIntegration
+        from .webrtc import serve_omnidreams_webrtc_demo
 
         context = initialize_cuda_distributed(
             default_device=args.device,
@@ -103,9 +102,8 @@ def main(argv: list[str] | None = None) -> None:
             torch_module=torch,
             dist_module=dist,
         )
-        serve_flashdreams_demo(
+        serve_omnidreams_webrtc_demo(
             spec=_webrtc_spec(args, device=str(context.device)),
-            integration=OmnidreamsWebRTCIntegration(),
             world_rank=context.world_rank,
         )
         return

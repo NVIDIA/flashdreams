@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import omnidreams.demo as demo_package
 import omnidreams.demo.spec as spec_module
@@ -27,9 +27,9 @@ from omnidreams.demo.replay import (
     OmnidreamsReplayRuntimeOptions,
 )
 from omnidreams.demo.webrtc import (
-    OmnidreamsWebRTCIntegration,
     OmnidreamsWebRTCModelRuntime,
     OmnidreamsWebRTCModelRuntimeConfig,
+    serve_omnidreams_webrtc_demo,
 )
 
 from flashdreams.runtime import (
@@ -44,10 +44,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
-    serve_flashdreams_demo,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -344,7 +342,6 @@ def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> N
 
 def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     pipeline_config = object()
-    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -373,27 +370,33 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, integration=integration)
+    calls: list[dict[str, Any]] = []
+    serve_omnidreams_webrtc_demo(
+        spec=spec,
+        world_rank=1,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: calls.append(kwargs),
+    )
 
-    assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert type(demo.session_manager) is BaseWebRTCSessionManager
-    assert demo.session_manager._runtime is demo.runtime
-    assert demo.session_manager.runtime_config is demo.runtime.config
-    assert demo.runtime_config is demo.runtime.config
-    assert demo.runtime_config.pipeline_config is pipeline_config
-    assert demo.runtime_config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
-    assert demo.runtime_config.scene_uuid == "scene-1"
-    assert demo.runtime_config.scene_variant == "rain"
-    assert demo.runtime_config.seed == 123
-    assert demo.runtime_config.device == "cuda:7"
-    assert demo.runtime_config.video_width == 64
-    assert demo.runtime_config.video_height == 32
-    assert demo.runtime_config.fps == 24
-    assert demo.runtime_config.debug_serve_hdmaps is True
-    assert demo.runtime_config.encoder_backend == "default"
-    assert demo.session_manager.identity == DEFAULT_OMNIDREAMS_PRESET
-    assert demo.host == "0.0.0.0"
-    assert demo.port == 8082
+    manager = calls[0]["session_manager"]
+    runtime = manager._runtime
+    assert isinstance(runtime, _FakeWebRTCRuntime)
+    assert type(manager) is BaseWebRTCSessionManager
+    assert manager.runtime_config is runtime.config
+    assert runtime.config.pipeline_config is pipeline_config
+    assert runtime.config.pipeline_config_name == DEFAULT_OMNIDREAMS_PRESET
+    assert runtime.config.scene_uuid == "scene-1"
+    assert runtime.config.scene_variant == "rain"
+    assert runtime.config.seed == 123
+    assert runtime.config.device == "cuda:7"
+    assert runtime.config.video_width == 64
+    assert runtime.config.video_height == 32
+    assert runtime.config.fps == 24
+    assert runtime.config.debug_serve_hdmaps is True
+    assert runtime.config.encoder_backend == "default"
+    assert manager.identity == DEFAULT_OMNIDREAMS_PRESET
+    assert calls[0]["host"] == "0.0.0.0"
+    assert calls[0]["port"] == 8082
 
 
 def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
@@ -416,7 +419,6 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -435,10 +437,14 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, integration=integration, create_app=True)
+    app = serve_omnidreams_webrtc_demo(
+        spec=spec,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: None,
+    )
 
-    assert demo.app is not None
-    assert app_calls[0]["session_manager"] is demo.session_manager
+    assert isinstance(app, web.Application)
+    assert app_calls[0]["session_manager"] is app[SESSION_MANAGER_KEY]
     assert app_calls[0]["request_session_url"] == (
         "http://127.0.0.1:8082/request_session"
     )
@@ -469,7 +475,6 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         "create_packaged_webrtc_app",
         fake_create_packaged_webrtc_app,
     )
-    integration = OmnidreamsWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
@@ -487,23 +492,19 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
         ),
     )
 
-    demo = cast(
-        WebRTCDemo,
-        serve_flashdreams_demo(
-            spec=spec,
-            integration=integration,
-            world_rank=0,
-            server_runner=fake_server_runner,
-        ),
+    app = serve_omnidreams_webrtc_demo(
+        spec=spec,
+        world_rank=0,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=fake_server_runner,
     )
 
     assert len(server_calls) == 1
     assert server_calls[0]["world_rank"] == 0
-    assert server_calls[0]["session_manager"] is demo.session_manager
-    assert server_calls[0]["app"] is demo.app
+    assert server_calls[0]["app"] is app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8082
-    assert type(demo.session_manager) is BaseWebRTCSessionManager
+    assert type(server_calls[0]["session_manager"]) is BaseWebRTCSessionManager
 
 
 @pytest.mark.asyncio

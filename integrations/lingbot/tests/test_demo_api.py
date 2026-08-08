@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pytest
@@ -23,7 +23,7 @@ from lingbot.demo.replay import (
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,
 )
-from lingbot.demo.webrtc import LingbotWebRTCIntegration
+from lingbot.demo.webrtc import serve_lingbot_webrtc_demo
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
     FIELD_CAMERA_TRAJECTORY,
@@ -52,10 +52,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
-    serve_flashdreams_demo,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -383,7 +381,6 @@ def test_lingbot_webrtc_cli_builds_keyboard_driving_spec() -> None:
 
 def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     pipeline_config = object()
-    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -406,25 +403,31 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, integration=integration)
+    calls: list[dict[str, Any]] = []
+    serve_lingbot_webrtc_demo(
+        spec=spec,
+        world_rank=1,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: calls.append(kwargs),
+    )
 
-    assert isinstance(demo.runtime, _FakeWebRTCRuntime)
-    assert type(demo.session_manager) is BaseWebRTCSessionManager
-    assert demo.session_manager._runtime is demo.runtime
-    assert demo.session_manager.runtime_config is demo.runtime.config
-    assert demo.runtime_config is demo.runtime.config
-    assert demo.runtime_config.pipeline_config is pipeline_config
-    assert demo.runtime_config.config_name == DEFAULT_LINGBOT_PRESET
-    assert demo.runtime_config.seed == 123
-    assert demo.runtime_config.device == "cuda:7"
-    assert demo.runtime_config.video_width == 64
-    assert demo.runtime_config.video_height == 32
-    assert demo.runtime_config.fps == 24
-    assert demo.runtime_config.encoder_backend == "default"
-    assert demo.runtime_config.example_data_dir.name == "02"
-    assert demo.session_manager.identity == DEFAULT_LINGBOT_PRESET
-    assert demo.host == "0.0.0.0"
-    assert demo.port == 8080
+    manager = calls[0]["session_manager"]
+    runtime = manager._runtime
+    assert isinstance(runtime, _FakeWebRTCRuntime)
+    assert type(manager) is BaseWebRTCSessionManager
+    assert manager.runtime_config is runtime.config
+    assert runtime.config.pipeline_config is pipeline_config
+    assert runtime.config.config_name == DEFAULT_LINGBOT_PRESET
+    assert runtime.config.seed == 123
+    assert runtime.config.device == "cuda:7"
+    assert runtime.config.video_width == 64
+    assert runtime.config.video_height == 32
+    assert runtime.config.fps == 24
+    assert runtime.config.encoder_backend == "default"
+    assert runtime.config.example_data_dir.name == "02"
+    assert manager.identity == DEFAULT_LINGBOT_PRESET
+    assert calls[0]["host"] == "0.0.0.0"
+    assert calls[0]["port"] == 8080
 
 
 def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
@@ -444,7 +447,6 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch.setattr(
         shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
-    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -463,10 +465,15 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
         ),
     )
 
-    demo = build_webrtc_demo(spec=spec, integration=integration, create_app=True)
+    app = serve_lingbot_webrtc_demo(
+        spec=spec,
+        runtime_factory=_FakeWebRTCRuntime,
+        create_app_fn=lambda **kwargs: fake_create_packaged_app(**kwargs),
+        server_runner=lambda **kwargs: None,
+    )
 
-    assert demo.app is not None
-    assert app_calls[0]["session_manager"] is demo.session_manager
+    assert isinstance(app, web.Application)
+    assert app_calls[0]["session_manager"] is app[SESSION_MANAGER_KEY]
     assert app_calls[0]["request_session_url"] == (
         "http://127.0.0.1:8080/request_session"
     )
@@ -474,7 +481,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     assert str(app_calls[0]["web_resource"]).endswith("serving/webrtc/web")
     assert str(app_calls[0]["model_web_resource"]).endswith("lingbot/webrtc/web")
     assert callable(app_calls[0]["configure_app"])
-    route_paths = {resource.canonical for resource in demo.app.router.resources()}
+    route_paths = {resource.canonical for resource in app.router.resources()}
     assert "/api/session/initial_scene" in route_paths
     assert "/api/session/first_frame" in route_paths
     assert "/api/session/input" in route_paths
@@ -499,7 +506,6 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     monkeypatch.setattr(
         shared_webrtc_module, "create_packaged_webrtc_app", fake_create_packaged_app
     )
-    integration = LingbotWebRTCIntegration(runtime_factory=_FakeWebRTCRuntime)
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
         preset_id=DEFAULT_LINGBOT_PRESET,
@@ -517,23 +523,19 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
         ),
     )
 
-    demo = cast(
-        WebRTCDemo,
-        serve_flashdreams_demo(
-            spec=spec,
-            integration=integration,
-            world_rank=0,
-            server_runner=fake_server_runner,
-        ),
+    app = serve_lingbot_webrtc_demo(
+        spec=spec,
+        world_rank=0,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=fake_server_runner,
     )
 
     assert len(server_calls) == 1
     assert server_calls[0]["world_rank"] == 0
-    assert server_calls[0]["session_manager"] is demo.session_manager
-    assert server_calls[0]["app"] is demo.app
+    assert server_calls[0]["app"] is app
     assert server_calls[0]["host"] == "0.0.0.0"
     assert server_calls[0]["port"] == 8080
-    assert type(demo.session_manager) is BaseWebRTCSessionManager
+    assert type(server_calls[0]["session_manager"]) is BaseWebRTCSessionManager
 
 
 class _RecordingOutputTarget:

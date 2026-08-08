@@ -17,9 +17,8 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
-    run_flashdreams_demo,
-    serve_flashdreams_demo,
 )
+from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
@@ -124,13 +123,13 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging()
     args = parse_args(argv)
     if args.command == "replay":
-        run_flashdreams_demo(
+        run_replay_demo(
             spec=_replay_spec(args),
             adapter=LingbotDemoAdapter(),
         )
         return
     if args.command == "webrtc":
-        from .webrtc import LingbotWebRTCIntegration
+        from .webrtc import serve_lingbot_webrtc_demo
 
         context = initialize_cuda_distributed(
             default_device=args.device,
@@ -143,13 +142,12 @@ def main(argv: list[str] | None = None) -> None:
             is_rank_zero=(context.world_rank == 0),
             example_idx=args.example_idx,
         )
-        serve_flashdreams_demo(
+        serve_lingbot_webrtc_demo(
             spec=_webrtc_spec(
                 args,
                 device=str(context.device),
                 context_parallel_size=context.world_size,
             ),
-            integration=LingbotWebRTCIntegration(),
             world_rank=context.world_rank,
         )
         return
