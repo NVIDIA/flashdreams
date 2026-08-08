@@ -7,6 +7,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
+from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 BackendName = Literal["raster", "omnidreams"]
@@ -139,6 +141,8 @@ class AppConfig:
         default_factory=VideoPostprocessChainConfig
     )
     bev: BevConfig = BevConfig()
+    taxi_game: TaxiGameConfig = TaxiGameConfig()
+    """Overlay-only taxi-game configuration."""
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
     # against the AABB-distance proximity.

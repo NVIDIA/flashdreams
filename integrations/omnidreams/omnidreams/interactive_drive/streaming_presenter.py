@@ -25,10 +25,11 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 from loguru import logger
-from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.physx_debug import select_presented_rgb
+from omnidreams.interactive_drive.taxi_game import project_target_to_bev
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
@@ -191,6 +192,32 @@ _INDEX_HTML = """<!doctype html>
   .speed-value { font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .speed-unit { font-size: 18px; opacity: 0.75; letter-spacing: 0.04em; text-transform: uppercase; }
   .speed.disconnected .speed-value { color: #888; }
+  .taxi-hud {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    min-width: 360px; padding: 10px 18px;
+    border-radius: 12px; background: rgba(0, 0, 0, 0.72);
+    border: 2px solid #76b900; color: #76b900;
+    text-align: center; pointer-events: none;
+    text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9);
+  }
+  .taxi-hud.hidden, .taxi-map.hidden { display: none; }
+  .taxi-arrow { font-size: 50px; line-height: 48px; transform-origin: center; }
+  .taxi-status { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .taxi-event { min-height: 18px; color: white; font-weight: 700; margin-top: 3px; }
+  .taxi-hud.dropoff { color: #c89632; border-color: #c89632; }
+  .taxi-map {
+    position: fixed; top: 18px; right: 18px; width: 240px;
+    border: 3px solid rgba(255, 255, 255, 0.85); border-radius: 10px;
+    overflow: hidden; background: #222; pointer-events: none;
+  }
+  .taxi-map img { display: block; width: 100%; height: auto; }
+  .taxi-pin {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    border: 3px solid white; background: #76b900;
+    transform: translate(-50%, -50%); box-shadow: 0 2px 6px black;
+  }
+  .taxi-pin.dropoff { background: #c89632; }
+  .taxi-pin.hidden { display: none; }
   .keys { display: flex; flex-direction: column; gap: 6px; align-items: center; }
   .key-row { display: flex; gap: 6px; }
   .key {
@@ -327,6 +354,15 @@ _INDEX_HTML = """<!doctype html>
 </head>
 <body>
 <img id="stream" src="/stream">
+<div class="taxi-hud hidden" id="taxi-hud">
+  <div class="taxi-arrow" id="taxi-arrow">&#9650;</div>
+  <div class="taxi-status" id="taxi-status"></div>
+  <div class="taxi-event" id="taxi-event"></div>
+</div>
+<div class="taxi-map hidden" id="taxi-map">
+  <img id="taxi-bev" src="/bev_stream">
+  <div class="taxi-pin" id="taxi-pin"></div>
+</div>
 <div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
@@ -401,7 +437,41 @@ window.addEventListener('blur', () => {
 // generating meaningful HTTP load (~10 req/s of <100 B each).
 const speedEl = document.getElementById('speed');
 const speedValueEl = document.getElementById('speed-value');
+const taxiHudEl = document.getElementById('taxi-hud');
+const taxiArrowEl = document.getElementById('taxi-arrow');
+const taxiStatusEl = document.getElementById('taxi-status');
+const taxiEventEl = document.getElementById('taxi-event');
+const taxiMapEl = document.getElementById('taxi-map');
+const taxiPinEl = document.getElementById('taxi-pin');
 const MPS_TO_MPH = 2.236936;
+function paintTaxi(taxi) {
+  if (!taxi) {
+    taxiHudEl.classList.add('hidden');
+    taxiMapEl.classList.add('hidden');
+    return;
+  }
+  const dropoff = taxi.phase === 'to_dropoff';
+  taxiHudEl.classList.remove('hidden');
+  taxiHudEl.classList.toggle('dropoff', dropoff);
+  taxiArrowEl.style.transform = `rotate(${-taxi.relative_bearing_rad * 180 / Math.PI}deg)`;
+  const phase = dropoff ? 'DROPOFF' : 'PICKUP';
+  const timer = typeof taxi.remaining_time_s === 'number'
+    ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
+  taxiStatusEl.textContent = `${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}`;
+  taxiEventEl.textContent = taxi.event === 'fare_complete'
+    ? `FARE COMPLETE  +${taxi.awarded_points}`
+    : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : '');
+  const marker = taxi.bev_target;
+  const showMap = taxi.bev_enabled;
+  const showPin = showMap && marker && marker.visible;
+  taxiMapEl.classList.toggle('hidden', !showMap);
+  taxiPinEl.classList.toggle('hidden', !showPin);
+  if (showPin) {
+    taxiPinEl.style.left = `${marker.u * 100}%`;
+    taxiPinEl.style.top = `${marker.v * 100}%`;
+    taxiPinEl.classList.toggle('dropoff', dropoff);
+  }
+}
 async function pollState() {
   try {
     const r = await fetch('/state', { cache: 'no-store' });
@@ -414,9 +484,11 @@ async function pollState() {
       speedValueEl.textContent = '--';
       speedEl.classList.add('disconnected');
     }
+    paintTaxi(s.taxi || null);
   } catch {
     speedValueEl.textContent = '--';
     speedEl.classList.add('disconnected');
+    paintTaxi(null);
   }
 }
 setInterval(pollState, 100);
@@ -556,6 +628,7 @@ class MJPEGStreamingPresenter:
         self._raster = raster
         self._keyboard = keyboard
         self._visual_flare = CollisionVisualFlare()
+        self._bev_config: BevConfig | None = None
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
@@ -730,6 +803,10 @@ class MJPEGStreamingPresenter:
             _KeyboardDriveSink(keyboard)
         )
 
+    def configure_taxi_hud(self, bev: BevConfig) -> None:
+        """Configure BEV projection used by browser taxi overlays."""
+        self._bev_config = bev
+
     def process_events(self) -> None:
         # Per-tick integrator update so auto-crawl smoothing advances at sim
         # cadence regardless of how often the browser posts /control events.
@@ -894,24 +971,43 @@ class MJPEGStreamingPresenter:
             if key in ("r", "R"):
                 self._keyboard.request_reset()
 
-    def _state_snapshot(self) -> dict[str, float | None]:
-        """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.
+    def _state_snapshot(self) -> dict[str, object]:
+        """Return a JSON-serializable vehicle and taxi telemetry snapshot.
 
         Returns ``None`` fields before the first chunk so the browser shows
         ``--`` instead of a stale zero.
         """
-        snapshot = self._keyboard.vehicle_state
-        if snapshot is None:
-            return {
-                "speed_mps": None,
-                "steer_rad": None,
-                "yaw_rad": None,
-            }
-        return {
-            "speed_mps": float(snapshot.speed_mps),
-            "steer_rad": float(snapshot.steer_rad),
-            "yaw_rad": float(snapshot.yaw_rad),
+        vehicle_state, taxi_state = self._keyboard.runtime_state
+        result: dict[str, object] = {
+            "speed_mps": None,
+            "steer_rad": None,
+            "yaw_rad": None,
+            "taxi": None,
         }
+        if vehicle_state is not None:
+            result.update(
+                speed_mps=float(vehicle_state.speed_mps),
+                steer_rad=float(vehicle_state.steer_rad),
+                yaw_rad=float(vehicle_state.yaw_rad),
+            )
+        if taxi_state is not None:
+            taxi_payload = taxi_state.as_dict()
+            taxi_payload["bev_enabled"] = bool(
+                self._bev_config is not None and self._bev_config.enabled
+            )
+            if vehicle_state is not None and self._bev_config is not None:
+                u, v, visible = project_target_to_bev(
+                    taxi_state.target_xyz_m, vehicle_state, self._bev_config
+                )
+                taxi_payload["bev_target"] = {
+                    "u": u,
+                    "v": v,
+                    "visible": visible,
+                }
+            else:
+                taxi_payload["bev_target"] = None
+            result["taxi"] = taxi_payload
+        return result
 
     def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
         """Validate a ``/scene/select`` request against registered ``_scenes`` and stash it.

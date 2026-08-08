@@ -5,6 +5,7 @@ import threading
 import time
 
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
+from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
@@ -49,6 +50,7 @@ class KeyboardState:
         # produced a chunk yet (warmup window) -- callers render an empty
         # speed readout in that case.
         self._vehicle_state: VehicleState | None = None
+        self._taxi_game_state: TaxiGameSnapshot | None = None
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
@@ -104,6 +106,14 @@ class KeyboardState:
         with self._lock:
             self._vehicle_state = state
 
+    def update_runtime_state(
+        self, state: VehicleState, taxi_game_state: TaxiGameSnapshot | None
+    ) -> None:
+        """Publish vehicle and taxi state as one coherent runtime snapshot."""
+        with self._lock:
+            self._vehicle_state = state
+            self._taxi_game_state = taxi_game_state
+
     def clear_telemetry(self) -> None:
         """Drop the published vehicle state (back to the pre-first-chunk state).
 
@@ -113,12 +123,27 @@ class KeyboardState:
         """
         with self._lock:
             self._vehicle_state = None
+            self._taxi_game_state = None
 
     @property
     def vehicle_state(self) -> VehicleState | None:
         """Most-recent simulation snapshot, or ``None`` before the first chunk."""
         with self._lock:
             return self._vehicle_state
+
+    @property
+    def taxi_game_state(self) -> TaxiGameSnapshot | None:
+        """Most-recent taxi-game snapshot, or ``None`` when the mode is inactive."""
+        with self._lock:
+            return self._taxi_game_state
+
+    @property
+    def runtime_state(
+        self,
+    ) -> tuple[VehicleState | None, TaxiGameSnapshot | None]:
+        """Return vehicle and taxi state from the same publication lock."""
+        with self._lock:
+            return self._vehicle_state, self._taxi_game_state
 
     def consume_reset_request(self) -> bool:
         with self._lock:

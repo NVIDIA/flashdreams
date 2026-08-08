@@ -150,6 +150,9 @@ class SceneBundle:
     initial_timestamp_us: int
     initial_yaw_rad: float
     initial_speed_mps: float
+    reference_route_world: FloatArray
+    """Recorded rig positions ``[N, 3]`` used for road-valid navigation targets."""
+
     initial_rgb: UInt8Array
     prompt: str
     line_layers: tuple[WorldLineSegments, ...]

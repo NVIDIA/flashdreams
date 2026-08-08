@@ -6,11 +6,16 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+from omnidreams.interactive_drive.config import BevConfig
+from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.streaming_presenter import (
+    MJPEGStreamingPresenter,
     _as_rgb_host_uint8,
     _publish_if_open,
     _wait_for_bus_frame,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
+from omnidreams.interactive_drive.types import VehicleState
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 
@@ -55,3 +60,27 @@ def test_streaming_presenter_frame_wait_returns_none_after_bus_close() -> None:
     )
 
     assert frame is None
+
+
+def test_streaming_state_snapshot_includes_taxi_payload() -> None:
+    keyboard = KeyboardState()
+    vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 3.0, 0.0)
+    taxi = TaxiGameSnapshot(
+        phase="to_dropoff",
+        target_xyz_m=(10.0, 0.0, 0.0),
+        distance_m=10.0,
+        relative_bearing_rad=0.0,
+        remaining_time_s=12.0,
+        score=100,
+    )
+    keyboard.update_runtime_state(vehicle, taxi)
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._keyboard = keyboard
+    presenter._bev_config = BevConfig(tilt_deg=0.0)
+
+    snapshot = presenter._state_snapshot()
+
+    assert snapshot["speed_mps"] == 3.0
+    assert isinstance(snapshot["taxi"], dict)
+    assert snapshot["taxi"]["phase"] == "to_dropoff"
+    assert snapshot["taxi"]["bev_target"]["visible"] is True

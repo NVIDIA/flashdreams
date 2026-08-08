@@ -52,6 +52,9 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert bundle.selected_camera.logical_name == "camera_front_wide_120fov"
     assert bundle.initial_rgb.shape == (352, 640, 3)
     assert bundle.initial_timestamp_us > 0
+    assert bundle.reference_route_world.ndim == 2
+    assert bundle.reference_route_world.shape[1] == 3
+    assert len(bundle.reference_route_world) >= 2
     assert len(bundle.line_layers) > 0
     assert any(layer.color_rgba == (1.0, 1.0, 0.0, 1.0) for layer in bundle.line_layers)
     assert any(
