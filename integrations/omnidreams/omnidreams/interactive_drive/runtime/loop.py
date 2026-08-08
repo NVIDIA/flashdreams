@@ -559,11 +559,12 @@ def run_main_loop(
                 )
             taxi_snapshot = None
             if taxi_game is not None:
-                taxi_game.advance(
+                taxi_snapshots = taxi_game.advance_frames(
                     chunk_request.trajectory,
                     frame_interval_s=config.frame_interval_s,
                 )
                 taxi_snapshot = taxi_game.snapshot(simulation.current_state)
+                chunk_request = replace(chunk_request, taxi_snapshots=taxi_snapshots)
             pipeline.request_pose_chunk(chunk_request)
             # The pose chunk just advanced authoritative state, so refresh the
             # OOB overlay from the new boundary frame and auto-respawn (same

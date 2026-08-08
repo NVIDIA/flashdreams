@@ -13,6 +13,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import json
+import math as _math
 import shutil
 import subprocess
 import threading
@@ -25,16 +26,25 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 from loguru import logger
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.physx_debug import select_presented_rgb
-from omnidreams.interactive_drive.taxi_game import project_target_to_bev
-from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.taxi_game import (
+    project_target_to_bev,
+    project_taxi_marker_to_camera,
+)
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    DriverCommand,
+    PresentedFrame,
+)
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
     darken_rgb,
 )
+from PIL import Image, ImageDraw
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
@@ -201,7 +211,15 @@ _INDEX_HTML = """<!doctype html>
     text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9);
   }
   .taxi-hud.hidden, .taxi-map.hidden { display: none; }
-  .taxi-arrow { font-size: 50px; line-height: 48px; transform-origin: center; }
+  .taxi-arrow {
+    width: 58px; height: 64px; margin: 0 auto 2px;
+    transform-origin: center; color: inherit;
+  }
+  .taxi-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .taxi-arrow path {
+    fill: currentColor; stroke: black; stroke-width: 3px;
+    stroke-linejoin: round; paint-order: stroke fill;
+  }
   .taxi-status { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .taxi-event { min-height: 18px; color: white; font-weight: 700; margin-top: 3px; }
   .taxi-hud.dropoff { color: #c89632; border-color: #c89632; }
@@ -355,7 +373,11 @@ _INDEX_HTML = """<!doctype html>
 <body>
 <img id="stream" src="/stream">
 <div class="taxi-hud hidden" id="taxi-hud">
-  <div class="taxi-arrow" id="taxi-arrow">&#9650;</div>
+  <div class="taxi-arrow" id="taxi-arrow" aria-hidden="true">
+    <svg viewBox="0 0 64 72">
+      <path d="M32 3 L57 36 L42 36 L42 68 L22 68 L22 36 L7 36 Z"></path>
+    </svg>
+  </div>
   <div class="taxi-status" id="taxi-status"></div>
   <div class="taxi-event" id="taxi-event"></div>
 </div>
@@ -629,6 +651,8 @@ class MJPEGStreamingPresenter:
         self._keyboard = keyboard
         self._visual_flare = CollisionVisualFlare()
         self._bev_config: BevConfig | None = None
+        self._taxi_camera_calibration: CameraCalibration | None = None
+        self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
@@ -807,6 +831,11 @@ class MJPEGStreamingPresenter:
         """Configure BEV projection used by browser taxi overlays."""
         self._bev_config = bev
 
+    def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
+        """Configure camera projection for world-anchored taxi markers."""
+        self._taxi_camera_calibration = calibration
+        self._taxi_camera_models.clear()
+
     def process_events(self) -> None:
         # Per-tick integrator update so auto-crawl smoothing advances at sim
         # cadence regardless of how often the browser posts /control events.
@@ -849,33 +878,23 @@ class MJPEGStreamingPresenter:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
         if view_mode == "physx":
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        select_presented_rgb(
-                            frame,
-                            view_mode,
-                            width=self._raster.width,
-                            height=self._raster.height,
-                        ),
-                        frame.status_message,
-                    )
-                )
+            image = _with_status_overlay(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                ),
+                frame.status_message,
             )
         elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        frame.model_rgb_host_uint8, frame.status_message
-                    )
-                )
+            image = _with_status_overlay(
+                frame.model_rgb_host_uint8, frame.status_message
             )
         else:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-                )
-            )
+            image = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        image = self._with_taxi_world_marker(image, frame)
+        self._publish(with_flare(image))
         if frame.bev_host_uint8 is not None:
             self._submit_bev_publish(frame.bev_host_uint8)
 
@@ -902,6 +921,92 @@ class MJPEGStreamingPresenter:
             value_range="uint8",
         )
         _publish_if_open(self._frame_bus, jpeg, stop_event=self._stop_event)
+
+    def _with_taxi_world_marker(
+        self, rgb_host_uint8: np.ndarray, frame: PresentedFrame
+    ) -> np.ndarray:
+        """Overlay the in-view world target while leaving off-screen targets alone."""
+        snapshot = frame.taxi_game_snapshot
+        if (
+            snapshot is None
+            or frame.rig_to_world is None
+            or self._taxi_camera_calibration is None
+        ):
+            return rgb_host_uint8
+        image_height, image_width = rgb_host_uint8.shape[:2]
+        model_key = (image_width, image_height)
+        camera_model = self._taxi_camera_models.get(model_key)
+        if camera_model is None:
+            camera_model = FThetaCameraModel(
+                self._taxi_camera_calibration,
+                output_width=image_width,
+                output_height=image_height,
+            )
+            self._taxi_camera_models[model_key] = camera_model
+        marker = project_taxi_marker_to_camera(
+            snapshot,
+            frame.rig_to_world,
+            camera_model,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        if marker is None:
+            return rgb_host_uint8
+
+        color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
+        image = Image.fromarray(rgb_host_uint8, mode="RGB")
+        draw = ImageDraw.Draw(image)
+        for edge in marker.ring_edges_uv:
+            draw.line(edge, fill=(0, 0, 0), width=7)
+            draw.line(edge, fill=color, width=4)
+
+        anchor = marker.anchor_uv
+        if marker.beacon_top_uv is None:
+            top = (anchor[0], anchor[1] - 64.0)
+        else:
+            vector_x = marker.beacon_top_uv[0] - anchor[0]
+            vector_y = marker.beacon_top_uv[1] - anchor[1]
+            length = max(1.0, _math.hypot(vector_x, vector_y))
+            display_length = min(170.0, max(52.0, length))
+            top = (
+                anchor[0] + vector_x * display_length / length,
+                anchor[1] + vector_y * display_length / length,
+            )
+        draw.line((anchor, top), fill=(0, 0, 0), width=9)
+        draw.line((anchor, top), fill=color, width=5)
+        draw.ellipse(
+            (
+                anchor[0] - 9,
+                anchor[1] - 9,
+                anchor[0] + 9,
+                anchor[1] + 9,
+            ),
+            fill=color,
+            outline=(255, 255, 255),
+            width=3,
+        )
+        label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        label_box = draw.textbbox((0, 0), label)
+        label_width = label_box[2] - label_box[0]
+        label_height = label_box[3] - label_box[1]
+        draw.rounded_rectangle(
+            (
+                top[0] - label_width / 2 - 8,
+                top[1] - label_height - 15,
+                top[0] + label_width / 2 + 8,
+                top[1] + 5,
+            ),
+            radius=6,
+            fill=(8, 8, 12),
+            outline=color,
+            width=2,
+        )
+        draw.text(
+            (top[0] - label_width / 2, top[1] - label_height - 10),
+            label,
+            fill=color,
+        )
+        return np.asarray(image)
 
     def _submit_bev_publish(self, bev_rgb_host_uint8: object) -> None:
         future = self._bev_publish_future

@@ -6,12 +6,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 
 from flashdreams.serving.realtime.timing import VideoModelTimings
+
+if TYPE_CHECKING:
+    from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
@@ -352,6 +355,11 @@ class PresentedFrame:
     """Lazy Ludus CUDA debug raster, materialized only by host presenters."""
 
     status_message: str | None = None
+    rig_to_world: FloatArray | None = None
+    """Camera-rig pose synchronized to this frame."""
+
+    taxi_game_snapshot: TaxiGameSnapshot | None = None
+    """Taxi state synchronized to this frame, when taxi mode is active."""
 
 
 @dataclass(frozen=True)

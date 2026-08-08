@@ -149,6 +149,7 @@ def test_runtime_state_publishes_vehicle_and_taxi_atomically() -> None:
         target_xyz_m=(10.0, 0.0, 0.0),
         distance_m=9.0,
         relative_bearing_rad=0.0,
+        target_radius_m=5.0,
         remaining_time_s=None,
         score=0,
     )
