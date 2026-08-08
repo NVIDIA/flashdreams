@@ -84,3 +84,17 @@ def test_parser_records_explicit_arg_destinations() -> None:
     assert arg_was_explicit(args, "offload_text_encoder")
     assert arg_was_explicit(args, "bev")
     assert not arg_was_explicit(args, "camera")
+
+
+def test_taxi_game_defaults_disabled_with_zero_seed() -> None:
+    args = build_parser().parse_args([])
+
+    assert args.taxi_game is False
+    assert args.taxi_seed == 0
+
+
+def test_taxi_game_accepts_seed() -> None:
+    args = build_parser().parse_args(["--taxi-game", "--taxi-seed", "42"])
+
+    assert args.taxi_game is True
+    assert args.taxi_seed == 42

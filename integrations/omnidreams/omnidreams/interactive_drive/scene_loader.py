@@ -348,7 +348,9 @@ def _load_camera_calibration(
     )
 
 
-def _load_initial_state(zf: zipfile.ZipFile) -> tuple[np.ndarray, int, float, float]:
+def _load_initial_state(
+    zf: zipfile.ZipFile,
+) -> tuple[np.ndarray, int, float, float, np.ndarray]:
     trajectory_doc = _read_json(zf, "rig_trajectories.json")
     rig_trajectory = trajectory_doc["rig_trajectories"][0]
     poses = np.asarray(rig_trajectory["T_rig_worlds"], dtype=np.float32)
@@ -365,7 +367,14 @@ def _load_initial_state(zf: zipfile.ZipFile) -> tuple[np.ndarray, int, float, fl
     else:
         initial_speed = 0.0
 
-    return initial_pose, initial_timestamp, initial_yaw, initial_speed
+    reference_route_world = poses[:, :3, 3].astype(np.float32)
+    return (
+        initial_pose,
+        initial_timestamp,
+        initial_yaw,
+        initial_speed,
+        reference_route_world,
+    )
 
 
 def _sanitize_layer_suffix(name: str) -> str:
@@ -889,9 +898,13 @@ def load_scene_bundle(
     with zipfile.ZipFile(scene_path, "r") as zf:
         metadata = _read_yaml(zf, "metadata.yaml")
         camera = _load_camera_calibration(zf, camera_name)
-        initial_pose, initial_timestamp, initial_yaw, initial_speed = (
-            _load_initial_state(zf)
-        )
+        (
+            initial_pose,
+            initial_timestamp,
+            initial_yaw,
+            initial_speed,
+            reference_route_world,
+        ) = _load_initial_state(zf)
         initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
         prompt = _load_prompt(zf, variant, prompt_override)
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
@@ -907,6 +920,7 @@ def load_scene_bundle(
         initial_timestamp_us=initial_timestamp,
         initial_yaw_rad=initial_yaw,
         initial_speed_mps=initial_speed,
+        reference_route_world=reference_route_world,
         initial_rgb=initial_rgb,
         prompt=prompt,
         line_layers=line_layers,
