@@ -147,6 +147,15 @@ def _make_manager(
     )
 
 
+def test_drives_inference_session_detects_session_runtime() -> None:
+    class _SessionRuntime:
+        async def start_inference_session(self) -> object:
+            return object()
+
+    assert BaseWebRTCSessionManager._drives_inference_session(_SessionRuntime())
+    assert not BaseWebRTCSessionManager._drives_inference_session(object())
+
+
 def test_runtime_frame_timing_contract() -> None:
     class _Runtime:
         def peek_input_fps(self) -> float:
@@ -483,6 +492,55 @@ async def test_action_keyup_updates_state_when_user_event_queue_full(
     assert len(resampler.edges) == 1
     assert resampler.edges[0][1:] == ("keyup", "w")
     assert channel.messages == []
+
+
+@pytest.mark.asyncio
+async def test_session_event_message_validates_records_and_activates() -> None:
+    class _Runtime:
+        def __init__(self) -> None:
+            self.validate_calls: list[tuple[str, dict[str, Any]]] = []
+
+        def validate_user_event(
+            self, *, event_type: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.validate_calls.append((event_type, dict(payload)))
+            return {
+                "event_id": payload["event_id"],
+                "state": payload["state"],
+                "validated": True,
+            }
+
+    runtime = _Runtime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _video_track, _peer, channel = _managed_session(runtime)
+    managed.inference_session = object()
+    managed.first_action_received.clear()
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "event", "event_id": "storm", "state": "trigger"}
+        ),
+    )
+
+    assert runtime.validate_calls == [
+        ("text_event", {"event_id": "storm", "state": "trigger"})
+    ]
+    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
+        (
+            "text_event",
+            {"event_id": "storm", "state": "trigger", "validated": True},
+        )
+    ]
+    assert managed.first_action_received.is_set()
+    assert [json.loads(message) for message in channel.messages] == [
+        {
+            "type": "event_ack",
+            "event_id": "storm",
+            "state": "trigger",
+            "active_event_id": "storm",
+        }
+    ]
 
 
 @pytest.mark.asyncio
