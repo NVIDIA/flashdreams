@@ -9,6 +9,10 @@ from collections.abc import Awaitable
 from typing import Any, Protocol
 
 from flashdreams.infra.video_output import VideoStepResult
+from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import UserInputSchema
+from flashdreams.runtime.interfaces import InferenceSession
+from flashdreams.runtime.mapping import InputMapping
 from flashdreams.serving.realtime.input import PoseSegment
 
 
@@ -62,6 +66,33 @@ class WebRTCEventRuntime(Protocol):
     def trigger_event(
         self, *, event_id: str, state: str = "trigger"
     ) -> dict[str, Any] | Awaitable[dict[str, Any]]: ...
+
+
+class WebRTCInferenceSessionRuntime(Protocol):
+    """Optional runtime capability for driving an ``InferenceSession``.
+
+    A runtime implementing this opts into the manager's session branch, where
+    raw key and text events are canonicalized and mapped into per-step
+    ``InferenceInput`` instead of being handed to ``generate_chunk`` as
+    pre-integrated pose segments. The transport keeps owning event
+    timestamping and input-window selection; the model only declares its
+    mapping and consumes model-facing inputs.
+
+    Runtimes on this branch do not need ``generate_chunk`` or ``trigger_event``:
+    camera control arrives as mapped step inputs, and text events arrive as a
+    session-global conditioning update in the same payload.
+    """
+
+    async def start_inference_session(self) -> InferenceSession: ...
+
+    @property
+    def input_mapping(self) -> InputMapping: ...
+
+    @property
+    def input_canonicalizer(self) -> InputCanonicalizer: ...
+
+    @property
+    def input_source_schema(self) -> UserInputSchema: ...
 
 
 class WebRTCServerLifecycle(Protocol):

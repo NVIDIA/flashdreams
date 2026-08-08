@@ -44,10 +44,8 @@ model.
 ## Current Implementation Plan
 
 Implementation should happen on an experimental integration branch. PRs for this
-work should target that branch until the API shape and OmniDreams migration are
-working well enough to merge to `main` together. LingBot migration is deferred
-to a separate follow-up after the OmniDreams path has clarified the shared demo
-API shape.
+work should target that branch until the API shape and migrated demo paths are
+working well enough to merge to `main` together.
 
 The experimental branch can temporarily break or simplify command-line options
 while the demos are being moved to the new API. The required outcome for this
@@ -62,7 +60,7 @@ Initial scope:
 - support selectable output modes such as MP4, JPEG/MJPEG stream, WebRTC, and
   headless/null where appropriate;
 - use or update benchmark tooling to verify the migrated OmniDreams demo;
-- defer broader model migrations, hosted execution, full autotune, and polished
+- defer additional model migrations, hosted execution, full autotune, and polished
   metrics until the first branch proves the API shape.
 
 ## Task Tracker
@@ -75,12 +73,36 @@ Initial scope:
 | T3 | Complete | `CanonicalInputs`, `InferenceInput`, schemas, and mapping boundary. | Yes, after T1 direction is agreed. | T1. | Models can declare required global/per-step inputs, and mappings can convert canonical inputs into inference inputs. |
 | T4 | Complete | `ModelRunner`, `InferenceRuntime`, and `InferenceSession` skeleton. | Partly. | T1. | A minimal standard loop can initialize a runtime, run at least one sequential session, and close cleanly. |
 | T5 | Planned | Output mode selection. | Yes, after the result/output shape is agreed. | T1, T4. | A run can choose output behavior such as MP4, JPEG/MJPEG stream, WebRTC, benchmark artifact, or headless/null without changing model code. |
-| T6 | Deferred | LingBot migration. | Yes, but out of scope for this branch. | T2, T3, T4. | LingBot runs through the new API path with its event inputs mapped into model inputs. |
+| T6 | Partially complete | LingBot migration and live model-input cleanup. | Yes. | T2, T3, T4. | Scene/prompt/first-frame model inputs flow through `InferenceInput.global_conditioning` or a typed model-input object, static runtime settings remain in runtime config, LingBot uses the shared WebRTC hook shape, and any retained per-model WebRTC/demo wrappers are deliberate compatibility shims. |
 | T7 | Partially complete | OmniDreams migration. | Yes, once T2-T4 have a usable skeleton. | T2, T3, T4. | OmniDreams replay and WebRTC run through the shared demo API path; remaining work is output/stat integration, legacy demo retirement, and cleanup. |
 | T8 | Partially complete | Benchmark/smoke verification for OmniDreams. | Preparation can run early; final gate is late. | T5, T7. | Existing or updated benchmark tooling can run the migrated OmniDreams demo and produce enough evidence that it still works. |
 | T9 | Planned | Metrics and profiling normalization for the branch. | Yes, but final integration is late. | T4, T5, T8. | Basic canonical metrics are emitted for migrated demos; deeper metrics can remain follow-up work. |
 | T10 | Planned | CLI compatibility, legacy retirement, and migration cleanup. | Yes, after demo migrations start. | T5, T7, T8. | Required demo commands are restored or replaced, old interactive-drive and old OmniDreams demo/server paths are removed or reduced to compatibility shims, code used only by retired demos is removed, and user-facing docs/notes match the branch behavior. |
 | T11 | Planned | Stabilize and merge experimental branch to `main`. | No, final integration step. | T5, T7-T10. | OmniDreams passes agreed smoke/benchmark checks, review feedback is addressed, and the branch can merge as one API transition. |
+
+Current LingBot migration status:
+
+- LingBot has partial runtime/session plumbing, but live WebRTC still retains
+  the segment-based `generate_chunk(segments, frame_times)` entry point while
+  the model-input boundary is cleaned up.
+- Scene, prompt, and first-frame style model inputs should move through
+  `InferenceInput.global_conditioning` or a typed object carried there instead
+  of being hidden inside runtime config.
+- Runtime config should keep static execution settings: pipeline config,
+  device, resolution/FPS, warmup, encoder options, movement speeds, and
+  cache/layout options.
+- Browser-only session options, such as OmniDreams postprocess preset
+  selection, should remain pending session input unless they become true model
+  conditioning.
+- LingBot still delegates parts of the WebRTC path through
+  `lingbot.webrtc.server.create_app()` and `LingbotWebRTCSessionManager`.
+  Follow-up work should move it to the same hook shape as OmniDreams:
+  `WebRTCManagerOptions`, `WebRTCAppExtension`, and shared route/resource
+  helpers.
+- Full realtime `UserInputs` / `InputMapping` integration can be deferred
+  until after the live model-input handling is explicit.
+- Later cleanup should remove or reduce old per-model WebRTC server wrappers
+  and obsolete demo code once both demos are fully on the shared path.
 
 Current OmniDreams migration status:
 
@@ -106,8 +128,8 @@ Suggested parallel split:
   stay coherent;
 - one person owns T5/T8/T9, because outputs, benchmarks, and metrics are tightly
   related;
-- LingBot should be tracked as a separate follow-up once OmniDreams has settled
-  the shared demo API shape;
+- one person owns T6's LingBot follow-up: live model inputs, shared WebRTC hook
+  migration, and cleanup of retained per-model wrappers;
 - one person should track branch health, CLI compatibility, and merge readiness.
 
 ## Architecture

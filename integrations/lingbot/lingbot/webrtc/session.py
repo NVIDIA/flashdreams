@@ -24,6 +24,7 @@ import ipaddress
 import re
 import socket
 import ssl
+import threading
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +59,20 @@ from flashdreams.serving.webrtc.manager import (
     WebRTCControlSignal,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    UserInputCapability,
+    UserInputSchema,
+)
+from flashdreams.runtime.types import StepRequest, StepResult
+from lingbot.input_mapping import (
+    FIELD_CAMERA_INTRINSICS,
+    FIELD_CAMERA_TRAJECTORY,
+    KeyboardToCameraCommand,
+    LingbotInputMapping,
+    TextEventSelection,
+)
 from lingbot.encoder.utils import preprocess_example_poses
 
 _INTRINSICS_REFERENCE_HEIGHT = 480
@@ -603,7 +618,11 @@ class LingbotInferenceRuntime:
         self._prompt: str | None = None
         self._base_text_embeddings: torch.Tensor | None = None
         self._event_embeddings: dict[str, torch.Tensor] = {}
+        self._prompt_embeddings: dict[str, torch.Tensor] = {}
         self._active_event_id: str | None = None
+        self._input_mapping: LingbotInputMapping | None = None
+        self._input_canonicalizer: InputCanonicalizer | None = None
+        self._sync_step_lock = threading.Lock()
         self._world_scale = 1.0
         self._video_encoder: VideoEncoder | None = None
         self._closed = False
@@ -675,6 +694,100 @@ class LingbotInferenceRuntime:
                 state,
             )
 
+    async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
+        """Return an ``InferenceSession`` view of the current rollout.
+
+        The shared manager canonicalizes raw key and text events and maps them
+        into per-step model inputs before stepping the session.
+        """
+        if self._closed:
+            raise LingbotRuntimeError("Runtime is closed.")
+        if self._input_mapping is None:
+            raise LingbotRuntimeError(
+                "Runtime input mapping is not initialized; reset the rollout first."
+            )
+        return LingbotWebRTCInferenceSession(runtime=self)
+
+    @property
+    def input_mapping(self) -> LingbotInputMapping:
+        if self._input_mapping is None:
+            raise LingbotRuntimeError("Runtime input mapping is not initialized.")
+        return self._input_mapping
+
+    @property
+    def input_canonicalizer(self) -> InputCanonicalizer:
+        if self._input_canonicalizer is None:
+            raise LingbotRuntimeError("Runtime canonicalizer is not initialized.")
+        return self._input_canonicalizer
+
+    @property
+    def input_source_schema(self) -> UserInputSchema:
+        return LINGBOT_WEBRTC_SOURCE_SCHEMA
+
+    def validate_user_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate one raw WebRTC user event before it is acknowledged."""
+        if event_type != "text_event":
+            return payload
+        event_id_value = payload.get("event_id")
+        event_id = "" if event_id_value is None else str(event_id_value)
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        clears = state in {"clear", "release", "off", "none"}
+        return {"event_id": None if clears else event_id, "state": state}
+
+    def _build_input_layers_sync(
+        self, text_events: tuple[TextEventSpec, ...]
+    ) -> None:
+        """Build the canonicalizer and mapping for the current rollout.
+
+        A rollout can be reset before intrinsics are resolved; the mapping is
+        then left unbuilt and ``start_inference_session`` reports it.
+        """
+        if self._base_intrinsics is None:
+            self._input_mapping = None
+            self._input_canonicalizer = None
+            return
+        self._input_canonicalizer = InputCanonicalizer(
+            [KeyboardToCameraCommand(), TextEventSelection()]
+        )
+        # Mapping runs on the transport's event-loop thread, so hand it a CPU
+        # copy rather than the device tensor used inside generation.
+        self._input_mapping = LingbotInputMapping(
+            fps=int(self.config.fps),
+            base_intrinsics=self._base_intrinsics.detach().reshape(4).cpu(),
+            world_scale=self._world_scale or 1.0,
+            text_event_prompts={
+                event.event_id: event.prompt for event in text_events
+            },
+        )
+        self._input_mapping.set_base_prompt(self._prompt or "")
+
+    def _next_step_request_sync(self) -> StepRequest:
+        """Describe the next chunk for the mapping.
+
+        The manager overrides ``user_input_window`` with its own clock; the
+        frame counter here only tells the mapping how much trajectory to build.
+        """
+        num_frames = self.peek_next_chunk_num_frames()
+        return StepRequest(
+            step_index=self.autoregressive_index,
+            metadata={
+                "num_frames": num_frames,
+                "frame_start": self.autoregressive_index * num_frames,
+            },
+        )
+
+    def _step_blocking(self, inputs: InferenceInput) -> StepResult:
+        """Run one mapped step. Called from the manager's executor thread."""
+        if self._closed:
+            raise LingbotRuntimeError("Session is closed.")
+        with self._sync_step_lock:
+            if self._closed:
+                raise LingbotRuntimeError("Session is closed.")
+            return self._step_sync_all_ranks(inputs)
+
     async def generate_chunk(
         self,
         *,
@@ -684,16 +797,14 @@ class LingbotInferenceRuntime:
         """Generate one autoregressive chunk from a piecewise-constant timeline.
 
         Args:
-            segments: Piecewise-constant keyboard-state segments
-                covering the chunk's virtual-time window; produced by
-                :meth:`KeyboardResampler.sample_chunk`.
-            frame_times: Virtual times at which to sample the camera
-                pose; must have length equal to
-                :meth:`peek_next_chunk_num_frames` at call time.
+            segments: Piecewise-constant keyboard-state segments covering the
+                chunk's virtual-time window.
+            frame_times: Virtual times at which to sample the camera pose; must
+                have length equal to :meth:`peek_next_chunk_num_frames` at call
+                time.
 
         Returns:
-            :class:`VideoStepResult` carrying the produced video chunk
-            and the post-generation pipeline stats.
+            Video chunk and post-generation pipeline stats.
 
         Raises:
             LingbotRuntimeError: Runtime is closed or not initialized.
@@ -765,6 +876,12 @@ class LingbotInferenceRuntime:
         frame_times: list[float],
     ) -> VideoStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
+
+    @distributed_op(WebRTCControlSignal.SESSION_STEP)
+    def _step_sync_all_ranks(self, inputs: InferenceInput) -> StepResult:
+        # distributed_op broadcasts rank-0 arguments, so worker ranks receive
+        # the mapped trajectory rather than recomputing it from raw events.
+        return self._step_sync(inputs)
 
     @distributed_op(WebRTCControlSignal.EVENT)
     def _trigger_event_sync_all_ranks(
@@ -859,6 +976,7 @@ class LingbotInferenceRuntime:
     ) -> None:
         if not text_events:
             self._event_embeddings = {}
+            self._prompt_embeddings = {}
             return
         event_ids = [event.event_id for event in text_events]
         if len(event_ids) != len(set(event_ids)):
@@ -868,6 +986,13 @@ class LingbotInferenceRuntime:
         self._event_embeddings = {
             event_id: embeddings[index : index + 1].contiguous()
             for index, event_id in enumerate(event_ids)
+        }
+        # The session branch receives a prompt rather than an event id, so keep
+        # a prompt-keyed view of the same tensors. Without it a live text event
+        # would pay a text-encoder pass mid-rollout.
+        self._prompt_embeddings = {
+            prompt: self._event_embeddings[event_id]
+            for prompt, event_id in zip(prompts, event_ids, strict=True)
         }
 
     def _build_base_intrinsics(self) -> torch.Tensor:
@@ -1068,6 +1193,9 @@ class LingbotInferenceRuntime:
             text=[self._prompt],
             image=self._first_frames,
         )
+        # Rebuilt per rollout: the mapping carries the rollout's text-event
+        # catalog, base prompt, and pose integrator state.
+        self._build_input_layers_sync(text_events)
 
     def _replace_rollout_text_embeddings(self, text_embeddings: torch.Tensor) -> None:
         if self._pipeline is None or self._cache is None:
@@ -1168,12 +1296,34 @@ class LingbotInferenceRuntime:
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
         intrinsics_t = self._base_intrinsics.view(1, 4).repeat(num_frames, 1)
+        return self._generate_from_camera_inputs(
+            poses=poses_t,
+            intrinsics=intrinsics_t,
+            num_frames=num_frames,
+        )
+
+    def _generate_from_camera_inputs(
+        self,
+        *,
+        poses: torch.Tensor,
+        intrinsics: torch.Tensor,
+        num_frames: int,
+    ) -> VideoStepResult:
+        """Generate one chunk from an already-resolved camera trajectory.
+
+        Shared by the segment path and the mapped-input session path so both
+        reach the model through identical conditioning.
+        """
+        if self._pipeline is None or self._cache is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        if self._device is None:
+            raise LingbotRuntimeError("Runtime device is not initialized.")
 
         from lingbot.encoder.camctrl import CamCtrlInput  # noqa: PLC0415
 
         camctrl_input = CamCtrlInput(
-            intrinsics=intrinsics_t,
-            poses=poses_t,
+            intrinsics=intrinsics.to(device=self._device, dtype=torch.float32),
+            poses=poses.to(device=self._device, dtype=torch.float32),
             world_scale=self._world_scale,
         )
         video_chunk = self._pipeline.generate(
@@ -1195,6 +1345,115 @@ class LingbotInferenceRuntime:
             )
         self.autoregressive_index += 1
         return result
+
+    def _step_sync(self, inputs: InferenceInput) -> StepResult:
+        """Generate one chunk from mapped model inputs."""
+        if self._pipeline is None or self._cache is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        num_frames = int(
+            self._pipeline.get_num_output_frames(self.autoregressive_index)
+        )
+        self._apply_conditioning_update_sync(inputs)
+        poses = _require_camera_tensor(
+            inputs, FIELD_CAMERA_TRAJECTORY, expected_shape=(num_frames, 4, 4)
+        )
+        intrinsics = _require_camera_tensor(
+            inputs, FIELD_CAMERA_INTRINSICS, expected_shape=(num_frames, 4)
+        )
+        step_index = self.autoregressive_index
+        result = self._generate_from_camera_inputs(
+            poses=poses,
+            intrinsics=intrinsics,
+            num_frames=num_frames,
+        )
+        return StepResult(
+            step_index=step_index,
+            output=result,
+            frame_count=result.num_frames,
+            metrics=result.stats or {},
+        )
+
+    def _apply_conditioning_update_sync(self, inputs: InferenceInput) -> None:
+        """Apply a text-event prompt swap requested by the mapping."""
+        prompt = inputs.global_conditioning.get("prompt")
+        if prompt is None or prompt == self._prompt:
+            return
+        embeddings = self._prompt_embeddings.get(prompt)
+        if embeddings is None:
+            embeddings = self._encode_text_embeddings_sync([prompt])
+        self._replace_rollout_text_embeddings(embeddings)
+        self._prompt = prompt
+        self._active_event_id = next(
+            (
+                event_id
+                for event_id, tensor in self._event_embeddings.items()
+                if tensor is embeddings
+            ),
+            None,
+        )
+
+
+def _require_camera_tensor(
+    inputs: InferenceInput,
+    name: str,
+    *,
+    expected_shape: tuple[int, ...],
+) -> torch.Tensor:
+    """Return one required per-step camera tensor, shape-checked."""
+    if name not in inputs.step:
+        raise LingbotRuntimeError(
+            f"Lingbot step inputs are missing {name!r}; the selected input "
+            f"mapping must produce it for every step."
+        )
+    value = inputs.step[name]
+    if not isinstance(value, torch.Tensor):
+        value = torch.as_tensor(np.asarray(value), dtype=torch.float32)
+    if tuple(value.shape) != expected_shape:
+        raise LingbotRuntimeError(
+            f"Lingbot step input {name!r} must have shape {expected_shape}, got "
+            f"{tuple(value.shape)}."
+        )
+    return value
+
+
+LINGBOT_WEBRTC_SOURCE_SCHEMA = UserInputSchema(
+    capabilities=(
+        UserInputCapability(event_type="key_down", payload_fields=frozenset({"key"})),
+        UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"})),
+        UserInputCapability(
+            event_type="text_event", payload_fields=frozenset({"event_id"})
+        ),
+    ),
+    description="Lingbot WebRTC data-channel input.",
+)
+
+
+class LingbotWebRTCInferenceSession:
+    """``InferenceSession`` view of a live Lingbot WebRTC rollout.
+
+    The rollout itself is owned by :class:`LingbotInferenceRuntime`; this only
+    adapts it to the runtime-API stepping surface so the shared manager can
+    drive it with mapped inputs.
+    """
+
+    def __init__(self, *, runtime: LingbotInferenceRuntime) -> None:
+        self._runtime = runtime
+
+    def next_step_request(self) -> StepRequest | None:
+        return self._runtime._next_step_request_sync()
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        return self._runtime._step_blocking(inputs)
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        raise LingbotRuntimeError(
+            "Reset a Lingbot WebRTC rollout through the runtime's session "
+            "lifecycle, not through the inference session."
+        )
+
+    def close(self) -> None:
+        # The runtime outlives the session and is closed by the serve loop.
+        return None
 
 
 _ManagedLingbotSession = ManagedWebRTCSession
