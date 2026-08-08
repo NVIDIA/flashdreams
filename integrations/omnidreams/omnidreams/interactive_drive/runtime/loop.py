@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+from __future__ import annotations
+
 import os
 import queue
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
@@ -36,6 +38,12 @@ from flashdreams.serving.realtime.timing import (
     event_dependencies,
     trace_time_ns,
 )
+
+if TYPE_CHECKING:
+    from omnidreams.interactive_drive.taxi_game import (
+        TaxiGameController,
+        TaxiGameSnapshot,
+    )
 
 _PROFILE_INPUT_TO_PRESENT_ENV = "INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT"
 _PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (
@@ -409,13 +417,19 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def push_telemetry(
-    runtime_controls: RuntimeControls, simulation: SimulationBackend
+    runtime_controls: RuntimeControls,
+    simulation: SimulationBackend,
+    taxi_snapshot: TaxiGameSnapshot | None = None,
 ) -> None:
-    """Forward ``simulation.current_state`` to ``runtime_controls``.
+    """Forward the latest simulation and game state to runtime controls.
 
-    No-ops for controls that don't expose ``update_telemetry`` (test fakes,
-    custom controllers); only :class:`KeyboardState` consumes it today.
+    No-ops for controls that expose neither publication method, including
+    lightweight test fakes and custom controllers.
     """
+    update_runtime_state = getattr(runtime_controls, "update_runtime_state", None)
+    if update_runtime_state is not None:
+        update_runtime_state(simulation.current_state, taxi_snapshot)
+        return
     update = getattr(runtime_controls, "update_telemetry", None)
     if update is None:
         return
@@ -461,6 +475,7 @@ def run_main_loop(
     simulation: SimulationBackend,
     pipeline: ChunkPipeline,
     config: LoopConfig,
+    taxi_game: TaxiGameController | None = None,
     loading_status: Callable[[], str | None] | None = None,
     trace_context: TraceContext | None = None,
 ) -> bool:
@@ -542,6 +557,13 @@ def run_main_loop(
                         0 if collision_frame_index is None else collision_frame_index
                     ),
                 )
+            taxi_snapshot = None
+            if taxi_game is not None:
+                taxi_game.advance(
+                    chunk_request.trajectory,
+                    frame_interval_s=config.frame_interval_s,
+                )
+                taxi_snapshot = taxi_game.snapshot(simulation.current_state)
             pipeline.request_pose_chunk(chunk_request)
             # The pose chunk just advanced authoritative state, so refresh the
             # OOB overlay from the new boundary frame and auto-respawn (same
@@ -550,7 +572,7 @@ def run_main_loop(
                 return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
-            push_telemetry(runtime_controls, simulation)
+            push_telemetry(runtime_controls, simulation, taxi_snapshot)
 
         _drain_pipeline_frames(
             pipeline=pipeline,

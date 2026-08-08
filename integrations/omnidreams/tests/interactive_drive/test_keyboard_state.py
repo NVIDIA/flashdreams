@@ -17,6 +17,7 @@ from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.streaming_presenter import (
     _BROWSER_KEY_TO_VIEW_MODE,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import DriverCommand
 
 pytestmark = pytest.mark.ci_cpu
@@ -31,6 +32,7 @@ class _DriveSink:
 
     def release_all(self) -> None:
         pass
+from omnidreams.interactive_drive.types import VehicleState
 
 
 def test_consume_reset_request_returns_false_when_no_reset_pending() -> None:
@@ -137,3 +139,25 @@ def test_consume_exit_scene_request_returns_true_once_per_request() -> None:
     keyboard.request_exit_scene()
     assert keyboard.consume_exit_scene_request() is True
     assert keyboard.consume_exit_scene_request() is False
+
+
+def test_runtime_state_publishes_vehicle_and_taxi_atomically() -> None:
+    keyboard = KeyboardState()
+    vehicle = VehicleState(1.0, 2.0, 0.0, 0.0, 3.0, 0.0)
+    taxi = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(10.0, 0.0, 0.0),
+        distance_m=9.0,
+        relative_bearing_rad=0.0,
+        remaining_time_s=None,
+        score=0,
+    )
+
+    keyboard.update_runtime_state(vehicle, taxi)
+
+    assert keyboard.runtime_state == (vehicle, taxi)
+    assert keyboard.vehicle_state is vehicle
+    assert keyboard.taxi_game_state is taxi
+
+    keyboard.clear_telemetry()
+    assert keyboard.runtime_state == (None, None)

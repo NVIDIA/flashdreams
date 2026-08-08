@@ -34,6 +34,7 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
+from omnidreams.interactive_drive.taxi_game import project_target_to_bev
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
@@ -373,6 +374,7 @@ class SlangPyHudPresenter:
         self._scene_options = scene_options
         self._control_assets = control_assets
         self._wheel = wheel
+        self._bev_config: BevConfig | None = None
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -1383,6 +1385,8 @@ class SlangPyHudPresenter:
         if panel_w > 0:
             self._draw_panel(canvas, draw, panel_rect, wheel_state)
 
+        self._draw_taxi_hud(draw, camera_area)
+
         if self._scene_dropdown_open:
             self._draw_scene_dropdown(canvas, draw)
         if self._variant_dropdown_open:
@@ -1392,6 +1396,83 @@ class SlangPyHudPresenter:
             self._draw_status_overlay(canvas, draw, camera_area, status_message)
 
     # -- Camera area -------------------------------------------------
+
+    def _draw_taxi_hud(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+    ) -> None:
+        snapshot = self._keyboard.taxi_game_state
+        if snapshot is None:
+            return
+        ax, ay, ar, _ = camera_area
+        cx = (ax + ar) // 2
+        arrow_cy = ay + 74
+        color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
+
+        draw.ellipse(
+            (cx - 42, arrow_cy - 42, cx + 42, arrow_cy + 42),
+            fill=(12, 12, 18, 210),
+            outline=color + (255,),
+            width=3,
+        )
+        radius = 30.0
+        bearing = snapshot.relative_bearing_rad
+        tip = (
+            cx - int(_math.sin(bearing) * radius),
+            arrow_cy - int(_math.cos(bearing) * radius),
+        )
+        rear = (
+            cx + int(_math.sin(bearing) * radius * 0.55),
+            arrow_cy + int(_math.cos(bearing) * radius * 0.55),
+        )
+        perp_x = int(_math.cos(bearing) * radius * 0.45)
+        perp_y = -int(_math.sin(bearing) * radius * 0.45)
+        draw.polygon(
+            [
+                tip,
+                (rear[0] - perp_x, rear[1] - perp_y),
+                (rear[0] + perp_x, rear[1] + perp_y),
+            ],
+            fill=color + (255,),
+        )
+
+        phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        timer = (
+            ""
+            if snapshot.remaining_time_s is None
+            else f"  {snapshot.remaining_time_s:04.1f}s"
+        )
+        label = f"{phase}  {snapshot.distance_m:.0f}m{timer}  SCORE {snapshot.score}"
+        bbox = _measure_text(self._font_medium, label)
+        width = bbox[2] - bbox[0]
+        draw.rounded_rectangle(
+            (cx - width // 2 - 14, ay + 122, cx + width // 2 + 14, ay + 158),
+            radius=9,
+            fill=(12, 12, 18, 210),
+        )
+        draw.text(
+            (cx - width // 2 - bbox[0], ay + 128 - bbox[1]),
+            label,
+            fill=color,
+            font=self._font_medium,
+        )
+        if snapshot.event is not None:
+            event_text = (
+                f"FARE COMPLETE  +{snapshot.awarded_points}"
+                if snapshot.event == "fare_complete"
+                else "TIME EXPIRED"
+            )
+            event_box = _measure_text(self._font_large, event_text)
+            event_width = event_box[2] - event_box[0]
+            draw.text(
+                (cx - event_width // 2 - event_box[0], ay + 174 - event_box[1]),
+                event_text,
+                fill=color,
+                font=self._font_large,
+                stroke_width=3,
+                stroke_fill=(0, 0, 0),
+            )
 
     def _draw_camera(
         self,
@@ -2081,6 +2162,9 @@ class SlangPyHudPresenter:
         if panel_image is not None:
             canvas.paste(panel_image, (inner[0], inner[1]))
 
+        marker_size = max(10, min(inner_w, inner_h) // 14)
+        self._draw_bev_taxi_target(draw, inner, inner_w, inner_h, marker_size)
+
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
         # Physics snapshots are captured only while the optional PhysX debug
         # view is active. Keep the normal RGB/model views' ego marker visible
@@ -2089,6 +2173,44 @@ class SlangPyHudPresenter:
         if ego_dimensions is None:
             ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
         self._draw_bev_ego_footprint(draw, inner, ego_dimensions, self._bev_config)
+
+    def _draw_bev_taxi_target(
+        self,
+        draw: ImageDraw.ImageDraw,
+        inner: tuple[int, int, int, int],
+        inner_w: int,
+        inner_h: int,
+        marker_size: int,
+    ) -> None:
+        vehicle_state, snapshot = self._keyboard.runtime_state
+        bev = self._bev_config
+        if vehicle_state is None or snapshot is None or bev is None or not bev.enabled:
+            return
+        u, v, visible = project_target_to_bev(snapshot.target_xyz_m, vehicle_state, bev)
+        if not visible:
+            return
+
+        scale = max(inner_w / float(bev.width), inner_h / float(bev.height))
+        scaled_w = float(bev.width) * scale
+        scaled_h = float(bev.height) * scale
+        crop_left = (scaled_w - inner_w) / 2.0
+        crop_top = (scaled_h - inner_h) / 2.0
+        cx = int(inner[0] + u * scaled_w - crop_left)
+        cy = int(inner[1] + v * scaled_h - crop_top)
+        if not (inner[0] <= cx <= inner[2] and inner[1] <= cy <= inner[3]):
+            return
+        color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
+        radius = max(8, marker_size - 2)
+        draw.ellipse(
+            (cx - radius - 3, cy - radius - 3, cx + radius + 3, cy + radius + 3),
+            fill=(255, 255, 255, 255),
+        )
+        draw.ellipse(
+            (cx - radius, cy - radius, cx + radius, cy + radius),
+            fill=color + (255,),
+            outline=(20, 20, 30, 255),
+            width=2,
+        )
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
@@ -2786,6 +2908,10 @@ class SlangPyHudPresenter:
         self._keyboard_drive = KeyboardDriveState(
             KeyboardStateDriveSink(keyboard, source="keyboard")
         )
+
+    def configure_taxi_hud(self, bev: BevConfig) -> None:
+        """Configure BEV projection used by taxi target overlays."""
+        self._bev_config = bev
 
 
 # -- Module-level helpers ---------------------------------------------

@@ -37,6 +37,7 @@ from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter,
     parse_bind,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameController
 from omnidreams.interactive_drive.types import PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
@@ -98,6 +99,9 @@ class InteractiveDriveApp:
             bind_keyboard = getattr(self._presenter, "bind_keyboard", None)
             if callable(bind_keyboard):
                 bind_keyboard(self._keyboard)
+        configure_taxi_hud = getattr(self._presenter, "configure_taxi_hud", None)
+        if callable(configure_taxi_hud):
+            configure_taxi_hud(config.bev)
         # When ``False`` the caller (the demo's outer scene-change loop)
         # owns the presenter's lifecycle: it constructs one presenter at
         # startup, reuses it across many scenes, and only closes it when
@@ -467,6 +471,14 @@ class InteractiveDriveApp:
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
                 scene=self._scene,
             )
+            taxi_game = None
+            if self._config.taxi_game.enabled:
+                taxi_game = TaxiGameController(
+                    scene_id=self._scene.scene_id,
+                    reference_route_world=self._scene.reference_route_world,
+                    initial_state=simulation.current_state,
+                    config=self._config.taxi_game,
+                )
             # Publish the freshly-built initial state up front so read-side
             # speed readouts (the HUD speed digit, the browser ``/state``
             # endpoint) reflect a reset / respawn immediately. Without this
@@ -474,7 +486,14 @@ class InteractiveDriveApp:
             # screen through the "Resetting..." window until the new rollout
             # requested its first chunk -- the "reset doesn't reset the
             # displayed speed" symptom.
-            self._keyboard.update_telemetry(simulation.current_state)
+            self._keyboard.update_runtime_state(
+                simulation.current_state,
+                (
+                    taxi_game.snapshot(simulation.current_state)
+                    if taxi_game is not None
+                    else None
+                ),
+            )
             input_backend = KeyboardInputBackend(self._keyboard)
             try:
                 reset_requested = run_main_loop(
@@ -500,6 +519,7 @@ class InteractiveDriveApp:
                     ),
                     loading_status=loading_status,
                     trace_context=self._trace_context,
+                    taxi_game=taxi_game,
                 )
             finally:
                 simulation.close()

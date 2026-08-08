@@ -285,6 +285,12 @@ The HUD also subscribes to the backend's `/bev_stream` and shows a top-down
 BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
 the extra rasterizer dispatch when you don't need it.
 
+Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
+road-valid pickups from the scene's recorded route, starts a distance-scaled
+timer after pickup, and shows the active target, direction arrow, score, and
+remaining dropoff time. `--taxi-seed N` produces a repeatable fare layout for
+the same scene. Manual reset, OOB respawn, and scene changes reset the score.
+
 **Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
 settings) into `configs/wheels/` and the HUD will pick it up at startup. With
 `--wheel-profile auto` (the default), the HUD scans `/dev/input/by-id` first,
@@ -427,6 +433,8 @@ matches the desktop modes' affordances:
   server's `/state` endpoint at 10 Hz. Reads `--` until the simulation
   has produced its first chunk; numeric the moment chunks start
   arriving.
+- With `--taxi-game`, a **taxi HUD and BEV target pin** show the same active
+  pickup or dropoff, timer, direction arrow, and score as the local HUD.
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light

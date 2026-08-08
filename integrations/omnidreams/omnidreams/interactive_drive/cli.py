@@ -27,6 +27,7 @@ from omnidreams.interactive_drive.world_model.manifest import (
     load_world_model_manifest,
     resolve_world_model_manifest_path,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
 from omnidreams.scenes import local_scene_archive_path
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
@@ -302,6 +303,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--taxi-game",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable the overlay-only taxi game with route-valid pickups, "
+            "timed dropoffs, score, and navigation HUD."
+        ),
+    )
+    parser.add_argument(
+        "--taxi-seed",
+        type=int,
+        default=0,
+        help="Seed mixed with the scene ID to produce repeatable taxi fares.",
+    )
+    parser.add_argument(
         "--oob-warn-proximity",
         type=float,
         default=None,
@@ -483,7 +499,11 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
-        game_mode=bool(args.game_mode),
+        game_mode=bool(args.game_mode or args.taxi_game),
+        taxi_game=TaxiGameConfig(
+            enabled=bool(args.taxi_game),
+            seed=int(args.taxi_seed),
+        ),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         visual_flare_enabled=False if args.disable_visual_flare else None,
