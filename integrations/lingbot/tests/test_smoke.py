@@ -29,6 +29,9 @@ from lingbot.config import (
     LINGBOT_WORLD_V2_CHECKPOINT_PATH,
     PIPELINE_CONFIGS,
     PIPELINE_LINGBOT_WORLD_FAST,
+    PIPELINE_LINGBOT_WORLD_FAST_1STEP,
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
     RUNNER_CONFIGS,
 )
@@ -193,6 +196,43 @@ def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
         assert (
             transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
         )
+
+
+@pytest.mark.parametrize(
+    ("one_step_pipeline", "four_step_pipeline"),
+    [
+        pytest.param(
+            PIPELINE_LINGBOT_WORLD_FAST_1STEP,
+            PIPELINE_LINGBOT_WORLD_FAST,
+            id="wan-vae",
+        ),
+        pytest.param(
+            PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_1STEP,
+            PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+            id="taehv-window15-sink3",
+        ),
+    ],
+)
+def test_1step_scheduler_runs_the_4_step_schedules_first_step(
+    one_step_pipeline: LingbotWorldInferencePipelineConfig,
+    four_step_pipeline: LingbotWorldInferencePipelineConfig,
+) -> None:
+    """1-step speed mode takes exactly one solver step, the 4-step first step.
+
+    ``denoising_timesteps=[1000]`` resolves through the warped schedule to
+    the same ``(t, sigma)`` pair as the head of the 4-step preset, so the
+    distilled checkpoint sees the timestep it was trained at. Holds for
+    both the Wan-VAE preset and the LightTAE window=15 + sink=3 variant.
+    """
+    one_step_cfg = one_step_pipeline.diffusion_model.scheduler
+    assert one_step_cfg.num_inference_steps == 1
+    assert one_step_cfg.denoising_timesteps == [1000]
+
+    one_step = one_step_cfg.setup()
+    four_step = four_step_pipeline.diffusion_model.scheduler.setup()
+    assert one_step.denoising_step_list.shape == (1,)
+    assert one_step.denoising_step_list[0] == four_step.denoising_step_list[0]
+    assert one_step.denoising_sigmas[0] == four_step.denoising_sigmas[0]
 
 
 def test_v2_only_replaces_the_v1_checkpoint() -> None:
