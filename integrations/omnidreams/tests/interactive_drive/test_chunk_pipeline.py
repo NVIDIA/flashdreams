@@ -12,6 +12,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
@@ -183,8 +184,24 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     pipeline = ChunkPipeline(backend)
     pipeline.request_scene(minimal_scene())
     chunk_times = _chunk_times(chunk_size=3)
+    taxi_snapshots = tuple(
+        TaxiGameSnapshot(
+            phase="seeking_pickup",
+            target_xyz_m=(float(index), 0.0, 0.0),
+            distance_m=float(index),
+            relative_bearing_rad=0.0,
+            target_radius_m=5.0,
+            remaining_time_s=None,
+            score=0,
+        )
+        for index in range(3)
+    )
     pipeline.request_pose_chunk(
-        ChunkRequest(trajectory=make_trajectory(3), chunk_times=chunk_times)
+        ChunkRequest(
+            trajectory=make_trajectory(3),
+            chunk_times=chunk_times,
+            taxi_snapshots=taxi_snapshots,
+        )
     )
 
     first = pipeline.frame_queue.get(timeout=1.0)
@@ -197,6 +214,9 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     assert chunk_times.chunk_render_start_time is not None
     assert chunk_times.chunk_ready_time is not None
     assert chunk_times.frames[0].image_ready_time is not None
+    assert first.frame.taxi_game_snapshot is taxi_snapshots[0]
+    assert second.frame.taxi_game_snapshot is taxi_snapshots[1]
+    assert third.frame.rig_to_world is not None
     assert backend.warmup_model_calls == 1
     assert backend.load_scene_calls == 1
 

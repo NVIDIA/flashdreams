@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.math3d import invert_transform, rig_pose_from_
 from omnidreams.interactive_drive.types import TrajectoryChunk, VehicleState
 
 if TYPE_CHECKING:
+    from omnidreams.interactive_drive.camera import FThetaCameraModel
     from omnidreams.interactive_drive.config import BevConfig
 
 TaxiPhase = Literal["seeking_pickup", "to_dropoff"]
@@ -88,6 +89,9 @@ class TaxiGameSnapshot:
     relative_bearing_rad: float
     """Target bearing relative to ego heading; positive angles point left."""
 
+    target_radius_m: float
+    """World-space radius that activates the current target."""
+
     remaining_time_s: float | None
     """Dropoff time remaining, or ``None`` while seeking a pickup."""
 
@@ -107,6 +111,7 @@ class TaxiGameSnapshot:
             "target_xyz_m": list(self.target_xyz_m),
             "distance_m": self.distance_m,
             "relative_bearing_rad": self.relative_bearing_rad,
+            "target_radius_m": self.target_radius_m,
             "remaining_time_s": self.remaining_time_s,
             "score": self.score,
             "event": self.event,
@@ -123,6 +128,20 @@ class _Waypoint:
     """Arc distance from the start of the reference route."""
 
 
+@dataclass(frozen=True)
+class TaxiCameraMarkerProjection:
+    """Projected world-marker geometry in camera image pixels."""
+
+    anchor_uv: tuple[float, float]
+    """Exact image location of the active waypoint."""
+
+    beacon_top_uv: tuple[float, float] | None
+    """Projected top of the vertical beacon, when visible."""
+
+    ring_edges_uv: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
+    """Visible line segments forming the target's activation-radius ring."""
+
+
 def _stable_seed(scene_id: str, seed: int) -> int:
     digest = hashlib.sha256(f"{scene_id}:{seed}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=False)
@@ -134,8 +153,7 @@ def _resample_route(
     route = np.asarray(route_world, dtype=np.float32)
     if route.ndim != 2 or route.shape[1] != 3:
         raise ValueError(
-            "Taxi reference route must have shape [N, 3], "
-            f"got {route.shape}."
+            f"Taxi reference route must have shape [N, 3], got {route.shape}."
         )
     if spacing_m <= 0.0:
         raise ValueError("Taxi waypoint spacing must be positive.")
@@ -149,9 +167,7 @@ def _resample_route(
         raise ValueError("Taxi reference route has no usable travel distance.")
 
     segment_lengths = np.linalg.norm(np.diff(route[:, :2], axis=0), axis=1)
-    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(
-        np.float32
-    )
+    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(np.float32)
     total_distance = float(cumulative[-1])
     sample_distances = np.arange(offset_m, total_distance + 1e-6, spacing_m)
     if len(sample_distances) < 2:
@@ -226,14 +242,78 @@ def project_target_to_bev(
     if depth <= 1e-5:
         return 0.5, 0.5, False
 
-    focal = (float(bev.height) / 2.0) / math.tan(
-        math.radians(float(bev.fov_deg)) / 2.0
-    )
+    focal = (float(bev.height) / 2.0) / math.tan(math.radians(float(bev.fov_deg)) / 2.0)
     u_px = float(bev.width) / 2.0 - focal * float(target_sensor_flu[1]) / depth
     v_px = float(bev.height) / 2.0 - focal * float(target_sensor_flu[2]) / depth
     u = u_px / float(bev.width)
     v = v_px / float(bev.height)
     return u, v, 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
+
+
+def project_taxi_marker_to_camera(
+    snapshot: TaxiGameSnapshot,
+    rig_to_world: npt.NDArray[np.float32],
+    camera_model: FThetaCameraModel,
+    *,
+    image_width: int,
+    image_height: int,
+    ring_samples: int = 32,
+    beacon_height_m: float = 3.5,
+) -> TaxiCameraMarkerProjection | None:
+    """Project the active taxi target into a camera image.
+
+    Return ``None`` when the target anchor is behind the camera or outside the
+    image. This deliberately does not clamp off-screen targets to an edge; the
+    always-visible direction arrow already covers that case.
+    """
+    if image_width <= 0 or image_height <= 0:
+        raise ValueError("Taxi camera image dimensions must be positive.")
+    if ring_samples < 3:
+        raise ValueError("Taxi target ring requires at least three samples.")
+
+    target = np.asarray(snapshot.target_xyz_m, dtype=np.float32)
+    angles = np.linspace(
+        0.0, 2.0 * math.pi, ring_samples, endpoint=False, dtype=np.float32
+    )
+    ring = np.repeat(target[None, :], ring_samples, axis=0)
+    ring[:, 0] += np.float32(snapshot.target_radius_m) * np.cos(angles)
+    ring[:, 1] += np.float32(snapshot.target_radius_m) * np.sin(angles)
+    points = np.concatenate(
+        (
+            target[None, :],
+            (target + np.array([0.0, 0.0, beacon_height_m], dtype=np.float32))[None, :],
+            ring,
+        ),
+        axis=0,
+    )
+    uv, _depth, forward = camera_model.project_world(points, rig_to_world)
+    inside = (
+        forward
+        & (uv[:, 0] >= 0.0)
+        & (uv[:, 0] < float(image_width))
+        & (uv[:, 1] >= 0.0)
+        & (uv[:, 1] < float(image_height))
+    )
+    if not bool(inside[0]):
+        return None
+
+    ring_edges: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for index in range(ring_samples):
+        left = 2 + index
+        right = 2 + ((index + 1) % ring_samples)
+        if bool(inside[left] and inside[right]):
+            ring_edges.append(
+                (
+                    (float(uv[left, 0]), float(uv[left, 1])),
+                    (float(uv[right, 0]), float(uv[right, 1])),
+                )
+            )
+
+    return TaxiCameraMarkerProjection(
+        anchor_uv=(float(uv[0, 0]), float(uv[0, 1])),
+        beacon_top_uv=((float(uv[1, 0]), float(uv[1, 1])) if bool(inside[1]) else None),
+        ring_edges_uv=tuple(ring_edges),
+    )
 
 
 class TaxiGameController:
@@ -277,8 +357,15 @@ class TaxiGameController:
             trajectory: Authoritative simulated poses for the requested chunk.
             frame_interval_s: Simulation duration represented by each pose.
         """
+        self.advance_frames(trajectory, frame_interval_s)
+
+    def advance_frames(
+        self, trajectory: TrajectoryChunk, frame_interval_s: float
+    ) -> tuple[TaxiGameSnapshot, ...]:
+        """Advance the game and return state synchronized to every pose."""
         if frame_interval_s < 0.0:
             raise ValueError("Taxi frame interval must be non-negative.")
+        snapshots: list[TaxiGameSnapshot] = []
         for pose in trajectory.rig_poses_world:
             self._advance_banner(frame_interval_s)
             x_m = float(pose[0, 3])
@@ -290,29 +377,38 @@ class TaxiGameController:
             if self._phase == "seeking_pickup":
                 if distance <= self._config.pickup_radius_m:
                     self._start_fare(x_m, y_m)
-                continue
-
-            if distance <= self._config.dropoff_radius_m:
+            elif distance <= self._config.dropoff_radius_m:
                 self._complete_fare(x_m, y_m)
-                continue
-            assert self._remaining_time_s is not None
-            self._remaining_time_s = max(
-                0.0, self._remaining_time_s - frame_interval_s
-            )
-            if self._remaining_time_s <= 0.0:
-                self._expire_fare(x_m, y_m)
+            else:
+                assert self._remaining_time_s is not None
+                self._remaining_time_s = max(
+                    0.0, self._remaining_time_s - frame_interval_s
+                )
+                if self._remaining_time_s <= 0.0:
+                    self._expire_fare(x_m, y_m)
+
+            yaw_rad = math.atan2(float(pose[1, 0]), float(pose[0, 0]))
+            snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
+        return tuple(snapshots)
 
     def snapshot(self, vehicle_state: VehicleState) -> TaxiGameSnapshot:
         """Return the HUD snapshot relative to the supplied ego state."""
+        return self._snapshot_for_pose(
+            vehicle_state.x_m, vehicle_state.y_m, vehicle_state.yaw_rad
+        )
+
+    def _snapshot_for_pose(
+        self, x_m: float, y_m: float, yaw_rad: float
+    ) -> TaxiGameSnapshot:
         target = self._waypoints[self._target_index].xyz_m
         distance = math.hypot(
-            float(target[0]) - vehicle_state.x_m,
-            float(target[1]) - vehicle_state.y_m,
+            float(target[0]) - x_m,
+            float(target[1]) - y_m,
         )
         bearing = relative_target_bearing_rad(
-            vehicle_state.x_m,
-            vehicle_state.y_m,
-            vehicle_state.yaw_rad,
+            x_m,
+            y_m,
+            yaw_rad,
             float(target[0]),
             float(target[1]),
         )
@@ -321,6 +417,11 @@ class TaxiGameController:
             target_xyz_m=(float(target[0]), float(target[1]), float(target[2])),
             distance_m=distance,
             relative_bearing_rad=bearing,
+            target_radius_m=(
+                self._config.pickup_radius_m
+                if self._phase == "seeking_pickup"
+                else self._config.dropoff_radius_m
+            ),
             remaining_time_s=self._remaining_time_s,
             score=self._score,
             event=self._event if self._event_remaining_s > 0.0 else None,
@@ -339,12 +440,13 @@ class TaxiGameController:
         eligible = [
             index
             for index, distance in enumerate(distances)
-            if index not in excluded
-            and distance >= self._config.pickup_min_distance_m
+            if index not in excluded and distance >= self._config.pickup_min_distance_m
         ]
         if eligible:
             return min(eligible, key=distances.__getitem__)
-        fallback = [index for index in range(len(self._waypoints)) if index not in excluded]
+        fallback = [
+            index for index in range(len(self._waypoints)) if index not in excluded
+        ]
         if not fallback:
             fallback = list(range(len(self._waypoints)))
         return max(fallback, key=distances.__getitem__)
@@ -374,9 +476,7 @@ class TaxiGameController:
     def _start_fare(self, x_m: float, y_m: float) -> None:
         del x_m, y_m
         self._pickup_index = self._target_index
-        self._dropoff_index, route_distance = self._select_dropoff(
-            self._pickup_index
-        )
+        self._dropoff_index, route_distance = self._select_dropoff(self._pickup_index)
         self._target_index = self._dropoff_index
         self._phase = "to_dropoff"
         raw_time = route_distance / max(self._config.target_speed_mps, 1e-6)
@@ -414,7 +514,4 @@ class TaxiGameController:
         self._event_remaining_s = self._config.event_banner_s
 
     def _advance_banner(self, frame_interval_s: float) -> None:
-        self._event_remaining_s = max(
-            0.0, self._event_remaining_s - frame_interval_s
-        )
-
+        self._event_remaining_s = max(0.0, self._event_remaining_s - frame_interval_s)

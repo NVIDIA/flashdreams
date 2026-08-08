@@ -7,14 +7,21 @@ import math
 
 import numpy as np
 import pytest
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
 from omnidreams.interactive_drive.taxi_game import (
     TaxiGameConfig,
     TaxiGameController,
+    TaxiGameSnapshot,
     project_target_to_bev,
+    project_taxi_marker_to_camera,
     relative_target_bearing_rad,
 )
-from omnidreams.interactive_drive.types import TrajectoryChunk, VehicleState
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    TrajectoryChunk,
+    VehicleState,
+)
 
 
 def _state(x_m: float = 0.0, y_m: float = 0.0, yaw_rad: float = 0.0) -> VehicleState:
@@ -29,9 +36,7 @@ def _state(x_m: float = 0.0, y_m: float = 0.0, yaw_rad: float = 0.0) -> VehicleS
 
 
 def _trajectory(*positions_xy: tuple[float, float]) -> TrajectoryChunk:
-    poses = np.repeat(
-        np.eye(4, dtype=np.float32)[None], len(positions_xy), axis=0
-    )
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], len(positions_xy), axis=0)
     for pose, (x_m, y_m) in zip(poses, positions_xy, strict=True):
         pose[0, 3] = x_m
         pose[1, 3] = y_m
@@ -66,10 +71,16 @@ def test_seeded_waypoint_layout_is_deterministic() -> None:
     config = TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=10.0)
 
     first = TaxiGameController(
-        scene_id="scene", reference_route_world=route, initial_state=_state(), config=config
+        scene_id="scene",
+        reference_route_world=route,
+        initial_state=_state(),
+        config=config,
     )
     second = TaxiGameController(
-        scene_id="scene", reference_route_world=route, initial_state=_state(), config=config
+        scene_id="scene",
+        reference_route_world=route,
+        initial_state=_state(),
+        config=config,
     )
     different_seed = TaxiGameController(
         scene_id="scene",
@@ -78,7 +89,9 @@ def test_seeded_waypoint_layout_is_deterministic() -> None:
         config=TaxiGameConfig(enabled=True, seed=18, waypoint_spacing_m=10.0),
     )
 
-    assert first.snapshot(_state()).target_xyz_m == second.snapshot(_state()).target_xyz_m
+    assert (
+        first.snapshot(_state()).target_xyz_m == second.snapshot(_state()).target_xyz_m
+    )
     assert (
         first.snapshot(_state()).target_xyz_m
         != different_seed.snapshot(_state()).target_xyz_m
@@ -107,6 +120,21 @@ def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:
     assert snapshot.score == 280
     assert snapshot.event == "fare_complete"
     assert snapshot.awarded_points == 280
+
+
+def test_advance_frames_returns_state_for_each_rendered_pose() -> None:
+    controller = _controller()
+
+    snapshots = controller.advance_frames(
+        _trajectory((100.0, 0.0), (0.0, 0.0)), 1.0 / 30.0
+    )
+
+    assert [snapshot.phase for snapshot in snapshots] == [
+        "to_dropoff",
+        "seeking_pickup",
+    ]
+    assert snapshots[0].target_radius_m == 6.0
+    assert snapshots[1].target_radius_m == 5.0
 
 
 def test_dropoff_timer_expires_in_simulation_time() -> None:
@@ -152,9 +180,7 @@ def test_relative_bearing_cardinal_directions(
 
 
 def test_relative_bearing_wraps_ego_yaw() -> None:
-    bearing = relative_target_bearing_rad(
-        0.0, 0.0, math.radians(350.0), 10.0, 0.0
-    )
+    bearing = relative_target_bearing_rad(0.0, 0.0, math.radians(350.0), 10.0, 0.0)
     assert bearing == pytest.approx(math.radians(10.0))
 
 
@@ -163,12 +189,63 @@ def test_bev_projection_places_forward_and_left_targets() -> None:
     forward_u, forward_v, forward_visible = project_target_to_bev(
         (10.0, 0.0, 0.0), _state(), bev
     )
-    left_u, _, left_visible = project_target_to_bev(
-        (0.0, 10.0, 0.0), _state(), bev
-    )
+    left_u, _, left_visible = project_target_to_bev((0.0, 10.0, 0.0), _state(), bev)
 
     assert forward_visible is True
     assert forward_u == pytest.approx(0.5)
     assert forward_v < 0.5
     assert left_visible is True
     assert left_u < 0.5
+
+
+def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:
+    calibration = CameraCalibration(
+        clipgt_name="camera:test",
+        logical_name="camera_test",
+        width=100,
+        height=80,
+        cx=50.0,
+        cy=40.0,
+        polynomial=np.array([0.0, 0.01], dtype=np.float32),
+        is_backward_polynomial=True,
+        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
+    )
+    camera_model = FThetaCameraModel(calibration)
+    snapshot = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(10.0, 0.0, 0.0),
+        distance_m=10.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=2.0,
+        remaining_time_s=None,
+        score=0,
+    )
+
+    visible = project_taxi_marker_to_camera(
+        snapshot,
+        np.eye(4, dtype=np.float32),
+        camera_model,
+        image_width=100,
+        image_height=80,
+    )
+    behind = project_taxi_marker_to_camera(
+        TaxiGameSnapshot(
+            phase="seeking_pickup",
+            target_xyz_m=(-10.0, 0.0, 0.0),
+            distance_m=10.0,
+            relative_bearing_rad=-math.pi,
+            target_radius_m=2.0,
+            remaining_time_s=None,
+            score=0,
+        ),
+        np.eye(4, dtype=np.float32),
+        camera_model,
+        image_width=100,
+        image_height=80,
+    )
+
+    assert visible is not None
+    assert visible.anchor_uv == pytest.approx((50.0, 40.0))
+    assert visible.ring_edges_uv
+    assert behind is None

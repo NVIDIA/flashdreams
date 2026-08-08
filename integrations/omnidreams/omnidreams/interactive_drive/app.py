@@ -438,6 +438,9 @@ class InteractiveDriveApp:
         """
         if self._scene is None or self._map_bounds is None:
             raise RuntimeError("load_scene() must be called before run_scene()")
+        configure_taxi_camera = getattr(self._presenter, "configure_taxi_camera", None)
+        if callable(configure_taxi_camera):
+            configure_taxi_camera(self._scene.selected_camera)
         # Seed the loop's initial ``last_presented_frame`` with the scene's
         # first frame. The loop overlays a live loading status over it (see
         # ``_loading_status_message``) until the first generated chunk
