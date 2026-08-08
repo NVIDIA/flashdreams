@@ -31,10 +31,9 @@ from typing import cast
 
 import pytest
 import tomli as tomllib
-from omnidreams import config as config_mod
-from omnidreams.config import OMNIDREAMS_RUNNERS
-
 from flashdreams.infra.runner import RunnerConfig
+from omnidreams import runner_config as runner_config_mod
+from omnidreams.runner_config import OMNIDREAMS_RUNNERS
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -87,10 +86,10 @@ def test_entry_points_match_module_literals() -> None:
         # Resolve the entry-point target the same way importlib.metadata
         # would, but skip the actual ``entry_points()`` call so the test
         # passes even when the plugin isn't pip-installed yet.
-        assert module_name == "omnidreams.config", (
+        assert module_name == "omnidreams.runner_config", (
             f"unexpected module in entry point {slug!r}: {module_name}"
         )
-        cfg = cast(RunnerConfig, getattr(config_mod, attr))
+        cfg = cast(RunnerConfig, getattr(runner_config_mod, attr))
         assert cfg.runner_name == slug, (
             f"entry point {slug!r} -> {attr} resolves to "
             f"runner_name={cfg.runner_name!r}"

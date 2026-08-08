@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU lifecycle tests for the OmniDreams inference session."""
+"""CPU lifecycle tests for the Omnidreams inference session."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ class _CPUDecoder(TeahvVAEDecoder):
 
 @pytest.fixture
 def pipeline() -> OmnidreamsPipeline:
-    """Set up the actual OmniDreams pipeline with tiny CPU components."""
+    """Set up the actual Omnidreams pipeline with tiny CPU components."""
     config = OmnidreamsPipelineConfig(
         name="test-omnidreams-inference-session",
         # Conditions arrive as precomputed embeddings, so one-shot text/image
@@ -368,7 +368,7 @@ def test_step_validates_omnidreams_condition_fields(
     session: InferenceSession,
     missing_field: str,
 ) -> None:
-    """Verify Pydantic rejects missing required OmniDreams conditions."""
+    """Verify Pydantic rejects missing required Omnidreams conditions."""
     inference_input: Any = {
         "user_condition": {"hdmap": torch.zeros(1)},
         "global_condition": {

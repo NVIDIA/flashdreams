@@ -92,6 +92,9 @@ dev = [
 ]
 
 [project.scripts]
+# Generate a video artifact from prerecorded HDMap and first-frame inputs.
+omnidreams-headless = "omnidreams.runtime.application.headless:main"
+
 # ``omnidreams-prepare`` stages resources used by *both* demo paths
 # (desktop ``interactive-drive`` *and* ``omnidreams.webrtc.server``):
 # the scene USDZs from ``nvidia/omni-dreams-scenes`` and the
@@ -124,8 +127,8 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 # scans this group at CLI startup; the entry-point name itself is purely
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.runner_config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
+"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.runner_config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
 
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]

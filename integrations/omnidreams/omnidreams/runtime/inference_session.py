@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OmniDreams inference session with embedding and HDMap conditions."""
+"""Omnidreams inference session with embedding and HDMap conditions."""
 
 from typing import Annotated, TypeAlias, cast
 
@@ -98,14 +98,14 @@ _ImageEmbeddingsTensor: TypeAlias = Annotated[
 
 
 class InferenceUserCondition(BaseInferenceUserCondition):
-    """Per-step HDMap condition for OmniDreams inference."""
+    """Per-step HDMap condition for Omnidreams inference."""
 
     hdmap: _HDMapTensor
     """HDMap pixels ``[B, V, T, 3, H, W]`` for the next video chunk."""
 
 
 class InferenceGlobalCondition(BaseInferenceGlobalCondition):
-    """Rollout-wide embedding conditions for OmniDreams inference."""
+    """Rollout-wide embedding conditions for Omnidreams inference."""
 
     text_embeddings: _TextEmbeddingsTensor
     """Text embeddings ``[B, V, L, D]`` for the rollout prompts."""
@@ -120,7 +120,7 @@ class InferenceGlobalCondition(BaseInferenceGlobalCondition):
 InferenceInput: TypeAlias = BaseInferenceInput[
     InferenceUserCondition, InferenceGlobalCondition
 ]
-"""OmniDreams conditions consumed by one inference step."""
+"""Omnidreams conditions consumed by one inference step."""
 
 
 class _InferenceValidationContext(TypedDict):
@@ -227,10 +227,10 @@ _PRESENTATION_FPS_ADAPTER = TypeAdapter(_PresentationFps)
 
 
 class InferenceSession(BaseInferenceSession):
-    """Stateful OmniDreams inference session backed by a per-rollout cache."""
+    """Stateful Omnidreams inference session backed by a per-rollout cache."""
 
     _pipeline: OmnidreamsPipeline
-    """OmniDreams pipeline shared with the inference runtime."""
+    """Omnidreams pipeline shared with the inference runtime."""
 
     _cache: OmnidreamsPipelineCache | None
     """Per-rollout cache; ``None`` until global conditions initialize it."""
@@ -256,7 +256,7 @@ class InferenceSession(BaseInferenceSession):
         """Initialize the session with a presentation frame rate.
 
         Args:
-            pipeline: OmniDreams pipeline to drive.
+            pipeline: Omnidreams pipeline to drive.
             presentation_fps: Frame rate for output presentation timestamps.
 
         Raises:
@@ -275,7 +275,7 @@ class InferenceSession(BaseInferenceSession):
         self._presented_frame_count = 0
 
     def step(self, inference_input: InferenceInput) -> FrameChunkOutput:
-        """Generate one video chunk from validated OmniDreams conditions.
+        """Generate one video chunk from validated Omnidreams conditions.
 
         Args:
             inference_input: Per-step HDMap and optional first-step embeddings.

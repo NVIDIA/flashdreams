@@ -12,21 +12,6 @@ import omnidreams.demo.webrtc as demo_webrtc_module
 import pytest
 import torch
 from aiohttp import web
-from omnidreams.config import OMNIDREAMS_RUNNERS
-from omnidreams.demo import (
-    DEFAULT_OMNIDREAMS_PRESET,
-    OMNIDREAMS_MODEL_ID,
-    OmnidreamsDemoAdapter,
-    OmnidreamsReplayScenario,
-    OmnidreamsWebRTCScenario,
-)
-from omnidreams.demo.cli import _replay_spec, _webrtc_spec, parse_args
-from omnidreams.demo.replay import (
-    OmnidreamsReplayRuntime,
-    OmnidreamsReplayRuntimeOptions,
-)
-from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
-
 from flashdreams.infra.video_output import VideoStepResult
 from flashdreams.runtime import (
     InferenceConfig,
@@ -44,6 +29,20 @@ from flashdreams.runtime.demo import (
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.webrtc import WebRTCDemo, build_webrtc_demo
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
+from omnidreams.demo import (
+    DEFAULT_OMNIDREAMS_PRESET,
+    OMNIDREAMS_MODEL_ID,
+    OmnidreamsDemoAdapter,
+    OmnidreamsReplayScenario,
+    OmnidreamsWebRTCScenario,
+)
+from omnidreams.demo.cli import _replay_spec, _webrtc_spec, parse_args
+from omnidreams.demo.replay import (
+    OmnidreamsReplayRuntime,
+    OmnidreamsReplayRuntimeOptions,
+)
+from omnidreams.demo.webrtc import OmnidreamsDemoWebRTCSessionManager
+from omnidreams.runner_config import OMNIDREAMS_RUNNERS
 
 pytestmark = pytest.mark.ci_cpu
 
