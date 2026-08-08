@@ -17,10 +17,12 @@
 
 import os
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar, cast
 
 import torch
 from flashdreams.core.distributed import init as init_distributed
+from flashdreams.infra.config import InstantiateConfig
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
     StreamInferencePipelineConfig,
@@ -35,6 +37,33 @@ def _is_torchrun_env() -> bool:
 
 SessionT = TypeVar("SessionT", bound=InferenceSession)
 """Session type parameter for :class:`InferenceRuntime`."""
+
+RuntimeT = TypeVar("RuntimeT", bound="InferenceRuntime")
+"""Runtime type constructed by :class:`InferenceRuntimeConfig`."""
+
+
+@dataclass(kw_only=True)
+class InferenceRuntimeConfig(InstantiateConfig, Generic[RuntimeT]):
+    """Configuration for constructing an inference runtime."""
+
+    _target: type[RuntimeT]
+
+    pipeline: StreamInferencePipelineConfig
+    """Pipeline configuration instantiated and shared by runtime sessions."""
+
+    session_type: type[InferenceSession]
+    """Concrete session type created by the runtime."""
+
+    def setup(self, **kwargs: Any) -> RuntimeT:
+        """Construct the configured inference runtime.
+
+        Args:
+            **kwargs: Additional constructor arguments for the runtime.
+
+        Returns:
+            Configured inference runtime.
+        """
+        return self._target(self, **kwargs)
 
 
 class InferenceRuntime(ABC, Generic[SessionT]):
@@ -69,14 +98,12 @@ class InferenceRuntime(ABC, Generic[SessionT]):
 
     def __init__(
         self,
-        pipeline_config: StreamInferencePipelineConfig,
-        session_type: type[SessionT],
+        config: InferenceRuntimeConfig,
     ) -> None:
         """Initialize distributed state and construct the shared pipeline.
 
         Args:
-            pipeline_config: Pipeline configuration to instantiate.
-            session_type: Concrete session type to create.
+            config: Runtime construction configuration.
         """
         # Initialize before pipeline construction so context-parallel components
         # observe torchrun's world size while allocating their runtime state.
@@ -95,8 +122,8 @@ class InferenceRuntime(ABC, Generic[SessionT]):
             self._world_size = 1
         self._is_rank_zero = self._global_rank == 0
 
-        self._pipeline = pipeline_config.setup()
-        self._session_type = session_type
+        self._pipeline = config.pipeline.setup()
+        self._session_type = cast(type[SessionT], config.session_type)
 
     def create_session(self) -> SessionT:
         """Create a session backed by the shared pipeline.
