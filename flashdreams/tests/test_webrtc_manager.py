@@ -279,12 +279,15 @@ def test_record_user_event_does_not_evict_unrelated_event_for_release(
     )
 
     assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("text_event", {"event_id": "storm"}),
-        ("key_up", {"key": "w"}),
+        ("text_event", {"event_id": "storm"})
     ]
-    assert managed.user_events[-1].timestamp_s == pytest.approx(0.2)
-
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
+    assert len(managed.user_events) == 1
+    assert set(managed.coalesced_release_events) == {"w"}
+    assert managed.coalesced_release_events["w"].timestamp_s == pytest.approx(0.2)
+    assert [
+        (event.event_type, dict(event.payload))
+        for event in manager._pending_user_events(managed)
+    ] == [
         ("text_event", {"event_id": "storm"}),
         ("key_up", {"key": "w"}),
     ]

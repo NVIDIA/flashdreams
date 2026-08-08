@@ -129,6 +129,8 @@ class ManagedWebRTCSession:
     session_input_state_advanced: bool = False
     user_events: deque[UserInputEvent] = field(default_factory=deque)
     """Raw user events awaiting canonicalization, oldest first."""
+    coalesced_release_events: dict[str, UserInputEvent] = field(default_factory=dict)
+    """Overflow key releases, coalesced by normalized key."""
     last_client_message_at: float = 0.0
     liveness_task: asyncio.Task[Any] | None = None
     closed: bool = False
@@ -396,11 +398,19 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             return
         if len(managed_session.user_events) >= _MAX_SESSION_USER_EVENTS:
             if event_type in _RELEASE_USER_EVENT_TYPES:
-                self._make_room_for_release_event(
+                made_room = self._make_room_for_release_event(
                     managed_session=managed_session,
                     event_type=event_type,
                     payload=payload,
                 )
+                if not made_room:
+                    self._record_coalesced_release_event(
+                        managed_session=managed_session,
+                        timestamp_s=timestamp_s,
+                        event_type=event_type,
+                        payload=payload,
+                    )
+                    return
             else:
                 raise RuntimeError(
                     "Too many queued WebRTC user events; wait for inference to catch up."
@@ -420,10 +430,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         managed_session: ManagedWebRTCSession,
         event_type: str,
         payload: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         events = managed_session.user_events
         if not events:
-            return
+            return False
         if event_type == "key_up":
             released_key = payload.get("key")
             normalized_released_key = (
@@ -438,7 +448,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         and normalize_key(queued_key) == normalized_released_key
                     ):
                         del events[index]
-                        return
+                        return True
                 for index, queued_event in enumerate(events):
                     queued_key = queued_event.payload.get("key")
                     if (
@@ -447,7 +457,28 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         and normalize_key(queued_key) == normalized_released_key
                     ):
                         del events[index]
-                        return
+                        return True
+        return False
+
+    def _record_coalesced_release_event(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        timestamp_s: float,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if event_type != "key_up":
+            return
+        key = payload.get("key")
+        if not isinstance(key, str):
+            return
+        managed_session.coalesced_release_events[normalize_key(key)] = UserInputEvent(
+            timestamp_s=timestamp_s,
+            event_type=event_type,
+            payload=payload,
+            source="webrtc",
+        )
 
     def _supported_key_names(self) -> frozenset[str]:
         supported_keys = self._resampler_supported_keys
@@ -458,6 +489,20 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def _supports_key_payload(self, payload: dict[str, Any]) -> bool:
         key = payload.get("key")
         return isinstance(key, str) and normalize_key(key) in self._supported_key_names()
+
+    @staticmethod
+    def _pending_user_events(
+        managed_session: ManagedWebRTCSession,
+    ) -> tuple[UserInputEvent, ...]:
+        return tuple(
+            sorted(
+                (
+                    *managed_session.user_events,
+                    *managed_session.coalesced_release_events.values(),
+                ),
+                key=lambda event: event.timestamp_s,
+            )
+        )
 
     def _catch_up_input_clock(
         self,
@@ -499,7 +544,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             return
         runtime = managed_session.runtime
         runtime.input_canonicalizer.canonicalize(
-            UserInputs(events=tuple(managed_session.user_events)),
+            UserInputs(events=self._pending_user_events(managed_session)),
             window=window,
             source_schema=runtime.input_source_schema,
         )
@@ -543,6 +588,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         events = managed_session.user_events
         while events and events[0].timestamp_s < before_s:
             events.popleft()
+        for key, event in tuple(managed_session.coalesced_release_events.items()):
+            if event.timestamp_s < before_s:
+                del managed_session.coalesced_release_events[key]
 
     async def _step_inference_session(
         self,
@@ -596,7 +644,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Canonicalize this chunk's events and map them into model inputs."""
         runtime = managed_session.runtime
         canonical_inputs = runtime.input_canonicalizer.canonicalize(
-            UserInputs(events=tuple(managed_session.user_events)),
+            UserInputs(events=self._pending_user_events(managed_session)),
             window=window,
             source_schema=runtime.input_source_schema,
         )
