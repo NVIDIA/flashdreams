@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import (
     BevConfig,
     RasterConfig,
@@ -34,8 +35,15 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
-from omnidreams.interactive_drive.taxi_game import project_target_to_bev
-from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.taxi_game import (
+    project_target_to_bev,
+    project_taxi_marker_to_camera,
+)
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    DriverCommand,
+    PresentedFrame,
+)
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
     darken_rgb,
@@ -375,6 +383,8 @@ class SlangPyHudPresenter:
         self._control_assets = control_assets
         self._wheel = wheel
         self._bev_config: BevConfig | None = None
+        self._taxi_camera_calibration: CameraCalibration | None = None
+        self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -462,6 +472,7 @@ class SlangPyHudPresenter:
         ) = None
 
         self._latest_camera_pil: Image.Image | None = None
+        self._latest_taxi_frame: PresentedFrame | None = None
         self._latest_bev_source: object | None = None
         self._latest_ego_dimensions_lwh: object | None = None
         self._prepared_bev_source_key: object | None = None
@@ -597,6 +608,10 @@ class SlangPyHudPresenter:
         if view_mode == "physx" and frame.physx_debug is None:
             return
         rgb = self._select_view_rgb(frame, view_mode)
+        source_size = _rgb_source_size(rgb)
+        if source_size is not None:
+            self._latest_camera_src_size = source_size
+        self._latest_taxi_frame = frame
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
             _prefetch_to_numpy(rgb)
         if frame.bev_host_uint8 is not None:
@@ -671,13 +686,19 @@ class SlangPyHudPresenter:
             )
         else:
             self._render_canvas(frame.status_message)
-            self._present_canvas(use_gpu_camera=frame.status_message is None)
+            self._present_canvas(
+                use_gpu_camera=(
+                    frame.status_message is None
+                    and frame.taxi_game_snapshot is None
+                )
+            )
 
     def present_world_model_loading(self, *, process_events: bool = True) -> None:
         """Paint the HUD's world-model loading state during blocking setup work."""
         if process_events:
             self.process_events()
         self.set_engine_active(True)
+        self._latest_taxi_frame = None
         self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
@@ -1344,15 +1365,23 @@ class SlangPyHudPresenter:
         if camera_transparent:
             camera_drawn = True
         elif self._latest_camera_pil is not None:
-            if status_message is None and not force_cpu_camera:
+            taxi_overlay_active = (
+                getattr(self, "_latest_taxi_frame", None) is not None
+                and self._latest_taxi_frame.taxi_game_snapshot is not None
+            )
+            if (
+                status_message is None
+                and not force_cpu_camera
+                and not taxi_overlay_active
+            ):
                 # GPU camera path fills the centred fit rect after the canvas
                 # upload; here we only repaint the letterbox bars (~0.3 ms) so
                 # they don't show last frame's content when the fit rect resizes.
                 draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             else:
-                # CPU camera path: composite onto canvas so the status
-                # overlay (drawn after this) sits on top of the
-                # loading-frame contents. Only used during warmup.
+                # CPU camera path: composite onto canvas so status and taxi
+                # overlays sit above the camera. Used during warmup and as the
+                # fallback when CUDA HUD interop is unavailable in taxi mode.
                 self._draw_camera(canvas, self._latest_camera_pil, camera_area)
             camera_drawn = True
         if not camera_drawn:
@@ -1385,6 +1414,9 @@ class SlangPyHudPresenter:
         if panel_w > 0:
             self._draw_panel(canvas, draw, panel_rect, wheel_state)
 
+        self._draw_taxi_world_marker(
+            draw, camera_area, getattr(self, "_latest_taxi_frame", None)
+        )
         self._draw_taxi_hud(draw, camera_area)
 
         if self._scene_dropdown_open:
@@ -1418,23 +1450,33 @@ class SlangPyHudPresenter:
         )
         radius = 30.0
         bearing = snapshot.relative_bearing_rad
+        direction_x = -_math.sin(bearing)
+        direction_y = -_math.cos(bearing)
         tip = (
-            cx - int(_math.sin(bearing) * radius),
-            arrow_cy - int(_math.cos(bearing) * radius),
+            cx + int(direction_x * radius),
+            arrow_cy + int(direction_y * radius),
         )
-        rear = (
-            cx + int(_math.sin(bearing) * radius * 0.55),
-            arrow_cy + int(_math.cos(bearing) * radius * 0.55),
+        head_base = (
+            cx + int(direction_x * radius * 0.25),
+            arrow_cy + int(direction_y * radius * 0.25),
         )
-        perp_x = int(_math.cos(bearing) * radius * 0.45)
-        perp_y = -int(_math.sin(bearing) * radius * 0.45)
+        tail = (
+            cx - int(direction_x * radius * 0.62),
+            arrow_cy - int(direction_y * radius * 0.62),
+        )
+        draw.line((tail, head_base), fill=(0, 0, 0, 255), width=11)
+        draw.line((tail, head_base), fill=color + (255,), width=7)
+        perp_x = int(-direction_y * radius * 0.42)
+        perp_y = int(direction_x * radius * 0.42)
         draw.polygon(
             [
                 tip,
-                (rear[0] - perp_x, rear[1] - perp_y),
-                (rear[0] + perp_x, rear[1] + perp_y),
+                (head_base[0] - perp_x, head_base[1] - perp_y),
+                (head_base[0] + perp_x, head_base[1] + perp_y),
             ],
             fill=color + (255,),
+            outline=(0, 0, 0, 255),
+            width=2,
         )
 
         phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
@@ -1473,6 +1515,112 @@ class SlangPyHudPresenter:
                 stroke_width=3,
                 stroke_fill=(0, 0, 0),
             )
+
+    def _draw_taxi_world_marker(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        frame: PresentedFrame | None,
+    ) -> None:
+        """Draw a camera-projected target without off-screen clamping."""
+        if (
+            frame is None
+            or frame.taxi_game_snapshot is None
+            or frame.rig_to_world is None
+            or self._taxi_camera_calibration is None
+            or self._latest_camera_src_size is None
+        ):
+            return
+        source_width, source_height = self._latest_camera_src_size
+        model_key = (source_width, source_height)
+        camera_model = self._taxi_camera_models.get(model_key)
+        if camera_model is None:
+            camera_model = FThetaCameraModel(
+                self._taxi_camera_calibration,
+                output_width=source_width,
+                output_height=source_height,
+            )
+            self._taxi_camera_models[model_key] = camera_model
+        marker = project_taxi_marker_to_camera(
+            frame.taxi_game_snapshot,
+            frame.rig_to_world,
+            camera_model,
+            image_width=source_width,
+            image_height=source_height,
+        )
+        fit = self._compute_camera_fit()
+        if marker is None or fit is None:
+            return
+        fit_width, fit_height, offset_x, offset_y = fit
+        area_x, area_y, _area_right, _area_bottom = camera_area
+
+        def display_point(point: tuple[float, float]) -> tuple[int, int]:
+            return (
+                area_x + offset_x + int(point[0] * fit_width / source_width),
+                area_y + offset_y + int(point[1] * fit_height / source_height),
+            )
+
+        color = (
+            NVIDIA_GREEN
+            if frame.taxi_game_snapshot.phase == "seeking_pickup"
+            else ACCENT_AMBER
+        )
+        for edge in marker.ring_edges_uv:
+            line = (display_point(edge[0]), display_point(edge[1]))
+            draw.line(line, fill=(0, 0, 0, 220), width=7)
+            draw.line(line, fill=color + (245,), width=4)
+
+        anchor = display_point(marker.anchor_uv)
+        if marker.beacon_top_uv is None:
+            top = (anchor[0], anchor[1] - 64)
+        else:
+            projected_top = display_point(marker.beacon_top_uv)
+            vector_x = projected_top[0] - anchor[0]
+            vector_y = projected_top[1] - anchor[1]
+            length = max(1.0, _math.hypot(vector_x, vector_y))
+            display_length = min(170.0, max(52.0, length))
+            top = (
+                anchor[0] + int(vector_x * display_length / length),
+                anchor[1] + int(vector_y * display_length / length),
+            )
+        draw.line((anchor, top), fill=(0, 0, 0, 235), width=9)
+        draw.line((anchor, top), fill=color + (255,), width=5)
+        draw.ellipse(
+            (anchor[0] - 9, anchor[1] - 9, anchor[0] + 9, anchor[1] + 9),
+            fill=color + (255,),
+            outline=(255, 255, 255, 255),
+            width=3,
+        )
+        label = (
+            "PICKUP"
+            if frame.taxi_game_snapshot.phase == "seeking_pickup"
+            else "DROPOFF"
+        )
+        label_box = _measure_text(self._font_small, label)
+        label_width = label_box[2] - label_box[0]
+        label_height = label_box[3] - label_box[1]
+        label_rect = (
+            top[0] - label_width // 2 - 8,
+            top[1] - label_height - 15,
+            top[0] + label_width // 2 + 8,
+            top[1] + 5,
+        )
+        draw.rounded_rectangle(
+            label_rect,
+            radius=6,
+            fill=(8, 8, 12, 225),
+            outline=color + (255,),
+            width=2,
+        )
+        draw.text(
+            (
+                top[0] - label_width // 2 - label_box[0],
+                top[1] - label_height - 10 - label_box[1],
+            ),
+            label,
+            fill=color,
+            font=self._font_small,
+        )
 
     def _draw_camera(
         self,
@@ -2912,6 +3060,11 @@ class SlangPyHudPresenter:
     def configure_taxi_hud(self, bev: BevConfig) -> None:
         """Configure BEV projection used by taxi target overlays."""
         self._bev_config = bev
+
+    def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
+        """Configure camera projection for world-anchored taxi markers."""
+        self._taxi_camera_calibration = calibration
+        self._taxi_camera_models.clear()
 
 
 # -- Module-level helpers ---------------------------------------------
