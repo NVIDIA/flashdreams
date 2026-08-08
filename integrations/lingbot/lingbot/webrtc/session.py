@@ -39,7 +39,13 @@ from flashdreams.core.distributed.rank_orchestration import distributed_op
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.runtime import StepResult
+from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    UserInputCapability,
+    UserInputSchema,
+)
+from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
@@ -54,13 +60,7 @@ from flashdreams.serving.webrtc.runtime import (
     ThreadAffineDistributedWebRTCRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
-from flashdreams.runtime.canonical import InputCanonicalizer
-from flashdreams.runtime.inputs import (
-    InferenceInput,
-    UserInputCapability,
-    UserInputSchema,
-)
-from flashdreams.runtime.types import StepRequest, StepResult
+from lingbot.encoder.utils import preprocess_example_poses
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
     FIELD_CAMERA_TRAJECTORY,
@@ -68,7 +68,6 @@ from lingbot.input_mapping import (
     LingbotInputMapping,
     TextEventSelection,
 )
-from lingbot.encoder.utils import preprocess_example_poses
 from lingbot.model_session import LingbotModelSessionCore
 
 _INTRINSICS_REFERENCE_HEIGHT = 480
@@ -632,6 +631,90 @@ class LingbotInferenceRuntime(
                 state,
             )
 
+    async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
+        """Return an ``InferenceSession`` view of the current rollout.
+
+        The shared manager canonicalizes raw key and text events and maps them
+        into per-step model inputs before stepping the session.
+        """
+        if self._closed:
+            raise LingbotRuntimeError("Runtime is closed.")
+        if self._input_mapping is None:
+            raise LingbotRuntimeError(
+                "Runtime input mapping is not initialized; reset the rollout first."
+            )
+        return LingbotWebRTCInferenceSession(runtime=self)
+
+    @property
+    def input_mapping(self) -> LingbotInputMapping:
+        if self._input_mapping is None:
+            raise LingbotRuntimeError("Runtime input mapping is not initialized.")
+        return self._input_mapping
+
+    @property
+    def input_canonicalizer(self) -> InputCanonicalizer:
+        if self._input_canonicalizer is None:
+            raise LingbotRuntimeError("Runtime canonicalizer is not initialized.")
+        return self._input_canonicalizer
+
+    @property
+    def input_source_schema(self) -> UserInputSchema:
+        return LINGBOT_WEBRTC_SOURCE_SCHEMA
+
+    def validate_user_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate one raw WebRTC user event before it is acknowledged."""
+        if event_type != "text_event":
+            return payload
+        event_id_value = payload.get("event_id")
+        event_id = "" if event_id_value is None else str(event_id_value)
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        clears = state in {"clear", "release", "off", "none"}
+        return {"event_id": None if clears else event_id, "state": state}
+
+    def _build_input_layers_sync(self, text_events: tuple[TextEventSpec, ...]) -> None:
+        """Build the canonicalizer and mapping for the current rollout."""
+        if self._base_intrinsics is None:
+            self._input_mapping = None
+            self._input_canonicalizer = None
+            return
+        self._input_canonicalizer = InputCanonicalizer(
+            [KeyboardToCameraCommand(), TextEventSelection()]
+        )
+        self._input_mapping = LingbotInputMapping(
+            fps=int(self.config.fps),
+            base_intrinsics=self._base_intrinsics.detach().reshape(4).cpu(),
+            world_scale=self._world_scale or 1.0,
+            text_event_prompts={event.event_id: event.prompt for event in text_events},
+        )
+        self._input_mapping.set_base_prompt(self._prompt or "")
+
+    def _next_step_request_sync(self) -> StepRequest:
+        """Describe the next mapped-input chunk for the session branch."""
+        if self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        step_index = self._model_session.step_index
+        num_frames = self._model_session.next_num_frames()
+        return StepRequest(
+            step_index=step_index,
+            metadata={
+                "input_frame_count": num_frames,
+                "num_frames": num_frames,
+                "frame_start": step_index * num_frames,
+            },
+        )
+
+    def _step_blocking(self, inputs: InferenceInput) -> StepResult:
+        """Run one mapped step from synchronous ``InferenceSession`` code."""
+        if self._closed:
+            raise LingbotRuntimeError("Session is closed.")
+        with self._sync_step_lock:
+            if self._closed:
+                raise LingbotRuntimeError("Session is closed.")
+            return self._worker.call_blocking(self._step_sync_all_ranks, inputs)
+
     # Arbitrary index well past the AR-step transient; for the Wan/lingbot
     # pipelines used here the per-step count is constant for any index
     # ``>= 1`` (only AR 0 emits fewer frames due to causal first-frame
@@ -671,6 +754,10 @@ class LingbotInferenceRuntime(
         return int(
             self._pipeline.get_num_output_frames(self._STEADY_STATE_AR_PROBE_INDEX)
         )
+
+    @distributed_op(WebRTCControlSignal.SESSION_STEP)
+    def _step_sync_all_ranks(self, inputs: InferenceInput) -> StepResult:
+        return self._step_sync(inputs)
 
     @distributed_op(WebRTCControlSignal.EVENT)
     def _trigger_event_sync_all_ranks(
@@ -1044,16 +1131,14 @@ class LingbotInferenceRuntime(
         poses: torch.Tensor,
         intrinsics: torch.Tensor,
         num_frames: int,
-    ) -> VideoStepResult:
+    ) -> StepResult:
         """Generate one chunk from an already-resolved camera trajectory.
 
         Shared by the segment path and the mapped-input session path so both
         reach the model through identical conditioning.
         """
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        if self._device is None:
-            raise LingbotRuntimeError("Runtime device is not initialized.")
 
         from lingbot.encoder.camctrl import CamCtrlInput  # noqa: PLC0415
 
@@ -1073,11 +1158,9 @@ class LingbotInferenceRuntime(
 
     def _step_sync(self, inputs: InferenceInput) -> StepResult:
         """Generate one chunk from mapped model inputs."""
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        num_frames = int(
-            self._pipeline.get_num_output_frames(self.autoregressive_index)
-        )
+        num_frames = self._model_session.next_num_frames()
         self._apply_conditioning_update_sync(inputs)
         poses = _require_camera_tensor(
             inputs, FIELD_CAMERA_TRAJECTORY, expected_shape=(num_frames, 4, 4)
@@ -1085,17 +1168,10 @@ class LingbotInferenceRuntime(
         intrinsics = _require_camera_tensor(
             inputs, FIELD_CAMERA_INTRINSICS, expected_shape=(num_frames, 4)
         )
-        step_index = self.autoregressive_index
-        result = self._generate_from_camera_inputs(
+        return self._generate_from_camera_inputs(
             poses=poses,
             intrinsics=intrinsics,
             num_frames=num_frames,
-        )
-        return StepResult(
-            step_index=step_index,
-            output=result,
-            frame_count=result.num_frames,
-            metrics=result.stats or {},
         )
 
     def _apply_conditioning_update_sync(self, inputs: InferenceInput) -> None:

@@ -36,6 +36,7 @@ class WebRTCControlSignal(IntEnum):
     ACTION_STEP = 2
     CLOSE = 3
     EVENT = 4
+    SESSION_STEP = 5
     EXIT = 99
 
 

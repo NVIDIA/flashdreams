@@ -22,6 +22,11 @@ from typing import cast
 
 import pytest
 import torch
+from lingbot.input_mapping import (
+    KeyboardToCameraCommand,
+    LingbotInputMapping,
+    TextEventSelection,
+)
 from lingbot.model_session import LingbotModelSessionCore
 from lingbot.webrtc import session
 from lingbot.webrtc.session import (
@@ -31,6 +36,8 @@ from lingbot.webrtc.session import (
 
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import StepRequest, StepResult
+from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.serving.webrtc import runtime as webrtc_runtime
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
@@ -595,117 +602,36 @@ def test_apply_conditioning_update_swaps_precomputed_text_embeddings() -> None:
         ) -> None:
             self.calls.append((cache, text_embeddings))
 
-    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
-    manager = create_lingbot_webrtc_session_manager(
-        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
-    )
-    runtime = _FakeRuntime()
-    channel = _FakeControlChannel()
-    managed_session = ManagedWebRTCSession(
-        runtime=runtime,
-        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
-        peer_connection=_FakeCloseable(),
-        resampler=object(),  # ty:ignore[invalid-argument-type]
-        control_channel=channel,
-    )
-
-    await manager._handle_datachannel_message(
-        managed_session=managed_session,
-        raw_message='{"type":"event","event_id":"portal","state":"trigger"}',
-    )
-
-    assert runtime.calls == [("portal", "trigger")]
-    assert channel.messages == [
-        {
-            "type": "event_ack",
-            "event_id": "portal",
-            "state": "trigger",
-            "active_event_id": "portal",
-        }
-    ]
-    assert managed_session.first_action_received.is_set()
-
-
-@pytest.mark.asyncio
-async def test_clear_event_message_does_not_require_event_id_and_preserves_ack_fields(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeRuntime:
+    class _FakeDiffusionModel:
         def __init__(self) -> None:
             self.transformer = _FakeTransformer()
 
-        async def trigger_event(
-            self, *, event_id: str, state: str
-        ) -> dict[str, object]:
-            self.calls.append((event_id, state))
-            return {
-                "type": "not_event_ack",
-                "event_id": "overwritten",
-                "state": "overwritten",
-                "active_event_id": None,
-            }
-
-    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
-    manager = create_lingbot_webrtc_session_manager(
-        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
-    )
-    runtime = _FakeRuntime()
-    channel = _FakeControlChannel()
-    managed_session = ManagedWebRTCSession(
-        runtime=runtime,
-        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
-        peer_connection=_FakeCloseable(),
-        resampler=object(),  # ty:ignore[invalid-argument-type]
-        control_channel=channel,
-    )
-
-    await manager._handle_datachannel_message(
-        managed_session=managed_session,
-        raw_message='{"type":"event","state":"clear"}',
-    )
-
-    assert runtime.calls == [("", "clear")]
-    assert channel.messages == [
-        {
-            "type": "event_ack",
-            "event_id": None,
-            "state": "clear",
-            "active_event_id": None,
-        }
-    ]
-    assert managed_session.first_action_received.is_set()
-
-
-@pytest.mark.asyncio
-async def test_event_message_without_id_is_rejected_for_trigger(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeRuntime:
+    class _FakePipeline:
         def __init__(self) -> None:
             self.diffusion_model = _FakeDiffusionModel()
 
-        async def trigger_event(
-            self, *, event_id: str, state: str
-        ) -> dict[str, object]:
-            del event_id, state
-            self.calls += 1
-            return {}
-
-    monkeypatch.setattr(session, "LingbotInferenceRuntime", _fake_runtime_factory)
-    manager = create_lingbot_webrtc_session_manager(
-        runtime_config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0)
+    runtime = session.LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(
+            device="cpu",
+            warmup_chunks=0,
+            text_events=(),
+        )
     )
-    runtime = _FakeRuntime()
-    channel = _FakeControlChannel()
-    managed_session = ManagedWebRTCSession(
-        runtime=runtime,
-        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
-        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
-        peer_connection=_FakeCloseable(),
-        resampler=object(),  # ty:ignore[invalid-argument-type]
-        control_channel=channel,
+    transformer_cache = object()
+    cache = type("_FakeCache", (), {"transformer_cache": transformer_cache})()
+    base_text = torch.zeros((1, 2, 3))
+    event_text = torch.ones((1, 2, 3))
+    runtime._pipeline = _FakePipeline()
+    _attach_model_session(runtime, runtime._pipeline, cache=cache)
+    runtime._prompt = "base prompt"
+    runtime._event_embeddings = {"portal": event_text}
+    runtime._prompt_embeddings = {
+        "base prompt": base_text,
+        "a glowing portal opens": event_text,
+    }
+
+    runtime._apply_conditioning_update_sync(
+        InferenceInput(global_conditioning={"prompt": "a glowing portal opens"})
     )
 
     transformer = runtime._pipeline.diffusion_model.transformer
@@ -981,22 +907,21 @@ async def test_loopback_warmup_drives_session_generation(
             step_index = self._runtime.step_index
             return StepRequest(
                 step_index=step_index,
-                metadata={"num_frames": 1, "frame_start": step_index},
+                metadata={
+                    "input_frame_count": 1,
+                    "num_frames": 1,
+                    "frame_start": step_index,
+                },
             )
 
         def step(self, inputs: InferenceInput) -> StepResult:
             chunk_index = self._runtime.step_index
             self._runtime.step_index += 1
             self._runtime.generated_inputs.append(inputs)
-            return StepResult(
+            return StepResult.from_video_chunk(
                 step_index=chunk_index,
-                output=VideoStepResult(
-                    chunk_index=chunk_index,
-                    num_frames=1,
-                    video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                    stats=None,
-                ),
-                frame_count=1,
+                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
+                layout="bvtchw",
             )
 
     class _FakeRuntime:
@@ -1037,24 +962,12 @@ async def test_loopback_warmup_drives_session_generation(
 
         def next_step_request(self) -> StepRequest:
             return StepRequest(
-                step_index=len(self.generated_segments),
+                step_index=self.step_index,
                 metadata={"input_frame_count": 1},
             )
 
-        async def step(
-            self,
-            *,
-            request: StepRequest,
-            segments: list[tuple[float, float, frozenset[str]]],
-            frame_times: list[float],
-        ) -> StepResult:
-            del frame_times
-            self.generated_segments.append(segments)
-            return StepResult.from_video_chunk(
-                step_index=request.step_index,
-                video_chunk=torch.zeros((1, 1, 1, 3, 2, 2), dtype=torch.uint8),
-                layout="bvtchw",
-            )
+        async def start_inference_session(self) -> _FakeInferenceSession:
+            return _FakeInferenceSession(self)
 
         async def close(self) -> None:
             self.close_calls += 1

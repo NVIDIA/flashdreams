@@ -20,11 +20,11 @@ from flashdreams.serving.webrtc.controls import (
     KeyboardResampler,
     KeyboardState,
 )
-from flashdreams.serving.webrtc.media import tensor_chunk_to_rgb_frames
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
 )
+from flashdreams.serving.webrtc.media import tensor_chunk_to_rgb_frames
 from flashdreams.serving.webrtc.messages import (
     make_chunk_done_payload,
     make_error_payload,
@@ -140,7 +140,7 @@ class _FakeControlChannel:
         self.messages.append(decoded)
 
 
-class _Manager(BaseWebRTCSessionManager[Any, object]):
+class _Manager(BaseWebRTCSessionManager[Any, Any]):
     def _model_name(self) -> str:
         return "fake"
 
@@ -173,7 +173,9 @@ async def test_event_message_dispatches_to_runtime_and_acknowledges() -> None:
             return {"active_event_id": event_id}
 
     runtime = _FakeRuntime()
-    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
     managed_session, channel = _managed_session_with_channel(runtime)
 
     await manager._handle_datachannel_message(
@@ -211,7 +213,9 @@ async def test_clear_event_message_preserves_ack_fields() -> None:
             }
 
     runtime = _FakeRuntime()
-    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
     managed_session, channel = _managed_session_with_channel(runtime)
 
     await manager._handle_datachannel_message(
@@ -245,7 +249,9 @@ async def test_event_message_without_id_is_rejected_for_trigger() -> None:
             return {}
 
     runtime = _FakeRuntime()
-    manager = _Manager(runtime=runtime, runtime_config=object(), fps=30)
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
     managed_session, channel = _managed_session_with_channel(runtime)
 
     await manager._handle_datachannel_message(

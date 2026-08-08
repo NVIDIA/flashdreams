@@ -10,6 +10,7 @@ import contextlib
 import inspect
 import json
 from collections import deque
+from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, TypeVar
@@ -82,6 +83,10 @@ _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
 
 
+class _InferenceSessionExhausted(RuntimeError):
+    """Raised when an ``InferenceSession`` reports normal completion."""
+
+
 def _summarize_sdp_candidates(sdp: str) -> str:
     candidates = [
         line.removeprefix("a=candidate:")
@@ -116,18 +121,22 @@ def _summarize_sdp_candidates(sdp: str) -> str:
     )
 
 
-def _stat_float(stats: dict[str, float], name: str, default: float = 0.0) -> float:
+def _stat_float(
+    stats: Mapping[str, float | int], name: str, default: float = 0.0
+) -> float:
     value = stats.get(name)
     if value is None:
         return default
     return float(value)
 
 
-def _stat_ms(stats: dict[str, float], name: str, default_ms: float = 0.0) -> float:
+def _stat_ms(
+    stats: Mapping[str, float | int], name: str, default_ms: float = 0.0
+) -> float:
     return _stat_float(stats, name, default_ms / 1e3) * 1e3
 
 
-def _stat_int(stats: dict[str, float], name: str) -> int:
+def _stat_int(stats: Mapping[str, float | int], name: str) -> int:
     return int(round(_stat_float(stats, name)))
 
 
@@ -444,9 +453,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 return False
             if channel is not None:
                 active_event_id = event_payload.get("event_id")
-                ack_event_id = (
-                    None if active_event_id is None else str(active_event_id)
-                )
+                ack_event_id = None if active_event_id is None else str(active_event_id)
                 self._send_json(
                     channel,
                     make_event_ack_payload(
@@ -600,7 +607,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
     def _supports_key_payload(self, payload: dict[str, Any]) -> bool:
         key = payload.get("key")
-        return isinstance(key, str) and normalize_key(key) in self._supported_key_names()
+        return (
+            isinstance(key, str) and normalize_key(key) in self._supported_key_names()
+        )
 
     @staticmethod
     def _pending_user_events(
@@ -711,7 +720,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             raise RuntimeError("Session branch invoked without an inference session.")
         request = session.next_step_request()
         if request is None:
-            raise RuntimeError("Inference session reported no further steps.")
+            raise _InferenceSessionExhausted()
         if request.step_index == 0 and not managed_session.session_input_state_advanced:
             window = TimeWindow(start_s=0.0, end_s=window.end_s)
         request = replace(request, user_input_window=window)
@@ -1205,6 +1214,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                                 f"requested {segment_request.step_index}, "
                                 f"got {result.step_index}."
                             )
+                except _InferenceSessionExhausted:
+                    logger.info(
+                        "Inference session reported completion; closing WebRTC session."
+                    )
+                    await self.close_active_session()
+                    return
                 except Exception as exc:
                     logger.exception("Chunk generation failed.")
                     channel = managed_session.control_channel

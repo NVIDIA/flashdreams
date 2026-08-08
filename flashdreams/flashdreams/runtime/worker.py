@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 import torch
 
@@ -62,6 +62,19 @@ class ThreadAffineRuntimeWorker:
         except asyncio.CancelledError:
             future.add_done_callback(_consume_exception)
             raise
+
+    def call_blocking(
+        self,
+        func: Callable[..., _T],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        """Run one callable from synchronous code on the owned worker thread."""
+        if not self._accepting:
+            raise RuntimeError("runtime worker is closed")
+        future = self._executor.submit(_invoke, func, args, kwargs)
+        return cast(_T, future.result())
 
     async def close(self) -> None:
         """Drain submitted work and stop accepting lifecycle calls."""

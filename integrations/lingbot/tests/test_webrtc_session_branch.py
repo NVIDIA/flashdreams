@@ -26,9 +26,8 @@ from lingbot.input_mapping import (
 )
 from lingbot.webrtc.session import LINGBOT_WEBRTC_SOURCE_SCHEMA
 
-from flashdreams.infra.video_output import VideoStepResult
-from flashdreams.runtime.inputs import InferenceInput, TimeWindow
 from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import InferenceInput, TimeWindow
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.webrtc.controls import CameraPoseIntegrator
@@ -62,6 +61,7 @@ class _FakeSession:
         return StepRequest(
             step_index=self._index,
             metadata={
+                "input_frame_count": _NUM_FRAMES,
                 "num_frames": _NUM_FRAMES,
                 "frame_start": self._index * _NUM_FRAMES,
             },
@@ -71,16 +71,10 @@ class _FakeSession:
         self.steps.append(inputs)
         index = self._index
         self._index += 1
-        return StepResult(
+        return StepResult.from_video_chunk(
             step_index=index,
-            output=VideoStepResult(
-                chunk_index=index,
-                video_chunk=torch.zeros(_NUM_FRAMES, 3, 4, 4),
-                layout="tchw",
-                num_frames=_NUM_FRAMES,
-                stats={},
-            ),
-            frame_count=_NUM_FRAMES,
+            video_chunk=torch.zeros(_NUM_FRAMES, 3, 4, 4),
+            layout="tchw",
         )
 
 
@@ -137,24 +131,41 @@ class _FakeControlChannel:
         self.messages.append(decoded)
 
 
+class _FakeCloseable:
+    async def close(self) -> None:
+        return
+
+
+class _FakeVideoEncoder:
+    fps = _FPS
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def close(self) -> None:
+        return
+
+
 def _managed_session(runtime: _FakeRuntime) -> ManagedWebRTCSession:
     return ManagedWebRTCSession(
         runtime=runtime,
-        video_track=None,
-        video_encoder=None,
-        peer_connection=None,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
         resampler=KeyboardResampler(fps=_FPS, start_v=0.0),
         inference_session=runtime.session,
     )
 
 
 def _manager(runtime: _FakeRuntime) -> _Manager:
-    return _Manager(runtime=runtime, runtime_config=_FakeRuntimeConfig(), fps=_FPS)
+    return _Manager(
+        runtime=runtime,
+        runtime_config=_FakeRuntimeConfig(),
+        fps=_FPS,
+        identity="fake",
+    )
 
 
-def _reference_poses(
-    edges: list[tuple[float, str, str]], *, chunks: int
-) -> np.ndarray:
+def _reference_poses(edges: list[tuple[float, str, str]], *, chunks: int) -> np.ndarray:
     resampler = KeyboardResampler(fps=_FPS, start_v=0.0)
     integrator = CameraPoseIntegrator()
     for timestamp_s, event, key in edges:
@@ -388,7 +399,95 @@ def test_real_lingbot_runtime_selects_the_session_branch() -> None:
     runtime = LingbotInferenceRuntime(config=LingbotRuntimeConfig(device="cpu"))
 
     assert BaseWebRTCSessionManager._drives_inference_session(runtime) is True
-    assert callable(runtime.generate_chunk)
+    assert callable(runtime.step)
+    assert callable(runtime.start_inference_session)
+
+
+def test_real_lingbot_inference_session_steps_on_runtime_worker() -> None:
+    import asyncio
+
+    from lingbot.model_session import LingbotModelSessionCore
+    from lingbot.webrtc.session import LingbotInferenceRuntime, LingbotRuntimeConfig
+
+    from flashdreams.infra.video_output import VideoOutputStream
+
+    class _FakeTransformer:
+        pass
+
+    class _FakeDiffusionModel:
+        def __init__(self) -> None:
+            self.transformer = _FakeTransformer()
+
+    class _FakePipeline:
+        def __init__(self) -> None:
+            self.diffusion_model = _FakeDiffusionModel()
+            self.generated_inputs: list[object] = []
+
+        def get_num_output_frames(self, autoregressive_index: int) -> int:
+            del autoregressive_index
+            return _NUM_FRAMES
+
+        def generate(
+            self,
+            *,
+            autoregressive_index: int,
+            cache: object,
+            input: object,
+        ) -> torch.Tensor:
+            del autoregressive_index, cache
+            self.generated_inputs.append(input)
+            return torch.zeros((_NUM_FRAMES, 3, 4, 4), dtype=torch.uint8)
+
+        def finalize(
+            self, *, autoregressive_index: int, cache: object
+        ) -> dict[str, float]:
+            del autoregressive_index, cache
+            return {"decode_s": 0.1}
+
+    runtime = LingbotInferenceRuntime(
+        config=LingbotRuntimeConfig(device="cpu", warmup_chunks=0, text_events=())
+    )
+    pipeline = _FakePipeline()
+    runtime._pipeline = pipeline
+    runtime._model_session = LingbotModelSessionCore(
+        pipeline=pipeline,
+        output_stream_factory=lambda: VideoOutputStream(
+            postprocess_stream=None,
+            output_layout="tchw",
+        ),
+    )
+    runtime._model_session._cache = object()
+    runtime._input_canonicalizer = InputCanonicalizer(
+        [KeyboardToCameraCommand(), TextEventSelection()]
+    )
+    runtime._input_mapping = LingbotInputMapping(
+        fps=_FPS,
+        base_intrinsics=_BASE_INTRINSICS,
+        world_scale=1.0,
+        text_event_prompts={},
+    )
+
+    try:
+        inference_session = asyncio.run(runtime.start_inference_session())
+        request = inference_session.next_step_request()
+        result = inference_session.step(
+            InferenceInput(
+                step={
+                    FIELD_CAMERA_TRAJECTORY: torch.eye(4).repeat(_NUM_FRAMES, 1, 1),
+                    FIELD_CAMERA_INTRINSICS: _BASE_INTRINSICS.repeat(_NUM_FRAMES, 1),
+                },
+            )
+        )
+    finally:
+        asyncio.run(runtime.close())
+
+    assert request is not None
+    assert request.step_index == 0
+    assert request.metadata["input_frame_count"] == _NUM_FRAMES
+    assert result.step_index == 0
+    assert result.frame_count == _NUM_FRAMES
+    assert result.metrics["decode_s"] == pytest.approx(0.1)
+    assert len(pipeline.generated_inputs) == 1
 
 
 def test_session_start_requires_an_initialized_rollout() -> None:

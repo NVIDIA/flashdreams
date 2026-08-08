@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
@@ -304,9 +304,9 @@ def test_record_user_event_does_not_evict_unrelated_event_for_release(
         payload={"key": "w"},
     )
 
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("text_event", {"event_id": "storm"})
-    ]
+    assert [
+        (event.event_type, dict(event.payload)) for event in managed.user_events
+    ] == [("text_event", {"event_id": "storm"})]
     assert len(managed.user_events) == 1
     assert set(managed.coalesced_release_events) == {"w"}
     assert managed.coalesced_release_events["w"].timestamp_s == pytest.approx(0.2)
@@ -346,9 +346,9 @@ def test_record_user_event_ignores_unsupported_key_events(
         payload={"key": "z"},
     )
 
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("text_event", {"event_id": "storm"})
-    ]
+    assert [
+        (event.event_type, dict(event.payload)) for event in managed.user_events
+    ] == [("text_event", {"event_id": "storm"})]
 
 
 def test_catch_up_input_clock_advances_session_input_state() -> None:
@@ -367,10 +367,7 @@ def test_catch_up_input_clock_advances_session_input_state() -> None:
             del source_schema
             self.windows.append((window.start_s, window.end_s))
             self.event_batches.append(
-                [
-                    (event.timestamp_s, event.event_type)
-                    for event in user_inputs.events
-                ]
+                [(event.timestamp_s, event.event_type) for event in user_inputs.events]
             )
             return object()
 
@@ -484,9 +481,9 @@ async def test_action_keyup_updates_state_when_user_event_queue_full(
         raw_message='{"type":"action","action":{"event":"keyup","key":"w"}}',
     )
 
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
-        ("key_up", {"key": "w"})
-    ]
+    assert [
+        (event.event_type, dict(event.payload)) for event in managed.user_events
+    ] == [("key_up", {"key": "w"})]
     assert managed.first_action_received.is_set()
     assert len(managed.pending_action_arrivals) == 1
     assert len(resampler.edges) == 1
@@ -526,7 +523,9 @@ async def test_session_event_message_validates_records_and_activates() -> None:
     assert runtime.validate_calls == [
         ("text_event", {"event_id": "storm", "state": "trigger"})
     ]
-    assert [(event.event_type, dict(event.payload)) for event in managed.user_events] == [
+    assert [
+        (event.event_type, dict(event.payload)) for event in managed.user_events
+    ] == [
         (
             "text_event",
             {"event_id": "storm", "state": "trigger", "validated": True},
@@ -616,6 +615,50 @@ async def test_generation_worker_retries_on_error_when_flag_unset() -> None:
     assert len(channel.messages) == 2
     assert not video_track.closed
     assert not peer.closed
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_closes_completed_inference_session_without_retry() -> (
+    None
+):
+    class _CompletedSession:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def next_step_request(self) -> StepRequest | None:
+            self.calls += 1
+            return None
+
+        def step(self, inputs: Any) -> StepResult:
+            del inputs
+            raise AssertionError("completed sessions must not be stepped")
+
+    class _SessionRuntime:
+        def __init__(self) -> None:
+            self.session = _CompletedSession()
+
+        def next_step_request(self) -> StepRequest:
+            return _step_request()
+
+    runtime = _SessionRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, video_track, peer, channel = _managed_session(runtime)
+    managed.inference_session = runtime.session
+    resampler = cast(_FakeResampler, managed.resampler)
+    resampler.dt = 1.0 / 30.0
+    resampler.next_chunk_start_v = asyncio.get_running_loop().time()
+    manager._active_session = managed
+
+    task = asyncio.create_task(manager._generation_worker(managed_session=managed))
+    managed.generation_task = task
+    await asyncio.wait_for(task, timeout=5.0)
+
+    assert runtime.session.calls == 1
+    assert not manager.has_active_session()
+    assert managed.closed
+    assert video_track.closed
+    assert peer.closed
+    assert channel.messages == []
 
 
 @pytest.mark.asyncio
