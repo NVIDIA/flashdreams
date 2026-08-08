@@ -18,7 +18,7 @@ from lingbot.demo import (
     LingbotReplayInputs,
     LingbotWebRTCScenario,
 )
-from lingbot.demo.cli import _replay_spec, _webrtc_spec, parse_args
+from lingbot.demo.app import _replay_spec, _webrtc_spec, parse_args
 from lingbot.demo.replay import (
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,

@@ -7,22 +7,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
-import torch
-import torch.distributed as dist
-
-from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.serving.webrtc.bootstrap import (
-    configure_logging,
-    initialize_cuda_distributed,
-)
+from flashdreams.runtime.demo.app import DemoApplication
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     ensure_example_data_downloaded,
@@ -119,29 +112,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> None:
-    configure_logging()
-    args = parse_args(argv)
-    if args.command == "replay":
-        run_replay_demo(
-            spec=_replay_spec(args),
-            adapter=LingbotDemoAdapter(),
-        )
-        return
-    if args.command == "webrtc":
-        from .webrtc import serve_lingbot_webrtc_demo
+class LingbotDemoApplication(DemoApplication):
+    """Lingbot replay and WebRTC demo application."""
 
-        context = initialize_cuda_distributed(
-            default_device=args.device,
-            distributed_init_fn=distributed_init,
-            configure_logging_fn=configure_logging,
-            torch_module=torch,
-            dist_module=dist,
-        )
+    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+        return parse_args(argv)
+
+    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
+        return _replay_spec(args)
+
+    def replay_adapter(self) -> LingbotDemoAdapter:
+        return LingbotDemoAdapter()
+
+    def prepare_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
         ensure_example_data_downloaded(
             is_rank_zero=(context.world_rank == 0),
             example_idx=args.example_idx,
         )
+
+    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
+        from .webrtc import serve_lingbot_webrtc_demo
+
         serve_lingbot_webrtc_demo(
             spec=_webrtc_spec(
                 args,
@@ -150,8 +141,14 @@ def main(argv: list[str] | None = None) -> None:
             ),
             world_rank=context.world_rank,
         )
-        return
-    raise AssertionError(f"Unhandled command: {args.command}")
+
+
+_APPLICATION = LingbotDemoApplication()
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Run the Lingbot demo application."""
+    _APPLICATION.main(argv)
 
 
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:

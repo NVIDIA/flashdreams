@@ -21,7 +21,7 @@ from omnidreams.demo import (
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
 )
-from omnidreams.demo.cli import _replay_spec, _webrtc_spec, parse_args
+from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,

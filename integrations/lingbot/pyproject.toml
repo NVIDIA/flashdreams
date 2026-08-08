@@ -42,7 +42,7 @@ dev = [
 ]
 
 [project.scripts]
-lingbot-demo = "lingbot.demo.cli:main"
+lingbot-demo = "lingbot.demo.app:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

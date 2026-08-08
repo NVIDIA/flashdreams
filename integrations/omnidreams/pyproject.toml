@@ -107,7 +107,7 @@ omnidreams-eval = "omnidreams.eval.cli:main"
 
 # Experimental shared demo API path. This coexists with the legacy
 # WebRTC/gRPC/interactive-drive demos until the new adapter is proven.
-omnidreams-demo = "omnidreams.demo.cli:main"
+omnidreams-demo = "omnidreams.demo.app:main"
 
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the

@@ -77,7 +77,7 @@ def test_lingbot_webrtc_target_translates_runner_config() -> None:
         ),
     )
 
-    assert spec.module == "lingbot.demo.cli"
+    assert spec.module == "lingbot.demo.app"
     assert spec.argv == (
         "webrtc",
         "--preset-id",
@@ -130,7 +130,7 @@ def test_omnidreams_webrtc_target_uses_shared_demo_entry_point() -> None:
         ),
     )
 
-    assert spec.module == "omnidreams.demo.cli"
+    assert spec.module == "omnidreams.demo.app"
     assert spec.argv == (
         "webrtc",
         "--preset-id",

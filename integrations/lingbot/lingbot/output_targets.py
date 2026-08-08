@@ -60,7 +60,7 @@ class LingbotOutputTargetAdapter:
         return OutputTargetSpec(
             mode="webrtc",
             label="LingBot shared demo WebRTC server",
-            module="lingbot.demo.cli",
+            module="lingbot.demo.app",
             argv=tuple(argv),
         )
 

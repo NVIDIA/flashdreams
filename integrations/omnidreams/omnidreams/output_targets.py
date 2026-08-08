@@ -85,7 +85,7 @@ def _webrtc_spec(
     return OutputTargetSpec(
         mode="webrtc",
         label="OmniDreams shared demo WebRTC server",
-        module="omnidreams.demo.cli",
+        module="omnidreams.demo.app",
         argv=tuple(argv),
     )
 

@@ -7,23 +7,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
-import torch
-import torch.distributed as dist
 from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
-from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.serving.webrtc.bootstrap import (
-    configure_logging,
-    initialize_cuda_distributed,
-)
+from flashdreams.runtime.demo.app import DemoApplication
 
 from .adapter import OmnidreamsDemoAdapter
 from .spec import (
@@ -83,31 +77,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> None:
-    configure_logging()
-    args = parse_args(argv)
-    if args.command == "replay":
-        run_replay_demo(
-            spec=_replay_spec(args),
-            adapter=OmnidreamsDemoAdapter(),
-        )
-        return
-    if args.command == "webrtc":
+class OmnidreamsDemoApplication(DemoApplication):
+    """OmniDreams replay and WebRTC demo application."""
+
+    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+        return parse_args(argv)
+
+    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
+        return _replay_spec(args)
+
+    def replay_adapter(self) -> OmnidreamsDemoAdapter:
+        return OmnidreamsDemoAdapter()
+
+    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
         from .webrtc import serve_omnidreams_webrtc_demo
 
-        context = initialize_cuda_distributed(
-            default_device=args.device,
-            distributed_init_fn=distributed_init,
-            configure_logging_fn=configure_logging,
-            torch_module=torch,
-            dist_module=dist,
-        )
         serve_omnidreams_webrtc_demo(
             spec=_webrtc_spec(args, device=str(context.device)),
             world_rank=context.world_rank,
         )
-        return
-    raise AssertionError(f"Unhandled command: {args.command}")
+
+
+_APPLICATION = OmnidreamsDemoApplication()
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Run the OmniDreams demo application."""
+    _APPLICATION.main(argv)
 
 
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:
