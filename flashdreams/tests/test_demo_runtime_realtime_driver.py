@@ -347,6 +347,35 @@ async def test_shielded_cleanup_timeout_bounds_shutdown() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shielded_cleanup_dispatch_failure_marks_host_unhealthy() -> None:
+    host = _RejectingHost(RuntimeError("worker rejected cleanup"))
+    session = _FakeRealtimeSession(num_steps=1)
+    provider = _FakeRealtimeProvider()
+    metrics = InMemorySessionMetricsRecorder()
+    edges = _edges(metrics=metrics)
+
+    result = await shielded_session_cleanup(
+        host=cast(RuntimeHost, host),
+        session=session,
+        provider=provider,
+        session_edges=edges,
+        status="cancelled",
+        reason="dispatch failure",
+        error=None,
+        timeout_s=0.001,
+    )
+
+    assert result.status == "cancelled"
+    assert host.unhealthy_reason == "model-affine cleanup timed out"
+    assert host.cleanup_dispatch_count == 1
+    assert session.close_count == 0
+    assert provider.close_count == 0
+    assert metrics.cleanup_errors == ["worker rejected cleanup"]
+    assert metrics.orphaned_cleanup_errors == []
+    assert metrics.closed
+
+
+@pytest.mark.asyncio
 async def test_realtime_driver_applies_backpressure_through_clock() -> None:
     session = _FakeRealtimeSession(num_steps=2)
     runtime = _FakeRealtimeRuntime(session=session)
@@ -849,6 +878,32 @@ class _NeverReturningHost:
                 close = cast(Callable[[], None], arg)
                 self.close_targets.append(getattr(close, "__self__", close))
         await asyncio.Event().wait()
+
+    def mark_unhealthy(
+        self,
+        reason: str = "marked unhealthy",
+        error: Exception | None = None,
+    ) -> None:
+        del error
+        self.unhealthy_reason = reason
+
+
+class _RejectingHost:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+        self.cleanup_dispatch_count = 0
+        self.unhealthy_reason: str | None = None
+
+    async def call_async(
+        self,
+        func: Callable[..., Any],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Any:
+        del func, args, kwargs
+        self.cleanup_dispatch_count += 1
+        raise self.exc
 
     def mark_unhealthy(
         self,

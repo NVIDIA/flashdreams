@@ -867,6 +867,7 @@ async def _close_model_resources_async(
         return False
     except Exception as exc:
         session_edges.record_cleanup_error(exc)
+        return False
     return True
 
 
