@@ -339,8 +339,8 @@ async def test_shielded_cleanup_timeout_bounds_shutdown() -> None:
 
     assert result.status == "cancelled"
     assert host.unhealthy_reason == "model-affine cleanup timed out"
-    assert host.close_targets == [session]
-    assert provider.close_count == 1
+    assert host.close_targets == [session, provider]
+    assert provider.close_count == 0
     assert metrics.cleanup_errors == []
     assert len(metrics.orphaned_cleanup_errors) == 1
     assert metrics.closed
@@ -844,8 +844,10 @@ class _NeverReturningHost:
         **kwargs: object,
     ) -> Any:
         del func, kwargs
-        close = cast(Callable[[], None], args[0])
-        self.close_targets.append(getattr(close, "__self__", close))
+        for arg in args:
+            if callable(arg):
+                close = cast(Callable[[], None], arg)
+                self.close_targets.append(getattr(close, "__self__", close))
         await asyncio.Event().wait()
 
     def mark_unhealthy(
