@@ -26,7 +26,7 @@ from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceSession
-from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.runtime.types import StepRequest, StepRequirements, StepResult
 
 from .spec import OmnidreamsReplayScenario
 
@@ -34,22 +34,22 @@ PipelineFactory = Callable[[Any, str], Any]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class OmnidreamsReplayRuntimeOptions:
-    """Construction knobs for the replay runtime."""
+class OmnidreamsRuntimeOptions:
+    """Construction knobs for the OmniDreams runtime."""
 
     pipeline_config: Any
     pipeline_factory: PipelineFactory | None = None
     output_layout: VideoTensorLayout = "bvtchw"
 
 
-class OmnidreamsReplayRuntime:
-    """Heavyweight OmniDreams runtime consumed by ``run_inference_session``."""
+class OmnidreamsRuntime:
+    """Heavyweight OmniDreams runtime consumed by shared demo run modes."""
 
     def __init__(
         self,
         *,
         config: InferenceConfig,
-        options: OmnidreamsReplayRuntimeOptions,
+        options: OmnidreamsRuntimeOptions,
     ) -> None:
         self.config = config
         self.options = options
@@ -73,7 +73,7 @@ class OmnidreamsReplayRuntime:
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
         scenario = _scenario_from_inputs(inputs)
-        return OmnidreamsReplaySession(
+        return OmnidreamsSession(
             pipeline=self.pipeline,
             scenario=scenario,
             device=torch.device(f"cuda:{self.local_rank}")
@@ -95,8 +95,8 @@ class OmnidreamsReplayRuntime:
             torch.cuda.empty_cache()
 
 
-class OmnidreamsReplaySession:
-    """One MP4 replay rollout over a prepared scenario."""
+class OmnidreamsSession:
+    """One OmniDreams rollout over a prepared scenario."""
 
     def __init__(
         self,
@@ -129,7 +129,7 @@ class OmnidreamsReplaySession:
         if dist.is_initialized():
             dist.barrier()
 
-    def next_step_request(self) -> StepRequest | None:
+    def next_step_requirements(self) -> StepRequirements | None:
         if self._closed:
             return None
         step_index = self._model_session.step_index
@@ -138,7 +138,26 @@ class OmnidreamsReplaySession:
         num_frames = self._model_session.next_num_frames()
         if self._frame_start + num_frames > self._hdmap_videos.shape[2]:
             return None
-        return StepRequest(step_index=step_index)
+        return StepRequirements(
+            step_index=step_index,
+            input_frame_count=num_frames,
+        )
+
+    def next_step_request(self) -> StepRequest | None:
+        requirements = self.next_step_requirements()
+        if requirements is None:
+            return None
+        metadata = dict(requirements.metadata)
+        metadata["input_frame_count"] = requirements.input_frame_count
+        if requirements.steady_output_frame_count is not None:
+            metadata["steady_output_frame_count"] = (
+                requirements.steady_output_frame_count
+            )
+        return StepRequest(
+            step_index=requirements.step_index,
+            inference_input_schema=requirements.inference_input_schema,
+            metadata=metadata,
+        )
 
     def step(self, inputs: InferenceInput) -> StepResult:
         del inputs
@@ -238,7 +257,15 @@ def _is_torchrun_env() -> bool:
     return "RANK" in os.environ and "WORLD_SIZE" in os.environ
 
 
+OmnidreamsReplayRuntimeOptions = OmnidreamsRuntimeOptions
+OmnidreamsReplayRuntime = OmnidreamsRuntime
+OmnidreamsReplaySession = OmnidreamsSession
+
+
 __all__ = [
+    "OmnidreamsRuntime",
+    "OmnidreamsRuntimeOptions",
+    "OmnidreamsSession",
     "OmnidreamsReplayRuntime",
     "OmnidreamsReplayRuntimeOptions",
     "OmnidreamsReplaySession",

@@ -27,9 +27,9 @@ from flashdreams.runtime.demo import (
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
 
-from .replay import (
-    OmnidreamsReplayRuntime,
-    OmnidreamsReplayRuntimeOptions,
+from .runtime import (
+    OmnidreamsRuntime,
+    OmnidreamsRuntimeOptions,
     PipelineFactory,
 )
 from .spec import (
@@ -38,7 +38,8 @@ from .spec import (
     resolve_replay_scenario,
 )
 
-ReplayRuntimeFactory = Callable[..., InferenceRuntime]
+RuntimeFactory = Callable[..., InferenceRuntime]
+ReplayRuntimeFactory = RuntimeFactory
 
 
 class OmnidreamsDemoAdapter:
@@ -47,10 +48,19 @@ class OmnidreamsDemoAdapter:
     def __init__(
         self,
         *,
-        replay_runtime_factory: ReplayRuntimeFactory = OmnidreamsReplayRuntime,
+        runtime_factory: RuntimeFactory | None = None,
+        replay_runtime_factory: ReplayRuntimeFactory | None = None,
         pipeline_factory: PipelineFactory | None = None,
     ) -> None:
-        self._replay_runtime_factory = replay_runtime_factory
+        if runtime_factory is not None and replay_runtime_factory is not None:
+            raise ValueError(
+                "Specify either runtime_factory or replay_runtime_factory, not both."
+            )
+        self._runtime_factory = (
+            runtime_factory
+            if runtime_factory is not None
+            else replay_runtime_factory or OmnidreamsRuntime
+        )
         self._pipeline_factory = pipeline_factory
         self._mapping = IdentityInputMapping()
 
@@ -119,9 +129,9 @@ class OmnidreamsDemoAdapter:
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
-        return self._replay_runtime_factory(
+        return self._runtime_factory(
             config=config,
-            options=OmnidreamsReplayRuntimeOptions(
+            options=OmnidreamsRuntimeOptions(
                 pipeline_config=self._pipeline_config(config),
                 pipeline_factory=self._pipeline_factory,
             ),
@@ -156,4 +166,5 @@ class OmnidreamsDemoAdapter:
 __all__ = [
     "OmnidreamsDemoAdapter",
     "ReplayRuntimeFactory",
+    "RuntimeFactory",
 ]

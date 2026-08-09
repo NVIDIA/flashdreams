@@ -25,6 +25,12 @@ from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
+    OmnidreamsReplaySession,
+)
+from omnidreams.demo.runtime import (
+    OmnidreamsRuntime,
+    OmnidreamsRuntimeOptions,
+    OmnidreamsSession,
 )
 from omnidreams.demo.webrtc import (
     OmnidreamsWebRTCModelRuntime,
@@ -38,6 +44,7 @@ from flashdreams.runtime import (
     OutputArtifact,
     OutputTarget,
     StepRequest,
+    StepRequirements,
     StepResult,
 )
 from flashdreams.runtime.demo import (
@@ -65,6 +72,55 @@ def test_omnidreams_demo_adapter_declares_replay_modes_only() -> None:
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
     assert adapter.supported_input_modes() == ("replay",)
     assert adapter.supported_output_modes() == ("mp4",)
+
+
+def test_omnidreams_runtime_keeps_replay_aliases() -> None:
+    assert OmnidreamsReplayRuntime is OmnidreamsRuntime
+    assert OmnidreamsReplayRuntimeOptions is OmnidreamsRuntimeOptions
+    assert OmnidreamsReplaySession is OmnidreamsSession
+
+
+def test_omnidreams_demo_adapter_accepts_shared_runtime_factory() -> None:
+    runtime = _FactoryRuntime()
+    pipeline_config = object()
+    calls: list[dict[str, Any]] = []
+
+    def pipeline_factory(config_value: Any, device: str) -> Any:
+        del config_value, device
+        return object()
+
+    def runtime_factory(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return runtime
+
+    adapter = OmnidreamsDemoAdapter(
+        runtime_factory=runtime_factory,
+        pipeline_factory=pipeline_factory,
+    )
+    config = InferenceConfig(
+        model_id=OMNIDREAMS_MODEL_ID,
+        runtime_options={"pipeline_config": pipeline_config},
+    )
+
+    assert adapter.create_runtime(config) is runtime
+    assert len(calls) == 1
+    assert calls[0]["config"] == config
+    options = calls[0]["options"]
+    assert isinstance(options, OmnidreamsRuntimeOptions)
+    assert options.pipeline_config is pipeline_config
+    assert options.pipeline_factory is pipeline_factory
+
+
+def test_omnidreams_demo_adapter_rejects_ambiguous_runtime_factories() -> None:
+    def runtime_factory(**kwargs: Any) -> _FactoryRuntime:
+        del kwargs
+        return _FactoryRuntime()
+
+    with pytest.raises(ValueError, match="runtime_factory"):
+        OmnidreamsDemoAdapter(
+            runtime_factory=runtime_factory,
+            replay_runtime_factory=runtime_factory,
+        )
 
 
 def test_omnidreams_demo_does_not_import_legacy_webrtc_package() -> None:
@@ -237,9 +293,9 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
         lambda *args, **kwargs: torch.zeros(2, 3, 2, 2),
     )
 
-    runtime = OmnidreamsReplayRuntime(
+    runtime = OmnidreamsRuntime(
         config=InferenceConfig(model_id=OMNIDREAMS_MODEL_ID, device="cpu"),
-        options=OmnidreamsReplayRuntimeOptions(
+        options=OmnidreamsRuntimeOptions(
             pipeline_config=object(),
             pipeline_factory=lambda pipeline_config, device: pipeline,
         ),
@@ -257,10 +313,16 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     session = runtime.start_session(
         InferenceInput(global_conditioning={"scenario": scenario})
     )
+    assert isinstance(session, OmnidreamsSession)
 
+    requirements = session.next_step_requirements()
+    assert isinstance(requirements, StepRequirements)
+    assert requirements.step_index == 0
+    assert requirements.input_frame_count == 1
     request = session.next_step_request()
     assert request is not None
     assert request.step_index == 0
+    assert request.metadata["input_frame_count"] == 1
     result = session.step(InferenceInput())
 
     assert result.step_index == 0
@@ -559,6 +621,15 @@ class _RecordingOutputTarget:
 
     def close(self) -> Sequence[OutputArtifact]:
         return ()
+
+
+class _FactoryRuntime:
+    def start_session(self, inputs: InferenceInput) -> Any:
+        del inputs
+        raise NotImplementedError
+
+    def close(self) -> None:
+        return None
 
 
 class _FakeOmnidreamsPipeline:
