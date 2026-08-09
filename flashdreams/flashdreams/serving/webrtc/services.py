@@ -649,7 +649,30 @@ class ThreadSafeWebRTCOutputBridge:
         generation: int,
         force_keyframe: bool = False,
     ) -> WebRTCOutputBridgeDecision:
-        del generation
+        prepare = getattr(self._video_encoder, "prepare_chunk_payload", None)
+        deliver = getattr(self._video_encoder, "deliver_prepared_chunk", None)
+        if not callable(prepare) or not callable(deliver):
+            raise TypeError(
+                "ThreadSafeWebRTCOutputBridge requires a video encoder with "
+                "prepare_chunk_payload(...) and deliver_prepared_chunk(...)."
+            )
+        with self._lock:
+            if self._closed:
+                return WebRTCOutputBridgeDecision(
+                    accepted=False,
+                    should_stop=True,
+                    dropped=True,
+                    drop_policy="drop_newest",
+                    metadata={"reason": "closed"},
+                )
+            if len(self._pending) >= self._max_pending_chunks:
+                return WebRTCOutputBridgeDecision(
+                    accepted=False,
+                    dropped=True,
+                    drop_policy="drop_newest",
+                    metadata={"reason": "pending queue full"},
+                )
+        payload = prepare(result, self._video_track)
         with self._lock:
             if self._closed:
                 return WebRTCOutputBridgeDecision(
@@ -667,7 +690,11 @@ class ThreadSafeWebRTCOutputBridge:
                     metadata={"reason": "pending queue full"},
                 )
             future = asyncio.run_coroutine_threadsafe(
-                self._deliver(result, force_keyframe=force_keyframe),
+                self._deliver(
+                    payload,
+                    generation=generation,
+                    force_keyframe=force_keyframe,
+                ),
                 self._loop,
             )
             self._pending.add(future)
@@ -691,12 +718,14 @@ class ThreadSafeWebRTCOutputBridge:
 
     async def _deliver(
         self,
-        result: StepResult,
+        payload: object,
         *,
+        generation: int,
         force_keyframe: bool,
     ) -> object:
-        return await self._video_encoder.deliver_chunk(
-            result,
+        del generation
+        return await self._video_encoder.deliver_prepared_chunk(
+            payload,
             self._video_track,
             force_keyframe=force_keyframe,
         )

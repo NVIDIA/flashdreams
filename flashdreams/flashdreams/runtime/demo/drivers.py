@@ -271,6 +271,8 @@ class RealtimeSessionDriver:
                         break
                     if outcome.output.backpressure_s > 0:
                         await clock.apply_backpressure(outcome.output.backpressure_s)
+                except DriverInvariantError:
+                    raise
                 except Exception as exc:
                     action = session_edges.error_policy.handle(exc)
                     session_edges.metrics.record_error(exc, action)
@@ -830,7 +832,7 @@ async def _close_model_resource_async(
             timeout=timeout_s,
         )
     except asyncio.TimeoutError as exc:
-        session_edges.record_cleanup_error(exc)
+        session_edges.record_orphaned_cleanup(exc)
         return False
     except Exception as exc:
         session_edges.record_cleanup_error(exc)

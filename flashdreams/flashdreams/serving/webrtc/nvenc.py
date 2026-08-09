@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,7 @@ import torch
 from aiortc import MediaStreamTrack
 from av.packet import Packet
 from loguru import logger
+from torch import Tensor
 
 from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -55,6 +57,13 @@ _H264_NAL_TYPE_PPS = 8
 # ``time_base = 1 / _RTP_VIDEO_CLOCK`` on emitted packets is the
 # lowest-conversion choice.
 _RTP_VIDEO_CLOCK = 90_000
+
+
+@dataclass(frozen=True, slots=True)
+class NVENCChunkPayload:
+    """Encoder-owned CUDA frames prepared before async delivery is scheduled."""
+
+    frames: Tensor
 
 
 def _payload_contains_nal_type(payload: bytes, nal_type: int) -> bool:
@@ -240,6 +249,35 @@ class PyNvHardwareEncoder:
 
         return NVENCVideoTrack(fps=self.fps, maxsize=maxsize)
 
+    def prepare_chunk_payload(
+        self,
+        result: StepResult,
+        track: MediaStreamTrack,
+    ) -> NVENCChunkPayload:
+        from flashdreams.serving.webrtc.media import NVENCVideoTrack
+
+        if not isinstance(track, NVENCVideoTrack):
+            raise TypeError(
+                "PyNvHardwareEncoder requires an NVENCVideoTrack; got "
+                f"{type(track).__name__}. Create it via encoder.create_track()."
+            )
+        return NVENCChunkPayload(frames=_result_to_abgr_frames(result))
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        if not isinstance(payload, NVENCChunkPayload):
+            raise TypeError("PyNvHardwareEncoder payload must be an NVENCChunkPayload.")
+        return await self._deliver_prepared_frames(
+            payload.frames,
+            track,
+            force_keyframe=force_keyframe,
+        )
+
     async def deliver_chunk(
         self,
         result: StepResult,
@@ -297,6 +335,63 @@ class PyNvHardwareEncoder:
             encode_ms=encode_ms,
         )
 
+    async def _deliver_prepared_frames(
+        self,
+        frames: Tensor,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        from flashdreams.serving.webrtc.media import NVENCVideoTrack
+
+        if not isinstance(track, NVENCVideoTrack):
+            raise TypeError(
+                "PyNvHardwareEncoder requires an NVENCVideoTrack; got "
+                f"{type(track).__name__}. Create it via encoder.create_track()."
+            )
+        loop = asyncio.get_running_loop()
+        emitted = 0
+        enqueued = 0
+
+        def _stream(packet: Packet) -> None:
+            nonlocal emitted, enqueued
+            emitted += 1
+            enqueue = track.enqueue_encoded_packet(packet)
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    enqueue,
+                    loop,
+                )
+            except RuntimeError:
+                enqueue.close()
+                return
+            try:
+                accepted = future.result()
+            except Exception:
+                return
+            if accepted:
+                enqueued += 1
+
+        _num_frames, num_keyframes, encode_ms = await asyncio.to_thread(
+            self.encode_frames_sync,
+            frames,
+            force_keyframe=force_keyframe,
+            on_packet=_stream,
+        )
+        if enqueued < emitted:
+            logger.debug(
+                "NVENC track closed while enqueueing encoded chunk; "
+                "enqueued {} of {} packet(s).",
+                enqueued,
+                emitted,
+            )
+        return ChunkDeliveryResult(
+            backend=self.backend,
+            num_frames=enqueued,
+            num_keyframes=num_keyframes,
+            encode_ms=encode_ms,
+        )
+
     def encode_chunk_sync(
         self,
         result: StepResult,
@@ -311,6 +406,20 @@ class PyNvHardwareEncoder:
         just to get access to the emitted packets.
         """
         frames = _result_to_abgr_frames(result)
+        return self.encode_frames_sync(
+            frames,
+            force_keyframe=force_keyframe,
+            on_packet=on_packet,
+        )
+
+    def encode_frames_sync(
+        self,
+        frames: Tensor,
+        *,
+        force_keyframe: bool = False,
+        on_packet: Callable[[Packet], None] | None = None,
+    ) -> tuple[int, int, float]:
+        """Encode preconverted ``ABGR`` frames for prepared async delivery."""
         if not frames.is_cuda:
             raise ValueError("expected CUDA tensor for hardware encode path")
         num_frames = frames.shape[0]

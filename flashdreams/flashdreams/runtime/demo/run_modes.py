@@ -341,6 +341,13 @@ class SessionEdges:
         except Exception:
             return
 
+    def record_orphaned_cleanup(self, exc: Exception) -> None:
+        """Record timed-out worker cleanup without blocking teardown."""
+        try:
+            self.metrics.record_orphaned_cleanup(exc)
+        except Exception:
+            return
+
     def close_result(
         self,
         *,

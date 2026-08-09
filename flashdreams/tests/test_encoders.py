@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from fractions import Fraction
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -371,10 +371,18 @@ class _FakeBufferedVideoTrack:
 
     def __init__(self) -> None:
         self.enqueued_results: list[StepResult] = []
+        self.enqueued_frames: list[object] = []
+
+    def prepare_result_frames(self, result: StepResult) -> tuple[object, ...]:
+        self.enqueued_results.append(result)
+        return tuple(object() for _ in range(result.frame_count))
+
+    async def enqueue_frames(self, frames: Sequence[object]) -> int:
+        self.enqueued_frames.extend(frames)
+        return len(frames)
 
     async def enqueue_result(self, result: StepResult) -> int:
-        self.enqueued_results.append(result)
-        return result.frame_count
+        return await self.enqueue_frames(self.prepare_result_frames(result))
 
 
 class TestDefaultRTCEncoderDeliver:
@@ -405,6 +413,7 @@ class TestDefaultRTCEncoderDeliver:
         assert result.num_frames == 4
         assert result.num_keyframes == 0
         assert fake_track.enqueued_results == [step_result]
+        assert len(fake_track.enqueued_frames) == 4
 
     @pytest.mark.parametrize(
         ("layout", "shape"),
@@ -429,7 +438,7 @@ class TestDefaultRTCEncoderDeliver:
         await track.close()
 
     @pytest.mark.asyncio
-    async def test_software_path_defers_host_conversion_to_track(self) -> None:
+    async def test_software_path_prepares_host_frames_with_track(self) -> None:
         from flashdreams.serving.webrtc.media import BufferedVideoTrack
 
         source = torch.zeros((2, 3, 2, 2), dtype=torch.uint8)
@@ -447,7 +456,9 @@ class TestDefaultRTCEncoderDeliver:
             return [np.zeros((2, 2, 3), dtype=np.uint8) for _ in range(2)]
 
         track = BufferedVideoTrack(fps=30, maxsize=2, frame_converter=_converter)
-        delivery = await DefaultRTCEncoder(fps=30).deliver_chunk(step_result, track)
+        encoder = DefaultRTCEncoder(fps=30)
+        payload = encoder.prepare_chunk_payload(step_result, track)
+        delivery = await encoder.deliver_prepared_chunk(payload, track)
 
         assert delivery.num_frames == 2
         assert seen == [step_result]

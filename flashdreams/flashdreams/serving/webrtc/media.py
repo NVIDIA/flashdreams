@@ -81,15 +81,25 @@ class BufferedVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._frames.qsize()
 
-    async def enqueue_result(self, result: StepResult) -> int:
+    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+        if self._closed:
+            return ()
+        return tuple(self._frame_converter(result))
+
+    async def enqueue_frames(self, frames: Sequence[np.ndarray]) -> int:
         if self._closed:
             return 0
-        frames = await asyncio.to_thread(self._frame_converter, result)
         for i, frame in enumerate(frames):
             if self._closed:
                 return i
             await self._frames.put(frame)
         return len(frames)
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        if self._closed:
+            return 0
+        frames = await asyncio.to_thread(self.prepare_result_frames, result)
+        return await self.enqueue_frames(frames)
 
     async def recv(self) -> VideoFrame:
         if self._closed:

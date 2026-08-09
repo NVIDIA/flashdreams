@@ -224,6 +224,37 @@ async def test_realtime_driver_invariant_finalizes_edges_before_reraising() -> N
 
 
 @pytest.mark.asyncio
+async def test_realtime_step_invariant_reraises_without_error_policy() -> None:
+    runtime = _FakeRealtimeRuntime(session=_FakeRealtimeSession(num_steps=1))
+    host = RuntimeHost(runtime)
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = InMemorySessionMetricsRecorder()
+    edges = _edges(
+        output=output,
+        transport=transport,
+        metrics=metrics,
+        error_policy=_DropOutputErrorPolicy(),
+    )
+
+    try:
+        with pytest.raises(DriverInvariantError, match="step invariant"):
+            await RealtimeSessionDriver().run_one_session(
+                host=host,
+                provider=_FakeRealtimeProvider(),
+                session_edges=edges,
+                pipeline=_InvariantPipeline(),
+            )
+    finally:
+        host.close()
+
+    assert metrics.errors == []
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+
+
+@pytest.mark.asyncio
 async def test_run_context_close_async_drains_registered_cleanup_task() -> None:
     runtime = _FakeRealtimeRuntime(session=_FakeRealtimeSession(num_steps=1))
     host = RuntimeHost(runtime)
@@ -306,7 +337,8 @@ async def test_shielded_cleanup_timeout_bounds_shutdown() -> None:
 
     assert result.status == "cancelled"
     assert host.unhealthy_reason == "model-affine cleanup timed out"
-    assert len(metrics.cleanup_errors) == 1
+    assert metrics.cleanup_errors == []
+    assert len(metrics.orphaned_cleanup_errors) == 1
     assert metrics.closed
 
 
@@ -702,6 +734,12 @@ class _RecordingRuntimeHost(RuntimeHost):
     ) -> Any:
         self.async_calls.append(getattr(func, "__name__", type(func).__name__))
         return await super().call_async(func, *args, **kwargs)
+
+
+class _InvariantPipeline(StepPipeline):
+    def execute_step(self, **kwargs: object) -> Any:
+        del kwargs
+        raise DriverInvariantError("step invariant")
 
 
 class _RecordingOutputSink:

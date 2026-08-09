@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 import torch
 from aiortc import MediaStreamTrack
@@ -69,6 +69,20 @@ class VideoEncoder(Protocol):
 
     def create_track(self, *, maxsize: int) -> BufferedVideoTrack | NVENCVideoTrack: ...
 
+    def prepare_chunk_payload(
+        self,
+        result: StepResult,
+        track: MediaStreamTrack,
+    ) -> object: ...
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult: ...
+
     async def deliver_chunk(
         self,
         result: StepResult,
@@ -110,9 +124,23 @@ class DefaultRTCEncoder:
 
         return BufferedVideoTrack(fps=self.fps, maxsize=maxsize)
 
-    async def deliver_chunk(
+    def prepare_chunk_payload(
         self,
         result: StepResult,
+        track: MediaStreamTrack,
+    ) -> tuple[object, ...]:
+        from flashdreams.serving.webrtc.media import BufferedVideoTrack
+
+        if not isinstance(track, BufferedVideoTrack):
+            raise TypeError(
+                "DefaultRTCEncoder requires a BufferedVideoTrack; got "
+                f"{type(track).__name__}. Create it via encoder.create_track()."
+            )
+        return track.prepare_result_frames(result)
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -128,12 +156,27 @@ class DefaultRTCEncoder:
                 "DefaultRTCEncoder requires a BufferedVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
-        enqueued = await track.enqueue_result(result)
+        if not isinstance(payload, tuple):
+            raise TypeError("DefaultRTCEncoder payload must be a tuple of RGB frames.")
+        enqueued = await track.enqueue_frames(cast(Any, payload))
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,
             num_keyframes=0,
             encode_ms=0.0,
+        )
+
+    async def deliver_chunk(
+        self,
+        result: StepResult,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        return await self.deliver_prepared_chunk(
+            self.prepare_chunk_payload(result, track),
+            track,
+            force_keyframe=force_keyframe,
         )
 
     def close(self) -> None:

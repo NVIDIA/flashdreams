@@ -187,11 +187,13 @@ async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
     )
     sink = WebRTCOutputSink(bridge=bridge)
     sink.open(SessionInfo())
+    step_result = StepResult(step_index=0, frame_count=1)
 
-    decision = sink.write(StepResult(step_index=0, frame_count=1))
+    decision = sink.write(step_result)
 
     assert isinstance(decision, OutputDecision)
     assert not decision.dropped
+    assert encoder.prepared_payloads == [step_result.step_index]
     await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
     assert not encoder.release.is_set()
     assert bridge.pending_count == 1
@@ -201,7 +203,61 @@ async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
     await asyncio.sleep(0)
 
     assert deliveries == ["delivered"]
+    assert encoder.delivered_payloads == [{"step_index": step_result.step_index}]
     assert bridge.pending_count == 0
+    sink.close()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_output_bridge_prepares_payload_before_async_delivery() -> None:
+    loop = asyncio.get_running_loop()
+    encoder = _BlockingEncoder()
+    track = _FakeVideoTrack()
+    bridge = ThreadSafeWebRTCOutputBridge(
+        loop=loop,
+        video_encoder=encoder,
+        video_track=track,
+    )
+    sink = WebRTCOutputSink(bridge=bridge)
+    sink.open(SessionInfo())
+
+    decision = sink.write(StepResult(step_index=7, frame_count=1))
+
+    assert not decision.dropped
+    assert encoder.prepared_payloads == [7]
+    assert encoder.delivered_payloads == []
+
+    encoder.release.set()
+    await asyncio.wait_for(encoder.done.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert encoder.delivered_payloads == [{"step_index": 7}]
+    sink.close()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_output_bridge_drops_full_queue_before_payload_prepare() -> None:
+    loop = asyncio.get_running_loop()
+    encoder = _BlockingEncoder()
+    bridge = ThreadSafeWebRTCOutputBridge(
+        loop=loop,
+        video_encoder=encoder,
+        video_track=_FakeVideoTrack(),
+        max_pending_chunks=1,
+    )
+    sink = WebRTCOutputSink(bridge=bridge)
+    sink.open(SessionInfo())
+
+    first = sink.write(StepResult(step_index=0, frame_count=1))
+    second = sink.write(StepResult(step_index=1, frame_count=1))
+
+    assert not first.dropped
+    assert second.dropped
+    assert second.drop_policy == "drop_newest"
+    assert encoder.prepared_payloads == [0]
+
+    encoder.release.set()
+    await asyncio.wait_for(encoder.done.wait(), timeout=1.0)
     sink.close()
 
 
@@ -603,6 +659,31 @@ class _BlockingEncoder:
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self.done = asyncio.Event()
+        self.prepared_payloads: list[int] = []
+        self.delivered_payloads: list[object] = []
+
+    def prepare_chunk_payload(
+        self,
+        result: StepResult,
+        track: Any,
+    ) -> object:
+        del track
+        self.prepared_payloads.append(result.step_index)
+        return {"step_index": result.step_index}
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> str:
+        del track, force_keyframe
+        self.delivered_payloads.append(payload)
+        self.started.set()
+        await self.release.wait()
+        self.done.set()
+        return "delivered"
 
     async def deliver_chunk(
         self,
@@ -611,11 +692,11 @@ class _BlockingEncoder:
         *,
         force_keyframe: bool = False,
     ) -> str:
-        del result, track, force_keyframe
-        self.started.set()
-        await self.release.wait()
-        self.done.set()
-        return "delivered"
+        return await self.deliver_prepared_chunk(
+            self.prepare_chunk_payload(result, track),
+            track,
+            force_keyframe=force_keyframe,
+        )
 
 
 class _FakeVideoTrack:
