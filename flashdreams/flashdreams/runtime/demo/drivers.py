@@ -863,6 +863,10 @@ async def _close_model_resources_async(
             timeout=timeout_s,
         )
     except asyncio.TimeoutError as exc:
+        # Keep provider cleanup ordered behind session cleanup on the model worker.
+        # A timed-out session close may still hold CUDA/Triton state, so running
+        # provider cleanup on another thread or replacing the worker is unsafe.
+        # The caller marks the host unhealthy so future sessions reject instead.
         session_edges.record_orphaned_cleanup(exc)
         return False
     except Exception as exc:
