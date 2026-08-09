@@ -8,7 +8,12 @@ import threading
 
 import pytest
 
-from flashdreams.runtime import InferenceInput, InferenceSession, StepRequest, StepResult
+from flashdreams.runtime import (
+    InferenceInput,
+    InferenceSession,
+    StepRequest,
+    StepResult,
+)
 from flashdreams.runtime.demo import ModelWarmupPlan, RuntimeHost, WarmupSessionInputs
 
 pytestmark = pytest.mark.ci_cpu
