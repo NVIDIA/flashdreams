@@ -525,6 +525,9 @@ def _close_on_host_best_effort(
     try:
         host.call(_close_safely, close, session_edges)
     except Exception as exc:
+        # If the host/worker is already unavailable, do not fall back to calling
+        # model-affine cleanup directly on the caller thread. Record the loss and
+        # let close_result finalize output, transport, and metrics.
         session_edges.record_cleanup_error(exc)
 
 

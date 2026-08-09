@@ -18,6 +18,7 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     ActivationResult,
+    DriverInvariantError,
     ErrorAction,
     InMemorySessionMetricsRecorder,
     OutputDecision,
@@ -32,7 +33,6 @@ from flashdreams.runtime.demo import (
     SingleSessionAdmissionPolicy,
     StepPipeline,
     UserInputWindow,
-    DriverInvariantError,
     shielded_session_cleanup,
 )
 
