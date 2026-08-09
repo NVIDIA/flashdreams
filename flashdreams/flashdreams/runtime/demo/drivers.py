@@ -513,20 +513,19 @@ async def run_demo_session_async(
             return result
         except DriverInvariantError as exc:
             _record_run_session_error(context, exc)
-            if provider is not None and not driver_started:
-                await _close_provider_async(
-                    context=context,
-                    provider=provider,
-                    session_edges=session_edges,
-                )
-            if session_edges is not None and (
+            should_record_session = session_edges is not None and (
                 driver_started or not session_edges.is_closed
-            ):
-                result = session_edges.close_result(
-                    status="failed",
-                    reason=str(exc),
-                    error=exc,
-                )
+            )
+            result = await _close_partial_session_async(
+                context=context,
+                provider=provider,
+                session_edges=session_edges,
+                status="failed",
+                reason=str(exc),
+                error=exc,
+                close_provider=not driver_started,
+            )
+            if should_record_session:
                 context.run_metrics.record_session(result)
             raise
         except Exception as exc:

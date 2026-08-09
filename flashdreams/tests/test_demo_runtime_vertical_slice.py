@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, cast
 
@@ -360,6 +362,66 @@ async def test_run_demo_session_async_keeps_failure_when_run_cleanup_metrics_fai
     assert provider.close_count == 1
     assert run_metrics.cleanup_error_attempts == 1
     assert run_metrics.sessions == [result]
+    assert runtime.start_session_inputs == []
+
+
+@pytest.mark.asyncio
+async def test_run_demo_session_async_invariant_cancellation_finalizes_edges() -> None:
+    close_entered = threading.Event()
+    release_close = threading.Event()
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    run_metrics = InMemorySessionMetricsRecorder()
+    context = _run_context(runtime, run_metrics=run_metrics)
+    provider = _BlockingCloseVideoModelInputProvider(
+        close_entered=close_entered,
+        release_close=release_close,
+    )
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    session_metrics = InMemorySessionMetricsRecorder()
+    select_error = DriverInvariantError("select driver invariant")
+    task = asyncio.create_task(
+        run_demo_session_async(
+            context=context,
+            spec=_spec(),
+            scenario=_scenario(),
+            adapter=_FakeDemoAdapter(provider=provider),
+            run_mode=_FakeRunMode(
+                input_source=_FakeBatchInputSource(num_windows=1),
+                output_sink=output,
+                metrics=session_metrics,
+                transport=transport,
+                select_error=select_error,
+            ),
+            pipeline=StepPipeline(),
+        )
+    )
+
+    try:
+        assert await asyncio.to_thread(close_entered.wait, 2.0)
+        task.cancel()
+        await asyncio.sleep(0)
+        release_close.set()
+        with pytest.raises(
+            DriverInvariantError, match="select driver invariant"
+        ) as raised:
+            await task
+    finally:
+        release_close.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        context.host.close()
+
+    assert raised.value is select_error
+    assert provider.close_count == 1
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert session_metrics.closed
+    assert len(run_metrics.sessions) == 1
+    recorded = cast(RunResult, run_metrics.sessions[0])
+    assert recorded.status == "failed"
+    assert recorded.error is select_error
     assert runtime.start_session_inputs == []
 
 
@@ -783,6 +845,23 @@ class _FakeVideoModelInputProvider:
             raise self.fail_close
 
 
+class _BlockingCloseVideoModelInputProvider(_FakeVideoModelInputProvider):
+    def __init__(
+        self,
+        *,
+        close_entered: threading.Event,
+        release_close: threading.Event,
+    ) -> None:
+        super().__init__()
+        self.close_entered = close_entered
+        self.release_close = release_close
+
+    def close(self) -> None:
+        self.close_count += 1
+        self.close_entered.set()
+        assert self.release_close.wait(timeout=2.0)
+
+
 class _FakeBatchInputSource:
     is_finite = True
     is_deterministic = True
@@ -1061,6 +1140,7 @@ class _FakeRunMode:
         transport: _RecordingTransport | None = None,
         error_policy: _SetupPolicy | None = None,
         validate_error: Exception | None = None,
+        select_error: Exception | None = None,
     ) -> None:
         self.input_source = input_source
         self.output_sink = output_sink or _RecordingOutputSink()
@@ -1069,6 +1149,7 @@ class _FakeRunMode:
         self.transport = transport
         self.error_policy = error_policy
         self.validate_error = validate_error
+        self.select_error = select_error
         self.capabilities = RunModeCapabilities(
             requires_finite_input=True,
             supports_artifacts=True,
@@ -1137,4 +1218,6 @@ class _FakeRunMode:
         )
 
     def select_driver(self) -> BatchSessionDriver:
+        if self.select_error is not None:
+            raise self.select_error
         return BatchSessionDriver()
