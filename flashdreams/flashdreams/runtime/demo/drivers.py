@@ -390,7 +390,7 @@ def run_demo_session(
                 if session_edges is not None:
                     session_edges.record_cleanup_error(close_exc)
                 else:
-                    context.run_metrics.record_cleanup_error(close_exc)
+                    _record_run_cleanup_error(context, close_exc)
         if session_edges is not None and (
             driver_started or not session_edges.is_closed
         ):
@@ -409,7 +409,7 @@ def run_demo_session(
                 if session_edges is not None:
                     session_edges.record_cleanup_error(close_exc)
                 else:
-                    context.run_metrics.record_cleanup_error(close_exc)
+                    _record_run_cleanup_error(context, close_exc)
         if session_edges is not None and (
             driver_started or not session_edges.is_closed
         ):
@@ -795,7 +795,14 @@ async def _close_provider_async(
         if session_edges is not None:
             session_edges.record_cleanup_error(close_exc)
         else:
-            context.run_metrics.record_cleanup_error(close_exc)
+            _record_run_cleanup_error(context, close_exc)
+
+
+def _record_run_cleanup_error(context: RunContext, exc: Exception) -> None:
+    try:
+        context.run_metrics.record_cleanup_error(exc)
+    except Exception:
+        return
 
 
 async def _close_model_resource_async(

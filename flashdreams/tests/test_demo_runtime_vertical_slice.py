@@ -47,6 +47,7 @@ from flashdreams.runtime.demo import (
     StepPipeline,
     UserInputWindow,
     run_demo_session,
+    run_demo_session_async,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -296,6 +297,65 @@ def test_run_demo_session_closes_provider_when_validation_fails() -> None:
     assert provider.close_count == 1
     assert runtime.start_session_inputs == []
     assert run_metrics.sessions == [result]
+
+
+def test_run_demo_session_keeps_failure_when_run_cleanup_metrics_fail() -> None:
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    run_metrics = _FailingCleanupMetrics()
+    context = _run_context(runtime, run_metrics=run_metrics)
+    provider = _FakeVideoModelInputProvider(
+        fail_close=RuntimeError("provider close failed")
+    )
+
+    result = run_demo_session(
+        context=context,
+        spec=_spec(),
+        scenario=_scenario(),
+        adapter=_FakeDemoAdapter(provider=provider),
+        run_mode=_FakeRunMode(
+            input_source=_FakeBatchInputSource(num_windows=1),
+            validate_error=ValueError("provider incompatible"),
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "failed"
+    assert result.reason == "provider incompatible"
+    assert provider.close_count == 1
+    assert run_metrics.cleanup_error_attempts == 1
+    assert run_metrics.sessions == [result]
+    assert runtime.start_session_inputs == []
+
+
+@pytest.mark.asyncio
+async def test_run_demo_session_async_keeps_failure_when_run_cleanup_metrics_fail() -> (
+    None
+):
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    run_metrics = _FailingCleanupMetrics()
+    context = _run_context(runtime, run_metrics=run_metrics)
+    provider = _FakeVideoModelInputProvider(
+        fail_close=RuntimeError("provider close failed")
+    )
+
+    result = await run_demo_session_async(
+        context=context,
+        spec=_spec(),
+        scenario=_scenario(),
+        adapter=_FakeDemoAdapter(provider=provider),
+        run_mode=_FakeRunMode(
+            input_source=_FakeBatchInputSource(num_windows=1),
+            validate_error=ValueError("provider incompatible"),
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "failed"
+    assert result.reason == "provider incompatible"
+    assert provider.close_count == 1
+    assert run_metrics.cleanup_error_attempts == 1
+    assert run_metrics.sessions == [result]
+    assert runtime.start_session_inputs == []
 
 
 def test_setup_failure_can_return_skipped_but_not_completed() -> None:
@@ -673,8 +733,14 @@ class _FakeVideoModelInputProvider:
         deterministic_given_inputs=True,
     )
 
-    def __init__(self, *, fail_initial: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_initial: Exception | None = None,
+        fail_close: Exception | None = None,
+    ) -> None:
         self.fail_initial = fail_initial
+        self.fail_close = fail_close
         self.initial_input = InferenceInput(
             global_conditioning={"prompt": "fake video prompt"}
         )
@@ -707,6 +773,8 @@ class _FakeVideoModelInputProvider:
 
     def close(self) -> None:
         self.close_count += 1
+        if self.fail_close is not None:
+            raise self.fail_close
 
 
 class _FakeBatchInputSource:
