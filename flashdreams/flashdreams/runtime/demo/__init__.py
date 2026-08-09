@@ -19,10 +19,12 @@ from flashdreams.runtime.demo.host import (
     WarmupSessionInputs,
 )
 from flashdreams.runtime.demo.outputs import (
+    Mp4OutputSink,
     NullOutputSink,
     OutputDecision,
     OutputSink,
     SessionInfo,
+    build_output_sink,
     build_output_target,
 )
 from flashdreams.runtime.demo.pipeline import StepOutcome, StepPipeline
@@ -103,6 +105,7 @@ __all__ = [
     "ModelWarmupPlan",
     "ModelInputProvider",
     "KeyboardRealtimeInputSource",
+    "Mp4OutputSink",
     "Mp4OutputSpec",
     "NoopTransportService",
     "NullOutputSpec",
@@ -135,6 +138,7 @@ __all__ = [
     "WarmupSessionInputs",
     "WebRTCAppResources",
     "WebRTCOutputSpec",
+    "build_output_sink",
     "build_output_target",
     "input_frame_count_from_request",
     "run_demo_session",

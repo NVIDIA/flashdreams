@@ -245,6 +245,31 @@ def test_setup_failure_returns_failed_before_runtime_session_creation() -> None:
     assert metrics.errors == ["invalid provider compatibility"]
 
 
+def test_output_sink_open_failure_returns_failed_before_step_loop() -> None:
+    session = _FakeVideoSession(num_steps=1)
+    metrics = InMemorySessionMetricsRecorder()
+    output = _RecordingOutputSink(fail_open=RuntimeError("open failed"))
+
+    result = BatchSessionDriver().run_one_session(
+        host=RuntimeHost(_FakeVideoRuntime(session=session)),
+        provider=_FakeVideoModelInputProvider(),
+        session_edges=SessionEdges(
+            input_source=_FakeBatchInputSource(num_windows=1),
+            output_sink=output,
+            cleanup_tasks=set(),
+            metrics=metrics,
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "failed"
+    assert result.reason == "open failed"
+    assert metrics.errors == ["open failed"]
+    assert session.step_inputs == []
+    assert output.results == []
+    assert output.close_count == 1
+
+
 def test_run_demo_session_closes_provider_when_validation_fails() -> None:
     runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
     run_metrics = InMemorySessionMetricsRecorder()
@@ -532,6 +557,34 @@ def test_session_edges_close_result_is_idempotent_and_first_result_wins() -> Non
     assert metrics.closed
 
 
+def test_output_sink_close_failure_records_cleanup_error_without_losing_result() -> (
+    None
+):
+    session = _FakeVideoSession(num_steps=1)
+    metrics = InMemorySessionMetricsRecorder()
+    output = _RecordingOutputSink(fail_close=RuntimeError("close failed"))
+
+    result = BatchSessionDriver().run_one_session(
+        host=RuntimeHost(_FakeVideoRuntime(session=session)),
+        provider=_FakeVideoModelInputProvider(),
+        session_edges=SessionEdges(
+            input_source=_FakeBatchInputSource(num_windows=1),
+            output_sink=output,
+            cleanup_tasks=set(),
+            metrics=metrics,
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "completed"
+    assert result.reason is None
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+    assert result.metrics.counters["cleanup_errors"] == 1
+    assert result.metrics.errors == ("close failed",)
+    assert output.close_count == 1
+
+
 def test_run_result_rejected_is_the_only_convenience_constructor() -> None:
     constructors = {
         name
@@ -798,14 +851,20 @@ class _RecordingOutputSink:
         *,
         artifacts: Sequence[OutputArtifact] = (),
         decision: OutputDecision | None = None,
+        fail_open: Exception | None = None,
+        fail_close: Exception | None = None,
     ) -> None:
         self.artifacts = tuple(artifacts)
         self.decision = decision or OutputDecision()
+        self.fail_open = fail_open
+        self.fail_close = fail_close
         self.opened_with: SessionInfo | None = None
         self.results: list[StepResult] = []
         self.close_count = 0
 
     def open(self, session_info: SessionInfo) -> None:
+        if self.fail_open is not None:
+            raise self.fail_open
         self.opened_with = session_info
 
     def begin_generation(self, generation: int) -> None:
@@ -817,6 +876,8 @@ class _RecordingOutputSink:
 
     def close(self) -> Sequence[OutputArtifact]:
         self.close_count += 1
+        if self.fail_close is not None:
+            raise self.fail_close
         return self.artifacts
 
 
