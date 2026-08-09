@@ -23,7 +23,6 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime import (
     StepRequirements,
     StepResult,
@@ -32,6 +31,7 @@ from flashdreams.runtime import (
     UserInputs,
     UserInputSchema,
 )
+from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.demo import (
     AsyncSessionDriver,
     DemoAdapter,
