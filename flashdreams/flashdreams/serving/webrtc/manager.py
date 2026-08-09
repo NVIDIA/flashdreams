@@ -23,12 +23,37 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.runtime.demo import (
+    SPARSE_KEY_SEGMENTS_METADATA_KEY,
+    DemoSpec,
+    InMemorySessionMetricsRecorder,
+    ModelInputProvider,
+    PreparedScenario,
+    PreparedStep,
+    ProviderCapabilities,
+    ResamplerRealtimeClock,
+    RunContext,
+    RunResult,
+    RuntimeHost,
+    SessionEdges,
+    SessionInfo,
+    SingleSessionAdmissionPolicy,
+    StepPipeline,
+    UserInputWindow,
+    WebRTCErrorPolicy,
+    WebRTCOutputSpec,
+    run_demo_session_async,
+)
 from flashdreams.runtime.inputs import (
+    CanonicalInputSchema,
     InferenceInput,
+    InferenceInputSchema,
     TimeWindow,
     UserInputEvent,
     UserInputs,
+    UserInputSchema,
 )
+from flashdreams.runtime.mapping import InputMapping
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.realtime.input import (
     DEFAULT_SUPPORTED_KEYS,
@@ -55,6 +80,18 @@ from flashdreams.serving.webrtc.runtime import (
     WebRTCSessionRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    WEBRTC_USER_INPUT_SCHEMA,
+    ThreadSafeWebRTCOutputBridge,
+    WebRTCActivationPolicy,
+    WebRTCChunkDelivery,
+    WebRTCInputSource,
+    WebRTCOutputSink,
+    WebRTCRunMode,
+    WebRTCTransportService,
+)
 from flashdreams.serving.webrtc.warmup import (
     run_loopback_warmup_session,
     wait_for_ice_gathering_complete,
@@ -78,6 +115,10 @@ _MAX_SESSION_USER_EVENTS = 1024
 """Maximum unconsumed raw events kept for an ``InferenceSession`` step."""
 _RELEASE_USER_EVENT_TYPES = frozenset({"key_up"})
 _KEY_USER_EVENT_TYPES = frozenset({"key_down", "key_up"})
+_SESSION_INPUT_KEY = "webrtc_session_input"
+_STEP_REQUEST_KEY = "webrtc_step_request"
+_SEGMENTS_KEY = "webrtc_segments"
+_FRAME_TIMES_KEY = "webrtc_frame_times"
 
 _RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
@@ -140,6 +181,392 @@ def _stat_int(stats: Mapping[str, float | int], name: str) -> int:
     return int(round(_stat_float(stats, name)))
 
 
+def _runtime_drives_inference_session(runtime: Any) -> bool:
+    return callable(getattr(runtime, "start_inference_session", None))
+
+
+def _run_on_event_loop(loop: asyncio.AbstractEventLoop, awaitable: Any) -> Any:
+    """Run one legacy async WebRTC runtime call from a RuntimeHost worker."""
+    return asyncio.run_coroutine_threadsafe(awaitable, loop).result()
+
+
+def _step_request_from_requirements(
+    request: Any,
+    *,
+    window: TimeWindow,
+) -> StepRequest:
+    metadata = dict(getattr(request, "metadata", {}))
+    metadata["input_frame_count"] = request.input_frame_count
+    steady_output_frame_count = getattr(request, "steady_output_frame_count", None)
+    if steady_output_frame_count is not None:
+        metadata["steady_output_frame_count"] = steady_output_frame_count
+    return StepRequest(
+        step_index=request.step_index,
+        inference_input_schema=getattr(request, "inference_input_schema", None),
+        user_input_window=window,
+        metadata=metadata,
+    )
+
+
+class _LegacyWebRTCRuntimeAdapter:
+    """Shared compatibility adapter from old async WebRTC runtimes to RuntimeHost."""
+
+    def __init__(self, *, runtime: Any, loop: asyncio.AbstractEventLoop) -> None:
+        self._runtime = runtime
+        self._loop = loop
+
+    def reset_for_new_session(self, session_input: Any = None) -> None:
+        _run_on_event_loop(
+            self._loop,
+            self._runtime.reset_for_new_session(session_input=session_input),
+        )
+
+    def start_session(self, inputs: InferenceInput) -> "_LegacyWebRTCSessionAdapter":
+        del inputs
+        inference_session = None
+        if _runtime_drives_inference_session(self._runtime):
+            inference_session = _run_on_event_loop(
+                self._loop,
+                self._runtime.start_inference_session(),
+            )
+        return _LegacyWebRTCSessionAdapter(
+            runtime=self._runtime,
+            inference_session=inference_session,
+            loop=self._loop,
+        )
+
+    def close(self) -> None:
+        # The underlying async runtime is owned by BaseWebRTCSessionManager and
+        # closed from shutdown(); RuntimeHost only owns this adapter's worker.
+        return
+
+
+class _LegacyWebRTCSessionAdapter:
+    """RuntimeHost-facing session view over a legacy WebRTC runtime/session."""
+
+    def __init__(
+        self,
+        *,
+        runtime: Any,
+        inference_session: Any | None,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        self._runtime = runtime
+        self._inference_session = inference_session
+        self._loop = loop
+
+    def session_info(self) -> SessionInfo:
+        steady_frames: int | None = None
+        try:
+            steady_frames = int(self._runtime.peek_steady_output_num_frames())
+        except Exception:
+            steady_frames = None
+        return SessionInfo(steady_output_frame_count=steady_frames)
+
+    def next_step_request(self) -> StepRequest | None:
+        if self._inference_session is not None:
+            return self._inference_session.next_step_request()
+        return self._runtime.next_step_request()
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        if self._inference_session is not None:
+            result = self._inference_session.step(inputs)
+        else:
+            result = _run_on_event_loop(
+                self._loop,
+                self._runtime.step(
+                    request=inputs.step[_STEP_REQUEST_KEY],
+                    segments=list(inputs.step[_SEGMENTS_KEY]),
+                    frame_times=list(inputs.step[_FRAME_TIMES_KEY]),
+                ),
+            )
+            request = inputs.step[_STEP_REQUEST_KEY]
+            if result.step_index != request.step_index:
+                raise RuntimeError(
+                    "Runtime result step does not match its request: "
+                    f"requested {request.step_index}, got {result.step_index}."
+                )
+        if not isinstance(result, StepResult):
+            raise TypeError(
+                "WebRTC session steps must produce StepResult, got "
+                f"{type(result).__name__}."
+            )
+        return result
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        session_input = None
+        if inputs is not None:
+            session_input = inputs.global_conditioning.get(_SESSION_INPUT_KEY)
+        _run_on_event_loop(
+            self._loop,
+            self._runtime.reset_for_new_session(session_input=session_input),
+        )
+        if self._inference_session is not None:
+            self._inference_session = _run_on_event_loop(
+                self._loop,
+                self._runtime.start_inference_session(),
+            )
+
+    def close(self) -> None:
+        close = getattr(self._inference_session, "close", None)
+        if callable(close):
+            close()
+
+
+class _LegacyWebRTCModelInputProvider:
+    """Shared provider used until model-specific WebRTC providers land."""
+
+    def __init__(self, *, runtime: Any, session_input: Any = None) -> None:
+        self._runtime = runtime
+        self._session_input = session_input
+        self._uses_inference_session = _runtime_drives_inference_session(runtime)
+        self._session_input_state_advanced = False
+        self.capabilities = ProviderCapabilities(
+            supports_realtime_clock=True,
+            supports_reset=True,
+            deterministic_given_inputs=False,
+            user_input_schema=self._user_input_schema(),
+        )
+
+    def prepare_initial_input(self) -> InferenceInput:
+        if self._session_input is None:
+            return InferenceInput()
+        return InferenceInput(
+            global_conditioning={_SESSION_INPUT_KEY: self._session_input}
+        )
+
+    def prepare_step(
+        self,
+        *,
+        request: Any,
+        user_window: UserInputWindow,
+    ) -> PreparedStep:
+        if self._uses_inference_session:
+            return PreparedStep(
+                inference_input=self._prepare_inference_session_step(
+                    request=request,
+                    user_window=user_window,
+                )
+            )
+        return PreparedStep(
+            inference_input=self._prepare_segment_step(
+                request=request,
+                user_window=user_window,
+            )
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+        self._session_input_state_advanced = False
+
+    def close(self) -> None:
+        return
+
+    def _user_input_schema(self) -> UserInputSchema:
+        schema = getattr(self._runtime, "input_source_schema", None)
+        if isinstance(schema, UserInputSchema):
+            return schema
+        return WEBRTC_USER_INPUT_SCHEMA
+
+    def _prepare_inference_session_step(
+        self,
+        *,
+        request: Any,
+        user_window: UserInputWindow,
+    ) -> InferenceInput:
+        self._advance_skipped_input_state(user_window)
+        window_start = user_window.start_s
+        if request.step_index == 0 and not self._session_input_state_advanced:
+            window_start = 0.0
+        window = TimeWindow(start_s=window_start, end_s=user_window.end_s)
+        canonical_inputs = self._runtime.input_canonicalizer.canonicalize(
+            user_window.inputs,
+            window=window,
+            source_schema=self._runtime.input_source_schema,
+        )
+        mapping = self._runtime.input_mapping
+        return mapping.map_step_inputs(
+            canonical_inputs=canonical_inputs,
+            inference_input=InferenceInput(),
+            request=_step_request_from_requirements(request, window=window),
+        )
+
+    def _advance_skipped_input_state(self, user_window: UserInputWindow) -> None:
+        skipped_inputs = user_window.metadata.get(WEBRTC_SKIPPED_INPUTS_METADATA_KEY)
+        skipped_window = user_window.metadata.get(WEBRTC_SKIPPED_WINDOW_METADATA_KEY)
+        if not isinstance(skipped_inputs, UserInputs):
+            return
+        if not isinstance(skipped_window, tuple) or len(skipped_window) != 2:
+            return
+        start_value, end_value = skipped_window
+        if not isinstance(start_value, int | float) or not isinstance(
+            end_value,
+            int | float,
+        ):
+            return
+        start_s = float(start_value)
+        end_s = float(end_value)
+        if end_s <= start_s:
+            return
+        self._runtime.input_canonicalizer.canonicalize(
+            skipped_inputs,
+            window=TimeWindow(start_s=start_s, end_s=end_s),
+            source_schema=self._runtime.input_source_schema,
+        )
+        self._session_input_state_advanced = True
+
+    @staticmethod
+    def _prepare_segment_step(
+        *,
+        request: Any,
+        user_window: UserInputWindow,
+    ) -> InferenceInput:
+        segments = user_window.metadata.get(SPARSE_KEY_SEGMENTS_METADATA_KEY)
+        if not isinstance(segments, tuple):
+            raise RuntimeError("WebRTC user window is missing resampled key segments.")
+        window = TimeWindow(start_s=user_window.start_s, end_s=user_window.end_s)
+        return InferenceInput(
+            step={
+                _STEP_REQUEST_KEY: _step_request_from_requirements(
+                    request,
+                    window=window,
+                ),
+                _SEGMENTS_KEY: tuple(segments),
+                _FRAME_TIMES_KEY: tuple(user_window.frame_times),
+            }
+        )
+
+
+class _LegacyWebRTCDemoAdapter:
+    """Minimal adapter for the shared helper while WebRTC providers migrate."""
+
+    model_id: str
+    inference_input_schema = InferenceInputSchema()
+    canonical_input_schema = CanonicalInputSchema()
+
+    def __init__(
+        self,
+        *,
+        runtime: Any,
+        identity: str,
+        session_input: Any = None,
+    ) -> None:
+        self._runtime = runtime
+        self.model_id = identity
+        self._session_input = session_input
+
+    def supported_input_modes(self) -> tuple[str, ...]:
+        return ("webrtc",)
+
+    def supported_output_modes(self) -> tuple[str, ...]:
+        return ("webrtc",)
+
+    def default_input_mapping(self) -> InputMapping | None:
+        return None
+
+    def validate_config(self, config: Any) -> None:
+        if config.model_id != self.model_id:
+            raise ValueError(
+                f"Expected WebRTC model_id={self.model_id!r}, got {config.model_id!r}."
+            )
+
+    def create_runtime(self, config: Any) -> Any:
+        self.validate_config(config)
+        return self._runtime
+
+    def prepare_scenario(self, spec: Any) -> PreparedScenario:
+        del spec
+        return PreparedScenario(initial_inputs=self._initial_inputs())
+
+    def create_model_input_provider(
+        self,
+        spec: Any,
+        scenario: PreparedScenario,
+    ) -> _LegacyWebRTCModelInputProvider:
+        del spec, scenario
+        return _LegacyWebRTCModelInputProvider(
+            runtime=self._runtime,
+            session_input=self._session_input,
+        )
+
+    def _initial_inputs(self) -> InferenceInput:
+        if self._session_input is None:
+            return InferenceInput()
+        return InferenceInput(
+            global_conditioning={_SESSION_INPUT_KEY: self._session_input}
+        )
+
+
+class _ManagedWebRTCSessionEdgeFactory:
+    """Build shared realtime edges for one negotiated peer connection."""
+
+    def __init__(
+        self,
+        *,
+        manager: "BaseWebRTCSessionManager[Any, Any]",
+        managed_session: "ManagedWebRTCSession",
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        self._manager = manager
+        self._managed_session = managed_session
+        self._loop = loop
+
+    def create_session_edges(
+        self,
+        *,
+        context: RunContext,
+        spec: Any,
+        scenario: PreparedScenario,
+        provider: ModelInputProvider,
+        adapter: Any,
+    ) -> SessionEdges:
+        del spec, scenario, provider, adapter
+        input_source = self._managed_session.input_source
+        transport = self._managed_session.transport
+        if input_source is None or transport is None:
+            raise RuntimeError("Managed WebRTC session is missing shared edges.")
+        bridge = ThreadSafeWebRTCOutputBridge(
+            loop=self._loop,
+            video_encoder=self._managed_session.video_encoder,
+            video_track=self._managed_session.video_track,
+            on_chunk_delivery=self._on_chunk_delivery,
+            on_error=self._on_delivery_error,
+        )
+        return SessionEdges(
+            input_source=input_source,
+            output_sink=WebRTCOutputSink(bridge=bridge),
+            cleanup_tasks=context.cleanup_tasks,
+            metrics=InMemorySessionMetricsRecorder(),
+            error_policy=WebRTCErrorPolicy(),
+            transport=transport,
+            clock=ResamplerRealtimeClock(
+                resampler=self._managed_session.resampler,
+                now_fn=self._loop.time,
+                sleep_fn=asyncio.sleep,
+            ),
+            activation=WebRTCActivationPolicy(
+                input_source=input_source,
+                transport=transport,
+            ),
+        )
+
+    def _on_chunk_delivery(self, chunk: WebRTCChunkDelivery) -> None:
+        self._manager._handle_shared_chunk_delivery(
+            managed_session=self._managed_session,
+            chunk=chunk,
+        )
+
+    def _on_delivery_error(self, exc: BaseException) -> None:
+        self._manager._handle_shared_delivery_error(
+            managed_session=self._managed_session,
+            exc=exc,
+        )
+        if self._manager.fatal_generation_errors:
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._manager.close_active_session())
+            )
+
+
 @dataclass(slots=True)
 class ManagedWebRTCSession:
     """Per-session state for the single active WebRTC peer connection."""
@@ -152,6 +579,9 @@ class ManagedWebRTCSession:
     control_channel: Any | None = None
     generation_task: asyncio.Task[Any] | None = None
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
+    input_source: WebRTCInputSource | None = None
+    transport: WebRTCTransportService | None = None
+    reservation: Any | None = None
     pending_action_arrivals: deque[float] = field(default_factory=deque)
     inference_session: Any | None = None
     """Active ``InferenceSession``; ``None`` means call ``runtime.generate_chunk``."""
@@ -189,6 +619,11 @@ class ManagedWebRTCSession:
             self.generation_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.generation_task
+        if self.generation_task is None or self.generation_task.done():
+            reservation = self.reservation
+            self.reservation = None
+            if reservation is not None:
+                reservation.release()
         self.generation_task = None
 
         await self.video_track.close()
@@ -234,6 +669,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._preload_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
         self._pending_session_input: Any = None
+        self._shared_runtime_adapter: _LegacyWebRTCRuntimeAdapter | None = None
+        self._shared_host: RuntimeHost | None = None
+        self._shared_context: RunContext | None = None
 
     @property
     def pending_session_input(self) -> Any:
@@ -333,6 +771,50 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if encoder is None:
             encoder = DefaultRTCEncoder(fps=self.fps)
         return encoder
+
+    def _shared_run_context(self, loop: asyncio.AbstractEventLoop) -> RunContext:
+        if self._shared_context is not None:
+            return self._shared_context
+        runtime_adapter = _LegacyWebRTCRuntimeAdapter(
+            runtime=self._runtime,
+            loop=loop,
+        )
+        host = RuntimeHost(runtime_adapter)
+        self._shared_runtime_adapter = runtime_adapter
+        self._shared_host = host
+        self._shared_context = RunContext(
+            host=host,
+            run_metrics=InMemorySessionMetricsRecorder(),
+            admission=SingleSessionAdmissionPolicy(
+                health_check=lambda: host.is_healthy
+            ),
+        )
+        return self._shared_context
+
+    def _shared_demo_spec(self) -> DemoSpec:
+        return DemoSpec(
+            model_id=self.identity,
+            input_mode="webrtc",
+            output=WebRTCOutputSpec(
+                fps=self.fps,
+                video_width=self.runtime_config.video_width,
+                video_height=self.runtime_config.video_height,
+                warmup_chunks=self.runtime_config.warmup_chunks,
+                warmup_timeout_s=self.runtime_config.warmup_timeout_s,
+                client_liveness_timeout_s=self.client_liveness_timeout_s,
+            ),
+        )
+
+    async def _reset_runtime_for_session(
+        self,
+        *,
+        context: RunContext,
+        session_input: Any,
+    ) -> None:
+        reset = getattr(context.host.runtime, "reset_for_new_session", None)
+        if not callable(reset):
+            raise RuntimeError("WebRTC runtime adapter cannot reset sessions.")
+        await context.host.call_async(reset, session_input)
 
     def _prefer_h264_video_codec(self, *, transceiver: Any) -> None:
         """Constrain the transceiver's codec preferences to H.264 variants.
@@ -496,7 +978,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     @staticmethod
     def _drives_inference_session(runtime: Any) -> bool:
         """Return whether ``runtime`` should be driven through ``InferenceSession``."""
-        return callable(getattr(runtime, "start_inference_session", None))
+        return _runtime_drives_inference_session(runtime)
 
     def _record_user_event(
         self,
@@ -808,46 +1290,61 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if not self._runtime_ready:
             raise RuntimeError("Runtime is not initialized.")
 
-        await self._runtime.reset_for_new_session(session_input=session_input)
-
-        peer_connection = RTCPeerConnection(rtc_configuration)
-        # Bounded queue sized to one *steady-state* chunk so the producer
-        # is throttled to the consumer's drain rate. AR step 0 emits fewer
-        # frames than steady state; sizing to it would force a per-chunk
-        # stall, so we size to the steady-state count.
-        num_frames = self._runtime_steady_output_num_frames(self._runtime)
-        video_encoder = self._resolve_video_encoder()
-        video_track = video_encoder.create_track(maxsize=num_frames)
-        # Use ``addTransceiver`` (not ``addTrack``) so we can constrain the
-        # SDP m-line's codec list via ``setCodecPreferences`` when the
-        # encoder emits pre-encoded H.264 packets.
-        video_transceiver = peer_connection.addTransceiver(
-            video_track,
-            direction="sendonly",
-        )
-        if video_encoder.prefers_codec == "h264":
-            self._prefer_h264_video_codec(transceiver=video_transceiver)
-        # Start the resampler's virtual clock at 0; the real anchor is set
-        # in the ``on_datachannel`` handler so chunk 0's window starts when
-        # input can actually arrive.
-        resampler = self._make_resampler_at_fps(
-            start_v=0.0,
-            fps=self._runtime_input_fps(self._runtime),
-        )
         loop = asyncio.get_running_loop()
-        managed_session = ManagedWebRTCSession(
-            runtime=self._runtime,
-            video_track=video_track,
-            video_encoder=video_encoder,
-            peer_connection=peer_connection,
-            resampler=resampler,
-            last_client_message_at=loop.time(),
-        )
-        session_runtime: Any = self._runtime
-        if self._drives_inference_session(session_runtime):
-            managed_session.inference_session = (
-                await session_runtime.start_inference_session()
+        context = self._shared_run_context(loop)
+        reservation = context.admission.try_reserve()
+        if reservation is None:
+            raise SessionBusyError(self.busy_message)
+        try:
+            await self._reset_runtime_for_session(
+                context=context,
+                session_input=session_input,
             )
+        except Exception:
+            reservation.release()
+            raise
+
+        try:
+            peer_connection = RTCPeerConnection(rtc_configuration)
+            # Bounded queue sized to one *steady-state* chunk so the producer
+            # is throttled to the consumer's drain rate. AR step 0 emits fewer
+            # frames than steady state; sizing to it would force a per-chunk
+            # stall, so we size to the steady-state count.
+            num_frames = self._runtime_steady_output_num_frames(self._runtime)
+            video_encoder = self._resolve_video_encoder()
+            video_track = video_encoder.create_track(maxsize=num_frames)
+            # Use ``addTransceiver`` (not ``addTrack``) so we can constrain the
+            # SDP m-line's codec list via ``setCodecPreferences`` when the
+            # encoder emits pre-encoded H.264 packets.
+            video_transceiver = peer_connection.addTransceiver(
+                video_track,
+                direction="sendonly",
+            )
+            if video_encoder.prefers_codec == "h264":
+                self._prefer_h264_video_codec(transceiver=video_transceiver)
+            # Start the resampler's virtual clock at 0; the real anchor is set
+            # in the ``on_datachannel`` handler so chunk 0's window starts when
+            # input can actually arrive.
+            resampler = self._make_resampler_at_fps(
+                start_v=0.0,
+                fps=self._runtime_input_fps(self._runtime),
+            )
+            input_source = WebRTCInputSource(resampler=resampler)
+            transport = WebRTCTransportService(loop=loop)
+            managed_session = ManagedWebRTCSession(
+                runtime=self._runtime,
+                video_track=video_track,
+                video_encoder=video_encoder,
+                peer_connection=peer_connection,
+                resampler=resampler,
+                input_source=input_source,
+                transport=transport,
+                reservation=reservation,
+                last_client_message_at=loop.time(),
+            )
+        except Exception:
+            reservation.release()
+            raise
         self._active_session = managed_session
         if enable_liveness_watchdog:
             managed_session.liveness_task = asyncio.create_task(
@@ -858,10 +1355,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         def on_datachannel(channel: Any) -> None:
             managed_session.control_channel = channel
             # Re-anchor the resampler at channel open. The real
-            # virtual-clock anchor happens in ``_generation_worker`` once
-            # the first keyboard event arrives.
+            # virtual-clock anchor happens in ``WebRTCActivationPolicy`` once
+            # the first browser event activates the shared realtime driver.
             channel_open_v = asyncio.get_running_loop().time()
-            managed_session.resampler.reset(start_v=channel_open_v)
+            if managed_session.input_source is not None:
+                managed_session.input_source.reset(start_v=channel_open_v)
+            else:
+                managed_session.resampler.reset(start_v=channel_open_v)
 
             @channel.on("message")
             def on_message(message: Any) -> None:
@@ -872,15 +1372,21 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     )
                 )
 
-            # Spawn the generation worker once the channel is wired up so
+            # Spawn the shared realtime session once the channel is wired up so
             # ``chunk_done`` notifications have a channel to land on.
             managed_session.generation_task = asyncio.create_task(
-                self._generation_worker(managed_session=managed_session)
+                self._run_realtime_driver_session(
+                    managed_session=managed_session,
+                    context=context,
+                    session_input=session_input,
+                )
             )
 
             @channel.on("close")
             def on_close() -> None:
                 logger.info("Control data channel closed; closing active session.")
+                if managed_session.transport is not None:
+                    managed_session.transport.disconnect("data channel closed")
                 asyncio.create_task(self.close_active_session())
 
         @peer_connection.on("connectionstatechange")
@@ -993,6 +1499,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
     async def shutdown(self) -> None:
         await self.close_active_session()
+        if self._shared_context is not None:
+            await self._shared_context.close_async()
+        if self._shared_host is not None:
+            self._shared_host.close()
+        self._shared_context = None
+        self._shared_host = None
+        self._shared_runtime_adapter = None
         await self._runtime.close()
         self._runtime_ready = False
         self._warmup_complete = False
@@ -1013,6 +1526,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if channel is None or managed_session.closed:
             return
         managed_session.last_client_message_at = asyncio.get_running_loop().time()
+        if managed_session.transport is not None:
+            managed_session.transport.mark_client_message(
+                managed_session.last_client_message_at
+            )
 
         if not isinstance(raw_message, str):
             self._send_json(channel, make_error_payload("Expected text payload."))
@@ -1027,6 +1544,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if not isinstance(payload, dict):
             self._send_json(
                 channel, make_error_payload("Payload must be a JSON object.")
+            )
+            return
+        if managed_session.input_source is not None:
+            await self._handle_shared_datachannel_payload(
+                managed_session=managed_session,
+                payload=payload,
             )
             return
         message_type = str(payload.get("type", "")).strip().lower()
@@ -1105,6 +1628,185 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.
         managed_session.first_action_received.set()
+
+    async def _handle_shared_datachannel_payload(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        payload: dict[str, Any],
+    ) -> None:
+        channel = managed_session.control_channel
+        input_source = managed_session.input_source
+        if channel is None or input_source is None:
+            return
+        message_type = str(payload.get("type", "")).strip().lower()
+        if message_type == MESSAGE_TYPE_HEARTBEAT:
+            return
+        if message_type == MESSAGE_TYPE_DISCONNECT:
+            logger.info("Client requested disconnect; closing active session.")
+            if managed_session.transport is not None:
+                managed_session.transport.disconnect("client disconnected")
+            await self.close_active_session()
+            return
+        if message_type == MESSAGE_TYPE_EVENT:
+            handled = self._record_shared_event_payload(
+                managed_session=managed_session,
+                payload=payload,
+            )
+            if handled:
+                managed_session.first_action_received.set()
+            return
+        result = input_source.handle_browser_payload(
+            payload,
+            timestamp_s=asyncio.get_running_loop().time(),
+        )
+        if result.kind == "error":
+            self._send_json(channel, make_error_payload(result.error or "Bad input."))
+            return
+        if result.activated:
+            managed_session.first_action_received.set()
+
+    def _record_shared_event_payload(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        payload: dict[str, Any],
+    ) -> bool:
+        channel = managed_session.control_channel
+        input_source = managed_session.input_source
+        if channel is None or input_source is None:
+            return False
+        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        clear_states = {"clear", "release", "off", "none"}
+        if not event_id and state not in clear_states:
+            self._send_json(
+                channel,
+                make_error_payload(
+                    (
+                        "Event payload must include non-empty 'event_id' "
+                        "unless state clears the active event."
+                    ),
+                ),
+            )
+            return False
+        clears = state in clear_states
+        try:
+            event_payload = self._validate_user_event_payload(
+                managed_session=managed_session,
+                event_type="text_event",
+                payload={
+                    "event_id": None if clears else event_id,
+                    "state": state,
+                },
+            )
+            active_event_id = event_payload.get("event_id")
+            source_event_id = None if active_event_id is None else str(active_event_id)
+            input_source.record_user_event(
+                timestamp_s=asyncio.get_running_loop().time(),
+                event_type="text_event",
+                payload=event_payload,
+                source_event_id=source_event_id,
+            )
+        except Exception as exc:
+            self._send_json(channel, make_error_payload(str(exc)))
+            return False
+        active_event_id = event_payload.get("event_id")
+        ack_event_id = None if active_event_id is None else str(active_event_id)
+        self._send_json(
+            channel,
+            make_event_ack_payload(
+                event_id=ack_event_id,
+                state=str(event_payload.get("state", state)),
+                result={"active_event_id": ack_event_id},
+            ),
+        )
+        return True
+
+    async def _run_realtime_driver_session(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        context: RunContext,
+        session_input: Any,
+    ) -> None:
+        adapter = _LegacyWebRTCDemoAdapter(
+            runtime=self._runtime,
+            identity=self.identity,
+            session_input=session_input,
+        )
+        spec = self._shared_demo_spec()
+        scenario = adapter.prepare_scenario(spec)
+        run_mode = WebRTCRunMode(
+            edge_factory=_ManagedWebRTCSessionEdgeFactory(
+                manager=self,
+                managed_session=managed_session,
+                loop=asyncio.get_running_loop(),
+            )
+        )
+        try:
+            result = await run_demo_session_async(
+                context=context,
+                spec=spec,
+                scenario=scenario,
+                adapter=adapter,
+                run_mode=run_mode,
+                pipeline=StepPipeline(),
+                reservation=managed_session.reservation,
+            )
+            if result.status == "failed" and result.reason:
+                channel = managed_session.control_channel
+                if channel is not None:
+                    self._send_json(channel, make_error_payload(result.reason))
+        finally:
+            managed_session.reservation = None
+            if self._active_session is managed_session:
+                await self.close_active_session()
+
+    def _handle_shared_chunk_delivery(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        chunk: WebRTCChunkDelivery,
+    ) -> None:
+        channel = managed_session.control_channel
+        if channel is None or managed_session.closed:
+            return
+        delivery = chunk.delivery
+        enqueued_frames = int(getattr(delivery, "num_frames", chunk.frame_count))
+        encode_ms = float(getattr(delivery, "encode_ms", 0.0))
+        play_ms = chunk.frame_count * 1000.0 / managed_session.video_track.fps
+        queue_depth = managed_session.video_track.qsize()
+        self._send_json(
+            channel,
+            make_chunk_done_payload(
+                chunk_index=chunk.step_index,
+                num_frames=chunk.frame_count,
+                enqueued_frames=enqueued_frames,
+                fps=managed_session.video_track.fps,
+                width=self.runtime_config.video_width,
+                height=self.runtime_config.video_height,
+                model=self.identity,
+                gen_ms=_stat_ms(chunk.metrics, "model_step_s"),
+                enqueue_ms=encode_ms,
+                play_ms=play_ms,
+                queue_depth=queue_depth,
+                lag_ms=0.0,
+                control_latency_ms=None,
+                consumed_actions=0,
+                extra=chunk.metadata,
+            ),
+        )
+
+    def _handle_shared_delivery_error(
+        self,
+        *,
+        managed_session: ManagedWebRTCSession,
+        exc: BaseException,
+    ) -> None:
+        channel = managed_session.control_channel
+        if channel is not None:
+            self._send_json(channel, make_error_payload(str(exc)))
 
     async def _generation_worker(
         self, *, managed_session: ManagedWebRTCSession

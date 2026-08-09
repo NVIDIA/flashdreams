@@ -11,7 +11,14 @@ from typing import Any, cast
 import pytest
 import torch
 
-from flashdreams.runtime import StepRequest, StepResult
+from flashdreams.runtime import (
+    InferenceInput,
+    StepRequest,
+    StepRequirements,
+    StepResult,
+    UserInputEvent,
+    UserInputs,
+)
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -20,6 +27,12 @@ from flashdreams.serving.webrtc.manager import (
     ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
+from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    WebRTCInputSource,
+    WebRTCTransportService,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -83,6 +96,29 @@ class _FakeVideoEncoder:
             encode_ms=0.1,
         )
 
+    def prepare_chunk_payload(
+        self,
+        result: StepResult,
+        track: Any,
+    ) -> StepResult:
+        del track
+        return result
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        if not isinstance(payload, StepResult):
+            raise TypeError("fake payload must be StepResult")
+        return await self.deliver_chunk(
+            payload,
+            track,
+            force_keyframe=force_keyframe,
+        )
+
     def close(self) -> None:
         return
 
@@ -120,6 +156,28 @@ class _RecordingResampler(_FakeResampler):
 
     def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
         self.edges.append((arrival_t, event, key))
+
+
+class _SharedResampler:
+    def __init__(self, *, start_v: float = 0.0, dt: float = 0.001) -> None:
+        self.next_chunk_start_v = start_v
+        self.dt = dt
+        self.edges: list[tuple[float, str, str]] = []
+
+    def reset(self, *, start_v: float) -> None:
+        self.next_chunk_start_v = start_v
+        self.edges.clear()
+
+    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
+        self.edges.append((arrival_t, event, key))
+
+    def sample_chunk(
+        self, num_frames: int
+    ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+        start = self.next_chunk_start_v
+        end = start + num_frames * self.dt
+        self.next_chunk_start_v = end
+        return [(start, end, frozenset({"w"}))], [end]
 
 
 class _CountingVideoTrack(_FakeVideoTrack):
@@ -421,6 +479,81 @@ def test_catch_up_input_clock_snaps_legacy_path_without_canonicalizer() -> None:
     )
 
     assert managed.resampler.next_chunk_start_v == pytest.approx(2.0)
+
+
+def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
+    class _RecordingCanonicalizer:
+        def __init__(self) -> None:
+            self.windows: list[tuple[float, float]] = []
+            self.event_batches: list[list[str]] = []
+
+        def canonicalize(
+            self,
+            user_inputs: UserInputs,
+            *,
+            window: Any,
+            source_schema: Any,
+        ) -> object:
+            del source_schema
+            self.windows.append((window.start_s, window.end_s))
+            self.event_batches.append(
+                [event.event_type for event in user_inputs.events]
+            )
+            return object()
+
+    class _RecordingMapping:
+        def map_step_inputs(
+            self,
+            *,
+            canonical_inputs: object,
+            inference_input: InferenceInput,
+            request: StepRequest,
+        ) -> InferenceInput:
+            del canonical_inputs, inference_input
+            return InferenceInput(step={"mapped_step": request.step_index})
+
+    runtime = SimpleNamespace(
+        start_inference_session=lambda: object(),
+        input_canonicalizer=_RecordingCanonicalizer(),
+        input_source_schema=object(),
+        input_mapping=_RecordingMapping(),
+    )
+    provider = manager_module._LegacyWebRTCModelInputProvider(runtime=runtime)
+    skipped_inputs = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.5,
+                event_type="key_down",
+                payload={"key": "w"},
+            ),
+        )
+    )
+    current_inputs = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=2.5,
+                event_type="key_up",
+                payload={"key": "w"},
+            ),
+        )
+    )
+
+    prepared = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=1),
+        user_window=manager_module.UserInputWindow(
+            start_s=2.0,
+            end_s=3.0,
+            inputs=current_inputs,
+            metadata={
+                WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_inputs,
+                WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 2.0),
+            },
+        ),
+    )
+
+    assert prepared.inference_input == InferenceInput(step={"mapped_step": 0})
+    assert runtime.input_canonicalizer.windows == [(0.0, 2.0), (2.0, 3.0)]
+    assert runtime.input_canonicalizer.event_batches == [["key_down"], ["key_up"]]
 
 
 @pytest.mark.asyncio
@@ -839,6 +972,109 @@ async def test_generation_worker_logs_periodic_perf_stats(
     assert "pixel_post_ms" in perf_logs[0][0]
     assert "copy_ms" in perf_logs[0][0]
     assert perf_logs[0][1][-2:] == (13, 512)
+
+
+@pytest.mark.asyncio
+async def test_realtime_driver_session_uses_shared_step_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pipeline_calls = 0
+    original_pipeline = manager_module.StepPipeline
+
+    class _RecordingPipeline(original_pipeline):
+        def execute_step(
+            self,
+            *,
+            request: StepRequirements,
+            user_window: Any,
+            provider: Any,
+            session: Any,
+            output: Any,
+            metrics: Any,
+        ) -> Any:
+            nonlocal pipeline_calls
+            pipeline_calls += 1
+            return original_pipeline.execute_step(
+                self,
+                request=request,
+                user_window=user_window,
+                provider=provider,
+                session=session,
+                output=output,
+                metrics=metrics,
+            )
+
+    class _SharedRuntime:
+        def __init__(self) -> None:
+            self.step_requests = 0
+            self.step_calls: list[tuple[int, list[Any], list[float]]] = []
+
+        async def reset_for_new_session(self, session_input: Any = None) -> None:
+            del session_input
+
+        def next_step_request(self) -> StepRequest | None:
+            if self.step_requests > 0:
+                return None
+            self.step_requests += 1
+            return _step_request(step_index=0, input_frame_count=1)
+
+        async def step(
+            self,
+            *,
+            request: StepRequest,
+            segments: list[Any],
+            frame_times: list[float],
+        ) -> StepResult:
+            self.step_calls.append((request.step_index, segments, frame_times))
+            return StepResult(step_index=request.step_index, output="ok", frame_count=1)
+
+        def peek_input_fps(self) -> float:
+            return 30.0
+
+        def peek_steady_output_num_frames(self) -> int:
+            return 1
+
+    monkeypatch.setattr(manager_module, "StepPipeline", _RecordingPipeline)
+    runtime = _SharedRuntime()
+    manager = _make_manager(_BaseTestManager, runtime)
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    resampler = _SharedResampler(start_v=asyncio.get_running_loop().time())
+    input_source = WebRTCInputSource(resampler=resampler)
+    input_source.handle_browser_payload(
+        {"type": "action", "action": {"event": "step"}},
+        timestamp_s=asyncio.get_running_loop().time(),
+    )
+    managed, video_track, peer, channel = _managed_session(runtime)
+    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    managed.input_source = input_source
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    managed.reservation = reservation
+    manager._active_session = managed
+
+    managed.generation_task = asyncio.create_task(
+        manager._run_realtime_driver_session(
+            managed_session=managed,
+            context=context,
+            session_input=None,
+        )
+    )
+    await asyncio.wait_for(managed.generation_task, timeout=5.0)
+
+    assert pipeline_calls == 1
+    assert runtime.step_calls
+    assert runtime.step_calls[0][0] == 0
+    assert not manager.has_active_session()
+    assert video_track.closed
+    assert peer.closed
+    chunk_done = [
+        json.loads(message)
+        for message in channel.messages
+        if json.loads(message).get("type") == "chunk_done"
+    ]
+    assert len(chunk_done) == 1
+    assert chunk_done[0]["model"] == "fake-model"
 
 
 @pytest.mark.asyncio

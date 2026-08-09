@@ -83,6 +83,8 @@ WebRTCMessageKind = Literal[
 WebRTCDropPolicy = Literal["none", "drop_newest", "drop_oldest"]
 
 _CLEAR_EVENT_STATES = frozenset({"clear", "release", "off", "none"})
+WEBRTC_SKIPPED_INPUTS_METADATA_KEY = "webrtc_skipped_inputs"
+WEBRTC_SKIPPED_WINDOW_METADATA_KEY = "webrtc_skipped_window"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -129,6 +131,23 @@ class WebRTCOutputBridgeDecision:
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class WebRTCChunkDelivery:
+    """Completed WebRTC chunk delivery plus the model chunk summary."""
+
+    delivery: object
+    step_index: int
+    frame_count: int
+    generation: int
+    force_keyframe: bool
+    metadata: Mapping[str, object] = field(default_factory=dict)
+    metrics: Mapping[str, float | int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
+        object.__setattr__(self, "metrics", freeze_mapping(self.metrics))
+
+
 @runtime_checkable
 class WebRTCOfferAnswerer(Protocol):
     """Creates an SDP answer after the shared session task has been scheduled."""
@@ -156,6 +175,8 @@ class BlockingPreparationService(Protocol):
 @runtime_checkable
 class WebRTCOutputBridge(Protocol):
     """Thread-safe bridge from model-worker output writes to WebRTC delivery."""
+
+    def begin_generation(self, generation: int) -> None: ...
 
     def submit_chunk(
         self,
@@ -456,6 +477,7 @@ class WebRTCInputSource:
 
         window_end_s = float(self.resampler.next_chunk_start_v) + chunk_duration_s
         await clock.wait_until_window_end(window_end_s)
+        pre_catch_up_start_s = float(self.resampler.next_chunk_start_v)
         catch_up = clock.catch_up(
             request=request,
             max_lag_s=self.max_lag_s
@@ -466,13 +488,24 @@ class WebRTCInputSource:
         start_s = float(self.resampler.next_chunk_start_v)
         segments, frame_times = self.resampler.sample_chunk(input_frame_count)
         end_s = float(self.resampler.next_chunk_start_v)
+        metadata: dict[str, object] = {
+            SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(segments),
+        }
+        if start_s > pre_catch_up_start_s:
+            metadata[WEBRTC_SKIPPED_INPUTS_METADATA_KEY] = UserInputs(
+                events=self._events_for_window(pre_catch_up_start_s, start_s)
+            )
+            metadata[WEBRTC_SKIPPED_WINDOW_METADATA_KEY] = (
+                pre_catch_up_start_s,
+                start_s,
+            )
         window = RealtimeWindowResult(
             window=_user_input_window(
                 start_s=start_s,
                 end_s=end_s,
                 frame_times=tuple(frame_times),
                 inputs=UserInputs(events=self._events_for_window(start_s, end_s)),
-                metadata={SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(segments)},
+                metadata=metadata,
             ),
             catch_up=catch_up,
         )
@@ -576,12 +609,14 @@ class WebRTCOutputSink:
         self._closed = False
         self._generation = 0
         self._force_keyframe = True
+        self._bridge.begin_generation(0)
 
     def begin_generation(self, generation: int) -> None:
         if generation < 0:
             raise ValueError("generation must be >= 0.")
         self._generation = generation
         self._force_keyframe = True
+        self._bridge.begin_generation(generation)
 
     def write(self, result: StepResult) -> OutputDecision:
         if not self._opened or self._closed:
@@ -600,7 +635,7 @@ class WebRTCOutputSink:
             metadata=decision.metadata,
         )
 
-    def close(self) -> Sequence[object]:
+    def close(self) -> Sequence[Any]:
         if self._bridge_closed:
             return ()
         self._closed = True
@@ -622,6 +657,7 @@ class ThreadSafeWebRTCOutputBridge:
         max_pending_chunks: int = 2,
         close_track: bool = True,
         on_delivery: Callable[[object], None] | None = None,
+        on_chunk_delivery: Callable[[WebRTCChunkDelivery], None] | None = None,
         on_error: Callable[[BaseException], None] | None = None,
     ) -> None:
         if max_pending_chunks <= 0:
@@ -632,15 +668,33 @@ class ThreadSafeWebRTCOutputBridge:
         self._max_pending_chunks = max_pending_chunks
         self._close_track = close_track
         self._on_delivery = on_delivery
+        self._on_chunk_delivery = on_chunk_delivery
         self._on_error = on_error
-        self._pending: set[Future[object]] = set()
+        self._pending: dict[Future[WebRTCChunkDelivery], int] = {}
         self._lock = threading.Lock()
         self._closed = False
+        self._generation = 0
 
     @property
     def pending_count(self) -> int:
         with self._lock:
             return len(self._pending)
+
+    def begin_generation(self, generation: int) -> None:
+        if generation < 0:
+            raise ValueError("generation must be >= 0.")
+        with self._lock:
+            if self._closed or generation <= self._generation:
+                return
+            self._generation = generation
+            stale = tuple(
+                future
+                for future, future_generation in self._pending.items()
+                if future_generation < generation
+            )
+        for future in stale:
+            future.cancel()
+        self._schedule_track_flush()
 
     def submit_chunk(
         self,
@@ -665,6 +719,13 @@ class ThreadSafeWebRTCOutputBridge:
                     drop_policy="drop_newest",
                     metadata={"reason": "closed"},
                 )
+            if generation < self._generation:
+                return WebRTCOutputBridgeDecision(
+                    accepted=False,
+                    dropped=True,
+                    drop_policy="drop_newest",
+                    metadata={"reason": "stale generation"},
+                )
             if len(self._pending) >= self._max_pending_chunks:
                 return WebRTCOutputBridgeDecision(
                     accepted=False,
@@ -673,6 +734,15 @@ class ThreadSafeWebRTCOutputBridge:
                     metadata={"reason": "pending queue full"},
                 )
         payload = prepare(result, self._video_track)
+        chunk = WebRTCChunkDelivery(
+            delivery=None,
+            step_index=result.step_index,
+            frame_count=result.frame_count,
+            generation=generation,
+            force_keyframe=force_keyframe,
+            metadata=result.metadata,
+            metrics=result.metrics,
+        )
         with self._lock:
             if self._closed:
                 return WebRTCOutputBridgeDecision(
@@ -681,6 +751,13 @@ class ThreadSafeWebRTCOutputBridge:
                     dropped=True,
                     drop_policy="drop_newest",
                     metadata={"reason": "closed"},
+                )
+            if generation < self._generation:
+                return WebRTCOutputBridgeDecision(
+                    accepted=False,
+                    dropped=True,
+                    drop_policy="drop_newest",
+                    metadata={"reason": "stale generation"},
                 )
             if len(self._pending) >= self._max_pending_chunks:
                 return WebRTCOutputBridgeDecision(
@@ -692,12 +769,13 @@ class ThreadSafeWebRTCOutputBridge:
             future = asyncio.run_coroutine_threadsafe(
                 self._deliver(
                     payload,
+                    chunk=chunk,
                     generation=generation,
                     force_keyframe=force_keyframe,
                 ),
                 self._loop,
             )
-            self._pending.add(future)
+            self._pending[future] = generation
             future.add_done_callback(self._on_done)
 
         return WebRTCOutputBridgeDecision(
@@ -720,19 +798,39 @@ class ThreadSafeWebRTCOutputBridge:
         self,
         payload: object,
         *,
+        chunk: WebRTCChunkDelivery,
         generation: int,
         force_keyframe: bool,
-    ) -> object:
-        del generation
-        return await self._video_encoder.deliver_prepared_chunk(
+    ) -> WebRTCChunkDelivery:
+        with self._lock:
+            if self._closed or generation < self._generation:
+                raise asyncio.CancelledError
+        delivery = await self._video_encoder.deliver_prepared_chunk(
             payload,
             self._video_track,
             force_keyframe=force_keyframe,
         )
-
-    def _on_done(self, future: Future[object]) -> None:
         with self._lock:
-            self._pending.discard(future)
+            if self._closed or generation < self._generation:
+                stale_after_delivery = True
+            else:
+                stale_after_delivery = False
+        if stale_after_delivery:
+            self._schedule_track_flush()
+            raise asyncio.CancelledError
+        return WebRTCChunkDelivery(
+            delivery=delivery,
+            step_index=chunk.step_index,
+            frame_count=chunk.frame_count,
+            generation=chunk.generation,
+            force_keyframe=chunk.force_keyframe,
+            metadata=chunk.metadata,
+            metrics=chunk.metrics,
+        )
+
+    def _on_done(self, future: Future[WebRTCChunkDelivery]) -> None:
+        with self._lock:
+            self._pending.pop(future, None)
         if future.cancelled():
             return
         try:
@@ -742,7 +840,9 @@ class ThreadSafeWebRTCOutputBridge:
                 self._on_error(exc)
             return
         if self._on_delivery is not None:
-            self._on_delivery(result)
+            self._on_delivery(result.delivery)
+        if self._on_chunk_delivery is not None:
+            self._on_chunk_delivery(result)
 
     def _track_backpressure_s(self) -> float:
         qsize = getattr(self._video_track, "qsize", None)
@@ -768,6 +868,18 @@ class ThreadSafeWebRTCOutputBridge:
             return
         try:
             result = close()
+            if inspect.isawaitable(result):
+                asyncio.run_coroutine_threadsafe(result, self._loop)
+        except BaseException as exc:
+            if self._on_error is not None:
+                self._on_error(exc)
+
+    def _schedule_track_flush(self) -> None:
+        flush = getattr(self._video_track, "flush", None)
+        if not callable(flush):
+            return
+        try:
+            result = flush()
             if inspect.isawaitable(result):
                 asyncio.run_coroutine_threadsafe(result, self._loop)
         except BaseException as exc:
@@ -1031,6 +1143,8 @@ __all__ = [
     "BlockingPreparationService",
     "ThreadSafeWebRTCOutputBridge",
     "WEBRTC_USER_INPUT_SCHEMA",
+    "WEBRTC_SKIPPED_INPUTS_METADATA_KEY",
+    "WEBRTC_SKIPPED_WINDOW_METADATA_KEY",
     "WebRTCActivationPolicy",
     "WebRTCInputSource",
     "WebRTCMessageResult",
@@ -1038,6 +1152,7 @@ __all__ = [
     "WebRTCOfferRequest",
     "WebRTCOutputBridge",
     "WebRTCOutputBridgeDecision",
+    "WebRTCChunkDelivery",
     "WebRTCOutputSink",
     "WebRTCRunMode",
     "WebRTCSessionEdgeFactory",

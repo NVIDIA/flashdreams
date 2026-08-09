@@ -262,6 +262,45 @@ async def test_webrtc_output_bridge_drops_full_queue_before_payload_prepare() ->
 
 
 @pytest.mark.asyncio
+async def test_webrtc_output_bridge_generation_reset_cancels_stale_delivery() -> None:
+    loop = asyncio.get_running_loop()
+    encoder = _BlockingEncoder()
+    track = _FakeVideoTrack()
+    deliveries: list[object] = []
+    chunk_deliveries: list[int] = []
+    bridge = ThreadSafeWebRTCOutputBridge(
+        loop=loop,
+        video_encoder=encoder,
+        video_track=track,
+        on_delivery=deliveries.append,
+        on_chunk_delivery=lambda chunk: chunk_deliveries.append(chunk.step_index),
+    )
+    sink = WebRTCOutputSink(bridge=bridge)
+    sink.open(SessionInfo())
+
+    first = sink.write(StepResult(step_index=0, frame_count=1))
+    await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
+    sink.begin_generation(1)
+    for _ in range(10):
+        if track.flush_count:
+            break
+        await asyncio.sleep(0)
+    second = sink.write(StepResult(step_index=1, frame_count=1))
+
+    assert not first.dropped
+    assert not second.dropped
+    assert track.flush_count == 1
+
+    encoder.release.set()
+    await asyncio.wait_for(encoder.done.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert deliveries == ["delivered"]
+    assert chunk_deliveries == [1]
+    sink.close()
+
+
+@pytest.mark.asyncio
 async def test_disconnect_closes_transport_and_releases_reservation_once() -> None:
     spec = _webrtc_spec()
     adapter = _FakeAdapter()
@@ -702,5 +741,11 @@ class _BlockingEncoder:
 class _FakeVideoTrack:
     fps = 30
 
+    def __init__(self) -> None:
+        self.flush_count = 0
+
     def qsize(self) -> int:
         return 0
+
+    async def flush(self) -> None:
+        self.flush_count += 1
