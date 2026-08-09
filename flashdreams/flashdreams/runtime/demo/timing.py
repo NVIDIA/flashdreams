@@ -14,7 +14,6 @@ from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.runtime.inputs import UserInputs, UserInputSchema
 from flashdreams.runtime.types import StepRequirements
-from flashdreams.serving.realtime.input import KeyboardResampler
 
 from .session_inputs import UserInputWindow
 
@@ -182,9 +181,23 @@ class SignalActivationPolicy:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
+SparseKeySegment = tuple[float, float, frozenset[str]]
+
+
 class _RealtimeTimeline(Protocol):
     dt: float
     next_chunk_start_v: float
+
+
+class _SparseInputResampler(_RealtimeTimeline, Protocol):
+    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None: ...
+
+    def reset(self, *, start_v: float) -> None: ...
+
+    def sample_chunk(
+        self,
+        num_frames: int,
+    ) -> tuple[Sequence[SparseKeySegment], Sequence[float]]: ...
 
 
 @dataclass(slots=True)
@@ -268,7 +281,7 @@ class ResamplerRealtimeClock:
 class KeyboardRealtimeInputSource:
     """Realtime input source backed by the existing keyboard resampler."""
 
-    resampler: KeyboardResampler
+    resampler: _SparseInputResampler
     max_lag_s: float | None = None
     catch_up_policy: CatchUpPolicy = "fold"
     is_finite: bool = False

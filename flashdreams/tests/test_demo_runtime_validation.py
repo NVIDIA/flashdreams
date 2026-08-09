@@ -11,8 +11,8 @@ import pytest
 import flashdreams.runtime.demo as demo_api
 from flashdreams.runtime import (
     DRIVER_COMMAND,
-    CanonicalInputSchema,
     CanonicalInputs,
+    CanonicalInputSchema,
     IdentityInputMapping,
     InferenceConfig,
     InferenceInput,
@@ -30,8 +30,8 @@ from flashdreams.runtime import (
     TimeWindow,
     UserInputCapability,
     UserInputEvent,
-    UserInputSchema,
     UserInputs,
+    UserInputSchema,
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -386,7 +386,9 @@ class _Provider:
 
 
 class _MappingBackedProvider(_Provider):
-    def __init__(self, *, mapping: "_DriverCommandMapping", source_schema: UserInputSchema) -> None:
+    def __init__(
+        self, *, mapping: "_DriverCommandMapping", source_schema: UserInputSchema
+    ) -> None:
         self.mapping = mapping
         self.canonicalizer = InputCanonicalizer((KeyboardToDriverCommand(),))
         self.source_schema = source_schema
@@ -432,10 +434,13 @@ class _DriverCommandMapping:
     )
 
     def __init__(self) -> None:
-        self.validated_with: tuple[
-            CanonicalInputSchema | None,
-            InferenceInputSchema | None,
-        ] | None = None
+        self.validated_with: (
+            tuple[
+                CanonicalInputSchema | None,
+                InferenceInputSchema | None,
+            ]
+            | None
+        ) = None
 
     def validate(
         self,

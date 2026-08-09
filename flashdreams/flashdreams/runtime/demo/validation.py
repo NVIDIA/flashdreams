@@ -149,8 +149,7 @@ def _validate_user_input_schema(
             for capability in missing
         )
         raise ValueError(
-            "Input source does not satisfy provider raw user input schema: "
-            f"{names}."
+            f"Input source does not satisfy provider raw user input schema: {names}."
         )
 
 
