@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+import flashdreams.runtime.runner as runner_module
 from flashdreams.runtime import (
     DRIVER_COMMAND,
     CanonicalInputs,
@@ -72,6 +73,57 @@ def test_run_inference_session_completes_two_step_run() -> None:
     assert [sample.name for sample in metrics.samples] == ["model_step", "model_step"]
     assert [sample.step_index for sample in metrics.samples] == [0, 1]
     assert metrics.closed
+
+
+def test_run_inference_session_delegates_to_shared_batch_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Mapping[str, object]] = []
+    artifact = OutputArtifact(kind="test/artifact", uri="memory://artifact")
+
+    def _fake_helper(**kwargs: object) -> tuple[OutputArtifact, ...]:
+        calls.append(kwargs)
+        return (artifact,)
+
+    monkeypatch.setattr(
+        runner_module,
+        "_run_inference_session_with_shared_batch",
+        _fake_helper,
+    )
+    adapter = _FakeAdapter()
+    config = InferenceConfig(model_id="fake-model")
+    mapping = _ChunkIndexMapping()
+    canonicalizer = InputCanonicalizer()
+    source_schema = UserInputSchema()
+    user_inputs = UserInputs()
+    initial_inputs = InferenceInput(global_conditioning={"prompt": "drive forward"})
+    output = NullOutputTarget()
+    metrics = InMemoryMetricsRecorder()
+
+    artifacts = runner_module.run_inference_session(
+        adapter=adapter,
+        config=config,
+        mapping=mapping,
+        canonicalizer=canonicalizer,
+        source_schema=source_schema,
+        user_inputs=user_inputs,
+        initial_inputs=initial_inputs,
+        output=output,
+        metrics=metrics,
+    )
+
+    assert artifacts == (artifact,)
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["adapter"] is adapter
+    assert call["config"] is config
+    assert call["mapping"] is mapping
+    assert call["canonicalizer"] is canonicalizer
+    assert call["source_schema"] is source_schema
+    assert call["user_inputs"] is user_inputs
+    assert call["initial_inputs"] is initial_inputs
+    assert call["output"] is output
+    assert call["metrics"] is metrics
 
 
 def test_runner_preserves_initial_step_inputs_for_identity_mapping() -> None:

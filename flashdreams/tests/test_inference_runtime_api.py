@@ -245,6 +245,26 @@ def test_step_requirements_keep_user_inputs_driver_owned() -> None:
         )
 
 
+def test_step_requirements_can_drop_legacy_user_window_when_source_owns_it() -> None:
+    request = StepRequest(
+        step_index=2,
+        user_input_window=TimeWindow(start_s=1.0, end_s=2.0),
+        metadata={"input_frame_count": 3, "model": "fake"},
+    )
+
+    requirements = step_requirements_from_request(
+        request,
+        allow_user_input_window=True,
+    )
+
+    assert requirements == StepRequirements(
+        step_index=2,
+        input_frame_count=3,
+        metadata={"model": "fake"},
+    )
+    assert not hasattr(requirements, "user_input_window")
+
+
 def test_null_output_target_counts_and_optionally_stores_results() -> None:
     target = NullOutputTarget(store_results=True)
     result = StepResult(step_index=0, output=b"frame")

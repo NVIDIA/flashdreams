@@ -95,10 +95,14 @@ class StepRequest:
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
-def step_requirements_from_request(request: StepRequest) -> StepRequirements:
+def step_requirements_from_request(
+    request: StepRequest,
+    *,
+    allow_user_input_window: bool = False,
+) -> StepRequirements:
     """Adapt a legacy ``StepRequest`` that did not carry driver-owned inputs."""
 
-    if request.user_input_window is not None:
+    if request.user_input_window is not None and not allow_user_input_window:
         raise ValueError(
             "StepRequest.user_input_window cannot be adapted to StepRequirements; "
             "user input windows are driver-owned."
