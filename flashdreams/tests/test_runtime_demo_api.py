@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,14 +37,21 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
+    Mp4OutputSink,
     Mp4OutputSpec,
+    NullOutputSink,
     NullOutputSpec,
+    OutputSink,
+    OutputSpec,
     PreparedScenario,
+    RunResult,
     WebRTCAppResources,
     WebRTCOutputSpec,
+    build_output_sink,
     build_output_target,
     run_replay_demo,
 )
+from flashdreams.runtime.demo.app import DemoApplication
 from flashdreams.runtime.demo.webrtc import (
     serve_webrtc_demo,
 )
@@ -52,7 +60,42 @@ from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_replay_demo_uses_shared_runner() -> None:
+def test_replay_demo_uses_shared_batch_path_by_default() -> None:
+    adapter = _FakeDemoAdapter()
+    sinks: list[OutputSink] = []
+
+    def output_sink_factory(output_spec: OutputSpec) -> OutputSink:
+        sink = build_output_sink(output_spec)
+        sinks.append(sink)
+        return sink
+
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="replay",
+        output=NullOutputSpec(),
+    )
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        metrics=NullMetricsRecorder(),
+        output_sink_factory=output_sink_factory,
+    )
+
+    assert result.status == "completed"
+    assert result.artifacts == ()
+    assert len(sinks) == 1
+    assert isinstance(sinks[0], NullOutputSink)
+    assert adapter.create_runtime_called
+    assert adapter.runtime is not None
+    assert adapter.runtime.closed
+    assert adapter.runtime.session is not None
+    assert adapter.runtime.session.closed
+    assert adapter.prepare_scenario_calls == [spec]
+
+
+def test_replay_demo_keeps_compat_runner_injection() -> None:
     adapter = _FakeDemoAdapter()
     output = _RecordingOutputTarget()
     calls: list[dict[str, Any]] = []
@@ -68,7 +111,7 @@ def test_replay_demo_uses_shared_runner() -> None:
         output=NullOutputSpec(),
     )
 
-    artifacts = run_replay_demo(
+    result = run_replay_demo(
         spec=spec,
         adapter=adapter,
         output_target_factory=lambda output_spec: output,
@@ -76,7 +119,10 @@ def test_replay_demo_uses_shared_runner() -> None:
         runner=fake_runner,
     )
 
-    assert artifacts == (OutputArtifact(kind="test/artifact", uri="memory://artifact"),)
+    assert result == RunResult(
+        status="completed",
+        artifacts=(OutputArtifact(kind="test/artifact", uri="memory://artifact"),),
+    )
     assert len(calls) == 1
     assert calls[0]["adapter"] is adapter
     assert calls[0]["config"] == spec.config
@@ -90,8 +136,9 @@ def test_replay_demo_uses_shared_runner() -> None:
     assert not adapter.create_runtime_called
 
 
-def test_replay_demo_builds_output_target_from_spec(tmp_path: Path) -> None:
+def test_replay_demo_builds_output_sink_from_spec(tmp_path: Path) -> None:
     writer_calls: list[dict[str, Any]] = []
+    sinks: list[OutputSink] = []
 
     def fake_writer(
         video: torch.Tensor,
@@ -119,18 +166,24 @@ def test_replay_demo_builds_output_target_from_spec(tmp_path: Path) -> None:
         output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=12),
     )
 
-    artifacts = run_replay_demo(
+    result = run_replay_demo(
         spec=spec,
         adapter=_FakeDemoAdapter(video_output=True),
-        output_target_factory=lambda output_spec: build_output_target(
-            output_spec,
-            mp4_writer=fake_writer,
+        output_sink_factory=lambda output_spec: _record_output_sink(
+            sinks,
+            build_output_sink(
+                output_spec,
+                mp4_writer=fake_writer,
+            ),
         ),
     )
 
-    assert len(artifacts) == 1
-    assert artifacts[0].kind == "video/mp4"
-    assert artifacts[0].uri == str(tmp_path / "demo.mp4")
+    assert result.status == "completed"
+    assert len(sinks) == 1
+    assert isinstance(sinks[0], Mp4OutputSink)
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0].kind == "video/mp4"
+    assert result.artifacts[0].uri == str(tmp_path / "demo.mp4")
     assert writer_calls == [
         {
             "shape": (2, 2, 2, 3),
@@ -139,6 +192,63 @@ def test_replay_demo_builds_output_target_from_spec(tmp_path: Path) -> None:
             "layout": "thwc",
         }
     ]
+
+
+def test_replay_demo_mp4_sink_matches_legacy_output_target_payload(
+    tmp_path: Path,
+) -> None:
+    def writer(records: list[dict[str, Any]]):
+        def fake_writer(
+            video: torch.Tensor,
+            path: Path,
+            *,
+            fps: int | float,
+            layout: str,
+            install_hint: str,
+        ) -> Path:
+            del install_hint
+            records.append(
+                {
+                    "bytes": video.detach().cpu().numpy().tobytes(),
+                    "shape": tuple(video.shape),
+                    "path": path,
+                    "fps": fps,
+                    "layout": layout,
+                }
+            )
+            return path
+
+        return fake_writer
+
+    spec = DemoSpec(
+        model_id="fake-demo",
+        scenario="valid-scenario",
+        input_mode="replay",
+        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=12),
+    )
+    sink_records: list[dict[str, Any]] = []
+    target_records: list[dict[str, Any]] = []
+
+    sink_result = run_replay_demo(
+        spec=spec,
+        adapter=_FakeDemoAdapter(video_output=True),
+        output_sink_factory=lambda output_spec: build_output_sink(
+            output_spec,
+            mp4_writer=writer(sink_records),
+        ),
+    )
+    target_result = run_replay_demo(
+        spec=spec,
+        adapter=_FakeDemoAdapter(video_output=True),
+        output_target_factory=lambda output_spec: build_output_target(
+            output_spec,
+            mp4_writer=writer(target_records),
+        ),
+    )
+
+    assert sink_result.status == "completed"
+    assert target_result.status == "completed"
+    assert sink_records == target_records
 
 
 def test_replay_demo_fails_before_runtime_creation_when_scenario_invalid() -> None:
@@ -168,6 +278,18 @@ def test_replay_demo_fails_before_runtime_creation_when_scenario_invalid() -> No
     assert adapter.prepare_scenario_calls == [spec]
     assert not adapter.create_runtime_called
     assert output_factory_calls == 0
+
+
+def test_replay_demo_step_failure_exits_nonzero_and_prints_reason(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    app = _ReplayOnlyDemoApplication(adapter=_FakeDemoAdapter(fail_step=0))
+
+    with pytest.raises(SystemExit) as raised:
+        app.main(["replay"])
+
+    assert raised.value.code == 1
+    assert "step failed" in capsys.readouterr().err
 
 
 def test_demo_adapter_declares_supported_modes() -> None:
@@ -291,6 +413,36 @@ class _ChunkIndexMapping:
         )
 
 
+def _record_output_sink(sinks: list[OutputSink], sink: OutputSink) -> OutputSink:
+    sinks.append(sink)
+    return sink
+
+
+class _ReplayOnlyDemoApplication(DemoApplication):
+    def __init__(self, *, adapter: "_FakeDemoAdapter") -> None:
+        self._adapter = adapter
+
+    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+        del argv
+        return argparse.Namespace(command="replay")
+
+    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
+        del args
+        return DemoSpec(
+            model_id="fake-demo",
+            scenario="valid-scenario",
+            input_mode="replay",
+            output=NullOutputSpec(),
+        )
+
+    def replay_adapter(self) -> "_FakeDemoAdapter":
+        return self._adapter
+
+    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
+        del args, context
+        raise AssertionError("webrtc should not run")
+
+
 class _FakeDemoAdapter:
     model_id = "fake-demo"
     inference_input_schema = InferenceInputSchema(
@@ -304,11 +456,13 @@ class _FakeDemoAdapter:
         *,
         scenario_valid: bool = True,
         video_output: bool = False,
+        fail_step: int | None = None,
         input_modes: tuple[str, ...] = ("replay",),
         output_modes: tuple[str, ...] = ("null", "mp4"),
     ) -> None:
         self._scenario_valid = scenario_valid
         self._video_output = video_output
+        self._fail_step = fail_step
         self._input_modes = input_modes
         self._output_modes = output_modes
         self.mapping = _ChunkIndexMapping()
@@ -344,6 +498,7 @@ class _FakeDemoAdapter:
         self.runtime = _FakeRuntime(
             inference_input_schema=self.inference_input_schema,
             video_output=self._video_output,
+            fail_step=self._fail_step,
         )
         return self.runtime
 
@@ -360,9 +515,11 @@ class _FakeRuntime:
         *,
         inference_input_schema: InferenceInputSchema,
         video_output: bool,
+        fail_step: int | None,
     ) -> None:
         self._inference_input_schema = inference_input_schema
         self._video_output = video_output
+        self._fail_step = fail_step
         self.session: _FakeSession | None = None
         self.closed = False
 
@@ -371,6 +528,7 @@ class _FakeRuntime:
         self.session = _FakeSession(
             inference_input_schema=self._inference_input_schema,
             video_output=self._video_output,
+            fail_step=self._fail_step,
         )
         return self.session
 
@@ -384,9 +542,11 @@ class _FakeSession:
         *,
         inference_input_schema: InferenceInputSchema,
         video_output: bool,
+        fail_step: int | None,
     ) -> None:
         self._inference_input_schema = inference_input_schema
         self._video_output = video_output
+        self._fail_step = fail_step
         self.step_index = 0
         self.closed = False
 
@@ -403,6 +563,8 @@ class _FakeSession:
 
     def step(self, inputs: InferenceInput) -> StepResult:
         self._inference_input_schema.require_step(inputs)
+        if self._fail_step == self.step_index:
+            raise RuntimeError("step failed")
         if self._video_output:
             result = StepResult.from_video_chunk(
                 step_index=self.step_index,

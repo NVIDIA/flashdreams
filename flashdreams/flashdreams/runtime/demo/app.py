@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -29,10 +30,18 @@ class DemoApplication(ABC):
         configure_logging()
         args = self.parse_args(argv)
         if args.command == "replay":
-            run_replay_demo(
+            result = run_replay_demo(
                 spec=self.replay_spec(args),
                 adapter=self.replay_adapter(),
             )
+            if result.status != "completed":
+                reason = result.reason or (
+                    str(result.error) if result.error is not None else None
+                )
+                if reason is None:
+                    reason = f"Replay demo ended with status {result.status!r}."
+                print(reason, file=sys.stderr)
+                raise SystemExit(1)
             return
         if args.command == "webrtc":
             context = initialize_cuda_distributed(

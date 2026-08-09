@@ -135,14 +135,17 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
         ),
     )
 
-    artifacts = run_replay_demo(
+    result = run_replay_demo(
         spec=spec,
         adapter=adapter,
         output_target_factory=lambda output_spec: output,
         runner=fake_runner,
     )
 
-    assert artifacts == (OutputArtifact(kind="video/mp4", uri="memory://lingbot"),)
+    assert result.status == "completed"
+    assert result.artifacts == (
+        OutputArtifact(kind="video/mp4", uri="memory://lingbot"),
+    )
     assert len(calls) == 1
     assert calls[0]["adapter"] is adapter
     assert calls[0]["config"] == spec.config

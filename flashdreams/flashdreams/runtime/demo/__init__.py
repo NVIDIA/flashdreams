@@ -28,7 +28,7 @@ from flashdreams.runtime.demo.outputs import (
     build_output_target,
 )
 from flashdreams.runtime.demo.pipeline import StepOutcome, StepPipeline
-from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.replay import OutputSinkFactory, run_replay_demo
 from flashdreams.runtime.demo.run_modes import (
     AsyncSessionDriver,
     BenchmarkErrorPolicy,
@@ -131,6 +131,7 @@ __all__ = [
     "NullOutputSink",
     "NullErrorPolicy",
     "OutputDecision",
+    "OutputSinkFactory",
     "OutputSpec",
     "OutputSink",
     "PreparedScenario",
