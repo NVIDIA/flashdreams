@@ -17,7 +17,6 @@ from flashdreams.infra.runner_io import (
     load_first_frame_tensor,
 )
 from flashdreams.runtime.config import InferenceConfig
-from flashdreams.runtime.inputs import InferenceInput, InferenceInputSchema, InputField
 from flashdreams.runtime.demo import (
     PreparedScenario,
     PreparedStep,
@@ -25,6 +24,7 @@ from flashdreams.runtime.demo import (
     UserInputWindow,
 )
 from flashdreams.runtime.demo.session_inputs import ControlDecision
+from flashdreams.runtime.inputs import InferenceInput, InferenceInputSchema, InputField
 from flashdreams.runtime.types import StepRequirements
 
 from .spec import OmnidreamsReplayScenario

@@ -647,6 +647,7 @@ async def shielded_session_cleanup(
         return session_edges.close_result(status=status, reason=reason, error=error)
 
     async def cleanup() -> RunResult:
+        session_closed = True
         if session is not None:
             session_closed = await _close_model_resource_async(
                 host=host,
@@ -656,12 +657,21 @@ async def shielded_session_cleanup(
             )
             if not session_closed:
                 host.mark_unhealthy("model-affine cleanup timed out")
-        provider_closed = await _close_model_resource_async(
-            host=host,
-            close=provider.close,
-            session_edges=session_edges,
-            timeout_s=timeout_s,
-        )
+        if session_closed:
+            provider_closed = await _close_model_resource_async(
+                host=host,
+                close=provider.close,
+                session_edges=session_edges,
+                timeout_s=timeout_s,
+            )
+        else:
+            # The model worker may still be occupied by an orphaned session.close.
+            # Do not queue provider cleanup behind it after marking the host unhealthy.
+            provider_closed = await _close_model_resource_direct_async(
+                close=provider.close,
+                session_edges=session_edges,
+                timeout_s=timeout_s,
+            )
         if not provider_closed:
             host.mark_unhealthy("model-affine cleanup timed out")
         return session_edges.close_result(
@@ -823,6 +833,25 @@ async def _close_model_resource_async(
     try:
         await asyncio.wait_for(
             host.call_async(_close_safely, close, session_edges),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError as exc:
+        session_edges.record_orphaned_cleanup(exc)
+        return False
+    except Exception as exc:
+        session_edges.record_cleanup_error(exc)
+    return True
+
+
+async def _close_model_resource_direct_async(
+    *,
+    close: Any,
+    session_edges: SessionEdges,
+    timeout_s: float,
+) -> bool:
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_close_safely, close, session_edges),
             timeout=timeout_s,
         )
     except asyncio.TimeoutError as exc:

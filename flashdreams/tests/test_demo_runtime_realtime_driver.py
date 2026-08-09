@@ -339,9 +339,10 @@ async def test_shielded_cleanup_timeout_bounds_shutdown() -> None:
 
     assert result.status == "cancelled"
     assert host.unhealthy_reason == "model-affine cleanup timed out"
-    assert host.close_targets == [session, provider]
+    assert host.close_targets == [session]
+    assert provider.close_count == 1
     assert metrics.cleanup_errors == []
-    assert len(metrics.orphaned_cleanup_errors) == 2
+    assert len(metrics.orphaned_cleanup_errors) == 1
     assert metrics.closed
 
 
