@@ -744,40 +744,27 @@ def _load_checkpoint_from_local(
         return torch.load(path, map_location=map_location, weights_only=False)
 
 
-def _evict_file_pages(path: str, file_fd: int) -> None:
-    if not hasattr(os, "posix_fadvise") or not hasattr(os, "POSIX_FADV_DONTNEED"):
-        return
-    try:
-        os.posix_fadvise(file_fd, 0, 0, os.POSIX_FADV_DONTNEED)
-    except OSError as exc:
-        logger.warning(f"Could not evict checkpoint page cache for {path}: {exc}")
-
-
 def _copy_checkpoint_tensor(destination: torch.Tensor, source: torch.Tensor) -> int:
-    """Copy one checkpoint tensor into ``destination`` with bounded staging."""
+    """Copy one checkpoint tensor into ``destination`` with bounded staging.
+
+    GPU destinations use a CPU tensor in the destination dtype as the staging
+    buffer so checkpoint loading never holds a merged state dict or an extra
+    GPU copy of the tensor.
+    """
     checkpoint_bytes = source.numel() * source.element_size()
     if destination.device.type != "cpu":
         staged = source.to(dtype=destination.dtype)
         if staged.data_ptr() == source.data_ptr():
             staged = staged.clone()
         destination.copy_(staged)
-        # Keep the CPU staging buffer alive until CUDA has consumed it.
         if destination.device.type == "cuda":
+            # Keep the CPU staging buffer alive until CUDA has consumed it.
             torch.cuda.synchronize(destination.device)
         del staged
         return checkpoint_bytes
 
     destination.copy_(source.to(device=destination.device, dtype=destination.dtype))
     return checkpoint_bytes
-
-
-def _trace_checkpoint_tensors_enabled() -> bool:
-    return os.environ.get("FLASHDREAMS_CHECKPOINT_TENSOR_LOGS", "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 
 
 def _stream_safetensors_into_model(
@@ -797,87 +784,40 @@ def _stream_safetensors_into_model(
         RuntimeError: Checkpoint keys or tensor shapes do not match the model.
     """
     model_state = model.state_dict()
-    checkpoint_fd = os.open(path, os.O_RDONLY)
-    evict_interval = 512 * 1024**2
-    bytes_since_evict = 0
 
-    def evict_checkpoint_pages() -> None:
-        _evict_file_pages(path, checkpoint_fd)
+    with safe_open(path, framework="pt", device="cpu", backend="mmap") as source:
+        checkpoint_keys = set(source.keys())
+        model_keys = set(model_state)
+        missing = sorted(model_keys - checkpoint_keys)
+        unexpected = sorted(checkpoint_keys - model_keys)
+        if missing or unexpected:
+            details = []
+            if missing:
+                details.append(f"Missing key(s): {', '.join(missing[:20])}")
+            if unexpected:
+                details.append(f"Unexpected key(s): {', '.join(unexpected[:20])}")
+            raise RuntimeError(
+                f"Checkpoint does not match {type(model).__name__}: "
+                + "; ".join(details)
+            )
 
-    try:
-        with safe_open(path, framework="pt", device="cpu", backend="mmap") as source:
-            checkpoint_keys = set(source.keys())
-            model_keys = set(model_state)
-            missing = sorted(model_keys - checkpoint_keys)
-            unexpected = sorted(checkpoint_keys - model_keys)
-            if missing or unexpected:
-                details = []
-                if missing:
-                    details.append(f"Missing key(s): {', '.join(missing[:20])}")
-                if unexpected:
-                    details.append(f"Unexpected key(s): {', '.join(unexpected[:20])}")
+        for name, destination in model_state.items():
+            source_shape = tuple(source.get_slice(name).get_shape())
+            if source_shape != tuple(destination.shape):
                 raise RuntimeError(
-                    f"Checkpoint does not match {type(model).__name__}: "
-                    + "; ".join(details)
+                    f"Checkpoint tensor {name!r} has shape {source_shape}, "
+                    f"expected {tuple(destination.shape)}"
                 )
 
+        with torch.no_grad():
             for name, destination in model_state.items():
-                source_shape = tuple(source.get_slice(name).get_shape())
-                if source_shape != tuple(destination.shape):
-                    raise RuntimeError(
-                        f"Checkpoint tensor {name!r} has shape {source_shape}, "
-                        f"expected {tuple(destination.shape)}"
-                    )
-
-            with torch.no_grad():
-                for name, destination in model_state.items():
-                    tensor = source.get_tensor(name)
-                    bytes_since_evict += _copy_checkpoint_tensor(destination, tensor)
+                tensor = source.get_tensor(name)
+                try:
+                    _copy_checkpoint_tensor(destination, tensor)
+                finally:
                     del tensor
-                    if bytes_since_evict >= evict_interval:
-                        evict_checkpoint_pages()
-                        bytes_since_evict = 0
-    finally:
-        evict_checkpoint_pages()
-        os.close(checkpoint_fd)
 
     return model
-
-
-def _stream_safetensors_tensor_to_model(
-    *,
-    source: safe_open,
-    destination: torch.Tensor,
-    name: str,
-    trace_tensors: bool,
-) -> int:
-    """Fetch and copy one safetensors tensor into its model destination."""
-    tensor_started = time.perf_counter()
-    if trace_tensors:
-        logger.info("Fetching checkpoint tensor {}", name)
-    tensor = source.get_tensor(name)
-    if trace_tensors:
-        logger.info(
-            "Copying checkpoint tensor {}: shape={}, source_dtype={}, "
-            "destination_device={}, destination_dtype={}",
-            name,
-            tuple(tensor.shape),
-            tensor.dtype,
-            destination.device,
-            destination.dtype,
-        )
-    try:
-        return _copy_checkpoint_tensor(destination, tensor)
-    finally:
-        if trace_tensors:
-            tensor_bytes = tensor.numel() * tensor.element_size()
-            logger.info(
-                "Copied checkpoint tensor {} in {:.2f}s: {:.2f} MiB",
-                name,
-                time.perf_counter() - tensor_started,
-                tensor_bytes / 1024**2,
-            )
-        del tensor
 
 
 def _stream_sharded_safetensors_into_model(
@@ -961,7 +901,6 @@ def _stream_sharded_safetensors_into_model(
 
     total_copied_bytes = 0
     total_started = time.perf_counter()
-    trace_tensors = _trace_checkpoint_tensors_enabled()
     with torch.no_grad():
         for shard_index, shard_file in enumerate(shard_files, start=1):
             shard_path = resolve_shard_path(shard_file)
@@ -975,23 +914,19 @@ def _stream_sharded_safetensors_into_model(
                 len(tensor_names),
                 shard_file,
             )
-            checkpoint_fd = os.open(shard_path, os.O_RDONLY)
-            try:
-                with safe_open(
-                    shard_path, framework="pt", device="cpu", backend="mmap"
-                ) as source:
-                    for name in tensor_names:
-                        tensor_bytes = _stream_safetensors_tensor_to_model(
-                            source=source,
-                            destination=model_state[name],
-                            name=name,
-                            trace_tensors=trace_tensors,
+            with safe_open(
+                shard_path, framework="pt", device="cpu", backend="mmap"
+            ) as source:
+                for name in tensor_names:
+                    tensor = source.get_tensor(name)
+                    try:
+                        tensor_bytes = _copy_checkpoint_tensor(
+                            model_state[name], tensor
                         )
                         shard_copied_bytes += tensor_bytes
                         total_copied_bytes += tensor_bytes
-            finally:
-                _evict_file_pages(shard_path, checkpoint_fd)
-                os.close(checkpoint_fd)
+                    finally:
+                        del tensor
             elapsed = time.perf_counter() - started
             throughput = (
                 shard_copied_bytes / 1024**3 / elapsed if elapsed > 0 else float("inf")
