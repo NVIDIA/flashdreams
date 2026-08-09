@@ -25,11 +25,15 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     AsyncSessionDriver,
+    BenchmarkErrorPolicy,
     DemoSpec,
     DriverInvariantError,
     InMemorySessionMetricsRecorder,
     ModelWarmupPlan,
+    Mp4ErrorPolicy,
     Mp4OutputSpec,
+    NativeWindowErrorPolicy,
+    NullErrorPolicy,
     NullOutputSpec,
     OutputDecision,
     PreparedScenario,
@@ -43,6 +47,7 @@ from flashdreams.runtime.demo import (
     SessionInfo,
     StepPipeline,
     UserInputWindow,
+    WebRTCErrorPolicy,
     WebRTCOutputSpec,
     run_demo_session,
     run_demo_session_async,
@@ -220,6 +225,43 @@ async def test_run_context_close_async_drains_cleanup_tasks() -> None:
     assert task.done()
     assert summary.metrics.counters["sessions"] == 0
     assert metrics.closed
+
+
+def test_error_policy_implementations_keep_setup_failures_terminal() -> None:
+    exc = RuntimeError("setup failed")
+    policies = (
+        Mp4ErrorPolicy(),
+        BenchmarkErrorPolicy(),
+        WebRTCErrorPolicy(recoverable_exception_types=(RuntimeError,)),
+        NativeWindowErrorPolicy(),
+        NullErrorPolicy(),
+    )
+
+    for policy in policies:
+        action = policy.handle_setup_error(exc)
+        assert action.result_status == "failed"
+        assert action.close_session
+        assert not action.drop_chunk
+
+
+def test_benchmark_error_policy_marks_failed_scenario_continuable() -> None:
+    action = BenchmarkErrorPolicy().handle(RuntimeError("scenario failed"))
+
+    assert action.result_status == "failed"
+    assert action.close_session
+    assert action.continue_next_scenario
+    assert not action.drop_chunk
+
+
+def test_webrtc_error_policy_can_drop_recoverable_step_errors() -> None:
+    action = WebRTCErrorPolicy(
+        recoverable_exception_types=(RuntimeError,),
+    ).handle(RuntimeError("output queue full"))
+
+    assert action.result_status == "failed"
+    assert not action.close_session
+    assert action.drop_chunk
+    assert not action.continue_next_scenario
 
 
 def _run_fake_single_session_mode(

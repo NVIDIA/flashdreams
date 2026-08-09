@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -297,6 +297,11 @@ def test_run_demo_session_closes_provider_when_validation_fails() -> None:
     assert provider.close_count == 1
     assert runtime.start_session_inputs == []
     assert run_metrics.sessions == [result]
+    assert run_metrics.session_errors == ["provider incompatible"]
+    snapshot = run_metrics.close()
+    assert snapshot.counters["sessions"] == 1
+    assert snapshot.counters["session_errors"] == 1
+    assert snapshot.session_statuses == ("failed",)
 
 
 def test_run_demo_session_keeps_failure_when_run_cleanup_metrics_fail() -> None:
@@ -537,8 +542,9 @@ def test_run_demo_session_closes_edges_when_driver_invariant_escapes() -> None:
     assert session_metrics.closed
     assert provider.close_count == 1
     assert len(run_metrics.sessions) == 1
-    assert run_metrics.sessions[0].status == "failed"
-    assert isinstance(run_metrics.sessions[0].error, DriverInvariantError)
+    recorded = cast(RunResult, run_metrics.sessions[0])
+    assert recorded.status == "failed"
+    assert isinstance(recorded.error, DriverInvariantError)
 
 
 def test_input_source_finished_error_returns_failed_not_completed() -> None:

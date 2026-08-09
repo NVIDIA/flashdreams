@@ -52,6 +52,7 @@ from flashdreams.runtime.mapping import (
 from flashdreams.runtime.metrics import (
     InMemoryMetricsRecorder,
     MetricsRecorder,
+    MetricsSnapshot,
     NullMetricsRecorder,
     RuntimeMetricSample,
 )
@@ -95,6 +96,7 @@ __all__ = [
     "KeyboardToDriverCommand",
     "MappingCompatibility",
     "MetricsRecorder",
+    "MetricsSnapshot",
     "ModelAdapter",
     "ModelExecutionWorker",
     "Mp4VideoOutputTarget",

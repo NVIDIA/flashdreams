@@ -12,10 +12,15 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
+from flashdreams.runtime.metrics import (
+    InMemoryMetricsRecorder,
+    MetricsRecorder,
+    MetricsSnapshot,
+)
 from flashdreams.runtime.output import OutputArtifact
 
 from .host import ModelWarmupPlan, WarmupSessionInputs
-from .outputs import OutputDecision, OutputSink
+from .outputs import OutputSink
 
 if TYPE_CHECKING:
     from .host import RuntimeHost
@@ -40,28 +45,6 @@ DriverStatus = Literal[
     "cancelled",
     "not_activated",
 ]
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class MetricsSnapshot:
-    """Closed session or run metrics summary."""
-
-    counters: Mapping[str, int | float] = field(default_factory=dict)
-    timings: Mapping[str, Sequence[float]] = field(default_factory=dict)
-    session_statuses: Sequence[str] = ()
-    errors: Sequence[str] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "counters", freeze_mapping(self.counters))
-        object.__setattr__(
-            self,
-            "timings",
-            freeze_mapping(
-                {key: tuple(values) for key, values in self.timings.items()}
-            ),
-        )
-        object.__setattr__(self, "session_statuses", tuple(self.session_statuses))
-        object.__setattr__(self, "errors", tuple(self.errors))
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -127,6 +110,52 @@ class ErrorPolicy(Protocol):
     def handle(self, exc: Exception) -> ErrorAction: ...
 
 
+class Mp4ErrorPolicy(DefaultErrorPolicy):
+    """Abort MP4 sessions on setup or step errors."""
+
+
+class NullErrorPolicy(DefaultErrorPolicy):
+    """Abort headless/null sessions on setup or step errors."""
+
+
+class NativeWindowErrorPolicy(DefaultErrorPolicy):
+    """Abort native-window sessions unless a future UI policy overrides it."""
+
+
+class BenchmarkErrorPolicy(DefaultErrorPolicy):
+    """Close failed scenarios while letting benchmark loops continue."""
+
+    def handle_setup_error(self, exc: Exception) -> ErrorAction:
+        del exc
+        return ErrorAction(result_status="failed", continue_next_scenario=True)
+
+    def handle(self, exc: Exception) -> ErrorAction:
+        del exc
+        return ErrorAction(result_status="failed", continue_next_scenario=True)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class WebRTCErrorPolicy:
+    """Drop configured recoverable realtime errors, otherwise close the session."""
+
+    recoverable_exception_types: tuple[type[Exception], ...] = ()
+
+    def handle_setup_error(self, exc: Exception) -> ErrorAction:
+        del exc
+        return ErrorAction(result_status="failed")
+
+    def handle(self, exc: Exception) -> ErrorAction:
+        if self.recoverable_exception_types and isinstance(
+            exc, self.recoverable_exception_types
+        ):
+            return ErrorAction(
+                close_session=False,
+                drop_chunk=True,
+                result_status="failed",
+            )
+        return ErrorAction(result_status="failed")
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class RunModeCapabilities:
     """Run-mode requirements and output/transport capabilities."""
@@ -138,97 +167,8 @@ class RunModeCapabilities:
     supports_artifacts: bool = False
 
 
-@runtime_checkable
-class SessionMetricsRecorder(Protocol):
-    """Metrics callbacks consumed by the Phase 2 drivers and pipeline."""
-
-    def record_step(
-        self,
-        *,
-        request: object,
-        user_window: object,
-        inference_input: object,
-        result: object,
-        decision: OutputDecision,
-    ) -> None: ...
-
-    def record_control(
-        self,
-        *,
-        request: object,
-        user_window: object,
-        control: object,
-    ) -> None: ...
-
-    def record_error(self, exc: Exception, action: ErrorAction) -> None: ...
-
-    def record_cleanup_error(self, exc: Exception) -> None: ...
-
-    def record_session(self, result: RunResult) -> None: ...
-
-    def close(self) -> MetricsSnapshot: ...
-
-
-@dataclass(slots=True)
-class InMemorySessionMetricsRecorder:
-    """Small non-raising metrics recorder for driver tests and fake demos."""
-
-    step_count: int = 0
-    control_count: int = 0
-    errors: list[str] = field(default_factory=list)
-    cleanup_errors: list[str] = field(default_factory=list)
-    sessions: list[RunResult] = field(default_factory=list)
-    closed: bool = False
-
-    def record_step(
-        self,
-        *,
-        request: object,
-        user_window: object,
-        inference_input: object,
-        result: object,
-        decision: OutputDecision,
-    ) -> None:
-        del request, user_window, inference_input, result, decision
-        if not self.closed:
-            self.step_count += 1
-
-    def record_control(
-        self,
-        *,
-        request: object,
-        user_window: object,
-        control: object,
-    ) -> None:
-        del request, user_window, control
-        if not self.closed:
-            self.control_count += 1
-
-    def record_error(self, exc: Exception, action: ErrorAction) -> None:
-        del action
-        if not self.closed:
-            self.errors.append(str(exc))
-
-    def record_cleanup_error(self, exc: Exception) -> None:
-        if not self.closed:
-            self.cleanup_errors.append(str(exc))
-
-    def record_session(self, result: RunResult) -> None:
-        if not self.closed:
-            self.sessions.append(result)
-
-    def close(self) -> MetricsSnapshot:
-        self.closed = True
-        return MetricsSnapshot(
-            counters={
-                "steps": self.step_count,
-                "controls": self.control_count,
-                "sessions": len(self.sessions),
-                "cleanup_errors": len(self.cleanup_errors),
-            },
-            session_statuses=tuple(result.status for result in self.sessions),
-            errors=tuple((*self.errors, *self.cleanup_errors)),
-        )
+SessionMetricsRecorder = MetricsRecorder
+InMemorySessionMetricsRecorder = InMemoryMetricsRecorder
 
 
 class NoopTransportService:
@@ -558,13 +498,17 @@ def _coerce_warmup_sessions(value: object) -> tuple[WarmupSessionInputs, ...]:
 __all__ = [
     "AdmissionPolicy",
     "AsyncSessionDriver",
+    "BenchmarkErrorPolicy",
     "DefaultErrorPolicy",
     "DriverStatus",
     "ErrorAction",
     "ErrorPolicy",
     "InMemorySessionMetricsRecorder",
     "MetricsSnapshot",
+    "Mp4ErrorPolicy",
+    "NativeWindowErrorPolicy",
     "NoopTransportService",
+    "NullErrorPolicy",
     "RunContext",
     "RunMode",
     "RunModeCapabilities",
@@ -578,6 +522,7 @@ __all__ = [
     "SessionStatus",
     "SingleSessionAdmissionPolicy",
     "TransportService",
+    "WebRTCErrorPolicy",
     "build_model_warmup_plan",
     "warmup_run_context",
 ]

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -16,6 +17,8 @@ from flashdreams.runtime import (
     InferenceInputSchema,
     InMemoryMetricsRecorder,
     InputField,
+    MetricsSnapshot,
+    NullMetricsRecorder,
     NullOutputTarget,
     OutputArtifact,
     RuntimeMetricSample,
@@ -290,6 +293,80 @@ def test_in_memory_metrics_recorder_uses_seconds_for_timing() -> None:
     assert sample.unit == "s"
     assert sample.category == "timing"
     assert sample.step_index == 2
+    snapshot = recorder.close()
+    assert isinstance(snapshot, MetricsSnapshot)
+    assert recorder.closed
+    assert snapshot.counters["samples"] == 1
+    assert snapshot.timings["model_step"] == (pytest.approx(0.125),)
+
+
+def test_in_memory_metrics_recorder_rolls_up_sessions_and_diagnostics() -> None:
+    recorder = InMemoryMetricsRecorder()
+
+    recorder.record_session(SimpleNamespace(status="completed"))
+    recorder.record_session_error(RuntimeError("assembly failed"))
+    recorder.record_error(RuntimeError("step failed"), object())
+    recorder.record_catch_up(object())
+    recorder.record_cleanup_error(RuntimeError("cleanup failed"))
+    recorder.record_orphaned_cleanup(RuntimeError("orphaned cleanup"))
+    snapshot = recorder.close()
+
+    assert snapshot.counters["sessions"] == 1
+    assert snapshot.counters["sessions.completed"] == 1
+    assert snapshot.counters.get("sessions.failed", 0) == 0
+    assert snapshot.counters["session_errors"] == 1
+    assert snapshot.counters["catch_ups"] == 1
+    assert snapshot.session_statuses == ("completed",)
+    assert snapshot.errors == (
+        "step failed",
+        "cleanup failed",
+        "orphaned cleanup",
+        "assembly failed",
+    )
+
+
+def test_cancelled_session_rollup_does_not_count_as_failed() -> None:
+    recorder = InMemoryMetricsRecorder()
+
+    recorder.record_session(SimpleNamespace(status="cancelled"))
+    snapshot = recorder.close()
+
+    assert snapshot.counters["sessions"] == 1
+    assert snapshot.counters["sessions.cancelled"] == 1
+    assert snapshot.counters.get("sessions.failed", 0) == 0
+    assert snapshot.session_statuses == ("cancelled",)
+
+
+def test_null_metrics_recorder_keeps_old_and_new_calls_noop() -> None:
+    recorder = NullMetricsRecorder()
+
+    recorder.record(RuntimeMetricSample(name="runtime", value=1.0))
+    recorder.record_timing("model_step", 0.125, step_index=2)
+    recorder.record_step(
+        request=object(),
+        user_window=object(),
+        inference_input=object(),
+        result=object(),
+        decision=object(),
+    )
+    recorder.record_control(
+        request=object(),
+        user_window=object(),
+        control=object(),
+    )
+    recorder.record_error(RuntimeError("step failed"), object())
+    recorder.record_catch_up(object())
+    recorder.record_cleanup_error(RuntimeError("cleanup failed"))
+    recorder.record_orphaned_cleanup(RuntimeError("orphaned cleanup"))
+    recorder.record_session(SimpleNamespace(status="failed"))
+    recorder.record_session_error(RuntimeError("assembly failed"))
+    snapshot = recorder.close()
+
+    assert isinstance(snapshot, MetricsSnapshot)
+    assert snapshot.counters == {}
+    assert snapshot.timings == {}
+    assert snapshot.session_statuses == ()
+    assert snapshot.errors == ()
 
 
 def test_timing_metric_samples_must_use_seconds() -> None:

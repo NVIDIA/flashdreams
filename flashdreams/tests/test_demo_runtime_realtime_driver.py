@@ -316,13 +316,14 @@ async def test_realtime_driver_applies_backpressure_through_clock() -> None:
     runtime = _FakeRealtimeRuntime(session=session)
     host = RuntimeHost(runtime)
     clock = _RecordingRealtimeClock()
+    metrics = InMemorySessionMetricsRecorder()
     output = _RecordingOutputSink(
         decisions=(
             OutputDecision(backpressure_s=0.25),
             OutputDecision(should_stop=True),
         )
     )
-    edges = _edges(clock=clock, output=output)
+    edges = _edges(clock=clock, output=output, metrics=metrics)
 
     try:
         result = await RealtimeSessionDriver().run_one_session(
@@ -336,6 +337,7 @@ async def test_realtime_driver_applies_backpressure_through_clock() -> None:
 
     assert result.status == "completed"
     assert clock.backpressure == [0.25]
+    assert metrics.catch_up_count == 2
     assert len(output.results) == 2
 
 

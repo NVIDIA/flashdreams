@@ -234,6 +234,7 @@ class RealtimeSessionDriver:
                         request=request,
                         clock=clock,
                     )
+                    session_edges.metrics.record_catch_up(window_result.catch_up)
                     if (
                         not session_edges.transport.is_active()
                         and not first_step_started
@@ -383,6 +384,7 @@ def run_demo_session(
         context.run_metrics.record_session(result)
         return result
     except DriverInvariantError as exc:
+        _record_run_session_error(context, exc)
         if provider is not None and not driver_started:
             try:
                 context.host.call(provider.close)
@@ -402,6 +404,7 @@ def run_demo_session(
             context.run_metrics.record_session(result)
         raise
     except Exception as exc:
+        _record_run_session_error(context, exc)
         if provider is not None and not driver_started:
             try:
                 context.host.call(provider.close)
@@ -507,6 +510,7 @@ async def run_demo_session_async(
             context.run_metrics.record_session(result)
             return result
         except DriverInvariantError as exc:
+            _record_run_session_error(context, exc)
             if provider is not None and not driver_started:
                 await _close_provider_async(
                     context=context,
@@ -524,6 +528,7 @@ async def run_demo_session_async(
                 context.run_metrics.record_session(result)
             raise
         except Exception as exc:
+            _record_run_session_error(context, exc)
             result = await _close_partial_session_async(
                 context=context,
                 provider=provider,
@@ -801,6 +806,13 @@ async def _close_provider_async(
 def _record_run_cleanup_error(context: RunContext, exc: Exception) -> None:
     try:
         context.run_metrics.record_cleanup_error(exc)
+    except Exception:
+        return
+
+
+def _record_run_session_error(context: RunContext, exc: Exception) -> None:
+    try:
+        context.run_metrics.record_session_error(exc)
     except Exception:
         return
 

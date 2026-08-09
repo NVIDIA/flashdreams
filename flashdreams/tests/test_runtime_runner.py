@@ -25,6 +25,7 @@ from flashdreams.runtime import (
     InputField,
     InputMapping,
     InputMappingSchema,
+    MetricsSnapshot,
     NullOutputTarget,
     OutputArtifact,
     RuntimeMetricSample,
@@ -656,5 +657,44 @@ class _RecordingMetricsRecorder:
             )
         )
 
-    def close(self) -> None:
+    def record_step(
+        self,
+        *,
+        request: object,
+        user_window: object,
+        inference_input: object,
+        result: object,
+        decision: object,
+    ) -> None:
+        del request, user_window, inference_input, result, decision
+
+    def record_control(
+        self,
+        *,
+        request: object,
+        user_window: object,
+        control: object,
+    ) -> None:
+        del request, user_window, control
+
+    def record_error(self, exc: Exception, action: object) -> None:
+        del exc, action
+
+    def record_catch_up(self, decision: object) -> None:
+        del decision
+
+    def record_cleanup_error(self, exc: Exception) -> None:
+        del exc
+
+    def record_orphaned_cleanup(self, exc: Exception) -> None:
+        del exc
+
+    def record_session(self, result: object) -> None:
+        del result
+
+    def record_session_error(self, exc: Exception) -> None:
+        del exc
+
+    def close(self) -> MetricsSnapshot:
         self._events.append("metrics.close")
+        return MetricsSnapshot()
