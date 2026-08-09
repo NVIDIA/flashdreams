@@ -307,6 +307,43 @@ def test_batch_driver_invariant_finalizes_edges_when_host_closed() -> None:
     assert provider.close_count == 0
 
 
+def test_batch_driver_ordinary_cleanup_finalizes_edges_when_host_closed() -> None:
+    session = _FakeVideoSession(num_steps=1)
+    runtime = _FakeVideoRuntime(session=session)
+    host = _ClosingAfterStepRuntimeHost(runtime)
+    provider = _FakeVideoModelInputProvider()
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = InMemorySessionMetricsRecorder()
+
+    result = BatchSessionDriver().run_one_session(
+        host=host,
+        provider=provider,
+        session_edges=SessionEdges(
+            input_source=_FakeBatchInputSource(num_windows=1),
+            output_sink=output,
+            cleanup_tasks=set(),
+            metrics=metrics,
+            transport=transport,
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+    assert result.metrics.counters["cleanup_errors"] == 2
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+    assert metrics.cleanup_errors == [
+        "runtime host is closed",
+        "runtime host is closed",
+    ]
+    assert session.close_count == 0
+    assert provider.close_count == 0
+
+
 def test_batch_driver_invariant_finalizes_edges_when_cleanup_metrics_fail() -> None:
     runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
     host = RuntimeHost(runtime)
@@ -652,6 +689,14 @@ class _RecordingRuntimeHost(RuntimeHost):
     def call(self, func: Callable[..., Any], /, *args: object, **kwargs: object) -> Any:
         self.calls.append(getattr(func, "__name__", type(func).__name__))
         return super().call(func, *args, **kwargs)
+
+
+class _ClosingAfterStepRuntimeHost(_RecordingRuntimeHost):
+    def call(self, func: Callable[..., Any], /, *args: object, **kwargs: object) -> Any:
+        result = super().call(func, *args, **kwargs)
+        if getattr(func, "__name__", type(func).__name__) == "execute_step":
+            self.close()
+        return result
 
 
 class _RecordingOutputSink:

@@ -134,8 +134,16 @@ class BatchSessionDriver:
         finally:
             if not invariant_closed:
                 if session is not None:
-                    host.call(_close_safely, session.close, session_edges)
-                host.call(_close_safely, provider.close, session_edges)
+                    _close_on_host_best_effort(
+                        host=host,
+                        close=session.close,
+                        session_edges=session_edges,
+                    )
+                _close_on_host_best_effort(
+                    host=host,
+                    close=provider.close,
+                    session_edges=session_edges,
+                )
 
         return session_edges.close_result(
             status=final_status,
