@@ -8,11 +8,14 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.inputs import InferenceInput, UserInputs
 from flashdreams.runtime.types import StepRequest
+
+if TYPE_CHECKING:
+    from .timing import RealtimeClock, RealtimeWindowResult
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -102,8 +105,8 @@ class RealtimeInputSource(InputSource, Protocol):
         self,
         *,
         request: StepRequest,
-        clock: object,
-    ) -> object:
+        clock: "RealtimeClock",
+    ) -> "RealtimeWindowResult":
         """Return the next realtime window result.
 
         The concrete realtime result shape lands with the realtime clock phase.

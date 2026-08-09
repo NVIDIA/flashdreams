@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .pipeline import StepPipeline
     from .session_inputs import InputSource, ModelInputProvider
     from .spec import DemoAdapter, DemoSpec, PreparedScenario
+    from .timing import ActivationPolicy, DeterministicClock, RealtimeClock
 
 SessionStatus = Literal[
     "completed",
@@ -373,8 +374,8 @@ class SessionEdges:
     )
     error_policy: ErrorPolicy = field(default_factory=DefaultErrorPolicy)
     transport: TransportService = field(default_factory=NoopTransportService)
-    clock: object | None = None
-    activation: object | None = None
+    clock: "RealtimeClock | DeterministicClock | None" = None
+    activation: "ActivationPolicy | None" = None
     _closed_result: RunResult | None = field(default=None, init=False, repr=False)
 
     @property
