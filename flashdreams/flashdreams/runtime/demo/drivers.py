@@ -656,11 +656,6 @@ async def shielded_session_cleanup(
             )
             if not session_closed:
                 host.mark_unhealthy("model-affine cleanup timed out")
-                return session_edges.close_result(
-                    status=status,
-                    reason=reason,
-                    error=error,
-                )
         provider_closed = await _close_model_resource_async(
             host=host,
             close=provider.close,
