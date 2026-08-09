@@ -11,8 +11,7 @@ from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.output import OutputArtifact
-from flashdreams.runtime.output import NullOutputTarget, OutputTarget
+from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
 from flashdreams.runtime.types import StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget, VideoWriter
 

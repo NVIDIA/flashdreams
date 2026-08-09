@@ -256,6 +256,42 @@ def test_setup_failure_can_return_skipped_but_not_completed() -> None:
         )
 
 
+def test_run_demo_session_closes_edges_when_driver_invariant_escapes() -> None:
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    run_metrics = InMemorySessionMetricsRecorder()
+    context = _run_context(runtime, run_metrics=run_metrics)
+    provider = _FakeVideoModelInputProvider(
+        fail_initial=RuntimeError("bad setup policy")
+    )
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    session_metrics = InMemorySessionMetricsRecorder()
+
+    with pytest.raises(DriverInvariantError, match="Setup failures"):
+        run_demo_session(
+            context=context,
+            spec=_spec(),
+            scenario=_scenario(),
+            adapter=_FakeDemoAdapter(provider=provider),
+            run_mode=_FakeRunMode(
+                input_source=_FakeBatchInputSource(num_windows=1),
+                output_sink=output,
+                metrics=session_metrics,
+                transport=transport,
+                error_policy=_SetupPolicy(result_status="completed"),
+            ),
+            pipeline=StepPipeline(),
+        )
+
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert session_metrics.closed
+    assert provider.close_count == 1
+    assert len(run_metrics.sessions) == 1
+    assert run_metrics.sessions[0].status == "failed"
+    assert isinstance(run_metrics.sessions[0].error, DriverInvariantError)
+
+
 def test_input_source_finished_error_returns_failed_not_completed() -> None:
     metrics = InMemorySessionMetricsRecorder()
 
@@ -382,9 +418,8 @@ def _run_context(
     return RunContext(
         host=host,
         run_metrics=run_metrics or InMemorySessionMetricsRecorder(),
-        admission=admission or SingleSessionAdmissionPolicy(
-            health_check=lambda: host.is_healthy
-        ),
+        admission=admission
+        or SingleSessionAdmissionPolicy(health_check=lambda: host.is_healthy),
     )
 
 
@@ -637,12 +672,16 @@ class _FakeRunMode:
             Callable[[DemoSpec, PreparedScenario], _RecordingOutputSink] | None
         ) = None,
         metrics: InMemorySessionMetricsRecorder | None = None,
+        transport: _RecordingTransport | None = None,
+        error_policy: _SetupPolicy | None = None,
         validate_error: Exception | None = None,
     ) -> None:
         self.input_source = input_source
         self.output_sink = output_sink or _RecordingOutputSink()
         self.output_sink_factory = output_sink_factory
         self.metrics = metrics or InMemorySessionMetricsRecorder()
+        self.transport = transport
+        self.error_policy = error_policy
         self.validate_error = validate_error
 
     def validate_session(
@@ -676,6 +715,8 @@ class _FakeRunMode:
             input_source=self.input_source,
             output_sink=output_sink,
             metrics=self.metrics,
+            error_policy=self.error_policy or _SetupPolicy(result_status="failed"),
+            transport=self.transport or _RecordingTransport(),
         )
 
     def select_driver(self) -> BatchSessionDriver:

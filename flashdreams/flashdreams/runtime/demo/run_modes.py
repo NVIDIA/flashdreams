@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Any, Literal, Protocol, TYPE_CHECKING, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.output import OutputArtifact
@@ -52,7 +52,9 @@ class MetricsSnapshot:
         object.__setattr__(
             self,
             "timings",
-            freeze_mapping({key: tuple(values) for key, values in self.timings.items()}),
+            freeze_mapping(
+                {key: tuple(values) for key, values in self.timings.items()}
+            ),
         )
         object.__setattr__(self, "session_statuses", tuple(self.session_statuses))
         object.__setattr__(self, "errors", tuple(self.errors))

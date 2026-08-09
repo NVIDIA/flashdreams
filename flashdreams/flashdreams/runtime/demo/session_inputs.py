@@ -47,9 +47,7 @@ class UserInputWindow:
         if not math.isfinite(self.start_s) or self.start_s < 0:
             raise ValueError("UserInputWindow.start_s must be finite and >= 0.")
         if not math.isfinite(self.end_s) or self.end_s < self.start_s:
-            raise ValueError(
-                "UserInputWindow.end_s must be finite and >= start_s."
-            )
+            raise ValueError("UserInputWindow.end_s must be finite and >= start_s.")
         previous = -math.inf
         for frame_time in self.frame_times:
             if not math.isfinite(float(frame_time)):
@@ -59,7 +57,9 @@ class UserInputWindow:
                     "UserInputWindow.frame_times must be sorted in ascending order."
                 )
             previous = float(frame_time)
-        object.__setattr__(self, "frame_times", tuple(float(t) for t in self.frame_times))
+        object.__setattr__(
+            self, "frame_times", tuple(float(t) for t in self.frame_times)
+        )
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 

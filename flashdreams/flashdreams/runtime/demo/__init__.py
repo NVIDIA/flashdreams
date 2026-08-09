@@ -9,12 +9,12 @@ from flashdreams.runtime.demo.drivers import (
     run_demo_session,
 )
 from flashdreams.runtime.demo.host import RuntimeHost
-from flashdreams.runtime.demo.outputs import build_output_target
 from flashdreams.runtime.demo.outputs import (
     NullOutputSink,
     OutputDecision,
     OutputSink,
     SessionInfo,
+    build_output_target,
 )
 from flashdreams.runtime.demo.pipeline import StepOutcome, StepPipeline
 from flashdreams.runtime.demo.replay import run_replay_demo

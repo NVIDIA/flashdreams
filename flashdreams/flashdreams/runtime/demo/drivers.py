@@ -170,7 +170,22 @@ def run_demo_session(
         )
         context.run_metrics.record_session(result)
         return result
-    except DriverInvariantError:
+    except DriverInvariantError as exc:
+        if provider is not None and not driver_started:
+            try:
+                context.host.call(provider.close)
+            except Exception as close_exc:
+                if session_edges is not None:
+                    session_edges.metrics.record_cleanup_error(close_exc)
+                else:
+                    context.run_metrics.record_cleanup_error(close_exc)
+        if session_edges is not None:
+            result = session_edges.close_result(
+                status="failed",
+                reason=str(exc),
+                error=exc,
+            )
+            context.run_metrics.record_session(result)
         raise
     except Exception as exc:
         if provider is not None and not driver_started:
