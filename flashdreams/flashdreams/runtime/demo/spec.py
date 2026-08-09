@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias
@@ -17,6 +17,8 @@ from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput, UserInputs, UserInputSchema
 from flashdreams.runtime.interfaces import ModelAdapter
 from flashdreams.runtime.mapping import InputMapping
+
+from .host import WarmupSessionInputs
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -170,9 +172,22 @@ class DemoAdapter(ModelAdapter, Protocol):
         ...
 
 
+class ModelWarmupAdapter(Protocol):
+    """Optional adapter hook for model-affine runtime warmup inputs."""
+
+    def create_model_warmup_sessions(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> Sequence[WarmupSessionInputs]:
+        """Return temporary synthetic or loopback sessions for model warmup."""
+        ...
+
+
 __all__ = [
     "DemoAdapter",
     "DemoSpec",
+    "ModelWarmupAdapter",
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",

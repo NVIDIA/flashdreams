@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.output import OutputArtifact
 
-from .host import ModelWarmupPlan
+from .host import ModelWarmupPlan, WarmupSessionInputs
 from .outputs import OutputDecision, OutputSink
 
 if TYPE_CHECKING:
@@ -494,6 +494,67 @@ class RunModeWarmup(Protocol):
     ) -> None: ...
 
 
+def build_model_warmup_plan(
+    *,
+    host: "RuntimeHost",
+    adapter: "DemoAdapter",
+    spec: "DemoSpec",
+    scenario: "PreparedScenario",
+) -> ModelWarmupPlan:
+    """Build a host-owned warmup plan through the model-affine worker."""
+
+    create_sessions = getattr(adapter, "create_model_warmup_sessions", None)
+    if create_sessions is None:
+        return ModelWarmupPlan()
+    if not callable(create_sessions):
+        raise TypeError(
+            "Demo adapter create_model_warmup_sessions attribute must be callable."
+        )
+    sessions = host.call(create_sessions, spec, scenario)
+    return ModelWarmupPlan(sessions=_coerce_warmup_sessions(sessions))
+
+
+def warmup_run_context(
+    *,
+    context: RunContext,
+    spec: "DemoSpec",
+    scenario: "PreparedScenario",
+    adapter: "DemoAdapter",
+    run_mode: object,
+) -> None:
+    """Run model warmup, then optional output/transport warmup for a context."""
+
+    context.host.warmup(context.model_warmup_plan)
+    warmup_context = getattr(run_mode, "warmup_context", None)
+    if warmup_context is None:
+        return
+    if not callable(warmup_context):
+        raise TypeError("RunMode.warmup_context attribute must be callable.")
+    warmup_context(
+        context=context,
+        spec=spec,
+        scenario=scenario,
+        adapter=adapter,
+    )
+
+
+def _coerce_warmup_sessions(value: object) -> tuple[WarmupSessionInputs, ...]:
+    if not isinstance(value, Sequence):
+        raise TypeError(
+            "Demo adapter create_model_warmup_sessions(...) must return a sequence "
+            f"of WarmupSessionInputs, got {type(value).__name__}."
+        )
+    sessions: list[WarmupSessionInputs] = []
+    for session in value:
+        if not isinstance(session, WarmupSessionInputs):
+            raise TypeError(
+                "Demo adapter create_model_warmup_sessions(...) must return only "
+                f"WarmupSessionInputs, got {type(session).__name__}."
+            )
+        sessions.append(session)
+    return tuple(sessions)
+
+
 __all__ = [
     "AdmissionPolicy",
     "AsyncSessionDriver",
@@ -517,4 +578,6 @@ __all__ = [
     "SessionStatus",
     "SingleSessionAdmissionPolicy",
     "TransportService",
+    "build_model_warmup_plan",
+    "warmup_run_context",
 ]

@@ -45,6 +45,8 @@ from flashdreams.runtime.demo.run_modes import (
     SessionDriver,
     SessionEdges,
     SingleSessionAdmissionPolicy,
+    build_model_warmup_plan,
+    warmup_run_context,
 )
 from flashdreams.runtime.demo.session_inputs import (
     BatchInputSource,
@@ -59,6 +61,7 @@ from flashdreams.runtime.demo.session_inputs import (
 from flashdreams.runtime.demo.spec import (
     DemoAdapter,
     DemoSpec,
+    ModelWarmupAdapter,
     Mp4OutputSpec,
     NullOutputSpec,
     OutputSpec,
@@ -109,6 +112,7 @@ __all__ = [
     "CatchUpPolicy",
     "DeterministicClock",
     "MetricsSnapshot",
+    "ModelWarmupAdapter",
     "ModelWarmupPlan",
     "ModelInputProvider",
     "KeyboardRealtimeInputSource",
@@ -150,6 +154,7 @@ __all__ = [
     "WebRTCOutputSpec",
     "build_output_sink",
     "build_output_target",
+    "build_model_warmup_plan",
     "input_frame_count_from_request",
     "resolve_run_capabilities",
     "run_demo_session",
@@ -158,4 +163,5 @@ __all__ = [
     "shielded_session_cleanup",
     "uncancel_current_task",
     "validate_resolved_run",
+    "warmup_run_context",
 ]
