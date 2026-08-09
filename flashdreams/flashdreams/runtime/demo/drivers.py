@@ -107,8 +107,16 @@ class BatchSessionDriver:
                     break
         except DriverInvariantError as exc:
             if session is not None:
-                host.call(_close_safely, session.close, session_edges)
-            host.call(_close_safely, provider.close, session_edges)
+                _close_on_host_best_effort(
+                    host=host,
+                    close=session.close,
+                    session_edges=session_edges,
+                )
+            _close_on_host_best_effort(
+                host=host,
+                close=provider.close,
+                session_edges=session_edges,
+            )
             session_edges.close_result(
                 status="failed",
                 reason=str(exc),
@@ -346,6 +354,18 @@ def _session_info(session: InferenceSession) -> SessionInfo:
 def _close_safely(close: Any, session_edges: SessionEdges) -> None:
     try:
         close()
+    except Exception as exc:
+        session_edges.metrics.record_cleanup_error(exc)
+
+
+def _close_on_host_best_effort(
+    *,
+    host: RuntimeHost,
+    close: Any,
+    session_edges: SessionEdges,
+) -> None:
+    try:
+        host.call(_close_safely, close, session_edges)
     except Exception as exc:
         session_edges.metrics.record_cleanup_error(exc)
 
