@@ -200,7 +200,7 @@ def run_demo_session(
                 context.host.call(provider.close)
             except Exception as close_exc:
                 if session_edges is not None:
-                    session_edges.metrics.record_cleanup_error(close_exc)
+                    session_edges.record_cleanup_error(close_exc)
                 else:
                     context.run_metrics.record_cleanup_error(close_exc)
         if session_edges is not None and (
@@ -219,7 +219,7 @@ def run_demo_session(
                 context.host.call(provider.close)
             except Exception as close_exc:
                 if session_edges is not None:
-                    session_edges.metrics.record_cleanup_error(close_exc)
+                    session_edges.record_cleanup_error(close_exc)
                 else:
                     context.run_metrics.record_cleanup_error(close_exc)
         if session_edges is not None and (
@@ -355,7 +355,7 @@ def _close_safely(close: Any, session_edges: SessionEdges) -> None:
     try:
         close()
     except Exception as exc:
-        session_edges.metrics.record_cleanup_error(exc)
+        session_edges.record_cleanup_error(exc)
 
 
 def _close_on_host_best_effort(
@@ -367,7 +367,7 @@ def _close_on_host_best_effort(
     try:
         host.call(_close_safely, close, session_edges)
     except Exception as exc:
-        session_edges.metrics.record_cleanup_error(exc)
+        session_edges.record_cleanup_error(exc)
 
 
 def _run_sync_driver(
@@ -463,7 +463,7 @@ async def _close_provider_async(
         await context.host.call_async(provider.close)
     except Exception as close_exc:
         if session_edges is not None:
-            session_edges.metrics.record_cleanup_error(close_exc)
+            session_edges.record_cleanup_error(close_exc)
         else:
             context.run_metrics.record_cleanup_error(close_exc)
 

@@ -307,6 +307,41 @@ def test_batch_driver_invariant_finalizes_edges_when_host_closed() -> None:
     assert provider.close_count == 0
 
 
+def test_batch_driver_invariant_finalizes_edges_when_cleanup_metrics_fail() -> None:
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    host = RuntimeHost(runtime)
+    host.close()
+    provider = _FakeVideoModelInputProvider()
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = _FailingCleanupMetrics()
+    edges = SessionEdges(
+        input_source=_FakeBatchInputSource(num_windows=1),
+        output_sink=output,
+        cleanup_tasks=set(),
+        metrics=metrics,
+        error_policy=_SetupPolicy(result_status="completed"),
+        transport=transport,
+    )
+
+    with pytest.raises(DriverInvariantError, match="Setup failures") as raised:
+        BatchSessionDriver().run_one_session(
+            host=host,
+            provider=provider,
+            session_edges=edges,
+            pipeline=StepPipeline(),
+        )
+
+    result = edges.close_result()
+    assert result.status == "failed"
+    assert result.error is raised.value
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+    assert metrics.cleanup_error_attempts == 1
+    assert provider.close_count == 0
+
+
 def test_run_demo_session_closes_edges_when_driver_invariant_escapes() -> None:
     runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
     run_metrics = InMemorySessionMetricsRecorder()
@@ -658,6 +693,19 @@ class _RecordingTransport:
 
     def close(self) -> None:
         self.close_count += 1
+
+
+class _FailingCleanupMetrics(InMemorySessionMetricsRecorder):
+    cleanup_error_attempts: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cleanup_error_attempts = 0
+
+    def record_cleanup_error(self, exc: Exception) -> None:
+        del exc
+        self.cleanup_error_attempts += 1
+        raise RuntimeError("cleanup metrics failed")
 
 
 class _SetupPolicy:

@@ -382,6 +382,13 @@ class SessionEdges:
         """Return whether ``close_result(...)`` has already finalized this session."""
         return self._closed_result is not None
 
+    def record_cleanup_error(self, exc: Exception) -> None:
+        """Record a cleanup error without letting metrics failures block teardown."""
+        try:
+            self.metrics.record_cleanup_error(exc)
+        except Exception:
+            return
+
     def close_result(
         self,
         *,
@@ -397,11 +404,11 @@ class SessionEdges:
         try:
             artifacts = tuple(self.output_sink.close())
         except Exception as exc:
-            self.metrics.record_cleanup_error(exc)
+            self.record_cleanup_error(exc)
         try:
             self.transport.close()
         except Exception as exc:
-            self.metrics.record_cleanup_error(exc)
+            self.record_cleanup_error(exc)
         try:
             metrics = self.metrics.close()
         except Exception as exc:
