@@ -16,6 +16,7 @@
 """Checkpoint loading behavior tests."""
 
 import importlib
+import json
 
 import pytest
 import torch
@@ -68,3 +69,45 @@ def test_safetensors_model_load_streams_without_full_state_dict(
 
     assert actual is model
     torch.testing.assert_close(model.weight, expected)
+
+
+def test_sharded_safetensors_model_load_streams_without_merged_state_dict(
+    monkeypatch, tmp_path
+) -> None:
+    """Stream indexed safetensors shards into a model without merging first."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    shard_a = tmp_path / "model-00001-of-00002.safetensors"
+    shard_b = tmp_path / "model-00002-of-00002.safetensors"
+    index_path = tmp_path / "model.safetensors.index.json"
+    expected_weight = torch.arange(6, dtype=torch.float32).view(2, 3)
+    expected_bias = torch.tensor([3.0, 4.0], dtype=torch.float32)
+    save_safetensors_file({"weight": expected_weight}, shard_a)
+    save_safetensors_file({"bias": expected_bias}, shard_b)
+    index_path.write_text(
+        json.dumps(
+            {
+                "metadata": {"total_size": 0},
+                "weight_map": {
+                    "weight": shard_a.name,
+                    "bias": shard_b.name,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    model = torch.nn.Linear(3, 2)
+
+    def reject_merge(*_args, **_kwargs) -> None:
+        pytest.fail("sharded model loads must not materialize a merged state dict")
+
+    monkeypatch.setattr(
+        checkpoint_load,
+        "_load_sharded_safetensors_index_checkpoint",
+        reject_merge,
+    )
+
+    actual = checkpoint_load.load_checkpoint(str(index_path), model=model)
+
+    assert actual is model
+    torch.testing.assert_close(model.weight, expected_weight)
+    torch.testing.assert_close(model.bias, expected_bias)

@@ -89,12 +89,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument(
+        "--config-name",
         "--config_name",
         type=str,
-        default="lingbot-world-fast",
+        default=LingbotRuntimeConfig().config_name,
         help="LingBot-World config preset from PIPELINE_CONFIGS.",
     )
     parser.add_argument(
+        "--no-compile",
         "--no_compile",
         action="store_true",
         help="Disable torch.compile when building the Lingbot pipeline.",
@@ -106,12 +108,14 @@ def parse_args() -> argparse.Namespace:
         help="Torch device used for the Lingbot runtime.",
     )
     parser.add_argument(
+        "--warmup-chunks",
         "--warmup_chunks",
         type=int,
         default=10,
         help="Number of synthetic startup chunks to generate for kernel autotuning.",
     )
     parser.add_argument(
+        "--warmup-timeout-s",
         "--warmup_timeout_s",
         type=float,
         default=600.0,

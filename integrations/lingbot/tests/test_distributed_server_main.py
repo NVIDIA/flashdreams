@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
 
 import pytest
@@ -50,6 +51,27 @@ def _args(device: str = "cuda:0") -> Namespace:
         video_width=640,
         example_idx=0,
     )
+
+
+def test_parse_args_defaults_to_webrtc_preset_and_accepts_kebab_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "lingbot-webrtc",
+            "--warmup-chunks",
+            "0",
+            "--no-compile",
+        ],
+    )
+
+    args = server.parse_args()
+
+    assert args.config_name == "lingbot-world-fast-taehv-window15-sink3"
+    assert args.warmup_chunks == 0
+    assert args.no_compile is True
 
 
 def test_initialize_distributed_single_process_honors_default_device(
