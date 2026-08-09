@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -162,6 +163,53 @@ async def test_fake_webrtc_offer_reserves_before_prepare_or_negotiation() -> Non
     assert mode.admission.reservations[0].release_count == 1
     assert adapter.providers[0].close_count == 1
     assert mode.created_edges[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_async_session_cancellation_shields_pre_edge_provider_cleanup() -> None:
+    spec = DemoSpec(
+        model_id="fake-demo",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(port=8081),
+    )
+    provider = _BlockingCloseProvider()
+    adapter = _BlockingCloseAdapter(provider=provider)
+    mode = _CancelBeforeEdgesRunMode(name="webrtc", driver=_ClosingAsyncDriver())
+    context = mode.create_run_context(
+        spec=spec,
+        adapter=adapter,
+        host=RuntimeHost(_UnusedRuntime()),
+        model_warmup_plan=ModelWarmupPlan(),
+    )
+    scenario = adapter.prepare_scenario(spec)
+    task = asyncio.create_task(
+        run_demo_session_async(
+            context=context,
+            spec=spec,
+            scenario=scenario,
+            adapter=adapter,
+            run_mode=mode,
+            pipeline=StepPipeline(),
+        )
+    )
+
+    close_started = await asyncio.to_thread(provider.close_started.wait, 1.0)
+    assert close_started
+    task.cancel()
+    provider.release_close.set()
+    try:
+        result = await asyncio.wait_for(task, timeout=1.0)
+    finally:
+        provider.release_close.set()
+        context.host.close()
+
+    assert result.status == "cancelled"
+    assert result.reason == "cancelled during session assembly"
+    assert provider.close_count == 1
+    assert mode.created_edges == []
+    assert mode.admission.reservations[0].release_count == 1
+    run_metrics = cast(InMemorySessionMetricsRecorder, context.run_metrics)
+    assert run_metrics.sessions == [result]
 
 
 def test_run_demo_session_rejects_reused_closed_session_edges() -> None:
@@ -426,6 +474,21 @@ class _FakeAdapter:
         return provider
 
 
+class _BlockingCloseAdapter(_FakeAdapter):
+    def __init__(self, *, provider: "_BlockingCloseProvider") -> None:
+        super().__init__()
+        self.provider = provider
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> "_BlockingCloseProvider":
+        del spec, scenario
+        self.providers.append(self.provider)
+        return self.provider
+
+
 class _FakeProvider:
     capabilities = ProviderCapabilities(
         supports_recorded_input=True,
@@ -438,6 +501,19 @@ class _FakeProvider:
 
     def close(self) -> None:
         self.close_count += 1
+
+
+class _BlockingCloseProvider(_FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_started = threading.Event()
+        self.release_close = threading.Event()
+
+    def close(self) -> None:
+        self.close_started.set()
+        if not self.release_close.wait(timeout=1.0):
+            raise RuntimeError("timed out waiting to release provider close")
+        super().close()
 
 
 class _FakeRunMode:
@@ -559,6 +635,19 @@ class _ReusingRunMode(_FakeRunMode):
                 adapter=adapter,
             )
         return self._edges
+
+
+class _CancelBeforeEdgesRunMode(_FakeRunMode):
+    def validate_session(
+        self,
+        *,
+        spec: DemoSpec,
+        scenario: Any,
+        adapter: Any,
+        provider: Any,
+    ) -> None:
+        del spec, scenario, adapter, provider
+        raise asyncio.CancelledError
 
 
 class _ClosingSyncDriver:

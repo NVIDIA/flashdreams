@@ -801,12 +801,51 @@ async def _close_provider_async(
     session_edges: SessionEdges | None,
 ) -> None:
     try:
-        await context.host.call_async(provider.close)
+        close_task = asyncio.create_task(context.host.call_async(provider.close))
+    except RuntimeError as close_exc:
+        _record_provider_cleanup_error(
+            context=context,
+            session_edges=session_edges,
+            exc=close_exc,
+        )
+        return
+
+    while not close_task.done():
+        try:
+            await asyncio.shield(close_task)
+        except asyncio.CancelledError:
+            uncancel_current_task()
+            continue
+        except Exception:
+            break
+
+    try:
+        await close_task
+    except asyncio.CancelledError:
+        uncancel_current_task()
+        _record_provider_cleanup_error(
+            context=context,
+            session_edges=session_edges,
+            exc=RuntimeError("provider cleanup was cancelled"),
+        )
     except Exception as close_exc:
-        if session_edges is not None:
-            session_edges.record_cleanup_error(close_exc)
-        else:
-            _record_run_cleanup_error(context, close_exc)
+        _record_provider_cleanup_error(
+            context=context,
+            session_edges=session_edges,
+            exc=close_exc,
+        )
+
+
+def _record_provider_cleanup_error(
+    *,
+    context: RunContext,
+    session_edges: SessionEdges | None,
+    exc: Exception,
+) -> None:
+    if session_edges is not None:
+        session_edges.record_cleanup_error(exc)
+    else:
+        _record_run_cleanup_error(context, exc)
 
 
 def _record_run_cleanup_error(context: RunContext, exc: Exception) -> None:
