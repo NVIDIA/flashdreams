@@ -29,6 +29,7 @@ from flashdreams.runtime.demo import (
     DriverInvariantError,
     ErrorAction,
     InMemorySessionMetricsRecorder,
+    ModelWarmupPlan,
     NullOutputSpec,
     OutputDecision,
     PreparedScenario,
@@ -81,6 +82,7 @@ def test_batch_driver_runs_fake_video_demo_through_runtime_host() -> None:
     edges = SessionEdges(
         input_source=_FakeBatchInputSource(num_windows=2),
         output_sink=output,
+        cleanup_tasks=set(),
         metrics=metrics,
     )
 
@@ -191,6 +193,7 @@ def test_setup_failure_returns_failed_before_runtime_session_creation() -> None:
         session_edges=SessionEdges(
             input_source=_FakeBatchInputSource(num_windows=1),
             output_sink=_RecordingOutputSink(),
+            cleanup_tasks=set(),
             metrics=metrics,
         ),
         pipeline=StepPipeline(),
@@ -236,6 +239,7 @@ def test_setup_failure_can_return_skipped_but_not_completed() -> None:
         session_edges=SessionEdges(
             input_source=_FakeBatchInputSource(num_windows=1),
             output_sink=_RecordingOutputSink(),
+            cleanup_tasks=set(),
             error_policy=_SetupPolicy(result_status="skipped"),
         ),
         pipeline=StepPipeline(),
@@ -250,6 +254,7 @@ def test_setup_failure_can_return_skipped_but_not_completed() -> None:
     edges = SessionEdges(
         input_source=_FakeBatchInputSource(num_windows=1),
         output_sink=output,
+        cleanup_tasks=set(),
         metrics=metrics,
         error_policy=_SetupPolicy(result_status="completed"),
         transport=transport,
@@ -317,6 +322,7 @@ def test_input_source_finished_error_returns_failed_not_completed() -> None:
                 fail_is_finished=RuntimeError("input source failed"),
             ),
             output_sink=_RecordingOutputSink(),
+            cleanup_tasks=set(),
             metrics=metrics,
         ),
         pipeline=StepPipeline(),
@@ -337,6 +343,7 @@ def test_step_failure_returns_failed_from_driver() -> None:
         session_edges=SessionEdges(
             input_source=_FakeBatchInputSource(num_windows=1),
             output_sink=output,
+            cleanup_tasks=set(),
         ),
         pipeline=StepPipeline(),
     )
@@ -357,6 +364,7 @@ def test_session_edges_close_result_is_idempotent_and_first_result_wins() -> Non
     edges = SessionEdges(
         input_source=_FakeBatchInputSource(num_windows=0),
         output_sink=output,
+        cleanup_tasks=set(),
         metrics=metrics,
         transport=transport,
     )
@@ -676,6 +684,8 @@ class _FakeDemoAdapter:
 
 
 class _FakeRunMode:
+    name = "fake"
+
     def __init__(
         self,
         *,
@@ -696,6 +706,32 @@ class _FakeRunMode:
         self.transport = transport
         self.error_policy = error_policy
         self.validate_error = validate_error
+
+    def validate_run(
+        self,
+        *,
+        spec: DemoSpec,
+        adapter: Any,
+    ) -> None:
+        del spec, adapter
+
+    def create_run_context(
+        self,
+        *,
+        spec: DemoSpec,
+        adapter: Any,
+        host: RuntimeHost,
+        model_warmup_plan: ModelWarmupPlan,
+    ) -> RunContext:
+        del spec, adapter
+        return RunContext(
+            host=host,
+            run_metrics=InMemorySessionMetricsRecorder(),
+            admission=SingleSessionAdmissionPolicy(
+                health_check=lambda: host.is_healthy
+            ),
+            model_warmup_plan=model_warmup_plan,
+        )
 
     def validate_session(
         self,
@@ -718,7 +754,7 @@ class _FakeRunMode:
         provider: Any,
         adapter: Any,
     ) -> SessionEdges:
-        del context, provider, adapter
+        del provider, adapter
         output_sink = (
             self.output_sink_factory(spec, scenario)
             if self.output_sink_factory is not None
@@ -727,6 +763,7 @@ class _FakeRunMode:
         return SessionEdges(
             input_source=self.input_source,
             output_sink=output_sink,
+            cleanup_tasks=context.cleanup_tasks,
             metrics=self.metrics,
             error_policy=self.error_policy or _SetupPolicy(result_status="failed"),
             transport=self.transport or _RecordingTransport(),

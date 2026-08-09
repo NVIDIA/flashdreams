@@ -7,6 +7,7 @@ from flashdreams.runtime.demo.drivers import (
     BatchSessionDriver,
     DriverInvariantError,
     run_demo_session,
+    run_demo_session_async,
 )
 from flashdreams.runtime.demo.host import (
     ModelWarmupPlan,
@@ -23,6 +24,7 @@ from flashdreams.runtime.demo.outputs import (
 from flashdreams.runtime.demo.pipeline import StepOutcome, StepPipeline
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.run_modes import (
+    AsyncSessionDriver,
     DefaultErrorPolicy,
     ErrorAction,
     InMemorySessionMetricsRecorder,
@@ -30,8 +32,10 @@ from flashdreams.runtime.demo.run_modes import (
     NoopTransportService,
     RunContext,
     RunMode,
+    RunModeWarmup,
     RunResult,
     RunSummary,
+    SessionDriver,
     SessionEdges,
     SingleSessionAdmissionPolicy,
 )
@@ -64,6 +68,7 @@ __all__ = [
     "DemoSpec",
     "DriverInvariantError",
     "ErrorAction",
+    "AsyncSessionDriver",
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "MetricsSnapshot",
@@ -81,10 +86,12 @@ __all__ = [
     "RealtimeInputSource",
     "RunContext",
     "RunMode",
+    "RunModeWarmup",
     "RunResult",
     "RunSummary",
     "RuntimeHost",
     "SessionEdges",
+    "SessionDriver",
     "SessionInfo",
     "SingleSessionAdmissionPolicy",
     "StepOutcome",
@@ -95,5 +102,6 @@ __all__ = [
     "WebRTCOutputSpec",
     "build_output_target",
     "run_demo_session",
+    "run_demo_session_async",
     "run_replay_demo",
 ]

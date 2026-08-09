@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+import inspect
+from typing import Any, cast
 
 from flashdreams.runtime.interfaces import InferenceSession
 
@@ -20,7 +22,7 @@ from .run_modes import (
     SessionEdges,
     SessionReservation,
 )
-from .session_inputs import ModelInputProvider
+from .session_inputs import BatchInputSource, ModelInputProvider
 from .spec import DemoAdapter, DemoSpec, PreparedScenario
 
 
@@ -63,6 +65,7 @@ class BatchSessionDriver:
                 final_reason = str(exc)
                 final_error = exc if action.result_status == "failed" else None
 
+            input_source = cast(BatchInputSource, session_edges.input_source)
             while setup_ok:
                 if session is None:
                     raise DriverInvariantError("setup_ok was set without a session.")
@@ -72,7 +75,7 @@ class BatchSessionDriver:
                     request = host.call(session.next_step_request)
                     if request is None:
                         break
-                    user_window = session_edges.input_source.next_window(request)
+                    user_window = input_source.next_window(request)
                     outcome = host.call(
                         pipeline.execute_step,
                         request=request,
@@ -141,7 +144,8 @@ def run_demo_session(
     reservation: SessionReservation | None = None,
 ) -> RunResult:
     """Run one prepared demo session through a selected run mode."""
-    reservation = reservation or context.admission.try_reserve()
+    if reservation is None:
+        reservation = context.admission.try_reserve()
     if reservation is None:
         result = RunResult.rejected(reason="busy")
         context.run_metrics.record_session(result)
@@ -166,14 +170,15 @@ def run_demo_session(
             provider=provider,
             adapter=adapter,
         )
-        driver = run_mode.select_driver()
-        if not isinstance(driver, BatchSessionDriver):
-            raise TypeError(
-                "Phase 2 run_demo_session supports BatchSessionDriver only, "
-                f"got {type(driver).__name__}."
+        if session_edges.is_closed:
+            raise DriverInvariantError(
+                "RunMode returned already closed SessionEdges; session edges "
+                "must not be reused."
             )
+        driver = run_mode.select_driver()
         driver_started = True
-        result = driver.run_one_session(
+        result = _run_sync_driver(
+            driver=driver,
             host=context.host,
             provider=provider,
             session_edges=session_edges,
@@ -190,7 +195,9 @@ def run_demo_session(
                     session_edges.metrics.record_cleanup_error(close_exc)
                 else:
                     context.run_metrics.record_cleanup_error(close_exc)
-        if session_edges is not None:
+        if session_edges is not None and (
+            driver_started or not session_edges.is_closed
+        ):
             result = session_edges.close_result(
                 status="failed",
                 reason=str(exc),
@@ -207,7 +214,9 @@ def run_demo_session(
                     session_edges.metrics.record_cleanup_error(close_exc)
                 else:
                     context.run_metrics.record_cleanup_error(close_exc)
-        if session_edges is not None:
+        if session_edges is not None and (
+            driver_started or not session_edges.is_closed
+        ):
             result = session_edges.close_result(
                 status="failed",
                 reason=str(exc),
@@ -217,6 +226,106 @@ def run_demo_session(
             result = RunResult(status="failed", reason=str(exc), error=exc)
         context.run_metrics.record_session(result)
         return result
+    finally:
+        reservation.release()
+
+
+async def run_demo_session_async(
+    *,
+    context: RunContext,
+    spec: DemoSpec,
+    scenario: PreparedScenario,
+    adapter: DemoAdapter,
+    run_mode: RunMode,
+    pipeline: StepPipeline,
+    reservation: SessionReservation | None = None,
+) -> RunResult:
+    """Run one prepared async/realtime demo session through a selected run mode."""
+    if reservation is None:
+        reservation = context.admission.try_reserve()
+    if reservation is None:
+        result = RunResult.rejected(reason="busy")
+        context.run_metrics.record_session(result)
+        return result
+
+    provider: Any | None = None
+    session_edges: SessionEdges | None = None
+    driver_started = False
+    try:
+        try:
+            create_provider = getattr(adapter, "create_model_input_provider")
+            provider = await context.host.call_async(create_provider, spec, scenario)
+            run_mode.validate_session(
+                spec=spec,
+                scenario=scenario,
+                adapter=adapter,
+                provider=provider,
+            )
+            session_edges = run_mode.create_session_edges(
+                context=context,
+                spec=spec,
+                scenario=scenario,
+                provider=provider,
+                adapter=adapter,
+            )
+            if session_edges.is_closed:
+                raise DriverInvariantError(
+                    "RunMode returned already closed SessionEdges; session edges "
+                    "must not be reused."
+                )
+            driver = run_mode.select_driver()
+            driver_started = True
+            result = await _run_async_driver(
+                driver=driver,
+                host=context.host,
+                provider=provider,
+                session_edges=session_edges,
+                pipeline=pipeline,
+            )
+            context.run_metrics.record_session(result)
+            return result
+        except asyncio.CancelledError:
+            _uncancel_current_task()
+            result = await _close_partial_session_async(
+                context=context,
+                provider=provider,
+                session_edges=session_edges,
+                status="cancelled",
+                reason="cancelled during session assembly",
+                error=None,
+                close_provider=not driver_started,
+            )
+            context.run_metrics.record_session(result)
+            return result
+        except DriverInvariantError as exc:
+            if provider is not None and not driver_started:
+                await _close_provider_async(
+                    context=context,
+                    provider=provider,
+                    session_edges=session_edges,
+                )
+            if session_edges is not None and (
+                driver_started or not session_edges.is_closed
+            ):
+                result = session_edges.close_result(
+                    status="failed",
+                    reason=str(exc),
+                    error=exc,
+                )
+                context.run_metrics.record_session(result)
+            raise
+        except Exception as exc:
+            result = await _close_partial_session_async(
+                context=context,
+                provider=provider,
+                session_edges=session_edges,
+                status="failed",
+                reason=str(exc),
+                error=exc,
+                close_provider=not driver_started,
+            )
+            context.run_metrics.record_session(result)
+            return result
     finally:
         reservation.release()
 
@@ -241,8 +350,121 @@ def _close_safely(close: Any, session_edges: SessionEdges) -> None:
         session_edges.metrics.record_cleanup_error(exc)
 
 
+def _run_sync_driver(
+    *,
+    driver: object,
+    host: RuntimeHost,
+    provider: ModelInputProvider,
+    session_edges: SessionEdges,
+    pipeline: StepPipeline,
+) -> RunResult:
+    run_one_session = getattr(driver, "run_one_session", None)
+    if not callable(run_one_session):
+        raise TypeError(
+            "RunMode.select_driver() must return an object with run_one_session(...)."
+        )
+    result = run_one_session(
+        host=host,
+        provider=provider,
+        session_edges=session_edges,
+        pipeline=pipeline,
+    )
+    if inspect.isawaitable(result):
+        raise TypeError(
+            "run_demo_session(...) requires a synchronous session driver; "
+            "use run_demo_session_async(...) for async drivers."
+        )
+    if not isinstance(result, RunResult):
+        raise TypeError(
+            "Session driver run_one_session(...) must return RunResult, "
+            f"got {type(result).__name__}."
+        )
+    return result
+
+
+async def _run_async_driver(
+    *,
+    driver: object,
+    host: RuntimeHost,
+    provider: ModelInputProvider,
+    session_edges: SessionEdges,
+    pipeline: StepPipeline,
+) -> RunResult:
+    run_one_session = getattr(driver, "run_one_session", None)
+    if not callable(run_one_session):
+        raise TypeError(
+            "RunMode.select_driver() must return an object with run_one_session(...)."
+        )
+    result = run_one_session(
+        host=host,
+        provider=provider,
+        session_edges=session_edges,
+        pipeline=pipeline,
+    )
+    if not inspect.isawaitable(result):
+        raise TypeError("run_demo_session_async(...) requires an async session driver.")
+    resolved = await result
+    if not isinstance(resolved, RunResult):
+        raise TypeError(
+            "Async session driver run_one_session(...) must return RunResult, "
+            f"got {type(resolved).__name__}."
+        )
+    return resolved
+
+
+async def _close_partial_session_async(
+    *,
+    context: RunContext,
+    provider: Any | None,
+    session_edges: SessionEdges | None,
+    status: DriverStatus,
+    reason: str | None,
+    error: Exception | None,
+    close_provider: bool,
+) -> RunResult:
+    if provider is not None and close_provider:
+        await _close_provider_async(
+            context=context,
+            provider=provider,
+            session_edges=session_edges,
+        )
+    if session_edges is not None:
+        return session_edges.close_result(status=status, reason=reason, error=error)
+    return RunResult(status=status, reason=reason, error=error)
+
+
+async def _close_provider_async(
+    *,
+    context: RunContext,
+    provider: Any,
+    session_edges: SessionEdges | None,
+) -> None:
+    try:
+        await context.host.call_async(provider.close)
+    except Exception as close_exc:
+        if session_edges is not None:
+            session_edges.metrics.record_cleanup_error(close_exc)
+        else:
+            context.run_metrics.record_cleanup_error(close_exc)
+
+
+def _uncancel_current_task() -> None:
+    task = asyncio.current_task()
+    if task is None:
+        return
+    uncancel = getattr(task, "uncancel", None)
+    if not callable(uncancel):
+        return
+    cancelling = getattr(task, "cancelling", None)
+    if not callable(cancelling):
+        return
+    while cancelling():
+        uncancel()
+
+
 __all__ = [
     "BatchSessionDriver",
     "DriverInvariantError",
     "run_demo_session",
+    "run_demo_session_async",
 ]
