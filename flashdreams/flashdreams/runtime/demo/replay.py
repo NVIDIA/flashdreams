@@ -36,7 +36,7 @@ from flashdreams.runtime.types import (
 
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
-from .outputs import OutputSink, build_output_sink, build_output_target
+from .outputs import OutputDecision, OutputSink, build_output_sink, build_output_target
 from .pipeline import StepPipeline
 from .run_modes import (
     Mp4ErrorPolicy,
@@ -99,7 +99,7 @@ def run_replay_demo(
     if spec.config is None:
         raise RuntimeError("DemoSpec.config was not initialized.")
 
-    if runner is not None or output_target_factory is not None:
+    if runner is not None:
         return _run_replay_demo_with_compat_runner(
             spec=spec,
             adapter=adapter,
@@ -110,6 +110,9 @@ def run_replay_demo(
             runner=runner or _default_inference_session_runner(),
         )
 
+    if output_target_factory is not None:
+        output_sink_factory = _output_target_sink_factory(output_target_factory)
+
     return _run_replay_demo_with_run_mode(
         spec=spec,
         adapter=adapter,
@@ -118,6 +121,47 @@ def run_replay_demo(
         output_sink_factory=output_sink_factory,
         metrics=metrics,
     )
+
+
+def _output_target_sink_factory(
+    output_target_factory: OutputTargetFactory,
+) -> OutputSinkFactory:
+    def create_output_sink(output_spec: OutputSpec) -> "_OutputTargetSink":
+        return _OutputTargetSink(output_target_factory(output_spec))
+
+    return create_output_sink
+
+
+class _OutputTargetSink:
+    produces_artifacts = True
+
+    def __init__(self, output: OutputTarget) -> None:
+        self._output = output
+        self._closed = True
+        self._artifacts: tuple[OutputArtifact, ...] | None = None
+
+    def open(self, session_info: object) -> None:
+        del session_info
+        self._output.open()
+        self._closed = False
+        self._artifacts = None
+
+    def begin_generation(self, generation: int) -> None:
+        del generation
+
+    def write(self, result: StepResult) -> OutputDecision:
+        self._output.write(result)
+        return OutputDecision()
+
+    def close(self) -> Sequence[OutputArtifact]:
+        if self._artifacts is not None:
+            return self._artifacts
+        if self._closed:
+            self._artifacts = ()
+            return self._artifacts
+        self._closed = True
+        self._artifacts = tuple(self._output.close())
+        return self._artifacts
 
 
 def _run_replay_demo_with_compat_runner(
@@ -322,8 +366,10 @@ class _ReplayProviderAdapter:
         self,
         spec: DemoSpec,
         scenario: "PreparedScenario",
-    ) -> "_ReplayMappingModelInputProvider":
-        del spec
+    ) -> object:
+        create_provider = getattr(self._adapter, "create_model_input_provider", None)
+        if callable(create_provider):
+            return create_provider(spec, scenario)
         return _ReplayMappingModelInputProvider(
             adapter=self._adapter,
             scenario=scenario,

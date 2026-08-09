@@ -4,6 +4,7 @@
 """Experimental OmniDreams demo adapter built on ``flashdreams.runtime.demo``."""
 
 from omnidreams.demo.adapter import OmnidreamsDemoAdapter
+from omnidreams.demo.providers import PrecomputedHDMapProvider
 from omnidreams.demo.spec import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,
@@ -17,4 +18,5 @@ __all__ = [
     "OmnidreamsDemoAdapter",
     "OmnidreamsReplayScenario",
     "OmnidreamsWebRTCScenario",
+    "PrecomputedHDMapProvider",
 ]

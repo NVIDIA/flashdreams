@@ -17,7 +17,6 @@ from flashdreams.runtime import (
     InferenceInput,
     InferenceInputSchema,
     InputCanonicalizer,
-    InputField,
     UserInputSchema,
 )
 from flashdreams.runtime.demo import (
@@ -25,8 +24,13 @@ from flashdreams.runtime.demo import (
     Mp4OutputSpec,
     PreparedScenario,
 )
+from flashdreams.runtime.demo.session_inputs import ModelInputProvider
 from flashdreams.runtime.interfaces import InferenceRuntime
 
+from .providers import (
+    PrecomputedHDMapProvider,
+    precomputed_hdmap_inference_input_schema,
+)
 from .runtime import (
     OmnidreamsRuntime,
     OmnidreamsRuntimeOptions,
@@ -70,15 +74,7 @@ class OmnidreamsDemoAdapter:
 
     @property
     def inference_input_schema(self) -> InferenceInputSchema:
-        return InferenceInputSchema(
-            global_conditioning_fields=(
-                InputField(
-                    name="scenario",
-                    input_modality="omnidreams/replay-scenario",
-                    description="Resolved OmniDreams replay scenario.",
-                ),
-            )
-        )
+        return precomputed_hdmap_inference_input_schema()
 
     @property
     def canonical_input_schema(self) -> CanonicalInputSchema | None:
@@ -135,6 +131,23 @@ class OmnidreamsDemoAdapter:
                 pipeline_config=self._pipeline_config(config),
                 pipeline_factory=self._pipeline_factory,
             ),
+        )
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> ModelInputProvider:
+        if spec.input_mode != "replay":
+            raise ValueError(
+                "OmniDreams precomputed HDMap provider currently supports only "
+                f"input_mode='replay', got {spec.input_mode!r}."
+            )
+        if spec.config is None:
+            raise RuntimeError("DemoSpec.config was not initialized.")
+        return PrecomputedHDMapProvider(
+            scenario=scenario,
+            config=spec.config,
         )
 
     def _preset_id(self, config: InferenceConfig | None) -> str:

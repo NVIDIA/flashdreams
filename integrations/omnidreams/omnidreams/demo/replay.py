@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +14,6 @@ import torch
 import torch.distributed as dist
 from loguru import logger
 from omnidreams.model_session import OmnidreamsModelSessionCore
-from omnidreams.runner import _load_video
 
 from flashdreams.core.distributed import init as init_distributed
 from flashdreams.infra.postprocess import VideoTensorLayout
@@ -76,6 +75,7 @@ class OmnidreamsRuntime:
         return OmnidreamsSession(
             pipeline=self.pipeline,
             scenario=scenario,
+            initial_inputs=inputs,
             device=torch.device(f"cuda:{self.local_rank}")
             if dist.is_initialized()
             else torch.device(self.config.device or "cuda"),
@@ -103,18 +103,19 @@ class OmnidreamsSession:
         *,
         pipeline: Any,
         scenario: OmnidreamsReplayScenario,
+        initial_inputs: InferenceInput,
         device: torch.device,
         is_rank_zero: bool,
         output_layout: VideoTensorLayout,
     ) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
+        self._initial_inputs = initial_inputs
         self.device = device
         self.is_rank_zero = is_rank_zero
         self.output_layout = output_layout
         self.dtype = torch.bfloat16
         self._closed = False
-        self._frame_start = 0
         self._model_session = OmnidreamsModelSessionCore(
             pipeline=pipeline,
             output_stream_factory=lambda: VideoOutputStream(
@@ -123,7 +124,6 @@ class OmnidreamsSession:
             ),
         )
         self._model_session.reset(self._initialize_cache)
-        self._hdmap_videos = self._load_hdmaps()
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device=self.device)
         if dist.is_initialized():
@@ -136,8 +136,6 @@ class OmnidreamsSession:
         if step_index >= self.scenario.total_blocks:
             return None
         num_frames = self._model_session.next_num_frames()
-        if self._frame_start + num_frames > self._hdmap_videos.shape[2]:
-            return None
         return StepRequirements(
             step_index=step_index,
             input_frame_count=num_frames,
@@ -160,32 +158,31 @@ class OmnidreamsSession:
         )
 
     def step(self, inputs: InferenceInput) -> StepResult:
-        del inputs
         if self._closed:
             raise RuntimeError("OmniDreams replay session is closed.")
 
         step_index = self._model_session.step_index
         num_frames = self._model_session.next_num_frames()
-        frame_end = self._frame_start + num_frames
+        hdmap = _hdmap_from_inputs(inputs)
+        if hdmap.shape[2] != num_frames:
+            raise ValueError(
+                "OmniDreams step HDMap frame count mismatch: "
+                f"expected {num_frames}, got {hdmap.shape[2]}."
+            )
         logger.info(
-            "OmniDreams demo replay step {} frames=[{}, {})",
+            "OmniDreams demo replay step {} frames={}",
             step_index,
-            self._frame_start,
-            frame_end,
+            num_frames,
         )
-        result = self._model_session.step(
-            self._hdmap_videos[:, :, self._frame_start : frame_end]
-        )
-        self._frame_start = frame_end
-        return result
+        return self._model_session.step(hdmap)
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None:
             scenario = _scenario_from_inputs(inputs)
             if scenario != self.scenario:
                 raise ValueError("OmniDreams replay reset cannot swap scenarios.")
+            self._initial_inputs = inputs
         self._model_session.reset(self._initialize_cache)
-        self._frame_start = 0
 
     def close(self) -> None:
         self._closed = True
@@ -193,50 +190,20 @@ class OmnidreamsSession:
 
     def _initialize_cache(self) -> Any:
         scenario = self.scenario
-        first_frames = [
-            load_first_frame_tensor(
-                path,
-                pixel_height=scenario.pixel_height,
-                pixel_width=scenario.pixel_width,
+        cache = self.pipeline.initialize_cache(
+            text=_prompt_from_inputs(self._initial_inputs, scenario),
+            image=_first_frame_from_inputs(
+                self._initial_inputs,
+                scenario=scenario,
                 device=self.device,
                 dtype=self.dtype,
-                allow_video=True,
-                install_hint=DEFAULT_RUNNER_INSTALL_HINT,
-            )
-            for path in scenario.first_frame_paths
-        ]
-        first_frames_t = torch.stack(first_frames, dim=0).unsqueeze(0)
-        cache = self.pipeline.initialize_cache(
-            text=[list(scenario.prompts)],
-            image=first_frames_t,
-            view_names=list(scenario.camera_names),
+            ),
+            view_names=_view_names_from_inputs(self._initial_inputs, scenario),
         )
         release = getattr(self.pipeline, "release_oneshot_encoders", None)
         if callable(release):
             release()
         return cache
-
-    def _load_hdmaps(self) -> torch.Tensor:
-        scenario = self.scenario
-        videos = [
-            _load_video(
-                path,
-                pixel_height=scenario.pixel_height,
-                pixel_width=scenario.pixel_width,
-                device=self.device,
-                dtype=self.dtype,
-            )
-            for path in scenario.hdmap_video_paths
-        ]
-        # [B=1, V, T, C, H, W]
-        hdmap_videos = torch.stack(videos, dim=0).unsqueeze(0)
-        if self.is_rank_zero:
-            logger.info(
-                "Loaded OmniDreams demo HDMaps shape={} views={}",
-                tuple(hdmap_videos.shape),
-                len(scenario.camera_names),
-            )
-        return hdmap_videos
 
 
 def _default_pipeline_factory(pipeline_config: Any, device: str) -> Any:
@@ -251,6 +218,87 @@ def _scenario_from_inputs(inputs: InferenceInput) -> OmnidreamsReplayScenario:
             "to be an OmnidreamsReplayScenario."
         )
     return scenario
+
+
+def _prompt_from_inputs(
+    inputs: InferenceInput,
+    scenario: OmnidreamsReplayScenario,
+) -> list[list[str]]:
+    prompt = inputs.global_conditioning.get("prompt")
+    if prompt is None:
+        return [list(scenario.prompts)]
+    if isinstance(prompt, str):
+        return [[prompt]]
+    if isinstance(prompt, Sequence):
+        values = list(prompt)
+        if all(isinstance(value, str) for value in values):
+            return [[str(value) for value in values]]
+        batches: list[list[str]] = []
+        for batch in values:
+            if not isinstance(batch, Sequence) or isinstance(batch, str):
+                raise TypeError(
+                    "OmniDreams initial prompt batches must be string sequences."
+                )
+            batches.append([str(item) for item in batch])
+        return batches
+    raise TypeError(
+        "OmniDreams initial prompt must be a string or sequence of strings."
+    )
+
+
+def _first_frame_from_inputs(
+    inputs: InferenceInput,
+    *,
+    scenario: OmnidreamsReplayScenario,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    first_frame = inputs.global_conditioning.get("first_frame")
+    if isinstance(first_frame, torch.Tensor):
+        return first_frame
+    if first_frame is not None:
+        raise TypeError("OmniDreams initial first_frame must be a torch.Tensor.")
+    first_frames = [
+        load_first_frame_tensor(
+            path,
+            pixel_height=scenario.pixel_height,
+            pixel_width=scenario.pixel_width,
+            device=device,
+            dtype=dtype,
+            allow_video=True,
+            install_hint=DEFAULT_RUNNER_INSTALL_HINT,
+        )
+        for path in scenario.first_frame_paths
+    ]
+    return torch.stack(first_frames, dim=0).unsqueeze(0)
+
+
+def _view_names_from_inputs(
+    inputs: InferenceInput,
+    scenario: OmnidreamsReplayScenario,
+) -> list[str]:
+    value = inputs.metadata.get("view_names") or inputs.global_conditioning.get(
+        "view_names"
+    )
+    if value is None:
+        return list(scenario.camera_names)
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence):
+        return [str(item) for item in value]
+    raise TypeError("OmniDreams view_names metadata must be a string sequence.")
+
+
+def _hdmap_from_inputs(inputs: InferenceInput) -> torch.Tensor:
+    hdmap = inputs.step.get("hdmap")
+    if not isinstance(hdmap, torch.Tensor):
+        raise TypeError("OmniDreams session step requires step['hdmap'] tensor.")
+    if hdmap.ndim != 6:
+        raise ValueError(
+            "OmniDreams step['hdmap'] must have shape [B, V, T, C, H, W], "
+            f"got {tuple(hdmap.shape)}."
+        )
+    return hdmap
 
 
 def _is_torchrun_env() -> bool:

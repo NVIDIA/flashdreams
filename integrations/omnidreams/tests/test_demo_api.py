@@ -20,6 +20,7 @@ from omnidreams.demo import (
     OmnidreamsDemoAdapter,
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
+    PrecomputedHDMapProvider,
 )
 from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
 from omnidreams.demo.replay import (
@@ -50,6 +51,9 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    OutputDecision,
+    SessionInfo,
+    UserInputWindow,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
@@ -72,6 +76,13 @@ def test_omnidreams_demo_adapter_declares_replay_modes_only() -> None:
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
     assert adapter.supported_input_modes() == ("replay",)
     assert adapter.supported_output_modes() == ("mp4",)
+    assert [
+        field.name
+        for field in adapter.inference_input_schema.global_conditioning_fields
+    ] == ["prompt", "first_frame", "scenario"]
+    assert [field.name for field in adapter.inference_input_schema.step_fields] == [
+        "hdmap"
+    ]
 
 
 def test_omnidreams_runtime_keeps_replay_aliases() -> None:
@@ -271,6 +282,178 @@ def test_omnidreams_replay_cli_can_disable_example_data(tmp_path: Path) -> None:
         OmnidreamsDemoAdapter().prepare_scenario(spec)
 
 
+def test_omnidreams_precomputed_hdmap_provider_prepares_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import omnidreams.demo.providers as providers_module
+
+    hdmap = tmp_path / "hdmap.mp4"
+    first_frame = tmp_path / "first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    loaded_hdmap = torch.arange(3 * 3 * 2 * 2).reshape(3, 3, 2, 2)
+    monkeypatch.setattr(
+        providers_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.ones(1, 3, 2, 2),
+    )
+    monkeypatch.setattr(
+        providers_module,
+        "_load_video",
+        lambda *args, **kwargs: loaded_hdmap,
+    )
+    adapter = OmnidreamsDemoAdapter()
+    spec = _replay_demo_spec(
+        tmp_path=tmp_path,
+        hdmap=hdmap,
+        first_frame=first_frame,
+        total_blocks=2,
+    )
+    prepared = adapter.prepare_scenario(spec)
+
+    provider = adapter.create_model_input_provider(spec, prepared)
+
+    assert isinstance(provider, PrecomputedHDMapProvider)
+    initial = provider.prepare_initial_input()
+    scenario = initial.global_conditioning["scenario"]
+    assert isinstance(scenario, OmnidreamsReplayScenario)
+    assert initial.global_conditioning["prompt"] == [["drive"]]
+    assert initial.global_conditioning["first_frame"].shape == (1, 1, 1, 3, 2, 2)
+    assert initial.metadata["view_names"] == ("camera_front_wide_120fov",)
+
+    step = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(start_s=0.0, end_s=1.0),
+    )
+
+    assert step.inference_input is not None
+    hdmap_chunk = step.inference_input.step["hdmap"]
+    assert isinstance(hdmap_chunk, torch.Tensor)
+    assert hdmap_chunk.shape == (1, 1, 2, 3, 2, 2)
+    torch.testing.assert_close(hdmap_chunk[0, 0], loaded_hdmap[:2])
+
+    exhausted = provider.prepare_step(
+        request=StepRequirements(step_index=1, input_frame_count=2),
+        user_window=UserInputWindow(start_s=1.0, end_s=2.0),
+    )
+
+    assert exhausted.inference_input is None
+    assert exhausted.control.close_session is True
+    provider.reset()
+    reset_step = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=1),
+        user_window=UserInputWindow(start_s=0.0, end_s=1.0),
+    )
+    assert reset_step.inference_input is not None
+    torch.testing.assert_close(
+        reset_step.inference_input.step["hdmap"][0, 0],
+        loaded_hdmap[:1],
+    )
+    provider.close()
+
+
+def test_omnidreams_replay_run_mode_uses_precomputed_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import omnidreams.demo.providers as providers_module
+
+    hdmap = tmp_path / "hdmap.mp4"
+    first_frame = tmp_path / "first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    loaded_hdmap = torch.arange(2 * 3 * 2 * 2).reshape(2, 3, 2, 2)
+    pipeline = _FakeOmnidreamsPipeline()
+    sink = _RecordingOutputSink()
+    monkeypatch.setattr(
+        providers_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
+    )
+    monkeypatch.setattr(
+        providers_module,
+        "_load_video",
+        lambda *args, **kwargs: loaded_hdmap,
+    )
+    adapter = OmnidreamsDemoAdapter(
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+    )
+    spec = _replay_demo_spec(
+        tmp_path=tmp_path,
+        hdmap=hdmap,
+        first_frame=first_frame,
+        total_blocks=2,
+    )
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        output_sink_factory=lambda output_spec: sink,
+    )
+
+    assert result.status == "completed"
+    assert result.artifacts == (
+        OutputArtifact(kind="video/mp4", uri="memory://omnidreams"),
+    )
+    assert [result.step_index for result in sink.results] == [0, 1]
+    assert pipeline.initialize_cache_calls == [
+        {
+            "text": [["drive"]],
+            "image_shape": (1, 1, 1, 3, 2, 2),
+            "view_names": ["camera_front_wide_120fov"],
+        }
+    ]
+    assert len(pipeline.generated_hdmaps) == 2
+    torch.testing.assert_close(pipeline.generated_hdmaps[0][0, 0], loaded_hdmap[:1])
+    torch.testing.assert_close(pipeline.generated_hdmaps[1][0, 0], loaded_hdmap[1:2])
+
+
+def test_omnidreams_replay_output_target_path_uses_precomputed_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import omnidreams.demo.providers as providers_module
+
+    hdmap = tmp_path / "hdmap.mp4"
+    first_frame = tmp_path / "first.png"
+    hdmap.write_bytes(b"fake")
+    first_frame.write_bytes(b"fake")
+    loaded_hdmap = torch.arange(1 * 3 * 2 * 2).reshape(1, 3, 2, 2)
+    pipeline = _FakeOmnidreamsPipeline()
+    output = _RecordingOutputTarget()
+    monkeypatch.setattr(
+        providers_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
+    )
+    monkeypatch.setattr(
+        providers_module,
+        "_load_video",
+        lambda *args, **kwargs: loaded_hdmap,
+    )
+    adapter = OmnidreamsDemoAdapter(
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+    )
+    spec = _replay_demo_spec(
+        tmp_path=tmp_path,
+        hdmap=hdmap,
+        first_frame=first_frame,
+        total_blocks=1,
+    )
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        output_target_factory=lambda output_spec: output,
+    )
+
+    assert result.status == "completed"
+    assert [result.step_index for result in output.results] == [0]
+    assert len(pipeline.generated_hdmaps) == 1
+    torch.testing.assert_close(pipeline.generated_hdmaps[0][0, 0], loaded_hdmap)
+
+
 def test_omnidreams_replay_runtime_generates_video_step_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -286,11 +469,6 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
         replay_module,
         "load_first_frame_tensor",
         lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
-    )
-    monkeypatch.setattr(
-        replay_module,
-        "_load_video",
-        lambda *args, **kwargs: torch.zeros(2, 3, 2, 2),
     )
 
     runtime = OmnidreamsRuntime(
@@ -323,7 +501,7 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     assert request is not None
     assert request.step_index == 0
     assert request.metadata["input_frame_count"] == 1
-    result = session.step(InferenceInput())
+    result = session.step(InferenceInput(step={"hdmap": torch.zeros(1, 1, 1, 3, 2, 2)}))
 
     assert result.step_index == 0
     assert result.frame_count == 1
@@ -613,14 +791,71 @@ async def test_omnidreams_demo_runtime_generates_directly_from_controls() -> Non
 
 
 class _RecordingOutputTarget:
+    def __init__(self) -> None:
+        self.results: list[StepResult] = []
+
     def open(self) -> None:
         return None
 
     def write(self, result: StepResult) -> None:
-        del result
+        self.results.append(result)
 
     def close(self) -> Sequence[OutputArtifact]:
         return ()
+
+
+def _replay_demo_spec(
+    *,
+    tmp_path: Path,
+    hdmap: Path,
+    first_frame: Path,
+    total_blocks: int,
+) -> DemoSpec:
+    return DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive",
+            "hdmap_video_paths": (hdmap,),
+            "first_frame_paths": (first_frame,),
+            "camera_names": ("camera_front_wide_120fov",),
+            "total_blocks": total_blocks,
+            "pixel_height": 2,
+            "pixel_width": 2,
+            "fps": 30,
+        },
+        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=30),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            device="cpu",
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+
+class _RecordingOutputSink:
+    produces_artifacts = True
+
+    def __init__(self) -> None:
+        self.session_info: SessionInfo | None = None
+        self.results: list[StepResult] = []
+        self.closed = False
+
+    def open(self, session_info: SessionInfo) -> None:
+        self.session_info = session_info
+
+    def begin_generation(self, generation: int) -> None:
+        del generation
+
+    def write(self, result: StepResult) -> OutputDecision:
+        self.results.append(result)
+        return OutputDecision()
+
+    def close(self) -> Sequence[OutputArtifact]:
+        self.closed = True
+        return (OutputArtifact(kind="video/mp4", uri="memory://omnidreams"),)
 
 
 class _FactoryRuntime:
@@ -635,6 +870,7 @@ class _FactoryRuntime:
 class _FakeOmnidreamsPipeline:
     def __init__(self) -> None:
         self.initialize_cache_calls: list[dict[str, Any]] = []
+        self.generated_hdmaps: list[torch.Tensor] = []
         self.released_encoders = False
 
     def initialize_cache(
@@ -667,7 +903,8 @@ class _FakeOmnidreamsPipeline:
         cache: object,
         hdmap: torch.Tensor,
     ) -> torch.Tensor:
-        del cache, hdmap
+        del cache
+        self.generated_hdmaps.append(hdmap.detach().clone())
         return torch.full((1, 1, 1, 3, 2, 2), float(autoregressive_index))
 
     def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
