@@ -241,19 +241,30 @@ def test_setup_failure_can_return_skipped_but_not_completed() -> None:
     assert skipped.status == "skipped"
     assert skipped.error is None
 
+    provider = _FakeVideoModelInputProvider(fail_initial=RuntimeError("bad policy"))
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = InMemorySessionMetricsRecorder()
+    edges = SessionEdges(
+        input_source=_FakeBatchInputSource(num_windows=1),
+        output_sink=output,
+        metrics=metrics,
+        error_policy=_SetupPolicy(result_status="completed"),
+        transport=transport,
+    )
+
     with pytest.raises(DriverInvariantError, match="Setup failures"):
         BatchSessionDriver().run_one_session(
             host=RuntimeHost(_FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))),
-            provider=_FakeVideoModelInputProvider(
-                fail_initial=RuntimeError("bad policy")
-            ),
-            session_edges=SessionEdges(
-                input_source=_FakeBatchInputSource(num_windows=1),
-                output_sink=_RecordingOutputSink(),
-                error_policy=_SetupPolicy(result_status="completed"),
-            ),
+            provider=provider,
+            session_edges=edges,
             pipeline=StepPipeline(),
         )
+
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+    assert provider.close_count == 1
 
 
 def test_run_demo_session_closes_edges_when_driver_invariant_escapes() -> None:

@@ -43,6 +43,7 @@ class BatchSessionDriver:
         final_status: DriverStatus = "completed"
         final_reason: str | None = None
         final_error: Exception | None = None
+        invariant_closed = False
         setup_ok = False
         try:
             try:
@@ -101,16 +102,26 @@ class BatchSessionDriver:
                     final_reason = str(exc)
                     final_error = exc if action.result_status == "failed" else None
                     break
-        except DriverInvariantError:
+        except DriverInvariantError as exc:
+            if session is not None:
+                host.call(_close_safely, session.close, session_edges)
+            host.call(_close_safely, provider.close, session_edges)
+            session_edges.close_result(
+                status="failed",
+                reason=str(exc),
+                error=exc,
+            )
+            invariant_closed = True
             raise
         except Exception as exc:
             final_status = "failed"
             final_reason = str(exc)
             final_error = exc
         finally:
-            if session is not None:
-                host.call(_close_safely, session.close, session_edges)
-            host.call(_close_safely, provider.close, session_edges)
+            if not invariant_closed:
+                if session is not None:
+                    host.call(_close_safely, session.close, session_edges)
+                host.call(_close_safely, provider.close, session_edges)
 
         return session_edges.close_result(
             status=final_status,
