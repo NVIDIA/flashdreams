@@ -5,9 +5,13 @@
 
 from flashdreams.runtime.demo.drivers import (
     BatchSessionDriver,
+    CLEANUP_TIMEOUT_S,
     DriverInvariantError,
+    RealtimeSessionDriver,
     run_demo_session,
     run_demo_session_async,
+    shielded_session_cleanup,
+    uncancel_current_task,
 )
 from flashdreams.runtime.demo.host import (
     ModelWarmupPlan,
@@ -78,6 +82,7 @@ from flashdreams.runtime.demo.timing import (
 __all__ = [
     "BatchInputSource",
     "BatchSessionDriver",
+    "CLEANUP_TIMEOUT_S",
     "ControlDecision",
     "DefaultErrorPolicy",
     "DemoAdapter",
@@ -109,6 +114,7 @@ __all__ = [
     "PreparedStep",
     "RealtimeInputSource",
     "RealtimeClock",
+    "RealtimeSessionDriver",
     "RealtimeWindowResult",
     "ResamplerRealtimeClock",
     "RunContext",
@@ -134,4 +140,6 @@ __all__ = [
     "run_demo_session",
     "run_demo_session_async",
     "run_replay_demo",
+    "shielded_session_cleanup",
+    "uncancel_current_task",
 ]
