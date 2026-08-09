@@ -8,9 +8,13 @@ import threading
 
 import pytest
 
-from flashdreams.runtime import ThreadAffineRuntimeWorker
+from flashdreams.runtime import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_model_execution_worker_keeps_legacy_worker_alias() -> None:
+    assert ThreadAffineRuntimeWorker is ModelExecutionWorker
 
 
 @pytest.mark.asyncio
@@ -95,3 +99,32 @@ async def test_worker_sets_cuda_device_when_thread_starts(
     await worker.close()
 
     assert [str(device) for device in seen] == ["cuda:3"]
+
+
+def test_blocking_worker_call_is_not_reentrant() -> None:
+    worker = ModelExecutionWorker()
+
+    def _nested_dispatch() -> None:
+        worker.call_blocking(lambda: None)
+
+    try:
+        with pytest.raises(RuntimeError, match="own thread"):
+            worker.call_blocking(_nested_dispatch)
+    finally:
+        worker.close_blocking()
+
+
+def test_async_worker_call_is_not_reentrant_from_worker_thread() -> None:
+    worker = ModelExecutionWorker()
+
+    def _nested_async_dispatch() -> None:
+        async def _dispatch() -> None:
+            await worker.call(lambda: None)
+
+        asyncio.run(_dispatch())
+
+    try:
+        with pytest.raises(RuntimeError, match="own thread"):
+            worker.call_blocking(_nested_async_dispatch)
+    finally:
+        worker.close_blocking()

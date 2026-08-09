@@ -59,7 +59,7 @@ from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputT
 from flashdreams.runtime.runner import run_inference_session
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget
-from flashdreams.runtime.worker import ThreadAffineRuntimeWorker
+from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
     "CanonicalInputs",
@@ -91,6 +91,7 @@ __all__ = [
     "MappingCompatibility",
     "MetricsRecorder",
     "ModelAdapter",
+    "ModelExecutionWorker",
     "Mp4VideoOutputTarget",
     "NullMetricsRecorder",
     "NullOutputTarget",

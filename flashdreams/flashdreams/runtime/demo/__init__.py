@@ -8,7 +8,11 @@ from flashdreams.runtime.demo.drivers import (
     DriverInvariantError,
     run_demo_session,
 )
-from flashdreams.runtime.demo.host import RuntimeHost
+from flashdreams.runtime.demo.host import (
+    ModelWarmupPlan,
+    RuntimeHost,
+    WarmupSessionInputs,
+)
 from flashdreams.runtime.demo.outputs import (
     NullOutputSink,
     OutputDecision,
@@ -63,6 +67,7 @@ __all__ = [
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "MetricsSnapshot",
+    "ModelWarmupPlan",
     "ModelInputProvider",
     "Mp4OutputSpec",
     "NoopTransportService",
@@ -85,6 +90,7 @@ __all__ = [
     "StepOutcome",
     "StepPipeline",
     "UserInputWindow",
+    "WarmupSessionInputs",
     "WebRTCAppResources",
     "WebRTCOutputSpec",
     "build_output_target",

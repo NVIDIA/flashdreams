@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, TypeVar, cast
 
@@ -14,7 +15,7 @@ import torch
 _T = TypeVar("_T")
 
 
-class ThreadAffineRuntimeWorker:
+class ModelExecutionWorker:
     """Run ordered runtime lifecycle calls on one owned OS thread.
 
     CUDA graphs, Triton launchers, and some backend contexts are thread-local.
@@ -38,13 +39,22 @@ class ThreadAffineRuntimeWorker:
             thread_name_prefix=thread_name,
             initializer=self._initialize_thread,
         )
+        self._state_lock = threading.Lock()
         self._accepting = True
         self._closed = False
-        self._close_lock = asyncio.Lock()
+        self._thread_id: int | None = None
 
     @property
     def closed(self) -> bool:
         return self._closed
+
+    @property
+    def worker_thread_id(self) -> int | None:
+        return self._thread_id
+
+    @property
+    def is_worker_thread(self) -> bool:
+        return self._thread_id == threading.get_ident()
 
     async def call(
         self,
@@ -54,8 +64,8 @@ class ThreadAffineRuntimeWorker:
         **kwargs: Any,
     ) -> _T:
         """Run one callable after all previously submitted worker calls."""
-        if not self._accepting:
-            raise RuntimeError("runtime worker is closed")
+        self._require_not_worker_thread()
+        self._require_accepting()
         future = self._submit(func, args, kwargs)
         try:
             return await asyncio.shield(future)
@@ -71,21 +81,30 @@ class ThreadAffineRuntimeWorker:
         **kwargs: Any,
     ) -> _T:
         """Run one callable from synchronous code on the owned worker thread."""
-        if not self._accepting:
-            raise RuntimeError("runtime worker is closed")
+        self._require_not_worker_thread()
+        self._require_accepting()
         future = self._executor.submit(_invoke, func, args, kwargs)
         return cast(_T, future.result())
 
     async def close(self) -> None:
         """Drain submitted work and stop accepting lifecycle calls."""
-        async with self._close_lock:
+        self._require_not_worker_thread()
+        await asyncio.to_thread(self.close_blocking)
+
+    def close_blocking(self) -> None:
+        """Synchronous close for non-async setup and teardown paths."""
+        self._require_not_worker_thread()
+        with self._state_lock:
             if self._closed:
                 return
             self._accepting = False
-            barrier = self._submit(_noop, (), {})
-            await asyncio.shield(barrier)
+        try:
+            barrier = self._executor.submit(_noop)
+            barrier.result()
+        finally:
             self._executor.shutdown(wait=True, cancel_futures=False)
-            self._closed = True
+            with self._state_lock:
+                self._closed = True
 
     def _submit(
         self,
@@ -97,8 +116,23 @@ class ThreadAffineRuntimeWorker:
         return loop.run_in_executor(self._executor, _invoke, func, args, kwargs)
 
     def _initialize_thread(self) -> None:
+        self._thread_id = threading.get_ident()
         if self._device is not None and self._device.type == "cuda":
             torch.cuda.set_device(self._device)
+
+    def _require_accepting(self) -> None:
+        if not self._accepting:
+            raise RuntimeError("runtime worker is closed")
+
+    def _require_not_worker_thread(self) -> None:
+        if self.is_worker_thread:
+            raise RuntimeError(
+                "Cannot dispatch to the model execution worker from its own "
+                "thread; call the function directly."
+            )
+
+
+ThreadAffineRuntimeWorker = ModelExecutionWorker
 
 
 def _invoke(
@@ -118,4 +152,4 @@ def _consume_exception(future: asyncio.Future[Any]) -> None:
         future.exception()
 
 
-__all__ = ["ThreadAffineRuntimeWorker"]
+__all__ = ["ModelExecutionWorker", "ThreadAffineRuntimeWorker"]

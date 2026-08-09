@@ -109,6 +109,8 @@ def test_batch_driver_runs_fake_video_demo_through_runtime_host() -> None:
     assert host.calls.count("execute_step") == 2
     assert "prepare_initial_input" in host.calls
     assert "start_session" in host.calls
+    assert "prepare_step" not in host.calls
+    assert "step" not in host.calls
 
 
 def test_run_demo_session_builds_edges_and_records_session_once() -> None:
