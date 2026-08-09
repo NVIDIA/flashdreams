@@ -15,6 +15,7 @@ from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    NullOutputSpec,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.app import DemoApplication
@@ -33,7 +34,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    replay = subparsers.add_parser("replay", help="Run an MP4 replay demo.")
+    replay = subparsers.add_parser("replay", help="Run a finite replay demo.")
     replay.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
     replay.add_argument("--device", default="cuda")
     replay.add_argument("--prompt", default=None)
@@ -54,7 +55,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     replay.add_argument("--pixel-height", type=int, default=704)
     replay.add_argument("--pixel-width", type=int, default=1280)
     replay.add_argument("--fps", type=int, default=30)
-    replay.add_argument("--output", type=Path, required=True)
+    replay.add_argument("--output-mode", choices=("mp4", "null"), default="mp4")
+    replay.add_argument("--output", type=Path, default=None)
 
     webrtc = subparsers.add_parser("webrtc", help="Serve a WebRTC driving demo.")
     webrtc.add_argument("--preset-id", default=DEFAULT_OMNIDREAMS_PRESET)
@@ -74,7 +76,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     webrtc.add_argument("--client-liveness-timeout-s", type=float, default=10.0)
     webrtc.add_argument("--debug-serve-hdmaps", action="store_true")
     webrtc.add_argument("--prefer-sw-encoder", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.command == "replay":
+        if args.output_mode == "mp4" and args.output is None:
+            parser.error("replay --output is required when --output-mode=mp4.")
+        if args.output_mode == "null" and args.output is not None:
+            parser.error("replay --output is only valid when --output-mode=mp4.")
+    return args
 
 
 class OmnidreamsDemoApplication(DemoApplication):
@@ -129,12 +137,24 @@ def _replay_spec(args: argparse.Namespace) -> DemoSpec:
         preset_id=args.preset_id,
         input_mode="replay",
         scenario=scenario,
-        output=Mp4OutputSpec(path=args.output, fps=args.fps),
+        output=_replay_output_spec(args),
         config=InferenceConfig(
             model_id=OMNIDREAMS_MODEL_ID,
             preset_id=args.preset_id,
             device=args.device,
         ),
+    )
+
+
+def _replay_output_spec(args: argparse.Namespace) -> Mp4OutputSpec | NullOutputSpec:
+    if args.output_mode == "mp4":
+        if args.output is None:
+            raise ValueError("OmniDreams MP4 replay requires --output.")
+        return Mp4OutputSpec(path=args.output, fps=args.fps)
+    if args.output_mode == "null":
+        return NullOutputSpec()
+    raise ValueError(
+        f"Unsupported OmniDreams replay output mode: {args.output_mode!r}."
     )
 
 

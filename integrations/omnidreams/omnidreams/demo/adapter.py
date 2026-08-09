@@ -21,7 +21,6 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
-    Mp4OutputSpec,
     PreparedScenario,
 )
 from flashdreams.runtime.demo.session_inputs import ModelInputProvider
@@ -87,7 +86,7 @@ class OmnidreamsDemoAdapter:
         return ("replay",)
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4",)
+        return ("mp4", "null")
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode != "replay":
@@ -95,8 +94,11 @@ class OmnidreamsDemoAdapter:
                 "OmniDreams prepare_scenario currently supports only "
                 f"input_mode='replay', got {spec.input_mode!r}."
             )
-        if not isinstance(spec.output, Mp4OutputSpec):
-            raise ValueError("OmniDreams replay demo currently requires MP4 output.")
+        if spec.output.mode not in self.supported_output_modes():
+            raise ValueError(
+                "OmniDreams replay demo supports output modes "
+                f"{self.supported_output_modes()}, got {spec.output.mode!r}."
+            )
         scenario = resolve_replay_scenario(
             spec.scenario,
             default_prompt=self._default_replay_prompt(spec.config),
