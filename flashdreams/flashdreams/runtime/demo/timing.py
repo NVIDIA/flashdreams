@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
-from flashdreams.runtime.inputs import UserInputs
+from flashdreams.runtime.inputs import UserInputs, UserInputSchema
 from flashdreams.runtime.types import StepRequirements
 from flashdreams.serving.realtime.input import KeyboardResampler
 
@@ -273,6 +273,7 @@ class KeyboardRealtimeInputSource:
     catch_up_policy: CatchUpPolicy = "fold"
     is_finite: bool = False
     is_deterministic: bool = False
+    user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
 
     def __post_init__(self) -> None:
         if self.max_lag_s is not None and (

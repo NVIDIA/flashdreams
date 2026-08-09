@@ -30,6 +30,7 @@ from .run_modes import (
 from .session_inputs import BatchInputSource, ModelInputProvider
 from .spec import DemoAdapter, DemoSpec, PreparedScenario
 from .timing import ActivationPolicy, RealtimeClock
+from .validation import resolve_run_capabilities, validate_resolved_run
 
 CLEANUP_TIMEOUT_S = 30.0
 
@@ -352,6 +353,19 @@ def run_demo_session(
             provider=provider,
             adapter=adapter,
         )
+        resolved_capabilities = resolve_run_capabilities(
+            spec=spec,
+            provider=provider,
+            session_edges=session_edges,
+        )
+        validate_resolved_run(
+            spec=spec,
+            adapter=adapter,
+            provider=provider,
+            run_mode=run_mode,
+            session_edges=session_edges,
+            resolved=resolved_capabilities,
+        )
         if session_edges.is_closed:
             raise DriverInvariantError(
                 "RunMode returned already closed SessionEdges; session edges "
@@ -449,6 +463,19 @@ async def run_demo_session_async(
                 scenario=scenario,
                 provider=provider,
                 adapter=adapter,
+            )
+            resolved_capabilities = resolve_run_capabilities(
+                spec=spec,
+                provider=provider,
+                session_edges=session_edges,
+            )
+            validate_resolved_run(
+                spec=spec,
+                adapter=adapter,
+                provider=provider,
+                run_mode=run_mode,
+                session_edges=session_edges,
+                resolved=resolved_capabilities,
             )
             if session_edges.is_closed:
                 raise DriverInvariantError(

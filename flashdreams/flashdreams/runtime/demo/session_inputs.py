@@ -11,11 +11,30 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
-from flashdreams.runtime.inputs import InferenceInput, UserInputs
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    InferenceInputSchema,
+    UserInputs,
+    UserInputSchema,
+)
 from flashdreams.runtime.types import StepRequirements
 
 if TYPE_CHECKING:
     from .timing import RealtimeClock, RealtimeWindowResult
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ProviderCapabilities:
+    """Model-provider capabilities used to validate run-mode compatibility."""
+
+    supports_realtime_clock: bool = False
+    supports_recorded_input: bool = False
+    supports_reset: bool = False
+    deterministic_given_inputs: bool = False
+    user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
+    inference_input_schema: InferenceInputSchema = field(
+        default_factory=InferenceInputSchema
+    )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -82,6 +101,7 @@ class InputSource(Protocol):
 
     is_finite: bool
     is_deterministic: bool
+    user_input_schema: UserInputSchema
 
     def is_finished(self) -> bool:
         """Return whether the driver should stop requesting windows."""
@@ -120,6 +140,8 @@ class RealtimeInputSource(InputSource, Protocol):
 class ModelInputProvider(Protocol):
     """Model-owned conversion from user windows into model-facing inputs."""
 
+    capabilities: ProviderCapabilities
+
     def prepare_initial_input(self) -> InferenceInput:
         """Prepare session-global model inputs."""
         ...
@@ -134,11 +156,19 @@ class ModelInputProvider(Protocol):
         ...
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Reset provider-owned session state."""
+        """Reset provider-owned session state.
+
+        Implementations must be idempotent so driver cleanup and reset control
+        paths can safely converge after failures.
+        """
         ...
 
     def close(self) -> None:
-        """Release provider-owned resources."""
+        """Release provider-owned resources.
+
+        Implementations must be idempotent and tolerate cleanup after partial
+        setup or earlier reset failures.
+        """
         ...
 
 
@@ -148,6 +178,7 @@ __all__ = [
     "InputSource",
     "ModelInputProvider",
     "PreparedStep",
+    "ProviderCapabilities",
     "RealtimeInputSource",
     "UserInputWindow",
 ]

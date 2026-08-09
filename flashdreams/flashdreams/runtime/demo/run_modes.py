@@ -127,6 +127,17 @@ class ErrorPolicy(Protocol):
     def handle(self, exc: Exception) -> ErrorAction: ...
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RunModeCapabilities:
+    """Run-mode requirements and output/transport capabilities."""
+
+    realtime: bool = False
+    requires_finite_input: bool = False
+    supports_backpressure: bool = False
+    supports_interactive_events: bool = False
+    supports_artifacts: bool = False
+
+
 @runtime_checkable
 class SessionMetricsRecorder(Protocol):
     """Metrics callbacks consumed by the Phase 2 drivers and pipeline."""
@@ -429,6 +440,7 @@ class RunMode(Protocol):
     """Run/session construction strategy consumed by shared helpers."""
 
     name: str
+    capabilities: RunModeCapabilities
 
     def validate_run(
         self,
@@ -494,6 +506,7 @@ __all__ = [
     "NoopTransportService",
     "RunContext",
     "RunMode",
+    "RunModeCapabilities",
     "RunModeWarmup",
     "RunResult",
     "RunSummary",

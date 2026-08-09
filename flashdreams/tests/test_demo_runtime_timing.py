@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from flashdreams.runtime import StepRequirements
+from flashdreams.runtime import StepRequirements, UserInputSchema
 from flashdreams.runtime.demo import NullOutputSink, RunResult, SessionEdges
 from flashdreams.runtime.demo.timing import (
     SPARSE_KEY_SEGMENTS_METADATA_KEY,
@@ -222,6 +222,7 @@ class _RecordingSleep:
 class _OpenRealtimeInputSource:
     is_finite = False
     is_deterministic = False
+    user_input_schema = UserInputSchema()
 
     def is_finished(self) -> bool:
         return False

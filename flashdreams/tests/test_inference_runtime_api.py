@@ -40,11 +40,13 @@ def test_inference_config_keeps_runtime_settings_separate() -> None:
         backend="local",
         precision="bf16",
         compile=False,
+        seed=123,
         runtime_options={"chunk_size": 3},
     )
 
     assert config.model_id == "lingbot-world"
     assert config.preset_id == "fast-taehv"
+    assert config.seed == 123
     assert config.runtime_options["chunk_size"] == 3
     assert denied_app_fields.isdisjoint(field.name for field in fields(InferenceConfig))
     with pytest.raises(TypeError):
@@ -54,6 +56,13 @@ def test_inference_config_keeps_runtime_settings_separate() -> None:
 def test_inference_config_rejects_empty_model_id() -> None:
     with pytest.raises(ValueError, match="model_id"):
         InferenceConfig(model_id=" ")
+
+
+def test_inference_config_rejects_invalid_seed() -> None:
+    with pytest.raises(TypeError, match="seed"):
+        InferenceConfig(model_id="fake", seed=True)
+    with pytest.raises(ValueError, match="seed"):
+        InferenceConfig(model_id="fake", seed=-1)
 
 
 @pytest.mark.parametrize(

@@ -61,6 +61,9 @@ class InferenceConfig:
     cache_policy: str | None = None
     """Optional cache policy selector; ``None`` leaves the choice to the adapter."""
 
+    seed: int | None = None
+    """Optional seed used when resolving deterministic demo/runtime behavior."""
+
     runtime_options: Mapping[str, Any] = field(default_factory=dict)
     """Adapter/backend-specific runtime options."""
 
@@ -70,6 +73,11 @@ class InferenceConfig:
     def __post_init__(self) -> None:
         if not self.model_id.strip():
             raise ValueError("InferenceConfig.model_id must be non-empty.")
+        if self.seed is not None:
+            if isinstance(self.seed, bool) or not isinstance(self.seed, int):
+                raise TypeError("InferenceConfig.seed must be an integer.")
+            if self.seed < 0:
+                raise ValueError("InferenceConfig.seed must be >= 0.")
         object.__setattr__(
             self, "runtime_options", freeze_mapping(self.runtime_options)
         )

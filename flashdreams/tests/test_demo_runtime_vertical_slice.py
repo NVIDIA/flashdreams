@@ -22,6 +22,7 @@ from flashdreams.runtime import (
     StepRequirements,
     StepResult,
     UserInputs,
+    UserInputSchema,
 )
 from flashdreams.runtime.demo import (
     BatchSessionDriver,
@@ -35,7 +36,9 @@ from flashdreams.runtime.demo import (
     OutputDecision,
     PreparedScenario,
     PreparedStep,
+    ProviderCapabilities,
     RunContext,
+    RunModeCapabilities,
     RunResult,
     RuntimeHost,
     SessionEdges,
@@ -664,6 +667,12 @@ def _record_output_factory_call(
 
 
 class _FakeVideoModelInputProvider:
+    capabilities = ProviderCapabilities(
+        supports_recorded_input=True,
+        supports_reset=True,
+        deterministic_given_inputs=True,
+    )
+
     def __init__(self, *, fail_initial: Exception | None = None) -> None:
         self.fail_initial = fail_initial
         self.initial_input = InferenceInput(
@@ -703,6 +712,7 @@ class _FakeVideoModelInputProvider:
 class _FakeBatchInputSource:
     is_finite = True
     is_deterministic = True
+    user_input_schema = UserInputSchema()
 
     def __init__(
         self,
@@ -730,6 +740,7 @@ class _FakeBatchInputSource:
 class _SlicingBatchInputSource:
     is_finite = True
     is_deterministic = True
+    user_input_schema = UserInputSchema()
 
     def __init__(self, *, fps: float, num_windows: int) -> None:
         self.fps = fps
@@ -984,6 +995,10 @@ class _FakeRunMode:
         self.transport = transport
         self.error_policy = error_policy
         self.validate_error = validate_error
+        self.capabilities = RunModeCapabilities(
+            requires_finite_input=True,
+            supports_artifacts=True,
+        )
 
     def validate_run(
         self,

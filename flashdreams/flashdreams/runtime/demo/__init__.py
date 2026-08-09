@@ -38,6 +38,7 @@ from flashdreams.runtime.demo.run_modes import (
     NoopTransportService,
     RunContext,
     RunMode,
+    RunModeCapabilities,
     RunModeWarmup,
     RunResult,
     RunSummary,
@@ -51,6 +52,7 @@ from flashdreams.runtime.demo.session_inputs import (
     InputSource,
     ModelInputProvider,
     PreparedStep,
+    ProviderCapabilities,
     RealtimeInputSource,
     UserInputWindow,
 )
@@ -79,6 +81,11 @@ from flashdreams.runtime.demo.timing import (
     ResamplerRealtimeClock,
     SignalActivationPolicy,
     input_frame_count_from_request,
+)
+from flashdreams.runtime.demo.validation import (
+    ResolvedRunCapabilities,
+    resolve_run_capabilities,
+    validate_resolved_run,
 )
 
 __all__ = [
@@ -115,13 +122,16 @@ __all__ = [
     "OutputSink",
     "PreparedScenario",
     "PreparedStep",
+    "ProviderCapabilities",
     "RealtimeInputSource",
     "RealtimeClock",
     "RealtimeSessionDriver",
     "RealtimeWindowResult",
+    "ResolvedRunCapabilities",
     "ResamplerRealtimeClock",
     "RunContext",
     "RunMode",
+    "RunModeCapabilities",
     "RunModeWarmup",
     "RunResult",
     "RunSummary",
@@ -141,9 +151,11 @@ __all__ = [
     "build_output_sink",
     "build_output_target",
     "input_frame_count_from_request",
+    "resolve_run_capabilities",
     "run_demo_session",
     "run_demo_session_async",
     "run_replay_demo",
     "shielded_session_cleanup",
     "uncancel_current_task",
+    "validate_resolved_run",
 ]

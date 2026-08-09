@@ -20,6 +20,8 @@ from flashdreams.runtime import (
     InferenceRuntime,
     InferenceSession,
     InputMapping,
+    StepRequirements,
+    UserInputSchema,
 )
 from flashdreams.runtime.demo import (
     AsyncSessionDriver,
@@ -31,13 +33,16 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     OutputDecision,
     PreparedScenario,
+    ProviderCapabilities,
     RunContext,
+    RunModeCapabilities,
     RunResult,
     RuntimeHost,
     SessionDriver,
     SessionEdges,
     SessionInfo,
     StepPipeline,
+    UserInputWindow,
     WebRTCOutputSpec,
     run_demo_session,
     run_demo_session_async,
@@ -380,6 +385,12 @@ class _FakeAdapter:
 
 
 class _FakeProvider:
+    capabilities = ProviderCapabilities(
+        supports_recorded_input=True,
+        supports_reset=True,
+        deterministic_given_inputs=True,
+    )
+
     def __init__(self) -> None:
         self.close_count = 0
 
@@ -401,6 +412,7 @@ class _FakeRunMode:
         self.created_edges: list[SessionEdges] = []
         self.validate_run_count = 0
         self.warmup_count = 0
+        self.capabilities = RunModeCapabilities(requires_finite_input=True)
         self.admission = admission or _RecordingAdmission(events=[])
         self.services = services or {}
         self.context: RunContext | None = None
@@ -560,9 +572,14 @@ class _RecordingReservation:
 class _FinishedInputSource:
     is_finite = True
     is_deterministic = True
+    user_input_schema = UserInputSchema()
 
     def is_finished(self) -> bool:
         return True
+
+    def next_window(self, request: StepRequirements) -> UserInputWindow:
+        del request
+        return UserInputWindow(start_s=0.0, end_s=0.0)
 
 
 class _RecordingOutputSink:

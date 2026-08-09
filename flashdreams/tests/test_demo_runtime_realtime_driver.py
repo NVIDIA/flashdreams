@@ -16,6 +16,7 @@ from flashdreams.runtime import (
     StepRequest,
     StepRequirements,
     StepResult,
+    UserInputSchema,
 )
 from flashdreams.runtime.demo import (
     ActivationResult,
@@ -24,6 +25,7 @@ from flashdreams.runtime.demo import (
     InMemorySessionMetricsRecorder,
     OutputDecision,
     PreparedStep,
+    ProviderCapabilities,
     RealtimeSessionDriver,
     RealtimeWindowResult,
     RunContext,
@@ -529,6 +531,7 @@ class _RecordingRealtimeClock:
 class _RealtimeInputSource:
     is_finite = False
     is_deterministic = False
+    user_input_schema = UserInputSchema()
 
     def __init__(
         self,
@@ -563,6 +566,12 @@ class _RealtimeInputSource:
 
 
 class _FakeRealtimeProvider:
+    capabilities = ProviderCapabilities(
+        supports_realtime_clock=True,
+        supports_reset=True,
+        deterministic_given_inputs=False,
+    )
+
     def __init__(
         self,
         *,
