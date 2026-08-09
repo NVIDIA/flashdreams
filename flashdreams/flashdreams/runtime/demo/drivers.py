@@ -10,6 +10,11 @@ import inspect
 from typing import Any, cast
 
 from flashdreams.runtime.interfaces import InferenceSession
+from flashdreams.runtime.types import (
+    StepRequest,
+    StepRequirements,
+    step_requirements_from_request,
+)
 
 from .host import RuntimeHost
 from .outputs import SessionInfo
@@ -75,7 +80,7 @@ class BatchSessionDriver:
                 try:
                     if session_edges.input_source.is_finished():
                         break
-                    request = host.call(session.next_step_request)
+                    request = _next_step_requirements(host=host, session=session)
                     if request is None:
                         break
                     user_window = input_source.next_window(request)
@@ -218,7 +223,10 @@ class RealtimeSessionDriver:
                         final_reason = "transport closed before first step"
                     break
                 try:
-                    request = await host.call_async(session.next_step_request)
+                    request = await _next_step_requirements_async(
+                        host=host,
+                        session=session,
+                    )
                     if request is None:
                         break
                     window_result = await input_source.next_realtime_window(
@@ -515,6 +523,55 @@ def _session_info(session: InferenceSession) -> SessionInfo:
             f"got {type(value).__name__}."
         )
     return value
+
+
+def _next_step_requirements(
+    *,
+    host: RuntimeHost,
+    session: InferenceSession,
+) -> StepRequirements | None:
+    next_requirements = getattr(session, "next_step_requirements", None)
+    if callable(next_requirements):
+        return _coerce_step_requirements(host.call(next_requirements))
+
+    next_request = getattr(session, "next_step_request", None)
+    if not callable(next_request):
+        raise TypeError(
+            "InferenceSession must provide next_step_requirements() or "
+            "legacy next_step_request()."
+        )
+    return _coerce_step_requirements(host.call(next_request))
+
+
+async def _next_step_requirements_async(
+    *,
+    host: RuntimeHost,
+    session: InferenceSession,
+) -> StepRequirements | None:
+    next_requirements = getattr(session, "next_step_requirements", None)
+    if callable(next_requirements):
+        return _coerce_step_requirements(await host.call_async(next_requirements))
+
+    next_request = getattr(session, "next_step_request", None)
+    if not callable(next_request):
+        raise TypeError(
+            "InferenceSession must provide next_step_requirements() or "
+            "legacy next_step_request()."
+        )
+    return _coerce_step_requirements(await host.call_async(next_request))
+
+
+def _coerce_step_requirements(value: object) -> StepRequirements | None:
+    if value is None:
+        return None
+    if isinstance(value, StepRequirements):
+        return value
+    if isinstance(value, StepRequest):
+        return step_requirements_from_request(value)
+    raise TypeError(
+        "Session next-step method must return StepRequirements, legacy "
+        f"StepRequest, or None; got {type(value).__name__}."
+    )
 
 
 def _close_safely(close: Any, session_edges: SessionEdges) -> None:

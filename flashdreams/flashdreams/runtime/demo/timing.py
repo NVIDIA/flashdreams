@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
 from flashdreams.runtime.inputs import UserInputs
-from flashdreams.runtime.types import StepRequest
+from flashdreams.runtime.types import StepRequirements
 from flashdreams.serving.realtime.input import KeyboardResampler
 
 from .session_inputs import UserInputWindow
@@ -91,7 +91,7 @@ class RealtimeClock(Protocol):
     def catch_up(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         max_lag_s: float,
         policy: CatchUpPolicy,
     ) -> CatchUpDecision: ...
@@ -226,7 +226,7 @@ class ResamplerRealtimeClock:
     def catch_up(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         max_lag_s: float,
         policy: CatchUpPolicy,
     ) -> CatchUpDecision:
@@ -299,7 +299,7 @@ class KeyboardRealtimeInputSource:
     async def next_realtime_window(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         clock: RealtimeClock,
     ) -> RealtimeWindowResult:
         input_frame_count = input_frame_count_from_request(request)
@@ -326,17 +326,15 @@ class KeyboardRealtimeInputSource:
         return RealtimeWindowResult(window=window, catch_up=catch_up)
 
 
-def input_frame_count_from_request(request: StepRequest) -> int:
-    """Return the positive realtime input frame count declared on a request."""
+def input_frame_count_from_request(request: StepRequirements) -> int:
+    """Return the positive input frame count declared by a step requirement."""
 
-    value = request.metadata.get("input_frame_count")
+    value = request.input_frame_count
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(
-            "StepRequest.metadata['input_frame_count'] must be an integer."
-        )
+        raise ValueError("StepRequirements.input_frame_count must be an integer.")
     parsed = value
     if parsed <= 0:
-        raise ValueError("StepRequest.metadata['input_frame_count'] must be > 0.")
+        raise ValueError("StepRequirements.input_frame_count must be > 0.")
     return parsed
 
 

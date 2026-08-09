@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.inputs import InferenceInput, UserInputs
-from flashdreams.runtime.types import StepRequest
+from flashdreams.runtime.types import StepRequirements
 
 if TYPE_CHECKING:
     from .timing import RealtimeClock, RealtimeWindowResult
@@ -92,7 +92,7 @@ class InputSource(Protocol):
 class BatchInputSource(InputSource, Protocol):
     """Finite input source consumed by the batch driver."""
 
-    def next_window(self, request: StepRequest) -> UserInputWindow:
+    def next_window(self, request: StepRequirements) -> UserInputWindow:
         """Return the next batch input window for ``request``."""
         ...
 
@@ -104,7 +104,7 @@ class RealtimeInputSource(InputSource, Protocol):
     async def next_realtime_window(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         clock: "RealtimeClock",
     ) -> "RealtimeWindowResult":
         """Return the next realtime window result.
@@ -127,7 +127,7 @@ class ModelInputProvider(Protocol):
     def prepare_step(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         user_window: UserInputWindow,
     ) -> PreparedStep:
         """Prepare one model step from a driver-owned user input window."""

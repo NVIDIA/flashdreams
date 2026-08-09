@@ -19,6 +19,7 @@ from flashdreams.runtime import (
     InputMapping,
     OutputArtifact,
     StepRequest,
+    StepRequirements,
     StepResult,
     UserInputs,
 )
@@ -54,7 +55,7 @@ def test_step_pipeline_passes_provider_input_to_session_and_sink() -> None:
     output = _RecordingOutputSink()
     output.open(SessionInfo(output_layout="fake-video", steady_output_frame_count=1))
     metrics = InMemorySessionMetricsRecorder()
-    request = StepRequest(step_index=0)
+    request = StepRequirements(step_index=0)
     user_window = _window(0)
 
     outcome = StepPipeline().execute_step(
@@ -113,6 +114,43 @@ def test_batch_driver_runs_fake_video_demo_through_runtime_host() -> None:
     assert "start_session" in host.calls
     assert "prepare_step" not in host.calls
     assert "step" not in host.calls
+
+
+def test_batch_driver_slices_windows_from_step_requirements() -> None:
+    session = _FakeVideoSession(num_steps=2, input_frame_counts=(3, 2))
+    runtime = _FakeVideoRuntime(session=session)
+    host = _RecordingRuntimeHost(runtime)
+    provider = _FakeVideoModelInputProvider()
+    input_source = _SlicingBatchInputSource(fps=2.0, num_windows=2)
+
+    result = BatchSessionDriver().run_one_session(
+        host=host,
+        provider=provider,
+        session_edges=SessionEdges(
+            input_source=input_source,
+            output_sink=_RecordingOutputSink(),
+            cleanup_tasks=set(),
+            metrics=InMemorySessionMetricsRecorder(),
+        ),
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "completed"
+    assert [request.step_index for request in input_source.next_window_requests] == [
+        0,
+        1,
+    ]
+    assert [
+        request.input_frame_count for request in input_source.next_window_requests
+    ] == [3, 2]
+    assert input_source.windows == [
+        _window_with_frame_times(start_s=0.0, frame_times=(0.0, 0.5, 1.0)),
+        _window_with_frame_times(start_s=1.5, frame_times=(1.5, 2.0)),
+    ]
+    assert [dict(inputs.step) for inputs in session.step_inputs] == [
+        {"request_step": 0, "window": (0.0, 1.5)},
+        {"request_step": 1, "window": (1.5, 2.5)},
+    ]
 
 
 def test_run_demo_session_builds_edges_and_records_session_once() -> None:
@@ -521,6 +559,19 @@ def _window(index: int) -> UserInputWindow:
     )
 
 
+def _window_with_frame_times(
+    *,
+    start_s: float,
+    frame_times: Sequence[float],
+) -> UserInputWindow:
+    return UserInputWindow(
+        start_s=start_s,
+        end_s=start_s + len(frame_times) * 0.5,
+        frame_times=frame_times,
+        inputs=UserInputs(),
+    )
+
+
 def _spec() -> DemoSpec:
     return DemoSpec(
         model_id="fake-video-demo",
@@ -577,7 +628,7 @@ class _FakeVideoModelInputProvider:
     def prepare_step(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         user_window: UserInputWindow,
     ) -> PreparedStep:
         inference_input = InferenceInput(
@@ -608,7 +659,7 @@ class _FakeBatchInputSource:
     ) -> None:
         self.windows = [_window(index) for index in range(num_windows)]
         self.fail_is_finished = fail_is_finished
-        self.next_window_requests: list[StepRequest] = []
+        self.next_window_requests: list[StepRequirements] = []
         self.index = 0
 
     def is_finished(self) -> bool:
@@ -616,10 +667,42 @@ class _FakeBatchInputSource:
             raise self.fail_is_finished
         return self.index >= len(self.windows)
 
-    def next_window(self, request: StepRequest) -> UserInputWindow:
+    def next_window(self, request: StepRequirements) -> UserInputWindow:
         self.next_window_requests.append(request)
         window = self.windows[self.index]
         self.index += 1
+        return window
+
+
+class _SlicingBatchInputSource:
+    is_finite = True
+    is_deterministic = True
+
+    def __init__(self, *, fps: float, num_windows: int) -> None:
+        self.fps = fps
+        self.num_windows = num_windows
+        self.next_window_requests: list[StepRequirements] = []
+        self.windows: list[UserInputWindow] = []
+        self.window_index = 0
+        self.next_frame_index = 0
+
+    def is_finished(self) -> bool:
+        return self.window_index >= self.num_windows
+
+    def next_window(self, request: StepRequirements) -> UserInputWindow:
+        self.next_window_requests.append(request)
+        start_frame = self.next_frame_index
+        self.next_frame_index += request.input_frame_count
+        self.window_index += 1
+        frame_times = tuple(
+            frame_index / self.fps
+            for frame_index in range(start_frame, self.next_frame_index)
+        )
+        window = _window_with_frame_times(
+            start_s=start_frame / self.fps,
+            frame_times=frame_times,
+        )
+        self.windows.append(window)
         return window
 
 
@@ -642,9 +725,11 @@ class _FakeVideoSession:
         self,
         *,
         num_steps: int,
+        input_frame_counts: Sequence[int] | None = None,
         fail_step: int | None = None,
     ) -> None:
         self.num_steps = num_steps
+        self.input_frame_counts = tuple(input_frame_counts or (1,) * num_steps)
         self.fail_step = fail_step
         self.next_request_index = 0
         self.step_inputs: list[InferenceInput] = []
@@ -653,12 +738,18 @@ class _FakeVideoSession:
     def session_info(self) -> SessionInfo:
         return SessionInfo(output_layout="fake-video", steady_output_frame_count=1)
 
-    def next_step_request(self) -> StepRequest | None:
+    def next_step_requirements(self) -> StepRequirements | None:
         if self.next_request_index >= self.num_steps:
             return None
-        request = StepRequest(step_index=self.next_request_index)
+        request = StepRequirements(
+            step_index=self.next_request_index,
+            input_frame_count=self.input_frame_counts[self.next_request_index],
+        )
         self.next_request_index += 1
         return request
+
+    def next_step_request(self) -> StepRequest | None:
+        raise AssertionError("demo driver should request StepRequirements")
 
     def step(self, inputs: InferenceInput) -> StepResult:
         step_index = len(self.step_inputs)

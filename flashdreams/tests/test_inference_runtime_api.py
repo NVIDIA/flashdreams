@@ -20,11 +20,13 @@ from flashdreams.runtime import (
     OutputArtifact,
     RuntimeMetricSample,
     StepRequest,
+    StepRequirements,
     StepResult,
     TimeWindow,
     UserInputEvent,
     UserInputs,
     UserInputSchema,
+    step_requirements_from_request,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -67,6 +69,12 @@ def test_inference_config_rejects_empty_model_id() -> None:
         ),
         (lambda: UserInputEvent(timestamp_s=0.0, event_type=" "), "event_type"),
         (lambda: StepRequest(step_index=-1), "step_index"),
+        (lambda: StepRequirements(step_index=-1), "step_index"),
+        (lambda: StepRequirements(step_index=0, input_frame_count=0), "input_frame"),
+        (
+            lambda: StepRequirements(step_index=0, steady_output_frame_count=-1),
+            "steady_output",
+        ),
         (lambda: StepResult(step_index=-1), "step_index"),
         (lambda: StepResult(step_index=0, frame_count=-1), "frame_count"),
         (lambda: RuntimeMetricSample(name=" ", value=1.0), "name"),
@@ -183,6 +191,46 @@ def test_identity_input_mapping_leaves_inference_input_unchanged() -> None:
         )
         is inference_input
     )
+
+
+def test_step_requirements_adapt_legacy_request_metadata() -> None:
+    schema = InferenceInputSchema(step_fields=(InputField(name="camera_poses"),))
+    request = StepRequest(
+        step_index=3,
+        inference_input_schema=schema,
+        metadata={
+            "input_frame_count": 4,
+            "steady_output_frame_count": 2,
+            "model": "fake-video-demo",
+        },
+    )
+
+    requirements = step_requirements_from_request(request)
+
+    assert requirements == StepRequirements(
+        step_index=3,
+        input_frame_count=4,
+        steady_output_frame_count=2,
+        inference_input_schema=schema,
+        metadata={"model": "fake-video-demo"},
+    )
+    with pytest.raises(TypeError):
+        cast(Any, requirements.metadata)["model"] = "changed"
+
+
+def test_step_requirements_keep_user_inputs_driver_owned() -> None:
+    requirements = StepRequirements(step_index=0, metadata={"model": "fake"})
+
+    assert not hasattr(requirements, "user_input_window")
+    with pytest.raises(ValueError, match="driver-owned user input"):
+        StepRequirements(step_index=0, metadata={"user_inputs": UserInputs()})
+    with pytest.raises(ValueError, match="driver-owned"):
+        step_requirements_from_request(
+            StepRequest(
+                step_index=0,
+                user_input_window=TimeWindow(start_s=0.0, end_s=1.0),
+            )
+        )
 
 
 def test_null_output_target_counts_and_optionally_stores_results() -> None:

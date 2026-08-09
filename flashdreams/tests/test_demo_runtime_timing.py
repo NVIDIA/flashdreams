@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from flashdreams.runtime import StepRequest
+from flashdreams.runtime import StepRequirements
 from flashdreams.runtime.demo import NullOutputSink, RunResult, SessionEdges
 from flashdreams.runtime.demo.timing import (
     SPARSE_KEY_SEGMENTS_METADATA_KEY,
@@ -192,10 +192,10 @@ def test_keyboard_resampler_defers_unsupported_catch_up_policies(
         )
 
 
-def _request(*, input_frame_count: int) -> StepRequest:
-    return StepRequest(
+def _request(*, input_frame_count: int) -> StepRequirements:
+    return StepRequirements(
         step_index=0,
-        metadata={"input_frame_count": input_frame_count},
+        input_frame_count=input_frame_count,
     )
 
 
@@ -229,7 +229,7 @@ class _OpenRealtimeInputSource:
     async def next_realtime_window(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         clock: Any,
     ) -> object:
         del request, clock

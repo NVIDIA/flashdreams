@@ -14,6 +14,7 @@ from flashdreams.runtime import (
     InferenceInput,
     InferenceRuntime,
     StepRequest,
+    StepRequirements,
     StepResult,
 )
 from flashdreams.runtime.demo import (
@@ -163,14 +164,21 @@ async def test_cancelled_realtime_driver_inside_timeout_returns_result() -> None
         )
     )
 
+    async def timeout_after_window_entry(timeout: Any) -> None:
+        await entered_window.wait()
+        timeout.reschedule(asyncio.get_running_loop().time())
+
     try:
-        async with timeout_context(0.01):
+        async with timeout_context(None) as timeout:
+            timeout_task = asyncio.create_task(timeout_after_window_entry(timeout))
             result = await RealtimeSessionDriver().run_one_session(
                 host=host,
                 provider=_FakeRealtimeProvider(),
                 session_edges=edges,
                 pipeline=StepPipeline(),
             )
+            timeout_task.cancel()
+            await asyncio.gather(timeout_task, return_exceptions=True)
     finally:
         host.close()
 
@@ -532,7 +540,7 @@ class _RealtimeInputSource:
         self.entered = entered
         self.wait_forever = wait_forever
         self.transport_to_close = transport_to_close
-        self.requests: list[StepRequest] = []
+        self.requests: list[StepRequirements] = []
 
     def is_finished(self) -> bool:
         return False
@@ -540,7 +548,7 @@ class _RealtimeInputSource:
     async def next_realtime_window(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         clock: Any,
     ) -> RealtimeWindowResult:
         del clock
@@ -578,7 +586,7 @@ class _FakeRealtimeProvider:
     def prepare_step(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         user_window: UserInputWindow,
     ) -> PreparedStep:
         return PreparedStep(
@@ -635,12 +643,15 @@ class _FakeRealtimeSession:
     def session_info(self) -> SessionInfo:
         return SessionInfo(output_layout="fake-realtime", steady_output_frame_count=1)
 
-    def next_step_request(self) -> StepRequest | None:
+    def next_step_requirements(self) -> StepRequirements | None:
         if self.next_request_index >= self.num_steps:
             return None
-        request = StepRequest(step_index=self.next_request_index)
+        request = StepRequirements(step_index=self.next_request_index)
         self.next_request_index += 1
         return request
+
+    def next_step_request(self) -> StepRequest | None:
+        raise AssertionError("demo driver should request StepRequirements")
 
     def step(self, inputs: InferenceInput) -> StepResult:
         step_index = len(self.step_inputs)

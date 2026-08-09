@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from flashdreams.runtime.interfaces import InferenceSession
-from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.runtime.types import StepRequirements, StepResult
 
 from .outputs import OutputDecision, OutputSink
 from .run_modes import SessionMetricsRecorder
@@ -29,7 +29,7 @@ class StepPipeline:
     def execute_step(
         self,
         *,
-        request: StepRequest,
+        request: StepRequirements,
         user_window: UserInputWindow,
         provider: ModelInputProvider,
         session: InferenceSession,
