@@ -34,6 +34,7 @@ constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
 constexpr float kMaxOffRoadYawRad = 0.4363323129985824f;
 constexpr float kBoundaryHeadingAlignRateRadps = 1.2f;
+constexpr float kActorContactDetectionMarginM = 0.15f;
 
 PxFilterFlags vehicleFilterShader(
     PxFilterObjectAttributes,
@@ -591,7 +592,8 @@ public:
                         requestedEgoPose,
                         ego.halfExtents,
                         actorTransform,
-                        body.halfExtents);
+                        body.halfExtents,
+                        kActorContactDetectionMarginM);
                 const PxVec3 separation = actorTransform.p - requestedEgoPose.p;
                 const PxVec3 relativeVelocity = actorVelocity - requestedEgoLinear;
                 if (
@@ -1033,7 +1035,8 @@ private:
         const PxTransform& first,
         const PxVec3& firstHalf,
         const PxTransform& second,
-        const PxVec3& secondHalf)
+        const PxVec3& secondHalf,
+        float margin)
     {
         const float firstYaw = yawFromQuaternion(first.q);
         const float secondYaw = yawFromQuaternion(second.q);
@@ -1048,7 +1051,7 @@ private:
                 + firstHalf.y * std::abs(axes[1].dot(axis));
             const float secondRadius = secondHalf.x * std::abs(axes[2].dot(axis))
                 + secondHalf.y * std::abs(axes[3].dot(axis));
-            if (std::abs(delta.dot(axis)) > firstRadius + secondRadius)
+            if (std::abs(delta.dot(axis)) > firstRadius + secondRadius + margin)
                 return false;
         }
         return true;
