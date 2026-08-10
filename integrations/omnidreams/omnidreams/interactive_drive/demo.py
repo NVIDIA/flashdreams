@@ -22,7 +22,11 @@ from loguru import logger
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
-from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.config import (
+    DEFAULT_ACCEL_MPS2,
+    BevConfig,
+    RasterConfig,
+)
 from omnidreams.interactive_drive.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -206,7 +210,7 @@ class KeyboardDriveState:
         if handbrake:
             speed = _move_towards(speed, 0.0, 18.0 * dt)
         elif throttle > 0.01 and brake <= 0.05:
-            accel = 2.0 * throttle * dt
+            accel = DEFAULT_ACCEL_MPS2 * throttle * dt
             if speed < 0.0:
                 speed = min(0.0, speed + accel * 1.5)
             else:
@@ -481,7 +485,7 @@ class WheelBridge:
         # climbing forever while the throttle is held).
         direction = -1.0 if self._reverse else 1.0
         if throttle > 0.01 and brake <= 0.05:
-            accel = 2.0 * throttle * dt
+            accel = DEFAULT_ACCEL_MPS2 * throttle * dt
             current = abs(speed)
             high_speed_knee = 22.35
             if current < high_speed_knee:

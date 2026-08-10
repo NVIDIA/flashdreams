@@ -224,8 +224,7 @@ def test_releasing_controls_while_moving_coasts_toward_stop() -> None:
     assert 0.0 < released.speed_mps < state.speed_mps
 
 
-def test_manual_throttle_only_still_accelerates() -> None:
-    """Throttle without brake keeps its acceleration behaviour."""
+def test_manual_throttle_uses_configured_acceleration() -> None:
     vehicle = VehicleConfig()
     state = VehicleState(
         x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
@@ -233,7 +232,18 @@ def test_manual_throttle_only_still_accelerates() -> None:
     throttle = DriverCommand(throttle=1.0, brake=0.0, manual_control=True)
 
     advanced = integrate_vehicle(state, throttle, dt_s=0.1, vehicle=vehicle)
-    assert advanced.speed_mps > state.speed_mps
+    assert advanced.speed_mps == pytest.approx(vehicle.max_accel_mps2 * 0.1)
+
+
+def test_keyboard_throttle_uses_arcade_acceleration() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard.set_key("w", True)
+    keyboard._last_update_s -= 0.1
+
+    state = keyboard.update()
+
+    assert state.target_speed_mps == pytest.approx(VehicleConfig().max_accel_mps2 * 0.1)
 
 
 @pytest.mark.parametrize("manual_control", [False, True])

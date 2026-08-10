@@ -85,7 +85,7 @@ def integrate_vehicle(
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
         elif command.throttle > 0.01:
-            accel = 2.0 * command.throttle * dt_s
+            accel = vehicle.max_accel_mps2 * command.throttle * dt_s
             if speed * intended_direction < 0.0:
                 speed = _move_towards(speed, 0.0, accel * 1.5)
             elif vehicle.speed_limit_enabled and intended_direction > 0.0:
