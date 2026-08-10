@@ -39,6 +39,7 @@ def test_visual_flare_override_defaults_disabled() -> None:
     [
         ([], False, False),
         (["--game-mode"], True, True),
+        (["--taxi-game"], True, True),
         (["--game-mode", "--disable-visual-flare"], True, False),
     ],
 )
