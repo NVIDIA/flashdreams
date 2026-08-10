@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable
 from enum import IntEnum
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -65,43 +64,6 @@ class WebRTCServerLifecycle(Protocol):
     def send_exit_signal(self) -> None: ...
 
     def wait_for_termination(self) -> None: ...
-
-
-class WebRTCSessionRuntime(WebRTCServerLifecycle, Protocol):
-    """Complete runtime contract consumed by the shared session manager.
-
-    Integrations keep their model-specific state, checkpoints, conditioning,
-    and cache logic inside their concrete runtime. The shared manager only
-    needs this lifecycle and chunk-generation surface.
-    """
-
-    async def initialize(self) -> None: ...
-
-    async def reset_for_new_session(self, *, session_input: Any = None) -> None: ...
-
-    def peek_input_fps(self) -> float: ...
-
-    def next_step_request(self) -> StepRequest: ...
-
-    def peek_steady_output_num_frames(self) -> int: ...
-
-    async def step(
-        self,
-        *,
-        request: StepRequest,
-        segments: list[Any],
-        frame_times: list[float],
-    ) -> StepResult: ...
-
-    async def close(self) -> None: ...
-
-
-class WebRTCEventRuntime(Protocol):
-    """Optional runtime capability for model-specific data-channel events."""
-
-    def trigger_event(
-        self, *, event_id: str, state: str = "trigger"
-    ) -> dict[str, Any] | Awaitable[dict[str, Any]]: ...
 
 
 _ConfigT = TypeVar("_ConfigT", bound=ThreadAffineWebRTCRuntimeConfig)
