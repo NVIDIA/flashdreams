@@ -66,11 +66,9 @@ from flashdreams.serving.webrtc.runtime import (
     WebRTCControlSignal,
 )
 from flashdreams.serving.webrtc.server import create_webrtc_app
+from flashdreams.serving.webrtc.services import WEBRTC_USER_INPUT_SCHEMA
 
-from .providers import (
-    LudusSceneConditioningProvider,
-    keyboard_driving_user_input_schema,
-)
+from .providers import LudusSceneConditioningProvider
 from .runtime import OmnidreamsRuntime, OmnidreamsRuntimeOptions, PipelineFactory
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
@@ -168,7 +166,11 @@ class OmnidreamsWebRTCModelRuntime(
             runtime_error_type=OmnidreamsWebRTCModelRuntimeError,
             thread_name="omnidreams-demo-runtime",
         )
-        self.input_source_schema = keyboard_driving_user_input_schema()
+        # The shared WebRTC input source emits normalized runtime events
+        # (``key_down``/``key_up``). The Ludus provider consumes sparse
+        # resampler metadata on this transitional path, so keep validation
+        # aligned with the WebRTC source rather than the replay trace schema.
+        self.input_source_schema = WEBRTC_USER_INPUT_SCHEMA
         self.input_canonicalizer = InputCanonicalizer()
         self.input_mapping = _OmnidreamsWebRTCInputMapping()
         self._runtime: OmnidreamsRuntime | None = None

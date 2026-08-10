@@ -1762,7 +1762,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 pipeline=StepPipeline(),
                 reservation=managed_session.reservation,
             )
-            if result.status == "failed" and result.reason:
+            if result.status == "completed":
+                logger.info("Shared WebRTC session completed.")
+            else:
+                logger.warning(
+                    "Shared WebRTC session ended with status={} reason={}",
+                    result.status,
+                    result.reason,
+                )
+            if result.status != "completed" and result.reason:
                 channel = managed_session.control_channel
                 if channel is not None:
                     self._send_json(channel, make_error_payload(result.reason))

@@ -19,6 +19,7 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
+from flashdreams.runtime.demo import RunResult
 from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
@@ -1089,6 +1090,44 @@ async def test_realtime_driver_session_uses_shared_step_pipeline(
     ]
     assert len(chunk_done) == 1
     assert chunk_done[0]["model"] == "fake-model"
+
+
+@pytest.mark.asyncio
+async def test_realtime_driver_session_reports_non_completed_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        del kwargs
+        return RunResult(
+            status="not_activated",
+            reason="transport closed before first step",
+        )
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    managed, _video_track, _peer, channel = _managed_session(runtime)
+    managed.reservation = reservation
+    manager._active_session = managed
+
+    await manager._run_realtime_driver_session(
+        managed_session=managed,
+        context=context,
+        session_input=None,
+    )
+
+    assert json.loads(channel.messages[0]) == {
+        "type": "error",
+        "message": "transport closed before first step",
+    }
+    assert not manager.has_active_session()
 
 
 @pytest.mark.asyncio

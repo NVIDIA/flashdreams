@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -66,8 +67,15 @@ from flashdreams.runtime.demo import (
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
-from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+from flashdreams.serving.webrtc.manager import (
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
+)
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
+from flashdreams.serving.webrtc.services import (
+    WebRTCInputSource,
+    WebRTCTransportService,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -1081,6 +1089,85 @@ async def test_omnidreams_webrtc_runtime_uses_shared_session(
     assert rasterizers[0].closed is True
 
 
+@pytest.mark.asyncio
+async def test_omnidreams_webrtc_manager_drives_shared_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    pipeline = _VariableFrameOmnidreamsPipeline((2, 3))
+    config = OmnidreamsWebRTCModelRuntimeConfig(
+        pipeline_config_name="fake",
+        pipeline_config=object(),
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+        scene_dir=scene_path,
+        device="cpu",
+        fps=30,
+        video_height=2,
+        video_width=2,
+        warmup_chunks=0,
+    )
+    runtime = OmnidreamsWebRTCModelRuntime(config=config)
+    manager = BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=config,
+        fps=config.fps,
+        identity=config.pipeline_config_name,
+        supported_control_keys=frozenset({"w", "a", "s", "d"}),
+    )
+    await runtime.initialize()
+    manager._runtime_ready = True
+    await runtime.reset_for_new_session()
+    loop = asyncio.get_running_loop()
+    context = manager._shared_run_context(loop)
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    resampler = _FakeWebRTCResampler(start_v=loop.time(), fps=config.fps)
+    input_source = WebRTCInputSource(resampler=resampler)
+    input_source.handle_browser_payload(
+        {"type": "action", "action": {"event": "step"}},
+        timestamp_s=loop.time(),
+    )
+    transport = WebRTCTransportService(loop=loop)
+    channel = _FakeWebRTCChannel()
+    managed_session = ManagedWebRTCSession(
+        runtime=runtime,
+        video_track=_FakeWebRTCVideoTrack(fps=config.fps),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeWebRTCVideoEncoder(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeWebRTCPeerConnection(),
+        resampler=resampler,  # ty:ignore[invalid-argument-type]
+        control_channel=channel,
+        input_source=input_source,
+        transport=transport,
+        reservation=reservation,
+        last_client_message_at=loop.time(),
+    )
+    manager._active_session = managed_session
+    try:
+        managed_session.generation_task = asyncio.create_task(
+            manager._run_realtime_driver_session(
+                managed_session=managed_session,
+                context=context,
+                session_input=None,
+            )
+        )
+        chunk = await _wait_for_chunk_done(channel)
+
+        assert chunk["type"] == "chunk_done"
+        assert chunk["model"] == "fake"
+        assert chunk["num_frames"] == 2
+        assert [tuple(hdmap.shape) for hdmap in pipeline.generated_hdmaps][:1] == [
+            (1, 1, 2, 3, 2, 2)
+        ]
+        assert rasterizers[0].calls[0]["timestamps_us"] == (1_000, 34_333)
+    finally:
+        transport.close("test complete")
+        await manager.close_active_session()
+        await runtime.close()
+
+
 class _RecordingOutputTarget:
     def __init__(self) -> None:
         self.results: list[StepResult] = []
@@ -1333,6 +1420,98 @@ class _FakeLudusRasterizer:
 
     def cleanup(self) -> None:
         self.closed = True
+
+
+class _FakeWebRTCResampler:
+    def __init__(self, *, start_v: float, fps: int) -> None:
+        self.dt = 1.0 / fps
+        self.next_chunk_start_v = start_v
+
+    def reset(self, *, start_v: float) -> None:
+        self.next_chunk_start_v = start_v
+
+    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
+        del arrival_t, event, key
+
+    def sample_chunk(
+        self,
+        num_frames: int,
+    ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+        start = self.next_chunk_start_v
+        frame_times = [start + (index + 1) * self.dt for index in range(num_frames)]
+        end = frame_times[-1]
+        self.next_chunk_start_v = end
+        return [(start, end, frozenset({"w"}))], frame_times
+
+
+class _FakeWebRTCVideoTrack:
+    def __init__(self, *, fps: int) -> None:
+        self.fps = fps
+        self.closed = False
+        self.enqueued: list[StepResult] = []
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        self.enqueued.append(result)
+        return result.frame_count
+
+    def qsize(self) -> int:
+        return 0
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeWebRTCVideoEncoder:
+    backend = "fake"
+    prefers_codec: str | None = None
+
+    def prepare_chunk_payload(self, result: StepResult, track: Any) -> StepResult:
+        del track
+        return result
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: Any,
+        *,
+        force_keyframe: bool = False,
+    ) -> SimpleNamespace:
+        del force_keyframe
+        if not isinstance(payload, StepResult):
+            raise TypeError("Fake WebRTC encoder expected a StepResult payload.")
+        return SimpleNamespace(
+            num_frames=await track.enqueue_result(payload),
+            encode_ms=0.0,
+        )
+
+
+class _FakeWebRTCPeerConnection:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeWebRTCChannel:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def send(self, message: str) -> None:
+        self.messages.append(message)
+
+
+async def _wait_for_chunk_done(channel: _FakeWebRTCChannel) -> dict[str, Any]:
+    for _ in range(100):
+        chunk_done = [
+            json.loads(message)
+            for message in channel.messages
+            if json.loads(message).get("type") == "chunk_done"
+        ]
+        if chunk_done:
+            return chunk_done[0]
+        await asyncio.sleep(0.01)
+    pytest.fail("Timed out waiting for WebRTC chunk_done.")
 
 
 class _FakeWebRTCRuntime:
