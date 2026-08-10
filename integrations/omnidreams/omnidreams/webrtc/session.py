@@ -59,12 +59,18 @@ from flashdreams.serving.webrtc.controls import (
     CameraPoseIntegrator,
     PoseSegment,
 )
+from flashdreams.serving.webrtc.encoders import (
+    EncoderBackend,
+    VideoEncoder,
+    select_encoder,
+)
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
     WebRTCControlSignal,
     WebRTCStepResult,
+    make_webrtc_step_result,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 
@@ -426,6 +432,8 @@ class OmnidreamsRuntimeConfig:
     pipeline_config_name: str = (
         "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf"
     )
+    pipeline_config: Any | None = None
+    manifest_path: Path | None = None
     scene_dir: Path | None = None
     scene_uuid: str | None = None
     # Weather variant slug (default/rain/snow): picks the sibling USDZ + prompt.
@@ -446,6 +454,14 @@ class OmnidreamsRuntimeConfig:
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
+    # Video encoder selection. ``"auto"`` prefers NVENC when the driver
+    # reports support at the target resolution (Stage-1 probe via
+    # ``PyNvVideoCodec.GetEncoderCaps``) and falls back to aiortc's
+    # software encoder otherwise. ``"nvenc"`` fails startup if NVENC
+    # cannot be initialized. ``"default"`` skips the probe entirely.
+    encoder_backend: EncoderBackend = "auto"
+    encoder_bitrate_bps: int = 6_000_000
+    encoder_gop: int = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,7 +469,23 @@ class OmnidreamsSessionInput:
     """Browser-selectable settings applied to the next WebRTC rollout."""
 
     postprocess_preset: str | None = None
-    """Preset override; ``None`` keeps the CLI default and ``""`` disables it."""
+    """Launched preset selection; ``None`` keeps the CLI default and ``""`` disables it."""
+
+
+def _validate_requested_postprocess_preset(
+    *, requested_preset: str, configured_preset: str
+) -> None:
+    if not configured_preset:
+        raise ValueError(
+            "Post-processing is not enabled for this server; restart with "
+            "--postprocess-preset to make a preset available."
+        )
+    if requested_preset != configured_preset:
+        raise ValueError(
+            "Post-processing preset must match the launched preset "
+            f"{configured_preset!r}; got {requested_preset!r}."
+        )
+    resolve_postprocess_preset(requested_preset)
 
 
 class OmnidreamsInferenceRuntime:
@@ -487,6 +519,11 @@ class OmnidreamsInferenceRuntime:
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        # Selected once at initialization; the concrete backend is chosen
+        # by ``select_encoder`` based on ``config.encoder_backend`` and
+        # the driver's ``GetEncoderCaps`` response at
+        # ``config.video_width`` / ``config.video_height``.
+        self._video_encoder: VideoEncoder | None = None
         # Pin every blocking runtime call to one OS thread: Omnidreams' CUDA
         # graph capture/replay state is thread-local, so spreading calls across
         # workers (e.g. asyncio.to_thread) crashes capture after a few chunks.
@@ -512,6 +549,15 @@ class OmnidreamsInferenceRuntime:
     def postprocess_preset(self) -> str:
         """Preset active for the current rollout, or an empty string when off."""
         return self._postprocess_preset
+
+    @property
+    def video_encoder(self) -> VideoEncoder:
+        """Return the encoder selected at :meth:`initialize` time."""
+        if self._video_encoder is None:
+            raise OmnidreamsRuntimeError(
+                "Video encoder is not initialized; call runtime.initialize() first."
+            )
+        return self._video_encoder
 
     def wait_for_termination(self) -> None:
         self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
@@ -653,14 +699,19 @@ class OmnidreamsInferenceRuntime:
             camera_name=cfg.camera_name,
             variant=cfg.scene_variant,
         )
-        if cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS:
+        if (
+            cfg.pipeline_config is None
+            and cfg.pipeline_config_name not in OMNIDREAMS_CONFIGS
+        ):
             supported = ", ".join(sorted(OMNIDREAMS_CONFIGS))
             raise ValueError(
                 f"Unknown pipeline_config_name={cfg.pipeline_config_name!r}. "
                 f"Supported: {supported}"
             )
 
-        pipeline_cfg = OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
+        pipeline_cfg = (
+            cfg.pipeline_config or OMNIDREAMS_CONFIGS[cfg.pipeline_config_name]
+        )
         transformer_cfg = pipeline_cfg.diffusion_model.transformer
         if not isinstance(transformer_cfg, CosmosTransformerConfig):
             raise TypeError(
@@ -742,6 +793,7 @@ class OmnidreamsInferenceRuntime:
         pipeline_t0 = time.perf_counter()
         self._wrapper = OmnidreamsConditioningWrapper(
             pipeline_config_name=cfg.pipeline_config_name,
+            pipeline_config=cfg.pipeline_config,
             resolution_wh=(cfg.video_width, cfg.video_height),
             seed_for_every_rollout=cfg.seed,
             device=self._device,
@@ -766,9 +818,46 @@ class OmnidreamsInferenceRuntime:
         self._initial_ego_pose = scene_data.ego_poses[0].transformation_matrix
         self._next_timestamp_us = int(scene_data.ego_poses[0].timestamp)
         self._reset_rollout_sync()
+        self._initialize_video_encoder_sync()
         logger.info(
             "Omnidreams runtime initialization complete in {:.1f}s.",
             time.perf_counter() - init_t0,
+        )
+
+    def _initialize_video_encoder_sync(self) -> None:
+        """Select the video encoder for this runtime.
+
+        Runs on the runtime executor thread so any GPU-side probe
+        (``CreateEncoder``) sees the same CUDA context the model uses.
+
+        Non-master ranks skip encoder initialization. WebRTC media is
+        served only by the master rank, so allocating an NVENC session
+        on a worker would consume one of the local GPU's concurrent
+        session slots without ever encoding a frame — and could fail
+        the worker's startup if the pool cannot accommodate one
+        allocation per rank.
+        """
+        if not self.is_master:
+            return
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
+        device = (
+            self._device
+            if self._device is not None
+            else _resolve_cuda_device(
+                self.config.device,
+            )
+        )
+        gpu_id = device.index if device.index is not None else 0
+        self._video_encoder = select_encoder(
+            backend=self.config.encoder_backend,
+            width=self.config.video_width,
+            height=self.config.video_height,
+            fps=self.config.fps,
+            bitrate=self.config.encoder_bitrate_bps,
+            gpu_id=gpu_id,
+            gop=self.config.encoder_gop,
         )
 
     def _prepare_clipgt_dir(self, clipgt_dir: Path) -> Path:
@@ -842,6 +931,9 @@ class OmnidreamsInferenceRuntime:
         self._camera_to_rig = None
         self._initial_ego_pose = None
         self._close_postprocess_stream()
+        if self._video_encoder is not None:
+            self._video_encoder.close()
+            self._video_encoder = None
 
         if state is not None and wrapper is not None:
             wrapper.cleanup(state)
@@ -867,7 +959,10 @@ class OmnidreamsInferenceRuntime:
             else configured.preset
         )
         if preset:
-            resolve_postprocess_preset(preset)
+            _validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=configured.preset,
+            )
         postprocess = VideoPostprocessChainConfig(
             processors=configured.processors,
             preset=preset,
@@ -887,8 +982,6 @@ class OmnidreamsInferenceRuntime:
             fps=self.config.fps,
             per_view=False,
             world_size=world_size,
-            collect_output=False,
-            move_to_cpu=False,
         )
         logger.info(
             "Omnidreams WebRTC post-processing enabled with preset {!r}.",
@@ -981,11 +1074,12 @@ class OmnidreamsInferenceRuntime:
                 autoregressive_index=self.autoregressive_index,
             )
 
-        result = WebRTCStepResult(
+        result = make_webrtc_step_result(
             chunk_index=self.autoregressive_index,
-            num_frames=int(video_chunk.shape[2]),
-            video_chunk=video_chunk.detach().cpu(),
+            video_chunk=video_chunk,
+            layout="bvtchw",
             stats=None,
+            sync_device=self._device,
         )
         self.autoregressive_index += 1
         return result
@@ -1053,7 +1147,10 @@ class OmnidreamsWebRTCSessionManager(
             raise SessionBusyError(self._busy_message)
         preset = session_input.postprocess_preset
         if preset:
-            resolve_postprocess_preset(preset)
+            _validate_requested_postprocess_preset(
+                requested_preset=preset,
+                configured_preset=self.runtime_config.postprocess.preset,
+            )
         self._pending_session_input = session_input
 
     def _register_extra_peer_handlers(self, peer_connection: Any) -> None:

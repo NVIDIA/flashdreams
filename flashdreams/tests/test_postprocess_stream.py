@@ -142,7 +142,7 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
     }
 
 
-def test_stream_collects_generated_chunks_without_postprocess() -> None:
+def test_noop_stream_returns_chunks_without_collecting() -> None:
     stream = VideoPostprocessStream(
         postprocess=VideoPostprocessChainConfig(),
         output_layout="bcthw",
@@ -153,13 +153,9 @@ def test_stream_collects_generated_chunks_without_postprocess() -> None:
 
     assert stream.process(first, autoregressive_index=0) is first
     stream.process(empty, autoregressive_index=1)
-    stream.process(second, autoregressive_index=2)
-    output = stream.finish()
+    assert stream.process(second, autoregressive_index=2) is second
 
-    assert output is not None
-    assert output.shape == (1, 3, 3, 4, 5)
-    assert torch.equal(output[:, :, :2], first)
-    assert torch.equal(output[:, :, 2:], second)
+    assert stream.finish() is None
 
 
 def test_chain_propagates_output_spec_to_downstream_session() -> None:

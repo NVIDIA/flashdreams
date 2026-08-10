@@ -230,6 +230,10 @@ body[data-status="error"] .statusDot {
   text-transform: uppercase;
 }
 
+.postprocessField[hidden] {
+  display: none;
+}
+
 .postprocessField select {
   width: 100%;
   min-height: 34px;

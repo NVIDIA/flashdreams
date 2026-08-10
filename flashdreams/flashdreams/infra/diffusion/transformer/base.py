@@ -169,6 +169,37 @@ class Transformer(nn.Module, ABC, Generic[TransformerCacheT]):
         """
         return cast("TransformerCacheT", TransformerAutoregressiveCache())
 
+    def initial_noise(
+        self,
+        *,
+        latent_shape: tuple[int, ...],
+        rng: torch.Generator | None,
+        cache: TransformerCacheT,
+        input: Any = None,
+    ) -> Tensor:
+        """Draw the starting latent for one denoising loop.
+
+        Default is Gaussian noise in ``latent_shape``. Model integrations can
+        override this to seed from encoder outputs, pin I2V frames, or attach
+        per-step state to the cache while still using ``DiffusionModel``.
+
+        Args:
+            latent_shape: Shape requested by the diffusion model.
+            rng: Per-model generator on ``self.device``, or ``None``.
+            cache: Per-rollout AR cache.
+            input: Same patchified encoder output passed to ``predict_flow``.
+
+        Returns:
+            Initial latent tensor for scheduler sampling.
+        """
+        del cache, input
+        return torch.randn(
+            latent_shape,
+            device=self.device,
+            dtype=self.dtype,
+            generator=rng,
+        )
+
     def postprocess_clean_latent(
         self,
         clean_latent: Tensor,

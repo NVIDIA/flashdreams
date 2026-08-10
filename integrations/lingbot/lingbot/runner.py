@@ -286,8 +286,7 @@ class LingbotWorldRunner(
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=cfg.fps)
         start = 0
         for i in range(cfg.total_blocks):
             num_frames = self.pipeline.get_num_output_frames(i)
@@ -310,19 +309,10 @@ class LingbotWorldRunner(
                 input=camctrl_input,
             )
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = postprocess_stream.process(
-                video_chunk, autoregressive_index=i
-            )
-            if postprocess_stream.collect_output and stats is not None:
-                stats_history.append(
-                    {
-                        "autoregressive_index": i,
-                        **postprocess_stream.add_process_stats(stats),
-                    }
-                )
+            output_stream.process(video_chunk, autoregressive_index=i, stats=stats)
             start = end
 
-        video = postprocess_stream.finish()
+        video = output_stream.finish()
         if video is None:
             return
 
@@ -340,9 +330,9 @@ class LingbotWorldRunner(
             f"-> {video_path.resolve()}"
         )
 
-        if stats_history:
+        if output_stream.stats_history:
             stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, stats_history
+                cfg.output_dir, cfg.runner_name, output_stream.stats_history
             )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

@@ -1405,6 +1405,7 @@ class SlangPyHudPresenter:
         header_w = panel_size[0] - margin * 2
         header_y = py + 8
         variant_y = header_y + bar_h + 4
+        postprocess_available = bool(self._postprocess_preset)
         postprocess_y = variant_y + bar_h + 4
         self._scene_header_rect = (
             header_x,
@@ -1418,21 +1419,22 @@ class SlangPyHudPresenter:
             header_x + header_w,
             variant_y + bar_h,
         )
-        self._postprocess_rect = (
-            header_x,
-            postprocess_y,
-            header_x + header_w,
-            postprocess_y + bar_h,
-        )
+        if postprocess_available:
+            self._postprocess_rect = (
+                header_x,
+                postprocess_y,
+                header_x + header_w,
+                postprocess_y + bar_h,
+            )
+            speed_y = postprocess_y + bar_h + 12
+        else:
+            self._postprocess_rect = None
+            speed_y = variant_y + bar_h + 12
 
         center_x = px + panel_size[0] // 2
         # ``speed_y`` is the top of the speed-digit chip. PIL renders
         # text into a tight glyph-bbox image (no leading above the
-        # glyph), so positioning the chip-top right after the variant
-        # bar would still land the visible glyph inside the bar. Add a
-        # ~12 px clearance below ``variant_y + bar_h`` so the digit
-        # never overlaps the headers.
-        speed_y = postprocess_y + bar_h + 12
+        # glyph), so keep a ~12 px clearance below the last visible header.
         self._draw_speed(canvas, draw, center_x, speed_y, int(self._speed_mph))
 
         # Light the reverse indicator red when reverse is engaged; the cached
@@ -1577,55 +1579,50 @@ class SlangPyHudPresenter:
                 font=self._font_small,
             )
 
-        # Post-processing is selected by CLI and can be switched live for the
-        # local window. An empty preset remains visible but disabled so users
-        # know which launch option unlocks the control.
-        postprocess_y = variant_y + bar_h + 4
-        postprocess_rect = (
-            margin,
-            postprocess_y,
-            margin + header_w,
-            postprocess_y + bar_h,
-        )
         postprocess_available = bool(self._postprocess_preset)
-        postprocess_clickable = postprocess_available and not (
-            self._scene_dropdown_open or self._variant_dropdown_open
-        )
-        d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
-        d.text(
-            (margin + 10, postprocess_y + 6),
-            "Upsample 2x",
-            fill=TEXT_COLOR if postprocess_clickable else LABEL_COLOR,
-            font=self._font_small,
-        )
-        state_label = (
-            ("ON" if self._postprocess_enabled else "OFF")
-            if postprocess_available
-            else "N/A"
-        )
-        state_bbox = _measure_text(self._font_small, state_label)
-        state_w = state_bbox[2] - state_bbox[0]
-        state_fill = (
-            NVIDIA_GREEN
-            if self._postprocess_enabled and postprocess_clickable
-            else LABEL_COLOR
-        )
-        d.text(
-            (
-                margin + header_w - state_w - 10 - state_bbox[0],
-                postprocess_y + 6,
-            ),
-            state_label,
-            fill=state_fill,
-            font=self._font_small,
-        )
+        speed_y = variant_y + bar_h + 12
+        if postprocess_available:
+            postprocess_y = variant_y + bar_h + 4
+            postprocess_rect = (
+                margin,
+                postprocess_y,
+                margin + header_w,
+                postprocess_y + bar_h,
+            )
+            postprocess_clickable = not (
+                self._scene_dropdown_open or self._variant_dropdown_open
+            )
+            d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
+            d.text(
+                (margin + 10, postprocess_y + 6),
+                "Upsample 2x",
+                fill=TEXT_COLOR if postprocess_clickable else LABEL_COLOR,
+                font=self._font_small,
+            )
+            state_label = "ON" if self._postprocess_enabled else "OFF"
+            state_bbox = _measure_text(self._font_small, state_label)
+            state_w = state_bbox[2] - state_bbox[0]
+            state_fill = (
+                NVIDIA_GREEN
+                if self._postprocess_enabled and postprocess_clickable
+                else LABEL_COLOR
+            )
+            d.text(
+                (
+                    margin + header_w - state_w - 10 - state_bbox[0],
+                    postprocess_y + 6,
+                ),
+                state_label,
+                fill=state_fill,
+                font=self._font_small,
+            )
+            speed_y = postprocess_y + bar_h + 12
 
         # ``mph`` label baseline + reverse-indicator box. Speed-y must
         # match the live ``_draw_panel`` calculation; both place the
-        # speed-digit chip-top ~12 px below the variant bar so PIL's
-        # tight-bbox glyph chip clears the headers.
+        # speed-digit chip-top ~12 px below the last visible header so PIL's
+        # tight-bbox glyph chip clears the controls.
         center_x = panel_w // 2
-        speed_y = postprocess_y + bar_h + 12
         mbox = _measure_text(self._font_tiny, "mph")
         mw = mbox[2] - mbox[0]
         d.text(
