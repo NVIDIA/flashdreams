@@ -27,7 +27,9 @@ from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import StepRequest, StepRequirements, StepResult
 
-from .spec import OmnidreamsReplayScenario
+from .spec import OmnidreamsLudusReplayScenario, OmnidreamsReplayScenario
+
+OmnidreamsSessionScenario = OmnidreamsReplayScenario | OmnidreamsLudusReplayScenario
 
 PipelineFactory = Callable[[Any, str], Any]
 
@@ -81,6 +83,7 @@ class OmnidreamsRuntime:
             else torch.device(self.config.device or "cuda"),
             is_rank_zero=self.is_rank_zero,
             output_layout=self.options.output_layout,
+            rollout_seed=self.config.seed,
         )
 
     def close(self) -> None:
@@ -102,11 +105,12 @@ class OmnidreamsSession:
         self,
         *,
         pipeline: Any,
-        scenario: OmnidreamsReplayScenario,
+        scenario: OmnidreamsSessionScenario,
         initial_inputs: InferenceInput,
         device: torch.device,
         is_rank_zero: bool,
         output_layout: VideoTensorLayout,
+        rollout_seed: int | None,
     ) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
@@ -114,6 +118,7 @@ class OmnidreamsSession:
         self.device = device
         self.is_rank_zero = is_rank_zero
         self.output_layout = output_layout
+        self.rollout_seed = rollout_seed
         self.dtype = torch.bfloat16
         self._closed = False
         self._model_session = OmnidreamsModelSessionCore(
@@ -190,6 +195,7 @@ class OmnidreamsSession:
 
     def _initialize_cache(self) -> Any:
         scenario = self.scenario
+        _seed_pipeline_for_rollout(self.pipeline, self.rollout_seed)
         cache = self.pipeline.initialize_cache(
             text=_prompt_from_inputs(self._initial_inputs, scenario),
             image=_first_frame_from_inputs(
@@ -210,22 +216,30 @@ def _default_pipeline_factory(pipeline_config: Any, device: str) -> Any:
     return pipeline_config.setup().to(device=device).eval()
 
 
-def _scenario_from_inputs(inputs: InferenceInput) -> OmnidreamsReplayScenario:
+def _scenario_from_inputs(inputs: InferenceInput) -> OmnidreamsSessionScenario:
     scenario = inputs.global_conditioning.get("scenario")
-    if not isinstance(scenario, OmnidreamsReplayScenario):
+    if not isinstance(
+        scenario,
+        (OmnidreamsReplayScenario, OmnidreamsLudusReplayScenario),
+    ):
         raise TypeError(
             "OmniDreams replay runtime requires global_conditioning['scenario'] "
-            "to be an OmnidreamsReplayScenario."
+            "to be an OmnidreamsReplayScenario or OmnidreamsLudusReplayScenario."
         )
     return scenario
 
 
 def _prompt_from_inputs(
     inputs: InferenceInput,
-    scenario: OmnidreamsReplayScenario,
+    scenario: OmnidreamsSessionScenario,
 ) -> list[list[str]]:
     prompt = inputs.global_conditioning.get("prompt")
     if prompt is None:
+        if not scenario.prompts:
+            raise ValueError(
+                "OmniDreams initial prompt is required when the scenario does "
+                "not carry fallback prompts."
+            )
         return [list(scenario.prompts)]
     if isinstance(prompt, str):
         return [[prompt]]
@@ -249,7 +263,7 @@ def _prompt_from_inputs(
 def _first_frame_from_inputs(
     inputs: InferenceInput,
     *,
-    scenario: OmnidreamsReplayScenario,
+    scenario: OmnidreamsSessionScenario,
     device: torch.device,
     dtype: torch.dtype,
 ) -> torch.Tensor:
@@ -258,6 +272,12 @@ def _first_frame_from_inputs(
         return first_frame
     if first_frame is not None:
         raise TypeError("OmniDreams initial first_frame must be a torch.Tensor.")
+    first_frame_paths = getattr(scenario, "first_frame_paths", ())
+    if not first_frame_paths:
+        raise ValueError(
+            "OmniDreams initial first_frame tensor is required when the "
+            "scenario does not carry fallback first_frame_paths."
+        )
     first_frames = [
         load_first_frame_tensor(
             path,
@@ -268,14 +288,24 @@ def _first_frame_from_inputs(
             allow_video=True,
             install_hint=DEFAULT_RUNNER_INSTALL_HINT,
         )
-        for path in scenario.first_frame_paths
+        for path in first_frame_paths
     ]
     return torch.stack(first_frames, dim=0).unsqueeze(0)
 
 
+def _seed_pipeline_for_rollout(pipeline: Any, seed: int | None) -> None:
+    if seed is None:
+        return
+    diffusion_model = getattr(pipeline, "diffusion_model", None)
+    rng = getattr(diffusion_model, "rng", None)
+    if rng is None:
+        return
+    rng.manual_seed(int(seed))
+
+
 def _view_names_from_inputs(
     inputs: InferenceInput,
-    scenario: OmnidreamsReplayScenario,
+    scenario: OmnidreamsSessionScenario,
 ) -> list[str]:
     value = inputs.metadata.get("view_names") or inputs.global_conditioning.get(
         "view_names"
@@ -314,6 +344,7 @@ __all__ = [
     "OmnidreamsRuntime",
     "OmnidreamsRuntimeOptions",
     "OmnidreamsSession",
+    "OmnidreamsSessionScenario",
     "OmnidreamsReplayRuntime",
     "OmnidreamsReplayRuntimeOptions",
     "OmnidreamsReplaySession",

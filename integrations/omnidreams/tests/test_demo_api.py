@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import omnidreams.demo as demo_package
 import omnidreams.demo.spec as spec_module
 import pytest
@@ -16,8 +18,12 @@ from aiohttp import web
 from omnidreams.config import OMNIDREAMS_RUNNERS
 from omnidreams.demo import (
     DEFAULT_OMNIDREAMS_PRESET,
+    OMNIDREAMS_CONDITIONING_LUDUS,
+    OMNIDREAMS_CONDITIONING_PRECOMPUTED,
     OMNIDREAMS_MODEL_ID,
+    LudusSceneConditioningProvider,
     OmnidreamsDemoAdapter,
+    OmnidreamsLudusReplayScenario,
     OmnidreamsReplayScenario,
     OmnidreamsWebRTCScenario,
     PrecomputedHDMapProvider,
@@ -58,6 +64,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 
@@ -82,12 +89,72 @@ def test_omnidreams_replay_cli_builds_null_output_spec() -> None:
     assert spec.config.model_id == OMNIDREAMS_MODEL_ID
 
 
+def test_omnidreams_replay_cli_builds_ludus_conditioning_spec(
+    tmp_path: Path,
+) -> None:
+    trace_path = tmp_path / "trace.json"
+    trace_path.write_text(
+        json.dumps(
+            {
+                "events": [
+                    {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+                    {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "demo.mp4"
+
+    args = parse_args(
+        [
+            "replay",
+            "--conditioning-mode",
+            OMNIDREAMS_CONDITIONING_LUDUS,
+            "--keyboard-trace",
+            str(trace_path),
+            "--scene-uuid",
+            "scene-1",
+            "--scene-variant",
+            "rain",
+            "--camera-name",
+            "camera_front_wide_120fov",
+            "--seed",
+            "123",
+            "--total-blocks",
+            "3",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    spec = _replay_spec(args)
+
+    assert spec.input_mode == "replay"
+    assert isinstance(spec.scenario, dict)
+    scenario = spec.scenario
+    assert scenario["conditioning_mode"] == OMNIDREAMS_CONDITIONING_LUDUS
+    assert scenario["keyboard_trace_path"] == trace_path
+    assert scenario["scene_uuid"] == "scene-1"
+    assert scenario["scene_variant"] == "rain"
+    assert scenario["total_blocks"] == 3
+    assert isinstance(spec.output, Mp4OutputSpec)
+    assert spec.output.path == output_path
+    assert spec.config is not None
+    assert spec.config.seed == 123
+    assert spec.config.runtime_options["seed"] == 123
+
+
 def test_omnidreams_demo_adapter_declares_replay_modes_only() -> None:
     adapter = OmnidreamsDemoAdapter()
 
     assert adapter.model_id == OMNIDREAMS_MODEL_ID
     assert adapter.supported_input_modes() == ("replay",)
     assert adapter.supported_output_modes() == ("mp4", "null")
+    assert adapter.supported_conditioning_modes() == (
+        OMNIDREAMS_CONDITIONING_PRECOMPUTED,
+        OMNIDREAMS_CONDITIONING_LUDUS,
+    )
     assert [
         field.name
         for field in adapter.inference_input_schema.global_conditioning_fields
@@ -365,6 +432,81 @@ def test_omnidreams_precomputed_hdmap_provider_prepares_inputs(
     provider.close()
 
 
+def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=2,
+    )
+    prepared = adapter.prepare_scenario(spec)
+
+    provider = adapter.create_model_input_provider(spec, prepared)
+
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    initial = provider.prepare_initial_input()
+    scenario = initial.global_conditioning["scenario"]
+    assert isinstance(scenario, OmnidreamsLudusReplayScenario)
+    assert scenario.camera_names == ("camera_front_wide_120fov",)
+    assert initial.global_conditioning["prompt"] == [["city scene"]]
+    assert initial.global_conditioning["first_frame"].shape == (1, 1, 1, 3, 2, 2)
+    assert initial.metadata["view_names"] == ("camera_front_wide_120fov",)
+
+    first = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+    )
+
+    assert first.inference_input is not None
+    first_hdmap = first.inference_input.step["hdmap"]
+    assert isinstance(first_hdmap, torch.Tensor)
+    assert first_hdmap.shape == (1, 1, 2, 3, 2, 2)
+    assert first.inference_input.metadata["frame_timestamps_us"] == (1_000, 34_333)
+    assert first.inference_input.metadata["keyboard_segments"] == (
+        (0.0, 2 / 30, ("w",)),
+    )
+    assert len(rasterizers) == 1
+    assert rasterizers[0].calls[0]["timestamps_us"] == (1_000, 34_333)
+    assert rasterizers[0].calls[0]["rig_poses_world"].shape == (2, 4, 4)
+    assert rasterizers[0].calls[0]["rig_poses_world"][0, 0, 3] > 0
+
+    provider.reset()
+    reset_first = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+    )
+
+    assert reset_first.inference_input is not None
+    torch.testing.assert_close(reset_first.inference_input.step["hdmap"], first_hdmap)
+
+    provider.reset()
+    realtime_first = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+            metadata={
+                SPARSE_KEY_SEGMENTS_METADATA_KEY: ((0.0, 2 / 30, frozenset({"w"})),)
+            },
+        ),
+    )
+
+    assert realtime_first.inference_input is not None
+    torch.testing.assert_close(
+        realtime_first.inference_input.step["hdmap"],
+        first_hdmap,
+    )
+    provider.close()
+    assert rasterizers[0].closed is True
+
+
 def test_omnidreams_replay_run_mode_uses_precomputed_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -419,6 +561,48 @@ def test_omnidreams_replay_run_mode_uses_precomputed_provider(
     assert len(pipeline.generated_hdmaps) == 2
     torch.testing.assert_close(pipeline.generated_hdmaps[0][0, 0], loaded_hdmap[:1])
     torch.testing.assert_close(pipeline.generated_hdmaps[1][0, 0], loaded_hdmap[1:2])
+
+
+def test_omnidreams_replay_run_mode_uses_ludus_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    pipeline = _FakeOmnidreamsPipeline()
+    sink = _RecordingOutputSink()
+    adapter = OmnidreamsDemoAdapter(
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+    )
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=2,
+    )
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        output_sink_factory=lambda output_spec: sink,
+    )
+
+    assert result.status == "completed"
+    assert result.artifacts == (
+        OutputArtifact(kind="video/mp4", uri="memory://omnidreams"),
+    )
+    assert [result.step_index for result in sink.results] == [0, 1]
+    assert pipeline.initialize_cache_calls == [
+        {
+            "text": [["city scene"]],
+            "image_shape": (1, 1, 1, 3, 2, 2),
+            "view_names": ["camera_front_wide_120fov"],
+        }
+    ]
+    assert len(pipeline.generated_hdmaps) == 2
+    assert pipeline.generated_hdmaps[0].shape == (1, 1, 1, 3, 2, 2)
+    assert pipeline.generated_hdmaps[1].shape == (1, 1, 1, 3, 2, 2)
+    assert not torch.equal(pipeline.generated_hdmaps[0], pipeline.generated_hdmaps[1])
 
 
 def test_omnidreams_replay_null_output_uses_precomputed_provider(
@@ -897,6 +1081,79 @@ def _replay_demo_spec(
     )
 
 
+def _ludus_replay_demo_spec(
+    *,
+    tmp_path: Path,
+    scene_path: Path,
+    total_blocks: int,
+    output: Mp4OutputSpec | NullOutputSpec | None = None,
+) -> DemoSpec:
+    return DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="replay",
+        scenario={
+            "conditioning_mode": OMNIDREAMS_CONDITIONING_LUDUS,
+            "keyboard_events": (
+                {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+                {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
+            ),
+            "scene_path": scene_path,
+            "scene_variant": "default",
+            "camera_name": "camera_front_wide_120fov",
+            "total_blocks": total_blocks,
+            "pixel_height": 2,
+            "pixel_width": 2,
+            "fps": 30,
+        },
+        output=output or Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=30),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            device="cpu",
+            seed=123,
+            runtime_options={"pipeline_config": object(), "seed": 123},
+        ),
+    )
+
+
+def _install_fake_ludus_provider_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[SimpleNamespace, list["_FakeLudusRasterizer"]]:
+    import omnidreams.demo.providers as providers_module
+
+    scene = SimpleNamespace(
+        scene_id="fake-scene",
+        prompt="city scene",
+        initial_rgb=np.zeros((2, 2, 3), dtype=np.uint8),
+        initial_rig_to_world=np.eye(4, dtype=np.float32),
+        initial_timestamp_us=1_000,
+    )
+    rasterizers: list[_FakeLudusRasterizer] = []
+
+    def fake_load_scene_bundle(*args: Any, **kwargs: Any) -> SimpleNamespace:
+        del args, kwargs
+        return scene
+
+    def fake_new_rasterizer(*args: Any, **kwargs: Any) -> "_FakeLudusRasterizer":
+        del args, kwargs
+        rasterizer = _FakeLudusRasterizer()
+        rasterizers.append(rasterizer)
+        return rasterizer
+
+    monkeypatch.setattr(
+        providers_module,
+        "_load_ludus_scene_bundle",
+        fake_load_scene_bundle,
+    )
+    monkeypatch.setattr(
+        providers_module,
+        "_new_ludus_rasterizer",
+        fake_new_rasterizer,
+    )
+    return scene, rasterizers
+
+
 class _RecordingOutputSink:
     produces_artifacts = True
 
@@ -977,6 +1234,41 @@ class _FakeOmnidreamsPipeline:
 class _FakeRenderer:
     def __init__(self) -> None:
         self.closed = False
+
+    def cleanup(self) -> None:
+        self.closed = True
+
+
+class _FakeLudusRasterizer:
+    def __init__(self) -> None:
+        self.loaded_scene: object | None = None
+        self.calls: list[dict[str, Any]] = []
+        self.closed = False
+
+    def load_scene(self, scene: object) -> None:
+        self.loaded_scene = scene
+
+    def render_chunk(
+        self,
+        *,
+        rig_poses_world: np.ndarray,
+        timestamps_us: np.ndarray,
+    ) -> SimpleNamespace:
+        self.calls.append(
+            {
+                "rig_poses_world": np.array(rig_poses_world, copy=True),
+                "timestamps_us": tuple(int(t) for t in timestamps_us),
+            }
+        )
+        frames = []
+        for timestamp_us in timestamps_us:
+            value = int(timestamp_us % 251)
+            frames.append(
+                SimpleNamespace(
+                    rgb_host_uint8=np.full((2, 2, 3), value, dtype=np.uint8)
+                )
+            )
+        return SimpleNamespace(frames=tuple(frames))
 
     def cleanup(self) -> None:
         self.closed = True

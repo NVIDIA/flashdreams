@@ -27,7 +27,9 @@ from flashdreams.runtime.demo.session_inputs import ModelInputProvider
 from flashdreams.runtime.interfaces import InferenceRuntime
 
 from .providers import (
+    LudusSceneConditioningProvider,
     PrecomputedHDMapProvider,
+    keyboard_driving_user_input_schema,
     precomputed_hdmap_inference_input_schema,
 )
 from .runtime import (
@@ -37,7 +39,12 @@ from .runtime import (
 )
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
+    OMNIDREAMS_CONDITIONING_LUDUS,
+    OMNIDREAMS_CONDITIONING_MODES,
+    OMNIDREAMS_CONDITIONING_PRECOMPUTED,
     OMNIDREAMS_MODEL_ID,
+    conditioning_mode_from_scenario,
+    resolve_ludus_replay_scenario,
     resolve_replay_scenario,
 )
 
@@ -88,6 +95,9 @@ class OmnidreamsDemoAdapter:
     def supported_output_modes(self) -> tuple[str, ...]:
         return ("mp4", "null")
 
+    def supported_conditioning_modes(self) -> tuple[str, ...]:
+        return OMNIDREAMS_CONDITIONING_MODES
+
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode != "replay":
             raise ValueError(
@@ -99,18 +109,29 @@ class OmnidreamsDemoAdapter:
                 "OmniDreams replay demo supports output modes "
                 f"{self.supported_output_modes()}, got {spec.output.mode!r}."
             )
-        scenario = resolve_replay_scenario(
-            spec.scenario,
-            default_prompt=self._default_replay_prompt(spec.config),
-        )
+        conditioning_mode = conditioning_mode_from_scenario(spec.scenario)
+        if conditioning_mode == OMNIDREAMS_CONDITIONING_PRECOMPUTED:
+            scenario = resolve_replay_scenario(
+                spec.scenario,
+                default_prompt=self._default_replay_prompt(spec.config),
+            )
+            source_schema = UserInputSchema(description="fixed OmniDreams replay input")
+        elif conditioning_mode == OMNIDREAMS_CONDITIONING_LUDUS:
+            scenario = resolve_ludus_replay_scenario(spec.scenario)
+            source_schema = keyboard_driving_user_input_schema()
+        else:
+            raise ValueError(
+                f"Unsupported OmniDreams conditioning mode: {conditioning_mode!r}."
+            )
         return PreparedScenario(
             initial_inputs=InferenceInput(
                 global_conditioning={"scenario": scenario},
             ),
-            source_schema=UserInputSchema(description="fixed OmniDreams replay input"),
+            source_schema=source_schema,
             canonicalizer=InputCanonicalizer(),
             mapping=self._mapping,
             metadata={
+                "conditioning_mode": conditioning_mode,
                 "model_id": self.model_id,
                 "preset_id": self._preset_id(spec.config),
                 "num_views": len(scenario.camera_names),
@@ -142,11 +163,26 @@ class OmnidreamsDemoAdapter:
     ) -> ModelInputProvider:
         if spec.input_mode != "replay":
             raise ValueError(
-                "OmniDreams precomputed HDMap provider currently supports only "
+                "OmniDreams replay providers currently support only "
                 f"input_mode='replay', got {spec.input_mode!r}."
             )
         if spec.config is None:
             raise RuntimeError("DemoSpec.config was not initialized.")
+        conditioning_mode = str(
+            scenario.metadata.get(
+                "conditioning_mode",
+                conditioning_mode_from_scenario(spec.scenario),
+            )
+        )
+        if conditioning_mode == OMNIDREAMS_CONDITIONING_LUDUS:
+            return LudusSceneConditioningProvider(
+                scenario=scenario,
+                config=spec.config,
+            )
+        if conditioning_mode != OMNIDREAMS_CONDITIONING_PRECOMPUTED:
+            raise ValueError(
+                f"Unsupported OmniDreams conditioning mode: {conditioning_mode!r}."
+            )
         return PrecomputedHDMapProvider(
             scenario=scenario,
             config=spec.config,
