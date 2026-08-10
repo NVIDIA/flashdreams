@@ -46,6 +46,7 @@ from omnidreams.demo.webrtc import (
 )
 
 from flashdreams.runtime import (
+    CanonicalInputs,
     InferenceConfig,
     InferenceInput,
     OutputArtifact,
@@ -996,43 +997,88 @@ def test_omnidreams_webrtc_demo_serves_through_shared_runner(
 
 
 @pytest.mark.asyncio
-async def test_omnidreams_demo_runtime_generates_directly_from_controls() -> None:
+async def test_omnidreams_webrtc_runtime_uses_shared_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    pipeline = _VariableFrameOmnidreamsPipeline((2, 3))
     config = OmnidreamsWebRTCModelRuntimeConfig(
         pipeline_config_name="fake",
         pipeline_config=object(),
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+        scene_dir=scene_path,
         device="cpu",
         fps=30,
+        video_height=2,
+        video_width=2,
         warmup_chunks=0,
     )
     runtime = OmnidreamsWebRTCModelRuntime(config=config)
-    wrapper = _FakeConditioningWrapper()
-    runtime._wrapper = wrapper  # ty:ignore[invalid-assignment]
-    runtime._renderer = _FakeRenderer()
-    runtime._scene_data = SimpleNamespace(ego_poses=[SimpleNamespace(timestamp=1_000)])
-    runtime._initial_rgb_frames = torch.zeros((1, 1, 3, 4, 5), dtype=torch.uint8)
-    runtime._text_prompts = []
-    runtime._camera_to_rig = torch.eye(4)
-    runtime._initial_ego_pose = torch.eye(4).numpy()
-    runtime.pose_integrator.reset()
-    runtime._next_timestamp_us = 1_000
+    await runtime.initialize()
+    await runtime.reset_for_new_session()
+    session = await runtime.start_inference_session()
 
-    first = runtime._generate_one_chunk_sync(
-        segments=[(0.0, 2 / 30, frozenset({"w"}))],
-        frame_times=[1 / 30, 2 / 30],
+    first_request = session.next_step_request()
+    assert first_request is not None
+    assert first_request.metadata["input_frame_count"] == 2
+    first = session.step(
+        runtime.input_mapping.map_step_inputs(
+            canonical_inputs=CanonicalInputs(),
+            inference_input=InferenceInput(
+                metadata={
+                    SPARSE_KEY_SEGMENTS_METADATA_KEY: (
+                        (0.0, 2 / 30, frozenset({"w"})),
+                    ),
+                    "frame_times": (1 / 30, 2 / 30),
+                    "window_start_s": 0.0,
+                    "window_end_s": 2 / 30,
+                }
+            ),
+            request=first_request,
+        )
     )
-    second = runtime._generate_one_chunk_sync(
-        segments=[(2 / 30, 5 / 30, frozenset({"d"}))],
-        frame_times=[3 / 30, 4 / 30, 5 / 30],
+    second_request = session.next_step_request()
+    assert second_request is not None
+    assert second_request.metadata["input_frame_count"] == 3
+    second = session.step(
+        runtime.input_mapping.map_step_inputs(
+            canonical_inputs=CanonicalInputs(),
+            inference_input=InferenceInput(
+                metadata={
+                    SPARSE_KEY_SEGMENTS_METADATA_KEY: (
+                        (2 / 30, 5 / 30, frozenset({"d"})),
+                    ),
+                    "frame_times": (3 / 30, 4 / 30, 5 / 30),
+                    "window_start_s": 2 / 30,
+                    "window_end_s": 5 / 30,
+                }
+            ),
+            request=second_request,
+        )
     )
 
     assert (first.step_index, first.frame_count) == (0, 2)
     assert (second.step_index, second.frame_count) == (1, 3)
-    assert wrapper.calls == [
-        ("start", (2, 4, 4), [1_000, 34_333]),
-        ("continue", (3, 4, 4), [67_666, 100_999, 134_332]),
+    assert isinstance(session, OmnidreamsSession) is False
+    assert pipeline.initialize_cache_calls == [
+        {
+            "text": [["city scene"]],
+            "image_shape": (1, 1, 1, 3, 2, 2),
+            "view_names": ["camera_front_wide_120fov"],
+        }
     ]
-    assert wrapper.finalized == [0, 1]
+    assert [tuple(hdmap.shape) for hdmap in pipeline.generated_hdmaps] == [
+        (1, 1, 2, 3, 2, 2),
+        (1, 1, 3, 3, 2, 2),
+    ]
+    assert rasterizers[0].calls[0]["timestamps_us"] == (1_000, 34_333)
+    assert rasterizers[0].calls[1]["timestamps_us"] == (67_666, 100_999, 134_332)
+    session.close()
     await runtime.close()
+    assert rasterizers[0].closed is True
 
 
 class _RecordingOutputTarget:
@@ -1231,12 +1277,27 @@ class _FakeOmnidreamsPipeline:
         return {"denoise_s": 0.25}
 
 
-class _FakeRenderer:
-    def __init__(self) -> None:
-        self.closed = False
+class _VariableFrameOmnidreamsPipeline(_FakeOmnidreamsPipeline):
+    def __init__(self, frame_counts: tuple[int, ...]) -> None:
+        super().__init__()
+        self._frame_counts = frame_counts
 
-    def cleanup(self) -> None:
-        self.closed = True
+    def get_num_frames(self, autoregressive_index: int) -> int:
+        return self._frame_counts[
+            min(autoregressive_index, len(self._frame_counts) - 1)
+        ]
+
+    def generate(
+        self,
+        *,
+        autoregressive_index: int,
+        cache: object,
+        hdmap: torch.Tensor,
+    ) -> torch.Tensor:
+        del cache
+        self.generated_hdmaps.append(hdmap.detach().clone())
+        frame_count = self.get_num_frames(autoregressive_index)
+        return torch.full((1, 1, frame_count, 3, 2, 2), float(autoregressive_index))
 
 
 class _FakeLudusRasterizer:
@@ -1272,55 +1333,6 @@ class _FakeLudusRasterizer:
 
     def cleanup(self) -> None:
         self.closed = True
-
-
-class _FakeConditioningWrapper:
-    initial_frame_chunk_size = 2
-    frame_chunk_size = 3
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[int, ...], list[int]]] = []
-        self.finalized: list[int] = []
-        self.cleaned = False
-
-    def start_generation(self, **kwargs: Any) -> SimpleNamespace:
-        return self._output("start", kwargs=kwargs, frame_count=2, step_index=0)
-
-    def continue_generation(self, **kwargs: Any) -> SimpleNamespace:
-        return self._output("continue", kwargs=kwargs, frame_count=3, step_index=1)
-
-    def _output(
-        self,
-        operation: str,
-        *,
-        kwargs: dict[str, Any],
-        frame_count: int,
-        step_index: int,
-    ) -> SimpleNamespace:
-        poses = kwargs["camera_poses_per_view"]["camera_front_wide_120fov"]
-        timestamps = kwargs["frame_timestamps_us"]
-        self.calls.append((operation, tuple(poses.shape), timestamps))
-        state = kwargs.get("state") or SimpleNamespace(pipeline_cache=object())
-        return SimpleNamespace(
-            state=state,
-            condition_frames=torch.zeros(
-                (1, 1, frame_count, 3, 4, 5), dtype=torch.uint8
-            ),
-            rgb_frames=torch.zeros((1, 1, frame_count, 3, 4, 5), dtype=torch.uint8),
-            finalization_state={"autoregressive_index": step_index},
-        )
-
-    def finalize_block_generation(
-        self,
-        pipeline_cache: object,
-        finalization_state: dict[str, int],
-    ) -> None:
-        del pipeline_cache
-        self.finalized.append(finalization_state["autoregressive_index"])
-
-    def cleanup(self, state: object) -> None:
-        del state
-        self.cleaned = True
 
 
 class _FakeWebRTCRuntime:

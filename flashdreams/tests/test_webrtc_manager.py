@@ -19,6 +19,7 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
+from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -502,6 +503,9 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
             return object()
 
     class _RecordingMapping:
+        def __init__(self) -> None:
+            self.inference_inputs: list[InferenceInput] = []
+
         def map_step_inputs(
             self,
             *,
@@ -509,14 +513,16 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
             inference_input: InferenceInput,
             request: StepRequest,
         ) -> InferenceInput:
-            del canonical_inputs, inference_input
+            del canonical_inputs
+            self.inference_inputs.append(inference_input)
             return InferenceInput(step={"mapped_step": request.step_index})
 
+    mapping = _RecordingMapping()
     runtime = SimpleNamespace(
         start_inference_session=lambda: object(),
         input_canonicalizer=_RecordingCanonicalizer(),
         input_source_schema=object(),
-        input_mapping=_RecordingMapping(),
+        input_mapping=mapping,
     )
     provider = manager_module._LegacyWebRTCModelInputProvider(runtime=runtime)
     skipped_inputs = UserInputs(
@@ -543,8 +549,10 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
         user_window=manager_module.UserInputWindow(
             start_s=2.0,
             end_s=3.0,
+            frame_times=(2.25, 2.75),
             inputs=current_inputs,
             metadata={
+                SPARSE_KEY_SEGMENTS_METADATA_KEY: ((2.0, 3.0, frozenset({"w"})),),
                 WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_inputs,
                 WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 2.0),
             },
@@ -554,6 +562,12 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
     assert prepared.inference_input == InferenceInput(step={"mapped_step": 0})
     assert runtime.input_canonicalizer.windows == [(0.0, 2.0), (2.0, 3.0)]
     assert runtime.input_canonicalizer.event_batches == [["key_down"], ["key_up"]]
+    assert mapping.inference_inputs[0].metadata["frame_times"] == (2.25, 2.75)
+    assert mapping.inference_inputs[0].metadata["window_start_s"] == 2.0
+    assert mapping.inference_inputs[0].metadata["window_end_s"] == 3.0
+    assert mapping.inference_inputs[0].metadata[SPARSE_KEY_SEGMENTS_METADATA_KEY] == (
+        (2.0, 3.0, frozenset({"w"})),
+    )
 
 
 @pytest.mark.asyncio

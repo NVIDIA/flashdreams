@@ -385,9 +385,17 @@ class _LegacyWebRTCModelInputProvider:
             source_schema=self._runtime.input_source_schema,
         )
         mapping = self._runtime.input_mapping
+        inference_input = InferenceInput(
+            metadata={
+                **dict(user_window.metadata),
+                "frame_times": tuple(user_window.frame_times),
+                "window_start_s": window.start_s,
+                "window_end_s": window.end_s,
+            }
+        )
         return mapping.map_step_inputs(
             canonical_inputs=canonical_inputs,
-            inference_input=InferenceInput(),
+            inference_input=inference_input,
             request=_step_request_from_requirements(request, window=window),
         )
 
