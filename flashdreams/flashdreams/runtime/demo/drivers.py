@@ -874,6 +874,9 @@ def _record_provider_cleanup_error(
         session_edges.record_cleanup_error(exc)
     else:
         _record_run_cleanup_error(context, exc)
+    # Partial async assembly may only have a provider to close. If that
+    # model-affine cleanup fails, quarantine the host instead of admitting a new
+    # session onto a worker that may still own model resources.
     _mark_host_cleanup_failed(context.host, exc)
 
 
@@ -930,6 +933,9 @@ def _close_model_resources_safely(
     session_edges: SessionEdges,
 ) -> bool:
     resources_closed = True
+    # Session and provider close are intentionally ordered on the model worker.
+    # If session close hangs, timeout handling records orphaned cleanup and
+    # quarantines the host rather than moving provider close to another thread.
     if session_close is not None:
         resources_closed = _close_safely(session_close, session_edges)
     return _close_safely(provider_close, session_edges) and resources_closed
