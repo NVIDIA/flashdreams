@@ -195,7 +195,7 @@ class LudusSceneConditioningProvider:
             supports_recorded_input=True,
             supports_reset=True,
             deterministic_given_inputs=True,
-            user_input_schema=keyboard_driving_user_input_schema(),
+            user_input_schema=scenario.source_schema,
             inference_input_schema=precomputed_hdmap_inference_input_schema(),
         )
 

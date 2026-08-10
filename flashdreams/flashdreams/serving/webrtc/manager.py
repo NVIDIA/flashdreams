@@ -10,10 +10,10 @@ import contextlib
 import inspect
 import json
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from aiortc import (
     RTCConfiguration,
@@ -62,7 +62,9 @@ from flashdreams.serving.realtime.input import (
 )
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
+    EncoderBackend,
     VideoEncoder,
+    select_encoder,
 )
 from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 from flashdreams.serving.webrtc.messages import (
@@ -120,7 +122,7 @@ _STEP_REQUEST_KEY = "webrtc_step_request"
 _SEGMENTS_KEY = "webrtc_segments"
 _FRAME_TIMES_KEY = "webrtc_frame_times"
 
-_RuntimeT = TypeVar("_RuntimeT", bound=WebRTCSessionRuntime)
+_RuntimeT = TypeVar("_RuntimeT")
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
 
 
@@ -206,6 +208,27 @@ def _step_request_from_requirements(
         user_input_window=window,
         metadata=metadata,
     )
+
+
+def _encoder_backend_from_config(value: object) -> EncoderBackend:
+    backend = str(value)
+    if backend not in {"auto", "default", "nvenc"}:
+        raise ValueError(
+            f"encoder_backend must be 'auto', 'default', or 'nvenc', got {backend!r}."
+        )
+    return cast(EncoderBackend, backend)
+
+
+def _gpu_id_from_device_spec(device_spec: str) -> int:
+    if not device_spec.startswith("cuda"):
+        return 0
+    _prefix, separator, index = device_spec.partition(":")
+    if not separator or not index:
+        return 0
+    try:
+        return int(index)
+    except ValueError:
+        return 0
 
 
 class _LegacyWebRTCRuntimeAdapter:
@@ -655,6 +678,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         supported_control_keys: AbstractSet[str] | None = None,
         fatal_generation_errors: bool = False,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        shared_host: RuntimeHost | None = None,
+        shared_adapter: Any | None = None,
+        shared_spec: DemoSpec | None = None,
+        shared_scenario: PreparedScenario | None = None,
+        shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
@@ -678,8 +706,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._session_lock = asyncio.Lock()
         self._pending_session_input: Any = None
         self._shared_runtime_adapter: _LegacyWebRTCRuntimeAdapter | None = None
-        self._shared_host: RuntimeHost | None = None
+        self._shared_host: RuntimeHost | None = shared_host
+        self._owns_shared_host = shared_host is not None
         self._shared_context: RunContext | None = None
+        self._shared_adapter = shared_adapter
+        self._shared_spec = shared_spec
+        self._shared_scenario = shared_scenario
+        self._shared_pipeline_factory = shared_pipeline_factory
+        self._shared_video_encoder: VideoEncoder | None = None
 
     @property
     def pending_session_input(self) -> Any:
@@ -742,8 +776,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         return parsed
 
     def _runtime_input_fps(self, runtime: Any) -> float:
+        peek_input_fps = getattr(runtime, "peek_input_fps", None)
+        if not callable(peek_input_fps):
+            return float(self.fps)
         return self._positive_float_runtime_value(
-            runtime.peek_input_fps(),
+            peek_input_fps(),
             label="peek_input_fps",
         )
 
@@ -761,9 +798,22 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         return request, input_num_frames
 
     def _runtime_steady_output_num_frames(self, runtime: Any) -> int:
+        peek_output_frames = getattr(runtime, "peek_steady_output_num_frames", None)
+        if callable(peek_output_frames):
+            return self._positive_int_runtime_value(
+                peek_output_frames(),
+                label="peek_steady_output_num_frames",
+            )
+        pipeline = getattr(runtime, "pipeline", None)
+        get_num_frames = getattr(pipeline, "get_num_frames", None)
+        if callable(get_num_frames):
+            return self._positive_int_runtime_value(
+                get_num_frames(1),
+                label="pipeline.get_num_frames(1)",
+            )
         return self._positive_int_runtime_value(
-            runtime.peek_steady_output_num_frames(),
-            label="peek_steady_output_num_frames",
+            1,
+            label="fallback steady output frame count",
         )
 
     def _resolve_video_encoder(self) -> VideoEncoder:
@@ -777,19 +827,23 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """
         encoder = getattr(self._runtime, "video_encoder", None)
         if encoder is None:
+            encoder = self._shared_video_encoder
+        if encoder is None:
             encoder = DefaultRTCEncoder(fps=self.fps)
         return encoder
 
     def _shared_run_context(self, loop: asyncio.AbstractEventLoop) -> RunContext:
         if self._shared_context is not None:
             return self._shared_context
-        runtime_adapter = _LegacyWebRTCRuntimeAdapter(
-            runtime=self._runtime,
-            loop=loop,
-        )
-        host = RuntimeHost(runtime_adapter)
-        self._shared_runtime_adapter = runtime_adapter
-        self._shared_host = host
+        host = self._shared_host
+        if host is None:
+            runtime_adapter = _LegacyWebRTCRuntimeAdapter(
+                runtime=self._runtime,
+                loop=loop,
+            )
+            host = RuntimeHost(runtime_adapter)
+            self._shared_runtime_adapter = runtime_adapter
+            self._shared_host = host
         self._shared_context = RunContext(
             host=host,
             run_metrics=InMemorySessionMetricsRecorder(),
@@ -821,6 +875,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> None:
         reset = getattr(context.host.runtime, "reset_for_new_session", None)
         if not callable(reset):
+            if self._shared_adapter is not None:
+                return
             raise RuntimeError("WebRTC runtime adapter cannot reset sessions.")
         await context.host.call_async(reset, session_input)
 
@@ -1259,13 +1315,45 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     async def preload_runtime(self) -> None:
         async with self._preload_lock:
             if not self._runtime_ready:
-                await self._runtime.initialize()
+                initialize = getattr(self._runtime, "initialize", None)
+                if callable(initialize):
+                    result = initialize()
+                    if inspect.isawaitable(result):
+                        await result
+                elif self._shared_host is not None:
+                    await asyncio.to_thread(self._shared_host.preload)
                 self._runtime_ready = True
+                self._initialize_shared_video_encoder()
             if not self._warmup_complete:
                 await self._run_loopback_warmup_session(
                     num_chunks=self.runtime_config.warmup_chunks
                 )
                 self._warmup_complete = True
+
+    def _initialize_shared_video_encoder(self) -> None:
+        if self._shared_video_encoder is not None:
+            return
+        if getattr(self._runtime, "video_encoder", None) is not None:
+            return
+        encoder_backend = getattr(self.runtime_config, "encoder_backend", None)
+        if encoder_backend is None:
+            return
+        backend = _encoder_backend_from_config(encoder_backend)
+        device_spec = str(getattr(self.runtime_config, "device", ""))
+        device_type = device_spec.split(":", maxsplit=1)[0]
+        if device_type != "cuda" and backend == "auto":
+            backend = "default"
+        if device_type != "cuda" and backend == "nvenc":
+            raise RuntimeError("encoder_backend='nvenc' requires a CUDA device.")
+        self._shared_video_encoder = select_encoder(
+            backend=backend,
+            width=self.runtime_config.video_width,
+            height=self.runtime_config.video_height,
+            fps=self.fps,
+            bitrate=int(getattr(self.runtime_config, "encoder_bitrate_bps", 6_000_000)),
+            gpu_id=_gpu_id_from_device_spec(device_spec),
+            gop=int(getattr(self.runtime_config, "encoder_gop", self.fps)),
+        )
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
         if not self._runtime_ready or not self._warmup_complete:
@@ -1510,19 +1598,34 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if self._shared_context is not None:
             await self._shared_context.close_async()
         if self._shared_host is not None:
-            self._shared_host.close()
+            await asyncio.to_thread(self._shared_host.close)
         self._shared_context = None
         self._shared_host = None
         self._shared_runtime_adapter = None
-        await self._runtime.close()
+        if self._shared_video_encoder is not None:
+            self._shared_video_encoder.close()
+            self._shared_video_encoder = None
+        if not self._owns_shared_host:
+            close = getattr(self._runtime, "close", None)
+            if callable(close):
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
         self._runtime_ready = False
         self._warmup_complete = False
 
     def wait_for_termination(self) -> None:
-        self._runtime.wait_for_termination()
+        wait = getattr(self._runtime, "wait_for_termination", None)
+        if callable(wait):
+            wait()
+            return
+        if self._shared_host is not None:
+            self._shared_host.run_worker_loop()
 
     def send_exit_signal(self) -> None:
-        self._runtime.send_exit_signal()
+        send = getattr(self._runtime, "send_exit_signal", None)
+        if callable(send):
+            send()
 
     async def _handle_datachannel_message(
         self,
@@ -1738,13 +1841,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         context: RunContext,
         session_input: Any,
     ) -> None:
-        adapter = _LegacyWebRTCDemoAdapter(
-            runtime=self._runtime,
-            identity=self.identity,
-            session_input=session_input,
-        )
-        spec = self._shared_demo_spec()
-        scenario = adapter.prepare_scenario(spec)
+        adapter = self._shared_adapter
+        spec = self._shared_spec
+        scenario = self._shared_scenario
+        if adapter is None or spec is None:
+            adapter = _LegacyWebRTCDemoAdapter(
+                runtime=self._runtime,
+                identity=self.identity,
+                session_input=session_input,
+            )
+            spec = self._shared_demo_spec()
+        if scenario is None:
+            scenario = adapter.prepare_scenario(spec)
         run_mode = WebRTCRunMode(
             edge_factory=_ManagedWebRTCSessionEdgeFactory(
                 manager=self,
@@ -1759,7 +1867,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 scenario=scenario,
                 adapter=adapter,
                 run_mode=run_mode,
-                pipeline=StepPipeline(),
+                pipeline=(
+                    self._shared_pipeline_factory()
+                    if self._shared_pipeline_factory is not None
+                    else StepPipeline()
+                ),
                 reservation=managed_session.reservation,
             )
             if result.status == "completed":

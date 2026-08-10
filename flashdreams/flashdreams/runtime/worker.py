@@ -13,6 +13,7 @@ from typing import Any, Callable, TypeVar, cast
 import torch
 
 _T = TypeVar("_T")
+_EXECUTOR_FUTURE_POLL_INTERVAL_S = 0.01
 
 
 class ModelExecutionWorker:
@@ -68,7 +69,7 @@ class ModelExecutionWorker:
         self._require_accepting()
         future = self._submit(func, args, kwargs)
         try:
-            return await asyncio.shield(future)
+            return await _await_executor_future(future)
         except asyncio.CancelledError:
             future.add_done_callback(_consume_exception)
             raise
@@ -89,22 +90,24 @@ class ModelExecutionWorker:
     async def close(self) -> None:
         """Drain submitted work and stop accepting lifecycle calls."""
         self._require_not_worker_thread()
-        await asyncio.to_thread(self.close_blocking)
+        if not self._begin_close():
+            return
+        try:
+            barrier = asyncio.wrap_future(self._executor.submit(_noop))
+            await _await_executor_future(barrier)
+        finally:
+            self._finish_close()
 
     def close_blocking(self) -> None:
         """Synchronous close for non-async setup and teardown paths."""
         self._require_not_worker_thread()
-        with self._state_lock:
-            if self._closed:
-                return
-            self._accepting = False
+        if not self._begin_close():
+            return
         try:
             barrier = self._executor.submit(_noop)
             barrier.result()
         finally:
-            self._executor.shutdown(wait=True, cancel_futures=False)
-            with self._state_lock:
-                self._closed = True
+            self._finish_close()
 
     def _submit(
         self,
@@ -131,6 +134,18 @@ class ModelExecutionWorker:
                 "thread; call the function directly."
             )
 
+    def _begin_close(self) -> bool:
+        with self._state_lock:
+            if self._closed:
+                return False
+            self._accepting = False
+            return True
+
+    def _finish_close(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=False)
+        with self._state_lock:
+            self._closed = True
+
 
 ThreadAffineRuntimeWorker = ModelExecutionWorker
 
@@ -145,6 +160,16 @@ def _invoke(
 
 def _noop() -> None:
     return
+
+
+async def _await_executor_future(future: asyncio.Future[_T]) -> _T:
+    """Await an executor future without relying on a single cross-thread wakeup."""
+    while not future.done():
+        await asyncio.wait(
+            {future},
+            timeout=_EXECUTOR_FUTURE_POLL_INTERVAL_S,
+        )
+    return future.result()
 
 
 def _consume_exception(future: asyncio.Future[Any]) -> None:

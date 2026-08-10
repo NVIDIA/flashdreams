@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -46,6 +47,7 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     DemoSpec,
     PreparedScenario,
+    RuntimeHost,
     SessionInfo,
     UserInputWindow,
     WebRTCAppResources,
@@ -68,6 +70,7 @@ from flashdreams.serving.webrtc.runtime import (
 from flashdreams.serving.webrtc.server import create_webrtc_app
 from flashdreams.serving.webrtc.services import WEBRTC_USER_INPUT_SCHEMA
 
+from .adapter import OmnidreamsDemoAdapter, RuntimeFactory
 from .providers import LudusSceneConditioningProvider
 from .runtime import OmnidreamsRuntime, OmnidreamsRuntimeOptions, PipelineFactory
 from .spec import (
@@ -79,6 +82,7 @@ from .spec import (
 )
 
 WebRTCRuntimeFactory = Callable[..., Any]
+SharedRuntimeFactory = RuntimeFactory
 _WEBRTC_SESSION_TOTAL_BLOCKS = 2_147_483_647
 _WEBRTC_STEP_REQUEST_KEY = "omnidreams_webrtc_step_request"
 
@@ -750,11 +754,16 @@ def serve_omnidreams_webrtc_demo(
     *,
     spec: DemoSpec,
     world_rank: int = 0,
-    runtime_factory: WebRTCRuntimeFactory = OmnidreamsWebRTCModelRuntime,
+    runtime_factory: WebRTCRuntimeFactory | None = None,
+    shared_runtime_factory: SharedRuntimeFactory | None = None,
     create_app_fn: CreateWebRTCApp = create_webrtc_app,
     server_runner: RunWebRTCServer = run_webrtc_server,
 ) -> object:
     """Create OmniDreams' runtime and serve it through the shared WebRTC transport."""
+    if runtime_factory is not None and shared_runtime_factory is not None:
+        raise ValueError(
+            "Specify either legacy runtime_factory or shared_runtime_factory, not both."
+        )
     if spec.input_mode != "keyboard-driving":
         raise ValueError(
             "OmniDreams WebRTC requires input_mode='keyboard-driving', "
@@ -771,6 +780,41 @@ def serve_omnidreams_webrtc_demo(
             f"got {config.model_id!r}."
         )
     scenario = resolve_webrtc_scenario(spec.scenario)
+    runtime_config = _webrtc_runtime_config(
+        output=spec.output,
+        config=config,
+        scenario=scenario,
+    )
+    if _should_use_legacy_webrtc_path(
+        scenario=scenario,
+        runtime_factory=runtime_factory,
+    ):
+        return _serve_legacy_omnidreams_webrtc_demo(
+            spec=spec,
+            output=spec.output,
+            runtime_config=runtime_config,
+            runtime_factory=runtime_factory or OmnidreamsWebRTCModelRuntime,
+            world_rank=world_rank,
+            create_app_fn=create_app_fn,
+            server_runner=server_runner,
+        )
+    return _serve_shared_omnidreams_webrtc_demo(
+        spec=_shared_webrtc_spec(spec, runtime_config=runtime_config),
+        output=spec.output,
+        runtime_config=runtime_config,
+        shared_runtime_factory=shared_runtime_factory,
+        world_rank=world_rank,
+        create_app_fn=create_app_fn,
+        server_runner=server_runner,
+    )
+
+
+def _webrtc_runtime_config(
+    *,
+    output: WebRTCOutputSpec,
+    config: InferenceConfig,
+    scenario: Any,
+) -> OmnidreamsWebRTCModelRuntimeConfig:
     preset_id = _preset_id(config)
     seed = _option(config, "seed", 42)
     runtime_config = OmnidreamsWebRTCModelRuntimeConfig(
@@ -781,16 +825,50 @@ def serve_omnidreams_webrtc_demo(
         scene_variant=scenario.scene_variant,
         seed=None if seed is None else int(seed),
         device=config.device or str(_option(config, "device", "cuda:0")),
-        video_height=spec.output.video_height,
-        video_width=spec.output.video_width,
-        fps=spec.output.fps,
+        video_height=output.video_height,
+        video_width=output.video_width,
+        fps=output.fps,
         camera_name=scenario.camera_name,
-        warmup_chunks=spec.output.warmup_chunks,
-        warmup_timeout_s=spec.output.warmup_timeout_s,
+        warmup_chunks=output.warmup_chunks,
+        warmup_timeout_s=output.warmup_timeout_s,
         debug_serve_hdmaps=scenario.debug_serve_hdmaps,
         encoder_backend="default" if scenario.prefer_sw_encoder else "auto",
     )
-    runtime_config = _apply_runtime_options(runtime_config, config.runtime_options)
+    return _apply_runtime_options(runtime_config, config.runtime_options)
+
+
+def _should_use_legacy_webrtc_path(
+    *,
+    scenario: Any,
+    runtime_factory: WebRTCRuntimeFactory | None,
+) -> bool:
+    if runtime_factory is not None:
+        return True
+    if bool(getattr(scenario, "debug_serve_hdmaps", False)):
+        logger.info(
+            "Using the legacy OmniDreams WebRTC path because debug HDMap "
+            "streaming is still implemented by the compatibility facade."
+        )
+        return True
+    if _distributed_world_size() > 1:
+        logger.info(
+            "Using the legacy OmniDreams WebRTC path for multi-rank serving; "
+            "shared RuntimeHost distributed fan-out is not yet complete."
+        )
+        return True
+    return False
+
+
+def _serve_legacy_omnidreams_webrtc_demo(
+    *,
+    spec: DemoSpec,
+    output: WebRTCOutputSpec,
+    runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
+    runtime_factory: WebRTCRuntimeFactory,
+    world_rank: int,
+    create_app_fn: CreateWebRTCApp,
+    server_runner: RunWebRTCServer,
+) -> object:
     runtime = runtime_factory(config=runtime_config)
     manager = BaseWebRTCSessionManager(
         runtime=runtime,
@@ -801,12 +879,12 @@ def serve_omnidreams_webrtc_demo(
         warmup_label="OmniDreams WebRTC",
         supported_control_keys=WSAD_SUPPORTED_KEYS,
         fatal_generation_errors=True,
-        client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
     )
     from importlib.resources import files
 
     return serve_webrtc_demo(
-        output=spec.output,
+        output=output,
         model_id=spec.model_id,
         session_manager=manager,
         app_resources=WebRTCAppResources(
@@ -816,6 +894,84 @@ def serve_omnidreams_webrtc_demo(
         world_rank=world_rank,
         create_app_fn=create_app_fn,
         server_runner=server_runner,
+    )
+
+
+def _serve_shared_omnidreams_webrtc_demo(
+    *,
+    spec: DemoSpec,
+    output: WebRTCOutputSpec,
+    runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
+    shared_runtime_factory: SharedRuntimeFactory | None,
+    world_rank: int,
+    create_app_fn: CreateWebRTCApp,
+    server_runner: RunWebRTCServer,
+) -> object:
+    adapter = OmnidreamsDemoAdapter(runtime_factory=shared_runtime_factory)
+    prepared = adapter.prepare_scenario(spec)
+    config = spec.config
+    if config is None:
+        raise RuntimeError("DemoSpec.config was not initialized.")
+    runtime = adapter.create_runtime(config)
+    host = RuntimeHost(runtime)
+    manager = BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime_config,
+        fps=runtime_config.fps,
+        identity=runtime_config.pipeline_config_name,
+        busy_message="An OmniDreams session is already active.",
+        warmup_label="OmniDreams WebRTC",
+        supported_control_keys=WSAD_SUPPORTED_KEYS,
+        fatal_generation_errors=True,
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
+        shared_host=host,
+        shared_adapter=adapter,
+        shared_spec=spec,
+        shared_scenario=prepared,
+    )
+    from importlib.resources import files
+
+    return serve_webrtc_demo(
+        output=output,
+        model_id=spec.model_id,
+        session_manager=manager,
+        app_resources=WebRTCAppResources(
+            model_web_resource=files("omnidreams.demo").joinpath("web"),
+            preload_name="OmniDreams",
+        ),
+        world_rank=world_rank,
+        create_app_fn=create_app_fn,
+        server_runner=server_runner,
+    )
+
+
+def _shared_webrtc_spec(
+    spec: DemoSpec,
+    *,
+    runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
+) -> DemoSpec:
+    config = spec.config
+    if config is None:
+        raise RuntimeError("DemoSpec.config was not initialized.")
+    runtime_options = dict(config.runtime_options)
+    runtime_options.update(
+        {
+            "pipeline_config": runtime_config.pipeline_config,
+            "seed": runtime_config.seed,
+            "move_speed_per_s": runtime_config.move_speed_per_s,
+            "rotate_speed_rad_per_s": runtime_config.rotate_speed_rad_per_s,
+            "release_oneshot_encoders_after_cache_init": False,
+        }
+    )
+    return replace(
+        spec,
+        config=replace(
+            config,
+            preset_id=runtime_config.pipeline_config_name,
+            device=runtime_config.device,
+            seed=runtime_config.seed,
+            runtime_options=runtime_options,
+        ),
     )
 
 
@@ -846,6 +1002,13 @@ def _option(config: InferenceConfig, name: str, default: Any) -> Any:
     return config.runtime_options.get(name, default)
 
 
+def _distributed_world_size() -> int:
+    try:
+        return int(os.environ.get("WORLD_SIZE", "1"))
+    except ValueError:
+        return 1
+
+
 def _apply_runtime_options(
     runtime_config: OmnidreamsWebRTCModelRuntimeConfig,
     options: Any,
@@ -869,6 +1032,7 @@ __all__ = [
     "OmnidreamsWebRTCModelRuntime",
     "OmnidreamsWebRTCModelRuntimeConfig",
     "OmnidreamsWebRTCModelRuntimeError",
+    "SharedRuntimeFactory",
     "WebRTCRuntimeFactory",
     "serve_omnidreams_webrtc_demo",
 ]
