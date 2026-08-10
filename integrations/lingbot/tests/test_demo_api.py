@@ -15,6 +15,7 @@ from lingbot.demo import (
     DEFAULT_LINGBOT_PRESET,
     LINGBOT_MODEL_ID,
     LingbotDemoAdapter,
+    LingbotInputProvider,
     LingbotReplayInputs,
     LingbotWebRTCScenario,
 )
@@ -153,6 +154,100 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
     assert inputs[FIELD_PROMPT] == "drive through a city"
     assert inputs[FIELD_FIRST_FRAME_PATH] == image
     assert inputs[FIELD_TOTAL_BLOCKS] == 1
+
+
+def test_lingbot_replay_demo_run_mode_uses_model_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import flashdreams.runtime.demo.replay as replay_module
+    import lingbot.runtime as runtime_module
+
+    image = tmp_path / "image.jpg"
+    poses = tmp_path / "poses.npy"
+    intrinsics = tmp_path / "intrinsics.npy"
+    image.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics, frames=16)
+    pipeline = _FakeLingbotPipeline()
+    driver_calls: list[dict[str, Any]] = []
+    pipeline_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        runtime_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
+    )
+
+    class RecordingBatchSessionDriver(replay_module.BatchSessionDriver):
+        def run_one_session(self, **kwargs: Any) -> Any:
+            driver_calls.append(kwargs)
+            return super().run_one_session(**kwargs)
+
+    class RecordingStepPipeline(replay_module.StepPipeline):
+        def execute_step(self, **kwargs: Any) -> Any:
+            pipeline_calls.append(kwargs)
+            return super().execute_step(**kwargs)
+
+    monkeypatch.setattr(
+        replay_module,
+        "BatchSessionDriver",
+        RecordingBatchSessionDriver,
+    )
+    monkeypatch.setattr(replay_module, "StepPipeline", RecordingStepPipeline)
+
+    spec = DemoSpec(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=DEFAULT_LINGBOT_PRESET,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive through a city",
+            "image_path": image,
+            "pose_path": poses,
+            "intrinsic_path": intrinsics,
+            "total_blocks": 1,
+        },
+        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=16, output_layout="tchw"),
+        config=InferenceConfig(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=DEFAULT_LINGBOT_PRESET,
+            device="cpu",
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+    expected_mapping = LingbotDemoAdapter().create_input_mapping(
+        LingbotReplayInputs(
+            prompt="drive through a city",
+            first_frame_path=image,
+            camera_poses_path=poses,
+            camera_intrinsics_path=intrinsics,
+            total_blocks=1,
+        )
+    )
+
+    def pipeline_factory(pipeline_config: object, device: str) -> _FakeLingbotPipeline:
+        del pipeline_config, device
+        return pipeline
+
+    adapter = LingbotDemoAdapter(pipeline_factory=pipeline_factory)
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=adapter,
+        output_target_factory=lambda output_spec: _RecordingOutputTarget(),
+    )
+
+    assert result.status == "completed"
+    assert len(driver_calls) == 1
+    assert len(pipeline_calls) == 1
+    assert isinstance(pipeline_calls[0]["provider"], LingbotInputProvider)
+    assert pipeline.generate_calls == [
+        {
+            "autoregressive_index": 0,
+            "intrinsics_shape": (1, 4),
+            "poses_shape": (1, 4, 4),
+            "world_scale": pytest.approx(expected_mapping.camera_trace.world_scale),
+        }
+    ]
 
 
 def test_lingbot_replay_invalid_scenario_fails_before_runtime_creation(

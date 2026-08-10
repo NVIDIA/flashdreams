@@ -36,6 +36,7 @@ from .spec import (
     resolve_text_event_prompts,
     resolve_user_input_events,
 )
+from .providers import LingbotInputProvider
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 
@@ -106,6 +107,17 @@ class LingbotDemoAdapter(LingbotModelAdapter):
                 "model_id": self.model_id,
                 "preset_id": self.preset_id(spec.config),
             },
+        )
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> LingbotInputProvider:
+        del spec
+        return LingbotInputProvider(
+            scenario=scenario,
+            inference_input_schema=self.inference_input_schema,
         )
 
 
