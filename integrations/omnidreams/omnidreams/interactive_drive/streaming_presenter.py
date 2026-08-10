@@ -588,9 +588,11 @@ function paintTaxi(taxi) {
   const phase = dropoff ? 'DROPOFF' : 'PICKUP';
   const timer = typeof taxi.remaining_time_s === 'number'
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
-  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}`;
+  const highScore = typeof taxi.high_score === 'number'
+    ? `  HIGH ${taxi.high_score}` : '';
+  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
   taxiEventEl.textContent = taxi.event === 'pickup_complete'
-    ? `PASSENGER PICKED UP  +${taxi.awarded_global_time_s}s`
+    ? 'PASSENGER PICKED UP'
     : (taxi.event === 'fare_complete'
       ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
       : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
