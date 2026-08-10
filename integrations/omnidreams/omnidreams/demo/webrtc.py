@@ -218,6 +218,11 @@ class OmnidreamsWebRTCModelRuntime(
             options=OmnidreamsRuntimeOptions(
                 pipeline_config=self.config.pipeline_config,
                 pipeline_factory=self.config.pipeline_factory,
+                # WebRTC warms the same long-lived runtime before real browser
+                # sessions. Keep prompt/image encoders available for later
+                # peer connections until Phase 14 replaces loopback warmup with
+                # first-class model/runtime warmup.
+                release_oneshot_encoders_after_cache_init=False,
             ),
         )
         self._initialize_video_encoder_sync()

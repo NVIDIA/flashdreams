@@ -764,6 +764,7 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     assert result.video_chunk.shape == (1, 1, 1, 3, 2, 2)
     assert result.metrics["denoise_s"] == 0.25
     assert session.next_step_request() is None
+    assert pipeline.released_encoders is True
     assert pipeline.initialize_cache_calls == [
         {
             "text": [["drive"]],
@@ -1090,6 +1091,41 @@ async def test_omnidreams_webrtc_runtime_uses_shared_session(
 
 
 @pytest.mark.asyncio
+async def test_omnidreams_webrtc_runtime_keeps_encoders_after_warmup_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    pipeline = _FailsIfEncodersReleasedOmnidreamsPipeline()
+    config = OmnidreamsWebRTCModelRuntimeConfig(
+        pipeline_config_name="fake",
+        pipeline_config=object(),
+        pipeline_factory=lambda pipeline_config, device: pipeline,
+        scene_dir=scene_path,
+        device="cpu",
+        fps=30,
+        video_height=2,
+        video_width=2,
+        warmup_chunks=0,
+    )
+    runtime = OmnidreamsWebRTCModelRuntime(config=config)
+    await runtime.initialize()
+
+    await runtime.reset_for_new_session()
+    warmup_session = await runtime.start_inference_session()
+    warmup_session.close()
+    await runtime.reset_for_new_session()
+    browser_session = await runtime.start_inference_session()
+
+    assert pipeline.released_encoders is False
+    assert len(pipeline.initialize_cache_calls) == 2
+    browser_session.close()
+    await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_omnidreams_webrtc_manager_drives_shared_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1385,6 +1421,23 @@ class _VariableFrameOmnidreamsPipeline(_FakeOmnidreamsPipeline):
         self.generated_hdmaps.append(hdmap.detach().clone())
         frame_count = self.get_num_frames(autoregressive_index)
         return torch.full((1, 1, frame_count, 3, 2, 2), float(autoregressive_index))
+
+
+class _FailsIfEncodersReleasedOmnidreamsPipeline(_FakeOmnidreamsPipeline):
+    def initialize_cache(
+        self,
+        *,
+        text: list[list[str]],
+        image: torch.Tensor,
+        view_names: list[str],
+    ) -> object:
+        if self.released_encoders:
+            raise AssertionError("encoders were released before the next session")
+        return super().initialize_cache(
+            text=text,
+            image=image,
+            view_names=view_names,
+        )
 
 
 class _FakeLudusRasterizer:

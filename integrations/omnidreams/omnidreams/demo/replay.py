@@ -41,6 +41,7 @@ class OmnidreamsRuntimeOptions:
     pipeline_config: Any
     pipeline_factory: PipelineFactory | None = None
     output_layout: VideoTensorLayout = "bvtchw"
+    release_oneshot_encoders_after_cache_init: bool = True
 
 
 class OmnidreamsRuntime:
@@ -84,6 +85,9 @@ class OmnidreamsRuntime:
             is_rank_zero=self.is_rank_zero,
             output_layout=self.options.output_layout,
             rollout_seed=self.config.seed,
+            release_oneshot_encoders_after_cache_init=(
+                self.options.release_oneshot_encoders_after_cache_init
+            ),
         )
 
     def close(self) -> None:
@@ -111,6 +115,7 @@ class OmnidreamsSession:
         is_rank_zero: bool,
         output_layout: VideoTensorLayout,
         rollout_seed: int | None,
+        release_oneshot_encoders_after_cache_init: bool,
     ) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
@@ -119,6 +124,9 @@ class OmnidreamsSession:
         self.is_rank_zero = is_rank_zero
         self.output_layout = output_layout
         self.rollout_seed = rollout_seed
+        self.release_oneshot_encoders_after_cache_init = (
+            release_oneshot_encoders_after_cache_init
+        )
         self.dtype = torch.bfloat16
         self._closed = False
         self._model_session = OmnidreamsModelSessionCore(
@@ -206,9 +214,10 @@ class OmnidreamsSession:
             ),
             view_names=_view_names_from_inputs(self._initial_inputs, scenario),
         )
-        release = getattr(self.pipeline, "release_oneshot_encoders", None)
-        if callable(release):
-            release()
+        if self.release_oneshot_encoders_after_cache_init:
+            release = getattr(self.pipeline, "release_oneshot_encoders", None)
+            if callable(release):
+                release()
         return cache
 
 
