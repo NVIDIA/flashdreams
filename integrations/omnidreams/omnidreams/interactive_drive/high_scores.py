@@ -101,6 +101,8 @@ class HighScoreStore:
 
     def qualifying_rank(self, score: int) -> int | None:
         """Return the prospective rank for ``score``, or ``None`` if excluded."""
+        if score <= 0:
+            return None
         entries = self.read()
         if len(entries) >= self._limit and score <= entries[-1].score:
             return None
@@ -125,6 +127,8 @@ class HighScoreStore:
             score, together with the current top-ten leaderboard.
         """
         normalized_name = validate_player_name(name)
+        if score <= 0:
+            return None, self.read()
         timestamp = achieved_at_utc or datetime.now(UTC).isoformat(timespec="seconds")
         entry = HighScoreEntry(normalized_name, int(score), timestamp)
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +164,8 @@ class HighScoreStore:
                             f"[taxi] ignoring malformed high-score row {row_number} "
                             f"in {self._path}"
                         )
+                        continue
+                    if score <= 0:
                         continue
                     entries.append(HighScoreEntry(name, score, timestamp))
         except (OSError, csv.Error) as exc:

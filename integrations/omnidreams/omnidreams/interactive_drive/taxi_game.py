@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from omnidreams.interactive_drive.config import BevConfig
 
 TaxiPhase = Literal["seeking_pickup", "to_dropoff"]
-TaxiEvent = Literal["fare_complete", "time_expired"]
+TaxiEvent = Literal["pickup_complete", "fare_complete", "time_expired"]
 TaxiSessionState = Literal["playing", "awaiting_name", "leaderboard"]
 
 
@@ -70,6 +70,9 @@ class TaxiGameConfig:
     max_time_s: float = 45.0
     """Maximum fare deadline."""
 
+    trip_time_multiplier: float = 2.0
+    """Multiplier applied after deriving and clamping the fare deadline."""
+
     base_fare_points: int = 500
     """Points awarded for every successful fare."""
 
@@ -84,6 +87,9 @@ class TaxiGameConfig:
 
     dropoff_time_bonus_s: float = 30.0
     """Global time added after each successful dropoff."""
+
+    pickup_time_bonus_s: float = 30.0
+    """Global time added after each successful pickup."""
 
     high_scores_path: Path = field(default_factory=default_high_scores_path)
     """CSV path used to persist the global top-ten leaderboard."""
@@ -610,8 +616,15 @@ class TaxiGameController:
         self._phase = "to_dropoff"
         raw_time = route_distance / max(self._config.target_speed_mps, 1e-6)
         raw_time += self._config.grace_s
-        self._remaining_time_s = float(
+        clamped_time = float(
             np.clip(raw_time, self._config.min_time_s, self._config.max_time_s)
+        )
+        self._remaining_time_s = clamped_time * self._config.trip_time_multiplier
+        self._global_remaining_time_s += self._config.pickup_time_bonus_s
+        self._set_event(
+            "pickup_complete",
+            0,
+            awarded_global_time_s=self._config.pickup_time_bonus_s,
         )
 
     def _complete_fare(self, x_m: float, y_m: float) -> None:
