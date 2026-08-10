@@ -208,6 +208,40 @@ def test_lingbot_provider_reset_clears_text_event_state(tmp_path: Path) -> None:
     assert after_reset.global_conditioning[FIELD_PROMPT] == "a violent storm"
 
 
+@pytest.mark.parametrize(
+    ("metadata", "match"),
+    [
+        ({"frame_start": "0", "num_frames": 4}, "frame_start"),
+        ({"frame_start": 0.5, "num_frames": 4}, "frame_start"),
+        ({"frame_start": 0, "num_frames": "4"}, "num_frames"),
+        ({"frame_start": 0, "num_frames": 4.5}, "num_frames"),
+    ],
+)
+def test_lingbot_provider_rejects_non_integer_frame_metadata(
+    tmp_path: Path,
+    metadata: dict[str, object],
+    match: str,
+) -> None:
+    provider = LingbotInputProvider(
+        scenario=_prepared_scenario(tmp_path, adapter=LingbotDemoAdapter())
+    )
+    provider.prepare_initial_input()
+
+    with pytest.raises(TypeError, match=match):
+        provider.prepare_step(
+            request=StepRequirements(
+                step_index=0,
+                input_frame_count=4,
+                metadata=metadata,
+            ),
+            user_window=UserInputWindow(
+                start_s=0.0,
+                end_s=0.25,
+                inputs=UserInputs(),
+            ),
+        )
+
+
 def _prepared_scenario(
     tmp_path: Path,
     *,

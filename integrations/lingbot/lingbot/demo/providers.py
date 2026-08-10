@@ -185,9 +185,9 @@ def _metadata_positive_int(
 
 def _required_int(metadata: Mapping[str, Any], name: str) -> int:
     value = metadata[name]
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"Step metadata {name!r} must be an integer.")
-    return int(value)
+    return value
 
 
 def _required_positive_int(metadata: Mapping[str, Any], name: str) -> int:
