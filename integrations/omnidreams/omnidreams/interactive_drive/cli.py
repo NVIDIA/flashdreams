@@ -21,6 +21,7 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+from omnidreams.interactive_drive.high_scores import default_high_scores_path
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import (
@@ -318,6 +319,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seed mixed with the scene ID to produce repeatable taxi fares.",
     )
     parser.add_argument(
+        "--taxi-highscores",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Taxi leaderboard CSV path. Defaults to "
+            "$FLASHDREAMS_CACHE_DIR/interactive-drive/highscores.csv."
+        ),
+    )
+    parser.add_argument(
         "--oob-warn-proximity",
         type=float,
         default=None,
@@ -503,6 +514,11 @@ def prepare_config_and_backend(
         taxi_game=TaxiGameConfig(
             enabled=bool(args.taxi_game),
             seed=int(args.taxi_seed),
+            high_scores_path=(
+                args.taxi_highscores.expanduser()
+                if args.taxi_highscores is not None
+                else default_high_scores_path()
+            ),
         ),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,

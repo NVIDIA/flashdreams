@@ -288,9 +288,17 @@ the extra rasterizer dispatch when you don't need it.
 Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
 road-valid pickups from the scene's car-lane centerlines (falling back to the
 recorded route when lane data is unavailable), starts a distance-scaled
-timer after pickup, and shows the active target, direction arrow, score, and
-remaining dropoff time. `--taxi-seed N` produces a repeatable fare layout for
-the same scene. Manual reset, OOB respawn, and scene changes reset the score.
+timer after pickup, and shows the active target, direction arrow, score, trip
+time, and global game time. Each game starts with 60 seconds. A successful
+dropoff awards 500 points plus 100 points per whole trip second remaining and
+adds 30 seconds to the global clock; an expired trip timer cancels that fare.
+When the global clock expires, the game freezes and shows the global top-ten
+leaderboard. Qualifying players enter a 1-12 character name before the board
+appears. Scores persist at
+`$FLASHDREAMS_CACHE_DIR/interactive-drive/highscores.csv`; use
+`--taxi-highscores PATH` to override it. `--taxi-seed N` produces a repeatable
+fare layout for the same scene. Manual reset, OOB respawn, and scene changes
+start a fresh run without saving the unfinished score.
 
 **Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
 settings) into `configs/wheels/` and the HUD will pick it up at startup. With

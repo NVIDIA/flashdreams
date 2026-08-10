@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 import torch
 from omnidreams.interactive_drive.config import BevConfig
+from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
     _CudaRGBFrame,
@@ -56,6 +57,24 @@ def test_hud_keyboard_drive_overrides_connected_wheel_while_key_is_held() -> Non
     )
 
     assert presenter._poll_drive_state() is keyboard_state
+
+
+def test_hud_taxi_name_entry_accepts_characters_backspace_and_enter() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._keyboard = KeyboardState()
+    presenter._taxi_name_buffer = ""
+    presenter._key_codes = {
+        "name_a": "a",
+        "name_1": "1",
+        "space": "space",
+        "backspace": "backspace",
+        "enter": "enter",
+    }
+
+    for key in ("a", "space", "1", "backspace", "1", "enter"):
+        presenter._handle_taxi_name_key(key)
+
+    assert presenter._keyboard.consume_taxi_name_submission() == "A 1"
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(

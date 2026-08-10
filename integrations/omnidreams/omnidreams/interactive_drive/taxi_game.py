@@ -7,11 +7,17 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
+from omnidreams.interactive_drive.high_scores import (
+    HighScoreEntry,
+    HighScoreStore,
+    default_high_scores_path,
+)
 from omnidreams.interactive_drive.math3d import invert_transform, rig_pose_from_state
 from omnidreams.interactive_drive.types import TrajectoryChunk, VehicleState
 
@@ -21,6 +27,7 @@ if TYPE_CHECKING:
 
 TaxiPhase = Literal["seeking_pickup", "to_dropoff"]
 TaxiEvent = Literal["fare_complete", "time_expired"]
+TaxiSessionState = Literal["playing", "awaiting_name", "leaderboard"]
 
 
 @dataclass(frozen=True)
@@ -63,14 +70,23 @@ class TaxiGameConfig:
     max_time_s: float = 45.0
     """Maximum fare deadline."""
 
-    base_fare_points: int = 100
+    base_fare_points: int = 500
     """Points awarded for every successful fare."""
 
-    bonus_points_per_second: int = 10
+    bonus_points_per_second: int = 100
     """Additional points awarded per whole second remaining."""
 
     event_banner_s: float = 2.0
     """Simulation-time duration of completion and failure banners."""
+
+    global_time_s: float = 60.0
+    """Simulation-time duration of a new game."""
+
+    dropoff_time_bonus_s: float = 30.0
+    """Global time added after each successful dropoff."""
+
+    high_scores_path: Path = field(default_factory=default_high_scores_path)
+    """CSV path used to persist the global top-ten leaderboard."""
 
 
 @dataclass(frozen=True)
@@ -98,11 +114,26 @@ class TaxiGameSnapshot:
     score: int
     """Total points earned during the current rollout."""
 
+    global_remaining_time_s: float = 0.0
+    """Simulation time remaining before the game ends."""
+
+    session_state: TaxiSessionState = "playing"
+    """Current play, name-entry, or leaderboard state."""
+
+    leaderboard: tuple[HighScoreEntry, ...] = ()
+    """Current top-ten entries after the game ends."""
+
+    high_score_rank: int | None = None
+    """Prospective or recorded rank for the finished score."""
+
     event: TaxiEvent | None = None
     """Most recent fare result while its banner remains visible."""
 
     awarded_points: int = 0
     """Points awarded by the visible completion event."""
+
+    awarded_global_time_s: float = 0.0
+    """Global time awarded by the visible completion event."""
 
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation of the snapshot."""
@@ -114,8 +145,13 @@ class TaxiGameSnapshot:
             "target_radius_m": self.target_radius_m,
             "remaining_time_s": self.remaining_time_s,
             "score": self.score,
+            "global_remaining_time_s": self.global_remaining_time_s,
+            "session_state": self.session_state,
+            "leaderboard": [entry.as_dict() for entry in self.leaderboard],
+            "high_score_rank": self.high_score_rank,
             "event": self.event,
             "awarded_points": self.awarded_points,
+            "awarded_global_time_s": self.awarded_global_time_s,
         }
 
 
@@ -357,6 +393,7 @@ class TaxiGameController:
         navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
+        high_score_store: HighScoreStore | None = None,
     ) -> None:
         self._config = config
         self._rng = np.random.default_rng(_stable_seed(scene_id, config.seed))
@@ -366,13 +403,21 @@ class TaxiGameController:
             routes_world, config.waypoint_spacing_m, offset
         )
         self._phase: TaxiPhase = "seeking_pickup"
+        self._session_state: TaxiSessionState = "playing"
         self._score = 0
+        self._global_remaining_time_s = config.global_time_s
         self._remaining_time_s: float | None = None
         self._event: TaxiEvent | None = None
         self._event_remaining_s = 0.0
         self._awarded_points = 0
+        self._awarded_global_time_s = 0.0
         self._pickup_index: int | None = None
         self._dropoff_index: int | None = None
+        self._high_score_store = high_score_store or HighScoreStore(
+            config.high_scores_path
+        )
+        self._leaderboard: tuple[HighScoreEntry, ...] = ()
+        self._high_score_rank: int | None = None
         self._target_index = self._select_pickup(
             initial_state.x_m, initial_state.y_m, excluded=frozenset()
         )
@@ -381,6 +426,35 @@ class TaxiGameController:
     def config(self) -> TaxiGameConfig:
         """Return the immutable game configuration."""
         return self._config
+
+    @property
+    def is_playing(self) -> bool:
+        """Return whether driving and simulation should continue."""
+        return self._session_state == "playing"
+
+    def submit_high_score_name(self, name: str) -> None:
+        """Persist the finished score and transition to the leaderboard.
+
+        Args:
+            name: Valid player name supplied by the active presenter.
+
+        Raises:
+            RuntimeError: The game is not waiting for a player name.
+            ValueError: ``name`` does not satisfy leaderboard validation.
+        """
+        if self._session_state != "awaiting_name":
+            raise RuntimeError("Taxi game is not waiting for a high-score name.")
+        inserted, self._leaderboard = self._high_score_store.record(name, self._score)
+        self._high_score_rank = (
+            next(
+                index
+                for index, entry in enumerate(self._leaderboard, start=1)
+                if entry is inserted
+            )
+            if inserted is not None
+            else None
+        )
+        self._session_state = "leaderboard"
 
     def advance(self, trajectory: TrajectoryChunk, frame_interval_s: float) -> None:
         """Advance game state over every simulated pose in a chunk.
@@ -399,6 +473,12 @@ class TaxiGameController:
             raise ValueError("Taxi frame interval must be non-negative.")
         snapshots: list[TaxiGameSnapshot] = []
         for pose in trajectory.rig_poses_world:
+            if self._session_state != "playing":
+                x_m = float(pose[0, 3])
+                y_m = float(pose[1, 3])
+                yaw_rad = math.atan2(float(pose[1, 0]), float(pose[0, 0]))
+                snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
+                continue
             self._advance_banner(frame_interval_s)
             x_m = float(pose[0, 3])
             y_m = float(pose[1, 3])
@@ -418,6 +498,12 @@ class TaxiGameController:
                 )
                 if self._remaining_time_s <= 0.0:
                     self._expire_fare(x_m, y_m)
+
+            self._global_remaining_time_s = max(
+                0.0, self._global_remaining_time_s - frame_interval_s
+            )
+            if self._global_remaining_time_s <= 0.0:
+                self._end_game()
 
             yaw_rad = math.atan2(float(pose[1, 0]), float(pose[0, 0]))
             snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
@@ -456,9 +542,16 @@ class TaxiGameController:
             ),
             remaining_time_s=self._remaining_time_s,
             score=self._score,
+            global_remaining_time_s=self._global_remaining_time_s,
+            session_state=self._session_state,
+            leaderboard=self._leaderboard,
+            high_score_rank=self._high_score_rank,
             event=self._event if self._event_remaining_s > 0.0 else None,
             awarded_points=(
                 self._awarded_points if self._event_remaining_s > 0.0 else 0
+            ),
+            awarded_global_time_s=(
+                self._awarded_global_time_s if self._event_remaining_s > 0.0 else 0.0
             ),
         )
 
@@ -527,7 +620,12 @@ class TaxiGameController:
             math.floor(self._remaining_time_s) * self._config.bonus_points_per_second
         )
         self._score += awarded
-        self._set_event("fare_complete", awarded)
+        self._global_remaining_time_s += self._config.dropoff_time_bonus_s
+        self._set_event(
+            "fare_complete",
+            awarded,
+            awarded_global_time_s=self._config.dropoff_time_bonus_s,
+        )
         self._activate_next_pickup(x_m, y_m)
 
     def _expire_fare(self, x_m: float, y_m: float) -> None:
@@ -544,10 +642,25 @@ class TaxiGameController:
         self._phase = "seeking_pickup"
         self._remaining_time_s = None
 
-    def _set_event(self, event: TaxiEvent, awarded_points: int) -> None:
+    def _set_event(
+        self,
+        event: TaxiEvent,
+        awarded_points: int,
+        *,
+        awarded_global_time_s: float = 0.0,
+    ) -> None:
         self._event = event
         self._awarded_points = awarded_points
+        self._awarded_global_time_s = awarded_global_time_s
         self._event_remaining_s = self._config.event_banner_s
 
     def _advance_banner(self, frame_interval_s: float) -> None:
         self._event_remaining_s = max(0.0, self._event_remaining_s - frame_interval_s)
+
+    def _end_game(self) -> None:
+        self._global_remaining_time_s = 0.0
+        self._leaderboard = self._high_score_store.read()
+        self._high_score_rank = self._high_score_store.qualifying_rank(self._score)
+        self._session_state = (
+            "awaiting_name" if self._high_score_rank is not None else "leaderboard"
+        )
