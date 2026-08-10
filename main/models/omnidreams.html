@@ -550,6 +550,17 @@ isn’t blocked on network I/O:</p>
 </div>
 <p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in any browser on the same
 network and pick a scene from the picker in the bottom-right.</p>
+<p>Collision physics, the vehicle speed limit, and the collision visual effect are
+disabled by default. Add <code class="docutils literal notranslate"><span class="pre">--game-mode</span></code> to enable the speed limit and
+collisions with scene actors and static map geometry, along with the collision
+visual flare:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--stream-mjpeg<span class="w"> </span>:8080<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--game-mode
+</pre></div>
+</div>
+<p>Combine <code class="docutils literal notranslate"><span class="pre">--game-mode</span></code> with <code class="docutils literal notranslate"><span class="pre">--disable-visual-flare</span></code> to retain collision
+physics without the full-screen collision effect.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>The first launch is slow.</strong> The first time you start the demo, the world
