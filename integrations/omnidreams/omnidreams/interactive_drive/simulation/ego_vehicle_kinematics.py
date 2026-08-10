@@ -31,6 +31,24 @@ def _move_towards(current: float, target: float, max_delta: float) -> float:
     return max(current - max_delta, target)
 
 
+def _apply_brake_or_reverse(
+    speed_mps: float,
+    command: DriverCommand,
+    *,
+    dt_s: float,
+    brake_decel_mps2: float,
+    reverse_accel_mps2: float,
+    max_reverse_speed_mps: float,
+) -> float:
+    brake_delta = brake_decel_mps2 * command.brake * dt_s
+    if command.throttle > 0.01 or command.reverse:
+        return _move_towards(speed_mps, 0.0, brake_delta)
+    if speed_mps > 0.0:
+        return max(0.0, speed_mps - brake_delta)
+    reverse_delta = reverse_accel_mps2 * command.brake * dt_s
+    return max(-max_reverse_speed_mps, speed_mps - reverse_delta)
+
+
 def integrate_vehicle(
     state: VehicleState,
     command: DriverCommand,
@@ -52,21 +70,25 @@ def integrate_vehicle(
     speed = state.speed_mps
     if command.stop:
         speed = 0.0
+    elif command.handbrake:
+        handbrake_decel_mps2 = vehicle.max_brake_mps2 * 3.0
+        speed = _move_towards(speed, 0.0, handbrake_decel_mps2 * dt_s)
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
-        # Brake wins over throttle: holding both pedals bleeds speed toward a
-        # stop, matching real cars and the demo.py target-speed integrators.
         if command.brake > 0.01:
-            decel = 12.0 * command.brake * dt_s
-            if speed > 0:
-                speed = max(0.0, speed - decel)
-            elif speed < 0:
-                speed = min(0.0, speed + decel)
+            speed = _apply_brake_or_reverse(
+                speed,
+                command,
+                dt_s=dt_s,
+                brake_decel_mps2=12.0,
+                reverse_accel_mps2=2.0,
+                max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
+            )
         elif command.throttle > 0.01:
             accel = 2.0 * command.throttle * dt_s
-            if intended_direction < 0.0:
-                speed -= accel
-            elif vehicle.speed_limit_enabled:
+            if speed * intended_direction < 0.0:
+                speed = _move_towards(speed, 0.0, accel * 1.5)
+            elif vehicle.speed_limit_enabled and intended_direction > 0.0:
                 max_speed = vehicle.max_speed_mps
                 current = abs(speed)
                 high_speed_knee = max_speed * 0.62
@@ -79,7 +101,7 @@ def integrate_vehicle(
                     taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
                 speed += accel * taper
             else:
-                speed += accel
+                speed += intended_direction * accel
         else:
             if speed > 0.0:
                 speed = max(0.0, speed - 0.5 * dt_s)
@@ -90,13 +112,22 @@ def integrate_vehicle(
                 np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
             )
     else:
-        intended_direction = -1.0 if command.reverse else 1.0
-        accel = command.throttle * vehicle.max_accel_mps2 * dt_s
-        brake = command.brake * vehicle.max_brake_mps2 * dt_s
-        if brake > 0.0:
-            speed = _move_towards(speed, 0.0, brake)
-        elif accel > 0.0:
-            speed += intended_direction * accel
+        if command.brake > 0.01:
+            speed = _apply_brake_or_reverse(
+                speed,
+                command,
+                dt_s=dt_s,
+                brake_decel_mps2=vehicle.max_brake_mps2,
+                reverse_accel_mps2=vehicle.max_accel_mps2,
+                max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
+            )
+        elif command.throttle > 0.01:
+            intended_direction = -1.0 if command.reverse else 1.0
+            accel_delta = command.throttle * vehicle.max_accel_mps2 * dt_s
+            if speed * intended_direction < 0.0:
+                speed = _move_towards(speed, 0.0, accel_delta * 1.5)
+            else:
+                speed += intended_direction * accel_delta
         else:
             if speed > 0.0:
                 speed = max(0.0, speed - vehicle.drag_mps2 * dt_s)
