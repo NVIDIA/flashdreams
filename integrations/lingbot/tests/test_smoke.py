@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import sys
 from pathlib import Path
 from typing import cast
@@ -42,11 +43,8 @@ from lingbot.runner import (
     example_data_dirname,
 )
 from lingbot.runtime import (
-    FIELD_FIRST_FRAME_PATH,
-    FIELD_PROMPT,
-    FIELD_TOTAL_BLOCKS,
     LINGBOT_MODEL_ID,
-    LingbotModelAdapter,
+    LingbotReplayInputs,
     LingbotRunnerOutputTarget,
 )
 from lingbot.transformer import (
@@ -57,7 +55,8 @@ from lingbot.transformer import (
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.runtime import InferenceConfig, InferenceInput
+from flashdreams.runtime import InferenceConfig
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, RunResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -189,7 +188,7 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Keep the CLI runner on the new runtime path, not the old rollout loop."""
+    """Keep the CLI runner on the shared replay runtime path."""
     image = tmp_path / "image.jpg"
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
@@ -206,15 +205,16 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
             intrinsic_path=intrinsics,
             total_blocks=1,
             device="cpu",
+            output_dir=tmp_path,
         ),
     )
     pipeline = object()
     output_stream = object()
     captured: dict[str, object] = {}
 
-    def _fake_run_inference_session(**kwargs: object) -> tuple[object, ...]:
+    def _fake_run_replay_demo(**kwargs: object) -> RunResult:
         captured.update(kwargs)
-        return ()
+        return RunResult(status="completed")
 
     monkeypatch.setattr(
         runner,
@@ -223,8 +223,8 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
     )
     monkeypatch.setattr(
         runner_mod,
-        "run_inference_session",
-        _fake_run_inference_session,
+        "run_replay_demo",
+        _fake_run_replay_demo,
     )
     runner.config = runner_config
     runner.pipeline = pipeline
@@ -234,19 +234,32 @@ def test_runner_delegates_to_runtime_api_with_direct_inputs(
 
     runner.run()
 
-    assert isinstance(captured["adapter"], LingbotModelAdapter)
-    config = captured["config"]
+    spec = captured["spec"]
+    assert isinstance(spec, DemoSpec)
+    assert spec.model_id == LINGBOT_MODEL_ID
+    assert spec.input_mode == "replay"
+    assert spec.preset_id == str(runner_config.pipeline.name)
+    config = spec.config
     assert isinstance(config, InferenceConfig)
     assert config.model_id == LINGBOT_MODEL_ID
     assert config.device == "cpu"
     assert config.runtime_options["pipeline"] is pipeline
-    initial_inputs = captured["initial_inputs"]
-    assert isinstance(initial_inputs, InferenceInput)
-    inputs = initial_inputs.global_conditioning
-    assert inputs[FIELD_PROMPT] == "drive through a city"
-    assert inputs[FIELD_FIRST_FRAME_PATH] == image
-    assert inputs[FIELD_TOTAL_BLOCKS] == 1
-    output = captured["output"]
+    scenario = spec.scenario
+    assert isinstance(scenario, LingbotReplayInputs)
+    assert scenario.prompt == "drive through a city"
+    assert scenario.first_frame_path == image
+    assert scenario.total_blocks == 1
+    output_spec = spec.output
+    assert isinstance(output_spec, Mp4OutputSpec)
+    assert output_spec.path == tmp_path / f"{runner_config.runner_name}.mp4"
+    assert output_spec.fps == runner_config.fps
+    assert output_spec.output_layout == "tchw"
+    output_target_factory = cast(
+        Callable[[Mp4OutputSpec], LingbotRunnerOutputTarget],
+        captured["output_target_factory"],
+    )
+    assert callable(output_target_factory)
+    output = output_target_factory(output_spec)
     assert isinstance(output, LingbotRunnerOutputTarget)
     assert output.output_stream is output_stream
 

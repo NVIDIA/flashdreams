@@ -24,9 +24,10 @@ from loguru import logger
 
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.runtime import InputCanonicalizer, UserInputs, UserInputSchema
-from flashdreams.runtime.metrics import NullMetricsRecorder
-from flashdreams.runtime.runner import run_inference_session
+from flashdreams.infra.runner_io import runner_artifact_path
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, OutputSpec
+from flashdreams.runtime.demo.replay import run_replay_demo
+from lingbot.demo import LingbotDemoAdapter
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS,
@@ -37,10 +38,9 @@ from lingbot.pipeline import (
     LingbotWorldInferencePipeline,
 )
 from lingbot.runtime import (
-    LingbotModelAdapter,
+    LINGBOT_MODEL_ID,
     LingbotRunnerOutputTarget,
     inference_config_from_runner_config,
-    inference_input_from_replay_inputs,
     replay_inputs_from_runner_config,
 )
 
@@ -166,7 +166,7 @@ class LingbotWorldRunner(
     def run(self) -> None:
         """Drive an AR rollout through the Lingbot runtime API path."""
         cfg = self.config
-        adapter = LingbotModelAdapter()
+        adapter = LingbotDemoAdapter()
         inference_config = inference_config_from_runner_config(
             cfg,
             device=f"cuda:{self.local_rank}" if self.world_size > 1 else cfg.device,
@@ -176,22 +176,35 @@ class LingbotWorldRunner(
             cfg,
             is_rank_zero=self.is_rank_zero,
         )
-        initial_inputs = inference_input_from_replay_inputs(replay_inputs)
-        output_target = LingbotRunnerOutputTarget(
-            output_stream=self.create_video_output_stream(fps=cfg.fps),
-            output_dir=cfg.output_dir,
-            runner_name=cfg.runner_name,
-            fps=cfg.fps,
-        )
-        mapping = adapter.create_input_mapping(replay_inputs)
-        run_inference_session(
-            adapter=adapter,
+        spec = DemoSpec(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=str(cfg.pipeline.name),
+            input_mode="replay",
+            output=Mp4OutputSpec(
+                path=runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4"),
+                fps=cfg.fps,
+                output_layout=cfg.postprocess_output_layout or "tchw",
+            ),
+            scenario=replay_inputs,
             config=inference_config,
-            mapping=mapping,
-            canonicalizer=InputCanonicalizer(),
-            source_schema=UserInputSchema(description="Lingbot runner fixed inputs"),
-            user_inputs=UserInputs(),
-            initial_inputs=initial_inputs,
-            output=output_target,
-            metrics=NullMetricsRecorder(),
         )
+
+        def _output_target_factory(output_spec: OutputSpec) -> LingbotRunnerOutputTarget:
+            del output_spec
+            return LingbotRunnerOutputTarget(
+                output_stream=self.create_video_output_stream(fps=cfg.fps),
+                output_dir=cfg.output_dir,
+                runner_name=cfg.runner_name,
+                fps=cfg.fps,
+            )
+
+        result = run_replay_demo(
+            spec=spec,
+            adapter=adapter,
+            output_target_factory=_output_target_factory,
+        )
+        if result.status != "completed":
+            raise RuntimeError(
+                f"Lingbot runner failed with status {result.status!r}: "
+                f"{result.reason or result.error or 'unknown error'}"
+            )
