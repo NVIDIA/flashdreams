@@ -298,9 +298,10 @@ When the global clock expires, the game freezes and shows the global top-ten
 leaderboard. Qualifying players enter a 1-12 character name before the board
 appears; zero-point runs are not recorded. Scores persist at
 `$FLASHDREAMS_CACHE_DIR/interactive-drive/highscores.csv`; use
-`--taxi-highscores PATH` to override it. `--taxi-seed N` produces a repeatable
-fare layout for the same scene. Manual reset, OOB respawn, and scene changes
-start a fresh run without saving the unfinished score.
+`--taxi-highscores PATH` to override it. New games use fresh random fare layouts
+by default; pass `--taxi-seed N` when debugging to reproduce the same layout for
+the same scene. Manual reset, OOB respawn, and scene changes start a fresh run
+without saving the unfinished score.
 
 **Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
 settings) into `configs/wheels/` and the HUD will pick it up at startup. With
