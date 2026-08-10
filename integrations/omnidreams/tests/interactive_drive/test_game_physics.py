@@ -1291,6 +1291,48 @@ def test_held_s_keeps_driving_after_road_boundary_impact() -> None:
     assert np.linalg.norm(final_xy - impact_xy) > 3.0
 
 
+def test_oblique_road_boundary_impact_redirects_heading_along_boundary() -> None:
+    boundary = WorldLineSegments(
+        segments_world=np.asarray(
+            [[[-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]]], dtype=np.float32
+        ),
+        color_rgba=(1.0, 1.0, 1.0, 1.0),
+        width_px=2.0,
+        layer_name="road_boundaries",
+    )
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), config)
+    initial_yaw = math.radians(15.0)
+    state = VehicleState(
+        x_m=-5.0,
+        y_m=-3.0,
+        z_m=0.0,
+        yaw_rad=initial_yaw,
+        speed_mps=8.0,
+        steer_rad=0.0,
+        velocity_x_mps=8.0 * math.cos(initial_yaw),
+        velocity_y_mps=8.0 * math.sin(initial_yaw),
+    )
+    forward = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    collision_frame = None
+    for frame_index in range(90):
+        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+        if state.ragdoll_active:
+            collision_frame = frame_index
+            break
+
+    assert collision_frame is not None
+    impact_yaw = state.yaw_rad
+    for frame_index in range(collision_frame + 1, collision_frame + 16):
+        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+
+    world.close()
+
+    assert abs(state.yaw_rad) < abs(impact_yaw) - math.radians(5.0)
+
+
 def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus() -> (
     None
 ):

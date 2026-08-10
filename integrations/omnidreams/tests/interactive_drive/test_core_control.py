@@ -148,7 +148,7 @@ def test_manual_brake_overrides_throttle_to_a_stop() -> None:
 
 
 @pytest.mark.parametrize("manual_control", [False, True])
-def test_brake_transitions_from_forward_to_reverse_after_stopping(
+def test_brake_transitions_to_reverse_after_stopping_within_frame(
     manual_control: bool,
 ) -> None:
     vehicle = VehicleConfig()
@@ -157,11 +157,11 @@ def test_brake_transitions_from_forward_to_reverse_after_stopping(
     )
     brake = DriverCommand(brake=1.0, manual_control=manual_control)
 
-    stopped = integrate_vehicle(state, brake, dt_s=0.1, vehicle=vehicle)
-    reversing = integrate_vehicle(stopped, brake, dt_s=0.1, vehicle=vehicle)
+    reversing = integrate_vehicle(state, brake, dt_s=0.1, vehicle=vehicle)
+    accelerating = integrate_vehicle(reversing, brake, dt_s=0.1, vehicle=vehicle)
 
-    assert stopped.speed_mps == 0.0
     assert reversing.speed_mps < 0.0
+    assert accelerating.speed_mps < reversing.speed_mps
 
 
 @pytest.mark.parametrize("manual_control", [False, True])
