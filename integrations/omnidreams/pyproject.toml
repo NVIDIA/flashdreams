@@ -138,7 +138,7 @@ exclude = ["tests"]
 # workspace editable. Editable installs pick these up from the source
 # tree automatically.
 [tool.setuptools.package-data]
-"omnidreams.demo" = ["web/adapter.js"]
+"omnidreams.demo" = ["web/adapter.js", "web/adapter.css"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",

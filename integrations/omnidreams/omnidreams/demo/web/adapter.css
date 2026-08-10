@@ -1,0 +1,15 @@
+/*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+*/
+
+/* Keep the browser from enlarging OmniDreams' native 1280x704 stream. */
+.stageVideo {
+  inset: 50% auto auto 50%;
+  width: min(100vw, 1280px, calc(100vh * 1280 / 704));
+  height: min(100vh, 704px, calc(100vw * 704 / 1280));
+  aspect-ratio: 1280 / 704;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  object-position: center;
+}

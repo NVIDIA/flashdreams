@@ -14,6 +14,7 @@ import numpy as np
 import omnidreams.demo as demo_package
 import omnidreams.demo.spec as spec_module
 import pytest
+import tomli as tomllib
 import torch
 from aiohttp import web
 from omnidreams.config import OMNIDREAMS_RUNNERS
@@ -949,6 +950,25 @@ def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     assert app_calls[0]["preload_name"] == "Test Omnidreams"
     assert str(app_calls[0]["model_web_resource"]).endswith("omnidreams/demo/web")
     assert app_calls[0]["configure_app"] is None
+
+
+def test_omnidreams_webrtc_adapter_caps_video_display_size() -> None:
+    web_dir = Path(demo_package.__file__).resolve().parent / "web"
+    adapter_js = (web_dir / "adapter.js").read_text(encoding="utf-8")
+    adapter_css = (web_dir / "adapter.css").read_text(encoding="utf-8")
+
+    assert 'stylesheet: "/model-static/adapter.css?v=omnidreams-ui-v1"' in adapter_js
+    assert ".stageVideo" in adapter_css
+    assert "1280px" in adapter_css
+    assert "704px" in adapter_css
+    assert "object-fit: contain" in adapter_css
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as fh:
+        meta = tomllib.load(fh)
+    package_data = meta["tool"]["setuptools"]["package-data"]["omnidreams.demo"]
+    assert "web/adapter.js" in package_data
+    assert "web/adapter.css" in package_data
 
 
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
