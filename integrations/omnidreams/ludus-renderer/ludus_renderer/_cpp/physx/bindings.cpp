@@ -752,7 +752,42 @@ private:
             mScene->simulate(substepDt);
             if (!mScene->fetchResults(true))
                 throw std::runtime_error("PhysX fetchResults failed");
+            constrainEgoUpright();
             constrainVehicleYawsAtBarriers();
+        }
+    }
+
+    void constrainEgoUpright()
+    {
+        BodyRecord& ego = bodyAt(0);
+        if (
+            !ego.hasVehicle()
+            || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
+            return;
+
+        // Interactive-drive publishes a yaw-only ego pose and renders body
+        // pitch/roll separately. Letting the native chassis settle on its side
+        // makes the upright camera appear mysteriously stuck and removes wheel
+        // traction, so preserve collision translation and yaw but reject rollovers.
+        PxTransform pose = ego.actor->getGlobalPose();
+        const PxVec3 up = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
+        if (
+            std::abs(up.x) > 1.0e-4f
+            || std::abs(up.y) > 1.0e-4f
+            || up.z < 0.9999f) {
+            pose.q = PxQuat(
+                yawFromQuaternion(pose.q),
+                PxVec3(0.0f, 0.0f, 1.0f));
+            ego.actor->setGlobalPose(pose, false);
+        }
+
+        PxVec3 angularVelocity = ego.actor->getAngularVelocity();
+        if (
+            std::abs(angularVelocity.x) > 1.0e-5f
+            || std::abs(angularVelocity.y) > 1.0e-5f) {
+            angularVelocity.x = 0.0f;
+            angularVelocity.y = 0.0f;
+            ego.actor->setAngularVelocity(angularVelocity, false);
         }
     }
 

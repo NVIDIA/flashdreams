@@ -164,6 +164,30 @@ def test_brake_transitions_from_forward_to_reverse_after_stopping(
     assert reversing.speed_mps < 0.0
 
 
+@pytest.mark.parametrize("manual_control", [False, True])
+def test_brake_ignores_tiny_forward_physics_drift_when_entering_reverse(
+    manual_control: bool,
+) -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=0.001,
+        steer_rad=0.0,
+    )
+
+    reversing = integrate_vehicle(
+        state,
+        DriverCommand(brake=1.0, manual_control=manual_control),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+
+    assert reversing.speed_mps < 0.0
+
+
 @pytest.mark.parametrize("initial_speed_mps", [-5.0, 5.0])
 def test_handbrake_stops_without_reversing_direction(
     initial_speed_mps: float,
