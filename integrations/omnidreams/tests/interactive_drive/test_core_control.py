@@ -73,6 +73,18 @@ def test_keyboard_brake_target_enters_reverse_from_rest() -> None:
     assert sink.commands[-1]["handbrake"] is False
 
 
+def test_keyboard_brake_builds_reverse_speed_quickly() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard.set_key("s", True)
+
+    for _ in range(5):
+        keyboard._last_update_s -= 0.1
+        state = keyboard.update()
+
+    assert state.target_speed_mps < -4.5
+
+
 def test_manual_release_does_not_creep_forward() -> None:
     vehicle = VehicleConfig()
     stopped = VehicleState(
@@ -186,6 +198,27 @@ def test_brake_ignores_tiny_forward_physics_drift_when_entering_reverse(
     )
 
     assert reversing.speed_mps < 0.0
+
+
+def test_brake_to_reverse_uses_configured_arcade_acceleration() -> None:
+    vehicle = VehicleConfig()
+    stopped = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=0.0,
+        steer_rad=0.0,
+    )
+
+    reversing = integrate_vehicle(
+        stopped,
+        DriverCommand(brake=1.0, manual_control=True),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+
+    assert reversing.speed_mps == pytest.approx(-vehicle.reverse_accel_mps2 * 0.1)
 
 
 @pytest.mark.parametrize("initial_speed_mps", [-5.0, 5.0])
