@@ -838,11 +838,7 @@ class MJPEGStreamingPresenter:
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
         # owns the same ``set_drive`` -> ``KeyboardState`` plumbing the
-        # slangpy HUD uses, which is what gives us the alpasim-style
-        # ~10 mph auto-crawl on key release: the integrator posts
-        # ``DriverCommand(manual_control=True, throttle=0, brake=0)``
-        # which routes through ``integrate_vehicle``'s manual branch
-        # where the creep-toward-4.47-m/s logic lives.
+        # slangpy HUD uses, keeping browser and desktop controls aligned.
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
         self._keyboard_drive_factory = KeyboardDriveState
@@ -969,8 +965,8 @@ class MJPEGStreamingPresenter:
         self._taxi_camera_models.clear()
 
     def process_events(self) -> None:
-        # Per-tick integrator update so auto-crawl smoothing advances at sim
-        # cadence regardless of how often the browser posts /control events.
+        # Update the integrator at simulation cadence regardless of how often
+        # the browser posts /control events.
         self._keyboard_drive.update()
 
     def trigger_visual_flare(self) -> None:
@@ -1192,8 +1188,7 @@ class MJPEGStreamingPresenter:
         # Direction keys (W/A/S/D + arrows + Space) flow through the
         # ``KeyboardDriveState`` integrator so the MJPEG path posts the
         # exact same ``DriverCommand(manual_control=True, ...)`` shape
-        # the slangpy HUD does -- which is what unlocks the integrator's
-        # ~10 mph creep-toward-target on key release.
+        # the slangpy HUD does.
         drive_keysym = _BROWSER_KEY_TO_DRIVE_KEYSYM.get(key)
         if drive_keysym is not None and self._keyboard_drive.set_key(
             drive_keysym, down

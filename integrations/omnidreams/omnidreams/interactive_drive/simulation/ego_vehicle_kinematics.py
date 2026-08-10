@@ -103,10 +103,7 @@ def integrate_vehicle(
             else:
                 speed += intended_direction * accel
         else:
-            if speed > 0.0:
-                speed = max(0.0, speed - 0.5 * dt_s)
-            elif speed < 0.0:
-                speed = min(0.0, speed + 0.5 * dt_s)
+            speed = _move_towards(speed, 0.0, 0.5 * dt_s)
         if vehicle.speed_limit_enabled:
             speed = float(
                 np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)

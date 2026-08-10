@@ -90,6 +90,18 @@ def test_manual_release_does_not_creep_forward() -> None:
     assert released.x_m == 0.0
 
 
+def test_keyboard_target_remains_stopped_without_input() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard._last_update_s -= 0.1
+
+    state = keyboard.update()
+
+    assert state.target_speed_mps == 0.0
+    assert sink.commands[-1]["throttle"] == 0.0
+    assert sink.commands[-1]["brake"] == 0.0
+
+
 def test_sample_chunk_trajectory_advances_pose_and_time() -> None:
     state = VehicleState(
         x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
@@ -184,6 +196,32 @@ def test_releasing_brake_while_reversing_coasts_toward_stop() -> None:
     )
 
     assert state.speed_mps < released.speed_mps < 0.0
+
+
+def test_manual_control_without_input_stays_stopped() -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
+    )
+
+    released = integrate_vehicle(
+        state, DriverCommand(manual_control=True), dt_s=0.1, vehicle=vehicle
+    )
+
+    assert released.speed_mps == 0.0
+
+
+def test_releasing_controls_while_moving_coasts_toward_stop() -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=5.0, steer_rad=0.0
+    )
+
+    released = integrate_vehicle(
+        state, DriverCommand(manual_control=True), dt_s=0.1, vehicle=vehicle
+    )
+
+    assert 0.0 < released.speed_mps < state.speed_mps
 
 
 def test_manual_throttle_only_still_accelerates() -> None:
