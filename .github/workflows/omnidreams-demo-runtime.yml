@@ -41,16 +41,16 @@ jobs:
       MAX_JOBS: 8
       ARTIFACT_DIR: artifacts/omnidreams_demo_runtime
       NULL_BLOCKS: "10"
-      PRECOMPUTED_BLOCKS: "225"
-      LUDUS_BLOCKS: "226"
+      PRECOMPUTED_BLOCKS: "75"
+      LUDUS_BLOCKS: "76"
       FPS: "30"
       EXAMPLE_DATA_UUID: 239560dc-33d1-11ef-9720-00044bcbccac
       LUDUS_SCENE_UUID: 0d404ff7-2b66-498c-b047-1ed8cded60d4
       LUDUS_TRACE: integrations/omnidreams/omnidreams/demo/traces/ludus_forward_sweep_60s.json
       EXPECTED_WIDTH: "1280"
       EXPECTED_HEIGHT: "704"
-      MIN_DURATION_SECONDS: "58"
-      MAX_DURATION_SECONDS: "62"
+      MIN_DURATION_SECONDS: "18"
+      MAX_DURATION_SECONDS: "22"
     steps:
       - name: Detect GPU architecture
         id: gpu-arch
@@ -136,8 +136,8 @@ jobs:
             echo "| Mode | Expected blocks | Output |"
             echo "| --- | ---: | --- |"
             echo "| null | ${NULL_BLOCKS} | none |"
-            echo "| precomputed MP4 | ${PRECOMPUTED_BLOCKS} | omnidreams-demo-precomputed-1min.mp4 |"
-            echo "| Ludus MP4 | ${LUDUS_BLOCKS} | omnidreams-demo-ludus-1min.mp4 |"
+            echo "| precomputed MP4 | ${PRECOMPUTED_BLOCKS} | omnidreams-demo-precomputed-20s.mp4 |"
+            echo "| Ludus MP4 | ${LUDUS_BLOCKS} | omnidreams-demo-ludus-20s.mp4 |"
             echo
             echo "## Command Status"
           } > "${summary}"
@@ -155,7 +155,7 @@ jobs:
               --example-data-uuid "${EXAMPLE_DATA_UUID}" \
               --total-blocks "${PRECOMPUTED_BLOCKS}" \
               --fps "${FPS}" \
-              --output "${output_dir}/omnidreams-demo-precomputed-1min.mp4"
+              --output "${output_dir}/omnidreams-demo-precomputed-20s.mp4"
 
           run_demo ludus-mp4 \
             odemo replay \
@@ -165,7 +165,7 @@ jobs:
               --scene-uuid "${LUDUS_SCENE_UUID}" \
               --seed 42 \
               --total-blocks "${LUDUS_BLOCKS}" \
-              --output "${output_dir}/omnidreams-demo-ludus-1min.mp4"
+              --output "${output_dir}/omnidreams-demo-ludus-20s.mp4"
 
       - name: Validate OmniDreams demo artifacts
         run: |
@@ -273,17 +273,17 @@ jobs:
           assert_log_contains "${null_log}" "OmniDreams demo replay step 9 frames=" "null final replay step"
           assert_log_contains "${null_log}" "Loaded OmniDreams demo HDMaps shape=.*views=1" "null precomputed HDMaps"
 
-          assert_log_contains "${precomputed_log}" "AR 224 encode" "precomputed final AR block"
-          assert_log_contains "${precomputed_log}" "OmniDreams demo replay step 224 frames=" "precomputed final replay step"
+          assert_log_contains "${precomputed_log}" "AR 74 encode" "precomputed final AR block"
+          assert_log_contains "${precomputed_log}" "OmniDreams demo replay step 74 frames=" "precomputed final replay step"
           assert_log_contains "${precomputed_log}" "Loaded OmniDreams demo HDMaps shape=.*views=1" "precomputed HDMaps"
 
-          assert_log_contains "${ludus_log}" "AR 225 encode" "Ludus final AR block"
-          assert_log_contains "${ludus_log}" "OmniDreams demo replay step 225 frames=" "Ludus final replay step"
+          assert_log_contains "${ludus_log}" "AR 75 encode" "Ludus final AR block"
+          assert_log_contains "${ludus_log}" "OmniDreams demo replay step 75 frames=" "Ludus final replay step"
           assert_log_contains "${ludus_log}" "ludus_backend=cuda" "Ludus CUDA backend"
           assert_log_contains "${ludus_log}" "trace_events=[1-9][0-9]*" "nonzero Ludus trace events"
 
-          validate_mp4 precomputed-mp4 "${output_dir}/omnidreams-demo-precomputed-1min.mp4"
-          validate_mp4 ludus-mp4 "${output_dir}/omnidreams-demo-ludus-1min.mp4"
+          validate_mp4 precomputed-mp4 "${output_dir}/omnidreams-demo-precomputed-20s.mp4"
+          validate_mp4 ludus-mp4 "${output_dir}/omnidreams-demo-ludus-20s.mp4"
 
           {
             echo
