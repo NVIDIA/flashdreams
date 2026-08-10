@@ -593,7 +593,6 @@ def test_loop_consumes_name_submission_while_taxi_game_is_frozen(
             enabled=True,
             waypoint_spacing_m=1000.0,
             global_time_s=1.0,
-            pickup_time_bonus_s=0.0,
             dropoff_time_bonus_s=0.0,
             high_scores_path=tmp_path / "scores.csv",
         ),

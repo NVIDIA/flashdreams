@@ -288,9 +288,9 @@ recorded route when lane data is unavailable), starts a distance-scaled trip
 timer with a 2x deadline multiplier after pickup, and shows the active target,
 direction arrow, score, trip
 time, and global game time. Each game starts with 60 seconds. A successful
-pickup adds 30 seconds to the global clock. A successful dropoff awards 500
-points plus 100 points per whole trip second remaining and adds another 30
-seconds; an expired trip timer cancels that fare.
+dropoff awards 500 points plus 100 points per whole trip second remaining and
+adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
+is non-empty, its top score is shown beside the player's live score.
 When the global clock expires, the game freezes and shows the global top-ten
 leaderboard. Qualifying players enter a 1-12 character name before the board
 appears; zero-point runs are not recorded. Scores persist at
