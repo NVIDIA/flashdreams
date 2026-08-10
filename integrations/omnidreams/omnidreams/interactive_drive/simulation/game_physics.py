@@ -569,6 +569,7 @@ class GamePhysicsWorld:
         dt_s: float,
         *,
         handbrake_active: bool = False,
+        steering_active: bool = False,
     ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
         """Advance the authoritative PhysX scene and return actor samples."""
         step_started_at = time.perf_counter()
@@ -580,6 +581,7 @@ class GamePhysicsWorld:
             timestamp_us,
             dt_s,
             handbrake_active=handbrake_active,
+            steering_active=steering_active,
         )
         active_objects = {
             scene_object.object_id: scene_object
@@ -722,13 +724,6 @@ class GamePhysicsWorld:
         yaw_rate_radps = float(ego.angular_velocity_radps[2])
         if collision_response_active:
             max_yaw_rate = self._vehicle.max_collision_yaw_rate_radps
-            yaw_delta = math.atan2(
-                math.sin(yaw - state.yaw_rad), math.cos(yaw - state.yaw_rad)
-            )
-            yaw_delta = float(
-                np.clip(yaw_delta, -max_yaw_rate * dt_s, max_yaw_rate * dt_s)
-            )
-            yaw = state.yaw_rad + yaw_delta
             yaw_rate_radps = float(np.clip(yaw_rate_radps, -max_yaw_rate, max_yaw_rate))
         forward = np.asarray([math.cos(yaw), math.sin(yaw)])
         ego_height_m = float(ego.position_m[2] - self._ego_model.half_extents_m[2])
