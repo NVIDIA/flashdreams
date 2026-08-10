@@ -160,8 +160,9 @@ def test_lingbot_replay_demo_run_mode_uses_model_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import flashdreams.runtime.demo.replay as replay_module
     import lingbot.runtime as runtime_module
+
+    import flashdreams.runtime.demo.replay as replay_module
 
     image = tmp_path / "image.jpg"
     poses = tmp_path / "poses.npy"

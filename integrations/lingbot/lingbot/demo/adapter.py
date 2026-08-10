@@ -31,12 +31,12 @@ from lingbot.runtime import (
     inference_input_from_replay_inputs,
 )
 
+from .providers import LingbotInputProvider
 from .spec import (
     resolve_replay_inputs,
     resolve_text_event_prompts,
     resolve_user_input_events,
 )
-from .providers import LingbotInputProvider
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
 
