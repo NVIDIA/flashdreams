@@ -150,6 +150,22 @@ def _crossing_track() -> WorldVehicleBBoxTrack:
     )
 
 
+def _head_on_track() -> WorldVehicleBBoxTrack:
+    timestamps = np.asarray([0, 2_000_000], dtype=np.int64)
+    orientation = np.asarray([0.0, 0.0, 1.0, 0.0], dtype=np.float32)
+    return WorldVehicleBBoxTrack(
+        track_id="car-head-on",
+        object_type="Car",
+        timestamps_us=timestamps,
+        centers_world=np.asarray(
+            [[12.0, 0.0, 0.8], [-8.0, 0.0, 0.8]], dtype=np.float32
+        ),
+        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
+        orientations_xyzw=np.stack((orientation, orientation)),
+        max_extrapolation_us=2_000_000.0,
+    )
+
+
 def _scene(
     *tracks: WorldVehicleBBoxTrack,
     line_layers: tuple[WorldLineSegments, ...] = (),
@@ -275,13 +291,71 @@ def test_collision_detaches_actor_and_applies_physics_response() -> None:
             np.asarray([frame_index * 33_333, next_timestamp_us], dtype=np.int64),
             [first_samples, second_samples],
         )[0]
+        assert trajectory.timestamps_us[0] < frame_index * 33_333
+        assert trajectory.timestamps_us[-1] > next_timestamp_us
         np.testing.assert_array_equal(
-            trajectory.timestamps_us, [frame_index * 33_333, next_timestamp_us]
+            trajectory.timestamps_us[1:-1],
+            [frame_index * 33_333, next_timestamp_us],
+        )
+        np.testing.assert_array_equal(
+            trajectory.translations_world[0], trajectory.translations_world[1]
+        )
+        np.testing.assert_array_equal(
+            trajectory.translations_world[-1], trajectory.translations_world[-2]
         )
         assert trajectory.detached_from_track is True
         assert trajectory.is_simulated is True
     finally:
         world.close()
+
+
+def test_head_on_collision_keeps_detached_car_in_render_trajectory() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(_head_on_track()), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=10.0,
+        steer_rad=0.0,
+        velocity_x_mps=10.0,
+        velocity_y_mps=0.0,
+    )
+    forward = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    chunk_samples = []
+    detached_chunks = 0
+
+    try:
+        for frame_index in range(64):
+            state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+            state, samples = world.step(
+                state,
+                timestamp_us=frame_index * 33_333,
+                dt_s=1.0 / 30.0,
+            )
+            assert {sample[0] for sample in samples} == {"car-head-on"}
+            chunk_samples.append(samples)
+            if len(chunk_samples) < 8:
+                continue
+
+            frame_timestamps = (
+                np.arange(frame_index - 7, frame_index + 1, dtype=np.int64) * 33_333
+            )
+            trajectory = world.build_trajectories(frame_timestamps, chunk_samples)[0]
+            chunk_samples = []
+            if not trajectory.detached_from_track:
+                continue
+            detached_chunks += 1
+            assert trajectory.timestamps_us[0] < frame_timestamps[0]
+            assert trajectory.timestamps_us[-1] > frame_timestamps[-1]
+            assert np.isfinite(trajectory.translations_world).all()
+            assert np.isfinite(trajectory.orientations_xyzw).all()
+            assert np.all(trajectory.translations_world[:, 2] > 0.4)
+    finally:
+        world.close()
+
+    assert detached_chunks >= 3
 
 
 def test_minor_collision_does_not_latch_vehicle_drive_off() -> None:
@@ -433,7 +507,7 @@ def test_physx_vehicle_yaw_is_free_away_from_road_boundaries() -> None:
     )
 
 
-def test_physx_vehicle_yaw_is_limited_at_road_boundary() -> None:
+def test_physx_vehicle_yaw_does_not_snap_at_road_boundary() -> None:
     config = VehicleConfig()
     world = PhysXWorld(
         PhysicsObjectGraph(
@@ -450,7 +524,7 @@ def test_physx_vehicle_yaw_is_limited_at_road_boundary() -> None:
             dtype=np.float32,
         ),
         linear_velocity_mps=np.zeros(3, dtype=np.float32),
-        angular_velocity_radps=np.asarray([0.0, 0.0, 1.0], dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
     )
 
     try:
@@ -458,10 +532,8 @@ def test_physx_vehicle_yaw_is_limited_at_road_boundary() -> None:
     finally:
         world.close()
 
-    assert (
-        abs(_yaw_from_quaternion_xyzw(resolved.orientation_xyzw))
-        <= math.radians(25.0) + 1.0e-5
-    )
+    resolved_yaw = abs(_yaw_from_quaternion_xyzw(resolved.orientation_xyzw))
+    assert abs(resolved_yaw - initial_yaw) < math.radians(1.0)
     assert resolved.angular_velocity_radps[2] <= 1.0e-5
 
 
@@ -488,20 +560,23 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
         layer_name="road_boundaries",
     )
     world = GamePhysicsWorld(_scene(line_layers=(boundary,)), VehicleConfig())
-    initial_yaw = math.radians(35.0)
+    initial_yaw = math.radians(15.0)
     state = VehicleState(
-        x_m=0.0,
-        y_m=-1.0,
+        x_m=-5.0,
+        y_m=-3.0,
         z_m=0.0,
         yaw_rad=initial_yaw,
-        speed_mps=5.0,
+        speed_mps=8.0,
         steer_rad=0.0,
-        velocity_x_mps=5.0 * math.cos(initial_yaw),
-        velocity_y_mps=5.0 * math.sin(initial_yaw),
+        velocity_x_mps=8.0 * math.cos(initial_yaw),
+        velocity_y_mps=8.0 * math.sin(initial_yaw),
     )
+    forward = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    contact_yaws = []
 
     try:
-        for frame_index in range(8):
+        for frame_index in range(90):
+            state = integrate_vehicle(state, forward, 1.0 / 30.0, VehicleConfig())
             state, _ = world.step(
                 state,
                 timestamp_us=frame_index * 33_333,
@@ -510,10 +585,17 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
             ego_native_state = world._world.state_buffer[world._world._ego_slot]
             native_yaw = _yaw_from_quaternion_xyzw(ego_native_state[3:7])
             assert state.yaw_rad == pytest.approx(native_yaw, abs=1.0e-5)
+            if state.ragdoll_active or contact_yaws:
+                contact_yaws.append(state.yaw_rad)
+            if len(contact_yaws) == 8:
+                break
     finally:
         world.close()
 
-    assert abs(state.yaw_rad) < math.radians(15.0)
+    assert len(contact_yaws) == 8
+    per_frame_turns = np.abs(np.diff(np.asarray(contact_yaws)))
+    assert np.max(per_frame_turns) < math.radians(2.0)
+    assert abs(contact_yaws[-1]) < abs(contact_yaws[0])
 
 
 def test_held_throttle_cannot_drive_ego_inside_another_vehicle() -> None:
@@ -1227,7 +1309,7 @@ def test_handbrake_performs_quick_u_turn_through_physx_world() -> None:
         manual_control=True,
     )
 
-    for frame_index in range(24):
+    for frame_index in range(36):
         state = integrate_vehicle(state, handbrake_turn, 1.0 / 30.0, config)
         state, _ = world.step(
             state,
@@ -1238,8 +1320,51 @@ def test_handbrake_performs_quick_u_turn_through_physx_world() -> None:
 
     world.close()
 
-    assert abs(state.yaw_rad) > math.radians(120.0)
+    assert abs(state.yaw_rad) > math.radians(150.0)
     assert abs(state.speed_mps) < 2.0
+
+
+def test_releasing_handbrake_catches_quarter_turn_without_spinout() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=15.0,
+        steer_rad=0.0,
+        velocity_x_mps=15.0,
+        velocity_y_mps=0.0,
+    )
+    handbrake_turn = DriverCommand(
+        steer=1.0,
+        handbrake=True,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+    powered_turn = DriverCommand(
+        throttle=1.0,
+        steer=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+    try:
+        for frame_index in range(30):
+            command = handbrake_turn if frame_index < 18 else powered_turn
+            state = integrate_vehicle(state, command, 1.0 / 30.0, config)
+            state, _ = world.step(
+                state,
+                frame_index * 33_333,
+                1.0 / 30.0,
+                handbrake_active=command.handbrake,
+                steering_active=True,
+            )
+    finally:
+        world.close()
+
+    assert math.radians(75.0) < abs(state.yaw_rad) < math.radians(120.0)
 
 
 def test_held_s_reverses_ego_from_rest_through_physx_world() -> None:
@@ -1255,13 +1380,13 @@ def test_held_s_reverses_ego_from_rest_through_physx_world() -> None:
     )
     command = DriverCommand(brake=1.0, steer_is_direct=True, manual_control=True)
 
-    for frame_index in range(60):
+    for frame_index in range(24):
         state = integrate_vehicle(state, command, 1.0 / 30.0, config)
         state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
 
     world.close()
-    assert state.x_m < -1.0
-    assert state.speed_mps < -1.0
+    assert state.x_m < -2.0
+    assert state.speed_mps < -5.5
 
 
 def test_held_s_reverses_runtime_ego_through_physx_world() -> None:

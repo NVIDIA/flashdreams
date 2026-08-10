@@ -18,6 +18,9 @@ ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
 DEFAULT_ACCEL_MPS2 = 10.0
 """Default arcade-style forward acceleration for manual and scripted driving."""
 
+DEFAULT_REVERSE_ACCEL_MPS2 = 10.0
+"""Default arcade-style brake-to-reverse acceleration."""
+
 DEFAULT_BRAKE_DECEL_MPS2 = 14.0
 DEFAULT_HANDBRAKE_DECEL_MPS2 = 18.0
 
@@ -74,6 +77,9 @@ class VehicleConfig:
     max_speed_mps: float = 31.2928
     max_reverse_speed_mps: float = 6.0
     max_accel_mps2: float = DEFAULT_ACCEL_MPS2
+    reverse_accel_mps2: float = DEFAULT_REVERSE_ACCEL_MPS2
+    """Acceleration used while the brake control drives the vehicle in reverse."""
+
     max_brake_mps2: float = DEFAULT_BRAKE_DECEL_MPS2
     handbrake_decel_mps2: float = DEFAULT_HANDBRAKE_DECEL_MPS2
     handbrake_yaw_gain: float = 3.25
@@ -86,10 +92,9 @@ class VehicleConfig:
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
     collision_friction: float = 0.65
-    # Bound impact-induced angular velocity fed back into the controller.
-    # The authoritative PhysX heading itself is never clamped: the camera and
-    # world-model conditioning must agree with the physical chassis pose.
-    max_collision_yaw_rate_radps: float = 0.35
+    max_collision_yaw_rate_radps: float = 1.0
+    """Maximum non-handbrake chassis yaw rate applied inside PhysX."""
+
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0
     suspension_travel_m: float = 0.22
@@ -176,8 +181,8 @@ class AppConfig:
     # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
     # the first enumerated adapter.
     presenter_adapter: str | None = None
-    # None follows game_mode; an explicit bool remains a fine-grained override.
     visual_flare_enabled: bool | None = None
+    """Whether to show the full-screen collision vignette; disabled by default."""
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -191,4 +196,4 @@ class AppConfig:
             ),
         )
         if self.visual_flare_enabled is None:
-            object.__setattr__(self, "visual_flare_enabled", self.game_mode)
+            object.__setattr__(self, "visual_flare_enabled", False)

@@ -238,14 +238,14 @@ flags:
 
 Collision physics and the vehicle speed limit are off by default. Add
 `--game-mode` to enable the speed limit and collisions with scene actors and
-static map geometry, together with the collision visual effect:
+static map geometry:
 
 ```bash
 uv run --package flashdreams-omnidreams interactive-drive --game-mode
 ```
 
-To keep collision physics but suppress the full-screen collision flare, combine
-`--game-mode` with `--disable-visual-flare`.
+The full-screen collision flare is disabled by default. The legacy
+`--disable-visual-flare` option remains accepted for compatible launch scripts.
 
 For a richer remote-viewing experience with a polished frontend and lower
 latency than an in-process MJPEG stream, prefer the separate
@@ -559,11 +559,11 @@ than being velocity-clamped. PhysX therefore owns translation,
 vertical suspension travel, body attitude, rigid-body contact, and
 mass-dependent momentum transfer without locking any axis. A struck actor
 remains an integrated vehicle body instead of reverting to a sliding visual box.
-When an impact meets the collision visual effect's 5 mph speed-change threshold,
-traffic AI suppresses the struck vehicle's track-driving command so that only
-its transferred momentum moves it. Driving is restored only after the body has
-remained stationary for one continuous simulated second; the native physics
-layer owns neither that timer nor that decision.
+When an impact produces at least a 5 mph speed change, traffic AI suppresses the
+struck vehicle's track-driving command so that only its transferred momentum
+moves it. Driving is restored only after the body has remained stationary for
+one continuous simulated second; the native physics layer owns neither that
+timer nor that decision.
 
 Road-boundary, curb, building, house, and wall line/polygon layers are solid
 barriers. The large scene AABB remains a separate last-resort respawn boundary.

@@ -129,6 +129,7 @@ class WorldModelRenderBackend(RenderBackend):
             raster_chunk = self._rasterizer.render_chunk(
                 rig_poses_world=trajectory.rig_poses_world,
                 timestamps_us=trajectory.timestamps_us,
+                dynamic_actors=trajectory.dynamic_actors,
                 physics_debug_frames=trajectory.physics_debug_frames,
             )
             raster_end = time.perf_counter()

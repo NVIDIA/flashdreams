@@ -32,8 +32,7 @@ namespace {
 
 constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
-constexpr float kMaxOffRoadYawRad = 0.4363323129985824f;
-constexpr float kBoundaryHeadingAlignRateRadps = 1.2f;
+constexpr float kBoundaryHeadingAlignRateRadps = 0.6f;
 constexpr float kBoundarySteeringPivotRateRadps = 0.9f;
 constexpr float kActorContactDetectionMarginM = 0.15f;
 
@@ -100,6 +99,7 @@ struct BodyRecord {
     bool driveIntentActive = false;
     bool handbrakeActive = false;
     bool steeringActive = false;
+    float maxYawRate = 0.0f;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -542,6 +542,7 @@ public:
         float dt,
         bool egoHandbrakeActive,
         bool egoSteeringActive,
+        float egoMaxYawRate,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -553,6 +554,7 @@ public:
         BodyRecord& ego = bodyAt(0);
         ego.handbrakeActive = egoHandbrakeActive;
         ego.steeringActive = egoSteeringActive;
+        ego.maxYawRate = egoMaxYawRate;
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -792,9 +794,15 @@ private:
         }
 
         PxVec3 angularVelocity = ego.actor->getAngularVelocity();
+        const float originalYawRate = angularVelocity.z;
+        if (!ego.handbrakeActive && ego.maxYawRate > 0.0f) {
+            angularVelocity.z = std::clamp(
+                angularVelocity.z, -ego.maxYawRate, ego.maxYawRate);
+        }
         if (
             std::abs(angularVelocity.x) > 1.0e-5f
-            || std::abs(angularVelocity.y) > 1.0e-5f) {
+            || std::abs(angularVelocity.y) > 1.0e-5f
+            || angularVelocity.z != originalYawRate) {
             angularVelocity.x = 0.0f;
             angularVelocity.y = 0.0f;
             ego.actor->setAngularVelocity(angularVelocity, false);
@@ -877,15 +885,13 @@ private:
             const float alignmentDelta = std::min(
                 std::abs(yawError),
                 kBoundaryHeadingAlignRateRadps * dt);
-            const float alignedYawError = yawError
-                - std::copysign(alignmentDelta, yawError);
-            const float constrainedYawError = std::clamp(
-                alignedYawError, -kMaxOffRoadYawRad, kMaxOffRoadYawRad);
-            if (constrainedYawError == yawError)
+            const float alignedYawError =
+                yawError - std::copysign(alignmentDelta, yawError);
+            if (alignedYawError == yawError)
                 continue;
 
             pose.q = PxQuat(
-                constrainedYawError - yawError,
+                alignedYawError - yawError,
                 PxVec3(0.0f, 0.0f, 1.0f)) * pose.q;
             pose.q.normalize();
             body.actor->setGlobalPose(pose, false);
