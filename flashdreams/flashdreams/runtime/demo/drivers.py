@@ -453,7 +453,6 @@ async def run_demo_session_async(
 
     provider: Any | None = None
     session_edges: SessionEdges | None = None
-    driver_started = False
     try:
         try:
             create_provider = getattr(adapter, "create_model_input_provider")
@@ -490,7 +489,6 @@ async def run_demo_session_async(
                     "must not be reused."
                 )
             driver = run_mode.select_driver()
-            driver_started = True
             result = await _run_async_driver(
                 driver=driver,
                 host=context.host,
@@ -509,15 +507,13 @@ async def run_demo_session_async(
                 status="cancelled",
                 reason="cancelled during session assembly",
                 error=None,
-                close_provider=not driver_started,
+                close_provider=_needs_partial_provider_cleanup(session_edges),
             )
             context.run_metrics.record_session(result)
             return result
         except DriverInvariantError as exc:
             _record_run_session_error(context, exc)
-            should_record_session = session_edges is not None and (
-                driver_started or not session_edges.is_closed
-            )
+            should_record_session = session_edges is not None
             result = await _close_partial_session_async(
                 context=context,
                 provider=provider,
@@ -525,7 +521,7 @@ async def run_demo_session_async(
                 status="failed",
                 reason=str(exc),
                 error=exc,
-                close_provider=not driver_started,
+                close_provider=_needs_partial_provider_cleanup(session_edges),
             )
             if should_record_session:
                 context.run_metrics.record_session(result)
@@ -539,7 +535,7 @@ async def run_demo_session_async(
                 status="failed",
                 reason=str(exc),
                 error=exc,
-                close_provider=not driver_started,
+                close_provider=_needs_partial_provider_cleanup(session_edges),
             )
             context.run_metrics.record_session(result)
             return result
@@ -820,6 +816,10 @@ async def _close_partial_session_async(
     if session_edges is not None:
         return session_edges.close_result(status=status, reason=reason, error=error)
     return RunResult(status=status, reason=reason, error=error)
+
+
+def _needs_partial_provider_cleanup(session_edges: SessionEdges | None) -> bool:
+    return session_edges is None or not session_edges.is_closed
 
 
 async def _close_provider_async(

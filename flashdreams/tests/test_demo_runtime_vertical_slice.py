@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 import pytest
 
+import flashdreams.runtime.demo.drivers as drivers_module
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -457,6 +458,75 @@ async def test_run_demo_session_async_invariant_cancellation_finalizes_edges() -
     recorded = cast(RunResult, run_metrics.sessions[0])
     assert recorded.status == "failed"
     assert recorded.error is select_error
+    assert runtime.start_session_inputs == []
+
+
+@pytest.mark.asyncio
+async def test_run_demo_session_async_cancels_before_driver_owns_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
+    run_metrics = InMemorySessionMetricsRecorder()
+    context = _run_context(runtime, run_metrics=run_metrics)
+    provider = _FakeVideoModelInputProvider()
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    session_metrics = InMemorySessionMetricsRecorder()
+    driver_boundary_reached = asyncio.Event()
+    release_driver = asyncio.Event()
+
+    async def fake_run_async_driver(
+        *,
+        driver: object,
+        host: RuntimeHost,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del driver, host, provider, session_edges, pipeline
+        driver_boundary_reached.set()
+        await release_driver.wait()
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(
+        drivers_module,
+        "_run_async_driver",
+        fake_run_async_driver,
+    )
+    task = asyncio.create_task(
+        run_demo_session_async(
+            context=context,
+            spec=_spec(),
+            scenario=_scenario(),
+            adapter=_FakeDemoAdapter(provider=provider),
+            run_mode=_FakeRunMode(
+                input_source=_FakeBatchInputSource(num_windows=1),
+                output_sink=output,
+                metrics=session_metrics,
+                transport=transport,
+            ),
+            pipeline=StepPipeline(),
+        )
+    )
+
+    try:
+        await asyncio.wait_for(driver_boundary_reached.wait(), timeout=2.0)
+        task.cancel()
+        result = await task
+    finally:
+        release_driver.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        context.host.close()
+
+    assert result.status == "cancelled"
+    assert result.reason == "cancelled during session assembly"
+    assert provider.close_count == 1
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert session_metrics.closed
+    assert run_metrics.sessions == [result]
     assert runtime.start_session_inputs == []
 
 
