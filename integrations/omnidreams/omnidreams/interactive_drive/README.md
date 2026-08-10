@@ -444,13 +444,9 @@ matches the desktop modes' affordances:
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light
   the same chiclets as their letter equivalents.
-- **Auto-crawl**: releasing throttle keeps the ego creeping toward
-  ~10 mph (4.47 m/s) instead of coasting to a stop, matching the
-  alpasim manual-driver behaviour and the slangpy HUD's keyboard
-  path. The `--stream-mjpeg` presenter routes browser keypresses
-  through the same `KeyboardDriveState` integrator the desktop HUD
-  uses, so it posts `DriverCommand(manual_control=True, ...)` which
-  unlocks the creep branch in `EgoVehicleKinematics.integrate_vehicle`.
+- **Coasting**: releasing the controls lets the ego coast toward a stop.
+  A new rollout starts stationary, and both the browser and desktop HUD
+  use the same manual-control behavior.
 
 If you're running on a remote box (cloud GPU, lab machine, headless
 server), the demo port may not be reachable directly from your laptop.

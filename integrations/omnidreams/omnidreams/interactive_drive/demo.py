@@ -227,14 +227,8 @@ class KeyboardDriveState:
                 speed = max(0.0, speed - 12.0 * brake * dt)
             else:
                 speed = max(-6.0, speed - 2.0 * brake * dt)
-        elif speed < 0.0:
-            speed = min(0.0, speed + 0.5 * dt)
         else:
-            creep_target = 4.47
-            if speed < creep_target + 0.1:
-                speed += (creep_target - speed) * 0.18 * dt
-            else:
-                speed = max(0.0, speed - 0.5 * dt)
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-6.0, min(36.0, speed))
 
 
@@ -503,9 +497,6 @@ class WheelBridge:
                 speed = max(0.0, speed - 12.0 * brake * dt)
             else:
                 speed = max(-6.0, speed - 2.0 * brake * dt)
-        elif self._reverse or speed < 0.0:
-            # No auto-crawl while travelling backward; coast toward a stop.
-            speed = _move_towards(speed, 0.0, 0.5 * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-36.0, min(36.0, speed))
