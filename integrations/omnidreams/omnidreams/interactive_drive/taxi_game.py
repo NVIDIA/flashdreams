@@ -429,7 +429,10 @@ class TaxiGameController:
         self._leaderboard: tuple[HighScoreEntry, ...] = ()
         self._high_score_rank: int | None = None
         self._target_index = self._select_pickup(
-            initial_state.x_m, initial_state.y_m, excluded=frozenset()
+            initial_state.x_m,
+            initial_state.y_m,
+            excluded=frozenset(),
+            preferred_yaw_rad=initial_state.yaw_rad,
         )
 
     @property
@@ -570,7 +573,12 @@ class TaxiGameController:
         )
 
     def _select_pickup(
-        self, x_m: float, y_m: float, *, excluded: frozenset[int]
+        self,
+        x_m: float,
+        y_m: float,
+        *,
+        excluded: frozenset[int],
+        preferred_yaw_rad: float | None = None,
     ) -> int:
         distances = [
             math.hypot(float(point.xyz_m[0]) - x_m, float(point.xyz_m[1]) - y_m)
@@ -581,6 +589,29 @@ class TaxiGameController:
             for index, distance in enumerate(distances)
             if index not in excluded and distance >= self._config.pickup_min_distance_m
         ]
+        if preferred_yaw_rad is not None:
+            forward_x = math.cos(preferred_yaw_rad)
+            forward_y = math.sin(preferred_yaw_rad)
+            forward = [
+                index
+                for index in eligible
+                if (float(self._waypoints[index].xyz_m[0]) - x_m) * forward_x
+                + (float(self._waypoints[index].xyz_m[1]) - y_m) * forward_y
+                > 0.0
+            ]
+            if forward:
+                return min(forward, key=distances.__getitem__)
+
+            forward_fallback = [
+                index
+                for index in range(len(self._waypoints))
+                if index not in excluded
+                and (float(self._waypoints[index].xyz_m[0]) - x_m) * forward_x
+                + (float(self._waypoints[index].xyz_m[1]) - y_m) * forward_y
+                > 0.0
+            ]
+            if forward_fallback:
+                return max(forward_fallback, key=distances.__getitem__)
         if eligible:
             return min(eligible, key=distances.__getitem__)
         fallback = [
