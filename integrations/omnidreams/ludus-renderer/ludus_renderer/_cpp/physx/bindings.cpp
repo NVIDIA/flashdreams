@@ -33,6 +33,7 @@ namespace {
 constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
 constexpr float kMaxOffRoadYawRad = 0.4363323129985824f;
+constexpr float kBoundaryHeadingAlignRateRadps = 1.2f;
 
 PxFilterFlags vehicleFilterShader(
     PxFilterObjectAttributes,
@@ -753,7 +754,7 @@ private:
             if (!mScene->fetchResults(true))
                 throw std::runtime_error("PhysX fetchResults failed");
             constrainEgoUpright();
-            constrainVehicleYawsAtBarriers();
+            constrainVehicleYawsAtBarriers(substepDt);
         }
     }
 
@@ -791,7 +792,7 @@ private:
         }
     }
 
-    void constrainVehicleYawsAtBarriers()
+    void constrainVehicleYawsAtBarriers(float dt)
     {
         for (auto& entry : mBodies) {
             BodyRecord& body = entry.second;
@@ -847,8 +848,13 @@ private:
                 yawError -= 3.1415926535897932f;
             else if (yawError < -1.5707963267948966f)
                 yawError += 3.1415926535897932f;
+            const float alignmentDelta = std::min(
+                std::abs(yawError),
+                kBoundaryHeadingAlignRateRadps * dt);
+            const float alignedYawError = yawError
+                - std::copysign(alignmentDelta, yawError);
             const float constrainedYawError = std::clamp(
-                yawError, -kMaxOffRoadYawRad, kMaxOffRoadYawRad);
+                alignedYawError, -kMaxOffRoadYawRad, kMaxOffRoadYawRad);
             if (constrainedYawError == yawError)
                 continue;
 

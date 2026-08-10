@@ -24,10 +24,6 @@ from omnidreams.interactive_drive.types import (
     VehicleState,
 )
 
-# PhysX can leave millimetres-per-second forward drift at rest. Treat it as
-# stopped so a held brake can transition into arcade-style reverse.
-_BRAKE_TO_REVERSE_SPEED_EPSILON_MPS = 0.01
-
 
 def _move_towards(current: float, target: float, max_delta: float) -> float:
     if current < target:
@@ -47,9 +43,12 @@ def _apply_brake_or_reverse(
     brake_delta = brake_decel_mps2 * command.brake * dt_s
     if command.throttle > 0.01 or command.reverse:
         return _move_towards(speed_mps, 0.0, brake_delta)
-    if speed_mps > _BRAKE_TO_REVERSE_SPEED_EPSILON_MPS:
-        return max(0.0, speed_mps - brake_delta)
-    reverse_delta = reverse_accel_mps2 * command.brake * dt_s
+    reverse_dt_s = dt_s
+    if speed_mps > 0.0:
+        if brake_delta <= speed_mps:
+            return max(0.0, speed_mps - brake_delta)
+        reverse_dt_s -= speed_mps / (brake_decel_mps2 * command.brake)
+    reverse_delta = reverse_accel_mps2 * command.brake * reverse_dt_s
     return max(-max_reverse_speed_mps, min(0.0, speed_mps) - reverse_delta)
 
 
