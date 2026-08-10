@@ -86,9 +86,9 @@ def integrate_vehicle(
             )
         elif command.throttle > 0.01:
             accel = vehicle.max_accel_mps2 * command.throttle * dt_s
-            if speed * intended_direction < 0.0:
-                speed = _move_towards(speed, 0.0, accel * 1.5)
-            elif vehicle.speed_limit_enabled and intended_direction > 0.0:
+            if intended_direction < 0.0:
+                speed -= accel
+            elif vehicle.speed_limit_enabled:
                 max_speed = vehicle.max_speed_mps
                 current = abs(speed)
                 high_speed_knee = max_speed * 0.62
@@ -101,7 +101,7 @@ def integrate_vehicle(
                     taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
                 speed += accel * taper
             else:
-                speed += intended_direction * accel
+                speed += accel
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt_s)
         if vehicle.speed_limit_enabled:
