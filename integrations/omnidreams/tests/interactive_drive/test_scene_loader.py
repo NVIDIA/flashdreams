@@ -6,14 +6,47 @@ from __future__ import annotations
 import io
 import zipfile
 
+import numpy as np
 import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.scene_loader import (
+    _build_lane_centerlines,
     _discover_prompts,
     load_scene_bundle,
 )
+
+
+def _point(x_m: float, y_m: float, z_m: float = 0.0) -> dict[str, float]:
+    return {"x": x_m, "y": y_m, "z": z_m}
+
+
+def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
+    rows = [
+        {
+            "lane": {
+                "left_rail": [_point(0.0, 2.0), _point(10.0, 2.0)],
+                "right_rail": [_point(10.0, -2.0), _point(0.0, -2.0)],
+                "vehicle_types": ["CAR"],
+            }
+        },
+        {
+            "lane": {
+                "left_rail": [_point(0.0, 12.0), _point(10.0, 12.0)],
+                "right_rail": [_point(0.0, 8.0), _point(10.0, 8.0)],
+                "vehicle_types": ["BICYCLE"],
+            }
+        },
+    ]
+
+    centerlines = _build_lane_centerlines(rows)
+
+    assert len(centerlines) == 1
+    np.testing.assert_allclose(
+        centerlines[0],
+        np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float32),
+    )
 
 
 def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
@@ -55,6 +88,10 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert bundle.reference_route_world.ndim == 2
     assert bundle.reference_route_world.shape[1] == 3
     assert len(bundle.reference_route_world) >= 2
+    assert len(bundle.navigation_routes_world) > 100
+    navigation_points = np.concatenate(bundle.navigation_routes_world, axis=0)
+    assert np.ptp(navigation_points[:, 0]) > 200.0
+    assert np.ptp(navigation_points[:, 1]) > 200.0
     assert len(bundle.line_layers) > 0
     assert any(layer.color_rgba == (1.0, 1.0, 0.0, 1.0) for layer in bundle.line_layers)
     assert any(

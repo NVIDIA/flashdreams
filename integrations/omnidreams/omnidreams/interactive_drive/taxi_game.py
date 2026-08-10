@@ -34,7 +34,7 @@ class TaxiGameConfig:
     """User-controlled seed mixed with the stable scene identifier."""
 
     waypoint_spacing_m: float = 10.0
-    """Arc-length spacing between candidates sampled from the reference route."""
+    """Arc-length spacing between candidates sampled from each navigation route."""
 
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
@@ -46,10 +46,10 @@ class TaxiGameConfig:
     """Distance at which the ego completes a dropoff."""
 
     fare_min_route_distance_m: float = 40.0
-    """Preferred minimum reference-route distance between fare endpoints."""
+    """Preferred minimum straight-line distance between fare endpoints."""
 
-    fare_max_route_distance_m: float = 120.0
-    """Preferred maximum reference-route distance between fare endpoints."""
+    fare_max_route_distance_m: float = 250.0
+    """Preferred maximum straight-line distance between fare endpoints."""
 
     target_speed_mps: float = 10.0
     """Nominal travel speed used to derive the fare deadline."""
@@ -124,9 +124,6 @@ class _Waypoint:
     xyz_m: npt.NDArray[np.float32]
     """World-space waypoint position."""
 
-    route_distance_m: float
-    """Arc distance from the start of the reference route."""
-
 
 @dataclass(frozen=True)
 class TaxiCameraMarkerProjection:
@@ -181,10 +178,43 @@ def _resample_route(
         span = float(cumulative[right] - cumulative[left])
         alpha = 0.0 if span <= 1e-6 else (float(distance) - cumulative[left]) / span
         xyz = ((1.0 - alpha) * route[left] + alpha * route[right]).astype(np.float32)
-        waypoints.append(_Waypoint(xyz_m=xyz, route_distance_m=float(distance)))
+        waypoints.append(_Waypoint(xyz_m=xyz))
     if len(waypoints) < 2:
         raise ValueError("Taxi mode requires at least two distinct route waypoints.")
     return tuple(waypoints)
+
+
+def _resample_navigation_routes(
+    routes_world: tuple[npt.NDArray[np.float32], ...],
+    spacing_m: float,
+    offset_m: float,
+) -> tuple[_Waypoint, ...]:
+    """Resample and spatially deduplicate navigation routes."""
+    sampled: list[_Waypoint] = []
+    for route in routes_world:
+        try:
+            sampled.extend(_resample_route(route, spacing_m, offset_m))
+        except ValueError:
+            continue
+    if not sampled:
+        if not routes_world:
+            raise ValueError("Taxi mode requires navigation geometry.")
+        return _resample_route(routes_world[0], spacing_m, offset_m)
+
+    deduplicated: list[_Waypoint] = []
+    occupied_cells: set[tuple[int, int]] = set()
+    for waypoint in sampled:
+        cell = (
+            int(round(float(waypoint.xyz_m[0]) * 2.0)),
+            int(round(float(waypoint.xyz_m[1]) * 2.0)),
+        )
+        if cell in occupied_cells:
+            continue
+        occupied_cells.add(cell)
+        deduplicated.append(waypoint)
+    if len(deduplicated) < 2:
+        raise ValueError("Taxi mode requires at least two distinct road waypoints.")
+    return tuple(deduplicated)
 
 
 def normalize_angle_rad(angle_rad: float) -> float:
@@ -317,21 +347,23 @@ def project_taxi_marker_to_camera(
 
 
 class TaxiGameController:
-    """Advance deterministic taxi fares over a scene reference route."""
+    """Advance deterministic taxi fares over scene navigation routes."""
 
     def __init__(
         self,
         *,
         scene_id: str,
         reference_route_world: npt.NDArray[np.float32],
+        navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
     ) -> None:
         self._config = config
         self._rng = np.random.default_rng(_stable_seed(scene_id, config.seed))
         offset = float(self._rng.uniform(0.0, config.waypoint_spacing_m))
-        self._waypoints = _resample_route(
-            reference_route_world, config.waypoint_spacing_m, offset
+        routes_world = navigation_routes_world or (reference_route_world,)
+        self._waypoints = _resample_navigation_routes(
+            routes_world, config.waypoint_spacing_m, offset
         )
         self._phase: TaxiPhase = "seeking_pickup"
         self._score = 0
@@ -452,13 +484,17 @@ class TaxiGameController:
         return max(fallback, key=distances.__getitem__)
 
     def _select_dropoff(self, pickup_index: int) -> tuple[int, float]:
-        pickup_distance = self._waypoints[pickup_index].route_distance_m
-        route_distances = [
-            abs(point.route_distance_m - pickup_distance) for point in self._waypoints
+        pickup = self._waypoints[pickup_index].xyz_m
+        fare_distances = [
+            math.hypot(
+                float(point.xyz_m[0] - pickup[0]),
+                float(point.xyz_m[1] - pickup[1]),
+            )
+            for point in self._waypoints
         ]
         eligible = [
             index
-            for index, distance in enumerate(route_distances)
+            for index, distance in enumerate(fare_distances)
             if index != pickup_index
             and self._config.fare_min_route_distance_m
             <= distance
@@ -469,9 +505,9 @@ class TaxiGameController:
         else:
             index = max(
                 (i for i in range(len(self._waypoints)) if i != pickup_index),
-                key=route_distances.__getitem__,
+                key=fare_distances.__getitem__,
             )
-        return index, route_distances[index]
+        return index, fare_distances[index]
 
     def _start_fare(self, x_m: float, y_m: float) -> None:
         del x_m, y_m
