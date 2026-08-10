@@ -4,6 +4,7 @@
 import os
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -21,6 +22,7 @@ from omnidreams.interactive_drive.runtime.loop import (
     present_queued_frame,
     run_main_loop,
 )
+from omnidreams.interactive_drive.taxi_game import TaxiGameConfig, TaxiGameController
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     PresentedFrame,
@@ -228,8 +230,14 @@ class _PreparingPresenter(_CountingPresenter):
 
 
 class _FakeRuntimeControls:
-    def __init__(self, *, reset_after_present: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        reset_after_present: int | None = None,
+        taxi_name_after_present: tuple[int, str] | None = None,
+    ) -> None:
         self._reset_after_present = reset_after_present
+        self._taxi_name_after_present = taxi_name_after_present
         self._presenter: _CountingPresenter | None = None
         self.view_mode = "rgb"
 
@@ -243,6 +251,15 @@ class _FakeRuntimeControls:
             self._reset_after_present = None
             return True
         return False
+
+    def consume_taxi_name_submission(self) -> str | None:
+        if self._taxi_name_after_present is None or self._presenter is None:
+            return None
+        threshold, name = self._taxi_name_after_present
+        if len(self._presenter.records) < threshold:
+            return None
+        self._taxi_name_after_present = None
+        return name
 
 
 class _FakeInputBackend:
@@ -265,6 +282,7 @@ class _FakeSimulation:
             x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
         )
         self.physx_debug_requests: list[bool] = []
+        self.pose_chunk_calls = 0
 
     def set_physx_debug_enabled(self, enabled: bool) -> None:
         self.physx_debug_requests.append(enabled)
@@ -281,6 +299,7 @@ class _FakeSimulation:
         extrapolation_offset_s: float,
     ) -> TrajectoryChunk:
         del command, frame_interval_s, extrapolation_offset_s
+        self.pose_chunk_calls += 1
         return replace(
             make_trajectory(chunk_size),
             actor_collision_detected=self._actor_collision_detected,
@@ -317,6 +336,7 @@ def _drive_loop(
     trace_context: TraceContext | None = None,
     stop_after_consumed_chunks: int | None = None,
     visual_flare_enabled: bool = True,
+    taxi_game: TaxiGameController | None = None,
 ) -> bool:
     pipeline = ChunkPipeline(backend, trace_context=trace_context)
     pipeline.request_scene(minimal_scene())
@@ -333,6 +353,7 @@ def _drive_loop(
                 stop_after_consumed_chunks=stop_after_consumed_chunks,
                 visual_flare_enabled=visual_flare_enabled,
             ),
+            taxi_game=taxi_game,
             trace_context=trace_context,
         )
     finally:
@@ -501,6 +522,79 @@ def test_run_main_loop_returns_true_when_reset_requested() -> None:
 
     assert result is True
     assert len(presenter.records) == 3
+
+
+def test_loop_stops_requesting_chunks_after_global_taxi_timer_expires(
+    tmp_path: Path,
+) -> None:
+    presenter = _CountingPresenter(present_budget=5)
+    controls = _FakeRuntimeControls()
+    simulation = _FakeSimulation()
+    taxi_game = TaxiGameController(
+        scene_id="loop-game-over",
+        reference_route_world=np.array(
+            [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=simulation.current_state,
+        config=TaxiGameConfig(
+            enabled=True,
+            waypoint_spacing_m=1000.0,
+            global_time_s=1.0,
+            high_scores_path=tmp_path / "scores.csv",
+        ),
+    )
+
+    result = _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1),
+        simulation=simulation,
+        initial=_make_frame(),
+        frame_interval_s=1.0,
+        taxi_game=taxi_game,
+    )
+
+    assert result is False
+    assert simulation.pose_chunk_calls == 1
+    assert taxi_game.is_playing is False
+
+
+def test_loop_consumes_name_submission_while_taxi_game_is_frozen(
+    tmp_path: Path,
+) -> None:
+    presenter = _CountingPresenter(present_budget=5)
+    controls = _FakeRuntimeControls(taxi_name_after_present=(1, "PLAYER 1"))
+    controls.bind_presenter(presenter)
+    simulation = _FakeSimulation()
+    taxi_game = TaxiGameController(
+        scene_id="loop-name-entry",
+        reference_route_world=np.array(
+            [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=simulation.current_state,
+        config=TaxiGameConfig(
+            enabled=True,
+            waypoint_spacing_m=1000.0,
+            global_time_s=1.0,
+            high_scores_path=tmp_path / "scores.csv",
+        ),
+    )
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1),
+        simulation=simulation,
+        initial=_make_frame(),
+        frame_interval_s=1.0,
+        taxi_game=taxi_game,
+    )
+
+    snapshot = taxi_game.snapshot(simulation.current_state)
+    assert snapshot.session_state == "leaderboard"
+    assert [(entry.name, entry.score) for entry in snapshot.leaderboard] == [
+        ("PLAYER 1", 0)
+    ]
 
 
 def test_loop_re_presents_initial_frame_while_pipeline_queue_is_empty() -> None:
