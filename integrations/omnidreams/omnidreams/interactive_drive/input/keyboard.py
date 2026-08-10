@@ -171,9 +171,9 @@ class KeyboardState:
             if "space" in pressed:
                 return DriverCommand(
                     throttle=0.0,
-                    brake=1.0,
+                    brake=drive_command.brake,
                     steer=drive_command.steer,
-                    stop=True,
+                    handbrake=True,
                     reverse=drive_command.reverse,
                     steer_is_direct=drive_command.steer_is_direct,
                     manual_control=drive_command.manual_control,
@@ -184,14 +184,8 @@ class KeyboardState:
 
 def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
     pressed = {normalize_key(key) for key in snapshot.pressed}
-    forward = bool({"w", "up"} & pressed)
-    reverse = bool({"s", "down"} & pressed)
-    # Keyboard driving uses the conventional arcade mapping: S/down applies
-    # throttle in the opposite direction, while pressing both directions
-    # requests a brake. Space remains the immediate stop control handled below.
-    opposing_directions = forward and reverse
-    throttle = 1.0 if forward != reverse else 0.0
-    brake = 1.0 if opposing_directions else 0.0
+    throttle = 1.0 if {"w", "up"} & pressed else 0.0
+    brake = 1.0 if {"s", "down"} & pressed else 0.0
     steer = 0.0
     if {"a", "left"} & pressed:
         steer += 1.0
@@ -201,8 +195,7 @@ def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
         throttle=throttle,
         brake=brake,
         steer=steer,
-        stop="space" in pressed,
-        reverse=reverse and not forward,
+        handbrake="space" in pressed,
     )
 
 

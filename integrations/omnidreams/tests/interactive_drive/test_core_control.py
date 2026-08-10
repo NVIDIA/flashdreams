@@ -7,6 +7,7 @@ import math
 
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
+from omnidreams.interactive_drive.demo import KeyboardDriveState
 from omnidreams.interactive_drive.input.keyboard import command_from_snapshot
 from omnidreams.interactive_drive.simulation.components import (
     vehicle_dynamics_from_config,
@@ -22,6 +23,14 @@ from omnidreams.interactive_drive.types import (
 )
 
 
+class _RecordingDriveSink:
+    def __init__(self) -> None:
+        self.commands: list[dict[str, float | bool]] = []
+
+    def set_drive(self, **command: float | bool) -> None:
+        self.commands.append(command)
+
+
 def test_command_from_snapshot_maps_keyboard_state() -> None:
     snapshot = ControlSnapshot(pressed={"w", "a"})
     command = command_from_snapshot(snapshot)
@@ -30,38 +39,38 @@ def test_command_from_snapshot_maps_keyboard_state() -> None:
     assert command.steer == 1.0
 
 
-def test_s_key_requests_reverse_propulsion() -> None:
-    command = command_from_snapshot(ControlSnapshot(pressed={"s"}))
+def test_space_maps_to_handbrake_without_pressing_normal_brake() -> None:
+    command = command_from_snapshot(ControlSnapshot(pressed={"space"}))
 
-    assert command.throttle == 1.0
+    assert command.handbrake is True
     assert command.brake == 0.0
-    assert command.reverse is True
+    assert command.stop is False
 
 
-def test_opposing_keyboard_directions_brake() -> None:
-    command = command_from_snapshot(ControlSnapshot(pressed={"w", "s"}))
+def test_keyboard_drive_state_publishes_space_as_handbrake() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard.set_key("space", True)
 
-    assert command.throttle == 0.0
-    assert command.brake == 1.0
-    assert command.reverse is False
+    state = keyboard.update()
+
+    assert state.brake == 0.0
+    assert sink.commands[-1]["brake"] == 0.0
+    assert sink.commands[-1]["handbrake"] is True
 
 
-def test_keyboard_reverse_applies_throttle_in_opposite_direction() -> None:
-    vehicle = VehicleConfig()
-    command = command_from_snapshot(ControlSnapshot(pressed={"s"}))
-    state = VehicleState(
-        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=1.0, steer_rad=0.0
-    )
+def test_keyboard_brake_target_enters_reverse_from_rest() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard.set_key("s", True)
+    keyboard._last_update_s -= 0.1
 
-    first_reverse_step = integrate_vehicle(state, command, dt_s=0.1, vehicle=vehicle)
-    assert first_reverse_step.speed_mps < state.speed_mps
+    state = keyboard.update()
 
-    state = first_reverse_step
-    for _ in range(19):
-        state = integrate_vehicle(state, command, dt_s=0.1, vehicle=vehicle)
-
-    assert state.speed_mps < 0.0
-    assert state.x_m < 0.0
+    assert state.target_speed_mps < 0.0
+    assert state.reverse is True
+    assert sink.commands[-1]["brake"] == 1.0
+    assert sink.commands[-1]["handbrake"] is False
 
 
 def test_manual_release_does_not_creep_forward() -> None:
@@ -124,6 +133,57 @@ def test_manual_brake_overrides_throttle_to_a_stop() -> None:
     for _ in range(200):
         state = integrate_vehicle(state, both, dt_s=0.1, vehicle=vehicle)
     assert state.speed_mps == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("manual_control", [False, True])
+def test_brake_transitions_from_forward_to_reverse_after_stopping(
+    manual_control: bool,
+) -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.1, steer_rad=0.0
+    )
+    brake = DriverCommand(brake=1.0, manual_control=manual_control)
+
+    stopped = integrate_vehicle(state, brake, dt_s=0.1, vehicle=vehicle)
+    reversing = integrate_vehicle(stopped, brake, dt_s=0.1, vehicle=vehicle)
+
+    assert stopped.speed_mps == 0.0
+    assert reversing.speed_mps < 0.0
+
+
+@pytest.mark.parametrize("initial_speed_mps", [-5.0, 5.0])
+def test_handbrake_stops_without_reversing_direction(
+    initial_speed_mps: float,
+) -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=initial_speed_mps,
+        steer_rad=0.0,
+    )
+    handbrake = DriverCommand(handbrake=True, manual_control=True)
+
+    for _ in range(20):
+        state = integrate_vehicle(state, handbrake, dt_s=0.1, vehicle=vehicle)
+
+    assert state.speed_mps == 0.0
+
+
+def test_releasing_brake_while_reversing_coasts_toward_stop() -> None:
+    vehicle = VehicleConfig()
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=-2.0, steer_rad=0.0
+    )
+
+    released = integrate_vehicle(
+        state, DriverCommand(manual_control=True), dt_s=0.1, vehicle=vehicle
+    )
+
+    assert state.speed_mps < released.speed_mps < 0.0
 
 
 def test_manual_throttle_only_still_accelerates() -> None:

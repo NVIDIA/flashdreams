@@ -126,8 +126,8 @@ class WheelState:
 class KeyboardDriveState:
     def __init__(self, control: Any) -> None:
         # ``control`` is a drive sink with
-        # ``set_drive(steer, throttle, brake, reverse)``
-        # (the HUD's ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
+        # ``set_drive(steer, throttle, brake, handbrake)`` (the HUD's
+        # ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
         self._control = control
         self._pressed: set[str] = set()
         self._state = WheelState()
@@ -168,13 +168,11 @@ class KeyboardDriveState:
             else KEYBOARD_STEER_RETURN_RATE_PER_S
         )
         steer = _move_towards(self._state.steering, target_steer, rate * dt)
-        forward = bool({"w", "up"} & self._pressed)
-        reverse = bool({"s", "down"} & self._pressed)
-        throttle = 1.0 if forward != reverse else 0.0
-        brake = 1.0 if (forward and reverse) or "space" in self._pressed else 0.0
-        reverse = reverse and not forward
+        throttle = 1.0 if {"w", "up"} & self._pressed else 0.0
+        brake = 1.0 if {"s", "down"} & self._pressed else 0.0
+        handbrake = "space" in self._pressed
         target_speed = self._update_target_speed(
-            throttle=throttle, brake=brake, reverse=reverse, dt=dt
+            throttle=throttle, brake=brake, handbrake=handbrake, dt=dt
         )
         self._state = WheelState(
             steering=steer,
@@ -182,42 +180,62 @@ class KeyboardDriveState:
             brake=brake,
             target_speed_mps=target_speed,
             connected=False,
-            reverse=reverse,
+            reverse=target_speed < -0.05,
         )
         self._control.set_drive(
-            steer=steer, throttle=throttle, brake=brake, reverse=reverse
+            steer=steer,
+            throttle=throttle,
+            brake=brake,
+            handbrake=handbrake,
         )
         return self.state
 
     def clear(self) -> None:
         self._pressed.clear()
         self._state = WheelState()
-        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0, reverse=False)
+        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0, handbrake=False)
 
     def release_control(self) -> None:
         """Release this input source without changing its display state."""
         self._control.release_all()
 
     def _update_target_speed(
-        self, *, throttle: float, brake: float, reverse: bool, dt: float
+        self, *, throttle: float, brake: float, handbrake: bool, dt: float
     ) -> float:
         speed = self._state.target_speed_mps
-        direction = -1.0 if reverse else 1.0
-        if throttle > 0.01 and brake <= 0.05:
+        if handbrake:
+            speed = _move_towards(speed, 0.0, 18.0 * dt)
+        elif throttle > 0.01 and brake <= 0.05:
             accel = 2.0 * throttle * dt
-            current = abs(speed)
-            high_speed_knee = 22.35
-            if current < high_speed_knee:
-                taper = max(0.2, 1.0 - (current / high_speed_knee) ** 2 * 0.5)
+            if speed < 0.0:
+                speed = min(0.0, speed + accel * 1.5)
             else:
-                excess = (current - high_speed_knee) / max(1e-6, 36.0 - high_speed_knee)
-                taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
-            speed += direction * accel * taper
+                current = abs(speed)
+                high_speed_knee = 22.35
+                if current < high_speed_knee:
+                    taper = max(0.2, 1.0 - (current / high_speed_knee) ** 2 * 0.5)
+                else:
+                    excess = (current - high_speed_knee) / max(
+                        1e-6, 36.0 - high_speed_knee
+                    )
+                    taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
+                speed += accel * taper
         elif brake > 0.01:
-            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+            if throttle > 0.01:
+                speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+            elif speed > 0.0:
+                speed = max(0.0, speed - 12.0 * brake * dt)
+            else:
+                speed = max(-6.0, speed - 2.0 * brake * dt)
+        elif speed < 0.0:
+            speed = min(0.0, speed + 0.5 * dt)
         else:
-            speed = _move_towards(speed, 0.0, 0.5 * dt)
-        return max(-36.0, min(36.0, speed))
+            creep_target = 4.47
+            if speed < creep_target + 0.1:
+                speed += (creep_target - speed) * 0.18 * dt
+            else:
+                speed = max(0.0, speed - 0.5 * dt)
+        return max(-6.0, min(36.0, speed))
 
 
 @dataclass(frozen=True)
@@ -421,7 +439,7 @@ class WheelBridge:
             self._state.throttle = throttle
             self._state.brake = brake
             self._state.target_speed_mps = target_speed
-            self._state.reverse = self._reverse
+            self._state.reverse = self._reverse or target_speed < -0.05
 
         self._control.set_drive(
             steer=steering, throttle=throttle, brake=brake, reverse=self._reverse
@@ -479,8 +497,15 @@ class WheelBridge:
                 taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
             speed += direction * accel * taper
         elif brake > 0.01:
-            # Brake bleeds speed toward a stop regardless of travel direction.
-            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+            if throttle > 0.01 or self._reverse:
+                speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+            elif speed > 0.0:
+                speed = max(0.0, speed - 12.0 * brake * dt)
+            else:
+                speed = max(-6.0, speed - 2.0 * brake * dt)
+        elif self._reverse or speed < 0.0:
+            # No auto-crawl while travelling backward; coast toward a stop.
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-36.0, min(36.0, speed))

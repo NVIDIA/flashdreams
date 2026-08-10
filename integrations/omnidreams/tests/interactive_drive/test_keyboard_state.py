@@ -18,7 +18,7 @@ from omnidreams.interactive_drive.streaming_presenter import (
     _BROWSER_KEY_TO_VIEW_MODE,
 )
 from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
-from omnidreams.interactive_drive.types import DriverCommand
+from omnidreams.interactive_drive.types import DriverCommand, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -32,7 +32,6 @@ class _DriveSink:
 
     def release_all(self) -> None:
         pass
-from omnidreams.interactive_drive.types import VehicleState
 
 
 def test_consume_reset_request_returns_false_when_no_reset_pending() -> None:
@@ -84,30 +83,6 @@ def test_keyboard_state_uses_shared_key_normalization() -> None:
     assert command.steer == 1.0
 
 
-def test_keyboard_state_maps_arrow_down_to_reverse() -> None:
-    keyboard = KeyboardState()
-    keyboard.set_key("ArrowDown", True)
-
-    command = keyboard.command()
-
-    assert command.throttle == 1.0
-    assert command.brake == 0.0
-    assert command.reverse is True
-
-
-def test_interactive_drive_s_key_publishes_reverse_command() -> None:
-    sink = _DriveSink()
-    keyboard = KeyboardDriveState(sink)
-
-    assert keyboard.set_key("s", True) is True
-    state = keyboard.update()
-
-    assert sink.command.throttle == 1.0
-    assert sink.command.brake == 0.0
-    assert sink.command.reverse is True
-    assert state.reverse is True
-
-
 def test_keyboard_drive_command_overrides_connected_wheel_command() -> None:
     keyboard = KeyboardState()
     keyboard.set_drive_command(
@@ -121,6 +96,26 @@ def test_keyboard_drive_command_overrides_connected_wheel_command() -> None:
 
     keyboard.set_drive_command(None, source="keyboard")
     assert keyboard.command().throttle == 0.0
+
+
+def test_space_overrides_active_drive_command_with_handbrake() -> None:
+    keyboard = KeyboardState()
+    keyboard.set_drive_command(
+        DriverCommand(
+            throttle=1.0,
+            steer=0.25,
+            steer_is_direct=True,
+            manual_control=True,
+        )
+    )
+    keyboard.set_key("space", True)
+
+    command = keyboard.command()
+
+    assert command.handbrake is True
+    assert command.throttle == 0.0
+    assert command.brake == 0.0
+    assert command.steer == 0.25
 
 
 def test_consume_exit_scene_request_returns_false_when_none_pending() -> None:

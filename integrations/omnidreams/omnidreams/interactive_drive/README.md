@@ -494,11 +494,11 @@ environment variable for the bare presenter.
 Controls (apply in all three modes):
 
 - `W` throttle
-- `S` brake / reverse drag
+- `S` brake, then reverse after stopping
 - `A` steer left
 - `D` steer right
 - arrow keys mirror `W/A/S/D`
-- `Space` stop
+- `Space` handbrake
 - `1` generated driving view
 - `2` HD map view
 - `3` first-person PhysX collider view (actor chassis and invisible walls)

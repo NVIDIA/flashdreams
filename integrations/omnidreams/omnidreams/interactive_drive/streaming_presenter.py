@@ -101,13 +101,20 @@ class _KeyboardDriveSink:
         self._keyboard = keyboard
 
     def set_drive(
-        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+        self,
+        *,
+        steer: float,
+        throttle: float,
+        brake: float,
+        handbrake: bool = False,
+        reverse: bool = False,
     ) -> None:
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                handbrake=bool(handbrake),
                 reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
@@ -385,7 +392,7 @@ _INDEX_HTML = """<!doctype html>
   <img id="taxi-bev" src="/bev_stream">
   <div class="taxi-pin" id="taxi-pin"></div>
 </div>
-<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
+<div class="hint">WASD / Arrows = Drive &middot; Space = Handbrake &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
     <span>Scenes</span>
