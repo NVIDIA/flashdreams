@@ -122,6 +122,37 @@ def test_batch_driver_runs_fake_video_demo_through_runtime_host() -> None:
     assert "step" not in host.calls
 
 
+def test_batch_driver_cleanup_failure_marks_host_unhealthy() -> None:
+    session = _FakeVideoSession(num_steps=1)
+    runtime = _FakeVideoRuntime(session=session)
+    host = RuntimeHost(runtime)
+    provider = _FakeVideoModelInputProvider(
+        fail_close=RuntimeError("provider close failed")
+    )
+    metrics = InMemorySessionMetricsRecorder()
+
+    try:
+        result = BatchSessionDriver().run_one_session(
+            host=host,
+            provider=provider,
+            session_edges=SessionEdges(
+                input_source=_FakeBatchInputSource(num_windows=1),
+                output_sink=_RecordingOutputSink(),
+                cleanup_tasks=set(),
+                metrics=metrics,
+            ),
+            pipeline=StepPipeline(),
+        )
+
+        assert result.status == "completed"
+        assert not host.is_healthy
+        assert host.unhealthy_reason == "model-affine cleanup failed"
+        assert provider.close_count == 1
+        assert metrics.cleanup_errors == ["provider close failed"]
+    finally:
+        host.close()
+
+
 def test_batch_driver_slices_windows_from_step_requirements() -> None:
     session = _FakeVideoSession(num_steps=2, input_frame_counts=(3, 2))
     runtime = _FakeVideoRuntime(session=session)
@@ -329,6 +360,8 @@ def test_run_demo_session_keeps_failure_when_run_cleanup_metrics_fail() -> None:
     assert result.status == "failed"
     assert result.reason == "provider incompatible"
     assert provider.close_count == 1
+    assert not context.host.is_healthy
+    assert context.host.unhealthy_reason == "model-affine cleanup failed"
     assert run_metrics.cleanup_error_attempts == 1
     assert run_metrics.sessions == [result]
     assert runtime.start_session_inputs == []
@@ -360,6 +393,8 @@ async def test_run_demo_session_async_keeps_failure_when_run_cleanup_metrics_fai
     assert result.status == "failed"
     assert result.reason == "provider incompatible"
     assert provider.close_count == 1
+    assert not context.host.is_healthy
+    assert context.host.unhealthy_reason == "model-affine cleanup failed"
     assert run_metrics.cleanup_error_attempts == 1
     assert run_metrics.sessions == [result]
     assert runtime.start_session_inputs == []

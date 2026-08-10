@@ -321,6 +321,10 @@ class RealtimeSessionDriver:
         return result
 
 
+def _mark_host_cleanup_failed(host: RuntimeHost, exc: Exception | None = None) -> None:
+    host.mark_unhealthy(_MODEL_CLEANUP_FAILED_REASON, exc)
+
+
 def run_demo_session(
     *,
     context: RunContext,
@@ -390,13 +394,11 @@ def run_demo_session(
     except DriverInvariantError as exc:
         _record_run_session_error(context, exc)
         if provider is not None and not driver_started:
-            try:
-                context.host.call(provider.close)
-            except Exception as close_exc:
-                if session_edges is not None:
-                    session_edges.record_cleanup_error(close_exc)
-                else:
-                    _record_run_cleanup_error(context, close_exc)
+            _close_partial_provider_sync(
+                context=context,
+                provider=provider,
+                session_edges=session_edges,
+            )
         if session_edges is not None and (
             driver_started or not session_edges.is_closed
         ):
@@ -410,13 +412,11 @@ def run_demo_session(
     except Exception as exc:
         _record_run_session_error(context, exc)
         if provider is not None and not driver_started:
-            try:
-                context.host.call(provider.close)
-            except Exception as close_exc:
-                if session_edges is not None:
-                    session_edges.record_cleanup_error(close_exc)
-                else:
-                    _record_run_cleanup_error(context, close_exc)
+            _close_partial_provider_sync(
+                context=context,
+                provider=provider,
+                session_edges=session_edges,
+            )
         if session_edges is not None and (
             driver_started or not session_edges.is_closed
         ):
@@ -623,14 +623,56 @@ def _close_on_host_best_effort(
     host: RuntimeHost,
     close: Any,
     session_edges: SessionEdges,
-) -> None:
+) -> bool:
     try:
-        host.call(_close_safely, close, session_edges)
+        cleanup_succeeded = host.call(_close_safely, close, session_edges)
     except Exception as exc:
         # If the host/worker is already unavailable, do not fall back to calling
         # model-affine cleanup directly on the caller thread. Record the loss and
         # let close_result finalize output, transport, and metrics.
         session_edges.record_cleanup_error(exc)
+        _mark_host_cleanup_failed(host, exc)
+        return False
+    if not cleanup_succeeded:
+        _mark_host_cleanup_failed(host)
+        return False
+    return True
+
+
+def _close_partial_provider_sync(
+    *,
+    context: RunContext,
+    provider: Any,
+    session_edges: SessionEdges | None,
+) -> None:
+    if session_edges is not None:
+        _close_on_host_best_effort(
+            host=context.host,
+            close=provider.close,
+            session_edges=session_edges,
+        )
+        return
+    try:
+        cleanup_succeeded = context.host.call(
+            _close_run_provider_safely,
+            provider.close,
+            context,
+        )
+    except Exception as exc:
+        _record_run_cleanup_error(context, exc)
+        _mark_host_cleanup_failed(context.host, exc)
+        return
+    if not cleanup_succeeded:
+        _mark_host_cleanup_failed(context.host)
+
+
+def _close_run_provider_safely(close: Any, context: RunContext) -> bool:
+    try:
+        close()
+    except Exception as exc:
+        _record_run_cleanup_error(context, exc)
+        return False
+    return True
 
 
 async def shielded_session_cleanup(
@@ -832,6 +874,7 @@ def _record_provider_cleanup_error(
         session_edges.record_cleanup_error(exc)
     else:
         _record_run_cleanup_error(context, exc)
+    _mark_host_cleanup_failed(context.host, exc)
 
 
 def _record_run_cleanup_error(context: RunContext, exc: Exception) -> None:
