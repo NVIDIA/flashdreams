@@ -489,7 +489,12 @@ class PhysXWorld:
         self.graph = graph
 
     def step_compact(
-        self, ego: BodyState, timestamp_us: int, dt_s: float
+        self,
+        ego: BodyState,
+        timestamp_us: int,
+        dt_s: float,
+        *,
+        handbrake_active: bool = False,
     ) -> _CompactPhysicsStep:
         """Advance all tracked actors with one native call and narrow readback."""
         if self._closed:
@@ -509,6 +514,7 @@ class PhysXWorld:
             ego_angular,
             int(timestamp_us),
             float(dt_s),
+            bool(handbrake_active),
             self.actor_collision_enabled,
         )
         # The ego escapes through the public result, so keep its snapshot stable.

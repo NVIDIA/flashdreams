@@ -266,9 +266,14 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
             del center_xy_m, timestamp_us
 
         def step(
-            self, state: VehicleState, timestamp_us: int, dt_s: float
+            self,
+            state: VehicleState,
+            timestamp_us: int,
+            dt_s: float,
+            *,
+            handbrake_active: bool = False,
         ) -> tuple[VehicleState, tuple[object, ...]]:
-            del timestamp_us, dt_s
+            del timestamp_us, dt_s, handbrake_active
             self.last_step_actor_collision = self._step_index == 1
             self._step_index += 1
             return state, ()

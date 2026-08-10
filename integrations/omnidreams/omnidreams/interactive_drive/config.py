@@ -18,6 +18,9 @@ ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
 DEFAULT_ACCEL_MPS2 = 5.0
 """Default arcade-style forward acceleration for manual and scripted driving."""
 
+DEFAULT_BRAKE_DECEL_MPS2 = 14.0
+DEFAULT_HANDBRAKE_DECEL_MPS2 = 18.0
+
 
 @dataclass(frozen=True)
 class ChunkConfig:
@@ -71,7 +74,10 @@ class VehicleConfig:
     max_speed_mps: float = 31.2928
     max_reverse_speed_mps: float = 6.0
     max_accel_mps2: float = DEFAULT_ACCEL_MPS2
-    max_brake_mps2: float = 6.0
+    max_brake_mps2: float = DEFAULT_BRAKE_DECEL_MPS2
+    handbrake_decel_mps2: float = DEFAULT_HANDBRAKE_DECEL_MPS2
+    handbrake_yaw_gain: float = 3.25
+    max_handbrake_yaw_rate_radps: float = 5.0
     max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = 0.7
     mass_kg: float = 1_550.0
