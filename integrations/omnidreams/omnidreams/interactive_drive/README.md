@@ -283,7 +283,8 @@ BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
 the extra rasterizer dispatch when you don't need it.
 
 Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
-road-valid pickups from the scene's recorded route, starts a distance-scaled
+road-valid pickups from the scene's car-lane centerlines (falling back to the
+recorded route when lane data is unavailable), starts a distance-scaled
 timer after pickup, and shows the active target, direction arrow, score, and
 remaining dropoff time. `--taxi-seed N` produces a repeatable fare layout for
 the same scene. Manual reset, OOB respawn, and scene changes reset the score.

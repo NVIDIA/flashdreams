@@ -110,6 +110,33 @@ def test_taxi_mode_rejects_route_without_travel_distance() -> None:
         )
 
 
+def test_navigation_routes_move_dropoffs_to_other_streets() -> None:
+    controller = TaxiGameController(
+        scene_id="street-network",
+        reference_route_world=np.array(
+            [[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        navigation_routes_world=(
+            np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=np.float32),
+            np.array([[0.0, 100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(enabled=True, waypoint_spacing_m=1000.0),
+    )
+
+    pickup = controller.snapshot(_state())
+    controller.advance(
+        _trajectory((pickup.target_xyz_m[0], pickup.target_xyz_m[1])), 0.0
+    )
+    dropoff = controller.snapshot(
+        _state(pickup.target_xyz_m[0], pickup.target_xyz_m[1])
+    )
+
+    assert pickup.target_xyz_m[1] == 0.0
+    assert dropoff.phase == "to_dropoff"
+    assert dropoff.target_xyz_m[1] == 100.0
+
+
 def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:
     controller = _controller()
 
