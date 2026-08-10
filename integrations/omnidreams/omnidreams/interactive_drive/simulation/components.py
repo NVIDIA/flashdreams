@@ -457,7 +457,7 @@ def vehicle_dynamics_from_config(config: VehicleConfig) -> VehicleDynamicsCompon
         ),
         mass_kg=config.mass_kg,
         max_accel_mps2=config.max_accel_mps2,
-        max_brake_mps2=config.max_brake_mps2,
+        max_brake_mps2=max(config.max_brake_mps2, config.handbrake_decel_mps2),
         max_lateral_accel_mps2=config.max_lateral_accel_mps2,
         tire_grip=config.tire_grip,
         rolling_resistance=config.rolling_resistance,

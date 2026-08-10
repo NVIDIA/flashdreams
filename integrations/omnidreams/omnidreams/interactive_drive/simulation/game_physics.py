@@ -563,7 +563,12 @@ class GamePhysicsWorld:
         )
 
     def step(
-        self, state: VehicleState, timestamp_us: int, dt_s: float
+        self,
+        state: VehicleState,
+        timestamp_us: int,
+        dt_s: float,
+        *,
+        handbrake_active: bool = False,
     ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
         """Advance the authoritative PhysX scene and return actor samples."""
         step_started_at = time.perf_counter()
@@ -574,6 +579,7 @@ class GamePhysicsWorld:
             ego_before_step,
             timestamp_us,
             dt_s,
+            handbrake_active=handbrake_active,
         )
         active_objects = {
             scene_object.object_id: scene_object

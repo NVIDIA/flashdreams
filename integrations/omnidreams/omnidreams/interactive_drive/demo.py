@@ -24,6 +24,8 @@ from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.config import (
     DEFAULT_ACCEL_MPS2,
+    DEFAULT_BRAKE_DECEL_MPS2,
+    DEFAULT_HANDBRAKE_DECEL_MPS2,
     BevConfig,
     RasterConfig,
 )
@@ -208,7 +210,7 @@ class KeyboardDriveState:
     ) -> float:
         speed = self._state.target_speed_mps
         if handbrake:
-            speed = _move_towards(speed, 0.0, 18.0 * dt)
+            speed = _move_towards(speed, 0.0, DEFAULT_HANDBRAKE_DECEL_MPS2 * dt)
         elif throttle > 0.01 and brake <= 0.05:
             accel = DEFAULT_ACCEL_MPS2 * throttle * dt
             if speed < 0.0:
@@ -226,9 +228,9 @@ class KeyboardDriveState:
                 speed += accel * taper
         elif brake > 0.01:
             if throttle > 0.01:
-                speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+                speed = _move_towards(speed, 0.0, DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             elif speed > 0.0:
-                speed = max(0.0, speed - 12.0 * brake * dt)
+                speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             else:
                 speed = max(-6.0, speed - 2.0 * brake * dt)
         else:
@@ -496,9 +498,9 @@ class WheelBridge:
             speed += direction * accel * taper
         elif brake > 0.01:
             if throttle > 0.01 or self._reverse:
-                speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
+                speed = _move_towards(speed, 0.0, DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             elif speed > 0.0:
-                speed = max(0.0, speed - 12.0 * brake * dt)
+                speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             else:
                 speed = max(-6.0, speed - 2.0 * brake * dt)
         else:

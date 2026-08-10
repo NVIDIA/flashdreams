@@ -1122,6 +1122,71 @@ def test_held_throttle_advances_ego_through_physx_world() -> None:
     world.close()
 
 
+def test_pedal_brake_stops_ego_quickly_through_physx_world() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=20.0,
+        steer_rad=0.0,
+        velocity_x_mps=20.0,
+        velocity_y_mps=0.0,
+    )
+    brake = DriverCommand(brake=1.0, steer_is_direct=True, manual_control=True)
+    stop_frame = None
+
+    for frame_index in range(60):
+        state = integrate_vehicle(state, brake, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+        if state.speed_mps <= 0.0:
+            stop_frame = frame_index
+            break
+
+    world.close()
+
+    assert stop_frame is not None
+    assert stop_frame < 50
+    assert state.x_m < 18.0
+
+
+def test_handbrake_performs_quick_u_turn_through_physx_world() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=15.0,
+        steer_rad=0.0,
+        velocity_x_mps=15.0,
+        velocity_y_mps=0.0,
+    )
+    handbrake_turn = DriverCommand(
+        steer=1.0,
+        handbrake=True,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+    for frame_index in range(24):
+        state = integrate_vehicle(state, handbrake_turn, 1.0 / 30.0, config)
+        state, _ = world.step(
+            state,
+            frame_index * 33_333,
+            1.0 / 30.0,
+            handbrake_active=True,
+        )
+
+    world.close()
+
+    assert abs(state.yaw_rad) > math.radians(120.0)
+    assert abs(state.speed_mps) < 2.0
+
+
 def test_held_s_reverses_ego_from_rest_through_physx_world() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(), config)

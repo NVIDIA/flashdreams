@@ -74,8 +74,7 @@ def integrate_vehicle(
     if command.stop:
         speed = 0.0
     elif command.handbrake:
-        handbrake_decel_mps2 = vehicle.max_brake_mps2 * 3.0
-        speed = _move_towards(speed, 0.0, handbrake_decel_mps2 * dt_s)
+        speed = _move_towards(speed, 0.0, vehicle.handbrake_decel_mps2 * dt_s)
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
         if command.brake > 0.01:
@@ -83,7 +82,7 @@ def integrate_vehicle(
                 speed,
                 command,
                 dt_s=dt_s,
-                brake_decel_mps2=12.0,
+                brake_decel_mps2=vehicle.max_brake_mps2,
                 reverse_accel_mps2=2.0,
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
@@ -141,11 +140,15 @@ def integrate_vehicle(
     commanded_yaw_rate = 0.0
     if abs(steer_rad) > 1e-5 and abs(speed) > 1e-5:
         commanded_yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad)
-        # A fixed steering angle becomes unrealistically aggressive as speed
-        # rises because bicycle-model lateral acceleration scales with v^2.
-        # Limit yaw rate by the configured grip envelope while preserving the
-        # full steering response at parking and neighbourhood speeds.
-        max_yaw_rate = vehicle.max_lateral_accel_mps2 / abs(speed)
+        if command.handbrake:
+            commanded_yaw_rate *= vehicle.handbrake_yaw_gain
+            max_yaw_rate = vehicle.max_handbrake_yaw_rate_radps
+        else:
+            # A fixed steering angle becomes unrealistically aggressive as speed
+            # rises because bicycle-model lateral acceleration scales with v^2.
+            # Limit yaw rate by the configured grip envelope while preserving the
+            # full steering response at parking and neighbourhood speeds.
+            max_yaw_rate = vehicle.max_lateral_accel_mps2 / abs(speed)
         commanded_yaw_rate = float(
             np.clip(commanded_yaw_rate, -max_yaw_rate, max_yaw_rate)
         )
@@ -175,6 +178,14 @@ def integrate_vehicle(
         yaw_rate = state.yaw_rate_radps * max(
             0.0, 1.0 - 1.8 * dt_s
         ) + commanded_yaw_rate * min(1.0, 2.5 * dt_s)
+    elif command.handbrake:
+        response = 1.0 - math.exp(-12.0 * dt_s)
+        yaw_rate = (
+            state.yaw_rate_radps
+            + (commanded_yaw_rate - state.yaw_rate_radps) * response
+        )
+        lateral_speed = float(np.dot(velocity, left))
+        lateral_speed *= max(0.0, 1.0 - 2.0 * dt_s)
     else:
         speed_abs = abs(speed)
         if speed_abs < 0.75 or speed < 0.0:
@@ -250,7 +261,7 @@ def integrate_vehicle(
     y_m = state.y_m + float(velocity[1]) * dt_s
 
     longitudinal_accel = (speed - state.speed_mps) / max(dt_s, 1e-6)
-    lateral_accel = speed * yaw_rate
+    lateral_accel = speed * yaw_rate * (0.35 if command.handbrake else 1.0)
     target_pitch = float(
         np.clip(
             -longitudinal_accel
@@ -368,6 +379,7 @@ def sample_chunk_trajectory(
                 state,
                 int(timestamps[frame_idx]),
                 chunk_config.frame_interval_s,
+                handbrake_active=command.handbrake,
             )
             actor_collision_this_frame = bool(
                 getattr(physics_world, "last_step_actor_collision", False)
