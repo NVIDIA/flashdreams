@@ -34,6 +34,7 @@ constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
 constexpr float kMaxOffRoadYawRad = 0.4363323129985824f;
 constexpr float kBoundaryHeadingAlignRateRadps = 1.2f;
+constexpr float kBoundarySteeringPivotRateRadps = 0.9f;
 constexpr float kActorContactDetectionMarginM = 0.15f;
 
 PxFilterFlags vehicleFilterShader(
@@ -98,6 +99,7 @@ struct BodyRecord {
     float maxDriveSpeed = 0.0f;
     bool driveIntentActive = false;
     bool handbrakeActive = false;
+    bool steeringActive = false;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -539,6 +541,7 @@ public:
         std::int64_t timestampUs,
         float dt,
         bool egoHandbrakeActive,
+        bool egoSteeringActive,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -549,6 +552,7 @@ public:
         const PxVec3 requestedEgoAngular = vectorFromArray(egoAngularVelocity, "angular_velocity");
         BodyRecord& ego = bodyAt(0);
         ego.handbrakeActive = egoHandbrakeActive;
+        ego.steeringActive = egoSteeringActive;
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -847,6 +851,23 @@ private:
             // remains free to take any heading while it is fully on the road.
             if (!nearestBoundary)
                 continue;
+
+            const float requestedYawRate = body.desiredAngularVelocity.z;
+            if (body.steeringActive && std::abs(requestedYawRate) > 1.0e-3f) {
+                // When the driver is steering, the contact point should act
+                // like a pivot for the turn rather than snapping the chassis
+                // toward whichever parallel curb heading is closest. This is
+                // especially important while reversing through a three-point
+                // turn, where the natural bicycle-model yaw is reversed.
+                PxVec3 angularVelocity = body.actor->getAngularVelocity();
+                angularVelocity.z = std::copysign(
+                    std::max(
+                        std::abs(requestedYawRate),
+                        kBoundarySteeringPivotRateRadps),
+                    requestedYawRate);
+                body.actor->setAngularVelocity(angularVelocity, true);
+                continue;
+            }
 
             float yawError = wrappedAngle(yaw - nearestBoundary->yaw);
             if (yawError > 1.5707963267948966f)
