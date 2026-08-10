@@ -15,6 +15,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import math as _math
+import string
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -36,6 +37,7 @@ from omnidreams.interactive_drive.presenter import (
     _env_truthy,
 )
 from omnidreams.interactive_drive.taxi_game import (
+    TaxiGameSnapshot,
     project_target_to_bev,
     project_taxi_marker_to_camera,
 )
@@ -392,6 +394,8 @@ class SlangPyHudPresenter:
         self._bev_config: BevConfig | None = None
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
+        self._taxi_name_buffer = ""
+        self._last_taxi_session_state: str | None = None
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -1444,6 +1448,15 @@ class SlangPyHudPresenter:
         snapshot = self._keyboard.taxi_game_state
         if snapshot is None:
             return
+        if snapshot.session_state != self._last_taxi_session_state:
+            if snapshot.session_state == "awaiting_name":
+                self._taxi_name_buffer = ""
+            if snapshot.session_state != "playing":
+                self._release_taxi_drive_keys()
+            self._last_taxi_session_state = snapshot.session_state
+        if snapshot.session_state != "playing":
+            self._draw_taxi_game_over(draw, camera_area, snapshot)
+            return
         ax, ay, ar, _ = camera_area
         cx = (ax + ar) // 2
         arrow_cy = ay + 74
@@ -1492,7 +1505,10 @@ class SlangPyHudPresenter:
             if snapshot.remaining_time_s is None
             else f"  {snapshot.remaining_time_s:04.1f}s"
         )
-        label = f"{phase}  {snapshot.distance_m:.0f}m{timer}  SCORE {snapshot.score}"
+        label = (
+            f"GAME {snapshot.global_remaining_time_s:04.1f}s  {phase}  "
+            f"{snapshot.distance_m:.0f}m{timer}  SCORE {snapshot.score}"
+        )
         bbox = _measure_text(self._font_medium, label)
         width = bbox[2] - bbox[0]
         draw.rounded_rectangle(
@@ -1508,7 +1524,8 @@ class SlangPyHudPresenter:
         )
         if snapshot.event is not None:
             event_text = (
-                f"FARE COMPLETE  +{snapshot.awarded_points}"
+                f"FARE COMPLETE  +{snapshot.awarded_points}  "
+                f"+{snapshot.awarded_global_time_s:g}s"
                 if snapshot.event == "fare_complete"
                 else "TIME EXPIRED"
             )
@@ -1523,6 +1540,110 @@ class SlangPyHudPresenter:
                 stroke_fill=(0, 0, 0),
             )
 
+    def _draw_taxi_game_over(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: TaxiGameSnapshot,
+    ) -> None:
+        """Draw the name-entry or leaderboard game-over modal."""
+        ax, ay, ar, ab = camera_area
+        cx, cy = (ax + ar) // 2, (ay + ab) // 2
+        panel_width = min(680, max(420, ar - ax - 80))
+        panel_height = min(720, max(430, ab - ay - 80))
+        rect = (
+            cx - panel_width // 2,
+            cy - panel_height // 2,
+            cx + panel_width // 2,
+            cy + panel_height // 2,
+        )
+        draw.rounded_rectangle(
+            rect,
+            radius=20,
+            fill=(10, 10, 16, 240),
+            outline=NVIDIA_GREEN + (255,),
+            width=4,
+        )
+
+        title = (
+            "NEW HIGH SCORE!"
+            if snapshot.session_state == "awaiting_name"
+            else "HIGH SCORES"
+        )
+        title_box = _measure_text(self._font_large, title)
+        draw.text(
+            (cx - (title_box[2] - title_box[0]) // 2, rect[1] + 28),
+            title,
+            fill=NVIDIA_GREEN,
+            font=self._font_large,
+        )
+        score_text = f"FINAL SCORE  {snapshot.score}"
+        score_box = _measure_text(self._font_medium, score_text)
+        draw.text(
+            (cx - (score_box[2] - score_box[0]) // 2, rect[1] + 92),
+            score_text,
+            fill=TEXT_COLOR,
+            font=self._font_medium,
+        )
+
+        if snapshot.session_state == "awaiting_name":
+            rank_text = f"You reached #{snapshot.high_score_rank}"
+            rank_box = _measure_text(self._font_medium, rank_text)
+            draw.text(
+                (cx - (rank_box[2] - rank_box[0]) // 2, rect[1] + 135),
+                rank_text,
+                fill=ACCENT_AMBER,
+                font=self._font_medium,
+            )
+            input_rect = (cx - 230, rect[1] + 195, cx + 230, rect[1] + 250)
+            draw.rounded_rectangle(
+                input_rect,
+                radius=8,
+                fill=(28, 28, 40, 255),
+                outline=(255, 255, 255, 255),
+                width=2,
+            )
+            entered = self._taxi_name_buffer or "TYPE YOUR NAME"
+            entered_color = TEXT_COLOR if self._taxi_name_buffer else LABEL_COLOR
+            entered_box = _measure_text(self._font_medium, entered)
+            draw.text(
+                (
+                    cx - (entered_box[2] - entered_box[0]) // 2,
+                    input_rect[1] + 13,
+                ),
+                entered,
+                fill=entered_color,
+                font=self._font_medium,
+            )
+            hint = "Letters / numbers / space / - / _   Backspace   Enter to submit"
+            hint_box = _measure_text(self._font_small, hint)
+            draw.text(
+                (cx - (hint_box[2] - hint_box[0]) // 2, rect[1] + 275),
+                hint,
+                fill=LABEL_COLOR,
+                font=self._font_small,
+            )
+            return
+
+        row_y = rect[1] + 145
+        for rank, entry in enumerate(snapshot.leaderboard, start=1):
+            row = f"{rank:>2}.  {entry.name:<12}  {entry.score:>7}"
+            draw.text(
+                (cx - 210, row_y),
+                row,
+                fill=ACCENT_AMBER if rank == snapshot.high_score_rank else TEXT_COLOR,
+                font=self._font_medium,
+            )
+            row_y += 38
+        hint = "Press R to start a new game"
+        hint_box = _measure_text(self._font_small, hint)
+        draw.text(
+            (cx - (hint_box[2] - hint_box[0]) // 2, rect[3] - 46),
+            hint,
+            fill=NVIDIA_GREEN,
+            font=self._font_small,
+        )
+
     def _draw_taxi_world_marker(
         self,
         draw: ImageDraw.ImageDraw,
@@ -1533,6 +1654,7 @@ class SlangPyHudPresenter:
         if (
             frame is None
             or frame.taxi_game_snapshot is None
+            or frame.taxi_game_snapshot.session_state != "playing"
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
             or self._latest_camera_src_size is None
@@ -2583,7 +2705,7 @@ class SlangPyHudPresenter:
 
     def _build_key_codes(self) -> dict[str, Any]:
         spy = self._spy
-        return {
+        key_codes = {
             "escape": _lookup_key(spy.KeyCode, "escape"),
             "f11": _lookup_key(spy.KeyCode, "f11"),
             "w": _lookup_key(spy.KeyCode, "w"),
@@ -2600,7 +2722,52 @@ class SlangPyHudPresenter:
             "key1": _lookup_key(spy.KeyCode, "key1", "digit1", "num_1"),
             "key2": _lookup_key(spy.KeyCode, "key2", "digit2", "num_2"),
             "key3": _lookup_key(spy.KeyCode, "key3", "digit3", "num_3"),
+            "backspace": _lookup_key(spy.KeyCode, "backspace"),
+            "enter": _lookup_key(spy.KeyCode, "enter", "return_key", "return"),
+            "minus": _lookup_key(spy.KeyCode, "minus", "hyphen"),
+            "underscore": _lookup_key(spy.KeyCode, "underscore"),
         }
+        for character in string.ascii_lowercase:
+            key_codes[f"name_{character}"] = _lookup_key(spy.KeyCode, character)
+        for character in string.digits:
+            key_codes[f"name_{character}"] = _lookup_key(
+                spy.KeyCode,
+                f"key{character}",
+                f"digit{character}",
+                f"num_{character}",
+            )
+        return key_codes
+
+    def _taxi_name_character_for_key(self, key: Any) -> str | None:
+        for character in string.ascii_lowercase + string.digits:
+            if self._key_matches(key, f"name_{character}"):
+                return character.upper()
+        if self._key_matches(key, "space"):
+            return " "
+        if self._key_matches(key, "minus"):
+            return "-"
+        if self._key_matches(key, "underscore"):
+            return "_"
+        return None
+
+    def _release_taxi_drive_keys(self) -> None:
+        """Clear held driving keys when the global game timer expires."""
+        for keysym in ("w", "a", "s", "d", "Up", "Down", "Left", "Right", "space"):
+            self._keyboard_drive.set_key(keysym, False)
+        self._keyboard.set_key("space", False)
+        self._pending_drive_releases.clear()
+
+    def _handle_taxi_name_key(self, key: Any) -> None:
+        if self._key_matches(key, "backspace"):
+            self._taxi_name_buffer = self._taxi_name_buffer[:-1]
+            return
+        if self._key_matches(key, "enter"):
+            if self._keyboard.submit_taxi_name(self._taxi_name_buffer):
+                self._taxi_name_buffer = ""
+            return
+        character = self._taxi_name_character_for_key(key)
+        if character is not None and len(self._taxi_name_buffer) < 12:
+            self._taxi_name_buffer += character
 
     def _on_keyboard_event(self, event: Any) -> None:
         # Treat the dedicated ``is_key_repeat`` events as presses so OS
@@ -2617,6 +2784,17 @@ class SlangPyHudPresenter:
         key = event.key
         if self._key_matches(key, "escape") and is_press:
             self._should_close_flag = True
+            return
+        taxi_state = self._keyboard.taxi_game_state
+        if taxi_state is not None and taxi_state.session_state == "awaiting_name":
+            if is_press or is_repeat:
+                self._handle_taxi_name_key(key)
+            return
+        if taxi_state is not None and taxi_state.session_state == "leaderboard":
+            if is_press and self._key_matches(key, "r"):
+                self._keyboard.request_reset()
+            elif is_press and self._key_matches(key, "x"):
+                self.exit_scene()
             return
         # Drive keys flow through ``_keyboard_drive`` so the smoothed
         # steer / throttle / brake the wheel + speed-digit chrome reads

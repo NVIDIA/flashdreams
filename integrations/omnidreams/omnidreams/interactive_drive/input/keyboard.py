@@ -4,6 +4,7 @@
 import threading
 import time
 
+from omnidreams.interactive_drive.high_scores import validate_player_name
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
 from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import (
@@ -51,6 +52,7 @@ class KeyboardState:
         # speed readout in that case.
         self._vehicle_state: VehicleState | None = None
         self._taxi_game_state: TaxiGameSnapshot | None = None
+        self._taxi_name_submission: str | None = None
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
@@ -71,6 +73,30 @@ class KeyboardState:
         """Request a return to the scene selector from a bound device button."""
         with self._lock:
             self._exit_scene_pending = True
+
+    def submit_taxi_name(self, name: str) -> bool:
+        """Validate and queue one high-score name submission.
+
+        Args:
+            name: Candidate player name from a presenter.
+
+        Returns:
+            ``True`` when the name was valid and queued.
+        """
+        try:
+            normalized = validate_player_name(name)
+        except ValueError:
+            return False
+        with self._lock:
+            self._taxi_name_submission = normalized
+        return True
+
+    def consume_taxi_name_submission(self) -> str | None:
+        """Return and clear the pending high-score name submission."""
+        with self._lock:
+            name = self._taxi_name_submission
+            self._taxi_name_submission = None
+            return name
 
     def consume_exit_scene_request(self) -> bool:
         with self._lock:
@@ -124,6 +150,7 @@ class KeyboardState:
         with self._lock:
             self._vehicle_state = None
             self._taxi_game_state = None
+            self._taxi_name_submission = None
 
     @property
     def vehicle_state(self) -> VehicleState | None:
@@ -167,6 +194,9 @@ class KeyboardState:
                 None,
             )
             pressed = set(self._keyboard.snapshot())
+            taxi_game_state = self._taxi_game_state
+        if taxi_game_state is not None and taxi_game_state.session_state != "playing":
+            return DriverCommand()
         if drive_command is not None:
             if "space" in pressed:
                 return DriverCommand(

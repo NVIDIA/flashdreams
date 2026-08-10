@@ -243,6 +243,36 @@ _INDEX_HTML = """<!doctype html>
   }
   .taxi-pin.dropoff { background: #c89632; }
   .taxi-pin.hidden { display: none; }
+  .game-over {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(0, 0, 0, 0.72);
+    color: white; z-index: 20;
+  }
+  .game-over.hidden { display: none; }
+  .game-over-card {
+    width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 48px);
+    overflow-y: auto; box-sizing: border-box; padding: 28px;
+    border: 3px solid #76b900; border-radius: 16px;
+    background: rgba(12, 12, 18, 0.97); text-align: center;
+  }
+  .game-over-card h1 { margin: 0 0 8px; color: #76b900; }
+  .final-score { font-size: 24px; font-weight: 700; margin-bottom: 20px; }
+  .name-entry.hidden, .leaderboard.hidden { display: none; }
+  .name-entry input {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 10px 0;
+    border: 2px solid white; border-radius: 7px; background: #242432;
+    color: white; font-size: 20px; text-align: center;
+  }
+  .game-button {
+    padding: 10px 18px; border: none; border-radius: 7px;
+    background: #76b900; color: #111; font-weight: 700; cursor: pointer;
+  }
+  .name-error { min-height: 18px; margin-top: 8px; color: #ff8585; }
+  .score-table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; }
+  .score-table td { padding: 5px 8px; text-align: left; }
+  .score-table td:first-child { width: 36px; text-align: right; color: #aaa; }
+  .score-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .score-table tr.current { color: #c89632; font-weight: 700; }
   .keys { display: flex; flex-direction: column; gap: 6px; align-items: center; }
   .key-row { display: flex; gap: 6px; }
   .key {
@@ -392,6 +422,23 @@ _INDEX_HTML = """<!doctype html>
   <img id="taxi-bev" src="/bev_stream">
   <div class="taxi-pin" id="taxi-pin"></div>
 </div>
+<div class="game-over hidden" id="game-over">
+  <div class="game-over-card">
+    <h1 id="game-over-title">HIGH SCORES</h1>
+    <div class="final-score" id="final-score"></div>
+    <form class="name-entry hidden" id="name-entry">
+      <div id="high-score-rank"></div>
+      <input id="player-name" maxlength="12" autocomplete="nickname"
+             pattern="[A-Za-z0-9 _-]{1,12}" placeholder="Your name" required>
+      <button class="game-button" type="submit">Save score</button>
+      <div class="name-error" id="name-error"></div>
+    </form>
+    <div class="leaderboard hidden" id="leaderboard">
+      <table class="score-table"><tbody id="score-rows"></tbody></table>
+      <button class="game-button" id="new-game" type="button">New Game</button>
+    </div>
+  </div>
+</div>
 <div class="hint">WASD / Arrows = Drive &middot; Space = Handbrake &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
@@ -456,12 +503,13 @@ function shouldIgnoreKey(e) {
 }
 document.addEventListener('keydown', e => { if (!shouldIgnoreKey(e)) send(e.key, true); });
 document.addEventListener('keyup', e => { if (!shouldIgnoreKey(e)) send(e.key, false); });
-// When the page loses focus we must release all keys so the car doesn't keep steering.
-window.addEventListener('blur', () => {
+function releaseAllKeys() {
   DOWN_KEYS.forEach(k => send(k, false));
   PRESSED_INDICATORS.clear();
   ["w","a","s","d"].forEach(paintIndicator);
-});
+}
+// When the page loses focus we must release all keys so the car doesn't keep steering.
+window.addEventListener('blur', releaseAllKeys);
 // Speed readout polling. 100 ms keeps the digit lively without
 // generating meaningful HTTP load (~10 req/s of <100 B each).
 const speedEl = document.getElementById('speed');
@@ -472,9 +520,63 @@ const taxiStatusEl = document.getElementById('taxi-status');
 const taxiEventEl = document.getElementById('taxi-event');
 const taxiMapEl = document.getElementById('taxi-map');
 const taxiPinEl = document.getElementById('taxi-pin');
+const gameOverEl = document.getElementById('game-over');
+const gameOverTitleEl = document.getElementById('game-over-title');
+const finalScoreEl = document.getElementById('final-score');
+const nameEntryEl = document.getElementById('name-entry');
+const highScoreRankEl = document.getElementById('high-score-rank');
+const playerNameEl = document.getElementById('player-name');
+const nameErrorEl = document.getElementById('name-error');
+const leaderboardEl = document.getElementById('leaderboard');
+const scoreRowsEl = document.getElementById('score-rows');
+const newGameEl = document.getElementById('new-game');
 const MPS_TO_MPH = 2.236936;
+let previousTaxiSession = null;
+function paintGameOver(taxi) {
+  const state = taxi && taxi.session_state;
+  const gameOver = state === 'awaiting_name' || state === 'leaderboard';
+  gameOverEl.classList.toggle('hidden', !gameOver);
+  if (!gameOver) {
+    previousTaxiSession = state || null;
+    return;
+  }
+  finalScoreEl.textContent = `FINAL SCORE  ${taxi.score}`;
+  if (previousTaxiSession !== state) releaseAllKeys();
+  const enteringName = state === 'awaiting_name';
+  gameOverTitleEl.textContent = enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES';
+  nameEntryEl.classList.toggle('hidden', !enteringName);
+  leaderboardEl.classList.toggle('hidden', enteringName);
+  if (enteringName) {
+    highScoreRankEl.textContent = `Congratulations — you reached #${taxi.high_score_rank}`;
+    if (previousTaxiSession !== state) {
+      playerNameEl.value = '';
+      nameErrorEl.textContent = '';
+      setTimeout(() => playerNameEl.focus(), 0);
+    }
+  } else {
+    scoreRowsEl.replaceChildren();
+    (taxi.leaderboard || []).forEach((entry, index) => {
+      const row = document.createElement('tr');
+      if (index + 1 === taxi.high_score_rank) row.classList.add('current');
+      [String(index + 1), entry.name, String(entry.score)].forEach(value => {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      scoreRowsEl.appendChild(row);
+    });
+  }
+  previousTaxiSession = state;
+}
 function paintTaxi(taxi) {
   if (!taxi) {
+    taxiHudEl.classList.add('hidden');
+    taxiMapEl.classList.add('hidden');
+    paintGameOver(null);
+    return;
+  }
+  paintGameOver(taxi);
+  if (taxi.session_state !== 'playing') {
     taxiHudEl.classList.add('hidden');
     taxiMapEl.classList.add('hidden');
     return;
@@ -486,9 +588,9 @@ function paintTaxi(taxi) {
   const phase = dropoff ? 'DROPOFF' : 'PICKUP';
   const timer = typeof taxi.remaining_time_s === 'number'
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
-  taxiStatusEl.textContent = `${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}`;
+  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}`;
   taxiEventEl.textContent = taxi.event === 'fare_complete'
-    ? `FARE COMPLETE  +${taxi.awarded_points}`
+    ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
     : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : '');
   const marker = taxi.bev_target;
   const showMap = taxi.bev_enabled;
@@ -501,6 +603,27 @@ function paintTaxi(taxi) {
     taxiPinEl.classList.toggle('dropoff', dropoff);
   }
 }
+nameEntryEl.addEventListener('submit', async event => {
+  event.preventDefault();
+  nameErrorEl.textContent = '';
+  try {
+    const response = await fetch('/taxi/name', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: playerNameEl.value}),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || 'Could not save that name.');
+    }
+  } catch (error) {
+    nameErrorEl.textContent = error.message || 'Could not save that name.';
+  }
+});
+newGameEl.addEventListener('click', async () => {
+  await fetch('/control?key=r&down=1').catch(() => {});
+  await fetch('/control?key=r&down=0').catch(() => {});
+});
 async function pollState() {
   try {
     const r = await fetch('/state', { cache: 'no-store' });
@@ -936,6 +1059,7 @@ class MJPEGStreamingPresenter:
         snapshot = frame.taxi_game_snapshot
         if (
             snapshot is None
+            or snapshot.session_state != "playing"
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
         ):
@@ -1189,6 +1313,13 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
 
+        def do_POST(self) -> None:  # noqa: N802 (http.server mandated name)
+            parsed = urlparse(self.path)
+            if parsed.path == "/taxi/name":
+                self._serve_taxi_name()
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+
         def _serve_index(self) -> None:
             body = _INDEX_HTML.encode("utf-8")
             self.send_response(HTTPStatus.OK)
@@ -1329,6 +1460,41 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 down = False
             if key:
                 presenter._apply_control(key, down)
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _serve_taxi_name(self) -> None:
+            """Validate and queue a high-score name from the browser modal."""
+            taxi_state = presenter._keyboard.taxi_game_state
+            if taxi_state is None or taxi_state.session_state != "awaiting_name":
+                self.send_error(HTTPStatus.CONFLICT)
+                return
+            try:
+                content_length = max(
+                    0, min(int(self.headers.get("Content-Length", "0")), 1024)
+                )
+                payload = json.loads(self.rfile.read(content_length))
+                name = payload.get("name", "") if isinstance(payload, dict) else ""
+            except (TypeError, ValueError, json.JSONDecodeError):
+                name = ""
+            if not isinstance(name, str) or not presenter._keyboard.submit_taxi_name(
+                name
+            ):
+                body = json.dumps(
+                    {
+                        "error": (
+                            "Name must be 1-12 characters using letters, numbers, "
+                            "spaces, hyphens, or underscores."
+                        )
+                    }
+                ).encode("utf-8")
+                self.send_response(HTTPStatus.BAD_REQUEST)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Content-Length", "0")
             self.end_headers()

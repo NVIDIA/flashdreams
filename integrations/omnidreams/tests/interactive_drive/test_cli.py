@@ -98,3 +98,9 @@ def test_taxi_game_accepts_seed() -> None:
 
     assert args.taxi_game is True
     assert args.taxi_seed == 42
+
+
+def test_taxi_game_accepts_high_score_csv_path() -> None:
+    args = build_parser().parse_args(["--taxi-highscores", "scores.csv"])
+
+    assert str(args.taxi_highscores) == "scores.csv"

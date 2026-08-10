@@ -26,6 +26,14 @@ from omnidreams.interactive_drive.types import (
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 
 
+def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
+    assert 'id="name-entry"' in _INDEX_HTML
+    assert 'id="player-name"' in _INDEX_HTML
+    assert "'/taxi/name'" in _INDEX_HTML
+    assert 'id="score-rows"' in _INDEX_HTML
+    assert 'id="new-game"' in _INDEX_HTML
+
+
 def test_streaming_presenter_materializes_lazy_rgba_frames() -> None:
     class LazyFrame:
         def to_numpy(self) -> np.ndarray:
@@ -134,4 +142,6 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert snapshot["speed_mps"] == 3.0
     assert isinstance(snapshot["taxi"], dict)
     assert snapshot["taxi"]["phase"] == "to_dropoff"
+    assert snapshot["taxi"]["session_state"] == "playing"
+    assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
     assert snapshot["taxi"]["bev_target"]["visible"] is True

@@ -157,3 +157,31 @@ def test_runtime_state_publishes_vehicle_and_taxi_atomically() -> None:
 
     keyboard.clear_telemetry()
     assert keyboard.runtime_state == (None, None)
+
+
+def test_keyboard_state_validates_and_consumes_taxi_name_once() -> None:
+    keyboard = KeyboardState()
+
+    assert keyboard.submit_taxi_name(" Player 1 ") is True
+    assert keyboard.consume_taxi_name_submission() == "Player 1"
+    assert keyboard.consume_taxi_name_submission() is None
+    assert keyboard.submit_taxi_name("bad.name") is False
+
+
+def test_keyboard_state_suppresses_driving_after_taxi_game_over() -> None:
+    keyboard = KeyboardState()
+    keyboard.set_key("w", True)
+    vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    taxi = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(10.0, 0.0, 0.0),
+        distance_m=10.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=5.0,
+        remaining_time_s=None,
+        score=0,
+        session_state="leaderboard",
+    )
+    keyboard.update_runtime_state(vehicle, taxi)
+
+    assert keyboard.command().throttle == 0.0

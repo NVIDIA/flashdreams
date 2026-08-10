@@ -514,6 +514,21 @@ def run_main_loop(
             break
         if runtime_controls.consume_reset_request():
             return True
+        consume_taxi_name = getattr(
+            runtime_controls, "consume_taxi_name_submission", None
+        )
+        if taxi_game is not None and callable(consume_taxi_name):
+            submitted_name = consume_taxi_name()
+            if submitted_name is not None:
+                try:
+                    taxi_game.submit_high_score_name(submitted_name)
+                except (RuntimeError, ValueError) as exc:
+                    logger.warning(f"[taxi] ignored high-score submission: {exc}")
+                push_telemetry(
+                    runtime_controls,
+                    simulation,
+                    taxi_game.snapshot(simulation.current_state),
+                )
         active_trace = (
             trace_context if state.last_consumed_chunk_index is not None else None
         )
@@ -532,7 +547,7 @@ def run_main_loop(
 
         # Keep one chunk in flight. Snapshot the current view on the request so
         # PhysX debug geometry is captured only for chunks that can display it.
-        if should_request_chunk(state):
+        if should_request_chunk(state) and (taxi_game is None or taxi_game.is_playing):
             chunk_request = make_chunk_request(
                 state=state,
                 simulation=simulation,
@@ -569,7 +584,9 @@ def run_main_loop(
             # The pose chunk just advanced authoritative state, so refresh the
             # OOB overlay from the new boundary frame and auto-respawn (same
             # ``return True`` as a manual reset) when far enough off-map.
-            if update_oob_state(state, simulation, config):
+            if (taxi_game is None or taxi_game.is_playing) and update_oob_state(
+                state, simulation, config
+            ):
                 return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
