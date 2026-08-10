@@ -131,6 +131,7 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
         target_radius_m=6.0,
         remaining_time_s=12.0,
         score=100,
+        high_score=500,
     )
     keyboard.update_runtime_state(vehicle, taxi)
     presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
@@ -143,5 +144,6 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert isinstance(snapshot["taxi"], dict)
     assert snapshot["taxi"]["phase"] == "to_dropoff"
     assert snapshot["taxi"]["session_state"] == "playing"
+    assert snapshot["taxi"]["high_score"] == 500
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
     assert snapshot["taxi"]["bev_target"]["visible"] is True

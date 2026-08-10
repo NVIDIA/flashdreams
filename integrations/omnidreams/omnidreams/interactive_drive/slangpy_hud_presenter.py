@@ -1505,9 +1505,12 @@ class SlangPyHudPresenter:
             if snapshot.remaining_time_s is None
             else f"  {snapshot.remaining_time_s:04.1f}s"
         )
+        score_label = f"SCORE {snapshot.score}"
+        if snapshot.high_score is not None:
+            score_label += f"  HIGH {snapshot.high_score}"
         label = (
             f"GAME {snapshot.global_remaining_time_s:04.1f}s  {phase}  "
-            f"{snapshot.distance_m:.0f}m{timer}  SCORE {snapshot.score}"
+            f"{snapshot.distance_m:.0f}m{timer}  {score_label}"
         )
         bbox = _measure_text(self._font_medium, label)
         width = bbox[2] - bbox[0]
@@ -1524,9 +1527,7 @@ class SlangPyHudPresenter:
         )
         if snapshot.event is not None:
             if snapshot.event == "pickup_complete":
-                event_text = (
-                    f"PASSENGER PICKED UP  +{snapshot.awarded_global_time_s:g}s"
-                )
+                event_text = "PASSENGER PICKED UP"
             elif snapshot.event == "fare_complete":
                 event_text = (
                     f"FARE COMPLETE  +{snapshot.awarded_points}  "

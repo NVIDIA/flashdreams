@@ -88,9 +88,6 @@ class TaxiGameConfig:
     dropoff_time_bonus_s: float = 30.0
     """Global time added after each successful dropoff."""
 
-    pickup_time_bonus_s: float = 30.0
-    """Global time added after each successful pickup."""
-
     high_scores_path: Path = field(default_factory=default_high_scores_path)
     """CSV path used to persist the global top-ten leaderboard."""
 
@@ -119,6 +116,9 @@ class TaxiGameSnapshot:
 
     score: int
     """Total points earned during the current rollout."""
+
+    high_score: int | None = None
+    """Best persisted score, or ``None`` when the leaderboard is empty."""
 
     global_remaining_time_s: float = 0.0
     """Simulation time remaining before the game ends."""
@@ -151,6 +151,7 @@ class TaxiGameSnapshot:
             "target_radius_m": self.target_radius_m,
             "remaining_time_s": self.remaining_time_s,
             "score": self.score,
+            "high_score": self.high_score,
             "global_remaining_time_s": self.global_remaining_time_s,
             "session_state": self.session_state,
             "leaderboard": [entry.as_dict() for entry in self.leaderboard],
@@ -422,6 +423,8 @@ class TaxiGameController:
         self._high_score_store = high_score_store or HighScoreStore(
             config.high_scores_path
         )
+        existing_scores = self._high_score_store.read()
+        self._high_score = existing_scores[0].score if existing_scores else None
         self._leaderboard: tuple[HighScoreEntry, ...] = ()
         self._high_score_rank: int | None = None
         self._target_index = self._select_pickup(
@@ -451,6 +454,9 @@ class TaxiGameController:
         if self._session_state != "awaiting_name":
             raise RuntimeError("Taxi game is not waiting for a high-score name.")
         inserted, self._leaderboard = self._high_score_store.record(name, self._score)
+        self._high_score = (
+            self._leaderboard[0].score if self._leaderboard else self._high_score
+        )
         self._high_score_rank = (
             next(
                 index
@@ -548,6 +554,7 @@ class TaxiGameController:
             ),
             remaining_time_s=self._remaining_time_s,
             score=self._score,
+            high_score=self._high_score,
             global_remaining_time_s=self._global_remaining_time_s,
             session_state=self._session_state,
             leaderboard=self._leaderboard,
@@ -620,12 +627,7 @@ class TaxiGameController:
             np.clip(raw_time, self._config.min_time_s, self._config.max_time_s)
         )
         self._remaining_time_s = clamped_time * self._config.trip_time_multiplier
-        self._global_remaining_time_s += self._config.pickup_time_bonus_s
-        self._set_event(
-            "pickup_complete",
-            0,
-            awarded_global_time_s=self._config.pickup_time_bonus_s,
-        )
+        self._set_event("pickup_complete", 0)
 
     def _complete_fare(self, x_m: float, y_m: float) -> None:
         assert self._remaining_time_s is not None
@@ -673,6 +675,9 @@ class TaxiGameController:
     def _end_game(self) -> None:
         self._global_remaining_time_s = 0.0
         self._leaderboard = self._high_score_store.read()
+        self._high_score = (
+            self._leaderboard[0].score if self._leaderboard else self._high_score
+        )
         self._high_score_rank = self._high_score_store.qualifying_rank(self._score)
         self._session_state = (
             "awaiting_name" if self._high_score_rank is not None else "leaderboard"

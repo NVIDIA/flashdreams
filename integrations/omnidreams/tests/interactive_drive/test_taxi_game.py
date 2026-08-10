@@ -170,8 +170,8 @@ def test_advance_frames_returns_state_for_each_rendered_pose() -> None:
     ]
     assert snapshots[0].target_radius_m == 6.0
     assert snapshots[0].event == "pickup_complete"
-    assert snapshots[0].awarded_global_time_s == 30.0
-    assert snapshots[0].global_remaining_time_s == pytest.approx(90.0 - 1.0 / 30.0)
+    assert snapshots[0].awarded_global_time_s == 0.0
+    assert snapshots[0].global_remaining_time_s == pytest.approx(60.0 - 1.0 / 30.0)
     assert snapshots[1].target_radius_m == 5.0
 
 
@@ -188,7 +188,7 @@ def test_dropoff_timer_expires_in_simulation_time() -> None:
     assert expired.phase == "seeking_pickup"
     assert expired.score == 0
     assert expired.event == "time_expired"
-    assert expired.global_remaining_time_s == pytest.approx(54.0 - 1.0 / 30.0)
+    assert expired.global_remaining_time_s == pytest.approx(24.0 - 1.0 / 30.0)
 
 
 def test_arrival_wins_same_frame_tie_with_expiry() -> None:
@@ -228,26 +228,44 @@ def test_successful_dropoff_adds_thirty_seconds_to_global_timer() -> None:
     snapshot = controller.snapshot(_state())
 
     assert snapshot.score == 4100
-    assert snapshot.global_remaining_time_s == pytest.approx(60.0)
+    assert snapshot.global_remaining_time_s == pytest.approx(30.0)
     assert snapshot.session_state == "playing"
 
 
-def test_pickup_adds_configured_time_to_global_timer() -> None:
+def test_pickup_does_not_add_time_to_global_timer() -> None:
     controller = _controller(
         TaxiGameConfig(
             enabled=True,
             waypoint_spacing_m=1000.0,
             global_time_s=10.0,
-            pickup_time_bonus_s=12.0,
         )
     )
 
     controller.advance(_trajectory((100.0, 0.0)), 0.0)
     snapshot = controller.snapshot(_state(100.0, 0.0))
 
-    assert snapshot.global_remaining_time_s == 22.0
+    assert snapshot.global_remaining_time_s == 10.0
     assert snapshot.event == "pickup_complete"
-    assert snapshot.awarded_global_time_s == 12.0
+    assert snapshot.awarded_global_time_s == 0.0
+
+
+def test_snapshot_exposes_persisted_high_score(tmp_path: Path) -> None:
+    store = HighScoreStore(tmp_path / "scores.csv")
+    store.record("CHAMP", 4200, achieved_at_utc="2026-01-01T00:00:00+00:00")
+
+    snapshot = _controller(high_score_store=store).snapshot(_state())
+
+    assert snapshot.high_score == 4200
+    assert snapshot.leaderboard == ()
+    assert snapshot.as_dict()["high_score"] == 4200
+
+
+def test_snapshot_omits_high_score_when_leaderboard_is_empty(tmp_path: Path) -> None:
+    snapshot = _controller(
+        high_score_store=HighScoreStore(tmp_path / "scores.csv")
+    ).snapshot(_state())
+
+    assert snapshot.high_score is None
 
 
 def test_global_timer_ends_game_and_accepts_qualifying_name(tmp_path: Path) -> None:
@@ -257,7 +275,6 @@ def test_global_timer_ends_game_and_accepts_qualifying_name(tmp_path: Path) -> N
             enabled=True,
             waypoint_spacing_m=1000.0,
             global_time_s=1.0,
-            pickup_time_bonus_s=0.0,
             dropoff_time_bonus_s=0.0,
             high_scores_path=tmp_path / "scores.csv",
         ),
