@@ -33,6 +33,8 @@ from .timing import ActivationPolicy, RealtimeClock
 from .validation import resolve_run_capabilities, validate_resolved_run
 
 CLEANUP_TIMEOUT_S = 30.0
+_MODEL_CLEANUP_FAILED_REASON = "model-affine cleanup failed"
+_MODEL_CLEANUP_TIMED_OUT_REASON = "model-affine cleanup timed out"
 
 
 class DriverInvariantError(RuntimeError):
@@ -607,11 +609,13 @@ def _coerce_step_requirements(value: object) -> StepRequirements | None:
     )
 
 
-def _close_safely(close: Any, session_edges: SessionEdges) -> None:
+def _close_safely(close: Any, session_edges: SessionEdges) -> bool:
     try:
         close()
     except Exception as exc:
         session_edges.record_cleanup_error(exc)
+        return False
+    return True
 
 
 def _close_on_host_best_effort(
@@ -647,15 +651,15 @@ async def shielded_session_cleanup(
         return session_edges.close_result(status=status, reason=reason, error=error)
 
     async def cleanup() -> RunResult:
-        resources_closed = await _close_model_resources_async(
+        unhealthy_reason = await _close_model_resources_async(
             host=host,
             session=session,
             provider=provider,
             session_edges=session_edges,
             timeout_s=timeout_s,
         )
-        if not resources_closed:
-            host.mark_unhealthy("model-affine cleanup timed out")
+        if unhealthy_reason is not None:
+            host.mark_unhealthy(unhealthy_reason)
         return session_edges.close_result(
             status=status,
             reason=reason,
@@ -851,9 +855,9 @@ async def _close_model_resources_async(
     provider: ModelInputProvider,
     session_edges: SessionEdges,
     timeout_s: float,
-) -> bool:
+) -> str | None:
     try:
-        await asyncio.wait_for(
+        resources_closed = await asyncio.wait_for(
             host.call_async(
                 _close_model_resources_safely,
                 session.close if session is not None else None,
@@ -868,21 +872,24 @@ async def _close_model_resources_async(
         # provider cleanup on another thread or replacing the worker is unsafe.
         # The caller marks the host unhealthy so future sessions reject instead.
         session_edges.record_orphaned_cleanup(exc)
-        return False
+        return _MODEL_CLEANUP_TIMED_OUT_REASON
     except Exception as exc:
         session_edges.record_cleanup_error(exc)
-        return False
-    return True
+        return _MODEL_CLEANUP_FAILED_REASON
+    if not resources_closed:
+        return _MODEL_CLEANUP_FAILED_REASON
+    return None
 
 
 def _close_model_resources_safely(
     session_close: Any | None,
     provider_close: Any,
     session_edges: SessionEdges,
-) -> None:
+) -> bool:
+    resources_closed = True
     if session_close is not None:
-        _close_safely(session_close, session_edges)
-    _close_safely(provider_close, session_edges)
+        resources_closed = _close_safely(session_close, session_edges)
+    return _close_safely(provider_close, session_edges) and resources_closed
 
 
 def _cleanup_result(

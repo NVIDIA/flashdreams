@@ -309,6 +309,8 @@ async def test_shielded_cleanup_never_raises_and_returns_result_on_close_errors(
             reason="test failure",
             error=RuntimeError("original"),
         )
+        assert not host.is_healthy
+        assert host.unhealthy_reason == "model-affine cleanup failed"
     finally:
         host.close()
 
@@ -366,7 +368,7 @@ async def test_shielded_cleanup_dispatch_failure_marks_host_unhealthy() -> None:
     )
 
     assert result.status == "cancelled"
-    assert host.unhealthy_reason == "model-affine cleanup timed out"
+    assert host.unhealthy_reason == "model-affine cleanup failed"
     assert host.cleanup_dispatch_count == 1
     assert session.close_count == 0
     assert provider.close_count == 0
