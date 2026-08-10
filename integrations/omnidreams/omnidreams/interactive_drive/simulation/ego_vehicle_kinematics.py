@@ -380,6 +380,7 @@ def sample_chunk_trajectory(
                 int(timestamps[frame_idx]),
                 chunk_config.frame_interval_s,
                 handbrake_active=command.handbrake,
+                steering_active=abs(command.steer) > 1.0e-3,
             )
             actor_collision_this_frame = bool(
                 getattr(physics_world, "last_step_actor_collision", False)

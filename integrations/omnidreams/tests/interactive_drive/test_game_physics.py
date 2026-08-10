@@ -465,7 +465,7 @@ def test_physx_vehicle_yaw_is_limited_at_road_boundary() -> None:
     assert resolved.angular_velocity_radps[2] <= 1.0e-5
 
 
-def test_collision_yaw_impulse_stays_within_camera_continuity_envelope() -> None:
+def test_collision_yaw_rate_stays_within_controller_continuity_envelope() -> None:
     config = VehicleConfig(max_collision_yaw_rate_radps=0.35)
     world = GamePhysicsWorld(_scene(_track(x_m=5.0, y_m=0.75)), config)
     before = _moving_ego()
@@ -473,14 +473,47 @@ def test_collision_yaw_impulse_stays_within_camera_continuity_envelope() -> None
 
     resolved, _ = world.step(before, timestamp_us=0, dt_s=dt_s)
 
-    yaw_delta = math.atan2(
-        math.sin(resolved.yaw_rad - before.yaw_rad),
-        math.cos(resolved.yaw_rad - before.yaw_rad),
-    )
     assert resolved.ragdoll_active is True
-    assert abs(yaw_delta) <= config.max_collision_yaw_rate_radps * dt_s
     assert abs(resolved.yaw_rate_radps) <= config.max_collision_yaw_rate_radps
     world.close()
+
+
+def test_boundary_heading_correction_is_published_while_contacting() -> None:
+    boundary = WorldLineSegments(
+        segments_world=np.asarray(
+            [[[-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]]], dtype=np.float32
+        ),
+        color_rgba=(1.0, 1.0, 1.0, 1.0),
+        width_px=2.0,
+        layer_name="road_boundaries",
+    )
+    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), VehicleConfig())
+    initial_yaw = math.radians(35.0)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=-1.0,
+        z_m=0.0,
+        yaw_rad=initial_yaw,
+        speed_mps=5.0,
+        steer_rad=0.0,
+        velocity_x_mps=5.0 * math.cos(initial_yaw),
+        velocity_y_mps=5.0 * math.sin(initial_yaw),
+    )
+
+    try:
+        for frame_index in range(8):
+            state, _ = world.step(
+                state,
+                timestamp_us=frame_index * 33_333,
+                dt_s=1.0 / 30.0,
+            )
+            ego_native_state = world._world.state_buffer[world._world._ego_slot]
+            native_yaw = _yaw_from_quaternion_xyzw(ego_native_state[3:7])
+            assert state.yaw_rad == pytest.approx(native_yaw, abs=1.0e-5)
+    finally:
+        world.close()
+
+    assert abs(state.yaw_rad) < math.radians(15.0)
 
 
 def test_held_throttle_cannot_drive_ego_inside_another_vehicle() -> None:
@@ -1122,6 +1155,28 @@ def test_held_throttle_advances_ego_through_physx_world() -> None:
     world.close()
 
 
+def test_full_throttle_reaches_city_speed_quickly_through_physx_world() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=0.0,
+        steer_rad=0.0,
+    )
+    throttle = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+
+    for frame_index in range(45):
+        state = integrate_vehicle(state, throttle, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+
+    world.close()
+
+    assert state.speed_mps > 13.0
+
+
 def test_pedal_brake_stops_ego_quickly_through_physx_world() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(), config)
@@ -1446,6 +1501,50 @@ def test_oblique_road_boundary_impact_redirects_heading_along_boundary() -> None
     world.close()
 
     assert abs(state.yaw_rad) < abs(impact_yaw) - math.radians(5.0)
+
+
+def test_reverse_steering_pivots_in_commanded_direction_at_boundary() -> None:
+    boundary = WorldLineSegments(
+        segments_world=np.asarray(
+            [[[-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]]], dtype=np.float32
+        ),
+        color_rgba=(1.0, 1.0, 1.0, 1.0),
+        width_px=2.0,
+        layer_name="road_boundaries",
+    )
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=-1.15,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=-4.0,
+        steer_rad=0.0,
+        velocity_x_mps=-4.0,
+        velocity_y_mps=0.0,
+    )
+    reverse_turn = DriverCommand(
+        throttle=1.0,
+        reverse=True,
+        steer=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+    try:
+        for frame_index in range(18):
+            state = integrate_vehicle(state, reverse_turn, 1.0 / 30.0, config)
+            state, _ = world.step(
+                state,
+                frame_index * 33_333,
+                1.0 / 30.0,
+                steering_active=True,
+            )
+    finally:
+        world.close()
+
+    assert state.yaw_rad < -math.radians(15.0)
 
 
 def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus() -> (
