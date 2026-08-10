@@ -2699,9 +2699,8 @@ class SlangPyHudPresenter:
         if telemetry is not None:
             target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
         else:
-            # No chunk yet (warmup / between scenes): hold at zero rather than
-            # showing the integrator's creep-to-10mph target before the ego
-            # has actually moved.
+            # No chunk yet (warmup / between scenes): hold at zero until the
+            # simulation publishes authoritative telemetry.
             target_mph = 0.0
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
