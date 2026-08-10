@@ -1072,6 +1072,28 @@ def test_held_throttle_advances_ego_through_physx_world() -> None:
     world.close()
 
 
+def test_held_s_reverses_ego_from_rest_through_physx_world() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=0.0,
+        steer_rad=0.0,
+    )
+    command = DriverCommand(brake=1.0, steer_is_direct=True, manual_control=True)
+
+    for frame_index in range(60):
+        state = integrate_vehicle(state, command, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+
+    world.close()
+    assert state.x_m < -1.0
+    assert state.speed_mps < -1.0
+
+
 def test_held_s_reverses_runtime_ego_through_physx_world() -> None:
     """Exercise the same keyboard, chunking, kinematics, and PhysX path as the app."""
     config = VehicleConfig()
@@ -1217,6 +1239,56 @@ def test_road_boundary_behaves_as_solid_wall() -> None:
     assert resolved.ragdoll_active is True
     assert visual_flare_triggered is True
     world.close()
+
+
+def test_held_s_keeps_driving_after_road_boundary_impact() -> None:
+    boundary = WorldLineSegments(
+        segments_world=np.asarray(
+            [[[2.0, -5.0, 0.0], [2.0, 5.0, 0.0]]], dtype=np.float32
+        ),
+        color_rgba=(1.0, 1.0, 1.0, 1.0),
+        width_px=2.0,
+        layer_name="road_boundaries",
+    )
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), config)
+    state = VehicleState(
+        x_m=-2.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=8.0,
+        steer_rad=0.0,
+        velocity_x_mps=8.0,
+        velocity_y_mps=0.0,
+    )
+    forward = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    frame_index = 0
+    for frame_index in range(60):
+        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+        if state.ragdoll_active:
+            break
+
+    impact_xy = np.asarray([state.x_m, state.y_m])
+    brake_to_reverse = DriverCommand(
+        brake=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+    for reverse_frame in range(120):
+        state = integrate_vehicle(state, brake_to_reverse, 1.0 / 30.0, config)
+        state, _ = world.step(
+            state,
+            (frame_index + reverse_frame + 1) * 33_333,
+            1.0 / 30.0,
+        )
+
+    final_xy = np.asarray([state.x_m, state.y_m])
+    world.close()
+
+    assert state.speed_mps < -1.0
+    assert np.linalg.norm(final_xy - impact_xy) > 3.0
 
 
 def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus() -> (
