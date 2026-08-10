@@ -89,7 +89,7 @@ class VehicleConfig:
     suspension_damping: float = 9.0
     suspension_travel_m: float = 0.22
     suspension_visual_gain: float = 0.15
-    max_body_roll_rad: float = 0.5
+    max_body_roll_rad: float = 0.16
     max_body_pitch_rad: float = 0.5
     actor_collision_enabled: bool = True
     static_collision_enabled: bool = True

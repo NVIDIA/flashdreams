@@ -131,6 +131,25 @@ def _fast_moving_track() -> WorldVehicleBBoxTrack:
     )
 
 
+def _crossing_track() -> WorldVehicleBBoxTrack:
+    timestamps = np.asarray([0, 2_000_000], dtype=np.int64)
+    half_yaw = math.pi * 0.25
+    orientation = np.asarray(
+        [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)], dtype=np.float32
+    )
+    return WorldVehicleBBoxTrack(
+        track_id="car-crossing",
+        object_type="Car",
+        timestamps_us=timestamps,
+        centers_world=np.asarray(
+            [[0.0, -8.0, 0.8], [0.0, 12.0, 0.8]], dtype=np.float32
+        ),
+        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
+        orientations_xyzw=np.stack((orientation, orientation)),
+        max_extrapolation_us=2_000_000.0,
+    )
+
+
 def _scene(
     *tracks: WorldVehicleBBoxTrack,
     line_layers: tuple[WorldLineSegments, ...] = (),
@@ -354,6 +373,37 @@ def test_side_impact_is_resolved_by_physx_contact() -> None:
     assert max(actor_tilts) < 0.5
     assert actor_heights[-1] == pytest.approx(0.8, abs=0.08)
     world.close()
+
+
+def test_ego_can_drive_perpendicular_to_car_that_hit_it_from_side() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(_crossing_track()), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=0.0,
+        steer_rad=0.0,
+    )
+    collision_frame = None
+    for frame_index in range(90):
+        state, samples = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+        if state.ragdoll_active or samples[0][3]:
+            collision_frame = frame_index
+            break
+
+    assert collision_frame is not None
+    impact_x = state.x_m
+    throttle = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    for frame_index in range(collision_frame + 1, collision_frame + 61):
+        state = integrate_vehicle(state, throttle, 1.0 / 30.0, config)
+        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+
+    world.close()
+
+    assert state.x_m > impact_x + 5.0
+    assert state.speed_mps > 4.0
 
 
 def test_physx_vehicle_yaw_is_free_away_from_road_boundaries() -> None:
@@ -1567,9 +1617,9 @@ def test_suspension_cornering_response_is_smooth_and_settles() -> None:
         )
         release_roll.append(state.suspension_roll_rad)
 
-    # The grip envelope keeps the visual lean modest instead of pinning the
-    # suspension at its hard stop, and the spring-damper returns without a snap.
-    assert max(abs(value) for value in cornering_roll) < config.max_body_roll_rad * 0.75
+    # Steering remains visually planted in the first-person camera, and the
+    # spring-damper returns without a snap after the wheel is released.
+    assert max(abs(value) for value in cornering_roll) < math.radians(1.25)
     assert abs(release_roll[0]) < abs(cornering_roll[-1])
     assert abs(release_roll[-1]) < 1e-4
 
