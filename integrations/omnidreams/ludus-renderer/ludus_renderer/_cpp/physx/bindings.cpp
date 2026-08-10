@@ -97,6 +97,7 @@ struct BodyRecord {
     float maxBrakeForce = 0.0f;
     float maxDriveSpeed = 0.0f;
     bool driveIntentActive = false;
+    bool handbrakeActive = false;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -537,6 +538,7 @@ public:
         const py::array_t<float, py::array::c_style>& egoAngularVelocity,
         std::int64_t timestampUs,
         float dt,
+        bool egoHandbrakeActive,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -546,6 +548,7 @@ public:
         const PxVec3 requestedEgoLinear = vectorFromArray(egoLinearVelocity, "linear_velocity");
         const PxVec3 requestedEgoAngular = vectorFromArray(egoAngularVelocity, "angular_velocity");
         BodyRecord& ego = bodyAt(0);
+        ego.handbrakeActive = egoHandbrakeActive;
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -889,7 +892,10 @@ private:
             const PxVec3 suspensionUp = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
             const PxVec3 suspensionDown = -suspensionUp;
             const float rayLength = body.suspensionRestLength + body.wheelRadius;
-            for (const PxVec3& localMount : body.suspensionMounts) {
+            for (std::size_t wheelIndex = 0;
+                 wheelIndex < body.suspensionMounts.size();
+                 ++wheelIndex) {
+                const PxVec3& localMount = body.suspensionMounts[wheelIndex];
                 const PxVec3 mount = pose.transform(localMount);
                 PxRaycastBuffer hit;
                 if (!mScene->raycast(
@@ -942,7 +948,11 @@ private:
                 const float lateralSpeed = contactVelocity.dot(lateral);
                 const float slipAngle = std::atan2(
                     lateralSpeed, std::abs(longitudinalSpeed) + 0.5f);
-                const float frictionLimit = body.tireFriction * wheelLoad;
+                const bool rearWheel = wheelIndex >= 2;
+                const float handbrakeGripScale =
+                    body.handbrakeActive && rearWheel ? 0.08f : 1.0f;
+                const float frictionLimit =
+                    body.tireFriction * wheelLoad * handbrakeGripScale;
                 const float lateralForce = std::clamp(
                     -0.25f * body.corneringStiffness * slipAngle,
                     -frictionLimit,
@@ -1096,6 +1106,7 @@ private:
             forceLimit);
         const float lateralForceLimit = body.hasVehicle()
             ? body.tireFriction * body.mass * 9.81f
+                * (body.handbrakeActive ? 0.15f : 1.0f)
             : body.mass * 6.5f;
         const float lateralForce = std::clamp(
             body.mass
@@ -1108,24 +1119,36 @@ private:
             PxForceMode::eFORCE,
             true);
 
-        const float yawInertia = actor->getMassSpaceInertiaTensor().z;
-        const float unconstrainedYawTorque = yawInertia
-            * (body.desiredAngularVelocity.z - actor->getAngularVelocity().z)
-            / std::max(dt, 1.0e-3f);
-        const float halfWheelBase = body.hasVehicle()
-            ? std::max(std::abs(body.suspensionMounts[0].x), 0.5f)
-            : 0.5f;
-        const float maxYawTorque = body.hasVehicle()
-            ? body.tireFriction * body.mass * 9.81f * halfWheelBase
-            : yawInertia * 4.0f;
-        actor->addTorque(
-            PxVec3(
-                0.0f,
-                0.0f,
-                std::clamp(
-                    unconstrainedYawTorque, -maxYawTorque, maxYawTorque)),
-            PxForceMode::eFORCE,
-            true);
+        if (body.handbrakeActive) {
+            // An arcade handbrake must keep rotating the chassis while the
+            // locked rear axle sheds speed. Blend the yaw velocity directly so
+            // tire forces can still perturb it within each PhysX substep, but
+            // cannot make the handbrake feel weaker than the service brake.
+            PxVec3 angularVelocity = actor->getAngularVelocity();
+            const float yawResponse = 1.0f - std::exp(-16.0f * dt);
+            angularVelocity.z +=
+                (body.desiredAngularVelocity.z - angularVelocity.z) * yawResponse;
+            actor->setAngularVelocity(angularVelocity, true);
+        } else {
+            const float yawInertia = actor->getMassSpaceInertiaTensor().z;
+            const float unconstrainedYawTorque = yawInertia
+                * (body.desiredAngularVelocity.z - actor->getAngularVelocity().z)
+                / std::max(dt, 1.0e-3f);
+            const float halfWheelBase = body.hasVehicle()
+                ? std::max(std::abs(body.suspensionMounts[0].x), 0.5f)
+                : 0.5f;
+            const float maxYawTorque = body.hasVehicle()
+                ? body.tireFriction * body.mass * 9.81f * halfWheelBase
+                : yawInertia * 4.0f;
+            actor->addTorque(
+                PxVec3(
+                    0.0f,
+                    0.0f,
+                    std::clamp(
+                        unconstrainedYawTorque, -maxYawTorque, maxYawTorque)),
+                PxForceMode::eFORCE,
+                true);
+        }
 
         if (body.verticalTrackControl) {
             constexpr float maxVerticalAcceleration = 12.0f;
