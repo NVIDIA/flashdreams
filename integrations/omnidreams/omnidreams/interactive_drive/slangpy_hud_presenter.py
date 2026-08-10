@@ -699,8 +699,7 @@ class SlangPyHudPresenter:
             self._render_canvas(frame.status_message)
             self._present_canvas(
                 use_gpu_camera=(
-                    frame.status_message is None
-                    and frame.taxi_game_snapshot is None
+                    frame.status_message is None and frame.taxi_game_snapshot is None
                 )
             )
 
@@ -2465,7 +2464,10 @@ class SlangPyHudPresenter:
         inner_h: int,
         marker_size: int,
     ) -> None:
-        vehicle_state, snapshot = self._keyboard.runtime_state
+        keyboard = getattr(self, "_keyboard", None)
+        if keyboard is None:
+            return
+        vehicle_state, snapshot = keyboard.runtime_state
         bev = self._bev_config
         if vehicle_state is None or snapshot is None or bev is None or not bev.enabled:
             return
