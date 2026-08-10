@@ -245,18 +245,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--game-mode",
         action="store_true",
         help=(
-            "Enable game-style actor and static-world collisions, along with "
-            "the vehicle speed limit and collision visual flare. By default, "
-            "collisions, the speed limit, and their visual effect are disabled."
+            "Enable game-style actor and static-world collisions together with "
+            "the vehicle speed limit."
         ),
     )
     parser.add_argument(
         "--disable-visual-flare",
         action="store_true",
-        help=(
-            "Disable the strong full-screen dark fade that signals a collision "
-            "when --game-mode is enabled."
-        ),
+        help=("Keep the collision visual flare disabled (the default)."),
     )
     parser.add_argument(
         "--bev",

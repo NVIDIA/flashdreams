@@ -26,6 +26,7 @@ from omnidreams.interactive_drive.config import (
     DEFAULT_ACCEL_MPS2,
     DEFAULT_BRAKE_DECEL_MPS2,
     DEFAULT_HANDBRAKE_DECEL_MPS2,
+    DEFAULT_REVERSE_ACCEL_MPS2,
     BevConfig,
     RasterConfig,
 )
@@ -232,7 +233,7 @@ class KeyboardDriveState:
             elif speed > 0.0:
                 speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             else:
-                speed = max(-6.0, speed - 2.0 * brake * dt)
+                speed = max(-6.0, speed - DEFAULT_REVERSE_ACCEL_MPS2 * brake * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-6.0, min(36.0, speed))
@@ -502,7 +503,7 @@ class WheelBridge:
             elif speed > 0.0:
                 speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
             else:
-                speed = max(-6.0, speed - 2.0 * brake * dt)
+                speed = max(-6.0, speed - DEFAULT_REVERSE_ACCEL_MPS2 * brake * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-36.0, min(36.0, speed))

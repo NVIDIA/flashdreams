@@ -582,6 +582,7 @@ class GamePhysicsWorld:
             dt_s,
             handbrake_active=handbrake_active,
             steering_active=steering_active,
+            max_yaw_rate_radps=self._vehicle.max_collision_yaw_rate_radps,
         )
         active_objects = {
             scene_object.object_id: scene_object
@@ -716,15 +717,7 @@ class GamePhysicsWorld:
 
         ego = physics_step.ego
         yaw = _yaw_from_quaternion_xyzw(ego.orientation_xyzw)
-        collision_response_active = (
-            physics_step.impact
-            or bool(physics_step.struck_object_ids)
-            or state.ragdoll_active
-        )
         yaw_rate_radps = float(ego.angular_velocity_radps[2])
-        if collision_response_active:
-            max_yaw_rate = self._vehicle.max_collision_yaw_rate_radps
-            yaw_rate_radps = float(np.clip(yaw_rate_radps, -max_yaw_rate, max_yaw_rate))
         forward = np.asarray([math.cos(yaw), math.sin(yaw)])
         ego_height_m = float(ego.position_m[2] - self._ego_model.half_extents_m[2])
         remains_unsettled = (
@@ -811,6 +804,27 @@ class GamePhysicsWorld:
                     np.float32
                 )
                 trajectory_timestamps = simulated_timestamps
+                if detached:
+                    if len(simulated_timestamps) >= 2:
+                        frame_interval_us = max(
+                            1,
+                            int(np.median(np.diff(simulated_timestamps))),
+                        )
+                    else:
+                        frame_interval_us = 33_333
+                    trajectory_timestamps = np.concatenate(
+                        (
+                            simulated_timestamps[:1] - frame_interval_us,
+                            simulated_timestamps,
+                            simulated_timestamps[-1:] + frame_interval_us,
+                        )
+                    )
+                    positions = np.concatenate(
+                        (positions[:1], positions, positions[-1:]), axis=0
+                    )
+                    orientations = np.concatenate(
+                        (orientations[:1], orientations, orientations[-1:]), axis=0
+                    )
             else:
                 result.append(self._recorded_trajectories_by_id[scene_object.object_id])
                 continue

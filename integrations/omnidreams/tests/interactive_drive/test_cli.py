@@ -38,8 +38,8 @@ def test_visual_flare_override_defaults_disabled() -> None:
     ("argv", "game_mode_enabled", "visual_flare_enabled"),
     [
         ([], False, False),
-        (["--game-mode"], True, True),
-        (["--taxi-game"], True, True),
+        (["--game-mode"], True, False),
+        (["--taxi-game"], True, False),
         (["--game-mode", "--disable-visual-flare"], True, False),
     ],
 )

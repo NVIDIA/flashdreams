@@ -83,7 +83,7 @@ def integrate_vehicle(
                 command,
                 dt_s=dt_s,
                 brake_decel_mps2=vehicle.max_brake_mps2,
-                reverse_accel_mps2=2.0,
+                reverse_accel_mps2=vehicle.reverse_accel_mps2,
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
         elif command.throttle > 0.01:
@@ -117,7 +117,7 @@ def integrate_vehicle(
                 command,
                 dt_s=dt_s,
                 brake_decel_mps2=vehicle.max_brake_mps2,
-                reverse_accel_mps2=vehicle.max_accel_mps2,
+                reverse_accel_mps2=vehicle.reverse_accel_mps2,
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
         elif command.throttle > 0.01:
@@ -179,7 +179,7 @@ def integrate_vehicle(
             0.0, 1.0 - 1.8 * dt_s
         ) + commanded_yaw_rate * min(1.0, 2.5 * dt_s)
     elif command.handbrake:
-        response = 1.0 - math.exp(-12.0 * dt_s)
+        response = 1.0 - math.exp(-4.0 * dt_s)
         yaw_rate = (
             state.yaw_rate_radps
             + (commanded_yaw_rate - state.yaw_rate_radps) * response

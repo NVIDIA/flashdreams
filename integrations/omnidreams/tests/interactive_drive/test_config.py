@@ -20,13 +20,13 @@ def test_app_config_defaults_to_non_game_mode() -> None:
     assert config.visual_flare_enabled is False
 
 
-def test_game_mode_enables_physics_and_visual_flare() -> None:
+def test_game_mode_enables_physics_without_visual_flare() -> None:
     config = AppConfig(scene_path=Path("scene.usdz"), game_mode=True)
 
     assert config.vehicle.speed_limit_enabled is True
     assert config.vehicle.actor_collision_enabled is True
     assert config.vehicle.static_collision_enabled is True
-    assert config.visual_flare_enabled is True
+    assert config.visual_flare_enabled is False
 
 
 def test_game_mode_allows_visual_flare_override() -> None:
