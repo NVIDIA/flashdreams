@@ -122,6 +122,27 @@ def test_unseeded_waypoint_layout_requests_fresh_entropy(
     assert requested_seeds == [None]
 
 
+@pytest.mark.parametrize(
+    ("initial_yaw_rad", "expected_x_sign"),
+    [(0.0, 1.0), (math.pi, -1.0)],
+)
+def test_initial_pickup_is_selected_in_front_of_ego(
+    initial_yaw_rad: float, expected_x_sign: float
+) -> None:
+    route = np.asarray([[-80.0, 0.0, 0.0], [80.0, 0.0, 0.0]], dtype=np.float32)
+    controller = TaxiGameController(
+        scene_id="forward-pickup",
+        reference_route_world=route,
+        initial_state=_state(yaw_rad=initial_yaw_rad),
+        config=TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=10.0),
+    )
+
+    pickup = controller.snapshot(_state(yaw_rad=initial_yaw_rad))
+
+    assert pickup.target_xyz_m[0] * expected_x_sign > 0.0
+    assert abs(pickup.relative_bearing_rad) < math.pi * 0.5
+
+
 def test_taxi_mode_rejects_route_without_travel_distance() -> None:
     route = np.zeros((2, 3), dtype=np.float32)
 
