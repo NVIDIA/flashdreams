@@ -65,11 +65,30 @@ def test_store_retains_top_ten_and_requires_strictly_better_tenth_place(
     assert board[-1].name == "NEW"
 
 
+def test_store_excludes_zero_scores_from_qualification_and_persistence(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "scores.csv"
+    store = HighScoreStore(path)
+
+    assert store.qualifying_rank(0) is None
+    inserted, board = store.record(
+        "ZERO",
+        0,
+        achieved_at_utc="2026-08-10T12:00:00+00:00",
+    )
+
+    assert inserted is None
+    assert board == ()
+    assert path.exists() is False
+
+
 def test_store_skips_malformed_rows_and_preserves_csv_escaping(tmp_path: Path) -> None:
     path = tmp_path / "scores.csv"
     path.write_text(
         "name,score,achieved_at_utc\n"
         '"PLAYER 1",800,2026-08-10T12:00:00+00:00\n'
+        "ZERO,0,2026-08-10T12:00:01+00:00\n"
         "BAD,not-a-score,not-a-date\n",
         encoding="utf-8",
     )

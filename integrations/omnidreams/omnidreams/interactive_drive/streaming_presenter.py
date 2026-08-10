@@ -589,9 +589,11 @@ function paintTaxi(taxi) {
   const timer = typeof taxi.remaining_time_s === 'number'
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
   taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}`;
-  taxiEventEl.textContent = taxi.event === 'fare_complete'
-    ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
-    : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : '');
+  taxiEventEl.textContent = taxi.event === 'pickup_complete'
+    ? `PASSENGER PICKED UP  +${taxi.awarded_global_time_s}s`
+    : (taxi.event === 'fare_complete'
+      ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
+      : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
   const marker = taxi.bev_target;
   const showMap = taxi.bev_enabled;
   const showPin = showMap && marker && marker.visible;

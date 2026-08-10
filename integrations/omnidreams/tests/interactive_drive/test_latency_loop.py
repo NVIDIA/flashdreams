@@ -325,6 +325,23 @@ def test_chunk_request_gates_physx_debug_capture_on_view_mode(
     assert simulation.physx_debug_requests == [expected]
 
 
+def _completed_fare_trajectory() -> TrajectoryChunk:
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
+    poses[0, 0, 3] = 100.0
+    return TrajectoryChunk(
+        timestamps_us=np.array([0, 1], dtype=np.int64),
+        rig_poses_world=poses,
+        boundary_state_after_chunk=VehicleState(
+            x_m=0.0,
+            y_m=0.0,
+            z_m=0.0,
+            yaw_rad=0.0,
+            speed_mps=0.0,
+            steer_rad=0.0,
+        ),
+    )
+
+
 def _drive_loop(
     *,
     presenter: _CountingPresenter,
@@ -576,9 +593,12 @@ def test_loop_consumes_name_submission_while_taxi_game_is_frozen(
             enabled=True,
             waypoint_spacing_m=1000.0,
             global_time_s=1.0,
+            pickup_time_bonus_s=0.0,
+            dropoff_time_bonus_s=0.0,
             high_scores_path=tmp_path / "scores.csv",
         ),
     )
+    taxi_game.advance(_completed_fare_trajectory(), 0.0)
 
     _drive_loop(
         presenter=presenter,
@@ -593,7 +613,7 @@ def test_loop_consumes_name_submission_while_taxi_game_is_frozen(
     snapshot = taxi_game.snapshot(simulation.current_state)
     assert snapshot.session_state == "leaderboard"
     assert [(entry.name, entry.score) for entry in snapshot.leaderboard] == [
-        ("PLAYER 1", 0)
+        ("PLAYER 1", 4100)
     ]
 
 

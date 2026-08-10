@@ -1523,12 +1523,17 @@ class SlangPyHudPresenter:
             font=self._font_medium,
         )
         if snapshot.event is not None:
-            event_text = (
-                f"FARE COMPLETE  +{snapshot.awarded_points}  "
-                f"+{snapshot.awarded_global_time_s:g}s"
-                if snapshot.event == "fare_complete"
-                else "TIME EXPIRED"
-            )
+            if snapshot.event == "pickup_complete":
+                event_text = (
+                    f"PASSENGER PICKED UP  +{snapshot.awarded_global_time_s:g}s"
+                )
+            elif snapshot.event == "fare_complete":
+                event_text = (
+                    f"FARE COMPLETE  +{snapshot.awarded_points}  "
+                    f"+{snapshot.awarded_global_time_s:g}s"
+                )
+            else:
+                event_text = "TIME EXPIRED"
             event_box = _measure_text(self._font_large, event_text)
             event_width = event_box[2] - event_box[0]
             draw.text(
