@@ -15,6 +15,9 @@ BackendName = Literal["raster", "omnidreams"]
 ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
 
+DEFAULT_ACCEL_MPS2 = 5.0
+"""Default arcade-style forward acceleration for manual and scripted driving."""
+
 
 @dataclass(frozen=True)
 class ChunkConfig:
@@ -67,7 +70,7 @@ class VehicleConfig:
     # 70 mph, expressed in the simulation's SI units.
     max_speed_mps: float = 31.2928
     max_reverse_speed_mps: float = 6.0
-    max_accel_mps2: float = 3.5
+    max_accel_mps2: float = DEFAULT_ACCEL_MPS2
     max_brake_mps2: float = 6.0
     max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = 0.7
