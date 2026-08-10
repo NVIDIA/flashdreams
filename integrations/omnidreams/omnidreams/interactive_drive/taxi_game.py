@@ -37,8 +37,8 @@ class TaxiGameConfig:
     enabled: bool = False
     """Whether taxi-game state and HUD overlays are active."""
 
-    seed: int = 0
-    """User-controlled seed mixed with the stable scene identifier."""
+    seed: int | None = None
+    """Debug seed mixed with the scene ID; ``None`` uses fresh entropy."""
 
     waypoint_spacing_m: float = 10.0
     """Arc-length spacing between candidates sampled from each navigation route."""
@@ -403,7 +403,8 @@ class TaxiGameController:
         high_score_store: HighScoreStore | None = None,
     ) -> None:
         self._config = config
-        self._rng = np.random.default_rng(_stable_seed(scene_id, config.seed))
+        rng_seed = None if config.seed is None else _stable_seed(scene_id, config.seed)
+        self._rng = np.random.default_rng(rng_seed)
         offset = float(self._rng.uniform(0.0, config.waypoint_spacing_m))
         routes_world = navigation_routes_world or (reference_route_world,)
         self._waypoints = _resample_navigation_routes(

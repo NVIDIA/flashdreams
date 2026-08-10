@@ -105,6 +105,23 @@ def test_seeded_waypoint_layout_is_deterministic() -> None:
     )
 
 
+def test_unseeded_waypoint_layout_requests_fresh_entropy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested_seeds: list[int | None] = []
+    original_default_rng = np.random.default_rng
+
+    def recording_default_rng(seed: int | None = None) -> np.random.Generator:
+        requested_seeds.append(seed)
+        return original_default_rng(17)
+
+    monkeypatch.setattr(np.random, "default_rng", recording_default_rng)
+
+    _controller(TaxiGameConfig(enabled=True, waypoint_spacing_m=1000.0))
+
+    assert requested_seeds == [None]
+
+
 def test_taxi_mode_rejects_route_without_travel_distance() -> None:
     route = np.zeros((2, 3), dtype=np.float32)
 
