@@ -83,13 +83,15 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
     def _serve_ui_config(self) -> bool:
         if urlsplit(self.path).path != "/api/ui/config":
             return False
-        adapter_module = (
-            "/model-static/adapter.js?v=model-ui-v1"
-            if self.model_web_dir is not None
-            and (self.model_web_dir / "adapter.js").is_file()
-            else None
-        )
-        payload = json.dumps({"adapter_module": adapter_module}).encode("utf-8")
+        ui_config: dict[str, str | None] = {"adapter_module": None}
+        if self.model_web_dir is not None:
+            if (self.model_web_dir / "adapter.js").is_file():
+                ui_config["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
+            if (self.model_web_dir / "adapter.css").is_file():
+                ui_config["model_stylesheet"] = (
+                    "/model-static/adapter.css?v=model-ui-v2"
+                )
+        payload = json.dumps(ui_config).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))

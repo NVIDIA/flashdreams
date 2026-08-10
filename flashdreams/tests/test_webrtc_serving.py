@@ -332,7 +332,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v3" in html
+    assert "/static/request_session.js?v=shared-webrtc-v4" in html
     for slot in (
         "modelStageSlot",
         "modelStatusSlot",
@@ -341,6 +341,8 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     ):
         assert f'id="{slot}"' in html
     assert 'fetch("/api/ui/config")' in javascript
+    assert "config.model_stylesheet" in javascript
+    assert "stylesheetHrefs" in javascript
     assert "await modelAdapter?.beforeConnect?.(modelContext)" in javascript
     assert "sendCommand: sendModelCommand" in javascript
     assert 'id="postprocessField"' in html
@@ -399,11 +401,44 @@ async def test_packaged_webrtc_app_serves_model_adapter(tmp_path) -> None:
     try:
         config_response = await client.get("/api/ui/config")
         assert await config_response.json() == {
-            "adapter_module": "/model-static/adapter.js?v=model-ui-v1"
+            "adapter_module": "/model-static/adapter.js?v=model-ui-v2"
         }
         adapter_response = await client.get("/model-static/adapter.js")
         assert adapter_response.status == 200
         assert await adapter_response.text() == "export default {}"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_packaged_webrtc_app_serves_model_stylesheet(tmp_path) -> None:
+    shared_dir = tmp_path / "shared"
+    model_dir = tmp_path / "model"
+    shared_dir.mkdir()
+    model_dir.mkdir()
+    (shared_dir / "request_session.html").write_text("<html>session</html>")
+    (model_dir / "adapter.css").write_text(".stageVideo { object-fit: contain; }")
+    app = create_packaged_webrtc_app(
+        web_resource=shared_dir,
+        model_web_resource=model_dir,
+        session_manager=_FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+        preload_name="Test",
+        as_file_fn=lambda resource: nullcontext(resource),
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        config_response = await client.get("/api/ui/config")
+        assert await config_response.json() == {
+            "adapter_module": None,
+            "model_stylesheet": "/model-static/adapter.css?v=model-ui-v2",
+        }
+        stylesheet_response = await client.get("/model-static/adapter.css")
+        assert stylesheet_response.status == 200
+        assert (
+            await stylesheet_response.text() == ".stageVideo { object-fit: contain; }"
+        )
     finally:
         await client.close()
 

@@ -291,10 +291,14 @@ const modelContext = {
 
 async function loadModelAdapter() {
   let adapter = {}
+  const stylesheetHrefs = new Set()
   try {
     const response = await fetch("/api/ui/config")
     if (response.ok) {
       const config = await response.json()
+      if (typeof config.model_stylesheet === "string" && config.model_stylesheet) {
+        stylesheetHrefs.add(config.model_stylesheet)
+      }
       if (typeof config.adapter_module === "string" && config.adapter_module) {
         const module = await import(config.adapter_module)
         if (module.default && typeof module.default === "object") {
@@ -308,9 +312,12 @@ async function loadModelAdapter() {
 
   modelAdapter = adapter
   if (typeof adapter.stylesheet === "string" && adapter.stylesheet) {
+    stylesheetHrefs.add(adapter.stylesheet)
+  }
+  for (const href of stylesheetHrefs) {
     const stylesheet = document.createElement("link")
     stylesheet.rel = "stylesheet"
-    stylesheet.href = adapter.stylesheet
+    stylesheet.href = href
     document.head.append(stylesheet)
   }
   const modelControls = Array.isArray(adapter.controls) ? adapter.controls : []

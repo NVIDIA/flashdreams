@@ -3,7 +3,7 @@
 
 export default {
   modelName: "OmniDreams",
-  stylesheet: "/model-static/adapter.css?v=omnidreams-ui-v1",
+  stylesheet: "/model-static/adapter.css?v=model-ui-v2",
   controls: [
     {
       label: "Drive / Turn",

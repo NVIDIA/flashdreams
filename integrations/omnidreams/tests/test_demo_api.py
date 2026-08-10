@@ -957,10 +957,11 @@ def test_omnidreams_webrtc_adapter_caps_video_display_size() -> None:
     adapter_js = (web_dir / "adapter.js").read_text(encoding="utf-8")
     adapter_css = (web_dir / "adapter.css").read_text(encoding="utf-8")
 
-    assert 'stylesheet: "/model-static/adapter.css?v=omnidreams-ui-v1"' in adapter_js
+    assert 'stylesheet: "/model-static/adapter.css?v=model-ui-v2"' in adapter_js
     assert ".stageVideo" in adapter_css
     assert "1280px" in adapter_css
     assert "704px" in adapter_css
+    assert "calc(" not in adapter_css
     assert "object-fit: contain" in adapter_css
 
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"

@@ -91,10 +91,12 @@ def create_webrtc_app(
         )
 
     async def ui_config(_: web.Request) -> web.StreamResponse:
-        adapter_module = None
+        payload: dict[str, str | None] = {"adapter_module": None}
         if model_web_dir is not None and (model_web_dir / "adapter.js").is_file():
-            adapter_module = "/model-static/adapter.js?v=model-ui-v1"
-        return web.json_response({"adapter_module": adapter_module})
+            payload["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
+        if model_web_dir is not None and (model_web_dir / "adapter.css").is_file():
+            payload["model_stylesheet"] = "/model-static/adapter.css?v=model-ui-v2"
+        return web.json_response(payload)
 
     async def on_startup(app: web.Application) -> None:
         manager = app[SESSION_MANAGER_KEY]
