@@ -86,11 +86,11 @@ def test_parser_records_explicit_arg_destinations() -> None:
     assert not arg_was_explicit(args, "camera")
 
 
-def test_taxi_game_defaults_disabled_with_zero_seed() -> None:
+def test_taxi_game_defaults_disabled_with_random_seed() -> None:
     args = build_parser().parse_args([])
 
     assert args.taxi_game is False
-    assert args.taxi_seed == 0
+    assert args.taxi_seed is None
 
 
 def test_taxi_game_accepts_seed() -> None:

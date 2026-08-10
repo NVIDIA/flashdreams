@@ -315,8 +315,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--taxi-seed",
         type=int,
-        default=0,
-        help="Seed mixed with the scene ID to produce repeatable taxi fares.",
+        default=None,
+        help=(
+            "Debug seed mixed with the scene ID to produce repeatable taxi fares. "
+            "Omit it for a fresh random layout each game."
+        ),
     )
     parser.add_argument(
         "--taxi-highscores",
@@ -513,7 +516,7 @@ def prepare_config_and_backend(
         game_mode=bool(args.game_mode or args.taxi_game),
         taxi_game=TaxiGameConfig(
             enabled=bool(args.taxi_game),
-            seed=int(args.taxi_seed),
+            seed=None if args.taxi_seed is None else int(args.taxi_seed),
             high_scores_path=(
                 args.taxi_highscores.expanduser()
                 if args.taxi_highscores is not None
