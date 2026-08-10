@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,8 +43,8 @@ from omnidreams.demo.runtime import (
     OmnidreamsSession,
 )
 from omnidreams.demo.webrtc import (
-    OmnidreamsWebRTCModelRuntime,
     OmnidreamsWebRTCModelRuntimeConfig,
+    _should_use_legacy_webrtc_path,
     serve_omnidreams_webrtc_demo,
 )
 
@@ -715,7 +716,7 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import omnidreams.demo.replay as replay_module
+    import omnidreams.demo.runtime as runtime_module
 
     hdmap = tmp_path / "hdmap.mp4"
     first_frame = tmp_path / "first.png"
@@ -723,7 +724,7 @@ def test_omnidreams_replay_runtime_generates_video_step_result(
     first_frame.write_bytes(b"fake")
     pipeline = _FakeOmnidreamsPipeline()
     monkeypatch.setattr(
-        replay_module,
+        runtime_module,
         "load_first_frame_tensor",
         lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
     )
@@ -842,6 +843,8 @@ def test_omnidreams_webrtc_cli_builds_keyboard_driving_spec(tmp_path: Path) -> N
 
 
 def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
+    legacy_module_name = "omnidreams.demo.webrtc_legacy"
+    sys.modules.pop(legacy_module_name, None)
     pipeline_config = object()
     runtime = _FactoryRuntime()
     spec = DemoSpec(
@@ -923,6 +926,7 @@ def test_omnidreams_webrtc_demo_uses_shared_manager_with_model_config() -> None:
     assert scenario.fps == 24
     assert calls[0]["host"] == "0.0.0.0"
     assert calls[0]["port"] == 8082
+    assert legacy_module_name not in sys.modules
 
 
 def test_omnidreams_webrtc_demo_keeps_legacy_runtime_factory_path() -> None:
@@ -930,7 +934,7 @@ def test_omnidreams_webrtc_demo_keeps_legacy_runtime_factory_path() -> None:
         model_id=OMNIDREAMS_MODEL_ID,
         preset_id=DEFAULT_OMNIDREAMS_PRESET,
         input_mode="keyboard-driving",
-        scenario=OmnidreamsWebRTCScenario(debug_serve_hdmaps=True),
+        scenario=OmnidreamsWebRTCScenario(),
         output=WebRTCOutputSpec(
             host="0.0.0.0",
             port=8082,
@@ -960,7 +964,32 @@ def test_omnidreams_webrtc_demo_keeps_legacy_runtime_factory_path() -> None:
     runtime = manager._runtime
     assert isinstance(runtime, _FakeWebRTCRuntime)
     assert manager.runtime_config is runtime.config
-    assert runtime.config.debug_serve_hdmaps is True
+    assert runtime.config.debug_serve_hdmaps is False
+
+
+def test_omnidreams_webrtc_demo_keeps_legacy_fallback_gates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _should_use_legacy_webrtc_path(
+        scenario=OmnidreamsWebRTCScenario(),
+        runtime_factory=_FakeWebRTCRuntime,
+    )
+    assert _should_use_legacy_webrtc_path(
+        scenario=OmnidreamsWebRTCScenario(debug_serve_hdmaps=True),
+        runtime_factory=None,
+    )
+
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    assert _should_use_legacy_webrtc_path(
+        scenario=OmnidreamsWebRTCScenario(),
+        runtime_factory=None,
+    )
+
+    monkeypatch.setenv("WORLD_SIZE", "not-an-int")
+    assert not _should_use_legacy_webrtc_path(
+        scenario=OmnidreamsWebRTCScenario(),
+        runtime_factory=None,
+    )
 
 
 def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
@@ -1096,6 +1125,8 @@ async def test_omnidreams_webrtc_runtime_uses_shared_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from omnidreams.demo.webrtc_legacy import OmnidreamsWebRTCModelRuntime
+
     _scene, rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
     scene_path = tmp_path / "scene.usdz"
     scene_path.write_bytes(b"fake")
@@ -1181,6 +1212,8 @@ async def test_omnidreams_webrtc_runtime_keeps_encoders_after_warmup_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from omnidreams.demo.webrtc_legacy import OmnidreamsWebRTCModelRuntime
+
     _install_fake_ludus_provider_dependencies(monkeypatch)
     scene_path = tmp_path / "scene.usdz"
     scene_path.write_bytes(b"fake")
