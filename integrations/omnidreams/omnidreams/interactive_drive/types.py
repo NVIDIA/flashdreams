@@ -176,6 +176,7 @@ class DriverCommand:
     brake: float = 0.0
     steer: float = 0.0
     stop: bool = False
+    handbrake: bool = False
     reverse: bool = False
     steer_is_direct: bool = False
     manual_control: bool = False

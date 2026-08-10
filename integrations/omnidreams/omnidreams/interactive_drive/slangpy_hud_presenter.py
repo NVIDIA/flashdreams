@@ -289,7 +289,13 @@ class KeyboardStateDriveSink:
         self._source = source
 
     def set_drive(
-        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+        self,
+        *,
+        steer: float,
+        throttle: float,
+        brake: float,
+        handbrake: bool = False,
+        reverse: bool = False,
     ) -> None:
         # ``manual_control`` + ``steer_is_direct`` keep the engine state
         # identical regardless of transport. ``reverse`` is set by either a
@@ -299,6 +305,7 @@ class KeyboardStateDriveSink:
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                handbrake=bool(handbrake),
                 reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
