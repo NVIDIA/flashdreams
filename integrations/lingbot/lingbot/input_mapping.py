@@ -622,6 +622,12 @@ class LingbotInputMapping:
         """Record the rollout prompt restored when a text event is cleared."""
         self._base_prompt = prompt
 
+    def reset(self) -> None:
+        """Reset state accumulated while mapping a rollout."""
+        self._applied_event_id = None
+        if self._integrator is not None:
+            self._integrator.reset()
+
 
 def _pose_segments(
     command: Mapping[str, Any],

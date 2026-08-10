@@ -4,6 +4,7 @@
 """Experimental Lingbot demo adapter built on ``flashdreams.runtime.demo``."""
 
 from lingbot.demo.adapter import LingbotDemoAdapter
+from lingbot.demo.providers import LingbotInputProvider
 from lingbot.demo.spec import (
     DEFAULT_LINGBOT_PRESET,
     LINGBOT_MODEL_ID,
@@ -15,6 +16,7 @@ __all__ = [
     "DEFAULT_LINGBOT_PRESET",
     "LINGBOT_MODEL_ID",
     "LingbotDemoAdapter",
+    "LingbotInputProvider",
     "LingbotReplayInputs",
     "LingbotWebRTCScenario",
 ]
