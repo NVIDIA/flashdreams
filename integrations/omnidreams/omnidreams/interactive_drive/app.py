@@ -479,6 +479,7 @@ class InteractiveDriveApp:
                 taxi_game = TaxiGameController(
                     scene_id=self._scene.scene_id,
                     reference_route_world=self._scene.reference_route_world,
+                    navigation_routes_world=self._scene.navigation_routes_world,
                     initial_state=simulation.current_state,
                     config=self._config.taxi_game,
                 )

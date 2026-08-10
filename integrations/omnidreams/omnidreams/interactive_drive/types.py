@@ -168,6 +168,8 @@ class SceneBundle:
     # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
+    navigation_routes_world: tuple[FloatArray, ...] = ()
+    """Car-lane centerlines used for road-valid navigation targets."""
 
 
 @dataclass(frozen=True)
