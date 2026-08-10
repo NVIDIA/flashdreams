@@ -151,9 +151,9 @@ def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:
     snapshot = controller.snapshot(_state())
 
     assert snapshot.phase == "seeking_pickup"
-    assert snapshot.score == 2300
+    assert snapshot.score == 4100
     assert snapshot.event == "fare_complete"
-    assert snapshot.awarded_points == 2300
+    assert snapshot.awarded_points == 4100
     assert snapshot.awarded_global_time_s == 30.0
 
 
@@ -169,6 +169,9 @@ def test_advance_frames_returns_state_for_each_rendered_pose() -> None:
         "seeking_pickup",
     ]
     assert snapshots[0].target_radius_m == 6.0
+    assert snapshots[0].event == "pickup_complete"
+    assert snapshots[0].awarded_global_time_s == 30.0
+    assert snapshots[0].global_remaining_time_s == pytest.approx(90.0 - 1.0 / 30.0)
     assert snapshots[1].target_radius_m == 5.0
 
 
@@ -177,15 +180,15 @@ def test_dropoff_timer_expires_in_simulation_time() -> None:
     controller.advance(_trajectory((100.0, 0.0)), 1.0 / 30.0)
     active = controller.snapshot(_state(100.0, 0.0))
     assert active.phase == "to_dropoff"
-    assert active.remaining_time_s == pytest.approx(18.0)
+    assert active.remaining_time_s == pytest.approx(36.0)
 
-    controller.advance(_trajectory((100.0, 0.0)), 18.0)
+    controller.advance(_trajectory((100.0, 0.0)), 36.0)
     expired = controller.snapshot(_state(100.0, 0.0))
 
     assert expired.phase == "seeking_pickup"
     assert expired.score == 0
     assert expired.event == "time_expired"
-    assert expired.global_remaining_time_s == pytest.approx(42.0 - 1.0 / 30.0)
+    assert expired.global_remaining_time_s == pytest.approx(54.0 - 1.0 / 30.0)
 
 
 def test_arrival_wins_same_frame_tie_with_expiry() -> None:
@@ -196,13 +199,13 @@ def test_arrival_wins_same_frame_tie_with_expiry() -> None:
     snapshot = controller.snapshot(_state())
 
     assert snapshot.event == "fare_complete"
-    assert snapshot.score == 2300
+    assert snapshot.score == 4100
 
 
 def test_dropoff_with_four_whole_seconds_remaining_awards_900_points() -> None:
     controller = _controller(TaxiGameConfig(enabled=True, waypoint_spacing_m=1000.0))
     controller.advance(_trajectory((100.0, 0.0)), 0.0)
-    controller.advance(_trajectory((100.0, 0.0)), 13.5)
+    controller.advance(_trajectory((100.0, 0.0)), 31.5)
 
     controller.advance(_trajectory((0.0, 0.0)), 0.0)
     snapshot = controller.snapshot(_state())
@@ -224,9 +227,27 @@ def test_successful_dropoff_adds_thirty_seconds_to_global_timer() -> None:
     controller.advance(_trajectory((0.0, 0.0)), 1.0)
     snapshot = controller.snapshot(_state())
 
-    assert snapshot.score == 2300
-    assert snapshot.global_remaining_time_s == pytest.approx(30.0)
+    assert snapshot.score == 4100
+    assert snapshot.global_remaining_time_s == pytest.approx(60.0)
     assert snapshot.session_state == "playing"
+
+
+def test_pickup_adds_configured_time_to_global_timer() -> None:
+    controller = _controller(
+        TaxiGameConfig(
+            enabled=True,
+            waypoint_spacing_m=1000.0,
+            global_time_s=10.0,
+            pickup_time_bonus_s=12.0,
+        )
+    )
+
+    controller.advance(_trajectory((100.0, 0.0)), 0.0)
+    snapshot = controller.snapshot(_state(100.0, 0.0))
+
+    assert snapshot.global_remaining_time_s == 22.0
+    assert snapshot.event == "pickup_complete"
+    assert snapshot.awarded_global_time_s == 12.0
 
 
 def test_global_timer_ends_game_and_accepts_qualifying_name(tmp_path: Path) -> None:
@@ -236,11 +257,14 @@ def test_global_timer_ends_game_and_accepts_qualifying_name(tmp_path: Path) -> N
             enabled=True,
             waypoint_spacing_m=1000.0,
             global_time_s=1.0,
+            pickup_time_bonus_s=0.0,
+            dropoff_time_bonus_s=0.0,
             high_scores_path=tmp_path / "scores.csv",
         ),
         high_score_store=store,
     )
 
+    controller.advance(_trajectory((100.0, 0.0), (0.0, 0.0)), 0.0)
     controller.advance(_trajectory((0.0, 0.0)), 1.0)
     game_over = controller.snapshot(_state())
 
@@ -254,18 +278,12 @@ def test_global_timer_ends_game_and_accepts_qualifying_name(tmp_path: Path) -> N
 
     assert leaderboard.session_state == "leaderboard"
     assert [(entry.name, entry.score) for entry in leaderboard.leaderboard] == [
-        ("PLAYER 1", 0)
+        ("PLAYER 1", 4100)
     ]
 
 
-def test_nonqualifying_score_shows_leaderboard_immediately(tmp_path: Path) -> None:
+def test_zero_score_skips_name_entry_and_leaderboard(tmp_path: Path) -> None:
     store = HighScoreStore(tmp_path / "scores.csv")
-    for index in range(10):
-        store.record(
-            f"P{index}",
-            1000 - index,
-            achieved_at_utc=f"2026-08-10T12:00:{index:02d}+00:00",
-        )
     controller = _controller(
         TaxiGameConfig(
             enabled=True,
@@ -281,7 +299,7 @@ def test_nonqualifying_score_shows_leaderboard_immediately(tmp_path: Path) -> No
 
     assert snapshot.session_state == "leaderboard"
     assert snapshot.high_score_rank is None
-    assert len(snapshot.leaderboard) == 10
+    assert snapshot.leaderboard == ()
 
 
 @pytest.mark.parametrize(
