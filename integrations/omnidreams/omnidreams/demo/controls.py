@@ -46,7 +46,29 @@ class KeyboardResampler:
         return self._dt
 
     def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        self._event_log.append((arrival_t, {"event": event, "key": key}))
+        entry = (arrival_t, {"event": event, "key": key})
+        if not self._event_log or arrival_t >= self._event_log[-1][0]:
+            self._event_log.append(entry)
+            return
+        for index, (event_t, _) in enumerate(self._event_log):
+            if arrival_t < event_t:
+                self._event_log.insert(index, entry)
+                return
+        self._event_log.append(entry)
+
+    def advance_to(self, end_v: float) -> None:
+        """Fold queued edges into carried state without producing frame samples."""
+        if end_v < self.next_chunk_start_v:
+            raise ValueError("end_v must be >= next_chunk_start_v")
+
+        chunk_start_v = self.next_chunk_start_v
+        while self._event_log and self._event_log[0][0] < chunk_start_v:
+            _, payload = self._event_log.popleft()
+            self._carried_state.apply_event(**payload)
+        while self._event_log and self._event_log[0][0] <= end_v:
+            _, payload = self._event_log.popleft()
+            self._carried_state.apply_event(**payload)
+        self.next_chunk_start_v = end_v
 
     def sample_chunk(self, num_frames: int) -> tuple[list[PoseSegment], list[float]]:
         if num_frames < 1:

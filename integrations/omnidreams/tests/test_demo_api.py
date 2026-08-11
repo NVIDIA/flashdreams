@@ -79,6 +79,8 @@ from flashdreams.serving.webrtc.manager import (
 )
 from flashdreams.serving.webrtc.server import SESSION_MANAGER_KEY
 from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
     WebRTCInputSource,
     WebRTCTransportService,
 )
@@ -534,6 +536,52 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
     )
     provider.close()
     assert rasterizers[0].closed is True
+
+
+def test_omnidreams_ludus_provider_folds_webrtc_skipped_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, _rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=1,
+    )
+    prepared = adapter.prepare_scenario(spec)
+    provider = adapter.create_model_input_provider(spec, prepared)
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    provider.prepare_initial_input()
+
+    skipped_release = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.1,
+                event_type="key_up",
+                payload={"key": "w"},
+            ),
+        )
+    )
+    step = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(
+            start_s=0.25,
+            end_s=0.25 + 2 / 30,
+            frame_times=(0.25 + 1 / 30, 0.25 + 2 / 30),
+            metadata={
+                WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_release,
+                WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 0.25),
+            },
+        ),
+    )
+
+    assert step.inference_input is not None
+    assert step.inference_input.metadata["keyboard_segments"] == (
+        (0.25, 0.25 + 2 / 30, ()),
+    )
 
 
 def test_omnidreams_replay_run_mode_uses_precomputed_provider(

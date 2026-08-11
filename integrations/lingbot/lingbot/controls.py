@@ -44,7 +44,15 @@ class KeyboardResampler:
         return self._dt
 
     def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        self._event_log.append((arrival_t, {"event": event, "key": key}))
+        entry = (arrival_t, {"event": event, "key": key})
+        if not self._event_log or arrival_t >= self._event_log[-1][0]:
+            self._event_log.append(entry)
+            return
+        for index, (event_t, _) in enumerate(self._event_log):
+            if arrival_t < event_t:
+                self._event_log.insert(index, entry)
+                return
+        self._event_log.append(entry)
 
     def sample_chunk(self, num_frames: int) -> tuple[list[PoseSegment], list[float]]:
         if num_frames < 1:

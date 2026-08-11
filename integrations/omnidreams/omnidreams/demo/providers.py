@@ -33,9 +33,14 @@ from flashdreams.runtime.inputs import (
     InferenceInputSchema,
     InputField,
     UserInputCapability,
+    UserInputs,
     UserInputSchema,
 )
 from flashdreams.runtime.types import StepRequirements
+from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+)
 
 from .controls import (
     WSAD_SUPPORTED_KEYS,
@@ -348,8 +353,48 @@ class LudusSceneConditioningProvider:
                 "match the requested input frame count."
             )
         resampler = self._require_keyboard_resampler()
+        self._advance_skipped_input_state(user_window=user_window, resampler=resampler)
         resampler.next_chunk_start_v = user_window.start_s
-        for event in user_window.inputs.events:
+        self._record_keyboard_events(resampler, user_window.inputs)
+        segments, sampled_frame_times = resampler.sample_chunk(
+            request.input_frame_count
+        )
+        if not frame_times:
+            frame_times = sampled_frame_times
+        return segments, frame_times
+
+    def _advance_skipped_input_state(
+        self,
+        *,
+        user_window: UserInputWindow,
+        resampler: KeyboardResampler,
+    ) -> None:
+        skipped_inputs = user_window.metadata.get(WEBRTC_SKIPPED_INPUTS_METADATA_KEY)
+        skipped_window = user_window.metadata.get(WEBRTC_SKIPPED_WINDOW_METADATA_KEY)
+        if not isinstance(skipped_inputs, UserInputs):
+            return
+        if not isinstance(skipped_window, tuple) or len(skipped_window) != 2:
+            return
+        start_value, end_value = skipped_window
+        if not isinstance(start_value, int | float) or not isinstance(
+            end_value,
+            int | float,
+        ):
+            return
+        start_s = float(start_value)
+        end_s = float(end_value)
+        if end_s <= start_s:
+            return
+        resampler.next_chunk_start_v = start_s
+        self._record_keyboard_events(resampler, skipped_inputs)
+        resampler.advance_to(end_s)
+
+    @staticmethod
+    def _record_keyboard_events(
+        resampler: KeyboardResampler,
+        inputs: UserInputs,
+    ) -> None:
+        for event in inputs.events:
             if event.event_type not in {"key_down", "key_up", "keydown", "keyup"}:
                 continue
             key = event.payload.get("key")
@@ -362,12 +407,6 @@ class LudusSceneConditioningProvider:
                 else "keyup",
                 key=key,
             )
-        segments, sampled_frame_times = resampler.sample_chunk(
-            request.input_frame_count
-        )
-        if not frame_times:
-            frame_times = sampled_frame_times
-        return segments, frame_times
 
     def _consume_timestamps(self, num_frames: int) -> np.ndarray:
         step_us = int(round(1_000_000 / float(self._scenario.fps)))
