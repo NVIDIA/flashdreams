@@ -287,10 +287,15 @@ road-valid pickups from the scene's car-lane centerlines (falling back to the
 recorded route when lane data is unavailable). Only the first pickup is
 constrained to project inside the starting camera view and be no farther than
 200 meters; later pickups are sampled across all eligible map waypoints instead
-of always choosing the nearest one. Taxi mode starts a distance-scaled trip
-timer with a 2x deadline multiplier after pickup and shows the active target,
-direction arrow, score, trip
-time, and global game time. Each game starts with 60 seconds. A successful
+of always choosing the nearest one. Dropoffs are restricted to destinations
+reachable through the scene's directed car-lane graph. Taxi mode starts a trip
+timer scaled by the shortest legal road distance, with a 2x deadline multiplier
+after pickup, and shows the active target, direction arrow, score, trip time,
+and global game time. While carrying a passenger, floating green signs mark
+every camera-visible intersection on the current shortest route with distinct
+left, right, straight, or U-turn arrows. Missing a turn recalculates the route;
+the persistent direction arrow remains the off-screen fallback. Each game
+starts with 60 seconds. A successful
 dropoff awards 500 points plus 100 points per whole trip second remaining and
 adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
 is non-empty, its top score is shown beside the player's live score.
@@ -449,7 +454,8 @@ matches the desktop modes' affordances:
   has produced its first chunk; numeric the moment chunks start
   arriving.
 - With `--taxi-game`, a **taxi HUD and BEV target pin** show the same active
-  pickup or dropoff, timer, direction arrow, and score as the local HUD.
+  pickup or dropoff, timer, direction arrow, routed intersection signs, and
+  score as the local HUD.
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light
