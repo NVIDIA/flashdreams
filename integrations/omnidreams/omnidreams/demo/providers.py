@@ -354,7 +354,11 @@ class LudusSceneConditioningProvider:
             )
         resampler = self._require_keyboard_resampler()
         self._advance_skipped_input_state(user_window=user_window, resampler=resampler)
-        resampler.next_chunk_start_v = user_window.start_s
+        # Realtime/WebRTC windows carry explicit frame times on the driver's
+        # clock. Batch replay windows do not, so the provider-owned trace
+        # resampler must keep advancing from its prior chunk instead.
+        if frame_times:
+            resampler.next_chunk_start_v = user_window.start_s
         self._record_keyboard_events(resampler, user_window.inputs)
         segments, sampled_frame_times = resampler.sample_chunk(
             request.input_frame_count

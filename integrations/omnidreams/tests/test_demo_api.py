@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -536,6 +536,49 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
     )
     provider.close()
     assert rasterizers[0].closed is True
+
+
+def test_omnidreams_ludus_provider_advances_replay_trace_without_frame_times(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, _rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = _ludus_replay_demo_spec(
+        tmp_path=tmp_path,
+        scene_path=scene_path,
+        total_blocks=2,
+        keyboard_events=(
+            {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+            {"timestamp_s": 0.08, "event": "keydown", "key": "d"},
+        ),
+    )
+    prepared = adapter.prepare_scenario(spec)
+    provider = adapter.create_model_input_provider(spec, prepared)
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    provider.prepare_initial_input()
+    replay_window = UserInputWindow(start_s=0.0, end_s=3600.0)
+
+    first = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=replay_window,
+    )
+    second = provider.prepare_step(
+        request=StepRequirements(step_index=1, input_frame_count=2),
+        user_window=replay_window,
+    )
+
+    assert first.inference_input is not None
+    assert second.inference_input is not None
+    assert first.inference_input.metadata["keyboard_segments"] == (
+        (0.0, 2 / 30, ("w",)),
+    )
+    assert second.inference_input.metadata["keyboard_segments"] == (
+        (2 / 30, 0.08, ("w",)),
+        (0.08, 4 / 30, ("d", "w")),
+    )
 
 
 def test_omnidreams_ludus_provider_folds_webrtc_skipped_inputs(
@@ -1477,6 +1520,10 @@ def _ludus_replay_demo_spec(
     tmp_path: Path,
     scene_path: Path,
     total_blocks: int,
+    keyboard_events: Sequence[Mapping[str, object]] = (
+        {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
+        {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
+    ),
     output: Mp4OutputSpec | NullOutputSpec | None = None,
 ) -> DemoSpec:
     return DemoSpec(
@@ -1485,10 +1532,7 @@ def _ludus_replay_demo_spec(
         input_mode="replay",
         scenario={
             "conditioning_mode": OMNIDREAMS_CONDITIONING_LUDUS,
-            "keyboard_events": (
-                {"timestamp_s": 0.0, "event": "keydown", "key": "w"},
-                {"timestamp_s": 0.5, "event": "keyup", "key": "w"},
-            ),
+            "keyboard_events": tuple(keyboard_events),
             "scene_path": scene_path,
             "scene_variant": "default",
             "camera_name": "camera_front_wide_120fov",
