@@ -26,7 +26,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v6
 
       # The doc build only needs `flashdreams` to be importable. The heavy
       # GPU stack (transformer-engine, pynvml, cv2, mediapy, boto3/botocore)
