@@ -17,9 +17,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
 import time
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -38,7 +38,6 @@ from omnidreams.interactive_drive.simulation.components import (
     GameEntity,
     RigidBodyComponent,
     TransformComponent,
-    canonical_object_type,
     rigid_body_model_for_object,
     rigid_body_model_from_vehicle_config,
     suspension_for_object,
@@ -72,42 +71,6 @@ The 32 m recenter threshold leaves at least 64 m of active topology around the
 ego. Actors outside the horizon keep their recorded renderer trajectories until
 they enter the PhysX window.
 """
-
-_MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
-
-
-def _select_traffic_tracks(
-    tracks: tuple[object, ...], density: float, scene_id: str
-) -> tuple[object, ...]:
-    """Select a stable fraction of motor traffic while retaining other actors."""
-    if not 0.0 < density <= 1.0:
-        raise ValueError("traffic density must be greater than 0 and at most 1")
-    if density >= 1.0:
-        return tracks
-
-    motor_tracks = tuple(
-        track
-        for track in tracks
-        if canonical_object_type(str(track.object_type)) in _MOTOR_TRAFFIC_TYPES
-    )
-    if not motor_tracks:
-        return tracks
-    retained_count = max(1, math.ceil(len(motor_tracks) * density))
-
-    def selection_key(track: object) -> bytes:
-        identity = f"{scene_id}:{track.track_id}".encode()
-        return hashlib.blake2b(identity, digest_size=8).digest()
-
-    retained_ids = {
-        str(track.track_id)
-        for track in sorted(motor_tracks, key=selection_key)[:retained_count]
-    }
-    return tuple(
-        track
-        for track in tracks
-        if canonical_object_type(str(track.object_type)) not in _MOTOR_TRAFFIC_TYPES
-        or str(track.track_id) in retained_ids
-    )
 
 
 def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
@@ -235,18 +198,22 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
 class GamePhysicsWorld:
     """Adapt a scene bundle to Ludus and delegate all simulation to PhysX."""
 
-    def __init__(self, scene: SceneBundle, vehicle: VehicleConfig) -> None:
+    def __init__(
+        self,
+        scene: SceneBundle,
+        vehicle: VehicleConfig,
+        *,
+        model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
+    ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
-        source_tracks = tuple(scene.vehicle_bbox_tracks)
-        selected_tracks = _select_traffic_tracks(
-            source_tracks,
-            vehicle.traffic_density,
-            str(getattr(scene, "scene_id", "")),
-        )
-        objects = tuple(
-            self._object_from_track(track, vehicle) for track in selected_tracks
-        )
+        adapt_model = model_adapter or (lambda model: model)
+
+        def adapted_object(track: object) -> SceneObject:
+            scene_object = self._object_from_track(track, vehicle)
+            return replace(scene_object, model=adapt_model(scene_object.model))
+
+        objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
         barriers = (
             self._build_barriers(scene) if vehicle.static_collision_enabled else ()
         )
@@ -280,7 +247,7 @@ class GamePhysicsWorld:
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
         self._visual_flare_collision_deadline_us: int | None = None
         self._pending_struck_vehicle_ids: set[str] = set()
-        self._ego_model = _ego_model(vehicle)
+        self._ego_model = adapt_model(_ego_model(vehicle))
         self._world = PhysXWorld(
             self._physics_graph,
             self._ego_model,
@@ -299,13 +266,6 @@ class GamePhysicsWorld:
             len(self.graph.barriers),
             _PHYSX_SIMULATION_RADIUS_M,
         )
-        if len(selected_tracks) != len(source_tracks):
-            logger.info(
-                "[physics] retained {}/{} scene actors at motor traffic density {:.0%}",
-                len(selected_tracks),
-                len(source_tracks),
-                vehicle.traffic_density,
-            )
 
     @staticmethod
     def _object_from_track(track: object, vehicle: VehicleConfig) -> SceneObject:
@@ -613,13 +573,7 @@ class GamePhysicsWorld:
         )
 
     def step(
-        self,
-        state: VehicleState,
-        timestamp_us: int,
-        dt_s: float,
-        *,
-        handbrake_active: bool = False,
-        steering_active: bool = False,
+        self, state: VehicleState, timestamp_us: int, dt_s: float
     ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
         """Advance the authoritative PhysX scene and return actor samples."""
         step_started_at = time.perf_counter()
@@ -630,14 +584,11 @@ class GamePhysicsWorld:
             ego_before_step,
             timestamp_us,
             dt_s,
-            handbrake_active=handbrake_active,
-            steering_active=steering_active,
         )
         active_objects = {
             scene_object.object_id: scene_object
             for scene_object in self._physics_graph.objects
         }
-        significant_closing_impact = False
         if physics_step.struck_object_ids:
             self._pending_struck_vehicle_ids.update(physics_step.struck_object_ids)
             self._visual_flare_collision_velocity_mps = (
@@ -646,7 +597,7 @@ class GamePhysicsWorld:
             self._visual_flare_driving_direction_xy = np.asarray(
                 [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
             )
-            strongest_closing_speed_mps = 0.0
+            strongest_closing_speed_mps = _VISUAL_FLARE_MIN_SPEED_DELTA_MPS
             self._visual_flare_impact_normal_xy = None
             actor_bodies = {
                 object_id: body for object_id, body, _ in physics_step.actor_samples
@@ -671,9 +622,6 @@ class GamePhysicsWorld:
                 if closing_speed_mps >= strongest_closing_speed_mps:
                     strongest_closing_speed_mps = closing_speed_mps
                     self._visual_flare_impact_normal_xy = impact_normal_xy.copy()
-            significant_closing_impact = (
-                strongest_closing_speed_mps >= _VISUAL_FLARE_MIN_SPEED_DELTA_MPS
-            )
             self._visual_flare_collision_deadline_us = (
                 timestamp_us + _VISUAL_FLARE_COLLISION_WINDOW_US
             )
@@ -689,15 +637,12 @@ class GamePhysicsWorld:
             flare_driving_direction = np.asarray(
                 [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
             )
-        self.last_step_actor_collision = (
-            significant_closing_impact
-            or _is_visual_flare_impact(
-                physics_step.impact or collision_window_active,
-                flare_baseline_velocity,
-                physics_step.ego.linear_velocity_mps,
-                flare_driving_direction,
-                self._visual_flare_impact_normal_xy,
-            )
+        self.last_step_actor_collision = _is_visual_flare_impact(
+            physics_step.impact or collision_window_active,
+            flare_baseline_velocity,
+            physics_step.ego.linear_velocity_mps,
+            flare_driving_direction,
+            self._visual_flare_impact_normal_xy,
         )
         significant_struck_vehicle_ids = (
             self._pending_struck_vehicle_ids.copy()
@@ -773,7 +718,22 @@ class GamePhysicsWorld:
 
         ego = physics_step.ego
         yaw = _yaw_from_quaternion_xyzw(ego.orientation_xyzw)
+        collision_response_active = (
+            physics_step.impact
+            or bool(physics_step.struck_object_ids)
+            or state.ragdoll_active
+        )
         yaw_rate_radps = float(ego.angular_velocity_radps[2])
+        if collision_response_active:
+            max_yaw_rate = self._vehicle.max_collision_yaw_rate_radps
+            yaw_delta = math.atan2(
+                math.sin(yaw - state.yaw_rad), math.cos(yaw - state.yaw_rad)
+            )
+            yaw_delta = float(
+                np.clip(yaw_delta, -max_yaw_rate * dt_s, max_yaw_rate * dt_s)
+            )
+            yaw = state.yaw_rad + yaw_delta
+            yaw_rate_radps = float(np.clip(yaw_rate_radps, -max_yaw_rate, max_yaw_rate))
         forward = np.asarray([math.cos(yaw), math.sin(yaw)])
         ego_height_m = float(ego.position_m[2] - self._ego_model.half_extents_m[2])
         remains_unsettled = (
@@ -860,27 +820,6 @@ class GamePhysicsWorld:
                     np.float32
                 )
                 trajectory_timestamps = simulated_timestamps
-                if detached:
-                    if len(simulated_timestamps) >= 2:
-                        frame_interval_us = max(
-                            1,
-                            int(np.median(np.diff(simulated_timestamps))),
-                        )
-                    else:
-                        frame_interval_us = 33_333
-                    trajectory_timestamps = np.concatenate(
-                        (
-                            simulated_timestamps[:1] - frame_interval_us,
-                            simulated_timestamps,
-                            simulated_timestamps[-1:] + frame_interval_us,
-                        )
-                    )
-                    positions = np.concatenate(
-                        (positions[:1], positions, positions[-1:]), axis=0
-                    )
-                    orientations = np.concatenate(
-                        (orientations[:1], orientations, orientations[-1:]), axis=0
-                    )
             else:
                 result.append(self._recorded_trajectories_by_id[scene_object.object_id])
                 continue

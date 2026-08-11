@@ -53,6 +53,12 @@ class KeyboardState:
         self._vehicle_state: VehicleState | None = None
         self._taxi_game_state: TaxiGameSnapshot | None = None
         self._taxi_name_submission: str | None = None
+        self._taxi_controls_enabled = False
+
+    def enable_taxi_controls(self) -> None:
+        """Enable Taxi-only handbrake and brake-to-reverse input mapping."""
+        with self._lock:
+            self._taxi_controls_enabled = True
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
@@ -195,27 +201,43 @@ class KeyboardState:
             )
             pressed = set(self._keyboard.snapshot())
             taxi_game_state = self._taxi_game_state
+            taxi_controls_enabled = self._taxi_controls_enabled
         if taxi_game_state is not None and taxi_game_state.session_state != "playing":
             return DriverCommand()
         if drive_command is not None:
             if "space" in pressed:
+                if taxi_controls_enabled:
+                    return DriverCommand(
+                        throttle=0.0,
+                        brake=drive_command.brake,
+                        steer=drive_command.steer,
+                        handbrake=True,
+                        reverse=drive_command.reverse,
+                        steer_is_direct=drive_command.steer_is_direct,
+                        manual_control=drive_command.manual_control,
+                    )
                 return DriverCommand(
                     throttle=0.0,
-                    brake=drive_command.brake,
+                    brake=1.0,
                     steer=drive_command.steer,
-                    handbrake=True,
+                    stop=True,
                     reverse=drive_command.reverse,
                     steer_is_direct=drive_command.steer_is_direct,
                     manual_control=drive_command.manual_control,
                 )
             return drive_command
+        if taxi_controls_enabled:
+            return taxi_command_from_snapshot(ControlSnapshot(pressed=pressed))
         return command_from_snapshot(ControlSnapshot(pressed=pressed))
 
 
 def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
     pressed = {normalize_key(key) for key in snapshot.pressed}
-    throttle = 1.0 if {"w", "up"} & pressed else 0.0
-    brake = 1.0 if {"s", "down"} & pressed else 0.0
+    forward = bool({"w", "up"} & pressed)
+    reverse = bool({"s", "down"} & pressed)
+    opposing_directions = forward and reverse
+    throttle = 1.0 if forward != reverse else 0.0
+    brake = 1.0 if opposing_directions else 0.0
     steer = 0.0
     if {"a", "left"} & pressed:
         steer += 1.0
@@ -224,6 +246,19 @@ def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
     return DriverCommand(
         throttle=throttle,
         brake=brake,
+        steer=steer,
+        stop="space" in pressed,
+        reverse=reverse and not forward,
+    )
+
+
+def taxi_command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
+    """Map raw keys to Taxi-only brake-to-reverse and handbrake controls."""
+    pressed = {normalize_key(key) for key in snapshot.pressed}
+    steer = float(bool({"a", "left"} & pressed)) - float(bool({"d", "right"} & pressed))
+    return DriverCommand(
+        throttle=1.0 if {"w", "up"} & pressed else 0.0,
+        brake=1.0 if {"s", "down"} & pressed else 0.0,
         steer=steer,
         handbrake="space" in pressed,
     )

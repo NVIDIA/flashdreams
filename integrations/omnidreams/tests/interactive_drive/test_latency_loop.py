@@ -23,7 +23,10 @@ from omnidreams.interactive_drive.runtime.loop import (
     present_queued_frame,
     run_main_loop,
 )
-from omnidreams.interactive_drive.taxi_game import TaxiGameConfig, TaxiGameController
+from omnidreams.interactive_drive.taxi_game import (
+    TaxiGameConfig,
+    TaxiGameController,
+)
 from omnidreams.interactive_drive.types import (
     DriverCommand,
     PresentedFrame,

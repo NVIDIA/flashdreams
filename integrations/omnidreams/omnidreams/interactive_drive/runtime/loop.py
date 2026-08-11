@@ -427,7 +427,7 @@ def push_telemetry(
     lightweight test fakes and custom controllers.
     """
     update_runtime_state = getattr(runtime_controls, "update_runtime_state", None)
-    if update_runtime_state is not None:
+    if taxi_snapshot is not None and update_runtime_state is not None:
         update_runtime_state(simulation.current_state, taxi_snapshot)
         return
     update = getattr(runtime_controls, "update_telemetry", None)

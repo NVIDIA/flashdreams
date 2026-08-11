@@ -5,9 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
-
-from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+from typing import TYPE_CHECKING, Literal
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
@@ -15,14 +13,14 @@ BackendName = Literal["raster", "omnidreams"]
 ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
 
-DEFAULT_ACCEL_MPS2 = 10.0
-"""Default arcade-style forward acceleration for manual and scripted driving."""
+if TYPE_CHECKING:
+    from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
 
-DEFAULT_REVERSE_ACCEL_MPS2 = 10.0
-"""Default arcade-style brake-to-reverse acceleration."""
 
-DEFAULT_BRAKE_DECEL_MPS2 = 14.0
-DEFAULT_HANDBRAKE_DECEL_MPS2 = 18.0
+def _default_taxi_game_config() -> TaxiGameConfig:
+    from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+
+    return TaxiGameConfig()
 
 
 @dataclass(frozen=True)
@@ -68,9 +66,6 @@ class RasterConfig:
 
 @dataclass(frozen=True)
 class VehicleConfig:
-    traffic_density: float = 1.0
-    """Fraction of recorded motor-vehicle tracks retained in the simulation."""
-
     wheel_base_m: float = 2.8
     max_steer_rad: float = 0.5
     steer_rate_rad_per_s: float = 0.55
@@ -79,16 +74,9 @@ class VehicleConfig:
     # 70 mph, expressed in the simulation's SI units.
     max_speed_mps: float = 31.2928
     max_reverse_speed_mps: float = 6.0
-    max_accel_mps2: float = DEFAULT_ACCEL_MPS2
-    reverse_accel_mps2: float = DEFAULT_REVERSE_ACCEL_MPS2
-    """Acceleration used while the brake control drives the vehicle in reverse."""
-
-    max_brake_mps2: float = DEFAULT_BRAKE_DECEL_MPS2
-    handbrake_decel_mps2: float = DEFAULT_HANDBRAKE_DECEL_MPS2
-    handbrake_yaw_gain: float = 3.25
-    max_handbrake_yaw_rate_radps: float = 1.5
-    """Maximum handbrake yaw rate compatible with world-model conditioning."""
-    max_lateral_accel_mps2: float = 8.5
+    max_accel_mps2: float = 3.5
+    max_brake_mps2: float = 6.0
+    max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = 0.7
     mass_kg: float = 1_550.0
     tire_grip: float = 1.35
@@ -96,11 +84,12 @@ class VehicleConfig:
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
     collision_friction: float = 0.65
+    max_collision_yaw_rate_radps: float = 0.35
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0
     suspension_travel_m: float = 0.22
     suspension_visual_gain: float = 0.15
-    max_body_roll_rad: float = 0.16
+    max_body_roll_rad: float = 0.5
     max_body_pitch_rad: float = 0.5
     actor_collision_enabled: bool = True
     static_collision_enabled: bool = True
@@ -142,9 +131,6 @@ class AppConfig:
     scene_path: Path
     backend: BackendName = "raster"
     game_mode: bool = False
-    game_traffic_density: float = 0.4
-    """Fraction of recorded motor traffic retained while game mode is active."""
-
     camera_name: str = "camera_front_wide_120fov"
     variant: str = "default"
     prompt_override: str | None = None
@@ -158,7 +144,7 @@ class AppConfig:
         default_factory=VideoPostprocessChainConfig
     )
     bev: BevConfig = BevConfig()
-    taxi_game: TaxiGameConfig = TaxiGameConfig()
+    taxi_game: TaxiGameConfig = field(default_factory=_default_taxi_game_config)
     """Overlay-only taxi-game configuration."""
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
@@ -185,14 +171,10 @@ class AppConfig:
     # presenter onto a specific GPU (e.g. "RTX PRO"); None lets SlangPy pick
     # the first enumerated adapter.
     presenter_adapter: str | None = None
+    # None follows game_mode; an explicit bool remains a fine-grained override.
     visual_flare_enabled: bool | None = None
-    """Whether to show the full-screen collision vignette; disabled by default."""
 
     def __post_init__(self) -> None:
-        if not 0.0 < self.game_traffic_density <= 1.0:
-            raise ValueError(
-                "game_traffic_density must be greater than 0 and at most 1"
-            )
         object.__setattr__(
             self,
             "vehicle",
@@ -201,8 +183,7 @@ class AppConfig:
                 speed_limit_enabled=self.game_mode,
                 actor_collision_enabled=self.game_mode,
                 static_collision_enabled=self.game_mode,
-                traffic_density=self.game_traffic_density if self.game_mode else 1.0,
             ),
         )
         if self.visual_flare_enabled is None:
-            object.__setattr__(self, "visual_flare_enabled", False)
+            object.__setattr__(self, "visual_flare_enabled", self.game_mode)

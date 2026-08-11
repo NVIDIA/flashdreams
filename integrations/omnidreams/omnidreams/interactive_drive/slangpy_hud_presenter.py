@@ -391,7 +391,6 @@ class SlangPyHudPresenter:
         self._scene_options = scene_options
         self._control_assets = control_assets
         self._wheel = wheel
-        self._bev_config: BevConfig | None = None
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
         self._taxi_name_buffer = ""
@@ -3260,7 +3259,14 @@ class SlangPyHudPresenter:
 
     def configure_taxi_hud(self, bev: BevConfig) -> None:
         """Configure BEV projection used by taxi target overlays."""
+        from omnidreams.interactive_drive.taxi_driving import (
+            TaxiKeyboardDriveState,
+        )
+
         self._bev_config = bev
+        self._keyboard_drive = TaxiKeyboardDriveState(
+            KeyboardStateDriveSink(self._keyboard, source="keyboard")
+        )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Configure camera projection for world-anchored taxi markers."""

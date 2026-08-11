@@ -438,7 +438,7 @@ _INDEX_HTML = """<!doctype html>
     </div>
   </div>
 </div>
-<div class="hint">WASD / Arrows = Drive &middot; Space = Handbrake &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
+<div class="hint" id="drive-hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
     <span>Scenes</span>
@@ -513,6 +513,7 @@ window.addEventListener('blur', releaseAllKeys);
 // generating meaningful HTTP load (~10 req/s of <100 B each).
 const speedEl = document.getElementById('speed');
 const speedValueEl = document.getElementById('speed-value');
+const driveHintEl = document.getElementById('drive-hint');
 const taxiHudEl = document.getElementById('taxi-hud');
 const taxiArrowEl = document.getElementById('taxi-arrow');
 const taxiStatusEl = document.getElementById('taxi-status');
@@ -568,6 +569,9 @@ function paintGameOver(taxi) {
   previousTaxiSession = state;
 }
 function paintTaxi(taxi) {
+  driveHintEl.textContent = taxi
+    ? 'WASD / Arrows = Drive · Space = Handbrake · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
+    : 'WASD / Arrows = Drive · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout';
   if (!taxi) {
     taxiHudEl.classList.add('hidden');
     taxiMapEl.classList.add('hidden');
@@ -783,6 +787,7 @@ class MJPEGStreamingPresenter:
         self._raster = raster
         self._keyboard = keyboard
         self._visual_flare = CollisionVisualFlare()
+        self._taxi_enabled = False
         self._bev_config: BevConfig | None = None
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
@@ -955,7 +960,16 @@ class MJPEGStreamingPresenter:
 
     def configure_taxi_hud(self, bev: BevConfig) -> None:
         """Configure BEV projection used by browser taxi overlays."""
+        from omnidreams.interactive_drive.taxi_driving import (
+            TaxiKeyboardDriveState,
+        )
+
+        self._taxi_enabled = True
         self._bev_config = bev
+        self._keyboard_drive_factory = TaxiKeyboardDriveState
+        self._keyboard_drive = TaxiKeyboardDriveState(
+            _KeyboardDriveSink(self._keyboard)
+        )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Configure camera projection for world-anchored taxi markers."""
@@ -1192,6 +1206,19 @@ class MJPEGStreamingPresenter:
         Returns ``None`` fields before the first chunk so the browser shows
         ``--`` instead of a stale zero.
         """
+        if not self._taxi_enabled:
+            snapshot = self._keyboard.vehicle_state
+            if snapshot is None:
+                return {
+                    "speed_mps": None,
+                    "steer_rad": None,
+                    "yaw_rad": None,
+                }
+            return {
+                "speed_mps": float(snapshot.speed_mps),
+                "steer_rad": float(snapshot.steer_rad),
+                "yaw_rad": float(snapshot.yaw_rad),
+            }
         frame = self._latest_presented_frame
         vehicle_state = None if frame is None else frame.vehicle_state
         taxi_state = None if frame is None else frame.taxi_game_snapshot

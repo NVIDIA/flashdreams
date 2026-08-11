@@ -37,7 +37,9 @@ from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter,
     parse_bind,
 )
+from omnidreams.interactive_drive.taxi_driving import integrate_taxi_vehicle
 from omnidreams.interactive_drive.taxi_game import TaxiGameController
+from omnidreams.interactive_drive.taxi_physics import TaxiPhysicsWorld
 from omnidreams.interactive_drive.types import PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter
@@ -87,6 +89,8 @@ class InteractiveDriveApp:
         self._config = config
         self._backend = backend
         self._keyboard = KeyboardState()
+        if config.taxi_game.enabled:
+            self._keyboard.enable_taxi_controls()
         if config.backend == "omnidreams":
             self._keyboard.set_view_mode("model_rgb")
         if presenter is None:
@@ -99,9 +103,10 @@ class InteractiveDriveApp:
             bind_keyboard = getattr(self._presenter, "bind_keyboard", None)
             if callable(bind_keyboard):
                 bind_keyboard(self._keyboard)
-        configure_taxi_hud = getattr(self._presenter, "configure_taxi_hud", None)
-        if callable(configure_taxi_hud):
-            configure_taxi_hud(config.bev)
+        if config.taxi_game.enabled:
+            configure_taxi_hud = getattr(self._presenter, "configure_taxi_hud", None)
+            if callable(configure_taxi_hud):
+                configure_taxi_hud(config.bev)
         # When ``False`` the caller (the demo's outer scene-change loop)
         # owns the presenter's lifecycle: it constructs one presenter at
         # startup, reuses it across many scenes, and only closes it when
@@ -438,9 +443,13 @@ class InteractiveDriveApp:
         """
         if self._scene is None or self._map_bounds is None:
             raise RuntimeError("load_scene() must be called before run_scene()")
-        configure_taxi_camera = getattr(self._presenter, "configure_taxi_camera", None)
-        if callable(configure_taxi_camera):
-            configure_taxi_camera(self._scene.selected_camera)
+        taxi_enabled = self._config.taxi_game.enabled
+        if taxi_enabled:
+            configure_taxi_camera = getattr(
+                self._presenter, "configure_taxi_camera", None
+            )
+            if callable(configure_taxi_camera):
+                configure_taxi_camera(self._scene.selected_camera)
         # Seed the loop's initial ``last_presented_frame`` with the scene's
         # first frame. The loop overlays a live loading status over it (see
         # ``_loading_status_message``) until the first generated chunk
@@ -456,24 +465,38 @@ class InteractiveDriveApp:
         # OOB respawn, so switch the indicator to "Resetting..." for those.
         loading_status = self._loading_status_message
         while not self._presenter.should_close:
+            vehicle_config = (
+                self._config.taxi_game.vehicle if taxi_enabled else self._config.vehicle
+            )
+            simulation_kwargs: dict[str, object] = {}
+            if taxi_enabled:
+                simulation_kwargs.update(
+                    integrate_fn=integrate_taxi_vehicle,
+                    physics_world_factory=lambda scene, vehicle: TaxiPhysicsWorld(
+                        scene,
+                        vehicle,
+                        traffic_density=self._config.taxi_game.traffic_density,
+                    ),
+                )
             simulation = EgoVehicleKinematics(
                 initial_state=state_from_initial_pose(
                     initial_rig_to_world=self._scene.initial_rig_to_world,
                     initial_yaw_rad=self._scene.initial_yaw_rad,
-                    # Start each rollout at rest rather than inheriting the
-                    # source clip's recorded speed.
-                    initial_speed_mps=0.0,
+                    # Taxi starts at rest; the original interactive-drive
+                    # modes retain their upstream rolling start.
+                    initial_speed_mps=0.0 if taxi_enabled else 10.0,
                 ),
-                vehicle_config=self._config.vehicle,
+                vehicle_config=vehicle_config,
                 ground_snapper=self._ground_snapper,
                 initial_timestamp_us=self._scene.initial_timestamp_us,
                 map_bounds=self._map_bounds,
                 oob_margin_m=self._config.oob_margin_m,
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
                 scene=self._scene,
+                **simulation_kwargs,
             )
             taxi_game = None
-            if self._config.taxi_game.enabled:
+            if taxi_enabled:
                 taxi_game = TaxiGameController(
                     scene_id=self._scene.scene_id,
                     reference_route_world=self._scene.reference_route_world,
@@ -489,14 +512,13 @@ class InteractiveDriveApp:
             # screen through the "Resetting..." window until the new rollout
             # requested its first chunk -- the "reset doesn't reset the
             # displayed speed" symptom.
-            self._keyboard.update_runtime_state(
-                simulation.current_state,
-                (
-                    taxi_game.snapshot(simulation.current_state)
-                    if taxi_game is not None
-                    else None
-                ),
-            )
+            if taxi_game is not None:
+                self._keyboard.update_runtime_state(
+                    simulation.current_state,
+                    taxi_game.snapshot(simulation.current_state),
+                )
+            else:
+                self._keyboard.update_telemetry(simulation.current_state)
             input_backend = KeyboardInputBackend(self._keyboard)
             try:
                 reset_requested = run_main_loop(
@@ -518,7 +540,9 @@ class InteractiveDriveApp:
                         stop_after_consumed_chunks=(
                             self._config.stop_after_consumed_chunks
                         ),
-                        visual_flare_enabled=self._config.visual_flare_enabled,
+                        visual_flare_enabled=(
+                            False if taxi_enabled else self._config.visual_flare_enabled
+                        ),
                     ),
                     loading_status=loading_status,
                     trace_context=self._trace_context,
