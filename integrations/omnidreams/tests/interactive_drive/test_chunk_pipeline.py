@@ -12,7 +12,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
-from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import FrameChunk, PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,

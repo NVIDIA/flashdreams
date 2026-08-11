@@ -11,16 +11,16 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from omnidreams.interactive_drive.simulation.components import (
-    rigid_body_model_from_vehicle_config,
-)
-from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
-from omnidreams.interactive_drive.taxi_driving import TaxiVehicleConfig
-from omnidreams.interactive_drive.taxi_physics import (
+from omnidreams.interactive_drive.crazy_robotaxi.driving import TaxiVehicleConfig
+from omnidreams.interactive_drive.crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
     inset_vehicle_chassis,
     select_traffic_tracks,
 )
+from omnidreams.interactive_drive.simulation.components import (
+    rigid_body_model_from_vehicle_config,
+)
+from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
 from omnidreams.interactive_drive.types import VehicleState
 
 pytestmark = pytest.mark.ci_cpu

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import numpy.typing as npt
 from omnidreams.interactive_drive.camera import FThetaCameraModel
-from omnidreams.interactive_drive.high_scores import (
+from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
     HighScoreEntry,
     HighScoreStore,
     default_high_scores_path,
@@ -24,7 +24,7 @@ from omnidreams.interactive_drive.math3d import (
     level_rig_pose_from_vehicle_state,
     rig_pose_from_vehicle_state,
 )
-from omnidreams.interactive_drive.taxi_driving import (
+from omnidreams.interactive_drive.crazy_robotaxi.driving import (
     TaxiVehicleConfig,
 )
 from omnidreams.interactive_drive.types import (

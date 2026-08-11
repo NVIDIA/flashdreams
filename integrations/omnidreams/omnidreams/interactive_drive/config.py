@@ -14,11 +14,11 @@ ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
 
 if TYPE_CHECKING:
-    from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
 
 
 def _default_taxi_game_config() -> TaxiGameConfig:
-    from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
 
     return TaxiGameConfig()
 

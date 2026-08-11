@@ -11,6 +11,11 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
+from omnidreams.interactive_drive.crazy_robotaxi.driving import (
+    integrate_taxi_vehicle,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameController
+from omnidreams.interactive_drive.crazy_robotaxi.physics import TaxiPhysicsWorld
 from omnidreams.interactive_drive.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
@@ -37,9 +42,6 @@ from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter,
     parse_bind,
 )
-from omnidreams.interactive_drive.taxi_driving import integrate_taxi_vehicle
-from omnidreams.interactive_drive.taxi_game import TaxiGameController
-from omnidreams.interactive_drive.taxi_physics import TaxiPhysicsWorld
 from omnidreams.interactive_drive.types import PresentedFrame, SceneBundle
 from omnidreams.interactive_drive.video_model.chunk_pipeline import ChunkPipeline
 from omnidreams.interactive_drive.video_model.local import LocalVideoModelAdapter

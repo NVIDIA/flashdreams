@@ -15,6 +15,10 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiGameConfig,
+    TaxiGameController,
+)
 from omnidreams.interactive_drive.input.backend import SampledInput
 from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.runtime.loop import (
@@ -22,10 +26,6 @@ from omnidreams.interactive_drive.runtime.loop import (
     _advance_present_deadline,
     present_queued_frame,
     run_main_loop,
-)
-from omnidreams.interactive_drive.taxi_game import (
-    TaxiGameConfig,
-    TaxiGameController,
 )
 from omnidreams.interactive_drive.types import (
     DriverCommand,

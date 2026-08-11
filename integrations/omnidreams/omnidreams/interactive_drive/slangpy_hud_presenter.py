@@ -29,17 +29,17 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     VehicleConfig,
 )
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiGameSnapshot,
+    project_target_to_bev,
+    project_taxi_marker_to_camera,
+)
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
-)
-from omnidreams.interactive_drive.taxi_game import (
-    TaxiGameSnapshot,
-    project_target_to_bev,
-    project_taxi_marker_to_camera,
 )
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
@@ -3259,7 +3259,7 @@ class SlangPyHudPresenter:
 
     def configure_taxi_hud(self, bev: BevConfig) -> None:
         """Configure BEV projection used by taxi target overlays."""
-        from omnidreams.interactive_drive.taxi_driving import (
+        from omnidreams.interactive_drive.crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
         )
 

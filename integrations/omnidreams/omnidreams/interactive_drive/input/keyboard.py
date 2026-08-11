@@ -4,9 +4,11 @@
 import threading
 import time
 
-from omnidreams.interactive_drive.high_scores import validate_player_name
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
+from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
+    validate_player_name,
+)
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
-from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,

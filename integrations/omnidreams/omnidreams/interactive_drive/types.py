@@ -14,7 +14,7 @@ import numpy.typing as npt
 from flashdreams.serving.realtime.timing import VideoModelTimings
 
 if TYPE_CHECKING:
-    from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
+    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]

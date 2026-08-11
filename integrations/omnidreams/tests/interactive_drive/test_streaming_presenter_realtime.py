@@ -8,6 +8,7 @@ import threading
 import numpy as np
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.streaming_presenter import (
     _INDEX_HTML,
@@ -16,7 +17,6 @@ from omnidreams.interactive_drive.streaming_presenter import (
     _publish_if_open,
     _wait_for_bus_frame,
 )
-from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     PresentedFrame,

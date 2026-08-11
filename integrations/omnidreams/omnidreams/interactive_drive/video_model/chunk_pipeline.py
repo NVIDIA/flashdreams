@@ -28,7 +28,7 @@ from flashdreams.serving.realtime.timing import (
 )
 
 if TYPE_CHECKING:
-    from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
+    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 
 
 class VideoModelBackend(Protocol):
