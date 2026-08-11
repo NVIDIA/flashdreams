@@ -71,6 +71,8 @@ HUD_PANEL_WIDTH = 500
 _BUNDLED_CONTROL_ASSETS_DIR = _cli._PACKAGE_ROOT / "assets" / "wheel_and_pedals"
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 1.0
+KEYBOARD_STEER_RATE_PER_S = 3.5
+KEYBOARD_STEER_RETURN_RATE_PER_S = 5.0
 # BEV minimap panel sits at the bottom of the right HUD column.
 # Geometry is hand-tuned to leave ~12px gaps to the pedals/edges and
 # keeps roughly square aspect to match the BEV camera output.
@@ -167,7 +169,12 @@ class KeyboardDriveState:
             target_steer += KEYBOARD_STEER_SCALE
         if {"d", "right"} & self._pressed:
             target_steer -= KEYBOARD_STEER_SCALE
-        steer = target_steer
+        steer_rate = (
+            KEYBOARD_STEER_RATE_PER_S
+            if abs(target_steer) > 0.0
+            else KEYBOARD_STEER_RETURN_RATE_PER_S
+        )
+        steer = _move_towards(self._state.steering, target_steer, steer_rate * dt)
         throttle = 1.0 if {"w", "up"} & self._pressed else 0.0
         brake = 1.0 if {"s", "down"} & self._pressed else 0.0
         handbrake = "space" in self._pressed
