@@ -59,6 +59,7 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    NullOutputSpec,
     UserInputWindow,
     WebRTCOutputSpec,
 )
@@ -118,7 +119,7 @@ def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
 
     assert adapter.model_id == LINGBOT_MODEL_ID
     assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
-    assert adapter.supported_output_modes() == ("mp4", "webrtc")
+    assert adapter.supported_output_modes() == ("mp4", "null", "webrtc")
     fields = {
         field.name
         for field in adapter.inference_input_schema.global_conditioning_fields
@@ -135,6 +136,65 @@ def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
     # Camera control is per-step model input, not session-global scenario data.
     step_fields = {field.name for field in adapter.inference_input_schema.step_fields}
     assert step_fields == {FIELD_CAMERA_TRAJECTORY, FIELD_CAMERA_INTRINSICS}
+
+
+def test_lingbot_replay_cli_builds_null_output_spec() -> None:
+    args = parse_args(["replay", "--output-mode", "null", "--total-blocks", "1"])
+
+    spec = _replay_spec(args)
+
+    assert spec.model_id == LINGBOT_MODEL_ID
+    assert spec.input_mode == "replay"
+    assert isinstance(spec.output, NullOutputSpec)
+    assert spec.scenario[FIELD_TOTAL_BLOCKS] == 1
+
+
+def test_lingbot_replay_cli_requires_output_only_for_mp4(tmp_path: Path) -> None:
+    parse_args(["replay", "--output", str(tmp_path / "demo.mp4")])
+
+    with pytest.raises(SystemExit):
+        parse_args(["replay"])
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "replay",
+                "--output-mode",
+                "null",
+                "--output",
+                str(tmp_path / "demo.mp4"),
+            ]
+        )
+
+
+def test_lingbot_replay_adapter_accepts_null_output(tmp_path: Path) -> None:
+    image = tmp_path / "image.jpg"
+    poses = tmp_path / "poses.npy"
+    intrinsics = tmp_path / "intrinsics.npy"
+    image.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics)
+    spec = DemoSpec(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=DEFAULT_LINGBOT_PRESET,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive through a city",
+            "image_path": image,
+            "pose_path": poses,
+            "intrinsic_path": intrinsics,
+            "total_blocks": 1,
+        },
+        output=NullOutputSpec(),
+        config=InferenceConfig(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=DEFAULT_LINGBOT_PRESET,
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+    prepared = LingbotDemoAdapter().prepare_scenario(spec)
+
+    assert prepared.initial_inputs.global_conditioning[FIELD_FIRST_FRAME_PATH] == image
+    assert prepared.initial_inputs.global_conditioning[FIELD_TOTAL_BLOCKS] == 1
 
 
 def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
@@ -284,6 +344,60 @@ def test_lingbot_replay_demo_run_mode_uses_model_provider(
             "world_scale": pytest.approx(expected_mapping.camera_trace.world_scale),
         }
     ]
+
+
+def test_lingbot_replay_demo_runs_with_null_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import lingbot.runtime as runtime_module
+
+    image = tmp_path / "image.jpg"
+    poses = tmp_path / "poses.npy"
+    intrinsics = tmp_path / "intrinsics.npy"
+    image.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics, frames=16)
+    pipeline = _FakeLingbotPipeline()
+    monkeypatch.setattr(
+        runtime_module,
+        "load_first_frame_tensor",
+        lambda *args, **kwargs: torch.zeros(1, 3, 2, 2),
+    )
+
+    spec = DemoSpec(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=DEFAULT_LINGBOT_PRESET,
+        input_mode="replay",
+        scenario={
+            "prompt": "drive through a city",
+            "image_path": image,
+            "pose_path": poses,
+            "intrinsic_path": intrinsics,
+            "total_blocks": 1,
+            "pixel_height": 2,
+            "pixel_width": 2,
+        },
+        output=NullOutputSpec(),
+        config=InferenceConfig(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=DEFAULT_LINGBOT_PRESET,
+            device="cpu",
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+
+    def pipeline_factory(pipeline_config: object, device: str) -> _FakeLingbotPipeline:
+        del pipeline_config, device
+        return pipeline
+
+    result = run_replay_demo(
+        spec=spec,
+        adapter=LingbotDemoAdapter(pipeline_factory=pipeline_factory),
+    )
+
+    assert result.status == "completed"
+    assert result.artifacts == ()
+    assert len(pipeline.generate_calls) == 1
 
 
 def test_lingbot_replay_invalid_scenario_fails_before_runtime_creation(

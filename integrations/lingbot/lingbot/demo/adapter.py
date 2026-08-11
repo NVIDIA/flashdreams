@@ -17,6 +17,7 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    NullOutputSpec,
     PreparedScenario,
     WebRTCOutputSpec,
 )
@@ -65,12 +66,14 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         return ("replay", "keyboard-driving")
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "webrtc")
+        return ("mp4", "null", "webrtc")
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode == "replay":
-            if not isinstance(spec.output, Mp4OutputSpec):
-                raise ValueError("Lingbot replay demo currently requires MP4 output.")
+            if not isinstance(spec.output, (Mp4OutputSpec, NullOutputSpec)):
+                raise ValueError(
+                    "Lingbot replay demo requires MP4 or null output."
+                )
             scenario = spec.scenario
             live_camera = False
         elif spec.input_mode == "keyboard-driving":

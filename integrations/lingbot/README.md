@@ -123,6 +123,20 @@ uv run --python 3.12 --package flashdreams-lingbot lingbot-demo replay \
   --output outputs/lingbot-demo-replay.mp4
 ```
 
+Run the same replay path without writing video:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot lingbot-demo replay \
+  --device cuda:0 \
+  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --total-blocks 10 \
+  --fps 16 \
+  --pixel-height 352 \
+  --pixel-width 640 \
+  --output-mode null
+```
+
 Serve the shared WebRTC demo:
 
 ```bash
