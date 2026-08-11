@@ -21,12 +21,12 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
-from omnidreams.interactive_drive.high_scores import (
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
+from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
     default_high_scores_path,
 )
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
-from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
 from omnidreams.interactive_drive.world_model.manifest import (
     load_world_model_manifest,
     resolve_world_model_manifest_path,

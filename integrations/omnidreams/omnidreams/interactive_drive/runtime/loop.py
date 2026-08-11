@@ -40,7 +40,7 @@ from flashdreams.serving.realtime.timing import (
 )
 
 if TYPE_CHECKING:
-    from omnidreams.interactive_drive.taxi_game import (
+    from omnidreams.interactive_drive.crazy_robotaxi.game import (
         TaxiGameController,
         TaxiGameSnapshot,
     )

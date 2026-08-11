@@ -6,7 +6,7 @@
 from pathlib import Path
 
 import pytest
-from omnidreams.interactive_drive.high_scores import (
+from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
     HighScoreStore,
     validate_player_name,
 )

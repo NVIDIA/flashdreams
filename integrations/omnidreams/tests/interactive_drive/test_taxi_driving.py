@@ -11,12 +11,12 @@ import pytest
 from omnidreams.interactive_drive import cli
 from omnidreams.interactive_drive.cli import build_parser
 from omnidreams.interactive_drive.config import AppConfig, VehicleConfig
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
-from omnidreams.interactive_drive.taxi_driving import (
+from omnidreams.interactive_drive.crazy_robotaxi.driving import (
     TaxiVehicleConfig,
     integrate_taxi_vehicle,
 )
-from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
+from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.types import DriverCommand, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
@@ -54,9 +54,7 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_kwargs: object())
 
     config, _backend = cli.prepare_config_and_backend(
-        build_parser().parse_args(
-            ["--taxi-game", "--traffic-density", "0.25"]
-        )
+        build_parser().parse_args(["--taxi-game", "--traffic-density", "0.25"])
     )
 
     assert config.game_mode is False
