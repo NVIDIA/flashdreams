@@ -483,7 +483,7 @@ class SlangPyHudPresenter:
         ) = None
 
         self._latest_camera_pil: Image.Image | None = None
-        self._latest_taxi_frame: PresentedFrame | None = None
+        self._latest_presented_frame: PresentedFrame | None = None
         self._latest_bev_source: object | None = None
         self._latest_ego_dimensions_lwh: object | None = None
         self._prepared_bev_source_key: object | None = None
@@ -669,7 +669,7 @@ class SlangPyHudPresenter:
 
         # Display metadata advances only with the frame handed to the
         # swapchain. ``prepare_frame`` can run several queued frames ahead.
-        self._latest_taxi_frame = frame
+        self._latest_presented_frame = frame
         try:
             cuda_presented = (
                 self._present_cuda_hud_frame(frame, rgb, flare_opacity=flare_opacity)
@@ -711,7 +711,7 @@ class SlangPyHudPresenter:
         if process_events:
             self.process_events()
         self.set_engine_active(True)
-        self._latest_taxi_frame = None
+        self._latest_presented_frame = None
         self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
@@ -1379,8 +1379,8 @@ class SlangPyHudPresenter:
             camera_drawn = True
         elif self._latest_camera_pil is not None:
             taxi_overlay_active = (
-                getattr(self, "_latest_taxi_frame", None) is not None
-                and self._latest_taxi_frame.taxi_game_snapshot is not None
+                getattr(self, "_latest_presented_frame", None) is not None
+                and self._latest_presented_frame.taxi_game_snapshot is not None
             )
             if (
                 status_message is None
@@ -1428,7 +1428,7 @@ class SlangPyHudPresenter:
             self._draw_panel(canvas, draw, panel_rect, wheel_state)
 
         self._draw_taxi_world_marker(
-            draw, camera_area, getattr(self, "_latest_taxi_frame", None)
+            draw, camera_area, getattr(self, "_latest_presented_frame", None)
         )
         self._draw_taxi_hud(draw, camera_area)
 
@@ -1447,7 +1447,11 @@ class SlangPyHudPresenter:
         draw: ImageDraw.ImageDraw,
         camera_area: tuple[int, int, int, int],
     ) -> None:
-        snapshot = self._keyboard.taxi_game_state
+        frame = getattr(self, "_latest_presented_frame", None)
+        snapshot = None if frame is None else frame.taxi_game_snapshot
+        live_snapshot = self._keyboard.taxi_game_state
+        if live_snapshot is not None and live_snapshot.session_state != "playing":
+            snapshot = live_snapshot
         if snapshot is None:
             return
         if snapshot.session_state != self._last_taxi_session_state:
@@ -2467,10 +2471,11 @@ class SlangPyHudPresenter:
         inner_h: int,
         marker_size: int,
     ) -> None:
-        keyboard = getattr(self, "_keyboard", None)
-        if keyboard is None:
+        frame = getattr(self, "_latest_presented_frame", None)
+        if frame is None:
             return
-        vehicle_state, snapshot = keyboard.runtime_state
+        vehicle_state = frame.vehicle_state
+        snapshot = frame.taxi_game_snapshot
         bev = self._bev_config
         if vehicle_state is None or snapshot is None or bev is None or not bev.enabled:
             return
@@ -2697,11 +2702,11 @@ class SlangPyHudPresenter:
         return False
 
     def _update_speed(self, wheel_state: Any) -> None:
-        # Drive the digit from the authoritative ego speed
-        # (``KeyboardState.vehicle_state``, same source as the MJPEG /state),
-        # not the HUD's ``target_speed_mps`` integrator which drifts and never
-        # resets on R/respawn. Magnitude only; reverse shows via the "R" box.
-        telemetry = self._keyboard.vehicle_state
+        # Read the state attached to the displayed camera frame. The simulation
+        # can already be generating the next chunk, so live telemetry is ahead
+        # of the image and must not drive presentation chrome.
+        frame = getattr(self, "_latest_presented_frame", None)
+        telemetry = None if frame is None else frame.vehicle_state
         if telemetry is not None:
             target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
         else:
@@ -3209,7 +3214,7 @@ class SlangPyHudPresenter:
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
         self._latest_camera_pil = None
-        self._latest_taxi_frame = None
+        self._latest_presented_frame = None
         self._latest_bev_source = None
         self._prepared_bev_source_key = None
         self._bev_source_generation = 0

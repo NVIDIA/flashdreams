@@ -18,7 +18,10 @@ from omnidreams.interactive_drive.high_scores import (
     HighScoreStore,
     default_high_scores_path,
 )
-from omnidreams.interactive_drive.math3d import invert_transform, rig_pose_from_state
+from omnidreams.interactive_drive.math3d import (
+    invert_transform,
+    level_rig_pose_from_vehicle_state,
+)
 from omnidreams.interactive_drive.types import TrajectoryChunk, VehicleState
 
 if TYPE_CHECKING:
@@ -300,14 +303,7 @@ def project_target_to_bev(
         ],
         dtype=np.float32,
     )
-    rig_to_world = rig_pose_from_state(
-        x_m=vehicle_state.x_m,
-        y_m=vehicle_state.y_m,
-        z_m=vehicle_state.z_m,
-        yaw_rad=vehicle_state.yaw_rad,
-        pitch_rad=vehicle_state.pitch_rad,
-        roll_rad=vehicle_state.roll_rad,
-    )
+    rig_to_world = level_rig_pose_from_vehicle_state(vehicle_state)
     world_to_sensor = invert_transform(rig_to_world @ sensor_to_rig)
     target_h = np.array([*target_xyz_m, 1.0], dtype=np.float32)
     target_sensor_flu = (world_to_sensor @ target_h)[:3]
@@ -488,16 +484,14 @@ class TaxiGameController:
         if frame_interval_s < 0.0:
             raise ValueError("Taxi frame interval must be non-negative.")
         snapshots: list[TaxiGameSnapshot] = []
-        for pose in trajectory.rig_poses_world:
+        for vehicle_state in trajectory.vehicle_states:
+            x_m = vehicle_state.x_m
+            y_m = vehicle_state.y_m
+            yaw_rad = vehicle_state.yaw_rad
             if self._session_state != "playing":
-                x_m = float(pose[0, 3])
-                y_m = float(pose[1, 3])
-                yaw_rad = math.atan2(float(pose[1, 0]), float(pose[0, 0]))
                 snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
                 continue
             self._advance_banner(frame_interval_s)
-            x_m = float(pose[0, 3])
-            y_m = float(pose[1, 3])
             target = self._waypoints[self._target_index]
             distance = math.hypot(
                 float(target.xyz_m[0]) - x_m, float(target.xyz_m[1]) - y_m
@@ -521,7 +515,6 @@ class TaxiGameController:
             if self._global_remaining_time_s <= 0.0:
                 self._end_game()
 
-            yaw_rad = math.atan2(float(pose[1, 0]), float(pose[0, 0]))
             snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
         return tuple(snapshots)
 

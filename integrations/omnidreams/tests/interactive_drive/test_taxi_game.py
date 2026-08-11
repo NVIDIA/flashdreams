@@ -11,6 +11,7 @@ import pytest
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
 from omnidreams.interactive_drive.high_scores import HighScoreStore
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.taxi_game import (
     TaxiGameConfig,
     TaxiGameController,
@@ -38,15 +39,13 @@ def _state(x_m: float = 0.0, y_m: float = 0.0, yaw_rad: float = 0.0) -> VehicleS
 
 
 def _trajectory(*positions_xy: tuple[float, float]) -> TrajectoryChunk:
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], len(positions_xy), axis=0)
-    for pose, (x_m, y_m) in zip(poses, positions_xy, strict=True):
-        pose[0, 3] = x_m
-        pose[1, 3] = y_m
-    boundary_x, boundary_y = positions_xy[-1]
+    states = tuple(_state(x_m, y_m) for x_m, y_m in positions_xy)
+    poses = np.stack([rig_pose_from_vehicle_state(state) for state in states])
     return TrajectoryChunk(
         timestamps_us=np.arange(len(positions_xy), dtype=np.int64),
         rig_poses_world=poses,
-        boundary_state_after_chunk=_state(boundary_x, boundary_y),
+        vehicle_states=states,
+        boundary_state_after_chunk=states[-1],
     )
 
 

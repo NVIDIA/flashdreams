@@ -585,6 +585,12 @@ oriented HD-map boxes for both RGB and BEV/model inputs. The first topology
 change replaces one scene slot; subsequent chunks update the actor cube pool in
 place without clearing static map or camera buffers.
 
+Each simulated frame also carries its authoritative ego state alongside the rig
+pose derived from that state. Camera conditioning, the current BEV, native HUD,
+MJPEG telemetry, taxi arrow, and waypoint projection all consume that same
+frame record. The runtime may simulate the next chunk ahead of presentation,
+but presentation never reads that future boundary state for current visuals.
+
 ``GameEntity.to_game_engine_dict()`` and
 ``DynamicActorTrajectory.to_game_engine_dict()`` expose JSON-compatible
 component data and timestamped transform keyframes for an external game engine.

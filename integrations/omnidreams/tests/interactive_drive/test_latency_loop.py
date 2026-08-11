@@ -16,6 +16,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     minimal_scene,
 )
 from omnidreams.interactive_drive.input.backend import SampledInput
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
     _advance_present_deadline,
@@ -326,12 +327,16 @@ def test_chunk_request_gates_physx_debug_capture_on_view_mode(
 
 
 def _completed_fare_trajectory() -> TrajectoryChunk:
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
-    poses[0, 0, 3] = 100.0
-    return TrajectoryChunk(
-        timestamps_us=np.array([0, 1], dtype=np.int64),
-        rig_poses_world=poses,
-        boundary_state_after_chunk=VehicleState(
+    states = (
+        VehicleState(
+            x_m=100.0,
+            y_m=0.0,
+            z_m=0.0,
+            yaw_rad=0.0,
+            speed_mps=0.0,
+            steer_rad=0.0,
+        ),
+        VehicleState(
             x_m=0.0,
             y_m=0.0,
             z_m=0.0,
@@ -339,6 +344,13 @@ def _completed_fare_trajectory() -> TrajectoryChunk:
             speed_mps=0.0,
             steer_rad=0.0,
         ),
+    )
+    poses = np.stack([rig_pose_from_vehicle_state(state) for state in states])
+    return TrajectoryChunk(
+        timestamps_us=np.array([0, 1], dtype=np.int64),
+        rig_poses_world=poses,
+        vehicle_states=states,
+        boundary_state_after_chunk=states[-1],
     )
 
 

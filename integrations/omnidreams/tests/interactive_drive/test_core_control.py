@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.demo import KeyboardDriveState
 from omnidreams.interactive_drive.input.keyboard import command_from_snapshot
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.simulation.components import (
     vehicle_dynamics_from_config,
 )
@@ -19,6 +21,7 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
     DriverCommand,
+    TrajectoryChunk,
     VehicleState,
 )
 
@@ -144,8 +147,31 @@ def test_sample_chunk_trajectory_advances_pose_and_time() -> None:
 
     assert list(chunk.timestamps_us) == [1000, 101000, 201000, 301000]
     assert chunk.rig_poses_world.shape == (4, 4, 4)
+    assert len(chunk.vehicle_states) == 4
+    assert chunk.boundary_state_after_chunk == chunk.vehicle_states[-1]
+    for pose, vehicle_state in zip(
+        chunk.rig_poses_world, chunk.vehicle_states, strict=True
+    ):
+        np.testing.assert_allclose(
+            pose, rig_pose_from_vehicle_state(vehicle_state), atol=1.0e-6
+        )
     assert chunk.boundary_state_after_chunk.x_m > 0.0
     assert chunk.boundary_state_after_chunk.speed_mps > 0.0
+
+
+def test_trajectory_chunk_rejects_pose_from_a_different_vehicle_state() -> None:
+    state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    mismatched_pose = rig_pose_from_vehicle_state(
+        VehicleState(10.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    )[None]
+
+    with pytest.raises(ValueError, match="matching vehicle_states"):
+        TrajectoryChunk(
+            timestamps_us=np.array([0], dtype=np.int64),
+            rig_poses_world=mismatched_pose,
+            vehicle_states=(state,),
+            boundary_state_after_chunk=state,
+        )
 
 
 def test_manual_brake_overrides_throttle_to_a_stop() -> None:

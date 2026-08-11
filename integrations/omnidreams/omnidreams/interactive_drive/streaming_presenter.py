@@ -10,7 +10,6 @@ graphics GPU; prefer the centralized ``webrtc`` mode for a richer viewer.
 
 from __future__ import annotations
 
-import concurrent.futures
 import contextlib
 import json
 import math as _math
@@ -794,11 +793,7 @@ class MJPEGStreamingPresenter:
         # clients of /bev_stream can paginate at a different rate than
         # /stream (e.g. if the HUD process throttles).
         self._bev_frame_bus = LatestFrameBus[bytes]()
-        self._bev_publish_exec = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="interactive_drive-bev-publish",
-        )
-        self._bev_publish_future: concurrent.futures.Future[None] | None = None
+        self._latest_presented_frame: PresentedFrame | None = None
         # Scene options surfaced to the browser dropdown via /scenes.
         # Each entry is a dict with ``label``, ``path``, ``variants``;
         # the demo wrapper builds these from its scene-discovery layer
@@ -953,6 +948,7 @@ class MJPEGStreamingPresenter:
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
         self._keyboard = keyboard
+        self._latest_presented_frame = None
         self._keyboard_drive = self._keyboard_drive_factory(
             _KeyboardDriveSink(keyboard)
         )
@@ -1001,6 +997,7 @@ class MJPEGStreamingPresenter:
             return
         visual_flare = getattr(self, "_visual_flare", None)
         flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
+        self._latest_presented_frame = frame
 
         def with_flare(rgb: object) -> np.ndarray:
             return darken_rgb(_as_rgb_host_uint8(rgb), flare_opacity)
@@ -1026,15 +1023,10 @@ class MJPEGStreamingPresenter:
         image = self._with_taxi_world_marker(image, frame)
         self._publish(with_flare(image))
         if frame.bev_host_uint8 is not None:
-            self._submit_bev_publish(frame.bev_host_uint8)
+            self._publish_bev(frame.bev_host_uint8)
 
     def close(self) -> None:
         self._stop_event.set()
-        future = self._bev_publish_future
-        if future is not None:
-            with contextlib.suppress(Exception):
-                future.result(timeout=1.0)
-        self._bev_publish_exec.shutdown(wait=True, cancel_futures=True)
         self._frame_bus.close()
         self._bev_frame_bus.close()
         self._server.shutdown()
@@ -1139,18 +1131,6 @@ class MJPEGStreamingPresenter:
         )
         return np.asarray(image)
 
-    def _submit_bev_publish(self, bev_rgb_host_uint8: object) -> None:
-        future = self._bev_publish_future
-        if future is not None:
-            if not future.done():
-                return
-            with contextlib.suppress(Exception):
-                future.result()
-        self._bev_publish_future = self._bev_publish_exec.submit(
-            self._publish_bev,
-            bev_rgb_host_uint8,
-        )
-
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
 
@@ -1212,7 +1192,12 @@ class MJPEGStreamingPresenter:
         Returns ``None`` fields before the first chunk so the browser shows
         ``--`` instead of a stale zero.
         """
-        vehicle_state, taxi_state = self._keyboard.runtime_state
+        frame = self._latest_presented_frame
+        vehicle_state = None if frame is None else frame.vehicle_state
+        taxi_state = None if frame is None else frame.taxi_game_snapshot
+        live_taxi_state = self._keyboard.taxi_game_state
+        if live_taxi_state is not None and live_taxi_state.session_state != "playing":
+            taxi_state = live_taxi_state
         result: dict[str, object] = {
             "speed_mps": None,
             "steer_rad": None,
