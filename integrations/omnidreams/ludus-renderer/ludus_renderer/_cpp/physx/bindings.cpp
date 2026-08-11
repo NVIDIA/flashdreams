@@ -1207,13 +1207,14 @@ private:
             PxForceMode::eFORCE,
             true);
 
-        if (body.handbrakeActive) {
-            // An arcade handbrake must keep rotating the chassis while the
-            // locked rear axle sheds speed. Blend the yaw velocity directly so
-            // tire forces can still perturb it within each PhysX substep, but
-            // cannot make the handbrake feel weaker than the service brake.
+        if (body.handbrakeActive || body.steeringActive) {
+            // Blend active steering toward the arcade controller's yaw target
+            // directly. Tire and contact forces can still perturb the chassis
+            // within each PhysX substep, but cannot make ordinary steering
+            // stiffness depend on leftover collision or side-slip momentum.
             PxVec3 angularVelocity = actor->getAngularVelocity();
-            const float yawResponse = 1.0f - std::exp(-16.0f * dt);
+            const float responseRate = body.handbrakeActive ? 16.0f : 10.0f;
+            const float yawResponse = 1.0f - std::exp(-responseRate * dt);
             angularVelocity.z +=
                 (body.desiredAngularVelocity.z - angularVelocity.z) * yawResponse;
             actor->setAngularVelocity(angularVelocity, true);
