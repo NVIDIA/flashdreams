@@ -4,10 +4,6 @@
 import threading
 import time
 
-from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
-from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
-    validate_player_name,
-)
 from omnidreams.interactive_drive.input.backend import InputBackend, SampledInput
 from omnidreams.interactive_drive.types import (
     ControlSnapshot,
@@ -53,14 +49,6 @@ class KeyboardState:
         # produced a chunk yet (warmup window) -- callers render an empty
         # speed readout in that case.
         self._vehicle_state: VehicleState | None = None
-        self._taxi_game_state: TaxiGameSnapshot | None = None
-        self._taxi_name_submission: str | None = None
-        self._taxi_controls_enabled = False
-
-    def enable_taxi_controls(self) -> None:
-        """Enable Taxi-only handbrake and brake-to-reverse input mapping."""
-        with self._lock:
-            self._taxi_controls_enabled = True
 
     def set_key(self, name: str, down: bool) -> None:
         with self._lock:
@@ -81,30 +69,6 @@ class KeyboardState:
         """Request a return to the scene selector from a bound device button."""
         with self._lock:
             self._exit_scene_pending = True
-
-    def submit_taxi_name(self, name: str) -> bool:
-        """Validate and queue one high-score name submission.
-
-        Args:
-            name: Candidate player name from a presenter.
-
-        Returns:
-            ``True`` when the name was valid and queued.
-        """
-        try:
-            normalized = validate_player_name(name)
-        except ValueError:
-            return False
-        with self._lock:
-            self._taxi_name_submission = normalized
-        return True
-
-    def consume_taxi_name_submission(self) -> str | None:
-        """Return and clear the pending high-score name submission."""
-        with self._lock:
-            name = self._taxi_name_submission
-            self._taxi_name_submission = None
-            return name
 
     def consume_exit_scene_request(self) -> bool:
         with self._lock:
@@ -140,14 +104,6 @@ class KeyboardState:
         with self._lock:
             self._vehicle_state = state
 
-    def update_runtime_state(
-        self, state: VehicleState, taxi_game_state: TaxiGameSnapshot | None
-    ) -> None:
-        """Publish vehicle and taxi state as one coherent runtime snapshot."""
-        with self._lock:
-            self._vehicle_state = state
-            self._taxi_game_state = taxi_game_state
-
     def clear_telemetry(self) -> None:
         """Drop the published vehicle state (back to the pre-first-chunk state).
 
@@ -157,28 +113,12 @@ class KeyboardState:
         """
         with self._lock:
             self._vehicle_state = None
-            self._taxi_game_state = None
-            self._taxi_name_submission = None
 
     @property
     def vehicle_state(self) -> VehicleState | None:
         """Most-recent simulation snapshot, or ``None`` before the first chunk."""
         with self._lock:
             return self._vehicle_state
-
-    @property
-    def taxi_game_state(self) -> TaxiGameSnapshot | None:
-        """Most-recent taxi-game snapshot, or ``None`` when the mode is inactive."""
-        with self._lock:
-            return self._taxi_game_state
-
-    @property
-    def runtime_state(
-        self,
-    ) -> tuple[VehicleState | None, TaxiGameSnapshot | None]:
-        """Return vehicle and taxi state from the same publication lock."""
-        with self._lock:
-            return self._vehicle_state, self._taxi_game_state
 
     def consume_reset_request(self) -> bool:
         with self._lock:
@@ -202,22 +142,8 @@ class KeyboardState:
                 None,
             )
             pressed = set(self._keyboard.snapshot())
-            taxi_game_state = self._taxi_game_state
-            taxi_controls_enabled = self._taxi_controls_enabled
-        if taxi_game_state is not None and taxi_game_state.session_state != "playing":
-            return DriverCommand()
         if drive_command is not None:
             if "space" in pressed:
-                if taxi_controls_enabled:
-                    return DriverCommand(
-                        throttle=0.0,
-                        brake=drive_command.brake,
-                        steer=drive_command.steer,
-                        handbrake=True,
-                        reverse=drive_command.reverse,
-                        steer_is_direct=drive_command.steer_is_direct,
-                        manual_control=drive_command.manual_control,
-                    )
                 return DriverCommand(
                     throttle=0.0,
                     brake=1.0,
@@ -228,8 +154,6 @@ class KeyboardState:
                     manual_control=drive_command.manual_control,
                 )
             return drive_command
-        if taxi_controls_enabled:
-            return taxi_command_from_snapshot(ControlSnapshot(pressed=pressed))
         return command_from_snapshot(ControlSnapshot(pressed=pressed))
 
 
@@ -237,6 +161,9 @@ def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
     pressed = {normalize_key(key) for key in snapshot.pressed}
     forward = bool({"w", "up"} & pressed)
     reverse = bool({"s", "down"} & pressed)
+    # Keyboard driving uses the conventional arcade mapping: S/down applies
+    # throttle in the opposite direction, while pressing both directions
+    # requests a brake. Space remains the immediate stop control handled below.
     opposing_directions = forward and reverse
     throttle = 1.0 if forward != reverse else 0.0
     brake = 1.0 if opposing_directions else 0.0
@@ -251,18 +178,6 @@ def command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
         steer=steer,
         stop="space" in pressed,
         reverse=reverse and not forward,
-    )
-
-
-def taxi_command_from_snapshot(snapshot: ControlSnapshot) -> DriverCommand:
-    """Map raw keys to Taxi-only brake-to-reverse and handbrake controls."""
-    pressed = {normalize_key(key) for key in snapshot.pressed}
-    steer = float(bool({"a", "left"} & pressed)) - float(bool({"d", "right"} & pressed))
-    return DriverCommand(
-        throttle=1.0 if {"w", "up"} & pressed else 0.0,
-        brake=1.0 if {"s", "down"} & pressed else 0.0,
-        steer=steer,
-        handbrake="space" in pressed,
     )
 
 

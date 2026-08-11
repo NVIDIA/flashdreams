@@ -109,7 +109,7 @@ def test_taxi_physics_keeps_app_heading_after_contact_resolution() -> None:
     world = object.__new__(TaxiPhysicsWorld)
     with (
         patch.object(GamePhysicsWorld, "step", return_value=(physx_state, ())),
-        patch.object(TaxiPhysicsWorld, "_synchronize_native_ego") as synchronize,
+        patch.object(TaxiPhysicsWorld, "synchronize_ego_state") as synchronize,
     ):
         resolved, _samples = world.step(incoming, timestamp_us=1, dt_s=1.0 / 30.0)
 
@@ -149,7 +149,7 @@ def test_taxi_handbrake_keeps_arcade_velocity_without_contact() -> None:
     world = object.__new__(TaxiPhysicsWorld)
     with (
         patch.object(GamePhysicsWorld, "step", return_value=(physx_state, ())),
-        patch.object(TaxiPhysicsWorld, "_synchronize_native_ego"),
+        patch.object(TaxiPhysicsWorld, "synchronize_ego_state"),
     ):
         resolved, _samples = world.step_with_command(
             incoming,

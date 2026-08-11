@@ -774,10 +774,17 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     wheel binds once to the app's single ``KeyboardState``.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
-    from omnidreams.interactive_drive.slangpy_hud_presenter import (
-        KeyboardStateDriveSink,
-        SlangPyHudPresenter,
-    )
+
+    if getattr(args, "taxi_game", False):
+        from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
+            KeyboardStateDriveSink,
+            SlangPyHudPresenter,
+        )
+    else:
+        from omnidreams.interactive_drive.slangpy_hud_presenter import (
+            KeyboardStateDriveSink,
+            SlangPyHudPresenter,
+        )
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
@@ -834,9 +841,10 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # the presenter to it; scenes are switched in place via
     # ``app.load_scene`` so the warmed model is never rebuilt.
     config, backend = _cli.prepare_config_and_backend(args)
-    app = InteractiveDriveApp(
-        config=config,
-        backend=backend,
+    app = _build_application(
+        args,
+        config,
+        backend,
         presenter=presenter,
         close_presenter_on_exit=False,
     )
@@ -936,10 +944,17 @@ def _run_streaming(args: argparse.Namespace) -> None:
     serialised to JSON for the in-browser ``/scenes`` dropdown.
     """
     from omnidreams.interactive_drive.input.keyboard import KeyboardState
-    from omnidreams.interactive_drive.streaming_presenter import (
-        MJPEGStreamingPresenter,
-        parse_bind,
-    )
+
+    if getattr(args, "taxi_game", False):
+        from omnidreams.interactive_drive.crazy_robotaxi.streaming_presenter import (
+            MJPEGStreamingPresenter,
+            parse_bind,
+        )
+    else:
+        from omnidreams.interactive_drive.streaming_presenter import (
+            MJPEGStreamingPresenter,
+            parse_bind,
+        )
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
@@ -1008,9 +1023,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
     # switches scenes in place via ``app.load_scene``, keeping the warmed
     # model resident across scene changes.
     config, backend = _cli.prepare_config_and_backend(args)
-    app = InteractiveDriveApp(
-        config=config,
-        backend=backend,
+    app = _build_application(
+        args,
+        config,
+        backend,
         presenter=presenter,
         close_presenter_on_exit=False,
     )
@@ -1085,6 +1101,36 @@ def _run_streaming(args: argparse.Namespace) -> None:
     finally:
         app.shutdown()
         presenter.close()
+
+
+def _build_application(
+    args: argparse.Namespace,
+    config: Any,
+    backend: Any,
+    *,
+    presenter: Any,
+    close_presenter_on_exit: bool,
+) -> InteractiveDriveApp:
+    """Construct the selected app without leaking its policy into the engine."""
+    if getattr(args, "taxi_game", False):
+        from omnidreams.interactive_drive.crazy_robotaxi.app import (
+            CrazyRobotaxiApp,
+            taxi_config_from_args,
+        )
+
+        return CrazyRobotaxiApp(
+            config=config,
+            taxi_config=taxi_config_from_args(args),
+            backend=backend,
+            presenter=presenter,
+            close_presenter_on_exit=close_presenter_on_exit,
+        )
+    return InteractiveDriveApp(
+        config=config,
+        backend=backend,
+        presenter=presenter,
+        close_presenter_on_exit=close_presenter_on_exit,
+    )
 
 
 def _apply_cuda_visible_devices_inplace(requested: str) -> None:

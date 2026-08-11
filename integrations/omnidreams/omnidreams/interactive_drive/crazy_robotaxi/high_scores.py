@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import csv
-import fcntl
 import os
 import re
 import tempfile
@@ -14,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from filelock import FileLock
 from loguru import logger
 
 _CSV_FIELDS = ("name", "score", "achieved_at_utc")
@@ -89,12 +89,8 @@ class HighScoreStore:
         if not self._path.exists():
             return ()
         try:
-            with self._lock_path.open("a+") as lock_file:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
-                try:
-                    return self._read_unlocked()
-                finally:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            with FileLock(self._lock_path):
+                return self._read_unlocked()
         except OSError as exc:
             logger.warning(f"[taxi] could not lock high scores at {self._path}: {exc}")
             return self._read_unlocked()
@@ -134,20 +130,16 @@ class HighScoreStore:
         )
         entry = HighScoreEntry(normalized_name, int(score), timestamp)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock_path.open("a+") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                entries = list(self._read_unlocked())
-                inserted: HighScoreEntry | None = entry
-                if len(entries) >= self._limit and score <= entries[-1].score:
-                    inserted = None
-                else:
-                    entries.append(entry)
-                board = self._sort(entries)
-                self._write_unlocked(board)
-                return inserted, board
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        with FileLock(self._lock_path):
+            entries = list(self._read_unlocked())
+            inserted: HighScoreEntry | None = entry
+            if len(entries) >= self._limit and score <= entries[-1].score:
+                inserted = None
+            else:
+                entries.append(entry)
+            board = self._sort(entries)
+            self._write_unlocked(board)
+            return inserted, board
 
     def _read_unlocked(self) -> tuple[HighScoreEntry, ...]:
         if not self._path.exists():

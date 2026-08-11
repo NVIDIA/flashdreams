@@ -11,8 +11,11 @@ import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
-from omnidreams.interactive_drive.scene_loader import (
+from omnidreams.interactive_drive.crazy_robotaxi.scene import (
     _build_lane_centerlines,
+    load_scene_data,
+)
+from omnidreams.interactive_drive.scene_loader import (
     _discover_prompts,
     load_scene_bundle,
 )
@@ -85,11 +88,12 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert bundle.selected_camera.logical_name == "camera_front_wide_120fov"
     assert bundle.initial_rgb.shape == (352, 640, 3)
     assert bundle.initial_timestamp_us > 0
-    assert bundle.reference_route_world.ndim == 2
-    assert bundle.reference_route_world.shape[1] == 3
-    assert len(bundle.reference_route_world) >= 2
-    assert len(bundle.navigation_routes_world) > 100
-    navigation_points = np.concatenate(bundle.navigation_routes_world, axis=0)
+    scene_data = load_scene_data(bundle)
+    assert scene_data.reference_route_world.ndim == 2
+    assert scene_data.reference_route_world.shape[1] == 3
+    assert len(scene_data.reference_route_world) >= 2
+    assert len(scene_data.navigation_routes_world) > 100
+    navigation_points = np.concatenate(scene_data.navigation_routes_world, axis=0)
     assert np.ptp(navigation_points[:, 0]) > 200.0
     assert np.ptp(navigation_points[:, 1]) > 200.0
     assert len(bundle.line_layers) > 0

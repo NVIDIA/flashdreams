@@ -18,6 +18,9 @@ import numpy as np
 import omnidreams.interactive_drive.simulation.ego_vehicle_kinematics as kinematics_module
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
+from omnidreams.interactive_drive.crazy_robotaxi.app import (
+    settle_invalid_ground_attitude,
+)
 from omnidreams.interactive_drive.ply_io import load_mesh_vf, save_mesh_vf
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle
@@ -204,7 +207,10 @@ def test_snap_off_mesh_returns_input_unchanged() -> None:
 
 
 def test_snap_off_mesh_settles_stale_ground_attitude() -> None:
-    snapper = GroundSnapper(*_sloped_ground(pitch_deg=5.0, half_extent=5.0))
+    snapper = GroundSnapper(
+        *_sloped_ground(pitch_deg=5.0, half_extent=5.0),
+        invalid_sample_handler=settle_invalid_ground_attitude,
+    )
     vehicle = VehicleConfig()
     tilted = snapper.snap(_state(z=2.0), vehicle)
     assert abs(tilted.pitch_rad) > math.radians(4.0)
@@ -258,7 +264,12 @@ def test_snap_rotation_threshold_rejects_steep_slope() -> None:
 
 
 def test_snap_rotation_threshold_cannot_accumulate_permanent_tilt() -> None:
-    snapper = GroundSnapper(*_sloped_ground(pitch_deg=12.0), max_rotation_deg=10.0)
+    snapper = GroundSnapper(
+        *_sloped_ground(pitch_deg=12.0),
+        max_rotation_deg=10.0,
+        max_absolute_rotation_deg=10.0,
+        invalid_sample_handler=settle_invalid_ground_attitude,
+    )
     vehicle = VehicleConfig()
     stale_tilt = _state(z=0.0, pitch=-math.radians(8.0))
 
@@ -371,7 +382,10 @@ def test_sample_chunk_trajectory_with_snapper_follows_slope() -> None:
 
 
 def test_sample_chunk_trajectory_levels_stale_attitude_off_mesh() -> None:
-    snapper = GroundSnapper(*_flat_ground(z=0.0, half_extent=2.0))
+    snapper = GroundSnapper(
+        *_flat_ground(z=0.0, half_extent=2.0),
+        invalid_sample_handler=settle_invalid_ground_attitude,
+    )
     state = _state(
         x=500.0,
         y=500.0,

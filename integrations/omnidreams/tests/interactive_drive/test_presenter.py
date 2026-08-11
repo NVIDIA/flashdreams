@@ -11,6 +11,12 @@ import numpy as np
 import pytest
 import torch
 from omnidreams.interactive_drive.config import BevConfig
+from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
+    SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.input import (
+    CrazyRobotaxiKeyboardState,
+)
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
@@ -65,8 +71,8 @@ def test_hud_keyboard_drive_overrides_connected_wheel_while_key_is_held() -> Non
 
 
 def test_hud_taxi_name_entry_accepts_characters_backspace_and_enter() -> None:
-    presenter = _hud_presenter_without_window()
-    presenter._keyboard = KeyboardState()
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._keyboard = CrazyRobotaxiKeyboardState()
     presenter._taxi_name_buffer = ""
     presenter._key_codes = {
         "name_a": "a",
@@ -593,7 +599,7 @@ def test_hud_prepare_frame_does_not_advance_taxi_display_state() -> None:
 
 
 def test_hud_present_frame_latches_taxi_state_before_render() -> None:
-    presenter = _hud_presenter_without_window()
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
     rendered_frames: list[PresentedFrame | None] = []
     frame = PresentedFrame(
         timestamp_us=1,
@@ -614,7 +620,7 @@ def test_hud_present_frame_latches_taxi_state_before_render() -> None:
 
 
 def test_hud_speed_uses_displayed_state_instead_of_future_telemetry() -> None:
-    presenter = _hud_presenter_without_window()
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
     presenter._keyboard = KeyboardState()
     presenter._keyboard.update_telemetry(VehicleState(20.0, 0.0, 0.0, 1.0, 30.0, 0.0))
     displayed_state = VehicleState(2.0, 0.0, 0.0, 0.1, 4.0, 0.0)

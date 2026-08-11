@@ -271,36 +271,47 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
 
 
-def test_raster_facade_renders_all_current_views_from_one_pose_batch() -> None:
+def test_lagged_bev_poll_does_not_wait_for_in_flight_render() -> None:
     rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
-    timestamps = np.array([1, 2], dtype=np.int64)
-    expected = object()
-    calls: list[tuple[object, ...]] = []
+    pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
+        concurrent.futures.Future()
+    )
+    latest = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.zeros((1, 1, 1, 3), dtype=torch.uint8),
+        ready_event=None,
+    )
+    latest_poses = np.eye(4, dtype=np.float32)[None]
+    rasterizer._pending_bev = pending
+    rasterizer._pending_bev_poses = None
+    rasterizer._latest_bev = latest
+    rasterizer._latest_bev_poses = latest_poses
 
-    class _Impl:
-        def render_chunk(self, *args, **kwargs):
-            calls.append((*args, kwargs))
-            return expected
-
-    class _Executor:
-        def submit(self, function, *args, **kwargs):
-            future: concurrent.futures.Future[object] = concurrent.futures.Future()
-            future.set_result(function(*args, **kwargs))
-            return future
-
-    rasterizer._exec = _Executor()
-    rasterizer._impl = _Impl()
-
-    result = rasterizer.render_chunk(poses, timestamps)
-
-    assert result is expected
-    assert len(calls) == 1
-    assert calls[0][0] is poses
-    assert calls[0][1] is timestamps
+    assert rasterizer._poll_ready_bev() == (latest, latest_poses)
+    assert rasterizer._pending_bev is pending
 
 
-def test_build_chunk_rejects_bev_from_a_different_pose_batch() -> None:
+def test_lagged_bev_poll_promotes_completed_render_and_source_poses() -> None:
+    rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
+    pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
+        concurrent.futures.Future()
+    )
+    rendered = _RenderedCameraFrames(
+        frames_hwc_uint8=torch.ones((1, 1, 1, 3), dtype=torch.uint8),
+        ready_event=None,
+    )
+    poses = np.eye(4, dtype=np.float32)[None]
+    pending.set_result(rendered)
+    rasterizer._pending_bev = pending
+    rasterizer._pending_bev_poses = poses
+    rasterizer._latest_bev = None
+    rasterizer._latest_bev_poses = None
+
+    assert rasterizer._poll_ready_bev() == (rendered, poses)
+    assert rasterizer._pending_bev is None
+    assert rasterizer._pending_bev_poses is None
+
+
+def test_build_chunk_resamples_lagged_bev_and_preserves_source_pose() -> None:
     impl = _impl_for_render_chunk(use_cuda_frames=True)
     rgb_frames = _RenderedCameraFrames(
         frames_hwc_uint8=torch.zeros((7, 1, 1, 3), dtype=torch.uint8),
@@ -311,9 +322,17 @@ def test_build_chunk_rejects_bev_from_a_different_pose_batch() -> None:
         ready_event=None,
     )
 
-    with pytest.raises(ValueError, match="BEV render count"):
-        impl.build_chunk(
-            timestamps_us=np.arange(7, dtype=np.int64),
-            rgb_frames=rgb_frames,
-            bev_frames=bev_frames,
-        )
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 5, axis=0)
+    poses[:, 0, 3] = np.arange(5)
+    chunk = impl.build_chunk(
+        timestamps_us=np.arange(7, dtype=np.int64),
+        rgb_frames=rgb_frames,
+        bev_frames=bev_frames,
+        bev_rig_poses_world=poses,
+    )
+
+    bev_values = [
+        int(frame.bev_host_uint8.to_cuda_tensor()[0, 0, 0]) for frame in chunk.frames
+    ]
+    assert bev_values == [0, 1, 1, 2, 3, 3, 4]
+    assert [frame.bev_rig_to_world[0, 3] for frame in chunk.frames] == bev_values

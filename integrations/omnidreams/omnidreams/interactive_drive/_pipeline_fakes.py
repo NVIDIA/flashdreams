@@ -47,9 +47,6 @@ def minimal_scene() -> SceneBundle:
         initial_timestamp_us=0,
         initial_yaw_rad=0.0,
         initial_speed_mps=0.0,
-        reference_route_world=np.array(
-            [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32
-        ),
         initial_rgb=np.zeros((4, 4, 3), dtype=np.uint8),
         prompt="",
         line_layers=(),

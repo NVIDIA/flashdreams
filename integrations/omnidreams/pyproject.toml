@@ -53,6 +53,7 @@ dependencies = [
     "tqdm>=4.67",
     "transformers>=5.0,<6",
     "huggingface_hub>=0.24",
+    "filelock>=3",
     # NVENC hardware H.264 encoding for the WebRTC path via
     # ``flashdreams.serving.webrtc.encoders.PyNvHardwareEncoder``. Not
     # optional: omnidreams already requires CUDA at runtime, so the
