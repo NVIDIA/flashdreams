@@ -11,7 +11,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -129,7 +129,9 @@ class HighScoreStore:
         normalized_name = validate_player_name(name)
         if score <= 0:
             return None, self.read()
-        timestamp = achieved_at_utc or datetime.now(UTC).isoformat(timespec="seconds")
+        timestamp = achieved_at_utc or datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        )
         entry = HighScoreEntry(normalized_name, int(score), timestamp)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock_path.open("a+") as lock_file:
