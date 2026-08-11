@@ -10,14 +10,16 @@ import math
 from dataclasses import replace
 
 import numpy as np
+from loguru import logger
 from ludus_renderer import RigidBodyModel
 from omnidreams.interactive_drive.config import VehicleConfig
 from omnidreams.interactive_drive.simulation.components import canonical_object_type
 from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
-from omnidreams.interactive_drive.types import SceneBundle, VehicleState
+from omnidreams.interactive_drive.types import DriverCommand, SceneBundle, VehicleState
 
 _MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
 _CHASSIS_INSET_M = 0.16
+_EGO_NATIVE_ID = 0
 
 
 def select_traffic_tracks(
@@ -84,26 +86,34 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         )
         taxi_scene = replace(scene, vehicle_bbox_tracks=selected_tracks)
         super().__init__(taxi_scene, vehicle, model_adapter=inset_vehicle_chassis)
+        logger.info(
+            "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
+            "arcade handbrake, inset chassis, traffic_density={:.2f}",
+            traffic_density,
+        )
 
-    def step(
+    def step_with_command(
         self,
         state: VehicleState,
+        command: DriverCommand,
         timestamp_us: int,
         dt_s: float,
     ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
-        """Keep contact translation and velocity while preserving Taxi heading."""
+        """Resolve contacts while keeping Taxi drive intent authoritative."""
         resolved, samples = super().step(state, timestamp_us, dt_s)
+        if command.handbrake and not resolved.ragdoll_active:
+            velocity_x_mps = state.velocity_x_mps
+            velocity_y_mps = state.velocity_y_mps
+        else:
+            velocity_x_mps = resolved.velocity_x_mps
+            velocity_y_mps = resolved.velocity_y_mps
         forward = np.asarray(
             [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
         )
         velocity = np.asarray(
             [
-                resolved.velocity_x_mps
-                if resolved.velocity_x_mps is not None
-                else 0.0,
-                resolved.velocity_y_mps
-                if resolved.velocity_y_mps is not None
-                else 0.0,
+                velocity_x_mps if velocity_x_mps is not None else 0.0,
+                velocity_y_mps if velocity_y_mps is not None else 0.0,
             ],
             dtype=np.float32,
         )
@@ -112,5 +122,76 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             yaw_rad=state.yaw_rad,
             yaw_rate_radps=state.yaw_rate_radps,
             speed_mps=float(np.dot(velocity, forward)),
+            velocity_x_mps=float(velocity[0]),
+            velocity_y_mps=float(velocity[1]),
         )
+        self._synchronize_native_ego(resolved)
         return resolved, samples
+
+    def _synchronize_native_ego(self, state: VehicleState) -> None:
+        """Publish the Taxi-authoritative planar pose to the owned PhysX ego."""
+        half_yaw = state.yaw_rad * 0.5
+        pose = np.asarray(
+            [
+                state.x_m,
+                state.y_m,
+                state.z_m + self._ego_model.half_extents_m[2],
+                0.0,
+                0.0,
+                math.sin(half_yaw),
+                math.cos(half_yaw),
+            ],
+            dtype=np.float32,
+        )
+        forward = np.asarray(
+            [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
+        )
+        linear_velocity = np.asarray(
+            [
+                state.velocity_x_mps
+                if state.velocity_x_mps is not None
+                else forward[0] * state.speed_mps,
+                state.velocity_y_mps
+                if state.velocity_y_mps is not None
+                else forward[1] * state.speed_mps,
+                0.0,
+            ],
+            dtype=np.float32,
+        )
+        angular_velocity = np.asarray(
+            [0.0, 0.0, state.yaw_rate_radps], dtype=np.float32
+        )
+        self._world._scene.update_body(
+            _EGO_NATIVE_ID,
+            pose,
+            linear_velocity,
+            angular_velocity,
+            False,
+        )
+
+    def step(
+        self,
+        state: VehicleState,
+        timestamp_us: int,
+        dt_s: float,
+    ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
+        """Resolve a commandless compatibility step with Taxi heading policy."""
+        return self.step_with_command(
+            state,
+            DriverCommand(),
+            timestamp_us,
+            dt_s,
+        )
+
+
+def step_taxi_physics_world(
+    physics_world: GamePhysicsWorld,
+    state: VehicleState,
+    command: DriverCommand,
+    timestamp_us: int,
+    dt_s: float,
+) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
+    """Advance one Taxi-only command-aware physics step."""
+    if not isinstance(physics_world, TaxiPhysicsWorld):
+        raise TypeError("Taxi physics step requires TaxiPhysicsWorld")
+    return physics_world.step_with_command(state, command, timestamp_us, dt_s)

@@ -25,6 +25,23 @@ from omnidreams.interactive_drive.types import (
     VehicleState,
 )
 
+PhysicsActorSamples = tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]
+PhysicsStepFn = Callable[
+    [GamePhysicsWorld, VehicleState, DriverCommand, int, float],
+    tuple[VehicleState, PhysicsActorSamples],
+]
+
+
+def _step_physics_world(
+    physics_world: GamePhysicsWorld,
+    state: VehicleState,
+    command: DriverCommand,
+    timestamp_us: int,
+    dt_s: float,
+) -> tuple[VehicleState, PhysicsActorSamples]:
+    del command
+    return physics_world.step(state, timestamp_us, dt_s)
+
 
 def _move_towards(current: float, target: float, max_delta: float) -> float:
     if current < target:
@@ -299,6 +316,7 @@ def sample_chunk_trajectory(
     integrate_fn: Callable[
         [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
     ] = integrate_vehicle,
+    physics_step_fn: PhysicsStepFn = _step_physics_world,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -338,8 +356,10 @@ def sample_chunk_trajectory(
         )
         if physics_world is not None:
             physx_started_at = time.perf_counter()
-            state, frame_actor_samples = physics_world.step(
+            state, frame_actor_samples = physics_step_fn(
+                physics_world,
                 state,
+                command,
                 int(timestamps[frame_idx]),
                 chunk_config.frame_interval_s,
             )
@@ -473,6 +493,7 @@ class EgoVehicleKinematics:
         physics_world_factory: Callable[
             [SceneBundle, VehicleConfig], GamePhysicsWorld
         ] = GamePhysicsWorld,
+        physics_step_fn: PhysicsStepFn = _step_physics_world,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
@@ -482,6 +503,7 @@ class EgoVehicleKinematics:
         self._oob_margin_m = float(oob_margin_m)
         self._oob_warning_zone_m = float(oob_warning_zone_m)
         self._integrate_fn = integrate_fn
+        self._physics_step_fn = physics_step_fn
         self._physics_world = (
             physics_world_factory(scene, vehicle_config) if scene is not None else None
         )
@@ -555,6 +577,7 @@ class EgoVehicleKinematics:
             physics_world=self._physics_world,
             capture_physics_debug=self._capture_physics_debug,
             integrate_fn=self._integrate_fn,
+            physics_step_fn=self._physics_step_fn,
         )
         self._state = trajectory.boundary_state_after_chunk
         self._next_timestamp_us = int(
