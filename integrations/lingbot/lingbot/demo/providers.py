@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import torch
+
 from flashdreams.runtime import (
     InferenceInput,
     InferenceInputSchema,
@@ -104,9 +105,7 @@ class LingbotProviderInputs:
             object.__setattr__(self, "base_intrinsics", None)
             return
         if self.base_intrinsics is None:
-            raise ValueError(
-                "Live LingBot provider inputs require base_intrinsics."
-            )
+            raise ValueError("Live LingBot provider inputs require base_intrinsics.")
         intrinsics = torch.as_tensor(self.base_intrinsics, dtype=torch.float32).reshape(
             4
         )
@@ -459,6 +458,7 @@ class LingbotInputProvider:
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("LingbotInputProvider is closed.")
+
 
 def _metadata_int(
     metadata: Mapping[str, Any],
