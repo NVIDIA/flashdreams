@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
 from flashdreams.serving.launch import resolve_launch
@@ -140,6 +141,26 @@ def test_run_mode_preserves_default_runner_dispatch(
     assert legacy_manifest is None
 
 
+def test_short_omnidreams_slug_and_mp4_mode_are_parsed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "all_runners",
+        lambda: {"omnidreams": _config("omnidreams")},
+    )
+
+    args, runners, manifest, mode, legacy_manifest = cli._prepare_cli_args(
+        ["omnidreams", "mp4"]
+    )
+
+    assert args == ["omnidreams"]
+    assert runners["omnidreams"].runner_name == "omnidreams"
+    assert manifest is None
+    assert mode == "mp4"
+    assert legacy_manifest is None
+
+
 def test_central_options_are_allowed_after_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -252,7 +273,7 @@ runner_overrides:
 )
 def test_documented_launch_manifests_resolve(filename: str) -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    manifest = load_launch_manifest(repo_root / "configs" / filename)
+    manifest = load_launch_manifest(repo_root / "configs" / "launch_manifest" / filename)
     config = manifest.apply_runner_overrides(cli.all_runners()[manifest.runner])
 
     if manifest.mode != "run":

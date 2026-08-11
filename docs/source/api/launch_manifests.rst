@@ -22,7 +22,7 @@ Launch manifests are strict, versioned YAML documents:
 .. code-block:: yaml
 
    schema_version: 1
-   runner: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+   runner: omnidreams
    mode: webrtc
 
    runner_overrides:
@@ -79,7 +79,7 @@ fails instead of silently launching a different preset:
 .. code-block:: bash
 
    uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/lingbot_webrtc.yaml
+       --manifest configs/launch_manifest/lingbot_webrtc.yaml
 
 Examples
 --------
@@ -88,16 +88,16 @@ Examples
 
    # WebRTC
    uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest configs/lingbot_webrtc.yaml
+       --manifest configs/launch_manifest/lingbot_webrtc.yaml
 
    # MP4 replay
    uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/lingbot_mp4.yaml
+       --manifest configs/launch_manifest/lingbot_mp4.yaml
 
    # Resolve an OmniDreams launch without loading the model
    uv run flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest configs/omnidreams_webrtc.yaml \
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
        --no-instantiate
 
 OmniDreams local-window also accepts the existing

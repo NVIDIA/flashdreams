@@ -16,9 +16,9 @@ Examples:
 ```bash
 flashdreams-run lingbot-world-fast webrtc --manifest lingbot-live.yaml
 flashdreams-run lingbot-world-fast mp4 --manifest lingbot-replay.yaml
-flashdreams-run omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
+flashdreams-run omnidreams webrtc \
   --manifest omnidreams-drive.yaml
-flashdreams-run omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae local-window \
+flashdreams-run omnidreams-perf local-window \
   --manifest example_world_model_perf.yaml
 ```
 

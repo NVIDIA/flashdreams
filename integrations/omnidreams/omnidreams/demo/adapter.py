@@ -294,7 +294,15 @@ class OmnidreamsDemoAdapter:
             ) from exc
 
     def _default_replay_prompt(self, config: InferenceConfig | None) -> str:
-        runner = OMNIDREAMS_RUNNERS.get(self._preset_id(config))
+        preset_id = self._preset_id(config)
+        runner = next(
+            (
+                value
+                for value in OMNIDREAMS_RUNNERS.values()
+                if value.pipeline.name == preset_id
+            ),
+            None,
+        )
         return "" if runner is None else str(getattr(runner, "prompt", ""))
 
 

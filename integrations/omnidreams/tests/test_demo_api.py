@@ -107,7 +107,7 @@ def test_omnidreams_direct_runner_launch_builds_null_spec(
         return "completed"
 
     monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
-    config = OMNIDREAMS_RUNNERS["omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"]
+    config = OMNIDREAMS_RUNNERS["omnidreams"]
 
     result = demo_app_module.launch_from_runner(
         config=config,
@@ -117,7 +117,7 @@ def test_omnidreams_direct_runner_launch_builds_null_spec(
     )
 
     assert result == "completed"
-    assert captured[0].preset_id == config.runner_name
+    assert captured[0].preset_id == config.pipeline.name
     assert isinstance(captured[0].output, NullOutputSpec)
 
 
@@ -390,7 +390,7 @@ def test_omnidreams_replay_cli_defaults_to_hf_example_data(
     assert scenario.first_frame_paths == (first_frame,)
     assert scenario.camera_names == ("camera_front_wide_120fov",)
     assert scenario.prompts == (
-        str(getattr(OMNIDREAMS_RUNNERS[DEFAULT_OMNIDREAMS_PRESET], "prompt")),
+        str(getattr(OMNIDREAMS_RUNNERS["omnidreams"], "prompt")),
     )
 
 

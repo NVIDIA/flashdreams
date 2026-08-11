@@ -29,7 +29,7 @@
         "--project",
         "integrations/omnidreams",
         "flashdreams-run",
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "omnidreams",
         "--example-data",
         "True",
         "--example-data-uuid",

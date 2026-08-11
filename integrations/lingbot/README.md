@@ -231,7 +231,7 @@ uv run --package flashdreams-lingbot \
 ```
 
 For a reproducible checked-in configuration, use
-`--manifest configs/lingbot_webrtc.yaml`; the manifest's runner
+`--manifest configs/launch_manifest/lingbot_webrtc.yaml`; the manifest's runner
 must match the selected runner slug.
 
 Then open:

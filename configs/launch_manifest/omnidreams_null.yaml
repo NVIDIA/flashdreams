@@ -1,5 +1,5 @@
 schema_version: 1
-runner: omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae
+runner: omnidreams
 mode: "null"
 
 scenario:

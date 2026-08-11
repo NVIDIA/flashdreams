@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
 from flashdreams.serving import launch as launch_module
@@ -26,14 +27,15 @@ def _runner_config(
     *,
     runner_name: str,
     num_views: int = 1,
+    pipeline_name: str | None = None,
 ) -> RunnerConfig:
     launch_capability = None
     if runner_name.startswith("lingbot-world"):
         launch_capability = "lingbot.launch:LAUNCH_CAPABILITY"
-    elif runner_name.startswith("omnidreams-"):
+    elif runner_name == "omnidreams" or runner_name.startswith("omnidreams-"):
         launch_capability = "omnidreams.launch:LAUNCH_CAPABILITY"
     pipeline = SimpleNamespace(
-        name=runner_name,
+        name=pipeline_name or runner_name,
         diffusion_model=SimpleNamespace(
             seed=42,
             transformer=SimpleNamespace(num_views=num_views, compile_network=True),
@@ -96,7 +98,7 @@ def test_omnidreams_webrtc_is_rejected_for_multi_view() -> None:
 def test_omnidreams_webrtc_honors_explicit_network_precedence() -> None:
     resolved = resolve_launch(
         _runner_config(
-            runner_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+            runner_name="omnidreams",
         ),
         mode="webrtc",
         options=LaunchOptions(
@@ -110,8 +112,39 @@ def test_omnidreams_webrtc_honors_explicit_network_precedence() -> None:
     assert resolved.summary["port"] == 9011
 
 
+def test_omnidreams_mp4_short_slug_uses_default_output_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omnidreams.demo import app
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        app, "launch_from_runner", lambda **kwargs: calls.append(kwargs)
+    )
+    config = _runner_config(
+        runner_name="omnidreams",
+        pipeline_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+    )
+
+    resolved = resolve_launch(config, mode="mp4")
+
+    assert resolved.summary == {
+        "runner": "omnidreams",
+        "mode": "mp4",
+        "device": "cuda:1",
+        "output_path": Path("outputs/omnidreams.mp4"),
+    }
+    resolved.launch()
+    assert calls[0]["config"] is config
+    assert calls[0]["mode"] == "mp4"
+    assert calls[0]["output"] == {"path": Path("outputs/omnidreams.mp4")}
+
+
 def test_omnidreams_local_window_accepts_legacy_world_manifest() -> None:
-    config = _runner_config(runner_name="omnidreams-sv-2steps-chunk3-loc6-vae-vae")
+    config = _runner_config(
+        runner_name="omnidreams-perf",
+        pipeline_name="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+    )
     manifest = Path("custom.yaml")
     options = LaunchOptions(legacy_world_manifest=manifest)
 

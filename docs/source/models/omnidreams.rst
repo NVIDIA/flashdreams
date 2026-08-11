@@ -69,6 +69,15 @@ Installation
    # from the repo root
    uv sync --project integrations/omnidreams
 
+Generate the default MP4 demo from bundled example data:
+
+.. code-block:: bash
+
+   uv run flashdreams-run omnidreams mp4
+
+The command writes ``outputs/omnidreams.mp4``. Use a launch manifest to
+override the scenario, rollout length, frame rate, or output path.
+
 Running the method
 ------------------
 
@@ -79,7 +88,7 @@ example:
 
    uv run --project integrations/omnidreams \
        flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --example-data True \
        --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
        --total-blocks 20
@@ -95,8 +104,10 @@ We provide the following variants:
 
    * - Method
      - Description
-   * - ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
-     - Single-view 2-step HDMap-conditioned I2V.
+   * - ``omnidreams``
+     - Default single-view 2-step HDMap-conditioned I2V demo and runner.
+   * - ``omnidreams-perf``
+     - Opt-in compile and CUDA-graph tuning across all pipeline stages.
 
 For multi-GPU inference, use:
 
@@ -104,7 +115,7 @@ For multi-GPU inference, use:
 
    uv run --project integrations/omnidreams \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --example-data True \
        --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
        --total-blocks 20
@@ -115,7 +126,7 @@ To inspect all supported CLI arguments and their default values, run:
 
    uv run --project integrations/omnidreams \
        flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --help
 
 Some generated samples from the above commands:
@@ -180,8 +191,8 @@ Run the WebRTC demo:
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest configs/omnidreams_webrtc.yaml
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 
 Then open ``http://<server-ip>:8089/request_session`` in any browser on the
 same network.
@@ -200,13 +211,13 @@ same network.
 .. note::
 
    For local-window, set ``output.offload_text_encoder: true`` in a copy of
-   ``configs/omnidreams_local_window.yaml`` to reduce peak VRAM
+   ``configs/launch_manifest/omnidreams_local_window.yaml`` to reduce peak VRAM
    usage by ~15 GB, then launch it with the central command:
 
    .. code-block:: bash
 
       uv run --package flashdreams-omnidreams flashdreams-run \
-          omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+          omnidreams-perf local-window \
           --manifest path/to/local-window.yaml
 
    The text and first-frame encoders are run once per scene and freed before the
@@ -222,8 +233,8 @@ On a GPU with a graphics stack, launch the Vulkan window:
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-       --manifest configs/omnidreams_local_window.yaml
+       omnidreams-perf local-window \
+       --manifest configs/launch_manifest/omnidreams_local_window.yaml
 
 The local window's HUD adds a weather-variant selector (clear, rain, snow)
 next to the scene picker, so the same scene can be switched between
@@ -311,8 +322,8 @@ point the demo at the perf manifest:
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-       --manifest configs/omnidreams_local_window.yaml
+       omnidreams-perf local-window \
+       --manifest configs/launch_manifest/omnidreams_local_window.yaml
 
 ``native_dit_acceleration: required`` makes the manifest fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
@@ -329,8 +340,8 @@ on top of the same OmniDreams pipeline.
 
    # from the repo root
    uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest configs/omnidreams_webrtc.yaml
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.

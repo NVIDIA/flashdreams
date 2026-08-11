@@ -115,8 +115,8 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 # scans this group at CLI startup; the entry-point name itself is purely
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
+"omnidreams-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
 
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]

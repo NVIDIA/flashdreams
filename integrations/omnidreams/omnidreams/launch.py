@@ -18,14 +18,10 @@ from flashdreams.serving.launch import (
 )
 
 _LOCAL_WINDOW_MANIFESTS = {
-    "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae": "example_world_model.yaml",
-    "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf": (
-        "example_world_model_perf.yaml"
-    ),
-    "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-native-perf": (
-        "example_world_model_perf.yaml"
-    ),
+    "omnidreams": "example_world_model.yaml",
+    "omnidreams-perf": "example_world_model_perf.yaml",
 }
+_DEFAULT_MP4_OUTPUT_PATH = Path("outputs/omnidreams.mp4")
 _REPLAY_SCENARIO_FIELDS = frozenset(
     {
         "conditioning_mode",
@@ -147,9 +143,7 @@ class OmnidreamsLaunchCapability:
             _validate_fields("output", options.output, {"path", "output", "fps"})
             output_path = options.output.get("path") or options.output.get("output")
             if mode == "mp4" and output_path is None:
-                raise ValueError(
-                    "OmniDreams mp4 mode requires output.path in the manifest."
-                )
+                output_path = _DEFAULT_MP4_OUTPUT_PATH
             return _demo_launch(config, mode, options, output_path=output_path)
         if mode == "webrtc" and _is_single_view(config):
             _validate_fields("scenario", options.scenario, _WEBRTC_SCENARIO_FIELDS)
@@ -195,6 +189,7 @@ def _demo_launch(
             config=config,
             mode=mode,
             options=options,
+            output_path=output_path,
         ),
     )
 
@@ -204,16 +199,20 @@ def _launch_demo(
     config: RunnerConfig,
     mode: LaunchMode,
     options: LaunchOptions,
+    output_path: object | None,
 ) -> object:
     from omnidreams.demo.app import launch_from_runner
 
     if mode not in {"mp4", "null", "webrtc"}:
         raise ValueError(f"Unsupported OmniDreams launch mode: {mode!r}.")
+    output = dict(options.output)
+    if output_path is not None:
+        output.setdefault("path", output_path)
     return launch_from_runner(
         config=config,
         mode=cast(Literal["mp4", "null", "webrtc"], mode),
         scenario=dict(options.scenario),
-        output=dict(options.output),
+        output=output,
         host=options.host,
         port=options.port,
         prefer_sw_encoder=options.prefer_sw_encoder,

@@ -253,8 +253,8 @@ process.
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-  --manifest configs/omnidreams_local_window.yaml
+  omnidreams-perf local-window \
+  --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
 
 The default `--scene` resolves to
@@ -372,7 +372,7 @@ output, no HUD chrome, no scene selector.
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  omnidreams-perf local-window \
   --manifest path/to/local-window-with-no-hud.yaml
 ```
 
@@ -392,7 +392,7 @@ is a Vulkan presenter, so it can't run on the same hosts that need
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  omnidreams-perf local-window \
   --manifest path/to/local-window-mjpeg.yaml
 ```
 
@@ -454,7 +454,7 @@ or not yet staged):
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  omnidreams-perf local-window \
   --manifest path/to/headless-auto-start.yaml
 ```
 
@@ -465,8 +465,8 @@ CUDA:
 
 ```bash
 uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-  --manifest configs/omnidreams_local_window.yaml
+  omnidreams-perf local-window \
+  --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
 
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
@@ -502,7 +502,7 @@ input-to-present timing while the demo runs:
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
   uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  omnidreams-perf local-window \
   --manifest path/to/auto-start-local-window.yaml
 ```
 
@@ -590,7 +590,7 @@ feeds it to the same loader the regular flow uses:
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-prepare --skip-scene
 uv run --package flashdreams-omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  omnidreams-perf local-window \
   --manifest path/to/synthetic-scene-local-window.yaml
 ```
 

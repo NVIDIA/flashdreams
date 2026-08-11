@@ -142,8 +142,8 @@ uv run --package flashdreams-omnidreams python integrations/omnidreams/omnidream
 uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 # Run the centralized local-window launch
 uv run --package flashdreams-omnidreams flashdreams-run \
-    omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-    --manifest configs/omnidreams_local_window.yaml
+    omnidreams-perf local-window \
+    --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
 
 ## Native DiT defaults
@@ -167,8 +167,8 @@ From the workspace root, run:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
-    omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-    --manifest configs/omnidreams_webrtc.yaml
+    omnidreams webrtc \
+    --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the

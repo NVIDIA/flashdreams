@@ -113,7 +113,7 @@ jobs:
             uv run --no-sync --package flashdreams-omnidreams flashdreams-run "$@"
           }
 
-          runner="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+          runner="omnidreams"
           null_manifest="${launch_dir}/null.yaml"
           precomputed_manifest="${launch_dir}/precomputed-mp4.yaml"
           ludus_manifest="${launch_dir}/ludus-mp4.yaml"
