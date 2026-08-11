@@ -37,7 +37,7 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
-from flashdreams.serving.realtime.input import KeyboardState, normalize_key
+from flashdreams.runtime.keyboard import KeyboardState, normalize_key
 
 DriverBindings = Mapping[str, frozenset[str]]
 

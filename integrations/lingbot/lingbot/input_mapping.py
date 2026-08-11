@@ -43,12 +43,11 @@ from flashdreams.runtime.inputs import (
     UserInputCapability,
     UserInputs,
 )
+from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, KeyboardState
 from flashdreams.runtime.mapping import InputMappingSchema
 from flashdreams.runtime.types import StepRequest
-from flashdreams.serving.realtime.input import DEFAULT_SUPPORTED_KEYS
-from flashdreams.serving.webrtc.controls import (
+from lingbot.controls import (
     CameraPoseIntegrator,
-    KeyboardState,
     PoseSegment,
 )
 

@@ -28,7 +28,6 @@ from flashdreams.runtime.demo import (
     UserInputWindow,
 )
 from flashdreams.runtime.demo.session_inputs import ControlDecision
-from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.runtime.inputs import (
     InferenceInput,
     InferenceInputSchema,
@@ -37,13 +36,13 @@ from flashdreams.runtime.inputs import (
     UserInputSchema,
 )
 from flashdreams.runtime.types import StepRequirements
-from flashdreams.serving.realtime.input import (
+
+from .controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
     KeyboardResampler,
     PoseSegment,
 )
-
 from .spec import (
     DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID,
     OmnidreamsLudusReplayScenario,
@@ -342,22 +341,33 @@ class LudusSceneConditioningProvider:
         request: StepRequirements,
         user_window: UserInputWindow,
     ) -> tuple[list[PoseSegment], list[float]]:
-        raw_segments = user_window.metadata.get(SPARSE_KEY_SEGMENTS_METADATA_KEY)
-        if isinstance(raw_segments, tuple):
-            frame_times = list(user_window.frame_times)
-            if len(frame_times) != request.input_frame_count:
-                raise RuntimeError(
-                    "OmniDreams Ludus realtime window frame_times length does "
-                    "not match the requested input frame count."
-                )
-            return [_pose_segment(segment) for segment in raw_segments], frame_times
-        if raw_segments is not None:
+        frame_times = list(user_window.frame_times)
+        if frame_times and len(frame_times) != request.input_frame_count:
             raise RuntimeError(
-                "OmniDreams Ludus realtime key segments metadata must be a tuple."
+                "OmniDreams Ludus realtime window frame_times length does not "
+                "match the requested input frame count."
             )
-        return self._require_keyboard_resampler().sample_chunk(
+        resampler = self._require_keyboard_resampler()
+        resampler.next_chunk_start_v = user_window.start_s
+        for event in user_window.inputs.events:
+            if event.event_type not in {"key_down", "key_up", "keydown", "keyup"}:
+                continue
+            key = event.payload.get("key")
+            if not isinstance(key, str):
+                continue
+            resampler.on_edge(
+                arrival_t=event.timestamp_s,
+                event="keydown"
+                if event.event_type in {"key_down", "keydown"}
+                else "keyup",
+                key=key,
+            )
+        segments, sampled_frame_times = resampler.sample_chunk(
             request.input_frame_count
         )
+        if not frame_times:
+            frame_times = sampled_frame_times
+        return segments, frame_times
 
     def _consume_timestamps(self, num_frames: int) -> np.ndarray:
         step_us = int(round(1_000_000 / float(self._scenario.fps)))
@@ -649,17 +659,6 @@ def _segments_metadata(
     return tuple(
         (float(start), float(end), tuple(sorted(keys))) for start, end, keys in segments
     )
-
-
-def _pose_segment(value: object) -> PoseSegment:
-    if not isinstance(value, tuple) or len(value) != 3:
-        raise RuntimeError("OmniDreams Ludus key segment must be a 3-tuple.")
-    start, end, keys = value
-    if not isinstance(start, int | float) or not isinstance(end, int | float):
-        raise RuntimeError("OmniDreams Ludus key segment bounds must be numeric.")
-    if not isinstance(keys, frozenset | set | tuple | list):
-        raise RuntimeError("OmniDreams Ludus key segment keys must be a sequence.")
-    return (float(start), float(end), frozenset(str(key) for key in keys))
 
 
 def _close_rasterizer(rasterizer: Any | None) -> None:

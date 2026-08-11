@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
+from lingbot.controls import CameraPoseIntegrator, KeyboardResampler
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,
     FIELD_CAMERA_TRAJECTORY,
@@ -27,10 +28,9 @@ from lingbot.input_mapping import (
 from lingbot.webrtc.session import LINGBOT_WEBRTC_SOURCE_SCHEMA
 
 from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.demo import RealtimeEventResampler
 from flashdreams.runtime.inputs import InferenceInput, TimeWindow
 from flashdreams.runtime.types import StepRequest, StepResult
-from flashdreams.serving.realtime.input import KeyboardResampler
-from flashdreams.serving.webrtc.controls import CameraPoseIntegrator
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -151,7 +151,7 @@ def _managed_session(runtime: _FakeRuntime) -> ManagedWebRTCSession:
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeVideoEncoder(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
-        resampler=KeyboardResampler(fps=_FPS, start_v=0.0),
+        resampler=RealtimeEventResampler(fps=_FPS, start_v=0.0),
         inference_session=runtime.session,
     )
 

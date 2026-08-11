@@ -14,12 +14,8 @@ import torch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from flashdreams.serving.webrtc.controls import (
-    WSAD_SUPPORTED_KEYS,
-    CameraPoseIntegrator,
-    KeyboardResampler,
-    KeyboardState,
-)
+from flashdreams.runtime.demo import RealtimeEventResampler
+from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS, KeyboardState
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -46,49 +42,6 @@ def test_wsad_keyboard_state_rejects_non_driving_keys() -> None:
     assert state.resolved_effective_keys() == frozenset({"w"})
     assert not state.apply_event(event="keydown", key="q")
     assert state.resolved_effective_keys() == frozenset({"w"})
-
-
-def test_wsad_resampler_preserves_held_key() -> None:
-    resampler = KeyboardResampler(
-        fps=30,
-        start_v=1.0,
-        supported_keys=WSAD_SUPPORTED_KEYS,
-    )
-    resampler.on_edge(arrival_t=0.5, event="keydown", key="w")
-
-    segments, frame_times = resampler.sample_chunk(num_frames=2)
-
-    assert segments == [(1.0, 1.0 + 2 / 30, frozenset({"w"}))]
-    assert frame_times == pytest.approx([1.0 + 1 / 30, 1.0 + 2 / 30])
-
-
-def test_camera_pose_integrator_flu_uses_driving_axes() -> None:
-    integrator = CameraPoseIntegrator(
-        move_speed_per_s=2.0,
-        rotate_speed_rad_per_s=float(np.pi / 2),
-        coordinate_system="FLU",
-    )
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"w"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 3] == pytest.approx([2.0, 0.0, 0.0])
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"a"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 0] == pytest.approx([0.0, 1.0, 0.0], abs=1e-6)
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"d"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 0] == pytest.approx([0.0, -1.0, 0.0], abs=1e-6)
 
 
 def test_tensor_chunk_to_rgb_frames_supports_omnidreams_layout() -> None:
@@ -154,7 +107,7 @@ def _managed_session_with_channel(
         video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         video_encoder=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
         peer_connection=_FakeCloseable(),
-        resampler=KeyboardResampler(fps=30, start_v=0.0),
+        resampler=RealtimeEventResampler(fps=30, start_v=0.0),
         control_channel=channel,
     )
     return managed_session, channel

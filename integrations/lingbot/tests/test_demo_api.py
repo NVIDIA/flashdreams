@@ -828,7 +828,7 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
     app_calls: list[dict[str, Any]] = []
@@ -887,7 +887,7 @@ def test_lingbot_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
     server_calls: list[dict[str, Any]] = []

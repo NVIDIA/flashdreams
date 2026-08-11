@@ -52,7 +52,7 @@ from flashdreams.runtime.demo import (
     run_replay_demo,
 )
 from flashdreams.runtime.demo.app import DemoApplication
-from flashdreams.runtime.demo.webrtc import (
+from flashdreams.serving.webrtc.demo import (
     serve_webrtc_demo,
 )
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager

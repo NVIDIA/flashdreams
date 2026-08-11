@@ -32,6 +32,7 @@ from omnidreams.demo import (
     PrecomputedHDMapProvider,
 )
 from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
+from omnidreams.demo.controls import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
@@ -57,6 +58,8 @@ from flashdreams.runtime import (
     StepRequest,
     StepRequirements,
     StepResult,
+    UserInputEvent,
+    UserInputs,
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -70,7 +73,6 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
     ManagedWebRTCSession,
@@ -473,7 +475,11 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
 
     first = provider.prepare_step(
         request=StepRequirements(step_index=0, input_frame_count=2),
-        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+        ),
     )
 
     assert first.inference_input is not None
@@ -492,7 +498,11 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
     provider.reset()
     reset_first = provider.prepare_step(
         request=StepRequirements(step_index=0, input_frame_count=2),
-        user_window=UserInputWindow(start_s=0.0, end_s=2 / 30),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+        ),
     )
 
     assert reset_first.inference_input is not None
@@ -505,9 +515,15 @@ def test_omnidreams_ludus_provider_prepares_deterministic_hdmaps(
             start_s=0.0,
             end_s=2 / 30,
             frame_times=(1 / 30, 2 / 30),
-            metadata={
-                SPARSE_KEY_SEGMENTS_METADATA_KEY: ((0.0, 2 / 30, frozenset({"w"})),)
-            },
+            inputs=UserInputs(
+                events=(
+                    UserInputEvent(
+                        timestamp_s=0.0,
+                        event_type="key_down",
+                        payload={"key": "w"},
+                    ),
+                )
+            ),
         ),
     )
 
@@ -995,7 +1011,7 @@ def test_omnidreams_webrtc_demo_keeps_legacy_fallback_gates(
 def test_omnidreams_webrtc_demo_installs_model_assets_without_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     app_calls: list[dict[str, Any]] = []
 
@@ -1069,7 +1085,7 @@ def test_omnidreams_webrtc_adapter_caps_video_display_size() -> None:
 def test_omnidreams_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import flashdreams.runtime.demo.webrtc as shared_webrtc_module
+    import flashdreams.serving.webrtc.demo as shared_webrtc_module
 
     server_calls: list[dict[str, Any]] = []
 
@@ -1641,18 +1657,12 @@ class _FakeWebRTCResampler:
     def reset(self, *, start_v: float) -> None:
         self.next_chunk_start_v = start_v
 
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        del arrival_t, event, key
-
-    def sample_chunk(
-        self,
-        num_frames: int,
-    ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+    def sample_chunk(self, num_frames: int) -> list[float]:
         start = self.next_chunk_start_v
         frame_times = [start + (index + 1) * self.dt for index in range(num_frames)]
         end = frame_times[-1]
         self.next_chunk_start_v = end
-        return [(start, end, frozenset({"w"}))], frame_times
+        return frame_times
 
 
 class _FakeWebRTCVideoTrack:

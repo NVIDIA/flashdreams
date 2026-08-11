@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 import torch
 from loguru import logger
@@ -46,13 +46,11 @@ from flashdreams.runtime.demo import (
     WebRTCAppResources,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
-from flashdreams.runtime.demo.webrtc import (
+from flashdreams.serving.webrtc.demo import (
     CreateWebRTCApp,
     RunWebRTCServer,
     serve_webrtc_demo,
 )
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS, PoseSegment
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.runtime import (
     ThreadAffineDistributedWebRTCRuntime,
@@ -60,6 +58,12 @@ from flashdreams.serving.webrtc.runtime import (
 )
 from flashdreams.serving.webrtc.services import WEBRTC_USER_INPUT_SCHEMA
 
+from .controls import (
+    SPARSE_KEY_SEGMENTS_METADATA_KEY,
+    WSAD_SUPPORTED_KEYS,
+    KeyboardResampler,
+    PoseSegment,
+)
 from .providers import LudusSceneConditioningProvider
 from .runtime import OmnidreamsRuntime, OmnidreamsRuntimeOptions
 from .spec import (
@@ -195,9 +199,10 @@ class OmnidreamsWebRTCModelRuntime(
     def _generate_one_chunk_sync(
         self,
         *,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult:
+        pose_segments = cast(list[PoseSegment], segments)
         request = self._next_step_request_sync()
         if request is None:
             raise OmnidreamsWebRTCModelRuntimeError(
@@ -207,7 +212,7 @@ class OmnidreamsWebRTCModelRuntime(
             canonical_inputs=CanonicalInputs(),
             inference_input=InferenceInput(
                 metadata={
-                    SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(segments),
+                    SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(pose_segments),
                     "frame_times": tuple(frame_times),
                     "window_start_s": request.step_index / float(self.config.fps),
                     "window_end_s": (request.step_index + len(frame_times))
@@ -693,6 +698,7 @@ def _serve_legacy_omnidreams_webrtc_demo(
         supported_control_keys=WSAD_SUPPORTED_KEYS,
         fatal_generation_errors=True,
         client_liveness_timeout_s=output.client_liveness_timeout_s,
+        legacy_segment_resampler_factory=KeyboardResampler,
     )
     from importlib.resources import files
 

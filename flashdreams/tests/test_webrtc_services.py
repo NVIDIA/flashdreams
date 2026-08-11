@@ -159,9 +159,10 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
     )
 
     assert source.activation_signal.is_set()
-    assert resampler.edges == [(0.05, "keydown", "w")]
     assert result.window.start_s == pytest.approx(0.0)
     assert result.window.end_s == pytest.approx(0.2)
+    assert result.window.frame_times == pytest.approx((0.1, 0.2))
+    assert result.window.metadata == {}
     assert [event.event_type for event in result.window.inputs.events] == [
         "key_down",
         "text_event",
@@ -671,24 +672,21 @@ class _FakeResampler:
     def __init__(self, *, dt: float, start_v: float) -> None:
         self.dt = dt
         self.next_chunk_start_v = start_v
-        self.edges: list[tuple[float, str, str]] = []
 
     def reset(self, *, start_v: float) -> None:
         self.next_chunk_start_v = start_v
-        self.edges.clear()
-
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        self.edges.append((arrival_t, event, key))
 
     def sample_chunk(
         self,
         num_frames: int,
-    ) -> tuple[tuple[tuple[float, float, frozenset[str]], ...], tuple[float, ...]]:
+    ) -> tuple[float, ...]:
         start = self.next_chunk_start_v
-        frame_times = tuple(start + index * self.dt for index in range(num_frames))
+        frame_times = tuple(
+            start + (index + 1) * self.dt for index in range(num_frames)
+        )
         end = start + num_frames * self.dt
         self.next_chunk_start_v = end
-        return (((start, end, frozenset({"w"})),), frame_times)
+        return frame_times
 
 
 class _BlockingEncoder:

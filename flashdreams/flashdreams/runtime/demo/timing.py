@@ -19,8 +19,6 @@ from .session_inputs import UserInputWindow
 
 CatchUpPolicy = Literal["drop", "fold", "compress"]
 
-SPARSE_KEY_SEGMENTS_METADATA_KEY = "sparse_key_segments"
-
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CatchUpDecision:
@@ -181,28 +179,60 @@ class SignalActivationPolicy:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-SparseKeySegment = tuple[float, float, frozenset[str]]
-
-
 class _RealtimeTimeline(Protocol):
     dt: float
     next_chunk_start_v: float
-
-
-class _SparseInputResampler(_RealtimeTimeline, Protocol):
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None: ...
 
     def reset(self, *, start_v: float) -> None: ...
 
     def sample_chunk(
         self,
         num_frames: int,
-    ) -> tuple[Sequence[SparseKeySegment], Sequence[float]]: ...
+    ) -> Sequence[float]: ...
+
+
+@dataclass(slots=True)
+class RealtimeEventResampler:
+    """Transport-neutral realtime window timeline.
+
+    The shared driver only owns virtual time and frame sample locations. Raw
+    browser/native events are stored as :class:`UserInputs`; model providers
+    decide how to interpret them.
+    """
+
+    fps: float
+    start_v: float = 0.0
+    next_chunk_start_v: float = field(init=False)
+    _dt: float = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.fps <= 0:
+            raise ValueError("fps must be > 0")
+        self._dt = 1.0 / float(self.fps)
+        self.next_chunk_start_v = float(self.start_v)
+
+    @property
+    def dt(self) -> float:
+        return self._dt
+
+    def reset(self, *, start_v: float) -> None:
+        self.next_chunk_start_v = float(start_v)
+
+    def sample_chunk(self, num_frames: int) -> tuple[float, ...]:
+        if num_frames < 1:
+            raise ValueError("num_frames must be >= 1")
+        chunk_start_v = self.next_chunk_start_v
+        chunk_end_v = chunk_start_v + num_frames * self._dt
+        frame_times = tuple(
+            chunk_start_v + (index + 1) * self._dt for index in range(num_frames)
+        )
+        self.next_chunk_start_v = chunk_end_v
+        return frame_times
 
 
 @dataclass(slots=True)
 class ResamplerRealtimeClock:
-    """Realtime clock that reuses ``KeyboardResampler``'s virtual timeline."""
+    """Realtime clock that reuses a resampler's virtual timeline."""
 
     resampler: _RealtimeTimeline
     now_fn: Callable[[], float] = time.monotonic
@@ -245,7 +275,7 @@ class ResamplerRealtimeClock:
     ) -> CatchUpDecision:
         if policy != "fold":
             raise NotImplementedError(
-                f"Catch-up policy {policy!r} has no existing resampler analog yet."
+                f"Catch-up policy {policy!r} has no existing timeline analog yet."
             )
         if not math.isfinite(max_lag_s) or max_lag_s < 0.0:
             raise ValueError("max_lag_s must be finite and >= 0.")
@@ -278,10 +308,10 @@ class ResamplerRealtimeClock:
 
 
 @dataclass(slots=True)
-class KeyboardRealtimeInputSource:
-    """Realtime input source backed by the existing keyboard resampler."""
+class RealtimeEventInputSource:
+    """Realtime input source backed by raw event windows."""
 
-    resampler: _SparseInputResampler
+    resampler: _RealtimeTimeline
     max_lag_s: float | None = None
     catch_up_policy: CatchUpPolicy = "fold"
     is_finite: bool = False
@@ -293,19 +323,16 @@ class KeyboardRealtimeInputSource:
             not math.isfinite(self.max_lag_s) or self.max_lag_s < 0.0
         ):
             raise ValueError(
-                "KeyboardRealtimeInputSource.max_lag_s must be finite and >= 0."
+                "RealtimeEventInputSource.max_lag_s must be finite and >= 0."
             )
         if self.catch_up_policy != "fold":
             raise NotImplementedError(
                 f"Catch-up policy {self.catch_up_policy!r} has no existing "
-                "KeyboardResampler analog yet."
+                "event-window analog yet."
             )
 
     def is_finished(self) -> bool:
         return False
-
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        self.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
 
     def reset(self, *, start_v: float) -> None:
         self.resampler.reset(start_v=start_v)
@@ -328,14 +355,13 @@ class KeyboardRealtimeInputSource:
             policy=self.catch_up_policy,
         )
         start_s = self.resampler.next_chunk_start_v
-        segments, frame_times = self.resampler.sample_chunk(input_frame_count)
+        frame_times = self.resampler.sample_chunk(input_frame_count)
         end_s = self.resampler.next_chunk_start_v
         window = UserInputWindow(
             start_s=start_s,
             end_s=end_s,
             frame_times=tuple(frame_times),
             inputs=UserInputs(),
-            metadata={SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(segments)},
         )
         return RealtimeWindowResult(window=window, catch_up=catch_up)
 
@@ -373,11 +399,11 @@ __all__ = [
     "CatchUpDecision",
     "CatchUpPolicy",
     "DeterministicClock",
-    "KeyboardRealtimeInputSource",
+    "RealtimeEventInputSource",
+    "RealtimeEventResampler",
     "RealtimeClock",
     "RealtimeWindowResult",
     "ResamplerRealtimeClock",
-    "SPARSE_KEY_SEGMENTS_METADATA_KEY",
     "SignalActivationPolicy",
     "input_frame_count_from_request",
 ]

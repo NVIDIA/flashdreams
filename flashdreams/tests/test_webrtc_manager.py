@@ -20,9 +20,8 @@ from flashdreams.runtime import (
     UserInputs,
 )
 from flashdreams.runtime.demo import RunResult
-from flashdreams.runtime.demo.timing import SPARSE_KEY_SEGMENTS_METADATA_KEY
+from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
@@ -145,25 +144,21 @@ class _FakeResampler:
     dt = 0.0
     next_chunk_start_v = 0.0
 
-    def sample_chunk(
-        self, num_frames: int
-    ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
-        assert num_frames == 1
-        return [(0.0, 0.0, frozenset({"w"}))], [0.0]
-
-
-class _RecordingResampler(_FakeResampler):
-    def __init__(self) -> None:
-        self.edges: list[tuple[float, str, str]] = []
-
-    def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
-        self.edges.append((arrival_t, event, key))
-
-
-class _SharedResampler:
-    def __init__(self, *, start_v: float = 0.0, dt: float = 0.001) -> None:
+    def reset(self, *, start_v: float) -> None:
         self.next_chunk_start_v = start_v
-        self.dt = dt
+
+    def sample_chunk(self, num_frames: int) -> list[float]:
+        start = self.next_chunk_start_v
+        frame_times = [start + index * self.dt for index in range(num_frames)]
+        self.next_chunk_start_v = start + num_frames * self.dt
+        return frame_times
+
+
+class _RecordingLegacySegmentResampler:
+    dt = 0.0
+    next_chunk_start_v = 0.0
+
+    def __init__(self) -> None:
         self.edges: list[tuple[float, str, str]] = []
 
     def reset(self, *, start_v: float) -> None:
@@ -176,10 +171,23 @@ class _SharedResampler:
     def sample_chunk(
         self, num_frames: int
     ) -> tuple[list[tuple[float, float, frozenset[str]]], list[float]]:
+        assert num_frames == 1
+        return [(0.0, 0.0, frozenset({"w"}))], [0.0]
+
+
+class _SharedResampler:
+    def __init__(self, *, start_v: float = 0.0, dt: float = 0.001) -> None:
+        self.next_chunk_start_v = start_v
+        self.dt = dt
+
+    def reset(self, *, start_v: float) -> None:
+        self.next_chunk_start_v = start_v
+
+    def sample_chunk(self, num_frames: int) -> list[float]:
         start = self.next_chunk_start_v
         end = start + num_frames * self.dt
         self.next_chunk_start_v = end
-        return [(start, end, frozenset({"w"}))], [end]
+        return [end]
 
 
 class _CountingVideoTrack(_FakeVideoTrack):
@@ -553,7 +561,9 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
             frame_times=(2.25, 2.75),
             inputs=current_inputs,
             metadata={
-                SPARSE_KEY_SEGMENTS_METADATA_KEY: ((2.0, 3.0, frozenset({"w"})),),
+                manager_module._LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY: (
+                    (2.0, 3.0, frozenset({"w"})),
+                ),
                 WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_inputs,
                 WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 2.0),
             },
@@ -566,9 +576,9 @@ def test_legacy_provider_advances_skipped_webrtc_input_state() -> None:
     assert mapping.inference_inputs[0].metadata["frame_times"] == (2.25, 2.75)
     assert mapping.inference_inputs[0].metadata["window_start_s"] == 2.0
     assert mapping.inference_inputs[0].metadata["window_end_s"] == 3.0
-    assert mapping.inference_inputs[0].metadata[SPARSE_KEY_SEGMENTS_METADATA_KEY] == (
-        (2.0, 3.0, frozenset({"w"})),
-    )
+    assert mapping.inference_inputs[0].metadata[
+        manager_module._LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY
+    ] == ((2.0, 3.0, frozenset({"w"})),)
 
 
 @pytest.mark.asyncio
@@ -615,8 +625,8 @@ async def test_action_keyup_updates_state_when_user_event_queue_full(
     managed, _video_track, _peer, channel = _managed_session(runtime)
     managed.inference_session = object()
     managed.first_action_received.clear()
-    resampler = _RecordingResampler()
-    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
     manager._record_user_event(
         managed_session=managed,
         timestamp_s=0.0,
@@ -904,7 +914,7 @@ async def test_generation_worker_uses_split_input_and_output_frame_counts() -> N
     managed, _video_track, _peer, channel = _managed_session(runtime)
     resampler = _SplitResampler()
     managed.video_track = _CountingVideoTrack()  # ty:ignore[invalid-assignment]
-    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    managed.legacy_segment_resampler = resampler
     runtime.managed_session = managed
     manager._active_session = managed
 
@@ -1056,7 +1066,13 @@ async def test_realtime_driver_session_uses_shared_step_pipeline(
     reservation = context.admission.try_reserve()
     assert reservation is not None
     resampler = _SharedResampler(start_v=asyncio.get_running_loop().time())
-    input_source = WebRTCInputSource(resampler=resampler)
+    input_source = WebRTCInputSource(
+        resampler=resampler,
+        legacy_segment_resampler=_RecordingLegacySegmentResampler(),
+        legacy_segments_metadata_key=(
+            manager_module._LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY
+        ),
+    )
     input_source.handle_browser_payload(
         {"type": "action", "action": {"event": "step"}},
         timestamp_s=asyncio.get_running_loop().time(),
@@ -1146,24 +1162,17 @@ async def test_create_answer_raises_busy_with_subclass_message() -> None:
         await manager.create_answer(offer_sdp="x", offer_type="offer")
 
 
-def test_make_resampler_honors_supported_keys() -> None:
-    wsad = _make_manager(
+def test_supported_key_payload_honors_configured_keys() -> None:
+    wsad_manager = _make_manager(
         _BaseTestManager,
         runtime=SimpleNamespace(),
         supported_control_keys=WSAD_SUPPORTED_KEYS,
-    )._make_resampler(start_v=1.0)
-    wsad.on_edge(arrival_t=0.5, event="keydown", key="q")
-    wsad_segments, _ = wsad.sample_chunk(num_frames=1)
-    # 'q' is not a WSAD driving key, so it is rejected and never held.
-    assert wsad_segments[0][2] == frozenset()
+    )
+    assert not wsad_manager._supports_key_payload({"key": "q"})
+    assert wsad_manager._supports_key_payload({"key": "ArrowUp"})
 
-    default = _make_manager(
-        _BaseTestManager, runtime=SimpleNamespace()
-    )._make_resampler(start_v=1.0)
-    default.on_edge(arrival_t=0.5, event="keydown", key="q")
-    default_segments, _ = default.sample_chunk(num_frames=1)
-    # The default key set (used by Lingbot) accepts 'q'.
-    assert default_segments[0][2] == frozenset({"q"})
+    default_manager = _make_manager(_BaseTestManager, runtime=SimpleNamespace())
+    assert default_manager._supports_key_payload({"key": "q"})
 
 
 @pytest.mark.asyncio
@@ -1172,8 +1181,8 @@ async def test_step_action_starts_generation_without_key_edge() -> None:
     manager = _make_manager(_BaseTestManager, runtime)
     managed, _video_track, _peer, _channel = _managed_session(runtime)
     managed.first_action_received.clear()
-    resampler = _RecordingResampler()
-    managed.resampler = resampler  # ty:ignore[invalid-assignment]
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
 
     await manager._handle_datachannel_message(
         managed_session=managed,

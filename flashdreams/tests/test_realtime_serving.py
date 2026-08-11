@@ -9,14 +9,14 @@ import numpy as np
 import pytest
 import torch
 
-from flashdreams.serving.realtime.frame_bus import LatestFrameBus
-from flashdreams.serving.realtime.input import (
+from flashdreams.runtime.keyboard import (
     ImageRequest,
     KeyboardState,
     PromptRequest,
     ResetRequest,
     SparseInputSnapshot,
 )
+from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
     encode_rgb_frame_to_jpeg,
     rgb_array_to_uint8_frames,

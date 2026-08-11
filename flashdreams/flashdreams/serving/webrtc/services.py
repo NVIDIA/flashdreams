@@ -57,7 +57,6 @@ from flashdreams.runtime.demo import (
     run_demo_session_async,
 )
 from flashdreams.runtime.demo.timing import (
-    SPARSE_KEY_SEGMENTS_METADATA_KEY,
     ActivationResult,
     CatchUpPolicy,
     DeterministicClock,
@@ -350,6 +349,8 @@ class WebRTCInputSource:
     """Realtime source fed by browser data-channel events."""
 
     resampler: Any
+    legacy_segment_resampler: Any | None = None
+    legacy_segments_metadata_key: str | None = None
     max_lag_s: float | None = None
     catch_up_policy: CatchUpPolicy = "fold"
     user_input_schema: UserInputSchema = field(
@@ -387,6 +388,8 @@ class WebRTCInputSource:
 
     def reset(self, *, start_v: float) -> None:
         self.resampler.reset(start_v=start_v)
+        if self.legacy_segment_resampler is not None:
+            self.legacy_segment_resampler.reset(start_v=start_v)
         self._events.clear()
         self._activation_signal.clear()
 
@@ -486,11 +489,18 @@ class WebRTCInputSource:
             policy=self.catch_up_policy,
         )
         start_s = float(self.resampler.next_chunk_start_v)
-        segments, frame_times = self.resampler.sample_chunk(input_frame_count)
+        frame_times = tuple(self.resampler.sample_chunk(input_frame_count))
         end_s = float(self.resampler.next_chunk_start_v)
-        metadata: dict[str, object] = {
-            SPARSE_KEY_SEGMENTS_METADATA_KEY: tuple(segments),
-        }
+        metadata: dict[str, object] = {}
+        legacy_resampler = self.legacy_segment_resampler
+        legacy_metadata_key = self.legacy_segments_metadata_key
+        if legacy_resampler is not None and legacy_metadata_key is not None:
+            legacy_resampler.next_chunk_start_v = start_s
+            segments, legacy_frame_times = legacy_resampler.sample_chunk(
+                input_frame_count
+            )
+            metadata[legacy_metadata_key] = tuple(segments)
+            frame_times = tuple(legacy_frame_times)
         if start_s > pre_catch_up_start_s:
             metadata[WEBRTC_SKIPPED_INPUTS_METADATA_KEY] = UserInputs(
                 events=self._events_for_window(pre_catch_up_start_s, start_s)
@@ -533,7 +543,12 @@ class WebRTCInputSource:
                 kind="error",
                 error="Action payload must include non-empty 'key'.",
             )
-        self.resampler.on_edge(arrival_t=timestamp_s, event=event, key=key)
+        if self.legacy_segment_resampler is not None:
+            self.legacy_segment_resampler.on_edge(
+                arrival_t=timestamp_s,
+                event=event,
+                key=key,
+            )
         self.record_user_event(
             timestamp_s=timestamp_s,
             event_type="key_down" if event == "keydown" else "key_up",

@@ -24,13 +24,13 @@ from aiortc import (
 from loguru import logger
 
 from flashdreams.runtime.demo import (
-    SPARSE_KEY_SEGMENTS_METADATA_KEY,
     DemoSpec,
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
     PreparedScenario,
     PreparedStep,
     ProviderCapabilities,
+    RealtimeEventResampler,
     ResamplerRealtimeClock,
     RunContext,
     RuntimeHost,
@@ -52,13 +52,9 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
+from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, normalize_key
 from flashdreams.runtime.mapping import InputMapping
 from flashdreams.runtime.types import StepRequest, StepResult
-from flashdreams.serving.realtime.input import (
-    DEFAULT_SUPPORTED_KEYS,
-    KeyboardResampler,
-    normalize_key,
-)
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     EncoderBackend,
@@ -119,6 +115,7 @@ _SESSION_INPUT_KEY = "webrtc_session_input"
 _STEP_REQUEST_KEY = "webrtc_step_request"
 _SEGMENTS_KEY = "webrtc_segments"
 _FRAME_TIMES_KEY = "webrtc_frame_times"
+_LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY = "sparse_key_segments"
 
 _RuntimeT = TypeVar("_RuntimeT")
 _RuntimeConfigT = TypeVar("_RuntimeConfigT", bound=WebRTCRuntimeConfig)
@@ -450,7 +447,7 @@ class _LegacyWebRTCModelInputProvider:
         request: Any,
         user_window: UserInputWindow,
     ) -> InferenceInput:
-        segments = user_window.metadata.get(SPARSE_KEY_SEGMENTS_METADATA_KEY)
+        segments = user_window.metadata.get(_LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY)
         if not isinstance(segments, tuple):
             raise RuntimeError("WebRTC user window is missing resampled key segments.")
         window = TimeWindow(start_s=user_window.start_s, end_s=user_window.end_s)
@@ -604,7 +601,8 @@ class ManagedWebRTCSession:
     video_track: BufferedVideoTrack | NVENCVideoTrack
     video_encoder: VideoEncoder
     peer_connection: Any
-    resampler: KeyboardResampler
+    resampler: RealtimeEventResampler
+    legacy_segment_resampler: Any | None = None
     control_channel: Any | None = None
     generation_task: asyncio.Task[Any] | None = None
     first_action_received: asyncio.Event = field(default_factory=asyncio.Event)
@@ -682,6 +680,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         shared_spec_factory: Callable[[Any], DemoSpec] | None = None,
         shared_scenario: PreparedScenario | None = None,
         shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
+        legacy_segment_resampler_factory: Callable[..., Any] | None = None,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
@@ -714,6 +713,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._shared_scenario = shared_scenario
         self._shared_pipeline_factory = shared_pipeline_factory
         self._shared_video_encoder: VideoEncoder | None = None
+        self._legacy_segment_resampler_factory = legacy_segment_resampler_factory
 
     @property
     def pending_session_input(self) -> Any:
@@ -731,19 +731,35 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             raise SessionBusyError(self.busy_message)
         self._pending_session_input = session_input
 
-    def _make_resampler(self, *, start_v: float) -> KeyboardResampler:
+    def _make_resampler(self, *, start_v: float) -> RealtimeEventResampler:
         return self._make_resampler_at_fps(start_v=start_v, fps=self.fps)
 
     def _make_resampler_at_fps(
         self, *, start_v: float, fps: float
-    ) -> KeyboardResampler:
+    ) -> RealtimeEventResampler:
+        return RealtimeEventResampler(fps=fps, start_v=start_v)
+
+    def _make_legacy_segment_resampler_at_fps(
+        self, *, start_v: float, fps: float
+    ) -> Any:
+        factory = self._legacy_segment_resampler_factory
+        if factory is None:
+            raise RuntimeError(
+                "Legacy WebRTC segment runtimes require "
+                "legacy_segment_resampler_factory."
+            )
         supported_control_keys = self._effective_supported_control_keys()
-        if supported_control_keys is None:
-            return KeyboardResampler(fps=fps, start_v=start_v)
-        return KeyboardResampler(
-            fps=fps,
-            start_v=start_v,
-            supported_keys=supported_control_keys,
+        kwargs: dict[str, object] = {
+            "fps": fps,
+            "start_v": start_v,
+        }
+        if supported_control_keys is not None:
+            kwargs["supported_keys"] = supported_control_keys
+        return factory(**kwargs)
+
+    def _needs_legacy_segment_metadata(self) -> bool:
+        return self._shared_adapter is None and not _runtime_drives_inference_session(
+            self._runtime
         )
 
     def _effective_supported_control_keys(self) -> frozenset[str] | None:
@@ -1425,7 +1441,21 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 start_v=0.0,
                 fps=self._runtime_input_fps(self._runtime),
             )
-            input_source = WebRTCInputSource(resampler=resampler)
+            legacy_segment_resampler = None
+            if self._needs_legacy_segment_metadata():
+                legacy_segment_resampler = self._make_legacy_segment_resampler_at_fps(
+                    start_v=0.0,
+                    fps=self._runtime_input_fps(self._runtime),
+                )
+            input_source = WebRTCInputSource(
+                resampler=resampler,
+                legacy_segment_resampler=legacy_segment_resampler,
+                legacy_segments_metadata_key=(
+                    _LEGACY_SPARSE_KEY_SEGMENTS_METADATA_KEY
+                    if legacy_segment_resampler is not None
+                    else None
+                ),
+            )
             transport = WebRTCTransportService(loop=loop)
             managed_session = ManagedWebRTCSession(
                 runtime=self._runtime,
@@ -1433,6 +1463,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 video_encoder=video_encoder,
                 peer_connection=peer_connection,
                 resampler=resampler,
+                legacy_segment_resampler=legacy_segment_resampler,
                 input_source=input_source,
                 transport=transport,
                 reservation=reservation,
@@ -1718,9 +1749,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
             return
 
-        # Stamp arrival on the same monotonic clock that seeds the
-        # resampler's ``next_chunk_start_v`` so virtual-time comparisons in
-        # ``KeyboardResampler.sample_chunk`` are well-defined.
+        # Stamp arrival on the same monotonic clock that seeds the realtime
+        # window clock so user-input windows can be compared directly.
         arrival_t = asyncio.get_running_loop().time()
         if managed_session.inference_session is not None:
             try:
@@ -1734,7 +1764,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 self._send_json(channel, make_error_payload(str(exc)))
                 if event != "keyup":
                     return
-        managed_session.resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
+        legacy_resampler = managed_session.legacy_segment_resampler
+        if legacy_resampler is not None:
+            legacy_resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
         managed_session.pending_action_arrivals.append(arrival_t)
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.
@@ -1943,14 +1975,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     async def _generation_worker(
         self, *, managed_session: ManagedWebRTCSession
     ) -> None:
-        """Drive back-to-back chunk generation aligned to the resampler clock.
+        """Drive back-to-back chunk generation aligned to the realtime clock.
 
         Sits idle until the first keyboard event arrives, then drives the
         chunk loop. Each iteration waits for wallclock to catch up to the
-        *end* of the next chunk's virtual window, samples the chunk's
-        piecewise-constant timeline, hands segments and frame times to the
-        runtime, and pushes the generated frames into the video track. The
-        track's bounded queue then paces the loop to playback via
+        *end* of the next chunk's virtual window, hands legacy segment data and
+        frame times to the runtime, and pushes generated frames into the video
+        track. The track's bounded queue then paces the loop to playback via
         backpressure on ``BufferedVideoTrack.enqueue_result``.
         """
         loop = asyncio.get_running_loop()
@@ -2010,8 +2041,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
                 t_before_gen = loop.time()
                 chunk_start_v = resampler.next_chunk_start_v
-                segments, frame_times = resampler.sample_chunk(input_num_frames)
+                frame_times = list(resampler.sample_chunk(input_num_frames))
                 chunk_end_v = resampler.next_chunk_start_v
+                segments: list[Any] = []
+                legacy_resampler = managed_session.legacy_segment_resampler
+                if legacy_resampler is not None:
+                    legacy_resampler.next_chunk_start_v = chunk_start_v
+                    segments, frame_times = legacy_resampler.sample_chunk(
+                        input_num_frames
+                    )
                 segment_request = replace(
                     request,
                     user_input_window=TimeWindow(

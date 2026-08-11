@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from lingbot.controls import CameraPoseIntegrator, KeyboardResampler
 from lingbot.input_mapping import (
     FIELD_CAMERA_TRAJECTORY,
     KeyboardToCameraCommand,
@@ -32,7 +33,6 @@ from flashdreams.runtime import (
     UserInputs,
     UserInputSchema,
 )
-from flashdreams.serving.webrtc.controls import CameraPoseIntegrator, KeyboardResampler
 
 pytestmark = pytest.mark.ci_cpu
 

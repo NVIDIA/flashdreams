@@ -11,14 +11,13 @@ import pytest
 from flashdreams.runtime import StepRequirements, UserInputSchema
 from flashdreams.runtime.demo import NullOutputSink, RunResult, SessionEdges
 from flashdreams.runtime.demo.timing import (
-    SPARSE_KEY_SEGMENTS_METADATA_KEY,
     CatchUpDecision,
     CatchUpPolicy,
-    KeyboardRealtimeInputSource,
+    RealtimeEventInputSource,
+    RealtimeEventResampler,
     ResamplerRealtimeClock,
     SignalActivationPolicy,
 )
-from flashdreams.serving.realtime.input import KeyboardResampler
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -26,7 +25,7 @@ pytestmark = pytest.mark.ci_cpu
 @pytest.mark.asyncio
 async def test_signal_activation_waits_for_first_input_and_anchors_clock() -> None:
     event = asyncio.Event()
-    resampler = KeyboardResampler(fps=30.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=30.0, start_v=0.0)
     clock = ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 12.0)
     policy = SignalActivationPolicy(signals=(event,), timeout_s=1.0)
 
@@ -46,7 +45,7 @@ async def test_signal_activation_waits_for_first_input_and_anchors_clock() -> No
 @pytest.mark.asyncio
 async def test_activation_timeout_can_close_edges_as_not_activated() -> None:
     event = asyncio.Event()
-    resampler = KeyboardResampler(fps=30.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=30.0, start_v=0.0)
     clock = ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 12.0)
     policy = SignalActivationPolicy(
         signals=(event,),
@@ -77,7 +76,7 @@ async def test_activation_timeout_can_close_edges_as_not_activated() -> None:
 
 
 def test_resampler_clock_catch_up_bounds_latency() -> None:
-    resampler = KeyboardResampler(fps=1.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=1.0, start_v=0.0)
     clock = ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 5.0)
 
     decision = clock.catch_up(
@@ -96,18 +95,15 @@ def test_resampler_clock_catch_up_bounds_latency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_realtime_input_source_matches_resampler_for_recorded_trace() -> None:
-    expected_resampler = _resampler_with_recorded_trace()
-    expected_resampler.next_chunk_start_v = 2.0
-    expected_segments, expected_frame_times = expected_resampler.sample_chunk(2)
-    source_resampler = _resampler_with_recorded_trace()
+async def test_realtime_input_source_emits_transport_neutral_window() -> None:
+    source_resampler = RealtimeEventResampler(fps=2.0, start_v=0.0)
     sleep = _RecordingSleep()
     clock = ResamplerRealtimeClock(
         resampler=source_resampler,
         now_fn=lambda: 3.0,
         sleep_fn=sleep,
     )
-    source = KeyboardRealtimeInputSource(resampler=source_resampler)
+    source = RealtimeEventInputSource(resampler=source_resampler)
 
     result = await source.next_realtime_window(
         request=_request(input_frame_count=2),
@@ -123,15 +119,14 @@ async def test_realtime_input_source_matches_resampler_for_recorded_trace() -> N
     )
     assert result.window.start_s == pytest.approx(2.0)
     assert result.window.end_s == pytest.approx(3.0)
-    assert result.window.frame_times == tuple(expected_frame_times)
-    assert result.window.metadata[SPARSE_KEY_SEGMENTS_METADATA_KEY] == tuple(
-        expected_segments
-    )
+    assert result.window.frame_times == pytest.approx((2.5, 3.0))
+    assert result.window.inputs.events == ()
+    assert result.window.metadata == {}
 
 
 @pytest.mark.asyncio
 async def test_backpressure_is_clock_adjustment_not_blocking_sleep() -> None:
-    resampler = KeyboardResampler(fps=1.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=1.0, start_v=0.0)
     sleep = _RecordingSleep()
     clock = ResamplerRealtimeClock(
         resampler=resampler,
@@ -156,7 +151,7 @@ async def test_backpressure_is_clock_adjustment_not_blocking_sleep() -> None:
 
 @pytest.mark.asyncio
 async def test_window_floor_sleeps_only_when_virtual_time_is_ahead() -> None:
-    resampler = KeyboardResampler(fps=1.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=1.0, start_v=0.0)
     sleep = _RecordingSleep()
     clock = ResamplerRealtimeClock(
         resampler=resampler,
@@ -171,22 +166,22 @@ async def test_window_floor_sleeps_only_when_virtual_time_is_ahead() -> None:
 
 
 @pytest.mark.parametrize("policy", ["drop", "compress"])
-def test_keyboard_resampler_defers_unsupported_catch_up_policies(
+def test_realtime_event_source_defers_unsupported_catch_up_policies(
     policy: str,
 ) -> None:
-    resampler = KeyboardResampler(fps=1.0, start_v=0.0)
+    resampler = RealtimeEventResampler(fps=1.0, start_v=0.0)
     clock = ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 5.0)
     unsupported_policy = cast(CatchUpPolicy, policy)
 
-    with pytest.raises(NotImplementedError, match="no existing resampler analog"):
+    with pytest.raises(NotImplementedError, match="no existing timeline analog"):
         clock.catch_up(
             request=_request(input_frame_count=1),
             max_lag_s=1.0,
             policy=unsupported_policy,
         )
 
-    with pytest.raises(NotImplementedError, match="KeyboardResampler analog"):
-        KeyboardRealtimeInputSource(
+    with pytest.raises(NotImplementedError, match="event-window analog"):
+        RealtimeEventInputSource(
             resampler=resampler,
             catch_up_policy=unsupported_policy,
         )
@@ -197,18 +192,6 @@ def _request(*, input_frame_count: int) -> StepRequirements:
         step_index=0,
         input_frame_count=input_frame_count,
     )
-
-
-def _resampler_with_recorded_trace() -> KeyboardResampler:
-    resampler = KeyboardResampler(fps=2.0, start_v=0.0)
-    for arrival_t, event, key in (
-        (0.25, "keydown", "w"),
-        (1.25, "keydown", "a"),
-        (2.25, "keyup", "w"),
-        (2.75, "keydown", "d"),
-    ):
-        resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
-    return resampler
 
 
 class _RecordingSleep:

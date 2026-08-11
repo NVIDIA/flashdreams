@@ -12,12 +12,12 @@ from typing import Any
 
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import DemoSpec, WebRTCAppResources, WebRTCOutputSpec
-from flashdreams.runtime.demo.webrtc import (
+from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
+from flashdreams.serving.webrtc.demo import (
     CreateWebRTCApp,
     RunWebRTCServer,
     serve_webrtc_demo,
 )
-from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import create_webrtc_app
 from lingbot.demo import LingbotDemoAdapter

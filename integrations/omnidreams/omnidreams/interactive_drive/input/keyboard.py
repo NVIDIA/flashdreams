@@ -11,11 +11,11 @@ from omnidreams.interactive_drive.types import (
     VehicleState,
 )
 
-from flashdreams.serving.realtime.input import (
+from flashdreams.runtime.keyboard import (
     DRIVING_SUPPORTED_KEYS,
     normalize_key,
 )
-from flashdreams.serving.realtime.input import (
+from flashdreams.runtime.keyboard import (
     KeyboardState as RealtimeKeyboardState,
 )
 

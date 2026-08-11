@@ -32,17 +32,17 @@ from flashdreams.runtime.demo import (
     WebRTCAppResources,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.webrtc import (
+from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
+from flashdreams.serving.webrtc.demo import (
     CreateWebRTCApp,
     RunWebRTCServer,
     serve_webrtc_demo,
 )
-from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
-from flashdreams.serving.webrtc.controls import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import create_webrtc_app
 
 from .adapter import OmnidreamsDemoAdapter, RuntimeFactory
+from .controls import WSAD_SUPPORTED_KEYS
 from .spec import (
     DEFAULT_OMNIDREAMS_PRESET,
     OMNIDREAMS_MODEL_ID,

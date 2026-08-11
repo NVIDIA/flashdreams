@@ -20,7 +20,6 @@ from flashdreams.core.distributed.rank_orchestration import (
 )
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.runtime.worker import ThreadAffineRuntimeWorker
-from flashdreams.serving.realtime.input import PoseSegment
 from flashdreams.serving.webrtc.encoders import (
     EncoderBackend,
     VideoEncoder,
@@ -90,7 +89,7 @@ class WebRTCSessionRuntime(WebRTCServerLifecycle, Protocol):
         self,
         *,
         request: StepRequest,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult: ...
 
@@ -203,7 +202,7 @@ class ThreadAffineDistributedWebRTCRuntime(
         self,
         *,
         request: StepRequest,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult:
         self._require_open_and_initialized(session=True)
@@ -289,7 +288,7 @@ class ThreadAffineDistributedWebRTCRuntime(
     @distributed_op(WebRTCControlSignal.ACTION_STEP)
     def _generate_chunk_sync_all_ranks(
         self,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
@@ -325,7 +324,7 @@ class ThreadAffineDistributedWebRTCRuntime(
     def _generate_one_chunk_sync(
         self,
         *,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
     ) -> StepResult: ...
 
