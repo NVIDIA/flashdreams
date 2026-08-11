@@ -800,7 +800,10 @@ class LingbotInferenceRuntime:
             enable_sync_and_profile=True,
             diffusion_model=dict(
                 seed=rollout_seed,
-                transformer=dict(compile_network=self.config.compile_network),
+                transformer=dict(
+                    compile_network=self.config.compile_network,
+                    init_device=str(self._device),
+                ),
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)

@@ -157,6 +157,16 @@ class Wan21TransformerConfig(TransformerConfig):
     """Pre-load state-dict remap (e.g. Self-Forcing's
     ``generator_ema.model.…`` layout)."""
 
+    stream_checkpoint: bool = False
+    """Load cached safetensors directly into the model with bounded host residency."""
+
+    init_device: str | None = None
+    """Optional device used for initial network parameter allocation.
+
+    Large streaming-checkpoint models can set this to the final runtime device
+    so the module is not first materialized as fp32 CPU tensors.
+    """
+
     batch_shape: tuple[int, ...] = (1,)
     """Batch dims of the latent (excluding the L, D dims)."""
 
@@ -273,19 +283,29 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self._output_height: int | None = None
         self._output_width: int | None = None
 
-        self.network = config.network.setup()
-        self.network = self.network.to(dtype=config.dtype)
+        self.network = self._setup_network(config)
         self.network.eval()
         self.network.set_context_parallel_group(cp_group=self._cp_group)
 
         if config.checkpoint_path is not None:
-            state_dict = load_checkpoint(
-                config.checkpoint_path,
-                checkpoint_min_free_gb=config.checkpoint_min_free_gb,
-            )
-            if config.state_dict_transform is not None:
-                state_dict = config.state_dict_transform(state_dict)
-            self.network.load_state_dict(state_dict)
+            if config.stream_checkpoint:
+                if config.state_dict_transform is not None:
+                    raise ValueError(
+                        "stream_checkpoint does not support state_dict_transform"
+                    )
+                load_checkpoint(
+                    config.checkpoint_path,
+                    model=self.network,
+                    checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+                )
+            else:
+                state_dict = load_checkpoint(
+                    config.checkpoint_path,
+                    checkpoint_min_free_gb=config.checkpoint_min_free_gb,
+                )
+                if config.state_dict_transform is not None:
+                    state_dict = config.state_dict_transform(state_dict)
+                self.network.load_state_dict(state_dict)
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
@@ -307,6 +327,23 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self._network_call_uncond = (
             self._cuda_graph_dispatch.uncond_call or self.network
         )
+
+    @staticmethod
+    def _setup_network(config: Wan21TransformerConfig) -> WanDiTNetwork:
+        init_device = (
+            None if config.init_device is None else torch.device(config.init_device)
+        )
+        if init_device is None:
+            return config.network.setup().to(dtype=config.dtype)
+
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(config.dtype)
+            with torch.device(init_device):
+                network = config.network.setup()
+        finally:
+            torch.set_default_dtype(previous_dtype)
+        return network.to(device=init_device, dtype=config.dtype)
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
