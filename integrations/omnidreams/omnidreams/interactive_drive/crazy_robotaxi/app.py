@@ -33,11 +33,11 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
 )
-from omnidreams.interactive_drive.crazy_robotaxi.input import (
-    CrazyRobotaxiKeyboardState,
-)
 from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
     default_high_scores_path,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.input import (
+    CrazyRobotaxiKeyboardState,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
@@ -47,7 +47,11 @@ from omnidreams.interactive_drive.crazy_robotaxi.scene import (
     load_scene_data,
 )
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
-from omnidreams.interactive_drive.types import SceneBundle, TrajectoryChunk, VehicleState
+from omnidreams.interactive_drive.types import (
+    SceneBundle,
+    TrajectoryChunk,
+    VehicleState,
+)
 
 from flashdreams.serving.realtime.timing import TraceSink
 
@@ -83,9 +87,7 @@ class CrazyRobotaxiRuntime:
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> tuple[object | None, ...]:
         """Advance the game and return state synchronized to every frame."""
-        return tuple(
-            self._controller.advance_frames(trajectory, frame_interval_s)
-        )
+        return tuple(self._controller.advance_frames(trajectory, frame_interval_s))
 
     def publish_boundary(self, state: VehicleState) -> None:
         """Publish the latest vehicle and game state to presenters."""
@@ -105,7 +107,8 @@ class CrazyRobotaxiApplication:
         self._keyboard = keyboard
         self._presenter_config = presenter_config
         self._reference_route_world: Any | None = None
-        self._navigation_routes_world: tuple[Any, ...] = ()
+        self._navigation_lanes: tuple[Any, ...] = ()
+        self._intersection_polygons_world: tuple[Any, ...] = ()
         self._ground_snapper: GroundSnapper | None = None
 
     def configure_presenter(self, presenter: Any) -> None:
@@ -118,7 +121,8 @@ class CrazyRobotaxiApplication:
         """Accept scene data already loaded by Interactive Drive."""
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
-        self._navigation_routes_world = scene_data.navigation_routes_world
+        self._navigation_lanes = scene_data.navigation_lanes
+        self._intersection_polygons_world = scene_data.intersection_polygons_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
 
     def configure_scene_presenter(self, presenter: Any, scene: SceneBundle) -> None:
@@ -159,7 +163,8 @@ class CrazyRobotaxiApplication:
         controller = TaxiGameController(
             scene_id=scene.scene_id,
             reference_route_world=self._reference_route_world,
-            navigation_routes_world=self._navigation_routes_world,
+            navigation_lanes=self._navigation_lanes,
+            intersection_polygons_world=self._intersection_polygons_world,
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,
@@ -188,9 +193,7 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             trace_sink=trace_sink,
             close_presenter_on_exit=close_presenter_on_exit,
             keyboard=keyboard,
-            application=CrazyRobotaxiApplication(
-                taxi_config, keyboard, config.bev
-            ),
+            application=CrazyRobotaxiApplication(taxi_config, keyboard, config.bev),
         )
 
 

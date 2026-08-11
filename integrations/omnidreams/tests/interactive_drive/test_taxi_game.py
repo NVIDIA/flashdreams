@@ -16,9 +16,14 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameSnapshot,
     project_target_to_bev,
     project_taxi_marker_to_camera,
+    project_turn_signs_to_camera,
     relative_target_bearing_rad,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.high_scores import HighScoreStore
+from omnidreams.interactive_drive.crazy_robotaxi.navigation import (
+    NavigationLane,
+    TaxiTurnInstruction,
+)
 from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
@@ -269,7 +274,7 @@ def test_taxi_mode_rejects_route_without_travel_distance() -> None:
         )
 
 
-def test_navigation_routes_move_dropoffs_to_other_streets() -> None:
+def test_dropoffs_stay_within_reachable_road_component() -> None:
     controller = TaxiGameController(
         scene_id="street-network",
         reference_route_world=np.array(
@@ -292,7 +297,74 @@ def test_navigation_routes_move_dropoffs_to_other_streets() -> None:
     )
 
     assert dropoff.phase == "to_dropoff"
-    assert dropoff.target_xyz_m[1] != pickup.target_xyz_m[1]
+    assert dropoff.target_xyz_m[1] == pickup.target_xyz_m[1]
+
+
+def test_fare_uses_routed_distance_and_hides_signs_when_no_reroute_exists() -> None:
+    lanes = (
+        NavigationLane(
+            np.asarray([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float32)
+        ),
+        NavigationLane(
+            np.asarray([[10.0, 0.0, 0.0], [20.0, 10.0, 0.0]], dtype=np.float32),
+            "LEFT_TURN",
+        ),
+        NavigationLane(
+            np.asarray([[20.0, 10.0, 0.0], [30.0, 10.0, 0.0]], dtype=np.float32)
+        ),
+    )
+    intersection = np.asarray(
+        [
+            [8.0, -2.0, 0.0],
+            [22.0, -2.0, 0.0],
+            [22.0, 12.0, 0.0],
+            [8.0, 12.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    controller = TaxiGameController(
+        scene_id="routed-fare",
+        reference_route_world=lanes[0].centerline_world,
+        navigation_lanes=lanes,
+        intersection_polygons_world=(intersection,),
+        initial_state=_state(-200.0, 0.0),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=4,
+            waypoint_spacing_m=1000.0,
+            fare_min_route_distance_m=15.0,
+            fare_max_route_distance_m=100.0,
+            target_speed_mps=1.0,
+            grace_s=0.0,
+            min_time_s=0.0,
+            max_time_s=100.0,
+            trip_time_multiplier=1.0,
+        ),
+        initial_camera=_camera_calibration(),
+    )
+    pickup = controller.snapshot(_state(-200.0, 0.0))
+    controller.advance(
+        _trajectory((pickup.target_xyz_m[0], pickup.target_xyz_m[1])), 0.0
+    )
+
+    active = controller.snapshot(_state(*pickup.target_xyz_m[:2]))
+
+    straight_line_distance = math.hypot(
+        active.target_xyz_m[0] - pickup.target_xyz_m[0],
+        active.target_xyz_m[1] - pickup.target_xyz_m[1],
+    )
+    assert active.phase == "to_dropoff"
+    assert active.remaining_time_s is not None
+    assert active.remaining_time_s > straight_line_distance
+    assert [instruction.maneuver for instruction in active.turn_instructions] == [
+        "left"
+    ]
+
+    controller.advance(_trajectory((1000.0, 1000.0)), 0.0)
+    off_route = controller.snapshot(_state(1000.0, 1000.0))
+
+    assert off_route.phase == "to_dropoff"
+    assert off_route.turn_instructions == ()
 
 
 def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:
@@ -545,3 +617,51 @@ def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:
     assert visible.anchor_uv == pytest.approx((50.0, 40.0))
     assert visible.ring_edges_uv
     assert behind is None
+
+
+def test_turn_sign_projection_culls_offscreen_and_sorts_far_to_near() -> None:
+    camera_model = FThetaCameraModel(_camera_calibration())
+    snapshot = TaxiGameSnapshot(
+        phase="to_dropoff",
+        target_xyz_m=(20.0, 0.0, 0.0),
+        distance_m=20.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=6.0,
+        remaining_time_s=20.0,
+        score=0,
+        turn_instructions=(
+            TaxiTurnInstruction("left", (10.0, 0.0, 3.0), 10.0),
+            TaxiTurnInstruction("right", (20.0, 0.0, 3.0), 20.0),
+            TaxiTurnInstruction("u_turn", (-10.0, 0.0, 3.0), 30.0),
+        ),
+    )
+
+    projections = project_turn_signs_to_camera(
+        snapshot,
+        np.eye(4, dtype=np.float32),
+        camera_model,
+        image_width=100,
+        image_height=80,
+    )
+
+    assert [projection.instruction.maneuver for projection in projections] == [
+        "right",
+        "left",
+    ]
+    assert projections[0].depth_m > projections[1].depth_m
+
+
+def test_snapshot_serializes_turn_instructions() -> None:
+    instruction = TaxiTurnInstruction("straight", (10.0, 0.0, 3.0), 12.0)
+    snapshot = TaxiGameSnapshot(
+        phase="to_dropoff",
+        target_xyz_m=(20.0, 0.0, 0.0),
+        distance_m=20.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=6.0,
+        remaining_time_s=20.0,
+        score=0,
+        turn_instructions=(instruction,),
+    )
+
+    assert snapshot.as_dict()["turn_instructions"] == [instruction.as_dict()]
