@@ -285,7 +285,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v4" in html
+    assert "/static/request_session.js?v=shared-webrtc-v5" in html
     for slot in (
         "modelStageSlot",
         "modelStatusSlot",
@@ -296,8 +296,13 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert 'fetch("/api/ui/config")' in javascript
     assert "config.model_stylesheet" in javascript
     assert "stylesheetHrefs" in javascript
+    assert 'id="controlCard"' in html
+    assert "syncControlCardVisibility" in javascript
     assert "await modelAdapter?.beforeConnect?.(modelContext)" in javascript
+    assert "modelAdapter?.onConnect?.(modelContext)" in javascript
     assert "sendCommand: sendModelCommand" in javascript
+    assert "setFlow," in javascript
+    assert "setStatus," in javascript
     assert 'id="postprocessField"' in html
     assert 'fetch("/api/postprocess/options")' in javascript
     assert "@typedef {Object} WebRTCModelAdapter" in javascript
@@ -354,7 +359,7 @@ async def test_packaged_webrtc_app_serves_model_adapter(tmp_path) -> None:
     try:
         config_response = await client.get("/api/ui/config")
         assert await config_response.json() == {
-            "adapter_module": "/model-static/adapter.js?v=model-ui-v2"
+            "adapter_module": "/model-static/adapter.js?v=model-ui-v4"
         }
         adapter_response = await client.get("/model-static/adapter.js")
         assert adapter_response.status == 200
@@ -385,7 +390,7 @@ async def test_packaged_webrtc_app_serves_model_stylesheet(tmp_path) -> None:
         config_response = await client.get("/api/ui/config")
         assert await config_response.json() == {
             "adapter_module": None,
-            "model_stylesheet": "/model-static/adapter.css?v=model-ui-v2",
+            "model_stylesheet": "/model-static/adapter.css?v=model-ui-v4",
         }
         stylesheet_response = await client.get("/model-static/adapter.css")
         assert stylesheet_response.status == 200

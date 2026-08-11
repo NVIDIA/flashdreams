@@ -86,10 +86,10 @@ class MockUIRequestHandler(SimpleHTTPRequestHandler):
         ui_config: dict[str, str | None] = {"adapter_module": None}
         if self.model_web_dir is not None:
             if (self.model_web_dir / "adapter.js").is_file():
-                ui_config["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
+                ui_config["adapter_module"] = "/model-static/adapter.js?v=model-ui-v4"
             if (self.model_web_dir / "adapter.css").is_file():
                 ui_config["model_stylesheet"] = (
-                    "/model-static/adapter.css?v=model-ui-v2"
+                    "/model-static/adapter.css?v=model-ui-v4"
                 )
         payload = json.dumps(ui_config).encode("utf-8")
         self.send_response(200)

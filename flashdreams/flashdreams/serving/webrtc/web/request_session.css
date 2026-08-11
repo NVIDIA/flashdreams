@@ -298,6 +298,10 @@ body[data-status="generating"] .connectButton {
   padding: 18px 20px 20px;
 }
 
+.controlCard[hidden] {
+  display: none;
+}
+
 .controlCard h2,
 .logCard h2 {
   display: flex;

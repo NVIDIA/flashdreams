@@ -87,9 +87,10 @@ def _calc_mean_std(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert feat.dim() == 4, "feat must be (N, C, H, W)"
     N, C = feat.shape[:2]
-    var = feat.view(N, C, -1).var(dim=2, unbiased=False) + eps
-    std = var.sqrt().view(N, C, 1, 1)
-    mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
+    flat = feat.reshape(N, C, -1)
+    var = flat.var(dim=2, unbiased=False) + eps
+    std = var.sqrt().reshape(N, C, 1, 1)
+    mean = flat.mean(dim=2).reshape(N, C, 1, 1)
     return mean, std
 
 

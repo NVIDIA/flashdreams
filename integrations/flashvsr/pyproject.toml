@@ -24,7 +24,7 @@ description = "FlashVSR streaming video super-resolution (LR projector + Wan 2.1
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flashdreams",
+    "flashdreams[serving]",
     "grpcio>=1.80",
     "mediapy>=1.1",
     "Pillow>=10",
@@ -44,6 +44,7 @@ dev = [
 ]
 
 [project.scripts]
+flashvsr-demo = "flashvsr.demo.app:main"
 flashvsr-grpc-server = "flashvsr.grpc.uplift_server:main"
 flashvsr-grpc-client = "flashvsr.grpc.uplift_client:main"
 flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
@@ -71,6 +72,7 @@ exclude = ["tests"]
 
 [tool.setuptools.package-data]
 "flashvsr" = ["csrc/*.cu"]
+"flashvsr.demo" = ["web/adapter.js", "web/adapter.css"]
 
 # Pytest's ``configfile`` resolution picks the nearest ``pyproject.toml`` to
 # the test files, so when running ``pytest integrations/flashvsr/tests``

@@ -1149,7 +1149,7 @@ name = "flashdreams-flashvsr"
 version = "0.1.0"
 source = { editable = "integrations/flashvsr" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
     { name = "grpcio" },
     { name = "mediapy" },
     { name = "pillow" },
@@ -1164,7 +1164,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "grpcio", specifier = ">=1.80" },
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.80" },
     { name = "mediapy", specifier = ">=1.1" },
