@@ -99,6 +99,18 @@ class GroundSnapper:
             for cell, idxs in cell_buckets.items()
         }
 
+    @staticmethod
+    def _settle_attitude(state: VehicleState) -> VehicleState:
+        """Ease stale ground attitude toward level after an invalid sample."""
+        settle_fraction = 0.25
+        pitch = state.pitch_rad * (1.0 - settle_fraction)
+        roll = state.roll_rad * (1.0 - settle_fraction)
+        if abs(pitch) < 1.0e-4:
+            pitch = 0.0
+        if abs(roll) < 1.0e-4:
+            roll = 0.0
+        return replace(state, pitch_rad=pitch, roll_rad=roll)
+
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
         return max(0, min(self._grid_shape[0] - 1, i))
@@ -173,14 +185,14 @@ class GroundSnapper:
                 n_total,
                 self._min_intersections,
             )
-            return state
+            return self._settle_attitude(state)
         ground_pts = np.column_stack(
             [world_pts[mask, 0], world_pts[mask, 1], ground_zs[mask]]
         )
         try:
             centroid_g, normal_g = _fit_plane(ground_pts.T)
         except _InsufficientPoints:
-            return state
+            return self._settle_attitude(state)
         if normal_g[2] < 0.0:
             normal_g = -normal_g
         local_ground_z = float(
@@ -203,12 +215,13 @@ class GroundSnapper:
         new_pitch = math.atan2(target_x, target_z)
         delta_z = abs(new_z - state.z_m)
         if delta_z > self._max_translation_m:
-            return state
+            return self._settle_attitude(state)
+        target_rot = max(abs(new_pitch), abs(new_roll))
         delta_rot = max(
             abs(new_pitch - state.pitch_rad), abs(new_roll - state.roll_rad)
         )
-        if delta_rot > self._max_rotation_rad:
-            return state
+        if target_rot > self._max_rotation_rad or delta_rot > self._max_rotation_rad:
+            return self._settle_attitude(state)
         return replace(
             state,
             z_m=float(new_z),

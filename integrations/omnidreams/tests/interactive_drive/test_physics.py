@@ -203,6 +203,37 @@ def test_snap_off_mesh_returns_input_unchanged() -> None:
     assert out == state
 
 
+def test_snap_off_mesh_settles_stale_ground_attitude() -> None:
+    snapper = GroundSnapper(*_sloped_ground(pitch_deg=5.0, half_extent=5.0))
+    vehicle = VehicleConfig()
+    tilted = snapper.snap(_state(z=2.0), vehicle)
+    assert abs(tilted.pitch_rad) > math.radians(4.0)
+
+    off_mesh = _state(
+        x=500.0,
+        y=500.0,
+        z=tilted.z_m,
+        pitch=tilted.pitch_rad,
+        roll=math.radians(4.0),
+    )
+    pitch_history = []
+    roll_history = []
+    for _ in range(30):
+        off_mesh = snapper.snap(off_mesh, vehicle)
+        pitch_history.append(abs(off_mesh.pitch_rad))
+        roll_history.append(abs(off_mesh.roll_rad))
+
+    assert all(
+        next_value <= value
+        for value, next_value in zip(pitch_history, pitch_history[1:])
+    )
+    assert all(
+        next_value <= value for value, next_value in zip(roll_history, roll_history[1:])
+    )
+    assert off_mesh.pitch_rad == 0.0
+    assert off_mesh.roll_rad == 0.0
+
+
 def test_snap_translation_threshold_rejects_jump() -> None:
     snapper = GroundSnapper(*_flat_ground(z=0.0), max_translation_m=0.05)
     vehicle = VehicleConfig()
@@ -224,6 +255,17 @@ def test_snap_rotation_threshold_rejects_steep_slope() -> None:
     initial = _state(z=0.0)
     out = snapper.snap(initial, vehicle)
     assert out == initial
+
+
+def test_snap_rotation_threshold_cannot_accumulate_permanent_tilt() -> None:
+    snapper = GroundSnapper(*_sloped_ground(pitch_deg=12.0), max_rotation_deg=10.0)
+    vehicle = VehicleConfig()
+    stale_tilt = _state(z=0.0, pitch=-math.radians(8.0))
+
+    out = snapper.snap(stale_tilt, vehicle)
+
+    assert abs(out.pitch_rad) < abs(stale_tilt.pitch_rad)
+    assert out.pitch_rad != pytest.approx(-math.radians(12.0), abs=1.0e-3)
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +378,34 @@ def test_sample_chunk_trajectory_with_snapper_follows_slope() -> None:
     expected_z = math.tan(math.radians(3.0)) * final.x_m + expected_anchor
     assert final.z_m == pytest.approx(expected_z, abs=2e-2)
     assert final.pitch_rad == pytest.approx(-math.radians(3.0), abs=5e-3)
+
+
+def test_sample_chunk_trajectory_levels_stale_attitude_off_mesh() -> None:
+    snapper = GroundSnapper(*_flat_ground(z=0.0, half_extent=2.0))
+    state = _state(
+        x=500.0,
+        y=500.0,
+        z=1.5,
+        pitch=math.radians(8.0),
+        roll=-math.radians(6.0),
+    )
+
+    chunk = sample_chunk_trajectory(
+        start_state=state,
+        start_timestamp_us=0,
+        command=DriverCommand(),
+        chunk_size=30,
+        chunk_config=ChunkConfig(fps=30),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=snapper,
+    )
+
+    final = chunk.boundary_state_after_chunk
+    assert final.pitch_rad == 0.0
+    assert final.roll_rad == 0.0
+    np.testing.assert_allclose(
+        chunk.rig_poses_world[-1, :3, :3], np.eye(3), atol=1.0e-5
+    )
 
 
 # ---------------------------------------------------------------------------
