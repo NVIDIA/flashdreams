@@ -480,6 +480,7 @@ class InteractiveDriveApp:
                     navigation_routes_world=self._scene.navigation_routes_world,
                     initial_state=simulation.current_state,
                     config=self._config.taxi_game,
+                    initial_camera=self._scene.selected_camera,
                 )
             # Publish the freshly-built initial state up front so read-side
             # speed readouts (the HUD speed digit, the browser ``/state``

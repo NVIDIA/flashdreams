@@ -38,6 +38,21 @@ def _state(x_m: float = 0.0, y_m: float = 0.0, yaw_rad: float = 0.0) -> VehicleS
     )
 
 
+def _camera_calibration() -> CameraCalibration:
+    return CameraCalibration(
+        clipgt_name="camera:test",
+        logical_name="camera_test",
+        width=100,
+        height=80,
+        cx=50.0,
+        cy=40.0,
+        polynomial=np.array([0.0, 0.01], dtype=np.float32),
+        is_backward_polynomial=True,
+        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
+    )
+
+
 def _trajectory(*positions_xy: tuple[float, float]) -> TrajectoryChunk:
     states = tuple(_state(x_m, y_m) for x_m, y_m in positions_xy)
     poses = np.stack([rig_pose_from_vehicle_state(state) for state in states])
@@ -134,12 +149,78 @@ def test_initial_pickup_is_selected_in_front_of_ego(
         reference_route_world=route,
         initial_state=_state(yaw_rad=initial_yaw_rad),
         config=TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=10.0),
+        initial_camera=_camera_calibration(),
     )
 
     pickup = controller.snapshot(_state(yaw_rad=initial_yaw_rad))
 
     assert pickup.target_xyz_m[0] * expected_x_sign > 0.0
     assert abs(pickup.relative_bearing_rad) < math.pi * 0.5
+
+
+def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
+    controller = TaxiGameController(
+        scene_id="visible-pickup",
+        reference_route_world=np.asarray(
+            [[80.0, 0.0, 0.0], [120.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        navigation_routes_world=(
+            np.asarray([[80.0, 0.0, 0.0], [120.0, 0.0, 0.0]], dtype=np.float32),
+            np.asarray([[25.0, 80.0, 0.0], [26.0, 80.0, 0.0]], dtype=np.float32),
+            np.asarray([[-25.0, 0.0, 0.0], [-26.0, 0.0, 0.0]], dtype=np.float32),
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=1000.0),
+        initial_camera=_camera_calibration(),
+    )
+
+    pickup = controller.snapshot(_state())
+
+    assert pickup.distance_m >= 80.0
+    assert pickup.target_xyz_m[1] == pytest.approx(0.0)
+
+
+def test_later_pickups_are_sampled_across_the_map() -> None:
+    routes = (
+        np.asarray([[-100.0, -100.0, 0.0], [100.0, -100.0, 0.0]], dtype=np.float32),
+        np.asarray([[-100.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32),
+        np.asarray([[-100.0, 100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
+        np.asarray([[-100.0, -100.0, 0.0], [-100.0, 100.0, 0.0]], dtype=np.float32),
+        np.asarray([[100.0, -100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
+    )
+    controller = TaxiGameController(
+        scene_id="varied-pickups",
+        reference_route_world=routes[1],
+        navigation_routes_world=routes,
+        initial_state=_state(),
+        config=TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=20.0),
+        initial_camera=_camera_calibration(),
+    )
+
+    position = _state()
+    later_pickups: list[TaxiGameSnapshot] = []
+    for _ in range(12):
+        pickup = controller.snapshot(position)
+        controller.advance(
+            _trajectory((pickup.target_xyz_m[0], pickup.target_xyz_m[1])), 0.0
+        )
+        position = _state(pickup.target_xyz_m[0], pickup.target_xyz_m[1])
+        dropoff = controller.snapshot(position)
+        controller.advance(
+            _trajectory((dropoff.target_xyz_m[0], dropoff.target_xyz_m[1])), 0.0
+        )
+        position = _state(dropoff.target_xyz_m[0], dropoff.target_xyz_m[1])
+        later_pickups.append(controller.snapshot(position))
+
+    selected_xy = {pickup.target_xyz_m[:2] for pickup in later_pickups}
+    assert len(selected_xy) > 8
+    assert any(pickup.target_xyz_m[0] < 0.0 for pickup in later_pickups)
+    assert any(pickup.target_xyz_m[0] > 0.0 for pickup in later_pickups)
+    assert any(pickup.target_xyz_m[1] < 0.0 for pickup in later_pickups)
+    assert any(pickup.target_xyz_m[1] > 0.0 for pickup in later_pickups)
+    assert any(
+        abs(pickup.relative_bearing_rad) > math.pi * 0.5 for pickup in later_pickups
+    )
 
 
 def test_taxi_mode_rejects_route_without_travel_distance() -> None:
@@ -392,18 +473,7 @@ def test_bev_projection_places_forward_and_left_targets() -> None:
 
 
 def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:
-    calibration = CameraCalibration(
-        clipgt_name="camera:test",
-        logical_name="camera_test",
-        width=100,
-        height=80,
-        cx=50.0,
-        cy=40.0,
-        polynomial=np.array([0.0, 0.01], dtype=np.float32),
-        is_backward_polynomial=True,
-        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
-    )
+    calibration = _camera_calibration()
     camera_model = FThetaCameraModel(calibration)
     snapshot = TaxiGameSnapshot(
         phase="seeking_pickup",

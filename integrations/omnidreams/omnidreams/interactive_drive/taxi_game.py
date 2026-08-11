@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.high_scores import (
     HighScoreEntry,
     HighScoreStore,
@@ -21,11 +22,15 @@ from omnidreams.interactive_drive.high_scores import (
 from omnidreams.interactive_drive.math3d import (
     invert_transform,
     level_rig_pose_from_vehicle_state,
+    rig_pose_from_vehicle_state,
 )
-from omnidreams.interactive_drive.types import TrajectoryChunk, VehicleState
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    TrajectoryChunk,
+    VehicleState,
+)
 
 if TYPE_CHECKING:
-    from omnidreams.interactive_drive.camera import FThetaCameraModel
     from omnidreams.interactive_drive.config import BevConfig
 
 TaxiPhase = Literal["seeking_pickup", "to_dropoff"]
@@ -386,7 +391,7 @@ def project_taxi_marker_to_camera(
 
 
 class TaxiGameController:
-    """Advance deterministic taxi fares over scene navigation routes."""
+    """Advance taxi fares over scene navigation routes."""
 
     def __init__(
         self,
@@ -396,6 +401,7 @@ class TaxiGameController:
         navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
+        initial_camera: CameraCalibration | None = None,
         high_score_store: HighScoreStore | None = None,
     ) -> None:
         self._config = config
@@ -424,11 +430,9 @@ class TaxiGameController:
         self._high_score = existing_scores[0].score if existing_scores else None
         self._leaderboard: tuple[HighScoreEntry, ...] = ()
         self._high_score_rank: int | None = None
-        self._target_index = self._select_pickup(
-            initial_state.x_m,
-            initial_state.y_m,
-            excluded=frozenset(),
-            preferred_yaw_rad=initial_state.yaw_rad,
+        self._target_index = self._select_initial_pickup(
+            initial_state,
+            initial_camera,
         )
 
     @property
@@ -571,8 +575,75 @@ class TaxiGameController:
         y_m: float,
         *,
         excluded: frozenset[int],
-        preferred_yaw_rad: float | None = None,
     ) -> int:
+        distances, eligible = self._pickup_candidates(x_m, y_m, excluded=excluded)
+        if eligible:
+            return int(self._rng.choice(eligible))
+        fallback = [
+            index for index in range(len(self._waypoints)) if index not in excluded
+        ]
+        if not fallback:
+            fallback = list(range(len(self._waypoints)))
+        return max(fallback, key=distances.__getitem__)
+
+    def _select_initial_pickup(
+        self,
+        initial_state: VehicleState,
+        initial_camera: CameraCalibration | None,
+    ) -> int:
+        """Select the only pickup constrained by the player's initial view."""
+        x_m = initial_state.x_m
+        y_m = initial_state.y_m
+        distances, eligible = self._pickup_candidates(x_m, y_m, excluded=frozenset())
+
+        if initial_camera is not None:
+            camera_model = FThetaCameraModel(initial_camera)
+            points = np.stack([point.xyz_m for point in self._waypoints])
+            uv, _depth, forward = camera_model.project_world(
+                points,
+                rig_pose_from_vehicle_state(initial_state),
+            )
+            visible = [
+                index
+                for index in range(len(self._waypoints))
+                if bool(forward[index])
+                and 0.0 <= float(uv[index, 0]) < float(initial_camera.width)
+                and 0.0 <= float(uv[index, 1]) < float(initial_camera.height)
+            ]
+        else:
+            visible = [
+                index
+                for index, point in enumerate(self._waypoints)
+                if abs(
+                    relative_target_bearing_rad(
+                        x_m,
+                        y_m,
+                        initial_state.yaw_rad,
+                        float(point.xyz_m[0]),
+                        float(point.xyz_m[1]),
+                    )
+                )
+                < math.pi * 0.5
+            ]
+
+        eligible_set = frozenset(eligible)
+        eligible_visible = [index for index in visible if index in eligible_set]
+        if eligible_visible:
+            if initial_camera is None:
+                return min(eligible_visible, key=distances.__getitem__)
+            return int(self._rng.choice(eligible_visible))
+        if visible:
+            return max(visible, key=distances.__getitem__)
+        return self._select_pickup(x_m, y_m, excluded=frozenset())
+
+    def _pickup_candidates(
+        self,
+        x_m: float,
+        y_m: float,
+        *,
+        excluded: frozenset[int],
+    ) -> tuple[list[float], list[int]]:
+        """Return distances and valid pickup indices for a vehicle position."""
         distances = [
             math.hypot(float(point.xyz_m[0]) - x_m, float(point.xyz_m[1]) - y_m)
             for point in self._waypoints
@@ -582,37 +653,7 @@ class TaxiGameController:
             for index, distance in enumerate(distances)
             if index not in excluded and distance >= self._config.pickup_min_distance_m
         ]
-        if preferred_yaw_rad is not None:
-            forward_x = math.cos(preferred_yaw_rad)
-            forward_y = math.sin(preferred_yaw_rad)
-            forward = [
-                index
-                for index in eligible
-                if (float(self._waypoints[index].xyz_m[0]) - x_m) * forward_x
-                + (float(self._waypoints[index].xyz_m[1]) - y_m) * forward_y
-                > 0.0
-            ]
-            if forward:
-                return min(forward, key=distances.__getitem__)
-
-            forward_fallback = [
-                index
-                for index in range(len(self._waypoints))
-                if index not in excluded
-                and (float(self._waypoints[index].xyz_m[0]) - x_m) * forward_x
-                + (float(self._waypoints[index].xyz_m[1]) - y_m) * forward_y
-                > 0.0
-            ]
-            if forward_fallback:
-                return max(forward_fallback, key=distances.__getitem__)
-        if eligible:
-            return min(eligible, key=distances.__getitem__)
-        fallback = [
-            index for index in range(len(self._waypoints)) if index not in excluded
-        ]
-        if not fallback:
-            fallback = list(range(len(self._waypoints)))
-        return max(fallback, key=distances.__getitem__)
+        return distances, eligible
 
     def _select_dropoff(self, pickup_index: int) -> tuple[int, float]:
         pickup = self._waypoints[pickup_index].xyz_m
