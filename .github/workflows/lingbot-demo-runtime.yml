@@ -13,8 +13,10 @@ on:
       - "flashdreams/flashdreams/core/**"
       - "flashdreams/flashdreams/infra/**"
       - "flashdreams/flashdreams/runtime/**"
+      - "flashdreams/flashdreams/serving/**"
       - "flashdreams/flashdreams/recipes/taehv/**"
       - "flashdreams/flashdreams/recipes/wan/**"
+      - "flashdreams/tests/test_webrtc_*.py"
       - "integrations/lingbot/**"
   workflow_dispatch:
 
