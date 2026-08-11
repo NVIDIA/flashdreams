@@ -68,6 +68,9 @@ class RasterConfig:
 
 @dataclass(frozen=True)
 class VehicleConfig:
+    traffic_density: float = 1.0
+    """Fraction of recorded motor-vehicle tracks retained in the simulation."""
+
     wheel_base_m: float = 2.8
     max_steer_rad: float = 0.5
     steer_rate_rad_per_s: float = 0.55
@@ -141,6 +144,9 @@ class AppConfig:
     scene_path: Path
     backend: BackendName = "raster"
     game_mode: bool = False
+    game_traffic_density: float = 0.4
+    """Fraction of recorded motor traffic retained while game mode is active."""
+
     camera_name: str = "camera_front_wide_120fov"
     variant: str = "default"
     prompt_override: str | None = None
@@ -185,6 +191,10 @@ class AppConfig:
     """Whether to show the full-screen collision vignette; disabled by default."""
 
     def __post_init__(self) -> None:
+        if not 0.0 < self.game_traffic_density <= 1.0:
+            raise ValueError(
+                "game_traffic_density must be greater than 0 and at most 1"
+            )
         object.__setattr__(
             self,
             "vehicle",
@@ -193,6 +203,7 @@ class AppConfig:
                 speed_limit_enabled=self.game_mode,
                 actor_collision_enabled=self.game_mode,
                 static_collision_enabled=self.game_mode,
+                traffic_density=self.game_traffic_density if self.game_mode else 1.0,
             ),
         )
         if self.visual_flare_enabled is None:

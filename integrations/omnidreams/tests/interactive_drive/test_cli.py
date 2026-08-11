@@ -56,7 +56,21 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
     assert config.vehicle.speed_limit_enabled is game_mode_enabled
     assert config.vehicle.actor_collision_enabled is game_mode_enabled
     assert config.vehicle.static_collision_enabled is game_mode_enabled
+    assert config.vehicle.traffic_density == pytest.approx(
+        0.4 if game_mode_enabled else 1.0
+    )
     assert config.visual_flare_enabled is visual_flare_enabled
+
+
+def test_game_mode_accepts_traffic_density_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_k: object())
+
+    args = build_parser().parse_args(["--game-mode", "--traffic-density", "0.25"])
+    config, _backend = cli.prepare_config_and_backend(args)
+
+    assert config.vehicle.traffic_density == pytest.approx(0.25)
 
 
 def test_postprocess_preset_defaults_disabled() -> None:

@@ -73,6 +73,8 @@ struct BodyRecord {
     PxMaterial* material = nullptr;
     std::size_t slot = 0;
     PxVec3 halfExtents{0.0f};
+    PxVec3 chassisHalfExtents{0.0f};
+    float chassisBevel = 0.0f;
     float mass = 0.0f;
     float restitution = 0.0f;
     bool collisionActive = false;
@@ -109,6 +111,50 @@ struct BodyRecord {
     bool hasTrack() const { return !timestampsUs.empty(); }
     bool hasVehicle() const { return wheelRadius > 0.0f; }
 };
+
+float vehicleChassisBevel(const PxVec3& halfExtents)
+{
+    return std::min({0.45f, halfExtents.x * 0.18f, halfExtents.y * 0.35f});
+}
+
+PxConvexMesh* createBeveledChassisMesh(
+    PxPhysics& physics, const PxVec3& halfExtents, float bevel)
+{
+    const float x = halfExtents.x;
+    const float y = halfExtents.y;
+    const float z = halfExtents.z;
+    const std::array<PxVec3, 16> vertices{
+        PxVec3(-x + bevel, -y, -z), PxVec3(x - bevel, -y, -z),
+        PxVec3(x, -y + bevel, -z), PxVec3(x, y - bevel, -z),
+        PxVec3(x - bevel, y, -z), PxVec3(-x + bevel, y, -z),
+        PxVec3(-x, y - bevel, -z), PxVec3(-x, -y + bevel, -z),
+        PxVec3(-x + bevel, -y, z), PxVec3(x - bevel, -y, z),
+        PxVec3(x, -y + bevel, z), PxVec3(x, y - bevel, z),
+        PxVec3(x - bevel, y, z), PxVec3(-x + bevel, y, z),
+        PxVec3(-x, y - bevel, z), PxVec3(-x, -y + bevel, z)};
+    PxConvexMeshDesc description;
+    description.points.count = static_cast<PxU32>(vertices.size());
+    description.points.stride = sizeof(PxVec3);
+    description.points.data = vertices.data();
+    description.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+    return PxCreateConvexMesh(
+        PxCookingParams(physics.getTolerancesScale()),
+        description,
+        physics.getPhysicsInsertionCallback());
+}
+
+float planarSupport(
+    const BodyRecord& body,
+    const PxVec2& normal,
+    const PxVec2& forward,
+    const PxVec2& left)
+{
+    const float forwardProjection = std::abs(normal.dot(forward));
+    const float lateralProjection = std::abs(normal.dot(left));
+    return body.chassisHalfExtents.x * forwardProjection
+        + body.chassisHalfExtents.y * lateralProjection
+        - body.chassisBevel * std::min(forwardProjection, lateralProjection);
+}
 
 struct BarrierRecord {
     PxRigidStatic* actor = nullptr;
@@ -259,13 +305,27 @@ public:
             releaseSlot(slot);
             throw std::runtime_error("failed to create PhysX body");
         }
-        PxShape* shape = mPhysics->createShape(
-            PxBoxGeometry(chassisHalf), *material, true);
+        const float chassisBevel = hasVehicle ? vehicleChassisBevel(chassisHalf) : 0.0f;
+        PxConvexMesh* chassisMesh = nullptr;
+        PxShape* shape = nullptr;
+        if (hasVehicle) {
+            chassisMesh = createBeveledChassisMesh(
+                *mPhysics, chassisHalf, chassisBevel);
+            if (chassisMesh) {
+                shape = mPhysics->createShape(
+                    PxConvexMeshGeometry(chassisMesh), *material, true);
+            }
+        } else {
+            shape = mPhysics->createShape(
+                PxBoxGeometry(chassisHalf), *material, true);
+        }
+        if (chassisMesh)
+            chassisMesh->release();
         if (!shape) {
             actor->release();
             material->release();
             releaseSlot(slot);
-            throw std::runtime_error("failed to create PhysX box shape");
+            throw std::runtime_error("failed to create PhysX collision shape");
         }
         shape->setLocalPose(PxTransform(chassisCenter));
         shape->setRestOffset(0.01f);
@@ -291,6 +351,8 @@ public:
         record.material = material;
         record.slot = slot;
         record.halfExtents = half;
+        record.chassisHalfExtents = chassisHalf;
+        record.chassisBevel = chassisBevel;
         record.mass = mass;
         record.restitution = restitution;
         record.collisionActive = collisionEnabled;
@@ -825,8 +887,8 @@ private:
             const BarrierRecord* nearestBoundary = nullptr;
             float nearestClearance = std::numeric_limits<float>::max();
             const float bodyRadius = std::sqrt(
-                body.halfExtents.x * body.halfExtents.x
-                + body.halfExtents.y * body.halfExtents.y) + 0.05f;
+                body.chassisHalfExtents.x * body.chassisHalfExtents.x
+                + body.chassisHalfExtents.y * body.chassisHalfExtents.y) + 0.05f;
             for (const auto& barrierEntry : mBarriers) {
                 const BarrierRecord& barrier = barrierEntry.second;
                 const float broadPhaseRadius =
@@ -847,8 +909,7 @@ private:
                 const PxVec2 normal = distance > 1.0e-6f
                     ? offset / distance
                     : PxVec2(-barrier.segment.y, barrier.segment.x).getNormalized();
-                const float support = std::abs(normal.dot(forward)) * body.halfExtents.x
-                    + std::abs(normal.dot(left)) * body.halfExtents.y;
+                const float support = planarSupport(body, normal, forward, left);
                 const float clearance = distance - support - barrier.thickness * 0.5f;
                 if (clearance <= 0.05f && clearance < nearestClearance) {
                     nearestBoundary = &barrier;
@@ -1273,8 +1334,8 @@ private:
         const PxVec2 forward(std::cos(yaw), std::sin(yaw));
         const PxVec2 left(-forward.y, forward.x);
         const float egoRadius = std::sqrt(
-            ego.halfExtents.x * ego.halfExtents.x
-            + ego.halfExtents.y * ego.halfExtents.y) + 0.05f;
+            ego.chassisHalfExtents.x * ego.chassisHalfExtents.x
+            + ego.chassisHalfExtents.y * ego.chassisHalfExtents.y) + 0.05f;
         for (const auto& entry : mBarriers) {
             const BarrierRecord& barrier = entry.second;
             const float broadPhaseRadius = egoRadius + barrier.thickness * 0.5f;
@@ -1301,8 +1362,7 @@ private:
                     ? -horizontalVelocity / speed
                     : PxVec2(1.0f, 0.0f);
             }
-            const float support = std::abs(normal.dot(forward)) * ego.halfExtents.x
-                + std::abs(normal.dot(left)) * ego.halfExtents.y;
+            const float support = planarSupport(ego, normal, forward, left);
             if (distance > support + barrier.thickness * 0.5f + 0.05f)
                 continue;
             const float normalSpeed = egoVelocity.x * normal.x + egoVelocity.y * normal.y;

@@ -250,6 +250,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--traffic-density",
+        type=float,
+        default=0.4,
+        metavar="FRACTION",
+        help=(
+            "Fraction of recorded motor vehicles to retain in game/taxi mode "
+            "(default: 0.4). Pedestrians, cyclists, and motorcycles are unaffected."
+        ),
+    )
+    parser.add_argument(
         "--disable-visual-flare",
         action="store_true",
         help=("Keep the collision visual flare disabled (the default)."),
@@ -510,6 +520,7 @@ def prepare_config_and_backend(
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
         game_mode=bool(args.game_mode or args.taxi_game),
+        game_traffic_density=float(args.traffic_density),
         taxi_game=TaxiGameConfig(
             enabled=bool(args.taxi_game),
             seed=None if args.taxi_seed is None else int(args.taxi_seed),

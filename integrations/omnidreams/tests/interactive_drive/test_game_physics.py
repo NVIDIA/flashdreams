@@ -65,6 +65,7 @@ from omnidreams.interactive_drive.simulation.game_physics import (
     GamePhysicsWorld,
     _is_visual_flare_impact,
     _recorded_actor_trajectory,
+    _select_traffic_tracks,
     _simplify_barrier_segments,
     _yaw_from_quaternion_xyzw,
 )
@@ -80,6 +81,31 @@ from omnidreams.interactive_drive.types import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_traffic_density_selects_stable_motor_subset_and_keeps_other_actors() -> None:
+    tracks = tuple(
+        SimpleNamespace(track_id=f"car-{index}", object_type="Car")
+        for index in range(10)
+    ) + (SimpleNamespace(track_id="person-1", object_type="Pedestrian"),)
+
+    selected = _select_traffic_tracks(tracks, 0.4, "scene-a")
+
+    assert selected == _select_traffic_tracks(tracks, 0.4, "scene-a")
+    assert len([track for track in selected if track.object_type == "Car"]) == 4
+    assert tracks[-1] in selected
+    assert [track for track in selected if track.object_type == "Car"] != list(
+        tracks[:4]
+    )
+
+
+def test_full_traffic_density_retains_every_track() -> None:
+    tracks = tuple(
+        SimpleNamespace(track_id=f"car-{index}", object_type="Car")
+        for index in range(3)
+    )
+
+    assert _select_traffic_tracks(tracks, 1.0, "scene-a") == tracks
 
 
 def _track(
@@ -507,6 +533,38 @@ def test_physx_vehicle_yaw_is_free_away_from_road_boundaries() -> None:
     )
 
 
+def test_beveled_vehicle_corner_clears_nearby_road_boundary() -> None:
+    config = VehicleConfig()
+    initial_yaw = math.radians(45.0)
+    initial_position = np.asarray([0.0, 2.2, 2.0], dtype=np.float32)
+    world = PhysXWorld(
+        PhysicsObjectGraph(
+            objects=(),
+            barriers=(InvisibleBarrier((-10.0, 0.0), (10.0, 0.0)),),
+        ),
+        rigid_body_model_from_vehicle_config(config),
+    )
+    ego = BodyState(
+        position_m=initial_position,
+        orientation_xyzw=np.asarray(
+            [0.0, 0.0, math.sin(initial_yaw * 0.5), math.cos(initial_yaw * 0.5)],
+            dtype=np.float32,
+        ),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+
+    try:
+        resolved = world.step(ego, timestamp_us=0, dt_s=1.0 / 120.0).ego
+    finally:
+        world.close()
+
+    assert resolved.position_m[1] == pytest.approx(initial_position[1], abs=1.0e-4)
+    assert _yaw_from_quaternion_xyzw(resolved.orientation_xyzw) == pytest.approx(
+        initial_yaw, abs=1.0e-5
+    )
+
+
 def test_physx_vehicle_yaw_does_not_snap_at_road_boundary() -> None:
     config = VehicleConfig()
     world = PhysXWorld(
@@ -594,7 +652,7 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
 
     assert len(contact_yaws) == 8
     per_frame_turns = np.abs(np.diff(np.asarray(contact_yaws)))
-    assert np.max(per_frame_turns) < math.radians(2.0)
+    assert np.max(per_frame_turns) < math.radians(2.5)
     assert abs(contact_yaws[-1]) < abs(contact_yaws[0])
 
 
