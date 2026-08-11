@@ -1,18 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Launch the shared-runtime text-to-video replay or WebRTC demo."""
+"""Typed ``flashdreams-run t2v`` launch implementation."""
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
 import zipfile
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from aiohttp import web
 
@@ -24,13 +23,14 @@ from flashdreams.runtime.demo import (
     WebRTCAppResources,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.app import DemoApplication
+from flashdreams.runtime.demo.bootstrap import configure_logging, initialize_cuda_distributed
 from flashdreams.runtime.demo.host import RuntimeHost
-from flashdreams.runtime.demo.webrtc import serve_webrtc_demo
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
 
-from .backends import backend_choices, backend_metadata, resolve_backend
+from .backends import backend_metadata, resolve_backend
 from .runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -41,109 +41,18 @@ from .runtime import (
     make_adapter,
 )
 
+if TYPE_CHECKING:
+    from .runner import T2VDemoRunnerConfig
+
 
 @dataclass(frozen=True, slots=True)
 class T2VWebRTCConfig(WebRTCRuntimeConfig):
-    """Subset of the shared WebRTC configuration used by prompt-only T2V."""
+    """Shared WebRTC settings required by the prompt-only T2V demo."""
 
     video_width: int
     video_height: int
     warmup_chunks: int
     warmup_timeout_s: float
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse replay and WebRTC launch options."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("replay", "webrtc"):
-        subparser = subparsers.add_parser(command)
-        subparser.add_argument("--backend", choices=backend_choices(), default="causal-forcing")
-        subparser.add_argument("--preset-id", default=None)
-        subparser.add_argument("--device", default="cuda")
-        subparser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=None)
-        subparser.add_argument("--prompt", default=None)
-        subparser.add_argument("--total-blocks", type=int, default=None)
-        subparser.add_argument("--pixel-height", type=int, default=None)
-        subparser.add_argument("--pixel-width", type=int, default=None)
-        subparser.add_argument("--fps", type=int, default=None)
-    replay = subparsers.choices["replay"]
-    replay.add_argument("--output-mode", choices=("mp4", "null"), default="mp4")
-    replay.add_argument("--output", type=Path, default=None)
-    webrtc = subparsers.choices["webrtc"]
-    webrtc.add_argument("--host", default="0.0.0.0")
-    webrtc.add_argument("--port", type=int, default=8080)
-    webrtc.add_argument("--warmup-chunks", type=int, default=0)
-    webrtc.add_argument("--warmup-timeout-s", type=float, default=600.0)
-    webrtc.add_argument("--client-liveness-timeout-s", type=float, default=30.0)
-    args = parser.parse_args(argv)
-    if args.command == "replay" and args.output_mode == "mp4" and args.output is None:
-        parser.error("replay --output is required when --output-mode=mp4.")
-    return args
-
-
-class T2VDemoApplication(DemoApplication):
-    """Text-to-video demo using the common replay and WebRTC runtimes."""
-
-    def __init__(self) -> None:
-        self._backend = "causal-forcing"
-
-    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        args = parse_args(argv)
-        self._backend = args.backend
-        return args
-
-    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
-        return _spec(args, input_mode="replay", output=_replay_output(args))
-
-    def replay_adapter(self) -> T2VDemoAdapter:
-        return make_adapter(self._backend)
-
-    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
-        adapter = make_adapter(args.backend)
-        output = WebRTCOutputSpec(
-            host=args.host,
-            port=args.port,
-            fps=_scenario(args)[FIELD_FPS],
-            video_width=_scenario(args)[FIELD_PIXEL_WIDTH],
-            video_height=_scenario(args)[FIELD_PIXEL_HEIGHT],
-            warmup_chunks=args.warmup_chunks,
-            warmup_timeout_s=args.warmup_timeout_s,
-            client_liveness_timeout_s=args.client_liveness_timeout_s,
-            preload_name="FlashDreams T2V",
-        )
-        spec = _spec(args, input_mode="webrtc", output=output, device=str(context.device))
-        prepared = adapter.prepare_scenario(spec)
-        runtime = adapter.create_runtime(spec.config)
-        manager = T2VWebRTCSessionManager(
-            runtime=runtime,
-            runtime_config=T2VWebRTCConfig(
-                video_width=output.video_width,
-                video_height=output.video_height,
-                warmup_chunks=output.warmup_chunks,
-                warmup_timeout_s=output.warmup_timeout_s,
-            ),
-            fps=output.fps,
-            identity=adapter.model_id,
-            supported_control_keys=frozenset({"g"}),
-            shared_host=RuntimeHost(runtime),
-            shared_adapter=adapter,
-            shared_spec=spec,
-            shared_scenario=prepared,
-            client_liveness_timeout_s=output.client_liveness_timeout_s,
-            keep_connection_after_completed=True,
-        )
-        serve_webrtc_demo(
-            output=output,
-            model_id=adapter.model_id,
-            session_manager=manager,
-            app_resources=WebRTCAppResources(
-                model_web_resource=files("apps.t2v_demo").joinpath("web"),
-                configure_app=lambda app: _configure_app(app, manager=manager, args=args),
-                preload_name="FlashDreams T2V",
-            ),
-            world_rank=context.world_rank,
-        )
 
 
 class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
@@ -163,9 +72,159 @@ class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
         self._shared_scenario = self._shared_adapter.prepare_scenario(self._shared_spec)
 
 
-def _configure_app(app: web.Application, *, manager: T2VWebRTCSessionManager, args: argparse.Namespace) -> None:
-    async def config(_: web.Request) -> web.StreamResponse:
-        return web.json_response({"backends": backend_metadata(), "selected_backend": args.backend})
+def launch_t2v(
+    *,
+    config: "T2VDemoRunnerConfig",
+    mode: Literal["mp4", "null", "webrtc"],
+    scenario_overrides: dict[str, object] | None = None,
+    output_overrides: dict[str, object] | None = None,
+    host: str | None = None,
+    port: int | None = None,
+) -> object:
+    """Launch T2V directly from its typed ``flashdreams-run`` configuration."""
+    configure_logging()
+    scenario_overrides = scenario_overrides or {}
+    output_overrides = output_overrides or {}
+    adapter = make_adapter(config.backend)
+    scenario = _scenario(config, scenario_overrides)
+    if mode in {"mp4", "null"}:
+        output = _replay_output(
+            mode=mode,
+            output_path=output_overrides.get("path", output_overrides.get("output", config.output)),
+            fps=int(output_overrides.get("fps", scenario[FIELD_FPS])),
+        )
+        result = run_replay_demo(
+            spec=_spec(config, adapter=adapter, scenario=scenario, input_mode="replay", output=output),
+            adapter=adapter,
+        )
+        if result.status != "completed":
+            reason = result.reason or str(result.error) or "T2V replay failed."
+            raise RuntimeError(reason)
+        return result
+
+    context = initialize_cuda_distributed(default_device=config.device)
+    output = WebRTCOutputSpec(
+        host=str(host or output_overrides.get("host", "0.0.0.0")),
+        port=int(port if port is not None else output_overrides.get("port", 8080)),
+        fps=int(output_overrides.get("fps", scenario[FIELD_FPS])),
+        video_width=int(output_overrides.get("video_width", scenario[FIELD_PIXEL_WIDTH])),
+        video_height=int(output_overrides.get("video_height", scenario[FIELD_PIXEL_HEIGHT])),
+        warmup_chunks=int(output_overrides.get("warmup_chunks", 0)),
+        warmup_timeout_s=float(output_overrides.get("warmup_timeout_s", 600.0)),
+        client_liveness_timeout_s=float(output_overrides.get("client_liveness_timeout_s", 30.0)),
+        preload_name="FlashDreams T2V",
+    )
+    spec = _spec(
+        config,
+        adapter=adapter,
+        scenario=scenario,
+        input_mode="webrtc",
+        output=output,
+        device=str(context.device),
+    )
+    prepared = adapter.prepare_scenario(spec)
+    runtime = adapter.create_runtime(spec.config)
+    manager = T2VWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=T2VWebRTCConfig(
+            video_width=output.video_width,
+            video_height=output.video_height,
+            warmup_chunks=output.warmup_chunks,
+            warmup_timeout_s=output.warmup_timeout_s,
+        ),
+        fps=output.fps,
+        identity=adapter.model_id,
+        supported_control_keys=frozenset({"g"}),
+        shared_host=RuntimeHost(runtime),
+        shared_adapter=adapter,
+        shared_spec=spec,
+        shared_scenario=prepared,
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
+        keep_connection_after_completed=True,
+    )
+    return serve_webrtc_demo(
+        output=output,
+        model_id=adapter.model_id,
+        session_manager=manager,
+        app_resources=WebRTCAppResources(
+            model_web_resource=files(__package__).joinpath("web"),
+            configure_app=lambda app: _configure_app(
+                app, manager=manager, backend=config.backend
+            ),
+            preload_name="FlashDreams T2V",
+        ),
+        world_rank=context.world_rank,
+    )
+
+
+def _scenario(
+    config: "T2VDemoRunnerConfig", overrides: dict[str, object]
+) -> dict[str, object]:
+    runner = resolve_backend(config.backend).resolve_runner(config.preset_id)
+
+    def value(name: str, default: object) -> object:
+        overridden = overrides.get(name)
+        configured = getattr(config, name)
+        return default if overridden is None and configured is None else (
+            configured if overridden is None else overridden
+        )
+
+    return {
+        FIELD_PROMPT: value(FIELD_PROMPT, runner.prompt),
+        FIELD_TOTAL_BLOCKS: value(FIELD_TOTAL_BLOCKS, runner.total_blocks),
+        FIELD_PIXEL_HEIGHT: value(FIELD_PIXEL_HEIGHT, runner.pixel_height),
+        FIELD_PIXEL_WIDTH: value(FIELD_PIXEL_WIDTH, runner.pixel_width),
+        FIELD_FPS: value(FIELD_FPS, runner.fps),
+    }
+
+
+def _spec(
+    config: "T2VDemoRunnerConfig",
+    *,
+    adapter: T2VDemoAdapter,
+    scenario: dict[str, object],
+    input_mode: Literal["replay", "webrtc"],
+    output: Mp4OutputSpec | NullOutputSpec | WebRTCOutputSpec,
+    device: str | None = None,
+) -> DemoSpec:
+    return DemoSpec(
+        model_id=adapter.model_id,
+        preset_id=config.preset_id or adapter.backend.default_preset_name,
+        input_mode=input_mode,
+        scenario=scenario,
+        output=output,
+        config=InferenceConfig(
+            model_id=adapter.model_id,
+            preset_id=config.preset_id or adapter.backend.default_preset_name,
+            device=device or config.device,
+            compile=config.compile,
+            runtime_options={"backend": adapter.backend.key},
+        ),
+    )
+
+
+def _replay_output(
+    *, mode: Literal["mp4", "null"], output_path: object, fps: int
+) -> Mp4OutputSpec | NullOutputSpec:
+    if mode == "null":
+        return NullOutputSpec()
+    if output_path is None:
+        raise ValueError("T2V MP4 mode requires an output path.")
+    return Mp4OutputSpec(
+        path=Path(str(output_path)), fps=fps, output_layout="tchw"
+    )
+
+
+def _configure_app(
+    app: web.Application,
+    *,
+    manager: T2VWebRTCSessionManager,
+    backend: str,
+) -> None:
+    async def app_config(_: web.Request) -> web.StreamResponse:
+        return web.json_response(
+            {"backends": backend_metadata(), "selected_backend": backend}
+        )
 
     async def update_prompt(request: web.Request) -> web.StreamResponse:
         payload = await request.json()
@@ -190,8 +249,24 @@ def _configure_app(app: web.Application, *, manager: T2VWebRTCSessionManager, ar
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.write(video_path, "video.mp4")
-            archive.writestr("prompt.json", json.dumps({"prompt": scenario.prompt, "total_blocks": scenario.total_blocks, "fps": scenario.fps, "width": scenario.pixel_width, "height": scenario.pixel_height}, indent=2))
-        return web.Response(body=buffer.getvalue(), headers={"Content-Disposition": "attachment; filename=flashdreams-generation.zip"}, content_type="application/zip")
+            archive.writestr(
+                "prompt.json",
+                json.dumps(
+                    {
+                        "prompt": scenario.prompt,
+                        "total_blocks": scenario.total_blocks,
+                        "fps": scenario.fps,
+                        "width": scenario.pixel_width,
+                        "height": scenario.pixel_height,
+                    },
+                    indent=2,
+                ),
+            )
+        return web.Response(
+            body=buffer.getvalue(),
+            headers={"Content-Disposition": "attachment; filename=flashdreams-generation.zip"},
+            content_type="application/zip",
+        )
 
     async def playback(_: web.Request) -> web.StreamResponse:
         artifact = manager.runtime.latest_artifact
@@ -199,51 +274,10 @@ def _configure_app(app: web.Application, *, manager: T2VWebRTCSessionManager, ar
             raise web.HTTPNotFound(reason="No completed MP4 is available yet.")
         return web.FileResponse(artifact[0])
 
-    app.router.add_get("/api/t2v/config", config)
+    app.router.add_get("/api/t2v/config", app_config)
     app.router.add_post("/api/t2v/prompt", update_prompt)
     app.router.add_get("/api/t2v/download", download)
     app.router.add_get("/api/t2v/playback", playback)
 
 
-def _scenario(args: argparse.Namespace) -> dict[str, object]:
-    runner = resolve_backend(args.backend).resolve_runner(args.preset_id)
-    return {
-        FIELD_PROMPT: args.prompt or str(getattr(runner, FIELD_PROMPT)),
-        FIELD_TOTAL_BLOCKS: args.total_blocks or int(getattr(runner, FIELD_TOTAL_BLOCKS, 1)),
-        FIELD_PIXEL_HEIGHT: args.pixel_height or int(getattr(runner, FIELD_PIXEL_HEIGHT, 480)),
-        FIELD_PIXEL_WIDTH: args.pixel_width or int(getattr(runner, FIELD_PIXEL_WIDTH, 832)),
-        FIELD_FPS: args.fps or int(getattr(runner, FIELD_FPS, 16)),
-    }
-
-
-def _spec(args: argparse.Namespace, *, input_mode: str, output: object, device: str | None = None) -> DemoSpec:
-    backend = resolve_backend(args.backend)
-    return DemoSpec(
-        model_id="flashdreams-t2v",
-        preset_id=args.preset_id or backend.default_preset_name,
-        input_mode=input_mode,
-        scenario=_scenario(args),
-        output=output,
-        config=InferenceConfig(
-            model_id="flashdreams-t2v",
-            preset_id=args.preset_id or backend.default_preset_name,
-            device=device or args.device,
-            compile=args.compile,
-            runtime_options={"backend": backend.key},
-        ),
-    )
-
-
-def _replay_output(args: argparse.Namespace) -> Mp4OutputSpec | NullOutputSpec:
-    if args.output_mode == "null":
-        return NullOutputSpec()
-    return Mp4OutputSpec(path=args.output, fps=_scenario(args)[FIELD_FPS], output_layout="tchw")
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Run the T2V demo."""
-    T2VDemoApplication().main(argv)
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["T2VWebRTCSessionManager", "launch_t2v"]

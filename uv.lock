@@ -29,6 +29,7 @@ members = [
     "flashdreams-omnidreams",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
+    "flashdreams-t2v-demo",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1388,6 +1389,17 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-t2v-demo"
+version = "0.1.0"
+source = { editable = "apps/t2v_demo" }
+dependencies = [
+    { name = "flashdreams", extra = ["serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-wan21"
