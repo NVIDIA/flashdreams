@@ -38,8 +38,7 @@ def test_visual_flare_override_defaults_disabled() -> None:
     ("argv", "game_mode_enabled", "visual_flare_enabled"),
     [
         ([], False, False),
-        (["--game-mode"], True, False),
-        (["--taxi-game"], True, False),
+        (["--game-mode"], True, True),
         (["--game-mode", "--disable-visual-flare"], True, False),
     ],
 )
@@ -56,21 +55,7 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
     assert config.vehicle.speed_limit_enabled is game_mode_enabled
     assert config.vehicle.actor_collision_enabled is game_mode_enabled
     assert config.vehicle.static_collision_enabled is game_mode_enabled
-    assert config.vehicle.traffic_density == pytest.approx(
-        0.4 if game_mode_enabled else 1.0
-    )
     assert config.visual_flare_enabled is visual_flare_enabled
-
-
-def test_game_mode_accepts_traffic_density_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_k: object())
-
-    args = build_parser().parse_args(["--game-mode", "--traffic-density", "0.25"])
-    config, _backend = cli.prepare_config_and_backend(args)
-
-    assert config.vehicle.traffic_density == pytest.approx(0.25)
 
 
 def test_postprocess_preset_defaults_disabled() -> None:
@@ -99,23 +84,3 @@ def test_parser_records_explicit_arg_destinations() -> None:
     assert arg_was_explicit(args, "offload_text_encoder")
     assert arg_was_explicit(args, "bev")
     assert not arg_was_explicit(args, "camera")
-
-
-def test_taxi_game_defaults_disabled_with_random_seed() -> None:
-    args = build_parser().parse_args([])
-
-    assert args.taxi_game is False
-    assert args.taxi_seed is None
-
-
-def test_taxi_game_accepts_seed() -> None:
-    args = build_parser().parse_args(["--taxi-game", "--taxi-seed", "42"])
-
-    assert args.taxi_game is True
-    assert args.taxi_seed == 42
-
-
-def test_taxi_game_accepts_high_score_csv_path() -> None:
-    args = build_parser().parse_args(["--taxi-highscores", "scores.csv"])
-
-    assert str(args.taxi_highscores) == "scores.csv"

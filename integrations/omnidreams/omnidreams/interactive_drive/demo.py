@@ -22,14 +22,7 @@ from loguru import logger
 from omnidreams import scenes as _scenes
 from omnidreams.interactive_drive import cli as _cli
 from omnidreams.interactive_drive.app import InteractiveDriveApp
-from omnidreams.interactive_drive.config import (
-    DEFAULT_ACCEL_MPS2,
-    DEFAULT_BRAKE_DECEL_MPS2,
-    DEFAULT_HANDBRAKE_DECEL_MPS2,
-    DEFAULT_REVERSE_ACCEL_MPS2,
-    BevConfig,
-    RasterConfig,
-)
+from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -70,9 +63,9 @@ HUD_PANEL_WIDTH = 500
 # regardless of the user's cwd; ``--control-assets-dir`` overrides it.
 _BUNDLED_CONTROL_ASSETS_DIR = _cli._PACKAGE_ROOT / "assets" / "wheel_and_pedals"
 SCENE_THUMB_SIZE = (140, 64)
-KEYBOARD_STEER_SCALE = 1.0
-KEYBOARD_STEER_RATE_PER_S = 3.5
-KEYBOARD_STEER_RETURN_RATE_PER_S = 5.0
+KEYBOARD_STEER_SCALE = 0.75
+KEYBOARD_STEER_RATE_PER_S = 0.6
+KEYBOARD_STEER_RETURN_RATE_PER_S = 1.4
 # BEV minimap panel sits at the bottom of the right HUD column.
 # Geometry is hand-tuned to leave ~12px gaps to the pedals/edges and
 # keeps roughly square aspect to match the BEV camera output.
@@ -133,8 +126,8 @@ class WheelState:
 class KeyboardDriveState:
     def __init__(self, control: Any) -> None:
         # ``control`` is a drive sink with
-        # ``set_drive(steer, throttle, brake, handbrake)`` (the HUD's
-        # ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
+        # ``set_drive(steer, throttle, brake, reverse)``
+        # (the HUD's ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
         self._control = control
         self._pressed: set[str] = set()
         self._state = WheelState()
@@ -169,17 +162,19 @@ class KeyboardDriveState:
             target_steer += KEYBOARD_STEER_SCALE
         if {"d", "right"} & self._pressed:
             target_steer -= KEYBOARD_STEER_SCALE
-        steer_rate = (
+        rate = (
             KEYBOARD_STEER_RATE_PER_S
-            if abs(target_steer) > 0.0
+            if abs(target_steer) > 0
             else KEYBOARD_STEER_RETURN_RATE_PER_S
         )
-        steer = _move_towards(self._state.steering, target_steer, steer_rate * dt)
-        throttle = 1.0 if {"w", "up"} & self._pressed else 0.0
-        brake = 1.0 if {"s", "down"} & self._pressed else 0.0
-        handbrake = "space" in self._pressed
+        steer = _move_towards(self._state.steering, target_steer, rate * dt)
+        forward = bool({"w", "up"} & self._pressed)
+        reverse = bool({"s", "down"} & self._pressed)
+        throttle = 1.0 if forward != reverse else 0.0
+        brake = 1.0 if (forward and reverse) or "space" in self._pressed else 0.0
+        reverse = reverse and not forward
         target_speed = self._update_target_speed(
-            throttle=throttle, brake=brake, handbrake=handbrake, dt=dt
+            throttle=throttle, brake=brake, reverse=reverse, dt=dt
         )
         self._state = WheelState(
             steering=steer,
@@ -187,56 +182,42 @@ class KeyboardDriveState:
             brake=brake,
             target_speed_mps=target_speed,
             connected=False,
-            reverse=target_speed < -0.05,
+            reverse=reverse,
         )
         self._control.set_drive(
-            steer=steer,
-            throttle=throttle,
-            brake=brake,
-            handbrake=handbrake,
+            steer=steer, throttle=throttle, brake=brake, reverse=reverse
         )
         return self.state
 
     def clear(self) -> None:
         self._pressed.clear()
         self._state = WheelState()
-        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0, handbrake=False)
+        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0, reverse=False)
 
     def release_control(self) -> None:
         """Release this input source without changing its display state."""
         self._control.release_all()
 
     def _update_target_speed(
-        self, *, throttle: float, brake: float, handbrake: bool, dt: float
+        self, *, throttle: float, brake: float, reverse: bool, dt: float
     ) -> float:
         speed = self._state.target_speed_mps
-        if handbrake:
-            speed = _move_towards(speed, 0.0, DEFAULT_HANDBRAKE_DECEL_MPS2 * dt)
-        elif throttle > 0.01 and brake <= 0.05:
-            accel = DEFAULT_ACCEL_MPS2 * throttle * dt
-            if speed < 0.0:
-                speed = min(0.0, speed + accel * 1.5)
+        direction = -1.0 if reverse else 1.0
+        if throttle > 0.01 and brake <= 0.05:
+            accel = 2.0 * throttle * dt
+            current = abs(speed)
+            high_speed_knee = 22.35
+            if current < high_speed_knee:
+                taper = max(0.2, 1.0 - (current / high_speed_knee) ** 2 * 0.5)
             else:
-                current = abs(speed)
-                high_speed_knee = 22.35
-                if current < high_speed_knee:
-                    taper = max(0.2, 1.0 - (current / high_speed_knee) ** 2 * 0.5)
-                else:
-                    excess = (current - high_speed_knee) / max(
-                        1e-6, 36.0 - high_speed_knee
-                    )
-                    taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
-                speed += accel * taper
+                excess = (current - high_speed_knee) / max(1e-6, 36.0 - high_speed_knee)
+                taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
+            speed += direction * accel * taper
         elif brake > 0.01:
-            if throttle > 0.01:
-                speed = _move_towards(speed, 0.0, DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
-            elif speed > 0.0:
-                speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
-            else:
-                speed = max(-6.0, speed - DEFAULT_REVERSE_ACCEL_MPS2 * brake * dt)
+            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
-        return max(-6.0, min(36.0, speed))
+        return max(-36.0, min(36.0, speed))
 
 
 @dataclass(frozen=True)
@@ -440,7 +421,7 @@ class WheelBridge:
             self._state.throttle = throttle
             self._state.brake = brake
             self._state.target_speed_mps = target_speed
-            self._state.reverse = self._reverse or target_speed < -0.05
+            self._state.reverse = self._reverse
 
         self._control.set_drive(
             steer=steering, throttle=throttle, brake=brake, reverse=self._reverse
@@ -488,7 +469,7 @@ class WheelBridge:
         # climbing forever while the throttle is held).
         direction = -1.0 if self._reverse else 1.0
         if throttle > 0.01 and brake <= 0.05:
-            accel = DEFAULT_ACCEL_MPS2 * throttle * dt
+            accel = 2.0 * throttle * dt
             current = abs(speed)
             high_speed_knee = 22.35
             if current < high_speed_knee:
@@ -498,12 +479,8 @@ class WheelBridge:
                 taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
             speed += direction * accel * taper
         elif brake > 0.01:
-            if throttle > 0.01 or self._reverse:
-                speed = _move_towards(speed, 0.0, DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
-            elif speed > 0.0:
-                speed = max(0.0, speed - DEFAULT_BRAKE_DECEL_MPS2 * brake * dt)
-            else:
-                speed = max(-6.0, speed - DEFAULT_REVERSE_ACCEL_MPS2 * brake * dt)
+            # Brake bleeds speed toward a stop regardless of travel direction.
+            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
         else:
             speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-36.0, min(36.0, speed))

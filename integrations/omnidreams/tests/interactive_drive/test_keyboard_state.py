@@ -100,6 +100,7 @@ def test_keyboard_drive_command_overrides_connected_wheel_command() -> None:
 
 def test_space_overrides_active_drive_command_with_handbrake() -> None:
     keyboard = KeyboardState()
+    keyboard.enable_taxi_controls()
     keyboard.set_drive_command(
         DriverCommand(
             throttle=1.0,

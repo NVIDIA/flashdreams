@@ -24,6 +24,9 @@ from omnidreams.interactive_drive.math3d import (
     level_rig_pose_from_vehicle_state,
     rig_pose_from_vehicle_state,
 )
+from omnidreams.interactive_drive.taxi_driving import (
+    TaxiVehicleConfig,
+)
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -44,6 +47,12 @@ class TaxiGameConfig:
 
     enabled: bool = False
     """Whether taxi-game state and HUD overlays are active."""
+
+    vehicle: TaxiVehicleConfig = TaxiVehicleConfig()
+    """Taxi-only control and vehicle-dynamics configuration."""
+
+    traffic_density: float = 0.4
+    """Fraction of recorded motor traffic retained in Taxi mode."""
 
     seed: int | None = None
     """Debug seed mixed with the scene ID; ``None`` uses fresh entropy."""
@@ -101,6 +110,11 @@ class TaxiGameConfig:
 
     high_scores_path: Path = field(default_factory=default_high_scores_path)
     """CSV path used to persist the global top-ten leaderboard."""
+
+    def __post_init__(self) -> None:
+        """Validate Taxi-only values at configuration time."""
+        if not 0.0 < self.traffic_density <= 1.0:
+            raise ValueError("traffic_density must be greater than 0 and at most 1")
 
 
 @dataclass(frozen=True)

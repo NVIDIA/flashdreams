@@ -137,6 +137,7 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     keyboard.update_runtime_state(future_vehicle, taxi)
     presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
     presenter._keyboard = keyboard
+    presenter._taxi_enabled = True
     presenter._bev_config = BevConfig(tilt_deg=0.0)
     presenter._latest_presented_frame = PresentedFrame(
         timestamp_us=0,
@@ -155,3 +156,19 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert snapshot["taxi"]["high_score"] == 500
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
     assert snapshot["taxi"]["bev_target"]["visible"] is True
+
+
+def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
+    keyboard = KeyboardState()
+    keyboard.update_telemetry(VehicleState(0.0, 0.0, 0.0, 0.5, 3.0, 0.25))
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._keyboard = keyboard
+    presenter._taxi_enabled = False
+
+    snapshot = presenter._state_snapshot()
+
+    assert snapshot == {
+        "speed_mps": 3.0,
+        "steer_rad": 0.25,
+        "yaw_rad": 0.5,
+    }
