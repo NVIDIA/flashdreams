@@ -52,6 +52,51 @@ export HF_TOKEN=<your-hf-token>
 export HF_HOME=~/.cache/huggingface  # default
 ```
 
+## Runtime API demos
+
+The `flashvsr-demo` command uses a native `InferenceRuntime` and
+`InferenceSession`. Its model input provider decodes the source video and
+supplies each cold/steady frame chunk through `InferenceInput.step`; the
+legacy runner, postprocessor, and gRPC session code are not involved.
+
+Run the full model with no output artifact:
+
+```bash
+uv run flashvsr-demo replay \
+    --input /path/to/input.mp4 \
+    --output-mode null
+```
+
+Write the upscaled result to MP4:
+
+```bash
+uv run flashvsr-demo replay \
+    --input /path/to/input.mp4 \
+    --output-mode mp4 \
+    --output /tmp/flashvsr-output.mp4
+```
+
+For a quick eager smoke test, add `--chunk-size 8 --no-compile
+--no-cuda-graph --color-corrector torch`.
+
+Start the shared WebRTC viewer without a server-side input:
+
+```bash
+uv run flashvsr-demo webrtc \
+    --host 0.0.0.0 \
+    --port 8082
+```
+
+Open `http://<server-host>:8082/request_session`, choose an MP4 in the **Input
+Video** field, then connect. The browser uploads and decodes the video before
+negotiating the WebRTC session. When the control channel is ready, click **Start
+FlashVSR** to begin playback. Model construction is deferred until the uploaded
+video supplies its dimensions.
+
+`--input /path/to/input.mp4` remains available as an optional server-side
+fallback; choosing a browser file overrides it for the next session. Use
+`--no-loop-input` for one finite pass.
+
 ## Single-GPU Run
 
 Once installed, the slug is discovered automatically by `flashdreams-run`:

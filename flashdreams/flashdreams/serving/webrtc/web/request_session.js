@@ -11,6 +11,7 @@ const mockMode = new URLSearchParams(window.location.search).has("mock")
  * @property {{postprocess?: boolean}=} capabilities
  * @property {(context: Object) => (void|Promise<void>)=} mount
  * @property {(context: Object) => (void|Promise<void>)=} beforeConnect
+ * @property {(context: Object) => void=} onConnect
  * @property {(action: Object, context: Object) => void=} onActionSent
  * @property {(payload: Object, context: Object) => boolean=} onControlMessage
  * @property {(visible: boolean, context: Object) => void=} onVideoVisibilityChanged
@@ -34,6 +35,7 @@ const postprocessSelect = document.getElementById("postprocessSelect")
 const modelStageSlot = document.getElementById("modelStageSlot")
 const modelStatusSlot = document.getElementById("modelStatusSlot")
 const modelPanelSlot = document.getElementById("modelPanelSlot")
+const controlCard = document.getElementById("controlCard")
 const modelControlSlot = document.getElementById("modelControlSlot")
 const controlRows = document.getElementById("controlRows")
 
@@ -162,6 +164,11 @@ function setVideoVisible(visible) {
   modelAdapter?.onVideoVisibilityChanged?.(visible, modelContext)
 }
 
+function syncControlCardVisibility() {
+  const isEmpty = controlRows.childElementCount === 0 && modelControlSlot.childElementCount === 0
+  controlCard.hidden = isEmpty
+}
+
 function renderControls(groups) {
   controlRows.replaceChildren()
   allowedKeys = new Set()
@@ -193,6 +200,7 @@ function renderControls(groups) {
     controlRows.append(row)
   }
   controlButtons = Array.from(controlRows.querySelectorAll("[data-control-key]"))
+  syncControlCardVisibility()
 }
 
 function setPostprocessDisabled(disabled) {
@@ -275,6 +283,8 @@ const modelContext = {
   logEvent,
   releaseControls: releaseAllKeys,
   sendCommand: sendModelCommand,
+  setFlow,
+  setStatus,
   setModelName(name) {
     if (typeof name === "string" && name) {
       metrics.model = name
@@ -339,6 +349,7 @@ async function loadModelAdapter() {
     }
   }
   await adapter.mount?.(modelContext)
+  syncControlCardVisibility()
 }
 
 function renderMetrics() {
@@ -901,6 +912,7 @@ async function connectSession() {
       setFlow("connected; waiting for input")
       logEvent("control data channel open")
       startHeartbeat()
+      modelAdapter?.onConnect?.(modelContext)
     }
     channel.onclose = () => {
       connected = false
