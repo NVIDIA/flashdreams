@@ -17,8 +17,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 

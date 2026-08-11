@@ -189,7 +189,9 @@ class LingbotWorldRunner(
             config=inference_config,
         )
 
-        def _output_target_factory(output_spec: OutputSpec) -> LingbotRunnerOutputTarget:
+        def _output_target_factory(
+            output_spec: OutputSpec,
+        ) -> LingbotRunnerOutputTarget:
             del output_spec
             return LingbotRunnerOutputTarget(
                 output_stream=self.create_video_output_stream(fps=cfg.fps),
