@@ -587,3 +587,18 @@ body[data-status="generating"] .statusLine strong {
     border-bottom: 0;
   }
 }
+
+.promptGenerationPanel {
+  position: absolute;
+  z-index: 4;
+  left: clamp(18px, 3vw, 52px);
+  bottom: clamp(92px, 13vw, 150px);
+  width: min(430px, calc(100vw - 36px));
+  padding: 16px 18px;
+}
+.promptGenerationField { display: grid; gap: 7px; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.promptGenerationField textarea { width: 100%; resize: vertical; min-height: 92px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; background: rgba(12,14,15,.86); color: var(--text); padding: 9px; font: inherit; text-transform: none; letter-spacing: normal; }
+.promptGenerationActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.promptGenerationActions button { min-height: 34px; border: 1px solid rgba(142,240,28,.45); border-radius: 6px; background: rgba(142,240,28,.12); color: var(--text); cursor: pointer; font-weight: 700; padding: 0 10px; }
+.promptGenerationActions button:disabled { cursor: not-allowed; opacity: .5; }
+.promptGenerationHint { margin: 10px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }

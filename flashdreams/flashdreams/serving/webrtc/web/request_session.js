@@ -9,6 +9,7 @@ const mockMode = new URLSearchParams(window.location.search).has("mock")
  * @property {string=} stylesheet
  * @property {Array<{label: string, keys: Array<string|{key: string, label?: string}>}>=} controls
  * @property {{postprocess?: boolean}=} capabilities
+ * @property {{endpoint: string, label?: string, placeholder?: string, generateLabel?: string}=} promptGeneration
  * @property {(context: Object) => (void|Promise<void>)=} mount
  * @property {(context: Object) => (void|Promise<void>)=} beforeConnect
  * @property {(action: Object, context: Object) => void=} onActionSent
@@ -258,6 +259,7 @@ function sendModelCommand(payload, label = "model command") {
     return false
   }
   inferenceInFlight = true
+  if (promptGenerationControls) promptGenerationControls.generate.disabled = true
   setStatus("Generating", "generating")
   setFlow(`sent ${label}`)
   logEvent(label, { source: "client" })
@@ -338,6 +340,7 @@ async function loadModelAdapter() {
       })
     }
   }
+  configurePromptGeneration(adapter.promptGeneration)
   await adapter.mount?.(modelContext)
 }
 
@@ -694,6 +697,15 @@ function handleControlMessage(rawMessage) {
     return
   }
 
+  if (payload.type === "generation_complete") {
+    inferenceInFlight = false
+    if (promptGenerationControls) promptGenerationControls.generate.disabled = false
+    setStatus("Waiting", "waiting")
+    setFlow("generation complete; ready for another prompt")
+    logEvent("generation complete", { source: "server" })
+    return
+  }
+
   if (payload.type === "server_log") {
     logEvent(payload.message || "server log")
     return
@@ -707,6 +719,7 @@ function handleControlMessage(rawMessage) {
 
   if (payload.type === "error") {
     inferenceInFlight = false
+    if (promptGenerationControls) promptGenerationControls.generate.disabled = false
     logEvent(`server error: ${payload.message}`, { level: "error" })
     setStatus("Error", "error")
     setFlow("server error")
@@ -857,6 +870,7 @@ function disconnectSession({ notify = true } = {}) {
   connected = false
   connectButton.disabled = false
   setPostprocessDisabled(false)
+  stopPromptRecording()
   modelAdapter?.onDisconnect?.(modelContext)
   if (notify && controlChannel && controlChannel.readyState === "open") {
     try {
@@ -901,6 +915,10 @@ async function connectSession() {
       setFlow("connected; waiting for input")
       logEvent("control data channel open")
       startHeartbeat()
+      if (pendingPromptGeneration) {
+        pendingPromptGeneration = false
+        triggerPromptGeneration()
+      }
     }
     channel.onclose = () => {
       connected = false
@@ -1113,3 +1131,89 @@ window.addEventListener("beforeunload", () => {
 })
 
 void initialize()
+
+// Shared finite-generation controls. Models opt in through
+// `adapter.promptGeneration`; the transport remains model-agnostic.
+let promptGenerationControls = null
+let pendingPromptGeneration = false
+let recording = null
+let recordedChunks = []
+
+function configurePromptGeneration(config) {
+  if (!config || typeof config.endpoint !== "string" || !config.endpoint) return
+  const panel = document.createElement("section")
+  panel.className = "promptGenerationPanel overlayPanel"
+  const label = config.label || "Prompt"
+  const placeholder = config.placeholder || "Describe the video to generate"
+  const generateLabel = config.generateLabel || "Generate"
+  panel.innerHTML = `<label class="promptGenerationField"><span>${label}</span><textarea rows="5" placeholder="${placeholder}"></textarea></label><div class="promptGenerationActions"><button type="button" class="promptGenerateButton">${generateLabel}</button><button type="button" class="promptPlaybackButton" disabled>Pause</button><button type="button" class="promptDownloadButton" disabled>Download recording</button></div><p class="promptGenerationHint">Keep this session open and submit another prompt whenever you are ready.</p>`
+  modelPanelSlot.append(panel)
+  const prompt = panel.querySelector("textarea")
+  const generate = panel.querySelector(".promptGenerateButton")
+  const playback = panel.querySelector(".promptPlaybackButton")
+  const download = panel.querySelector(".promptDownloadButton")
+  promptGenerationControls = { config, prompt, generate, playback, download }
+  generate.addEventListener("click", () => void requestPromptGeneration())
+  playback.addEventListener("click", () => {
+    if (remoteVideo.paused) { void remoteVideo.play(); playback.textContent = "Pause" } else { remoteVideo.pause(); playback.textContent = "Play" }
+  })
+  download.addEventListener("click", () => downloadPromptRecording())
+  remoteVideo.addEventListener("play", startPromptRecording)
+}
+
+async function requestPromptGeneration() {
+  const controls = promptGenerationControls
+  if (!controls) return
+  const prompt = controls.prompt.value.trim()
+  if (!prompt) { controls.prompt.focus(); setFlow("enter a prompt"); return }
+  controls.generate.disabled = true
+  try {
+    const response = await fetch(controls.config.endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) })
+    if (!response.ok) throw new Error(await response.text())
+    logEvent("prompt accepted", { source: "client" })
+    if (!connected) {
+      pendingPromptGeneration = true
+      await connectSession()
+      return
+    }
+    triggerPromptGeneration()
+  } catch (error) {
+    logEvent(`prompt failed: ${error.message}`, { source: "client", level: "error" })
+    setStatus("Error", "error")
+  } finally {
+    if (!inferenceInFlight) controls.generate.disabled = false
+  }
+}
+
+function triggerPromptGeneration() {
+  if (!sendModelMessage({ type: "action", action: { event: "step" } })) return
+  inferenceInFlight = true
+  if (promptGenerationControls) promptGenerationControls.generate.disabled = true
+  setStatus("Generating", "generating")
+  setFlow("generation started")
+  logEvent("generation started", { source: "client" })
+}
+
+function startPromptRecording() {
+  if (!promptGenerationControls || recording || !remoteVideo.srcObject || !window.MediaRecorder) return
+  recordedChunks = []
+  recording = new MediaRecorder(remoteVideo.srcObject)
+  recording.ondataavailable = event => { if (event.data.size) recordedChunks.push(event.data) }
+  recording.onstop = () => { if (promptGenerationControls) promptGenerationControls.download.disabled = recordedChunks.length === 0 }
+  recording.start(1000)
+  promptGenerationControls.playback.disabled = false
+}
+
+function stopPromptRecording() {
+  if (recording?.state === "recording") recording.stop()
+  recording = null
+}
+
+function downloadPromptRecording() {
+  if (!recordedChunks.length) return
+  const blob = new Blob(recordedChunks, { type: recording?.mimeType || "video/webm" })
+  const url = URL.createObjectURL(blob)
+  const anchor = Object.assign(document.createElement("a"), { href: url, download: "flashdreams-generation.webm" })
+  anchor.click()
+  URL.revokeObjectURL(url)
+}

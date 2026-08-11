@@ -681,6 +681,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         shared_scenario: PreparedScenario | None = None,
         shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
         legacy_segment_resampler_factory: Callable[..., Any] | None = None,
+        keep_connection_after_completed: bool = False,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
@@ -712,6 +713,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._shared_spec_factory = shared_spec_factory
         self._shared_scenario = shared_scenario
         self._shared_pipeline_factory = shared_pipeline_factory
+        self._keep_connection_after_completed = keep_connection_after_completed
         self._shared_video_encoder: VideoEncoder | None = None
         self._legacy_segment_resampler_factory = legacy_segment_resampler_factory
 
@@ -1873,22 +1875,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         context: RunContext,
         session_input: Any,
     ) -> None:
-        adapter = self._shared_adapter
-        spec = self._shared_spec
-        scenario = self._shared_scenario
-        spec_factory = self._shared_spec_factory
-        if adapter is None or spec is None:
-            adapter = _LegacyWebRTCDemoAdapter(
-                runtime=self._runtime,
-                identity=self.identity,
-                session_input=session_input,
-            )
-            spec = self._shared_demo_spec()
-        elif spec_factory is not None and session_input is not None:
-            spec = spec_factory(session_input)
-            scenario = None
-        if scenario is None:
-            scenario = adapter.prepare_scenario(spec)
+        """Run one or more shared-demo generations on a peer connection."""
         run_mode = WebRTCRunMode(
             edge_factory=_ManagedWebRTCSessionEdgeFactory(
                 manager=self,
@@ -1897,31 +1884,60 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
         )
         try:
-            result = await run_demo_session_async(
-                context=context,
-                spec=spec,
-                scenario=scenario,
-                adapter=adapter,
-                run_mode=run_mode,
-                pipeline=(
-                    self._shared_pipeline_factory()
-                    if self._shared_pipeline_factory is not None
-                    else StepPipeline()
-                ),
-                reservation=managed_session.reservation,
-            )
-            if result.status == "completed":
-                logger.info("Shared WebRTC session completed.")
-            else:
-                logger.warning(
-                    "Shared WebRTC session ended with status={} reason={}",
-                    result.status,
-                    result.reason,
+            while not managed_session.closed:
+                adapter = self._shared_adapter
+                spec = self._shared_spec
+                scenario = self._shared_scenario
+                spec_factory = self._shared_spec_factory
+                if adapter is None or spec is None:
+                    adapter = _LegacyWebRTCDemoAdapter(
+                        runtime=self._runtime,
+                        identity=self.identity,
+                        session_input=session_input,
+                    )
+                    spec = self._shared_demo_spec()
+                elif spec_factory is not None and session_input is not None:
+                    spec = spec_factory(session_input)
+                    scenario = None
+                if scenario is None:
+                    scenario = adapter.prepare_scenario(spec)
+                result = await run_demo_session_async(
+                    context=context,
+                    spec=spec,
+                    scenario=scenario,
+                    adapter=adapter,
+                    run_mode=run_mode,
+                    pipeline=(
+                        self._shared_pipeline_factory()
+                        if self._shared_pipeline_factory is not None
+                        else StepPipeline()
+                    ),
+                    reservation=managed_session.reservation,
                 )
-            if result.status != "completed" and result.reason:
-                channel = managed_session.control_channel
-                if channel is not None:
-                    self._send_json(channel, make_error_payload(result.reason))
+                managed_session.reservation = None
+                if result.status != "completed":
+                    logger.warning(
+                        "Shared WebRTC session ended with status={} reason={}",
+                        result.status,
+                        result.reason,
+                    )
+                    if result.reason and managed_session.control_channel is not None:
+                        self._send_json(
+                            managed_session.control_channel,
+                            make_error_payload(result.reason),
+                        )
+                    break
+                logger.info("Shared WebRTC generation completed.")
+                if not self._keep_connection_after_completed:
+                    break
+                if managed_session.control_channel is not None:
+                    self._send_json(
+                        managed_session.control_channel,
+                        {"type": "generation_complete"},
+                    )
+                input_source = managed_session.input_source
+                if input_source is not None:
+                    input_source.reset(start_v=asyncio.get_running_loop().time())
         finally:
             managed_session.reservation = None
             if self._active_session is managed_session:

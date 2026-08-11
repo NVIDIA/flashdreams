@@ -128,6 +128,7 @@ class T2VDemoApplication(DemoApplication):
             shared_spec=spec,
             shared_scenario=prepared,
             client_liveness_timeout_s=output.client_liveness_timeout_s,
+            keep_connection_after_completed=True,
         )
         serve_webrtc_demo(
             output=output,
@@ -146,8 +147,6 @@ class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
     """Shared manager with a prompt update for the next browser session."""
 
     def update_prompt(self, prompt: str) -> None:
-        if self.has_active_session():
-            raise RuntimeError("Wait for the current generation to finish before changing the prompt.")
         if not prompt.strip():
             raise ValueError("Prompt must be non-empty.")
         scenario = dict(self._shared_spec.scenario or {})
