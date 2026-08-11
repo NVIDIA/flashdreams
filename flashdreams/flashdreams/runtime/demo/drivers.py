@@ -65,6 +65,8 @@ class BatchSessionDriver:
                 session_info = host.call(_session_info, session)
                 session_edges.output_sink.open(session_info)
                 setup_ok = True
+            except DriverInvariantError:
+                raise
             except Exception as exc:
                 action = session_edges.error_policy.handle_setup_error(exc)
                 if action.drop_chunk or action.result_status == "completed":
@@ -206,6 +208,8 @@ class RealtimeSessionDriver:
                     session_edges.output_sink.open(session_info)
                     session_edges.output_sink.begin_generation(generation)
                     setup_ok = True
+                except DriverInvariantError:
+                    raise
                 except Exception as exc:
                     action = session_edges.error_policy.handle_setup_error(exc)
                     if action.drop_chunk or action.result_status == "completed":

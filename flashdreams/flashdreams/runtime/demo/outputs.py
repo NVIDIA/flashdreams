@@ -169,6 +169,8 @@ class Mp4OutputSink:
     def begin_generation(self, generation: int) -> None:
         if generation < 0:
             raise ValueError("generation must be >= 0.")
+        # MP4 recording is continuous across realtime resets; WebRTC is the sink
+        # that drops stale generations.
 
     def write(self, result: StepResult) -> OutputDecision:
         if not self._opened or self._closed or self._collector is None:

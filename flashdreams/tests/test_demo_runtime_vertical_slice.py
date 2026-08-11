@@ -572,6 +572,37 @@ def test_setup_failure_can_return_skipped_but_not_completed() -> None:
     assert provider.close_count == 1
 
 
+def test_batch_driver_setup_invariant_reraises_without_error_policy() -> None:
+    provider = _FakeVideoModelInputProvider(
+        fail_initial=DriverInvariantError("setup invariant")
+    )
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = InMemorySessionMetricsRecorder()
+    edges = SessionEdges(
+        input_source=_FakeBatchInputSource(num_windows=1),
+        output_sink=output,
+        cleanup_tasks=set(),
+        metrics=metrics,
+        error_policy=_SetupPolicy(result_status="failed"),
+        transport=transport,
+    )
+
+    with pytest.raises(DriverInvariantError, match="setup invariant"):
+        BatchSessionDriver().run_one_session(
+            host=RuntimeHost(_FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))),
+            provider=provider,
+            session_edges=edges,
+            pipeline=StepPipeline(),
+        )
+
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+    assert metrics.errors == []
+    assert provider.close_count == 1
+
+
 def test_batch_driver_invariant_finalizes_edges_when_host_closed() -> None:
     runtime = _FakeVideoRuntime(session=_FakeVideoSession(num_steps=1))
     host = RuntimeHost(runtime)

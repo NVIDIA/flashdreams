@@ -224,6 +224,41 @@ async def test_realtime_driver_invariant_finalizes_edges_before_reraising() -> N
 
 
 @pytest.mark.asyncio
+async def test_realtime_driver_setup_invariant_reraises_without_error_policy() -> None:
+    runtime = _FakeRealtimeRuntime(session=_FakeRealtimeSession(num_steps=1))
+    host = RuntimeHost(runtime)
+    provider = _FakeRealtimeProvider(
+        fail_initial=DriverInvariantError("setup invariant")
+    )
+    output = _RecordingOutputSink()
+    transport = _RecordingTransport()
+    metrics = InMemorySessionMetricsRecorder()
+    edges = _edges(
+        output=output,
+        transport=transport,
+        metrics=metrics,
+        error_policy=_SetupPolicy(result_status="failed"),
+    )
+
+    try:
+        with pytest.raises(DriverInvariantError, match="setup invariant"):
+            await RealtimeSessionDriver().run_one_session(
+                host=host,
+                provider=provider,
+                session_edges=edges,
+                pipeline=StepPipeline(),
+            )
+    finally:
+        host.close()
+
+    assert provider.close_count == 1
+    assert output.close_count == 1
+    assert transport.close_count == 1
+    assert metrics.closed
+    assert metrics.errors == []
+
+
+@pytest.mark.asyncio
 async def test_realtime_step_invariant_reraises_without_error_policy() -> None:
     runtime = _FakeRealtimeRuntime(session=_FakeRealtimeSession(num_steps=1))
     host = RuntimeHost(runtime)
