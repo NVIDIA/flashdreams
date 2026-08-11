@@ -44,6 +44,10 @@ from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
     project_target_to_bev,
     project_taxi_marker_to_camera,
+    project_turn_signs_to_camera,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
+    draw_floating_turn_sign,
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
@@ -1101,12 +1105,28 @@ class MJPEGStreamingPresenter:
             image_width=image_width,
             image_height=image_height,
         )
-        if marker is None:
+        turn_signs = project_turn_signs_to_camera(
+            snapshot,
+            frame.rig_to_world,
+            camera_model,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        if marker is None and not turn_signs:
             return rgb_host_uint8
 
-        color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
         image = Image.fromarray(rgb_host_uint8, mode="RGB")
         draw = ImageDraw.Draw(image)
+        for projection in turn_signs:
+            draw_floating_turn_sign(
+                draw,
+                (int(projection.center_uv[0]), int(projection.center_uv[1])),
+                projection.instruction.maneuver,
+            )
+        if marker is None:
+            return np.asarray(image)
+
+        color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
         for edge in marker.ring_edges_uv:
             draw.line(edge, fill=(0, 0, 0), width=7)
             draw.line(edge, fill=color, width=4)

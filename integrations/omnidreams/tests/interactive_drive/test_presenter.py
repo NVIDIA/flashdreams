@@ -10,12 +10,17 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
     SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.navigation import (
+    TaxiTurnInstruction,
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
@@ -30,6 +35,7 @@ from omnidreams.interactive_drive.slangpy_hud_presenter import (
     _bev_ego_footprint_points,
 )
 from omnidreams.interactive_drive.types import (
+    CameraCalibration,
     PhysicsDebugFrame,
     PresentedFrame,
     VehicleState,
@@ -86,6 +92,49 @@ def test_hud_taxi_name_entry_accepts_characters_backspace_and_enter() -> None:
         presenter._handle_taxi_name_key(key)
 
     assert presenter._keyboard.consume_taxi_name_submission() == "A 1"
+
+
+def test_native_hud_draws_visible_turn_signs() -> None:
+    calibration = CameraCalibration(
+        clipgt_name="camera:test",
+        logical_name="camera_test",
+        width=100,
+        height=80,
+        cx=50.0,
+        cy=40.0,
+        polynomial=np.array([0.0, 0.01], dtype=np.float32),
+        is_backward_polynomial=True,
+        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
+    )
+    snapshot = TaxiGameSnapshot(
+        phase="to_dropoff",
+        target_xyz_m=(20.0, 20.0, 0.0),
+        distance_m=20.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=6.0,
+        remaining_time_s=20.0,
+        score=0,
+        turn_instructions=(TaxiTurnInstruction("right", (10.0, 0.0, 3.0), 10.0),),
+    )
+    frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((80, 100, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        rig_to_world=np.eye(4, dtype=np.float32),
+        application_state=snapshot,
+    )
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._taxi_camera_calibration = calibration
+    presenter._taxi_camera_models = {(100, 80): FThetaCameraModel(calibration)}
+    presenter._latest_camera_src_size = (100, 80)
+    presenter._compute_camera_fit = lambda: (100, 80, 0, 0)
+    image = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+
+    presenter._draw_taxi_turn_signs(ImageDraw.Draw(image), (0, 0, 100, 80), frame)
+
+    pixels = np.asarray(image)
+    assert np.any(np.all(pixels[..., :3] == np.array([118, 185, 0]), axis=2))
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(
