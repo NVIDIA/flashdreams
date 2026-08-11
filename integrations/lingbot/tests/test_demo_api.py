@@ -20,6 +20,7 @@ from lingbot.demo import (
     LingbotWebRTCScenario,
 )
 from lingbot.demo.app import _replay_spec, _webrtc_spec, parse_args
+from lingbot.demo.providers import PROVIDER_INPUTS_METADATA_KEY
 from lingbot.demo.replay import (
     LingbotReplayRuntime,
     LingbotReplayRuntimeOptions,
@@ -196,9 +197,14 @@ def test_lingbot_replay_adapter_accepts_null_output(tmp_path: Path) -> None:
 
     assert prepared.initial_inputs.global_conditioning[FIELD_FIRST_FRAME_PATH] == image
     assert prepared.initial_inputs.global_conditioning[FIELD_TOTAL_BLOCKS] == 1
+    assert prepared.mapping is None
+    assert prepared.canonicalizer.converters == ()
+    assert PROVIDER_INPUTS_METADATA_KEY in prepared.metadata
 
 
-def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
+def test_lingbot_replay_demo_rejects_compat_runner_without_mapping(
+    tmp_path: Path,
+) -> None:
     image = tmp_path / "image.jpg"
     poses = tmp_path / "poses.npy"
     intrinsics = tmp_path / "intrinsics.npy"
@@ -232,24 +238,15 @@ def test_lingbot_replay_demo_uses_shared_runner(tmp_path: Path) -> None:
         ),
     )
 
-    result = run_replay_demo(
-        spec=spec,
-        adapter=adapter,
-        output_target_factory=lambda output_spec: output,
-        runner=fake_runner,
-    )
+    with pytest.raises(ValueError, match="Compatibility replay runners require"):
+        run_replay_demo(
+            spec=spec,
+            adapter=adapter,
+            output_target_factory=lambda output_spec: output,
+            runner=fake_runner,
+        )
 
-    assert result.status == "completed"
-    assert result.artifacts == (
-        OutputArtifact(kind="video/mp4", uri="memory://lingbot"),
-    )
-    assert len(calls) == 1
-    assert calls[0]["adapter"] is adapter
-    assert calls[0]["config"] == spec.config
-    inputs = calls[0]["initial_inputs"].global_conditioning
-    assert inputs[FIELD_PROMPT] == "drive through a city"
-    assert inputs[FIELD_FIRST_FRAME_PATH] == image
-    assert inputs[FIELD_TOTAL_BLOCKS] == 1
+    assert calls == []
 
 
 def test_lingbot_replay_demo_run_mode_uses_model_provider(

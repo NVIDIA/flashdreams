@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from flashdreams.runtime import (
-    InputCanonicalizer,
     UserInputCapability,
     UserInputs,
     UserInputSchema,
@@ -22,10 +21,6 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
-from lingbot.input_mapping import (
-    KeyboardToCameraCommand,
-    TextEventSelection,
-)
 from lingbot.runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -37,7 +32,11 @@ from lingbot.runtime import (
     inference_input_from_replay_inputs,
 )
 
-from .providers import LingbotInputProvider
+from .providers import (
+    PROVIDER_INPUTS_METADATA_KEY,
+    LingbotInputProvider,
+    create_lingbot_provider_inputs,
+)
 from .spec import (
     resolve_replay_inputs,
     resolve_text_event_prompts,
@@ -93,27 +92,11 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         )
         text_event_prompts = resolve_text_event_prompts(scenario)
         user_inputs = resolve_user_input_events(scenario)
-        if live_camera or _camera_source(scenario) == "events":
-            # Live control still needs the scenario's calibration, so the trace
-            # is loaded for its intrinsics and world scale and then discarded
-            # as a trajectory source.
-            trace = self.create_input_mapping(replay_inputs).camera_trace
-            mapping = self.create_live_input_mapping(
-                fps=replay_inputs.fps,
-                base_intrinsics=trace.intrinsics[0],
-                # A trace's world scale is derived from how far its poses
-                # travel, so a stationary example yields 0. Live control has no
-                # trajectory to normalize against, so it falls back to the same
-                # unit scale the live runtime uses.
-                world_scale=trace.world_scale or 1.0,
-                prompt=replay_inputs.prompt,
-                text_event_prompts=text_event_prompts,
-            )
-        else:
-            mapping = self.create_input_mapping(
-                replay_inputs,
-                text_event_prompts=text_event_prompts,
-            )
+        provider_inputs = create_lingbot_provider_inputs(
+            replay_inputs,
+            live_camera=live_camera or _camera_source(scenario) == "events",
+            text_event_prompts=text_event_prompts,
+        )
         return PreparedScenario(
             initial_inputs=inference_input_from_replay_inputs(replay_inputs),
             user_inputs=user_inputs,
@@ -122,11 +105,10 @@ class LingbotDemoAdapter(LingbotModelAdapter):
                 include_keyboard=live_camera,
                 include_text_events=live_camera and bool(text_event_prompts),
             ),
-            canonicalizer=_canonicalizer(text_event_prompts),
-            mapping=mapping,
             metadata={
                 "model_id": self.model_id,
                 "preset_id": self.preset_id(spec.config),
+                PROVIDER_INPUTS_METADATA_KEY: provider_inputs,
             },
         )
 
@@ -244,13 +226,6 @@ def _source_schema(
             else "fixed Lingbot replay input"
         ),
     )
-
-
-def _canonicalizer(text_event_prompts: Mapping[str, str] | None) -> InputCanonicalizer:
-    converters: list[Any] = [KeyboardToCameraCommand()]
-    if text_event_prompts:
-        converters.append(TextEventSelection())
-    return InputCanonicalizer(converters)
 
 
 __all__ = [

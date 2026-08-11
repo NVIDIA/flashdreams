@@ -118,8 +118,8 @@ class LingbotSessionInputs:
     """Session-global Lingbot state established at session start or reset.
 
     The camera trajectory is deliberately absent: it arrives per step through
-    ``InferenceInput.step``, built by the selected input mapping from either a
-    fixed trace or live user events.
+    ``InferenceInput.step``, built by the selected input provider or legacy
+    mapping from either a fixed trace or live user events.
     """
 
     prompt: str
@@ -580,7 +580,7 @@ def _require_step_tensor(
     if name not in inputs.step:
         raise ValueError(
             f"Lingbot step inputs are missing {name!r}. The selected input "
-            f"mapping must produce it for every step."
+            f"provider or mapping must produce it for every step."
         )
     value = inputs.step[name]
     if not isinstance(value, torch.Tensor):

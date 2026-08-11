@@ -90,16 +90,12 @@ def run_replay_demo(
         raise ValueError("run_replay_demo does not support WebRTC output.")
 
     prepared = adapter.prepare_scenario(spec)
-    mapping = prepared.mapping or adapter.default_input_mapping()
-    if mapping is None:
-        raise ValueError(
-            "Demo scenario did not provide an input mapping, and the adapter "
-            "has no default input mapping."
-        )
+    mapping = _scenario_mapping(prepared=prepared, adapter=adapter)
     if spec.config is None:
         raise RuntimeError("DemoSpec.config was not initialized.")
 
     if runner is not None:
+        mapping = _require_replay_mapping(mapping)
         return _run_replay_demo_with_compat_runner(
             spec=spec,
             adapter=adapter,
@@ -197,18 +193,26 @@ def _run_replay_demo_with_run_mode(
     spec: DemoSpec,
     adapter: DemoAdapter,
     prepared: "PreparedScenario",
-    mapping: InputMapping,
+    mapping: InputMapping | None,
     output_sink_factory: OutputSinkFactory,
     metrics: MetricsRecorder | None,
 ) -> RunResult:
     config = _require_config(spec)
-    _validate_replay_mapping(
-        adapter=adapter,
-        config=config,
-        mapping=mapping,
-        source_schema=prepared.source_schema,
-        canonicalizer=prepared.canonicalizer,
-    )
+    if mapping is None:
+        if not callable(getattr(adapter, "create_model_input_provider", None)):
+            raise ValueError(
+                "Demo scenario did not provide an input mapping, and the adapter "
+                "has no model input provider or default input mapping."
+            )
+        adapter.validate_config(config)
+    else:
+        _validate_replay_mapping(
+            adapter=adapter,
+            config=config,
+            mapping=mapping,
+            source_schema=prepared.source_schema,
+            canonicalizer=prepared.canonicalizer,
+        )
     request_state = _ReplayStepRequestState()
     runtime = _ReplayRuntimeAdapter(
         runtime=adapter.create_runtime(config),
@@ -325,7 +329,7 @@ class _ReplayProviderAdapter:
         self,
         *,
         adapter: DemoAdapter,
-        mapping: InputMapping,
+        mapping: InputMapping | None,
         request_state: "_ReplayStepRequestState",
     ) -> None:
         self._adapter = adapter
@@ -370,6 +374,11 @@ class _ReplayProviderAdapter:
         create_provider = getattr(self._adapter, "create_model_input_provider", None)
         if callable(create_provider):
             return create_provider(spec, scenario)
+        if self._mapping is None:
+            raise ValueError(
+                "Replay adapter requires an input mapping when no model input "
+                "provider is available."
+            )
         return _ReplayMappingModelInputProvider(
             adapter=self._adapter,
             scenario=scenario,
@@ -498,7 +507,7 @@ class _ReplayBatchInputSource:
         return UserInputWindow(
             start_s=window.start_s,
             end_s=window.end_s,
-            inputs=self._user_inputs,
+            inputs=self._user_inputs.window(window),
         )
 
 
@@ -587,6 +596,28 @@ def _require_config(spec: DemoSpec) -> InferenceConfig:
     if spec.config is None:
         raise RuntimeError("DemoSpec.config was not initialized.")
     return spec.config
+
+
+def _scenario_mapping(
+    *,
+    prepared: PreparedScenario,
+    adapter: DemoAdapter,
+) -> InputMapping | None:
+    if prepared.mapping is not None:
+        return prepared.mapping
+    default_input_mapping = getattr(adapter, "default_input_mapping", None)
+    if not callable(default_input_mapping):
+        return None
+    return default_input_mapping()
+
+
+def _require_replay_mapping(mapping: InputMapping | None) -> InputMapping:
+    if mapping is not None:
+        return mapping
+    raise ValueError(
+        "Compatibility replay runners require an input mapping; the prepared "
+        "scenario and adapter did not provide one."
+    )
 
 
 def _all_user_inputs_window(user_inputs: UserInputs) -> TimeWindow:

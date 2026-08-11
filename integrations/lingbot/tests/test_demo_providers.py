@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,21 +11,29 @@ import numpy as np
 import pytest
 import torch
 from lingbot.demo import DEFAULT_LINGBOT_PRESET, LINGBOT_MODEL_ID, LingbotDemoAdapter
-from lingbot.demo.providers import LingbotInputProvider
-from lingbot.input_mapping import (
+from lingbot.demo.providers import (
     FIELD_CAMERA_TRAJECTORY,
     FIELD_TOTAL_CAMERA_FRAMES,
+    PROVIDER_INPUTS_METADATA_KEY,
+    LingbotInputProvider,
+)
+from lingbot.input_mapping import (
+    KeyboardToCameraCommand,
     LingbotInputMapping,
+    TextEventSelection,
 )
 from lingbot.runtime import (
     FIELD_FIRST_FRAME_PATH,
     FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
+    LingbotReplayInputs,
 )
 
 from flashdreams.runtime import (
+    CanonicalInputs,
     InferenceConfig,
     InferenceInput,
+    InputCanonicalizer,
     StepRequest,
     StepRequirements,
     TimeWindow,
@@ -43,22 +52,20 @@ pytestmark = pytest.mark.ci_cpu
 
 def test_lingbot_provider_initial_input_matches_mapping_path(tmp_path: Path) -> None:
     adapter = LingbotDemoAdapter()
-    expected = _prepared_scenario(tmp_path, adapter=adapter)
     actual = _prepared_scenario(tmp_path, adapter=adapter)
-    assert isinstance(expected.mapping, LingbotInputMapping)
+    legacy = _legacy_bridge(tmp_path, adapter=adapter)
+    assert actual.mapping is None
+    assert actual.canonicalizer.converters == ()
+    assert PROVIDER_INPUTS_METADATA_KEY in actual.metadata
 
     provider = LingbotInputProvider(
         scenario=actual,
         inference_input_schema=adapter.inference_input_schema,
     )
 
-    expected_initial = expected.mapping.map_global_conditioning_inputs(
-        canonical_inputs=expected.canonicalizer.canonicalize(
-            UserInputs(),
-            window=TimeWindow(start_s=0.0, end_s=0.0),
-            source_schema=expected.source_schema,
-        ),
-        inference_input=expected.initial_inputs,
+    expected_initial = legacy.mapping.map_global_conditioning_inputs(
+        canonical_inputs=CanonicalInputs(),
+        inference_input=actual.initial_inputs,
     )
     actual_initial = provider.prepare_initial_input()
 
@@ -75,15 +82,21 @@ def test_lingbot_provider_initial_input_matches_mapping_path(tmp_path: Path) -> 
 
 def test_lingbot_provider_trace_steps_match_mapping_path(tmp_path: Path) -> None:
     adapter = LingbotDemoAdapter()
-    expected = _prepared_scenario(tmp_path, adapter=adapter)
     actual = _prepared_scenario(tmp_path, adapter=adapter)
+    legacy = _legacy_bridge(tmp_path, adapter=adapter)
     provider = LingbotInputProvider(
         scenario=actual,
         inference_input_schema=adapter.inference_input_schema,
     )
 
     provider.prepare_initial_input()
-    expected_first = _legacy_step(expected, step_index=0, frame_start=0, num_frames=4)
+    expected_first = _legacy_step(
+        actual,
+        legacy,
+        step_index=0,
+        frame_start=0,
+        num_frames=4,
+    )
     actual_first = _provider_step(
         provider,
         step_index=0,
@@ -91,7 +104,13 @@ def test_lingbot_provider_trace_steps_match_mapping_path(tmp_path: Path) -> None
         num_frames=4,
         inputs=actual.user_inputs,
     )
-    expected_second = _legacy_step(expected, step_index=1, frame_start=4, num_frames=4)
+    expected_second = _legacy_step(
+        actual,
+        legacy,
+        step_index=1,
+        frame_start=4,
+        num_frames=4,
+    )
     actual_second = _provider_step(
         provider,
         step_index=1,
@@ -118,17 +137,16 @@ def test_lingbot_provider_trace_steps_match_mapping_path(tmp_path: Path) -> None
 def test_lingbot_provider_uses_driver_user_window_inputs(tmp_path: Path) -> None:
     adapter = LingbotDemoAdapter()
     scenario_events = ({"t": 10.0, "type": "key_down", "key": "a"},)
-    expected = _prepared_scenario(
-        tmp_path,
-        adapter=adapter,
-        camera_source="events",
-        events=scenario_events,
-    )
     actual = _prepared_scenario(
         tmp_path,
         adapter=adapter,
         camera_source="events",
         events=scenario_events,
+    )
+    legacy = _legacy_bridge(
+        tmp_path,
+        adapter=adapter,
+        camera_source="events",
     )
     provider = LingbotInputProvider(
         scenario=actual,
@@ -146,7 +164,8 @@ def test_lingbot_provider_uses_driver_user_window_inputs(tmp_path: Path) -> None
 
     provider.prepare_initial_input()
     expected_step = _legacy_step(
-        expected,
+        actual,
+        legacy,
         step_index=0,
         frame_start=0,
         num_frames=4,
@@ -202,6 +221,16 @@ def test_lingbot_provider_folds_webrtc_skipped_inputs_into_state(
 
     provider.prepare_initial_input()
     idle_provider.prepare_initial_input()
+    legacy = _legacy_bridge(
+        tmp_path,
+        adapter=adapter,
+        camera_source="events",
+    )
+    legacy.canonicalizer.canonicalize(
+        skipped_inputs,
+        window=TimeWindow(start_s=0.0, end_s=0.25),
+        source_schema=with_skip.source_schema,
+    )
     actual = _provider_step(
         provider,
         step_index=0,
@@ -220,23 +249,39 @@ def test_lingbot_provider_folds_webrtc_skipped_inputs_into_state(
         num_frames=4,
         inputs=UserInputs(),
     )
+    expected = _legacy_step(
+        with_skip,
+        legacy,
+        step_index=0,
+        frame_start=4,
+        num_frames=4,
+        inputs=UserInputs(),
+    )
 
     poses = actual.step[FIELD_CAMERA_TRAJECTORY]
+    assert torch.allclose(poses, expected.step[FIELD_CAMERA_TRAJECTORY])
     assert not torch.allclose(poses, expected_idle.step[FIELD_CAMERA_TRAJECTORY])
     assert not torch.allclose(poses[0], poses[-1])
 
 
 def test_lingbot_provider_reset_clears_text_event_state(tmp_path: Path) -> None:
     adapter = LingbotDemoAdapter()
+    text_events = {"storm": "a violent storm"}
     actual = _prepared_scenario(
         tmp_path,
         adapter=adapter,
         camera_source="events",
-        text_events={"storm": "a violent storm"},
+        text_events=text_events,
         events=(
             {"t": 10.0, "type": "key_down", "key": "w"},
             {"t": 10.1, "type": "text_event", "event_id": "storm"},
         ),
+    )
+    legacy = _legacy_bridge(
+        tmp_path,
+        adapter=adapter,
+        camera_source="events",
+        text_events=text_events,
     )
     provider = LingbotInputProvider(
         scenario=actual,
@@ -252,8 +297,24 @@ def test_lingbot_provider_reset_clears_text_event_state(tmp_path: Path) -> None:
         num_frames=4,
         inputs=first_inputs,
     )
+    expected_first = _legacy_step(
+        actual,
+        legacy,
+        step_index=0,
+        frame_start=0,
+        num_frames=4,
+        inputs=first_inputs,
+    )
     repeated = _provider_step(
         provider,
+        step_index=1,
+        frame_start=4,
+        num_frames=4,
+        inputs=UserInputs(),
+    )
+    expected_repeated = _legacy_step(
+        actual,
+        legacy,
         step_index=1,
         frame_start=4,
         num_frames=4,
@@ -268,6 +329,8 @@ def test_lingbot_provider_reset_clears_text_event_state(tmp_path: Path) -> None:
         inputs=first_inputs,
     )
 
+    assert first.global_conditioning == expected_first.global_conditioning
+    assert repeated.global_conditioning == expected_repeated.global_conditioning
     assert first.global_conditioning[FIELD_PROMPT] == "a violent storm"
     assert repeated.global_conditioning == {}
     assert after_reset.global_conditioning[FIELD_PROMPT] == "a violent storm"
@@ -358,22 +421,64 @@ def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 32) -> 
     )
 
 
+@dataclass(slots=True)
+class _LegacyBridge:
+    mapping: LingbotInputMapping
+    canonicalizer: InputCanonicalizer
+
+
+def _legacy_bridge(
+    tmp_path: Path,
+    *,
+    adapter: LingbotDemoAdapter,
+    camera_source: str = "trace",
+    text_events: dict[str, str] | None = None,
+) -> _LegacyBridge:
+    replay_inputs = LingbotReplayInputs(
+        prompt="drive through a city",
+        first_frame_path=tmp_path / "image.jpg",
+        camera_poses_path=tmp_path / "poses.npy",
+        camera_intrinsics_path=tmp_path / "intrinsics.npy",
+        total_blocks=2,
+    )
+    if camera_source == "events":
+        trace = adapter.create_input_mapping(replay_inputs).camera_trace
+        mapping = adapter.create_live_input_mapping(
+            fps=replay_inputs.fps,
+            base_intrinsics=trace.intrinsics[0],
+            world_scale=trace.world_scale or 1.0,
+            prompt=replay_inputs.prompt,
+            text_event_prompts=text_events,
+        )
+    else:
+        mapping = adapter.create_input_mapping(
+            replay_inputs,
+            text_event_prompts=text_events,
+        )
+    converters: list[Any] = [KeyboardToCameraCommand()]
+    if text_events:
+        converters.append(TextEventSelection())
+    return _LegacyBridge(
+        mapping=mapping,
+        canonicalizer=InputCanonicalizer(converters),
+    )
+
+
 def _legacy_step(
     scenario: PreparedScenario,
+    legacy: _LegacyBridge,
     *,
     step_index: int,
     frame_start: int,
     num_frames: int,
     inputs: UserInputs | None = None,
 ) -> InferenceInput:
-    mapping = scenario.mapping
-    assert isinstance(mapping, LingbotInputMapping)
     window = TimeWindow(
         start_s=frame_start / 16,
         end_s=(frame_start + num_frames) / 16,
     )
-    return mapping.map_step_inputs(
-        canonical_inputs=scenario.canonicalizer.canonicalize(
+    return legacy.mapping.map_step_inputs(
+        canonical_inputs=legacy.canonicalizer.canonicalize(
             scenario.user_inputs if inputs is None else inputs,
             window=window,
             source_schema=scenario.source_schema,
