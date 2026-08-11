@@ -113,7 +113,10 @@ class ContextParallelAttention(NativeAttention):
         if self.device_mesh is None:
             return attn_op(query, key, value, return_lse=False)[0]
 
-        rank = self.device_mesh.get_rank()
+        # ``get_rank()`` is the global process rank. Ring rotation indexes the
+        # tuple returned by the subgroup all-gather, so it must use the rank
+        # local to that subgroup (for example 0..5 for global ranks 1..6).
+        rank = self.device_mesh.get_local_rank()
         world_size = self.device_mesh.size()
         group = self.device_mesh.get_group()
         if world_size == 1:

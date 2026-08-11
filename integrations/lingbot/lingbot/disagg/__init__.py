@@ -13,26 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Streaming inference pipeline base."""
+"""Three-stage LingBot inference for disaggregated GPU serving."""
 
-from flashdreams.infra.pipeline.base import (
-    StreamInferencePipeline,
-    StreamInferencePipelineCache,
-    StreamInferencePipelineConfig,
-)
-from flashdreams.infra.pipeline.stages import (
-    DecoderStage,
-    DiffusionStage,
-    DiffusionStageCache,
-    StreamingEncoderStage,
+from lingbot.disagg.stages import (
+    LingbotConditioning,
+    LingbotDecoderStage,
+    LingbotDiTStage,
+    LingbotEncoderStage,
+    conditioning_from_bundle,
+    conditioning_to_bundle,
+    encoder_output_from_bundle,
+    encoder_output_to_bundle,
+    encoder_output_to_cp_bundles,
 )
 
 __all__ = [
-    "DecoderStage",
-    "DiffusionStage",
-    "DiffusionStageCache",
-    "StreamInferencePipeline",
-    "StreamInferencePipelineCache",
-    "StreamInferencePipelineConfig",
-    "StreamingEncoderStage",
+    "LingbotConditioning",
+    "LingbotDecoderStage",
+    "LingbotDiTStage",
+    "LingbotEncoderStage",
+    "conditioning_from_bundle",
+    "conditioning_to_bundle",
+    "encoder_output_from_bundle",
+    "encoder_output_to_bundle",
+    "encoder_output_to_cp_bundles",
 ]

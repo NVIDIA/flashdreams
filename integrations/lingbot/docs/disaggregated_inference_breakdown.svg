@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+<title id="title">LingBot disaggregated inference wall time and GPU memory</title>
+<desc id="description">Stacked wall-time comparison for one versus six DiT workers and per-rank peak allocated GPU memory.</desc>
+<style>
+text{font-family:Inter,Arial,sans-serif;fill:#202124}
+.title{font-size:26px;font-weight:600}.subtitle{font-size:15px;fill:#5f6368}
+.axis{font-size:13px;fill:#5f6368}.label{font-size:15px;font-weight:600}
+.value{font-size:13px;font-weight:600}.grid{stroke:#dadce0;stroke-width:1}
+</style>
+<rect width="1200" height="720" fill="#ffffff"/>
+<text x="40" y="43" class="title">LingBot stage allocation: wall time and memory</text>
+<text x="40" y="70" class="subtitle">H100 80 GB · BF16 · 832×464 · six warmup and five measured waves</text>
+<text x="40" y="110" class="label">Median steady-state wall time</text>
+<line x1="165.0" y1="126" x2="165.0" y2="303" class="grid"/>
+<text x="165.0" y="322" class="axis" text-anchor="middle">0</text>
+<line x1="325.8" y1="126" x2="325.8" y2="303" class="grid"/>
+<text x="325.8" y="322" class="axis" text-anchor="middle">500</text>
+<line x1="486.7" y1="126" x2="486.7" y2="303" class="grid"/>
+<text x="486.7" y="322" class="axis" text-anchor="middle">1000</text>
+<line x1="647.5" y1="126" x2="647.5" y2="303" class="grid"/>
+<text x="647.5" y="322" class="axis" text-anchor="middle">1500</text>
+<line x1="808.3" y1="126" x2="808.3" y2="303" class="grid"/>
+<text x="808.3" y="322" class="axis" text-anchor="middle">2000</text>
+<line x1="969.2" y1="126" x2="969.2" y2="303" class="grid"/>
+<text x="969.2" y="322" class="axis" text-anchor="middle">2500</text>
+<line x1="1130.0" y1="126" x2="1130.0" y2="303" class="grid"/>
+<text x="1130.0" y="322" class="axis" text-anchor="middle">3000</text>
+<text x="1130" y="322" class="axis" text-anchor="end">milliseconds</text>
+<text x="145" y="174.0" class="label" text-anchor="end">1E : 1D : 1V</text>
+<rect x="165.0" y="142.0" width="0.3" height="52.0" fill="#59a14f"/>
+<rect x="165.3" y="142.0" width="8.2" height="52.0" fill="#8cd17d"/>
+<rect x="173.5" y="142.0" width="701.1" height="52.0" fill="#4e79a7"/>
+<text x="524.1" y="173.0" class="value" text-anchor="middle">2180</text>
+<rect x="874.6" y="142.0" width="3.9" height="52.0" fill="#76b7b2"/>
+<rect x="878.5" y="142.0" width="2.3" height="52.0" fill="#f28e2b"/>
+<rect x="880.8" y="142.0" width="2.7" height="52.0" fill="#bab0ac"/>
+<text x="892.5" y="174.0" class="value">2234 ms</text>
+<text x="145" y="264.0" class="label" text-anchor="end">1E : 6D : 1V</text>
+<rect x="165.0" y="232.0" width="1.6" height="52.0" fill="#59a14f"/>
+<rect x="166.6" y="232.0" width="66.2" height="52.0" fill="#8cd17d"/>
+<text x="199.7" y="263.0" class="value" text-anchor="middle">206</text>
+<rect x="232.8" y="232.0" width="703.1" height="52.0" fill="#4e79a7"/>
+<text x="584.4" y="263.0" class="value" text-anchor="middle">2186</text>
+<rect x="935.9" y="232.0" width="59.4" height="52.0" fill="#76b7b2"/>
+<text x="965.6" y="263.0" class="value" text-anchor="middle">185</text>
+<rect x="995.3" y="232.0" width="13.6" height="52.0" fill="#f28e2b"/>
+<rect x="1008.9" y="232.0" width="10.8" height="52.0" fill="#bab0ac"/>
+<text x="1028.7" y="264.0" class="value">2657 ms</text>
+<rect x="165" y="342" width="13" height="13" fill="#59a14f"/>
+<text x="184" y="353" class="axis">Encoder</text>
+<rect x="322" y="342" width="13" height="13" fill="#8cd17d"/>
+<text x="341" y="353" class="axis">Encoder → DiT</text>
+<rect x="479" y="342" width="13" height="13" fill="#4e79a7"/>
+<text x="498" y="353" class="axis">DiT</text>
+<rect x="636" y="342" width="13" height="13" fill="#76b7b2"/>
+<text x="655" y="353" class="axis">DiT → decoder</text>
+<rect x="793" y="342" width="13" height="13" fill="#f28e2b"/>
+<text x="812" y="353" class="axis">Decoder</text>
+<rect x="950" y="342" width="13" height="13" fill="#bab0ac"/>
+<text x="969" y="353" class="axis">Coordination</text>
+<text x="40" y="402" class="label">Peak allocated GPU memory by rank</text>
+<text x="40" y="426" class="subtitle">E = encoder, D = DiT, V = decoder; the gap to 80 GiB is headroom, not free schedulable memory</text>
+<line x1="90" y1="650.0" x2="1145" y2="650.0" class="grid"/>
+<text x="78" y="655.0" class="axis" text-anchor="end">0</text>
+<line x1="90" y1="601.2" x2="1145" y2="601.2" class="grid"/>
+<text x="78" y="606.2" class="axis" text-anchor="end">20</text>
+<line x1="90" y1="552.5" x2="1145" y2="552.5" class="grid"/>
+<text x="78" y="557.5" class="axis" text-anchor="end">40</text>
+<line x1="90" y1="503.8" x2="1145" y2="503.8" class="grid"/>
+<text x="78" y="508.8" class="axis" text-anchor="end">60</text>
+<line x1="90" y1="455.0" x2="1145" y2="455.0" class="grid"/>
+<text x="78" y="460.0" class="axis" text-anchor="end">80</text>
+<text x="43" y="555" class="axis" text-anchor="middle" transform="rotate(-90 43 555)">GiB</text>
+<text x="272.5" y="692" class="label" text-anchor="middle">1E : 1D : 1V</text>
+<rect x="155.0" y="616.6" width="43.0" height="33.4" fill="#59a14f"/>
+<text x="176.5" y="609.6" class="value" text-anchor="middle">13.7</text>
+<text x="176.5" y="670" class="axis" text-anchor="middle">E0</text>
+<rect x="251.0" y="512.8" width="43.0" height="137.2" fill="#4e79a7"/>
+<text x="272.5" y="505.8" class="value" text-anchor="middle">56.3</text>
+<text x="272.5" y="670" class="axis" text-anchor="middle">D1</text>
+<rect x="347.0" y="644.4" width="43.0" height="5.6" fill="#f28e2b"/>
+<text x="368.5" y="637.4" class="value" text-anchor="middle">2.3</text>
+<text x="368.5" y="670" class="axis" text-anchor="middle">V2</text>
+<text x="859.5" y="692" class="label" text-anchor="middle">1E : 6D : 1V</text>
+<rect x="600.0" y="604.2" width="43.0" height="45.8" fill="#59a14f"/>
+<text x="621.5" y="597.2" class="value" text-anchor="middle">18.8</text>
+<text x="621.5" y="670" class="axis" text-anchor="middle">E0</text>
+<rect x="668.0" y="512.3" width="43.0" height="137.7" fill="#4e79a7"/>
+<text x="689.5" y="505.3" class="value" text-anchor="middle">56.5</text>
+<text x="689.5" y="670" class="axis" text-anchor="middle">D1</text>
+<rect x="736.0" y="512.3" width="43.0" height="137.7" fill="#4e79a7"/>
+<text x="757.5" y="505.3" class="value" text-anchor="middle">56.5</text>
+<text x="757.5" y="670" class="axis" text-anchor="middle">D2</text>
+<rect x="804.0" y="512.7" width="43.0" height="137.3" fill="#4e79a7"/>
+<text x="825.5" y="505.7" class="value" text-anchor="middle">56.3</text>
+<text x="825.5" y="670" class="axis" text-anchor="middle">D3</text>
+<rect x="872.0" y="512.7" width="43.0" height="137.3" fill="#4e79a7"/>
+<text x="893.5" y="505.7" class="value" text-anchor="middle">56.3</text>
+<text x="893.5" y="670" class="axis" text-anchor="middle">D4</text>
+<rect x="940.0" y="512.3" width="43.0" height="137.7" fill="#4e79a7"/>
+<text x="961.5" y="505.3" class="value" text-anchor="middle">56.5</text>
+<text x="961.5" y="670" class="axis" text-anchor="middle">D5</text>
+<rect x="1008.0" y="512.3" width="43.0" height="137.7" fill="#4e79a7"/>
+<text x="1029.5" y="505.3" class="value" text-anchor="middle">56.5</text>
+<text x="1029.5" y="670" class="axis" text-anchor="middle">D6</text>
+<rect x="1076.0" y="643.5" width="43.0" height="6.5" fill="#f28e2b"/>
+<text x="1097.5" y="636.5" class="value" text-anchor="middle">2.7</text>
+<text x="1097.5" y="670" class="axis" text-anchor="middle">V7</text>
+</svg>

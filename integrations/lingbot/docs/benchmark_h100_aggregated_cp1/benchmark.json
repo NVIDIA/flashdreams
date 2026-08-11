@@ -1,0 +1,530 @@
+{
+  "environment": {
+    "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=1 -m lingbot.disagg.benchmark_aggregated --model lingbot-world-fast-taehv-window15-sink3 --example-idx 0 --pixel-width 832 --pixel-height 464 --fps 16 --cp-method ulysses --warmup-blocks 6 --measured-blocks 5 --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 --comparison-json outputs/no-comparison.json --output-dir outputs/lingbot_aggregated_cp1",
+    "commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+    "worktree_dirty": true,
+    "hostname": "pool0-01083",
+    "slurm_job_id": "14790020",
+    "python": "3.12.13",
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+    "precision": "bfloat16",
+    "decoder_config": "TeahvVAEDecoderConfig",
+    "seed": 42,
+    "example_index": 0,
+    "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+    "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+    "resolution": [
+      464,
+      832
+    ],
+    "target_fps": 16,
+    "latent_frames_per_chunk": 3,
+    "window_size_t": 15,
+    "sink_size_t": 3,
+    "guidance_scale": 1.0,
+    "num_inference_steps": 4,
+    "compile_network": true,
+    "warmup_blocks": 6,
+    "measured_blocks": 5,
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "driver": "535.216.03",
+    "mooncake": "0.3.12.post1",
+    "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+    "torchinductor_compile_threads": "4",
+    "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+    "gpus": [
+      "NVIDIA H100 80GB HBM3"
+    ],
+    "rdma_device": null,
+    "allocation": {
+      "full_pipeline_replicas": [
+        0
+      ],
+      "dit_cp_group": [
+        0
+      ],
+      "cp_size": 1,
+      "cp_method": "ulysses"
+    },
+    "token_layout": {
+      "latent_height": 58,
+      "latent_width": 104,
+      "tokens_per_chunk": 4524,
+      "tokens_per_rank": 4524
+    },
+    "transport": {
+      "stage_handoffs": "none",
+      "dit_collectives": "NCCL"
+    },
+    "noise_seed_by_rank": [
+      42
+    ]
+  },
+  "summary": {
+    "fps": 5.55553754894227,
+    "latency_ms": {
+      "median": 2157.513060141355,
+      "p90": 2166.248793900013,
+      "min": 2155.1325689069927,
+      "max": 2171.2969318032265
+    },
+    "encoder_ms": {
+      "median": 0.8756800293922424,
+      "p90": 0.9436095952987671,
+      "min": 0.770687997341156,
+      "max": 0.9571520090103149
+    },
+    "dit_ms": {
+      "median": 1726.2662353515625,
+      "p90": 1733.1642333984375,
+      "min": 1723.576171875,
+      "max": 1736.1300048828125
+    },
+    "decoder_ms": {
+      "median": 7.390175819396973,
+      "p90": 7.4898113250732425,
+      "min": 7.323999881744385,
+      "max": 7.543392181396484
+    },
+    "finalize_ms": {
+      "median": 424.7573547363281,
+      "p90": 425.27886962890625,
+      "min": 419.94976806640625,
+      "max": 425.31866455078125
+    },
+    "tokens_per_chunk": 4524,
+    "token_throughput_per_second": 2094.4376559512357,
+    "cp_probe_gbps": {
+      "broadcast": {
+        "median": 10817.623328068143,
+        "p90": 11321.74250011288,
+        "min": 6100.113780988609,
+        "max": 11366.671641593679
+      },
+      "all_gather": {
+        "median": 1204.2908306532627,
+        "p90": 1208.7825052237476,
+        "min": 1179.869729222284,
+        "max": 1209.984367372116
+      }
+    },
+    "memory": {
+      "peak_gib_by_rank": [
+        59.3552770614624
+      ],
+      "steady_allocated_gib_by_rank": [
+        57.14636754989624
+      ],
+      "initialization_peak_gib_by_rank": [
+        66.54739189147949
+      ],
+      "node_peak_gib": 59.3552770614624,
+      "node_steady_allocated_gib": 57.14636754989624,
+      "per_rank_peak_gib": {
+        "median": 59.3552770614624,
+        "p90": 59.3552770614624,
+        "min": 59.3552770614624,
+        "max": 59.3552770614624
+      }
+    }
+  },
+  "records": [
+    {
+      "autoregressive_index": 0,
+      "warmup": true,
+      "end_to_end_ms": 123287.52873605117,
+      "output_frames": 9,
+      "critical_rank": {
+        "encode_ms": 490.09832763671875,
+        "diffuse_ms": 87463.1171875,
+        "decode_ms": 35063.96875,
+        "finalize_ms": 268.6892395019531
+      },
+      "per_rank": [
+        {
+          "encode_ms": 490.09832763671875,
+          "diffuse_ms": 87463.1171875,
+          "decode_ms": 35063.96875,
+          "finalize_ms": 268.6892395019531,
+          "total_ms": 123285.87350463867,
+          "total_ms_wo_finalize": 123017.18426513672,
+          "mem_alloc_gib": 57.08832931518555,
+          "mem_reserved_gib": 61.46875,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 123287.52873605117,
+          "output_frames": 9,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 1,
+      "warmup": true,
+      "end_to_end_ms": 78228.68528589606,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 182.13430786132812,
+        "diffuse_ms": 77730.203125,
+        "decode_ms": 8.143360137939453,
+        "finalize_ms": 308.2727966308594
+      },
+      "per_rank": [
+        {
+          "encode_ms": 182.13430786132812,
+          "diffuse_ms": 77730.203125,
+          "decode_ms": 8.143360137939453,
+          "finalize_ms": 308.2727966308594,
+          "total_ms": 78228.75358963013,
+          "total_ms_wo_finalize": 77920.48079299927,
+          "mem_alloc_gib": 57.08878707885742,
+          "mem_reserved_gib": 61.861328125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 78228.68528589606,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 2,
+      "warmup": true,
+      "end_to_end_ms": 1868.6057380400598,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 163.92034912109375,
+        "diffuse_ms": 1368.20361328125,
+        "decode_ms": 7.503551959991455,
+        "finalize_ms": 328.4642333984375
+      },
+      "per_rank": [
+        {
+          "encode_ms": 163.92034912109375,
+          "diffuse_ms": 1368.20361328125,
+          "decode_ms": 7.503551959991455,
+          "finalize_ms": 328.4642333984375,
+          "total_ms": 1868.0917477607727,
+          "total_ms_wo_finalize": 1539.6275143623352,
+          "mem_alloc_gib": 57.08868980407715,
+          "mem_reserved_gib": 61.861328125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 1868.6057380400598,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 3,
+      "warmup": true,
+      "end_to_end_ms": 2028.643268160522,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 164.41754150390625,
+        "diffuse_ms": 1478.8184814453125,
+        "decode_ms": 20.656095504760742,
+        "finalize_ms": 364.23333740234375
+      },
+      "per_rank": [
+        {
+          "encode_ms": 164.41754150390625,
+          "diffuse_ms": 1478.8184814453125,
+          "decode_ms": 20.656095504760742,
+          "finalize_ms": 364.23333740234375,
+          "total_ms": 2028.1254558563232,
+          "total_ms_wo_finalize": 1663.8921184539795,
+          "mem_alloc_gib": 57.14592456817627,
+          "mem_reserved_gib": 62.328125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2028.643268160522,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 4,
+      "warmup": true,
+      "end_to_end_ms": 2172.1249939873815,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 164.94435119628906,
+        "diffuse_ms": 1594.80859375,
+        "decode_ms": 7.348447799682617,
+        "finalize_ms": 404.4841613769531
+      },
+      "per_rank": [
+        {
+          "encode_ms": 164.94435119628906,
+          "diffuse_ms": 1594.80859375,
+          "decode_ms": 7.348447799682617,
+          "finalize_ms": 404.4841613769531,
+          "total_ms": 2171.585554122925,
+          "total_ms_wo_finalize": 1767.1013927459717,
+          "mem_alloc_gib": 57.145827293395996,
+          "mem_reserved_gib": 62.330078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2172.1249939873815,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 5,
+      "warmup": true,
+      "end_to_end_ms": 2166.6380460374057,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.8436160087585449,
+        "diffuse_ms": 1718.6199951171875,
+        "decode_ms": 7.415999889373779,
+        "finalize_ms": 439.20550537109375
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.8436160087585449,
+          "diffuse_ms": 1718.6199951171875,
+          "decode_ms": 7.415999889373779,
+          "finalize_ms": 439.20550537109375,
+          "total_ms": 2166.0851163864136,
+          "total_ms_wo_finalize": 1726.8796110153198,
+          "mem_alloc_gib": 57.14592456817627,
+          "mem_reserved_gib": 62.330078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2166.6380460374057,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 6,
+      "warmup": false,
+      "end_to_end_ms": 2171.2969318032265,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.9232959747314453,
+        "diffuse_ms": 1736.1300048828125,
+        "decode_ms": 7.543392181396484,
+        "finalize_ms": 425.31866455078125
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.9232959747314453,
+          "diffuse_ms": 1736.1300048828125,
+          "decode_ms": 7.543392181396484,
+          "finalize_ms": 425.31866455078125,
+          "total_ms": 2169.9153575897217,
+          "total_ms_wo_finalize": 1744.5966930389404,
+          "mem_alloc_gib": 57.14636754989624,
+          "mem_reserved_gib": 62.333984375,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2171.2969318032265,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 7,
+      "warmup": false,
+      "end_to_end_ms": 2155.1325689069927,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.9571520090103149,
+        "diffuse_ms": 1726.2662353515625,
+        "decode_ms": 7.409440040588379,
+        "finalize_ms": 419.94976806640625
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.9571520090103149,
+          "diffuse_ms": 1726.2662353515625,
+          "decode_ms": 7.409440040588379,
+          "finalize_ms": 419.94976806640625,
+          "total_ms": 2154.5825954675674,
+          "total_ms_wo_finalize": 1734.6328274011612,
+          "mem_alloc_gib": 57.146464824676514,
+          "mem_reserved_gib": 62.5078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2155.1325689069927,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 8,
+      "warmup": false,
+      "end_to_end_ms": 2158.6765870451927,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.8756800293922424,
+        "diffuse_ms": 1728.715576171875,
+        "decode_ms": 7.328832149505615,
+        "finalize_ms": 421.2311096191406
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.8756800293922424,
+          "diffuse_ms": 1728.715576171875,
+          "decode_ms": 7.328832149505615,
+          "finalize_ms": 421.2311096191406,
+          "total_ms": 2158.1511979699135,
+          "total_ms_wo_finalize": 1736.9200883507729,
+          "mem_alloc_gib": 57.14636754989624,
+          "mem_reserved_gib": 62.5078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2158.6765870451927,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 9,
+      "warmup": false,
+      "end_to_end_ms": 2157.513060141355,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.770687997341156,
+        "diffuse_ms": 1724.068115234375,
+        "decode_ms": 7.390175819396973,
+        "finalize_ms": 424.7573547363281
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.770687997341156,
+          "diffuse_ms": 1724.068115234375,
+          "decode_ms": 7.390175819396973,
+          "finalize_ms": 424.7573547363281,
+          "total_ms": 2156.9863337874413,
+          "total_ms_wo_finalize": 1732.2289790511131,
+          "mem_alloc_gib": 57.146464824676514,
+          "mem_reserved_gib": 62.5078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2157.513060141355,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    },
+    {
+      "autoregressive_index": 10,
+      "warmup": false,
+      "end_to_end_ms": 2157.4158570729196,
+      "output_frames": 12,
+      "critical_rank": {
+        "encode_ms": 0.7902719974517822,
+        "diffuse_ms": 1723.576171875,
+        "decode_ms": 7.323999881744385,
+        "finalize_ms": 425.21917724609375
+      },
+      "per_rank": [
+        {
+          "encode_ms": 0.7902719974517822,
+          "diffuse_ms": 1723.576171875,
+          "decode_ms": 7.323999881744385,
+          "finalize_ms": 425.21917724609375,
+          "total_ms": 2156.90962100029,
+          "total_ms_wo_finalize": 1731.6904437541962,
+          "mem_alloc_gib": 57.14636754989624,
+          "mem_reserved_gib": 62.5078125,
+          "mem_peak_gib": 59.3552770614624,
+          "wall_ms": 2157.4158570729196,
+          "output_frames": 12,
+          "rank": 0
+        }
+      ]
+    }
+  ],
+  "cp_probe": {
+    "broadcast": [
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.04400499165058136,
+        "bandwidth_gbps": 6100.113780988609
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.03661308437585831,
+        "bandwidth_gbps": 7331.681025404109
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.02770824357867241,
+        "bandwidth_gbps": 9687.927538164857
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.02585211768746376,
+        "bandwidth_gbps": 10383.499690246654
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.023857224732637405,
+        "bandwidth_gbps": 11251.746965889632
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.023750122636556625,
+        "bandwidth_gbps": 11302.487153763965
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.023616012185811996,
+        "bandwidth_gbps": 11366.671641593679
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.02376176416873932,
+        "bandwidth_gbps": 11296.949759022957
+      }
+    ],
+    "all_gather": [
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22751279175281525,
+        "bandwidth_gbps": 1179.869729222284
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22351323068141937,
+        "bandwidth_gbps": 1200.9823990357409
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22252416610717773,
+        "bandwidth_gbps": 1206.3204671024778
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22301124036312103,
+        "bandwidth_gbps": 1203.685767421034
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.2227872610092163,
+        "bandwidth_gbps": 1204.8958938854914
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22216559946537018,
+        "bandwidth_gbps": 1208.2674214458755
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22423221170902252,
+        "bandwidth_gbps": 1197.1315537320675
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.22185035049915314,
+        "bandwidth_gbps": 1209.984367372116
+      }
+    ]
+  }
+}

@@ -106,7 +106,12 @@ invalid-method-override = "ignore"
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
 # imports as Any.
-replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**"]
+replace-imports-with-any = [
+    "flash_attn.**",
+    "mooncake.**",
+    "transformer_engine.**",
+    "triton.**",
+]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"

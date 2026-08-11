@@ -1,0 +1,152 @@
+{
+  "date": "2026-07-31",
+  "slurm_job_id": "14799647",
+  "hostname": "pool0-01062",
+  "base_commit": "0c2d48a8249577fb617bb5280208dd77409d9b1a",
+  "double_buffer_experiment": {
+    "date": "2026-08-03",
+    "slurm_job_id": "15002340",
+    "hostname": "pool0-01858",
+    "base_commit": "542190c0ae4134cf5e0da24342687a5328e93ac9"
+  },
+  "topology": {
+    "io_rank": 0,
+    "dit_groups": [[1, 2], [3, 4], [5, 6]],
+    "spare_ranks": [7],
+    "pipeline_layers": [[0, 20], [20, 40]],
+    "stage_transport": "mooncake-rdma",
+    "dit_internal_transport": "nccl-p2p-nvlink"
+  },
+  "workload": {
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "resolution": [464, 832],
+    "warmup_waves": 6,
+    "measured_waves": 5,
+    "frames_per_session_per_wave": 12,
+    "compiled": true,
+    "cuda_graph": false
+  },
+  "batch_1": {
+    "sessions": 3,
+    "aggregate_fps": 16.800616024879105,
+    "per_session_fps": 5.600205341626368,
+    "wave_latency_ms": {
+      "median": 2140.726614743471,
+      "p90": 2147.373372875154
+    },
+    "dit_ms": {
+      "median": 1647.7008056640625,
+      "p90": 1653.2711669921875
+    },
+    "finalize_ms": {
+      "median": 408.3681945800781,
+      "p90": 411.4204345703125
+    },
+    "max_dit_required_gib": 28.7034330368042,
+    "io_required_gib": 16.304168224334717,
+    "node_required_gib": 188.43816900253296,
+    "required_gib_per_session": 62.81272300084432,
+    "p2p_probe_gbps": {
+      "median": 345.42995899403087,
+      "p90": 348.4906482238796
+    }
+  },
+  "batch_2": {
+    "sessions": 6,
+    "aggregate_fps": 17.23536955355762,
+    "per_session_fps": 2.8725615922596037,
+    "wave_latency_ms": {
+      "median": 4177.556775510311,
+      "p90": 4183.501142449677
+    },
+    "dit_ms": {
+      "median": 3249.234619140625,
+      "p90": 3265.1302734375
+    },
+    "finalize_ms": {
+      "median": 803.6607055664062,
+      "p90": 810.2365600585938
+    },
+    "max_dit_required_gib": 39.54760932922363,
+    "io_required_gib": 19.629554271697998,
+    "node_required_gib": 256.9132375717163,
+    "required_gib_per_session": 42.818872928619385,
+    "p2p_probe_gbps": {
+      "median": 344.6416852808726,
+      "p90": 347.3234014628046
+    }
+  },
+  "fixed_batch_2_rerun": {
+    "sessions": 6,
+    "aggregate_fps": 16.766955159781013,
+    "per_session_fps": 2.794492526630169,
+    "wave_latency_ms": {
+      "median": 4286.9481993839145,
+      "p90": 4313.834723830223
+    },
+    "dit_ms": {
+      "median": 3307.89306640625,
+      "p90": 3346.546435546875
+    },
+    "finalize_ms": {
+      "median": 819.4578857421875,
+      "p90": 828.49990234375
+    },
+    "max_dit_required_gib": 39.63343858718872,
+    "io_required_gib": 19.629554271697998,
+    "node_required_gib": 257.28546237945557,
+    "required_gib_per_session": 42.88091039657593,
+    "p2p_probe_gbps": {
+      "median": 345.3327388451691,
+      "p90": 347.8951340927382
+    }
+  },
+  "double_buffered_batch_2": {
+    "sessions": 6,
+    "aggregate_fps": 21.16041714965187,
+    "per_session_fps": 3.526736191608645,
+    "wave_latency_ms": {
+      "median": 3401.4590242877603,
+      "p90": 3406.9314090535045
+    },
+    "dit_ms": {
+      "median": 2615.755615234375,
+      "p90": 2647.992138671875
+    },
+    "finalize_ms": {
+      "median": 646.9761962890625,
+      "p90": 657.2934326171875
+    },
+    "max_dit_required_gib": 39.4732871055603,
+    "io_required_gib": 19.629554271697998,
+    "node_required_gib": 256.2064833641052,
+    "required_gib_per_session": 42.701080560684204,
+    "p2p_probe_gbps": {
+      "median": 344.40037308204535,
+      "p90": 347.2302920849744
+    }
+  },
+  "replicated_dit_reference": {
+    "sessions": 7,
+    "aggregate_fps": 35.1528845526397,
+    "per_session_fps": 5.0218406503771,
+    "wave_latency_ms": {
+      "median": 2358.5133550077444,
+      "p90": 2454.0991360030603
+    },
+    "max_dit_peak_gib": 56.5107626914978,
+    "node_peak_gib": 415.0186958312988
+  },
+  "comparisons": {
+    "batch_2_max_dit_memory_reduction": 0.30017562238327966,
+    "batch_2_throughput_reduction": 0.5097025529228331,
+    "batch_2_equal_session_full_pipeline_memory_reduction": 0.3565909402160873,
+    "batch_2_vs_batch_1_throughput_gain": 0.025877235897503903,
+    "double_buffer_vs_fixed_rerun_throughput_gain": 0.2620309977573911,
+    "double_buffer_vs_fixed_rerun_latency_reduction": 0.20655467104160707,
+    "double_buffer_vs_fixed_rerun_dit_reduction": 0.20923815772673226,
+    "double_buffer_vs_fixed_rerun_finalize_reduction": 0.21048267696747757,
+    "double_buffer_max_dit_memory_reduction": 0.30149080944010753,
+    "double_buffer_throughput_reduction_vs_replicated_dit": 0.3980460659504287
+  }
+}

@@ -27,6 +27,7 @@ Start here, then use the narrower docs for the task in front of you:
 - `skills/apply-inference-optimizations`: read before porting runtime speedups such as bounded K/V caches, overlap, compile, CUDA graphs, decoder layout changes, or presentation queue tuning into an integration.
 - `skills/validate-performance-quality`: read before adding benchmark sweeps, quality comparisons, profiler probes, performance summaries, or docs for a performance change.
 - `skills/flashdreams-postprocessing`: read before adding or modifying video post-processors, postprocess presets, `VideoPostprocessStream`, buffering/layout behavior, or runner postprocess wiring.
+- `skills/use-slurm-gpu-job`: read before running builds, test suites, inference, benchmarks, or other resource-intensive work on the Slurm cluster; reuse one allocation and keep the login node lightweight.
 - `skills/python-docstring-style`: read before adding or polishing Python docstrings, field docstrings, module comments, or SPDX headers.
 - `skills/maintaining-oss-state`: read before dependency, license, NOTICE, REUSE, or OSS-release collateral changes.
 - When adding a new `skills/<skill-name>/SKILL.md`, update this section so agents can discover when to use it.

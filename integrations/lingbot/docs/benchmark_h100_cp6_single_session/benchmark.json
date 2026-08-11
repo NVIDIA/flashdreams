@@ -1,0 +1,1098 @@
+{
+  "environment": {
+    "command": "env TORCHINDUCTOR_COMPILE_THREADS=4 uv run --package flashdreams-lingbot torchrun --standalone --nproc_per_node=8 -m lingbot.disagg.benchmark_cp --cp-ranks 6 --cp-method ring --model lingbot-world-fast-taehv-window15-sink3 --warmup-blocks 6 --measured-blocks 5 --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 --output-dir integrations/lingbot/docs/benchmark_h100_cp6_single_session",
+    "commit": "66bcd32ece1d03b3362d71a7340691a0687a4069",
+    "worktree_dirty": true,
+    "hostname": "pool0-01260",
+    "slurm_job_id": "14646820",
+    "python": "3.12.13",
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+    "precision": "bfloat16",
+    "decoder_config": "TeahvVAEDecoderConfig",
+    "seed": 42,
+    "example_index": 0,
+    "example_url": "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00",
+    "prompt": "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls.",
+    "resolution": [
+      464,
+      832
+    ],
+    "target_fps": 16,
+    "latent_frames_per_chunk": 3,
+    "window_size_t": 15,
+    "sink_size_t": 3,
+    "guidance_scale": 1.0,
+    "num_inference_steps": 4,
+    "compile_network": true,
+    "warmup_blocks": 6,
+    "measured_blocks": 5,
+    "torch": "2.12.1+cu130",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "driver": "535.216.03",
+    "mooncake": "0.3.12.post1",
+    "triton_cache_dir": "/lustre/fsw/portfolios/healthcareeng/users/gtong/triton-cache",
+    "torchinductor_compile_threads": "4",
+    "hf_home": "/lustre/fsw/portfolios/healthcareeng/users/gtong/hf",
+    "gpus": [
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3"
+    ],
+    "rdma_device": null,
+    "allocation": {
+      "encoder": [
+        0
+      ],
+      "dit_cp_group": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "decoder": [
+        7
+      ],
+      "cp_size": 6,
+      "cp_method": "ring"
+    },
+    "noise_seed_by_cp_rank": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ],
+    "peak_memory_gib_by_rank": [
+      13.719008922576904,
+      39.17708206176758,
+      39.17708206176758,
+      39.17708206176758,
+      39.17708206176758,
+      39.17708206176758,
+      39.17708206176758,
+      2.2908687591552734
+    ]
+  },
+  "summary": {
+    "fps": 15.901998021609447,
+    "latency_ms": {
+      "median": 743.272824001906,
+      "p90": 780.5990148001001,
+      "min": 739.5753040036652,
+      "max": 802.4121859998559
+    },
+    "latency_speedup": 3.0050430582856036,
+    "fps_speedup": 2.9664412706714307,
+    "encoder_ms": {
+      "median": 0.8965439796447754,
+      "p90": 1.1200191974639893,
+      "min": 0.8386880159378052,
+      "max": 1.1643199920654297
+    },
+    "encoder_to_cp_leader": {
+      "payload_mib": 14.3583984375,
+      "copy_ms": {
+        "median": 1.0783469988382421,
+        "p90": 1.116982998792082,
+        "min": 1.0716870019678026,
+        "max": 1.130860997363925
+      },
+      "handoff_ms": {
+        "median": 30.32546600297792,
+        "p90": 36.77386300114449,
+        "min": 29.192604997660965,
+        "max": 40.76279900618829
+      }
+    },
+    "cp_input_fanout_ms": {
+      "median": 0.8855909982230514,
+      "p90": 1.5593643998727202,
+      "min": 0.8139759956975468,
+      "max": 1.9920600025216118
+    },
+    "dit_ms": {
+      "median": 547.8768310546875,
+      "p90": 578.8016479492187,
+      "min": 547.67626953125,
+      "max": 597.9907836914062
+    },
+    "finalize_ms": {
+      "median": 135.25392150878906,
+      "p90": 135.28230895996094,
+      "min": 135.10354614257812,
+      "max": 135.29872131347656
+    },
+    "dit_critical_path_ms": {
+      "median": 683.1607208251953,
+      "p90": 713.9518127441406,
+      "min": 682.9142608642578,
+      "max": 733.0852966308594
+    },
+    "dit_speedup": 3.190501232912697,
+    "cp_efficiency": 0.5317502054854495,
+    "cp_leader_to_decoder": {
+      "payload_mib": 0.55224609375,
+      "copy_ms": {
+        "median": 0.7526259942096658,
+        "p90": 0.8522303978679702,
+        "min": 0.7345539997913875,
+        "max": 0.9063379984581843
+      },
+      "handoff_ms": {
+        "median": 12.59425900207134,
+        "p90": 15.920846402877942,
+        "min": 12.365162001515273,
+        "max": 17.5781400030246
+      }
+    },
+    "decoder_ms": {
+      "median": 7.12608003616333,
+      "p90": 7.167359924316406,
+      "min": 7.104191780090332,
+      "max": 7.178239822387695
+    },
+    "mooncake_probe_gbps": {
+      "encoder_to_cp_leader": {
+        "median": 42.61892648972679,
+        "p90": 42.71346310150518,
+        "min": 42.11309136346771,
+        "max": 42.73283630120451
+      },
+      "cp_leader_to_decoder": {
+        "median": 42.25628792037267,
+        "p90": 42.28569924882899,
+        "min": 41.8635907422804,
+        "max": 42.308059370096046
+      }
+    },
+    "cp_probe_gbps": {
+      "broadcast": {
+        "median": 283.7137016661082,
+        "p90": 286.3811137793339,
+        "min": 280.2329841250139,
+        "max": 286.6822005305427
+      },
+      "all_gather": {
+        "median": 231.71582450799085,
+        "p90": 232.50550409607658,
+        "min": 100.15586831387085,
+        "max": 232.54694908667284
+      }
+    },
+    "baseline": {
+      "fps": 5.360631332509123,
+      "latency_ms": 2233.5668401792645,
+      "dit_critical_path_ms": 2179.6251220703125,
+      "topology": "1 encoder : 1 DiT : 1 decoder"
+    }
+  },
+  "records": [
+    {
+      "autoregressive_index": 0,
+      "warmup": true,
+      "encoder_ms": 322.0684814453125,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 10.245085002679843,
+        "transfer_ms": 1.2169600013294257,
+        "bandwidth_gbps": 12.371706533947489
+      },
+      "encoder_to_cp_leader_handoff_ms": 30.891644004441332,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.327522998210043,
+        "transfer_ms": 0.9407070028828457,
+        "bandwidth_gbps": 0.6155710526501914
+      },
+      "cp_leader_to_decoder_handoff_ms": 14.864731005218346,
+      "end_to_end_ms": 108229.41726999852,
+      "cp_input_fanout_ms": 3.8529209996340796,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.6306880022748373,
+          "dit_ms": 104103.7421875,
+          "finalize_ms": 68.08755493164062,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 3.6345599946798757,
+          "dit_ms": 104103.390625,
+          "finalize_ms": 68.05280303955078,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 3.687378004542552,
+          "dit_ms": 104103.390625,
+          "finalize_ms": 67.98947143554688,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 3.798120000283234,
+          "dit_ms": 104103.65625,
+          "finalize_ms": 68.02851104736328,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 3.7955410007270984,
+          "dit_ms": 104103.6796875,
+          "finalize_ms": 67.9978256225586,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 3.8529209996340796,
+          "dit_ms": 104103.9140625,
+          "finalize_ms": 68.03446197509766,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 3677.967041015625,
+      "output_frames": 9
+    },
+    {
+      "autoregressive_index": 1,
+      "warmup": true,
+      "encoder_ms": 179.2939453125,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.127067999041174,
+        "transfer_ms": 1.3310289941728115,
+        "bandwidth_gbps": 11.311453068200594
+      },
+      "encoder_to_cp_leader_handoff_ms": 34.32763800083194,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.409023000334855,
+        "transfer_ms": 1.0616360013955273,
+        "bandwidth_gbps": 0.5454524895904116
+      },
+      "cp_leader_to_decoder_handoff_ms": 14.75338899763301,
+      "end_to_end_ms": 139759.40580300085,
+      "cp_input_fanout_ms": 1.0192160043516196,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.7029449989204295,
+          "dit_ms": 139433.46875,
+          "finalize_ms": 81.27254486083984,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.8079170002019964,
+          "dit_ms": 139433.0625,
+          "finalize_ms": 81.30006408691406,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.8097389945760369,
+          "dit_ms": 139433.203125,
+          "finalize_ms": 81.35478210449219,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.9622339930501767,
+          "dit_ms": 139433.53125,
+          "finalize_ms": 81.35183715820312,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.9453659949940629,
+          "dit_ms": 139433.390625,
+          "finalize_ms": 81.32160186767578,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 1.0192160043516196,
+          "dit_ms": 139433.734375,
+          "finalize_ms": 81.28697967529297,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 8.011199951171875,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 2,
+      "warmup": true,
+      "encoder_ms": 162.93930053710938,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.216922001040075,
+        "transfer_ms": 1.1733100036508404,
+        "bandwidth_gbps": 12.831964232089172
+      },
+      "encoder_to_cp_leader_handoff_ms": 72.1355819987366,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.35779999679653,
+        "transfer_ms": 0.9203850058838725,
+        "bandwidth_gbps": 0.6291627919817102
+      },
+      "cp_leader_to_decoder_handoff_ms": 13.305078995472286,
+      "end_to_end_ms": 833.0178769974736,
+      "cp_input_fanout_ms": 0.8932590062613599,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.6093280026107095,
+          "dit_ms": 474.8171691894531,
+          "finalize_ms": 94.63977813720703,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6950169990886934,
+          "dit_ms": 474.8047180175781,
+          "finalize_ms": 94.63542175292969,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.7046709943097085,
+          "dit_ms": 474.7917785644531,
+          "finalize_ms": 94.7043228149414,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8411980015807785,
+          "dit_ms": 474.79449462890625,
+          "finalize_ms": 94.77766418457031,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.8467049992759712,
+          "dit_ms": 474.82696533203125,
+          "finalize_ms": 94.73712158203125,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8932590062613599,
+          "dit_ms": 474.8154296875,
+          "finalize_ms": 94.67286682128906,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.923935890197754,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 3,
+      "warmup": true,
+      "encoder_ms": 162.5497283935547,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.09844299935503,
+        "transfer_ms": 1.1059039970859885,
+        "bandwidth_gbps": 13.61408588780907
+      },
+      "encoder_to_cp_leader_handoff_ms": 29.335072002140805,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.367657995317131,
+        "transfer_ms": 0.8612400051788427,
+        "bandwidth_gbps": 0.6723700670172091
+      },
+      "cp_leader_to_decoder_handoff_ms": 13.213771999289747,
+      "end_to_end_ms": 870.8467379983631,
+      "cp_input_fanout_ms": 0.8225310011766851,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.5755200036219321,
+          "dit_ms": 522.888427734375,
+          "finalize_ms": 108.86710357666016,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6737930016242899,
+          "dit_ms": 522.8917236328125,
+          "finalize_ms": 108.87321472167969,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.6564969953615218,
+          "dit_ms": 522.8981323242188,
+          "finalize_ms": 108.88716888427734,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.7676740060560405,
+          "dit_ms": 522.9008178710938,
+          "finalize_ms": 108.91696166992188,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.7652640051674098,
+          "dit_ms": 522.8975830078125,
+          "finalize_ms": 108.88742065429688,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8225310011766851,
+          "dit_ms": 522.8972778320312,
+          "finalize_ms": 108.86297607421875,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 21.86777687072754,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 4,
+      "warmup": true,
+      "encoder_ms": 162.5436553955078,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.081044998718426,
+        "transfer_ms": 1.1266889996477403,
+        "bandwidth_gbps": 13.362935117594317
+      },
+      "encoder_to_cp_leader_handoff_ms": 29.348579999350477,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.401886995765381,
+        "transfer_ms": 0.864851004735101,
+        "bandwidth_gbps": 0.66956273026169
+      },
+      "cp_leader_to_decoder_handoff_ms": 13.14943300531013,
+      "end_to_end_ms": 919.7116880022804,
+      "cp_input_fanout_ms": 0.8869459998095408,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.6023640016792342,
+          "dit_ms": 577.4309692382812,
+          "finalize_ms": 122.73359680175781,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.7082009979058057,
+          "dit_ms": 577.4498291015625,
+          "finalize_ms": 122.748291015625,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.7084039971232414,
+          "dit_ms": 577.44580078125,
+          "finalize_ms": 122.76534271240234,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8443309998256154,
+          "dit_ms": 577.4500122070312,
+          "finalize_ms": 122.7576675415039,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.8253650012193248,
+          "dit_ms": 577.4526977539062,
+          "finalize_ms": 122.75145721435547,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8869459998095408,
+          "dit_ms": 577.4497680664062,
+          "finalize_ms": 122.7537612915039,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.172512054443359,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 5,
+      "warmup": true,
+      "encoder_ms": 1.050976037979126,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.193180005648173,
+        "transfer_ms": 1.103852002415806,
+        "bandwidth_gbps": 13.639393656984696
+      },
+      "encoder_to_cp_leader_handoff_ms": 29.30819299945142,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.387084998597857,
+        "transfer_ms": 0.9164600051008165,
+        "bandwidth_gbps": 0.6318573606889679
+      },
+      "cp_leader_to_decoder_handoff_ms": 13.342461003048811,
+      "end_to_end_ms": 812.876291005523,
+      "cp_input_fanout_ms": 0.8991159993456677,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.5880129974684678,
+          "dit_ms": 617.8521728515625,
+          "finalize_ms": 137.089599609375,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6983849962125532,
+          "dit_ms": 617.8724975585938,
+          "finalize_ms": 137.1097869873047,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.6973109993850812,
+          "dit_ms": 617.8749389648438,
+          "finalize_ms": 137.1744384765625,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8421500024269335,
+          "dit_ms": 617.8759765625,
+          "finalize_ms": 137.154052734375,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.83458999870345,
+          "dit_ms": 617.8741455078125,
+          "finalize_ms": 137.10704040527344,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8991159993456677,
+          "dit_ms": 617.8782958984375,
+          "finalize_ms": 137.0811767578125,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.168479919433594,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 6,
+      "warmup": false,
+      "encoder_ms": 1.0535680055618286,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.598237993894145,
+        "transfer_ms": 1.0961660009343177,
+        "bandwidth_gbps": 13.73502917182901
+      },
+      "encoder_to_cp_leader_handoff_ms": 40.76279900618829,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.386552995129023,
+        "transfer_ms": 0.9063379984581843,
+        "bandwidth_gbps": 0.6389139603382927
+      },
+      "cp_leader_to_decoder_handoff_ms": 13.434906002657954,
+      "end_to_end_ms": 802.4121859998559,
+      "cp_input_fanout_ms": 0.87535099737579,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.5783199958386831,
+          "dit_ms": 597.9799194335938,
+          "finalize_ms": 135.01052856445312,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6802579955547117,
+          "dit_ms": 597.9730834960938,
+          "finalize_ms": 135.0397186279297,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.6833650040789507,
+          "dit_ms": 597.9851684570312,
+          "finalize_ms": 135.10012817382812,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8178429998224601,
+          "dit_ms": 597.9724731445312,
+          "finalize_ms": 135.10354614257812,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.8125800013658591,
+          "dit_ms": 597.9907836914062,
+          "finalize_ms": 135.0647430419922,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.87535099737579,
+          "dit_ms": 597.976318359375,
+          "finalize_ms": 135.02490234375,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.178239822387695,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 7,
+      "warmup": false,
+      "encoder_ms": 1.1643199920654297,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.142417002702132,
+        "transfer_ms": 1.130860997363925,
+        "bandwidth_gbps": 13.313636278106454
+      },
+      "encoder_to_cp_leader_handoff_ms": 30.19312100514071,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.31898999522673,
+        "transfer_ms": 0.7526259942096658,
+        "bandwidth_gbps": 0.7694020728158409
+      },
+      "cp_leader_to_decoder_handoff_ms": 12.365162001515273,
+      "end_to_end_ms": 743.272824001906,
+      "cp_input_fanout_ms": 1.9920600025216118,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.6100310056353919,
+          "dit_ms": 550.0137939453125,
+          "finalize_ms": 135.1255645751953,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 1.7673210022621788,
+          "dit_ms": 549.99169921875,
+          "finalize_ms": 135.12037658691406,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 1.7932339978870004,
+          "dit_ms": 550.00830078125,
+          "finalize_ms": 135.20230102539062,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 1.930327998707071,
+          "dit_ms": 549.993896484375,
+          "finalize_ms": 135.2576904296875,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 1.937477005412802,
+          "dit_ms": 550.0179443359375,
+          "finalize_ms": 135.20953369140625,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 1.9920600025216118,
+          "dit_ms": 549.9854736328125,
+          "finalize_ms": 135.17864990234375,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.151040077209473,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 8,
+      "warmup": false,
+      "encoder_ms": 0.8965439796447754,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 10.990686001605354,
+        "transfer_ms": 1.0783469988382421,
+        "bandwidth_gbps": 13.961991841420668
+      },
+      "encoder_to_cp_leader_handoff_ms": 30.790458993578795,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.3321010016370565,
+        "transfer_ms": 0.771068996982649,
+        "bandwidth_gbps": 0.7509989407770608
+      },
+      "cp_leader_to_decoder_handoff_ms": 12.431761999323498,
+      "end_to_end_ms": 739.9711980033317,
+      "cp_input_fanout_ms": 0.8855909982230514,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.5862039979547262,
+          "dit_ms": 547.658447265625,
+          "finalize_ms": 135.15501403808594,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6804029981140047,
+          "dit_ms": 547.65869140625,
+          "finalize_ms": 135.1744384765625,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.7181150067481212,
+          "dit_ms": 547.67626953125,
+          "finalize_ms": 135.23228454589844,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8443400001851842,
+          "dit_ms": 547.6729125976562,
+          "finalize_ms": 135.24134826660156,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.837255000078585,
+          "dit_ms": 547.670654296875,
+          "finalize_ms": 135.21142578125,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8855909982230514,
+          "dit_ms": 547.6614379882812,
+          "finalize_ms": 135.1871337890625,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.115744113922119,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 9,
+      "warmup": false,
+      "encoder_ms": 0.8770880103111267,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 11.073223999119364,
+        "transfer_ms": 1.0750720030046068,
+        "bandwidth_gbps": 14.004524308996897
+      },
+      "encoder_to_cp_leader_handoff_ms": 29.192604997660965,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.371476003143471,
+        "transfer_ms": 0.7390309983748011,
+        "bandwidth_gbps": 0.7835557659603372
+      },
+      "cp_leader_to_decoder_handoff_ms": 17.5781400030246,
+      "end_to_end_ms": 747.8792580004665,
+      "cp_input_fanout_ms": 0.8139759956975468,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.57275099970866,
+          "dit_ms": 547.8679809570312,
+          "finalize_ms": 135.21629333496094,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6605269954889081,
+          "dit_ms": 547.8587646484375,
+          "finalize_ms": 135.17510986328125,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.6536399960168637,
+          "dit_ms": 547.8768310546875,
+          "finalize_ms": 135.24073791503906,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.752116997318808,
+          "dit_ms": 547.8619995117188,
+          "finalize_ms": 135.29872131347656,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.7600410026498139,
+          "dit_ms": 547.8764038085938,
+          "finalize_ms": 135.27622985839844,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.8139759956975468,
+          "dit_ms": 547.8638305664062,
+          "finalize_ms": 135.25442504882812,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.12608003616333,
+      "output_frames": 12
+    },
+    {
+      "autoregressive_index": 10,
+      "warmup": false,
+      "encoder_ms": 0.8386880159378052,
+      "encoder_to_cp_leader": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 15055872,
+        "registration_ms": 12.28495500254212,
+        "transfer_ms": 1.0716870019678026,
+        "bandwidth_gbps": 14.048758613620222
+      },
+      "encoder_to_cp_leader_handoff_ms": 30.32546600297792,
+      "cp_leader_to_decoder": {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 579072,
+        "registration_ms": 4.406019994348753,
+        "transfer_ms": 0.7345539997913875,
+        "bandwidth_gbps": 0.7883314231008963
+      },
+      "cp_leader_to_decoder_handoff_ms": 12.59425900207134,
+      "end_to_end_ms": 739.5753040036652,
+      "cp_input_fanout_ms": 0.910320995899383,
+      "cp_workers": [
+        {
+          "cp_input_fanout_ms": 0.5813440002384596,
+          "dit_ms": 547.7222900390625,
+          "finalize_ms": 135.18223571777344,
+          "cp_rank": 0
+        },
+        {
+          "cp_input_fanout_ms": 0.6931000025360845,
+          "dit_ms": 547.7235717773438,
+          "finalize_ms": 135.15213012695312,
+          "cp_rank": 1
+        },
+        {
+          "cp_input_fanout_ms": 0.7049069972708821,
+          "dit_ms": 547.728271484375,
+          "finalize_ms": 135.20755004882812,
+          "cp_rank": 2
+        },
+        {
+          "cp_input_fanout_ms": 0.8326189999934286,
+          "dit_ms": 547.728759765625,
+          "finalize_ms": 135.25392150878906,
+          "cp_rank": 3
+        },
+        {
+          "cp_input_fanout_ms": 0.849386997288093,
+          "dit_ms": 547.7361450195312,
+          "finalize_ms": 135.2175750732422,
+          "cp_rank": 4
+        },
+        {
+          "cp_input_fanout_ms": 0.910320995899383,
+          "dit_ms": 547.7199096679688,
+          "finalize_ms": 135.18972778320312,
+          "cp_rank": 5
+        }
+      ],
+      "decoder_ms": 7.104191780090332,
+      "output_frames": 12
+    }
+  ],
+  "mooncake_probe": {
+    "encoder_to_cp_leader": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.005959998816251755,
+        "transfer_ms": 6.374156997480895,
+        "bandwidth_gbps": 42.11309136346771
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002316002792213112,
+        "transfer_ms": 6.306149996817112,
+        "bandwidth_gbps": 42.567248818294324
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002224995114374906,
+        "transfer_ms": 6.285784998908639,
+        "bandwidth_gbps": 42.70516030163404
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0027510031941346824,
+        "transfer_ms": 6.302879999566358,
+        "bandwidth_gbps": 42.58933313318174
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0029850052669644356,
+        "transfer_ms": 6.3149230045382865,
+        "bandwidth_gbps": 42.50811226155663
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015350015019066632,
+        "transfer_ms": 6.292646001384128,
+        "bandwidth_gbps": 42.65859797944378
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016379999578930438,
+        "transfer_ms": 6.281713998760097,
+        "bandwidth_gbps": 42.73283630120451
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014979959814809263,
+        "transfer_ms": 6.294132996117696,
+        "bandwidth_gbps": 42.648519846271846
+      }
+    ],
+    "cp_leader_to_decoder": [
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0033650067052803934,
+        "transfer_ms": 6.412146001821384,
+        "bandwidth_gbps": 41.8635907422804
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.005699999746866524,
+        "transfer_ms": 6.353461001708638,
+        "bandwidth_gbps": 42.25027208442919
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0018470018403604627,
+        "transfer_ms": 6.350560004648287,
+        "bandwidth_gbps": 42.26957241621509
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.002125001628883183,
+        "transfer_ms": 6.352262003929354,
+        "bandwidth_gbps": 42.258246878663435
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0015190016711130738,
+        "transfer_ms": 6.344783003441989,
+        "bandwidth_gbps": 42.308059370096046
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0014920005924068391,
+        "transfer_ms": 6.360911997035146,
+        "bandwidth_gbps": 42.2007812912864
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0012029995559714735,
+        "transfer_ms": 6.35285099997418,
+        "bandwidth_gbps": 42.25432896208191
+      },
+      {
+        "backend": "mooncake-rdma",
+        "payload_bytes": 268435456,
+        "registration_ms": 0.0016019985196180642,
+        "transfer_ms": 6.349577000946738,
+        "bandwidth_gbps": 42.27611633971454
+      }
+    ]
+  },
+  "cp_probe": {
+    "broadcast": [
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9579010009765625,
+        "bandwidth_gbps": 280.2329841250139
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9531909823417664,
+        "bandwidth_gbps": 281.6177040833067
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.936352014541626,
+        "bandwidth_gbps": 286.6822005305427
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9378129839897156,
+        "bandwidth_gbps": 286.2355934314338
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9416670203208923,
+        "bandwidth_gbps": 285.0640940027029
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9377589821815491,
+        "bandwidth_gbps": 286.2520766002444
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9529169797897339,
+        "bandwidth_gbps": 281.6986806754474
+      },
+      {
+        "payload_bytes": 268435456.0,
+        "transfer_ms": 0.9506739974021912,
+        "bandwidth_gbps": 282.36330932951347
+      }
+    ],
+    "all_gather": [
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 2.6801769733428955,
+        "bandwidth_gbps": 100.15586831387085
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.1686650514602661,
+        "bandwidth_gbps": 229.69408699659968
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.154621958732605,
+        "bandwidth_gbps": 232.48774195724963
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.1543279886245728,
+        "bandwidth_gbps": 232.54694908667284
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.1633909940719604,
+        "bandwidth_gbps": 230.73537045396466
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.1605249643325806,
+        "bandwidth_gbps": 231.30519398553187
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.156419038772583,
+        "bandwidth_gbps": 232.12645503044982
+      },
+      {
+        "payload_bytes": 268435452.0,
+        "transfer_ms": 1.155879020690918,
+        "bandwidth_gbps": 232.23490278380928
+      }
+    ]
+  }
+}

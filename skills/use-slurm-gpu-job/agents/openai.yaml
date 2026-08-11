@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Slurm GPU Job"
+  short_description: "Run FlashDreams work on an allocated GPU node"
+  default_prompt: "Use $use-slurm-gpu-job to run this FlashDreams command on an 8-GPU Slurm node."

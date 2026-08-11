@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">LingBot optimized disaggregated wall-time and HBM breakdown</title>
+  <desc id="desc">Two-panel chart showing a 2358.51 millisecond seven-session wave dominated by DiT denoising and finalization, and peak allocated memory of 20.59 GiB on the co-located encoder decoder GPU and approximately 56.3 GiB on each of seven DiT GPUs.</desc>
+  <rect width="1200" height="700" fill="#0f172a"/>
+  <text x="54" y="52" fill="#f8fafc" font-family="sans-serif" font-size="28" font-weight="700">LingBot 1 I/O + 7 DiT optimization</text>
+  <text x="54" y="82" fill="#94a3b8" font-family="sans-serif" font-size="16">8× H100 · seven concurrent sessions · pooled async Mooncake RDMA</text>
+
+  <rect x="40" y="112" width="1120" height="248" rx="14" fill="#172033" stroke="#334155"/>
+  <text x="64" y="148" fill="#e2e8f0" font-family="sans-serif" font-size="20" font-weight="700">Median seven-session wave wall time</text>
+  <text x="1136" y="148" text-anchor="end" fill="#f8fafc" font-family="sans-serif" font-size="20" font-weight="700">2358.51 ms</text>
+
+  <!-- Bar width 1040 represents 2358.51 ms. -->
+  <rect x="64" y="180" width="3" height="72" fill="#38bdf8"/>
+  <rect x="67" y="180" width="758" height="72" fill="#8b5cf6"/>
+  <rect x="825" y="180" width="188" height="72" fill="#f59e0b"/>
+  <rect x="1013" y="180" width="22" height="72" fill="#22c55e"/>
+  <rect x="1035" y="180" width="69" height="72" fill="#64748b"/>
+
+  <rect x="64" y="280" width="14" height="14" rx="2" fill="#38bdf8"/>
+  <text x="86" y="292" fill="#cbd5e1" font-family="sans-serif" font-size="14">Encoder 5.91 ms</text>
+  <rect x="226" y="280" width="14" height="14" rx="2" fill="#8b5cf6"/>
+  <text x="248" y="292" fill="#cbd5e1" font-family="sans-serif" font-size="14">DiT denoise 1718.78 ms</text>
+  <rect x="465" y="280" width="14" height="14" rx="2" fill="#f59e0b"/>
+  <text x="487" y="292" fill="#cbd5e1" font-family="sans-serif" font-size="14">Finalize 426.45 ms</text>
+  <rect x="681" y="280" width="14" height="14" rx="2" fill="#22c55e"/>
+  <text x="703" y="292" fill="#cbd5e1" font-family="sans-serif" font-size="14">Decoder 49.06 ms</text>
+  <rect x="870" y="280" width="14" height="14" rx="2" fill="#64748b"/>
+  <text x="892" y="292" fill="#cbd5e1" font-family="sans-serif" font-size="14">Coordination 158.31 ms</text>
+  <text x="64" y="329" fill="#94a3b8" font-family="sans-serif" font-size="13">DiT component values are medians across workers; finalization overlaps clean-latent RDMA, so transfer residency windows are not added.</text>
+
+  <rect x="40" y="384" width="1120" height="270" rx="14" fill="#172033" stroke="#334155"/>
+  <text x="64" y="420" fill="#e2e8f0" font-family="sans-serif" font-size="20" font-weight="700">Peak allocated HBM by GPU</text>
+  <text x="1136" y="420" text-anchor="end" fill="#94a3b8" font-family="sans-serif" font-size="14">GiB · 80 GiB device capacity</text>
+
+  <!-- scale: 10 px/GiB, origin y=610 -->
+  <line x1="76" y1="610" x2="1124" y2="610" stroke="#475569"/>
+  <line x1="76" y1="550" x2="1124" y2="550" stroke="#334155" stroke-dasharray="4 5"/>
+  <line x1="76" y1="490" x2="1124" y2="490" stroke="#334155" stroke-dasharray="4 5"/>
+  <line x1="76" y1="430" x2="1124" y2="430" stroke="#334155" stroke-dasharray="4 5"/>
+  <text x="64" y="614" text-anchor="end" fill="#94a3b8" font-family="sans-serif" font-size="12">0</text>
+  <text x="64" y="554" text-anchor="end" fill="#94a3b8" font-family="sans-serif" font-size="12">20</text>
+  <text x="64" y="494" text-anchor="end" fill="#94a3b8" font-family="sans-serif" font-size="12">40</text>
+  <text x="64" y="434" text-anchor="end" fill="#94a3b8" font-family="sans-serif" font-size="12">60</text>
+
+  <!-- Compressed vertical range: origin 610, 3 px/GiB to fit 56 GiB. -->
+  <rect x="100" y="548.2" width="92" height="61.8" rx="6" fill="#0ea5e9"/>
+  <rect x="228" y="441.0" width="92" height="169.0" rx="6" fill="#7c3aed"/>
+  <rect x="356" y="441.0" width="92" height="169.0" rx="6" fill="#7c3aed"/>
+  <rect x="484" y="440.5" width="92" height="169.5" rx="6" fill="#7c3aed"/>
+  <rect x="612" y="441.1" width="92" height="168.9" rx="6" fill="#7c3aed"/>
+  <rect x="740" y="441.0" width="92" height="169.0" rx="6" fill="#7c3aed"/>
+  <rect x="868" y="441.0" width="92" height="169.0" rx="6" fill="#7c3aed"/>
+  <rect x="996" y="441.1" width="92" height="168.9" rx="6" fill="#7c3aed"/>
+
+  <g fill="#f8fafc" font-family="sans-serif" font-size="13" text-anchor="middle">
+    <text x="146" y="540">20.59</text>
+    <text x="274" y="433">56.34</text>
+    <text x="402" y="433">56.34</text>
+    <text x="530" y="432">56.51</text>
+    <text x="658" y="433">56.29</text>
+    <text x="786" y="433">56.34</text>
+    <text x="914" y="433">56.34</text>
+    <text x="1042" y="433">56.29</text>
+  </g>
+  <g fill="#cbd5e1" font-family="sans-serif" font-size="13" text-anchor="middle">
+    <text x="146" y="634">GPU 0</text>
+    <text x="274" y="634">GPU 1</text>
+    <text x="402" y="634">GPU 2</text>
+    <text x="530" y="634">GPU 3</text>
+    <text x="658" y="634">GPU 4</text>
+    <text x="786" y="634">GPU 5</text>
+    <text x="914" y="634">GPU 6</text>
+    <text x="1042" y="634">GPU 7</text>
+  </g>
+  <text x="146" y="650" text-anchor="middle" fill="#38bdf8" font-family="sans-serif" font-size="12">encoder + decoder</text>
+  <text x="658" y="650" text-anchor="middle" fill="#a78bfa" font-family="sans-serif" font-size="12">seven session-affine DiT workers</text>
+  <text x="1140" y="684" text-anchor="end" fill="#64748b" font-family="sans-serif" font-size="12">Measured 2026-07-30 · Slurm 14761875</text>
+</svg>

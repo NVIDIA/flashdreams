@@ -143,6 +143,181 @@ for i in range(total_blocks):
     generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
 ```
 
+## Three-stage disaggregated inference
+
+LingBot can load the encoder, DiT, and decoder on three independent GPUs:
+
+```text
+GPU 0: UMT5 + image/VAE/camera encoder
+         │ Mooncake GPU-memory transfer
+GPU 1: scheduler + DiT + session-pinned KV cache
+         │ Mooncake GPU-memory transfer
+GPU 2: streaming VAE or LightTAE decoder
+```
+
+This is pipeline-stage disaggregation, analogous to SGLang's independently
+scheduled prefill and decode pools but split at diffusion-native boundaries.
+The evolving autoregressive KV cache stays on the DiT worker. Only one-shot
+conditioning, per-step encoder features, and clean latents cross stage
+boundaries. Moving the KV cache every chunk would add a much larger transfer
+and break session affinity.
+
+Install the optional Mooncake transport:
+
+```bash
+uv sync --package flashdreams-lingbot --extra dev --extra disagg
+
+# The container/host runtime must also provide the RDMA userspace libraries.
+apt-get install libibverbs1 ibverbs-providers librdmacm1 ibverbs-utils
+```
+
+Run the reproducible three-GPU benchmark:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=3 \
+  -m lingbot.disagg.benchmark \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg
+```
+
+Use all eight GPUs for concurrent sessions by keeping one encoder and one
+decoder worker and assigning the other six GPUs to session-affine DiT workers:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_replicated \
+  --dit-replicas 6 \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg_1e6d1d
+```
+
+The allocation is derived from the tracked 1:1:1 stage service times. It is a
+throughput topology: each DiT replica owns a distinct session and KV cache.
+It does not split one session's DiT computation over six GPUs.
+
+To minimize one session's latency instead, make ranks 1–6 one context-parallel
+DiT group. Rank 1 receives the Mooncake handoff, broadcasts the input within
+the NCCL subgroup, and sends the gathered clean latent to rank 7:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 6 --cp-method ring \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_disagg_cp6
+```
+
+CP6 must use ring attention for this 40-head model. Ulysses requires the head
+count to be divisible by the context-parallel size, so CP6 Ulysses is rejected
+(`40 % 6 != 0`). A CP4 Ulysses comparison uses six processes and leaves two
+GPUs idle:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=6 \
+  -m lingbot.disagg.benchmark_cp \
+  --cp-ranks 4 --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --output-dir outputs/lingbot_disagg_cp4
+```
+
+Cap Inductor compilation parallelism when several compiled DiT ranks share a
+node. The default 32 workers per rank becomes 192 workers at CP6 and can
+overcommit the host during cold compilation.
+
+On the tested H100 node, CP6 ring was the minimum-latency allocation: 743.27 ms
+median per 12-frame chunk and 15.90 generated FPS, a 3.01× latency speedup over
+CP1. CP4 Ulysses reached 754.41 ms and 15.70 FPS. CP6 was 1.5% faster; CP4 had
+higher scaling efficiency and left two GPUs available for other work.
+
+The complete pipeline also fits on one H100 80 GB. At 832×464, the measured
+single-GPU aggregated run reached **5.56 FPS** and **2157.51 ms median / 2166.25
+ms p90** latency per 12-frame chunk. Initialization peaked at **66.55 GiB**
+allocated HBM; rollout peaked at **59.36 GiB**. See the
+[single-H100 report](docs/benchmark_h100_aggregated_cp1/README.md).
+
+Running one complete CP1 pipeline and one session independently on each of
+eight H100s reached **43.44 aggregate FPS**, **5.54 median FPS per session**,
+and **2163.64 ms median** chunk latency. Rollout peak allocation was **59.35
+GiB per GPU / 474.84 GiB node-wide**. See the
+[eight-replica report](docs/benchmark_h100_aggregated_8xcp1/README.md).
+
+For the eight-GPU aggregated baseline, put the complete pipeline on every GPU
+and use all ranks as the DiT context-parallel WORLD group:
+
+```bash
+TORCHINDUCTOR_COMPILE_THREADS=4 \
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=8 \
+  -m lingbot.disagg.benchmark_aggregated \
+  --cp-method ulysses \
+  --model lingbot-world-fast-taehv-window15-sink3 \
+  --pixel-width 832 --pixel-height 448 \
+  --warmup-blocks 6 --measured-blocks 5 \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8 \
+  --output-dir outputs/lingbot_aggregated_cp8
+```
+
+The normal 832×464 grid has 4,524 tokens and cannot divide over CP8. The
+nearest valid height is 448, which produces 4,368 tokens. On eight H100s, the
+aggregated CP8 Ulysses run reached 393.33 ms median latency and 29.50 generated
+FPS. It is the fastest tested single-session topology, but it replicates
+encoder and decoder work and gives up independent stage placement. The
+[aggregated report](docs/benchmark_h100_aggregated_cp8/README.md) and
+[comparison chart](docs/aggregated_vs_disaggregated.svg) include the
+resolution-normalized throughput and node-wide HBM tradeoff.
+
+Validate the data plane without loading checkpoints:
+
+```bash
+uv run --package flashdreams-lingbot torchrun \
+  --standalone --nproc_per_node=3 \
+  -m lingbot.disagg.benchmark --transport-only \
+  --bandwidth-probe-mib 256 --bandwidth-probe-iters 8
+```
+
+Both benchmarks write `benchmark.json` and a Markdown summary. They report:
+
+- median and p90 encoder, DiT, finalize, decoder, and end-to-end chunk latency;
+- generated FPS after excluding warmup;
+- payload bytes, sender registration time, transfer time, full handoff time,
+  and effective GB/s for encoder → DiT and DiT → decoder;
+- a reusable 256 MiB transfer probe to distinguish link bandwidth from
+  small-payload setup overhead;
+- per-stage peak GPU memory and the exact software/hardware environment.
+
+Start with the concise
+[disaggregation experiment summary](docs/disaggregation_experiment_summary.md)
+for the deployment decision, headline data, limitations, and comparison chart.
+The [full H100 experiment record](docs/disaggregated_inference_experiment.md)
+contains the tested stack, measurement method, Slurm reproduction procedures,
+stage breakdowns, and chronological optimization findings.
+
+Mooncake is explicitly initialized with its `rdma` protocol. On a single node,
+the engine may select a topology-local GPU path; the measured effective GB/s
+is therefore authoritative for that allocation, while the protocol name alone
+must not be presented as proof that traffic traversed an InfiniBand NIC.
+Cross-node deployment additionally needs routable stage hostnames, RDMA-capable
+NICs, GPUDirect RDMA, and a control plane that forwards the opaque
+`TensorTransferTicket` between stage services.
+
+The design follows the
+[LightX2V three-stage disaggregation study](https://light-ai.top/LightX2V-BLOG/posts/Disaggregation/):
+control-plane messages carry only tensor metadata and registered destination
+addresses; Mooncake moves the tensor payload directly between device buffers.
+
 ## Run (WebRTC interactive demo)
 
 The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that

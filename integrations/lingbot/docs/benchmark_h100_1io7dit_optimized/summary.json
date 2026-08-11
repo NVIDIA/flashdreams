@@ -1,0 +1,69 @@
+{
+  "date": "2026-07-30",
+  "slurm_job_id": "14761875",
+  "hostname": "pool0-01924",
+  "base_commit": "b762d079245681e1db70f1ffc5728753ce2a90b8",
+  "topology": {
+    "io_ranks": [0],
+    "dit_ranks": [1, 2, 3, 4, 5, 6, 7],
+    "sessions_per_wave": 7,
+    "transport": "mooncake-rdma",
+    "pooled_async": true
+  },
+  "workload": {
+    "model": "lingbot-world-fast-taehv-window15-sink3",
+    "resolution": [464, 832],
+    "warmup_waves": 6,
+    "measured_waves": 5,
+    "frames_per_wave": 84
+  },
+  "performance": {
+    "aggregate_fps": 35.1528845526397,
+    "per_session_fps": 5.0218406503771,
+    "wave_latency_ms": {
+      "median": 2358.5133550077444,
+      "p90": 2454.0991360030603
+    },
+    "encoder_wave_ms": {
+      "median": 5.907039999961853,
+      "p90": 6.0826752305030825
+    },
+    "dit_critical_path_ms": {
+      "median": 2178.39404296875,
+      "p90": 2256.7726928710936
+    },
+    "dit_denoise_worker_ms": {
+      "median": 1718.7764892578125,
+      "p90": 1816.21455078125
+    },
+    "dit_finalize_worker_ms": {
+      "median": 426.4505310058594,
+      "p90": 436.3228820800781
+    },
+    "decoder_wave_ms": {
+      "median": 49.05964708328247,
+      "p90": 49.10519666671753
+    },
+    "rdma_probe_gbps": {
+      "median": 41.968,
+      "p90": 42.662,
+      "min": 39.664,
+      "max": 42.788
+    }
+  },
+  "peak_allocated_gib_by_rank": [
+    20.589931964874268,
+    56.33582067489624,
+    56.33582067489624,
+    56.5107626914978,
+    56.28736877441406,
+    56.335811138153076,
+    56.335811138153076,
+    56.28736877441406
+  ],
+  "comparisons": {
+    "tracked_1e6d1d_fps": 27.2,
+    "same_topology_synchronous_fps": 31.569263045981906,
+    "aggregated_cp8_fps_at_832x448": 29.5
+  }
+}
