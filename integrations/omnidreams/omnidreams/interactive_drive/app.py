@@ -81,7 +81,7 @@ class InteractiveDriveApp:
         Vulkan window) or, when ``config.stream_mjpeg_bind`` is set, an
         :class:`MJPEGStreamingPresenter` that serves frames over HTTP with
         no GPU-graphics dependency. Browser viewers with a richer frontend
-        are served by ``omnidreams.webrtc.server`` instead.
+        are served by the centralized ``webrtc`` launch mode instead.
         """
         self._config = config
         self._backend = backend
@@ -575,7 +575,7 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
     :class:`SlangPyPresenter` -- a local Vulkan window.
 
 
-    For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
+    For browser viewers with a richer frontend, the centralized ``webrtc`` mode
     (a separate entry point) is the preferred path; this MJPEG fallback
     is the in-process, dependency-free alternative for headless boxes.
     """

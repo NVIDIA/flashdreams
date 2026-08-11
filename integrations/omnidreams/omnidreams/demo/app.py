@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -20,6 +22,11 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.app import DemoApplication
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.serving.webrtc.bootstrap import (
+    configure_logging,
+    initialize_cuda_distributed,
+)
 
 from .adapter import OmnidreamsDemoAdapter
 from .spec import (
@@ -146,6 +153,130 @@ def main(argv: list[str] | None = None) -> None:
     _APPLICATION.main(argv)
 
 
+def launch_from_runner(
+    *,
+    config: RunnerConfig,
+    mode: Literal["mp4", "null", "webrtc"],
+    scenario: dict[str, object],
+    output: dict[str, object],
+    host: str | None = None,
+    port: int | None = None,
+    prefer_sw_encoder: bool = False,
+) -> object:
+    """Launch an OmniDreams demo directly from a resolved runner config."""
+    configure_logging()
+    preset_id = str(getattr(config.pipeline, "name", config.runner_name))
+    seed = _runner_seed(config)
+    if mode in {"mp4", "null"}:
+        output_path = output.get("path") or output.get("output")
+        if mode == "mp4" and output_path is None:
+            raise ValueError("OmniDreams mp4 mode requires output.path.")
+        args = argparse.Namespace(
+            preset_id=preset_id,
+            device=str(config.device),
+            seed=seed,
+            conditioning_mode=scenario.get(
+                "conditioning_mode", OMNIDREAMS_CONDITIONING_PRECOMPUTED
+            ),
+            prompt=scenario.get("prompt"),
+            hdmap_video_paths=_as_tuple(scenario.get("hdmap_video_paths", ())),
+            first_frame_paths=_as_tuple(scenario.get("first_frame_paths", ())),
+            camera_names=_as_tuple(scenario.get("camera_names", ())),
+            keyboard_trace=_optional_path(scenario.get("keyboard_trace")),
+            scene_path=_optional_path(scenario.get("scene_path")),
+            scene_dir=_optional_path(scenario.get("scene_dir")),
+            scene_uuid=scenario.get("scene_uuid", DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID),
+            scene_variant=str(scenario.get("scene_variant", "default")),
+            camera_name=str(scenario.get("camera_name", "camera_front_wide_120fov")),
+            move_speed_per_s=_as_float(scenario.get("move_speed_per_s", 6.0)),
+            rotate_speed_rad_per_s=_as_float(
+                scenario.get("rotate_speed_rad_per_s", math.radians(35.0))
+            ),
+            ludus_backend=str(scenario.get("ludus_backend", "cuda")),
+            example_data=scenario.get("example_data"),
+            example_data_uuid=scenario.get(
+                "example_data_uuid", DEFAULT_EXAMPLE_DATA_UUID_1V
+            ),
+            total_blocks=_as_int(
+                scenario.get("total_blocks", getattr(config, "total_blocks", 60))
+            ),
+            pixel_height=_as_int(
+                scenario.get("pixel_height", getattr(config, "pixel_height", 704))
+            ),
+            pixel_width=_as_int(
+                scenario.get("pixel_width", getattr(config, "pixel_width", 1280))
+            ),
+            fps=_as_int(
+                output.get(
+                    "fps", scenario.get("fps", getattr(config, "output_fps", 30))
+                )
+            ),
+            output_mode=mode,
+            output=None if output_path is None else Path(cast(Any, output_path)),
+        )
+        spec = _replay_spec(args)
+        return run_replay_demo(spec=spec, adapter=OmnidreamsDemoAdapter())
+    if mode != "webrtc":
+        raise ValueError(f"Unsupported OmniDreams launch mode: {mode!r}.")
+
+    context = initialize_cuda_distributed(default_device=str(config.device))
+    args = argparse.Namespace(
+        preset_id=preset_id,
+        device=str(context.device),
+        seed=seed,
+        scene_dir=_optional_path(scenario.get("scene_dir")),
+        scene_uuid=scenario.get("scene_uuid"),
+        scene_variant=str(scenario.get("scene_variant", "default")),
+        camera_name=str(scenario.get("camera_name", "camera_front_wide_120fov")),
+        fps=_as_int(output.get("fps", getattr(config, "output_fps", 30))),
+        video_height=_as_int(
+            output.get("video_height", getattr(config, "pixel_height", 704))
+        ),
+        video_width=_as_int(
+            output.get("video_width", getattr(config, "pixel_width", 1280))
+        ),
+        warmup_chunks=_as_int(output.get("warmup_chunks", 10)),
+        warmup_timeout_s=_as_float(output.get("warmup_timeout_s", 600.0)),
+        client_liveness_timeout_s=_as_float(
+            output.get("client_liveness_timeout_s", 10.0)
+        ),
+        debug_serve_hdmaps=bool(output.get("debug_serve_hdmaps", False)),
+        prefer_sw_encoder=bool(output.get("prefer_sw_encoder", prefer_sw_encoder)),
+        host=str(host or output.get("host", "0.0.0.0")),
+        port=_as_int(port if port is not None else output.get("port", 8082)),
+    )
+    from .webrtc import serve_omnidreams_webrtc_demo
+
+    return serve_omnidreams_webrtc_demo(
+        spec=_webrtc_spec(args, device=str(context.device)),
+        world_rank=context.world_rank,
+    )
+
+
+def _optional_path(value: object) -> Path | None:
+    return None if value is None else Path(cast(Any, value))
+
+
+def _as_int(value: object) -> int:
+    return int(cast(Any, value))
+
+
+def _as_float(value: object) -> float:
+    return float(cast(Any, value))
+
+
+def _as_tuple(value: object) -> tuple[object, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        raise TypeError("Expected a sequence value in the launch manifest.")
+    return tuple(value)
+
+
+def _runner_seed(config: RunnerConfig) -> int:
+    diffusion_model = getattr(config.pipeline, "diffusion_model", None)
+    seed = getattr(diffusion_model, "seed", 42)
+    return 42 if seed is None else int(seed)
+
+
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:
     scenario: dict[str, object] = {
         "conditioning_mode": args.conditioning_mode,
@@ -247,7 +378,3 @@ def _split_paths(value: str) -> tuple[Path, ...]:
 
 def _split_strings(value: str) -> tuple[str, ...]:
     return tuple(part for part in value.split(",") if part)
-
-
-if __name__ == "__main__":
-    main()

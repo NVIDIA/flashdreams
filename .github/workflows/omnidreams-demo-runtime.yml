@@ -103,14 +103,61 @@ jobs:
 
           log_dir="${ARTIFACT_DIR}/logs"
           output_dir="${ARTIFACT_DIR}/outputs"
+          launch_dir="${ARTIFACT_DIR}/launch_manifests"
           summary="${ARTIFACT_DIR}/summary.md"
           status_file="${ARTIFACT_DIR}/command-status.env"
-          mkdir -p "${log_dir}" "${output_dir}"
+          mkdir -p "${log_dir}" "${output_dir}" "${launch_dir}"
           : > "${status_file}"
 
-          odemo() {
-            uv run --no-sync --package flashdreams-omnidreams omnidreams-demo "$@"
+          frun() {
+            uv run --no-sync --package flashdreams-omnidreams flashdreams-run "$@"
           }
+
+          runner="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+          null_manifest="${launch_dir}/null.yaml"
+          precomputed_manifest="${launch_dir}/precomputed-mp4.yaml"
+          ludus_manifest="${launch_dir}/ludus-mp4.yaml"
+
+          cat > "${null_manifest}" <<EOF
+          schema_version: 1
+          runner: ${runner}
+          mode: "null"
+          runner_overrides:
+            device: cuda:0
+          scenario:
+            total_blocks: ${NULL_BLOCKS}
+          EOF
+
+          cat > "${precomputed_manifest}" <<EOF
+          schema_version: 1
+          runner: ${runner}
+          mode: mp4
+          runner_overrides:
+            device: cuda:0
+          scenario:
+            example_data: true
+            example_data_uuid: ${EXAMPLE_DATA_UUID}
+            total_blocks: ${PRECOMPUTED_BLOCKS}
+          output:
+            path: ${GITHUB_WORKSPACE}/${output_dir}/omnidreams-demo-precomputed-20s.mp4
+            fps: ${FPS}
+          EOF
+
+          cat > "${ludus_manifest}" <<EOF
+          schema_version: 1
+          runner: ${runner}
+          mode: mp4
+          runner_overrides:
+            device: cuda:0
+          scenario:
+            conditioning_mode: ludus-scene-driving
+            keyboard_trace: ${GITHUB_WORKSPACE}/${LUDUS_TRACE}
+            scene_uuid: ${LUDUS_SCENE_UUID}
+            total_blocks: ${LUDUS_BLOCKS}
+          output:
+            path: ${GITHUB_WORKSPACE}/${output_dir}/omnidreams-demo-ludus-20s.mp4
+            fps: ${FPS}
+          EOF
 
           run_demo() {
             local name="$1"
@@ -143,29 +190,13 @@ jobs:
           } > "${summary}"
 
           run_demo null \
-            odemo replay \
-              --output-mode null \
-              --device cuda:0 \
-              --total-blocks "${NULL_BLOCKS}"
+            frun "${runner}" null --manifest "${null_manifest}"
 
           run_demo precomputed-mp4 \
-            odemo replay \
-              --device cuda:0 \
-              --example-data \
-              --example-data-uuid "${EXAMPLE_DATA_UUID}" \
-              --total-blocks "${PRECOMPUTED_BLOCKS}" \
-              --fps "${FPS}" \
-              --output "${output_dir}/omnidreams-demo-precomputed-20s.mp4"
+            frun "${runner}" mp4 --manifest "${precomputed_manifest}"
 
           run_demo ludus-mp4 \
-            odemo replay \
-              --conditioning-mode ludus-scene-driving \
-              --keyboard-trace "${LUDUS_TRACE}" \
-              --device cuda:0 \
-              --scene-uuid "${LUDUS_SCENE_UUID}" \
-              --seed 42 \
-              --total-blocks "${LUDUS_BLOCKS}" \
-              --output "${output_dir}/omnidreams-demo-ludus-20s.mp4"
+            frun "${runner}" mp4 --manifest "${ludus_manifest}"
 
       - name: Validate OmniDreams demo artifacts
         run: |

@@ -109,7 +109,7 @@ We provide the following variants:
        + ``sink_size_t=3`` streaming KV-cache.
    * - ``lingbot-world-v2-14b-causal-fast``
      - LingBot-World V2 14B causal-fast on the shared LingBot pipeline
-       (Wan VAE decoder, 4-step). See `LingBot-World V2`_.
+       (Wan VAE decoder, 4-step). See :ref:`lingbot-world-v2`.
    * - ``lingbot-world-v2-14b-causal-fast-taehv-window15-sink3``
      - LingBot-World V2 14B causal-fast with the TAEHV decoder,
        ``window_size_t=15`` + ``sink_size_t=3`` streaming KV-cache.
@@ -122,6 +122,8 @@ To inspect all supported CLI arguments and their default values, run:
        flashdreams-run \
        lingbot-world-fast \
        --help
+
+.. _lingbot-world-v2:
 
 LingBot-World V2
 ----------------
@@ -227,14 +229,13 @@ Spin up the interactive LingBot-World server via WebRTC:
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flashdreams-lingbot torchrun --nproc_per_node 4 \
-       -m lingbot.webrtc.server \
-       --host 0.0.0.0 --port 8089 \
-       --config_name lingbot-world-fast-taehv-window15-sink3 \
-       --example-idx 0
+   uv run --package flashdreams-lingbot \
+       torchrun --nproc_per_node 4 --no-python flashdreams-run \
+       lingbot-world-fast-taehv-window15-sink3 webrtc \
+       --host 0.0.0.0 --port 8089
 
-``--example-idx`` selects which example to download
-(``0``, ``1``, ``2``, ``5``); assets auto-download on first launch.
+``scenario.example_idx`` in a launch manifest selects which example to
+download (``0``, ``1``, ``2``, ``5``); assets auto-download on first launch.
 The HTTP port opens only after model load + warmup — a few minutes on
 first launch, much faster afterwards. When ready the server prints
 ``Connect via http://<server-ip>:8089/request_session`` (use

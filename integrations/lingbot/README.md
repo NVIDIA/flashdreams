@@ -204,9 +204,8 @@ for i in range(total_blocks):
 
 ## Run (compatibility WebRTC server)
 
-The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
-binds the integration pipeline to keyboard input over a DataChannel and streams the
-generated video back to the browser.
+Use the central launcher to bind the LingBot pipeline to keyboard input over a
+DataChannel and stream generated video back to the browser.
 
 - `GET /request_session` serves a standalone viewer page (HTML/CSS/JS files on disk, not inlined in Python).
 - `POST /api/webrtc/offer` performs SDP offer/answer signaling.
@@ -220,16 +219,20 @@ generated video back to the browser.
 From repository root:
 
 ```bash
-uv run --package flashdreams-lingbot python -m lingbot.webrtc.server \
-    --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-taehv-window15-sink3
+uv run --package flashdreams-lingbot flashdreams-run \
+    lingbot-world-fast-taehv-window15-sink3 webrtc \
+    --host 0.0.0.0 --port 8089
 
 # 4 GPUs
 uv run --package flashdreams-lingbot \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-  -m lingbot.webrtc.server \
-  --host 0.0.0.0 --port 8089 \
-  --config_name lingbot-world-fast-taehv-window15-sink3
+    torchrun --standalone --nnodes=1 --nproc_per_node=4 --no-python \
+    flashdreams-run lingbot-world-fast-taehv-window15-sink3 webrtc \
+    --host 0.0.0.0 --port 8089
 ```
+
+For a reproducible checked-in configuration, use
+`--manifest docs/launch_manifests/lingbot_webrtc.yaml`; the manifest's runner
+must match the selected runner slug.
 
 Then open:
 

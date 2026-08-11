@@ -230,8 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
             "opens http://HOST:PORT/ in a browser to view the demo and "
             "send keyboard input. Useful on compute-only hosts (e.g. "
             "GB300-only DGX Station) where no Vulkan-capable GPU exists; "
-            "for a richer browser viewer prefer the separate "
-            "``omnidreams.webrtc.server`` entry point. Implies --no-hud "
+            "for a richer browser viewer prefer the centralized "
+            "``webrtc`` launch mode. Implies --no-hud "
             "when launched via the demo wrapper."
         ),
     )

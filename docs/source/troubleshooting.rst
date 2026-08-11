@@ -26,7 +26,7 @@ CUDA or PyTorch build mismatch
 **Symptoms:**
 
 - A CUDA extension fails to build or load.
-- ``interactive-drive --manifest example_world_model_perf.yaml`` exits instead
+- ``flashdreams-run <runner> local-window --manifest <launch.yaml>`` exits instead
   of falling back to the default PyTorch path.
 - Errors mention ``nvcc``, a CUDA version, a GPU architecture, or missing CUDA
   libraries.

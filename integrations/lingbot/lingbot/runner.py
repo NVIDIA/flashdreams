@@ -19,7 +19,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Annotated
 
+import tyro
 from loguru import logger
 
 from flashdreams.infra.postprocess import VideoTensorLayout
@@ -68,7 +70,9 @@ class LingbotWorldRunnerConfig(RunnerConfig):
     _target: type["LingbotWorldRunner"] = field(
         default_factory=lambda: LingbotWorldRunner
     )
-    output_adapter: str | None = "lingbot.output_targets:OUTPUT_TARGET_ADAPTER"
+    launch_capability: Annotated[str | None, tyro.conf.Suppress] = (
+        "lingbot.launch:LAUNCH_CAPABILITY"
+    )
 
     prompt: str = ""
     """Text prompt. A non-empty value wins; otherwise the runner reads

@@ -5,7 +5,7 @@
 ``multipart/x-mixed-replace`` stream with keydown/keyup posted back.
 
 Dependency-free fallback for headless / compute-only hosts with no
-graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
+graphics GPU; prefer the centralized ``webrtc`` mode for a richer viewer.
 """
 
 from __future__ import annotations

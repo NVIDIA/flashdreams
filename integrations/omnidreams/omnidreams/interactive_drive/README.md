@@ -182,7 +182,7 @@ Common `omnidreams-prepare` flags:
 - `--skip-text-encoder` — skip the ~14 GB text-encoder prewarm when you're
   using a precomputed prompt embedding or want a lighter first-time setup.
 - `--skip-scene` — don't stage any scene (for when you're supplying your
-  own USDZ via `interactive-drive --scene`).
+  own USDZ via ``scenario.scene`` in a local-window launch manifest).
 
 If `omnidreams-prepare` fails with `401`, `403`, or a gated-repo
 error, verify `HF_TOKEN` and confirm you have requested (and been granted)
@@ -228,18 +228,19 @@ this subpackage (via `__file__`), so you don't have to pass long
 `integrations/omnidreams/omnidreams/interactive_drive/...` paths unless
 you want to override them.
 
-There is one entry point — `interactive-drive` — and three modes selected by
-flags:
+There is one public entry point — `flashdreams-run` — with ``local-window``
+and ``webrtc`` modes. Local-window presentation variants are selected in the
+launch manifest:
 
 | Mode | When to use | How |
 |---|---|---|
-| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | `interactive-drive ...` |
-| **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
-| **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies `--no-hud`. | `interactive-drive --stream-mjpeg [HOST:]PORT ...` |
+| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | ``local-window`` with default output settings |
+| **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | ``local-window`` with ``output.no_hud: true`` |
+| **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies no HUD. | ``local-window`` with ``output.stream_mjpeg: :8080`` |
 
 For a richer remote-viewing experience with a polished frontend and lower
-latency than an in-process MJPEG stream, prefer the separate
-`omnidreams.webrtc.server` entry point (see
+latency than an in-process MJPEG stream, prefer the centralized ``webrtc``
+mode (see
 [`integrations/omnidreams/README.md`](../../README.md)).
 
 The HUD itself uses pygame/SDL2 for rendering, which keeps the demo responsive
@@ -251,7 +252,9 @@ process.
 ### HUD mode (default)
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest docs/launch_manifests/omnidreams_local_window.yaml
 ```
 
 The default `--scene` resolves to
@@ -368,7 +371,9 @@ This is the lighter-weight path that matches the older standalone
 output, no HUD chrome, no scene selector.
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive --no-hud
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest path/to/local-window-with-no-hud.yaml
 ```
 
 You should initially see the generated driving view. Press `2` to switch to the
@@ -383,11 +388,12 @@ network, or when you want to demo from a laptop browser while the model
 runs elsewhere. Implies `--no-hud` because the user is then viewing
 through a browser, not a local Vulkan window — the slangpy HUD itself
 is a Vulkan presenter, so it can't run on the same hosts that need
-`--stream-mjpeg`.
+``output.stream_mjpeg`` in the launch manifest.
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive \
-  --stream-mjpeg 8080
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest path/to/local-window-mjpeg.yaml
 ```
 
 Open `http://<host-ip>:8080/` in a browser on the same network; keyboard
@@ -434,10 +440,10 @@ ssh -L 8080:localhost:8080 <user>@<host>
 
 Then open `http://localhost:8080/`.
 
-For a richer browser frontend with lower latency, prefer the separate
-`omnidreams.webrtc.server` entry point.
+For a richer browser frontend with lower latency, prefer the centralized
+``webrtc`` launch mode.
 
-#### Fully headless: `--stream-mjpeg` with `--auto-start`
+#### Fully headless MJPEG with auto-start
 
 By default the streaming mode waits for the browser scene picker before it
 loads anything, so a freshly launched server idles on "Select a scene to
@@ -447,8 +453,9 @@ add `--auto-start`. It skips the scene selection and immediately loads `--scene`
 or not yet staged):
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive \
-  --stream-mjpeg 8080 --auto-start --scene <clip-id-name-or-path>
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest path/to/headless-auto-start.yaml
 ```
 
 The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
@@ -457,7 +464,9 @@ SlangPy CUDA interop for generated RGB frames when the model output is still on
 CUDA:
 
 ```bash
-uv run --no-sync --package flashdreams-omnidreams interactive-drive
+uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest docs/launch_manifests/omnidreams_local_window.yaml
 ```
 
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
@@ -492,7 +501,9 @@ input-to-present timing while the demo runs:
 
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
-  uv run --no-sync --package flashdreams-omnidreams interactive-drive --auto-start
+  uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest path/to/auto-start-local-window.yaml
 ```
 
 The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames
@@ -578,9 +589,9 @@ feeds it to the same loader the regular flow uses:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-prepare --skip-scene
-uv run --package flashdreams-omnidreams interactive-drive \
-  --synthetic-scene \
-  --synthetic-initial-rgb path/to/forward_facing_road_photo.jpg
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
+  --manifest path/to/synthetic-scene-local-window.yaml
 ```
 
 The world model is trained on natural driving frames, so passing your own

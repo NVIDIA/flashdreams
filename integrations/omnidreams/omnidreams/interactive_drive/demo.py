@@ -508,7 +508,7 @@ def build_parser() -> argparse.ArgumentParser:
         " window entirely and serve frames to a browser as an MJPEG"
         " HTTP stream (useful on compute-only hosts without a Vulkan"
         " GPU). For a richer browser viewer use the separate"
-        " ``omnidreams.webrtc.server`` entry point."
+        " centralized ``webrtc`` launch mode."
     )
     parser.add_argument(
         "--no-hud",
@@ -526,7 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Directory of USDZ scenes shown in the HUD scene selector. "
             "Defaults to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``, "
             "the shared cache root used by both this demo and the "
-            "``omnidreams.webrtc.server`` scene pipeline."
+            "centralized ``webrtc`` scene pipeline."
         ),
     )
     parser.add_argument(
@@ -692,8 +692,46 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
 
 
 def main() -> None:
+    """Run the legacy parser entry point used by internal development tools."""
+    _run_namespace(build_parser().parse_args())
+
+
+def launch_from_runner(
+    *,
+    config: object,
+    world_model_manifest: Path,
+    scenario: dict[str, object],
+    output: dict[str, object],
+) -> None:
+    """Launch the local window directly from the central resolved launch."""
+    args = build_parser().parse_args([])
+    args.backend = "omnidreams"
+    args.manifest = world_model_manifest
+    preset = getattr(getattr(config, "postprocess", None), "preset", "")
+    args.postprocess_preset = output.get("postprocess_preset", preset)
+    for key, value in scenario.items():
+        if value is not None:
+            setattr(args, key, _coerce_launch_path(key, value))
+    for key, value in output.items():
+        if (
+            key not in {"world_model_manifest_path", "postprocess_preset"}
+            and value is not None
+        ):
+            setattr(args, key, _coerce_launch_path(key, value))
+    _run_namespace(args)
+
+
+def _coerce_launch_path(key: str, value: object) -> object:
+    if key.endswith(("_path", "_dir")) or key in {"scene", "wheel_device"}:
+        return Path(value)  # type: ignore[arg-type]
+    if key.endswith("_axis") and isinstance(value, (list, tuple)):
+        return tuple(int(item) for item in value)
+    return value
+
+
+def _run_namespace(args: argparse.Namespace) -> None:
+    """Execute one already-resolved local-window namespace."""
     configure_logging()
-    args = build_parser().parse_args()
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a

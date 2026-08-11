@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams-omnidreams"
 version = "0.1.0"
-description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
+description = "Omnidreams inference with FlashDreams unified WebRTC and local-window launch modes"
 readme = "README.md"
 # PyNvVideoCodec 2.1 currently publishes wheels through CPython 3.12.
 requires-python = ">=3.10,<3.13"
@@ -92,8 +92,8 @@ dev = [
 ]
 
 [project.scripts]
-# ``omnidreams-prepare`` stages resources used by *both* demo paths
-# (desktop ``interactive-drive`` *and* ``omnidreams.webrtc.server``):
+# ``omnidreams-prepare`` stages resources used by both ``local-window`` and
+# ``webrtc`` launch modes:
 # the scene USDZs from ``nvidia/omni-dreams-scenes`` and the
 # Cosmos-Reason1 text encoder pinned to its runtime revision. Lives at
 # the package level (``omnidreams.prepare``) rather than under
@@ -104,15 +104,6 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # Batch evaluation helper for Hugging Face scene discovery, bounded staging,
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.eval.cli:main"
-
-# Experimental shared demo API path. This coexists with the legacy
-# WebRTC/gRPC/interactive-drive demos until the new adapter is proven.
-omnidreams-demo = "omnidreams.demo.app:main"
-
-# Desktop interactive-drive demo entry point. Requires the
-# ``interactive-drive`` extra (it adds slangpy); without it the
-# presenter import fails fast with a clear message.
-interactive-drive = "omnidreams.interactive_drive.demo:main"
 
 # Tkinter wizard that calibrates a connected steering wheel or game
 # controller and writes a local input profile the demo auto-discovers.

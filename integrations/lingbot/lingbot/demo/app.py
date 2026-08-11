@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
+from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -17,6 +18,11 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.app import DemoApplication
+from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.serving.webrtc.bootstrap import (
+    configure_logging,
+    initialize_cuda_distributed,
+)
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
     ensure_example_data_downloaded,
@@ -159,6 +165,129 @@ def main(argv: list[str] | None = None) -> None:
     _APPLICATION.main(argv)
 
 
+def launch_from_runner(
+    *,
+    config: RunnerConfig,
+    mode: Literal["mp4", "webrtc"],
+    scenario: dict[str, object],
+    output: dict[str, object],
+    host: str | None = None,
+    port: int | None = None,
+    prefer_sw_encoder: bool = False,
+) -> object:
+    """Launch a LingBot demo directly from a resolved runner configuration."""
+    configure_logging()
+    preset_id = str(getattr(config.pipeline, "name", config.runner_name))
+    if mode == "mp4":
+        output_path = output.get("path") or output.get("output")
+        if output_path is None:
+            raise ValueError("LingBot mp4 mode requires output.path.")
+        args = argparse.Namespace(
+            preset_id=preset_id,
+            device=str(config.device),
+            prompt=scenario.get("prompt"),
+            prompt_path=_optional_path(scenario.get("prompt_path")),
+            image_path=_optional_path(scenario.get("image_path")),
+            pose_path=_optional_path(scenario.get("pose_path")),
+            intrinsic_path=_optional_path(scenario.get("intrinsic_path")),
+            example_data=scenario.get("example_data"),
+            example_idx=_as_int(
+                scenario.get("example_idx", getattr(config, "example_idx", 0))
+            ),
+            total_blocks=_as_int(
+                scenario.get("total_blocks", getattr(config, "total_blocks", 20))
+            ),
+            pixel_height=_as_int(
+                scenario.get(
+                    "pixel_height",
+                    getattr(config, "pixel_height", DEFAULT_PIXEL_HEIGHT),
+                )
+            ),
+            pixel_width=_as_int(
+                scenario.get(
+                    "pixel_width", getattr(config, "pixel_width", DEFAULT_PIXEL_WIDTH)
+                )
+            ),
+            fps=_as_int(
+                output.get(
+                    "fps", scenario.get("fps", getattr(config, "fps", DEFAULT_FPS))
+                )
+            ),
+            output_mode="mp4",
+            output=Path(cast(Any, output_path)),
+        )
+        spec = _replay_spec(args)
+        return run_replay_demo(spec=spec, adapter=LingbotDemoAdapter())
+    if mode != "webrtc":
+        raise ValueError(f"Unsupported LingBot launch mode: {mode!r}.")
+
+    context = initialize_cuda_distributed(default_device=str(config.device))
+    example_idx = _as_int(
+        scenario.get("example_idx", getattr(config, "example_idx", 0))
+    )
+    ensure_example_data_downloaded(
+        is_rank_zero=(context.world_rank == 0),
+        example_idx=example_idx,
+    )
+    args = argparse.Namespace(
+        preset_id=preset_id,
+        device=str(context.device),
+        seed=_as_int(output.get("seed", 42)),
+        compile=_runner_compile(config),
+        fps=_as_int(output.get("fps", getattr(config, "fps", DEFAULT_FPS))),
+        video_height=_as_int(
+            output.get(
+                "video_height", getattr(config, "pixel_height", DEFAULT_PIXEL_HEIGHT)
+            )
+        ),
+        video_width=_as_int(
+            output.get(
+                "video_width", getattr(config, "pixel_width", DEFAULT_PIXEL_WIDTH)
+            )
+        ),
+        warmup_chunks=_as_int(output.get("warmup_chunks", 10)),
+        warmup_timeout_s=_as_float(output.get("warmup_timeout_s", 600.0)),
+        client_liveness_timeout_s=_as_float(
+            output.get("client_liveness_timeout_s", 30.0)
+        ),
+        prefer_sw_encoder=bool(output.get("prefer_sw_encoder", prefer_sw_encoder)),
+        example_idx=example_idx,
+        host=str(host or output.get("host", "0.0.0.0")),
+        port=_as_int(port if port is not None else output.get("port", 8080)),
+    )
+    from .webrtc import serve_lingbot_webrtc_demo
+
+    return serve_lingbot_webrtc_demo(
+        spec=_webrtc_spec(
+            args,
+            device=str(context.device),
+            context_parallel_size=context.world_size,
+        ),
+        world_rank=context.world_rank,
+    )
+
+
+def _optional_path(value: object) -> Path | None:
+    return None if value is None else Path(cast(Any, value))
+
+
+def _as_int(value: object) -> int:
+    return int(cast(Any, value))
+
+
+def _as_float(value: object) -> float:
+    return float(cast(Any, value))
+
+
+def _runner_compile(config: RunnerConfig) -> bool:
+    transformer = getattr(
+        getattr(config.pipeline, "diffusion_model", None),
+        "transformer",
+        None,
+    )
+    return bool(getattr(transformer, "compile_network", True))
+
+
 def _replay_spec(args: argparse.Namespace) -> DemoSpec:
     scenario: dict[str, object] = {
         "example_data": args.example_data,
@@ -244,7 +373,3 @@ def _webrtc_spec(
             },
         ),
     )
-
-
-if __name__ == "__main__":
-    main()

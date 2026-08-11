@@ -29,8 +29,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Annotated
 
 import torch
+import tyro
 from einops import rearrange
 from loguru import logger
 from omnidreams.model_session import OmnidreamsModelSessionCore
@@ -156,7 +158,9 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     """
 
     _target: type["OmnidreamsRunner"] = field(default_factory=lambda: OmnidreamsRunner)
-    output_adapter: str | None = "omnidreams.output_targets:OUTPUT_TARGET_ADAPTER"
+    launch_capability: Annotated[str | None, tyro.conf.Suppress] = (
+        "omnidreams.launch:LAUNCH_CAPABILITY"
+    )
 
     prompt: str = ""
     """Default text prompt applied to every camera. Override per-camera

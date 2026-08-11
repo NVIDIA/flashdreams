@@ -7,10 +7,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import lingbot.demo.app as demo_app_module
 import numpy as np
 import pytest
 import torch
 from aiohttp import web
+from lingbot.config import RUNNER_LINGBOT_WORLD_FAST
 from lingbot.demo import (
     DEFAULT_LINGBOT_PRESET,
     LINGBOT_MODEL_ID,
@@ -112,6 +114,32 @@ def test_lingbot_demo_defaults_to_interactive_preset() -> None:
     args = parse_args(["replay", "--output", "demo.mp4"])
 
     assert args.preset_id == "lingbot-world-fast-taehv-window15-sink3"
+
+
+def test_lingbot_direct_runner_launch_builds_mp4_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[DemoSpec] = []
+
+    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+        del adapter
+        captured.append(spec)
+        return "completed"
+
+    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+
+    result = demo_app_module.launch_from_runner(
+        config=RUNNER_LINGBOT_WORLD_FAST,
+        mode="mp4",
+        scenario={"example_idx": 2, "total_blocks": 3},
+        output={"path": tmp_path / "demo.mp4", "fps": 12},
+    )
+
+    assert result == "completed"
+    assert captured[0].preset_id == RUNNER_LINGBOT_WORLD_FAST.runner_name
+    assert isinstance(captured[0].output, Mp4OutputSpec)
+    assert captured[0].output.path == tmp_path / "demo.mp4"
 
 
 def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
