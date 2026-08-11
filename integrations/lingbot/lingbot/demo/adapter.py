@@ -18,6 +18,7 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
     PreparedScenario,
+    WebRTCOutputSpec,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime
 from lingbot.input_mapping import (
@@ -25,6 +26,10 @@ from lingbot.input_mapping import (
     TextEventSelection,
 )
 from lingbot.runtime import (
+    FIELD_FPS,
+    FIELD_PIXEL_HEIGHT,
+    FIELD_PIXEL_WIDTH,
+    FIELD_TOTAL_BLOCKS,
     LingbotModelAdapter,
     LingbotReplayRuntime,
     PipelineFactory,
@@ -36,6 +41,7 @@ from .spec import (
     resolve_replay_inputs,
     resolve_text_event_prompts,
     resolve_user_input_events,
+    resolve_webrtc_scenario,
 )
 
 ReplayRuntimeFactory = Callable[..., InferenceRuntime]
@@ -56,27 +62,37 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         )
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay",)
+        return ("replay", "keyboard-driving")
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4",)
+        return ("mp4", "webrtc")
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
-        if spec.input_mode != "replay":
+        if spec.input_mode == "replay":
+            if not isinstance(spec.output, Mp4OutputSpec):
+                raise ValueError("Lingbot replay demo currently requires MP4 output.")
+            scenario = spec.scenario
+            live_camera = False
+        elif spec.input_mode == "keyboard-driving":
+            if not isinstance(spec.output, WebRTCOutputSpec):
+                raise ValueError(
+                    "Lingbot keyboard-driving demo requires WebRTC output."
+                )
+            scenario = _keyboard_driving_scenario(spec, output=spec.output)
+            live_camera = True
+        else:
             raise ValueError(
-                "Lingbot prepare_scenario currently supports only "
-                f"input_mode='replay', got {spec.input_mode!r}."
+                "Lingbot prepare_scenario supports input_mode='replay' or "
+                f"'keyboard-driving', got {spec.input_mode!r}."
             )
-        if not isinstance(spec.output, Mp4OutputSpec):
-            raise ValueError("Lingbot replay demo currently requires MP4 output.")
 
         replay_inputs = resolve_replay_inputs(
-            spec.scenario,
-            default_prompt=self.default_replay_prompt(spec.config),
+            scenario,
+            default_prompt=_default_prompt(self, spec),
         )
-        text_event_prompts = resolve_text_event_prompts(spec.scenario)
-        user_inputs = resolve_user_input_events(spec.scenario)
-        if _camera_source(spec.scenario) == "events":
+        text_event_prompts = resolve_text_event_prompts(scenario)
+        user_inputs = resolve_user_input_events(scenario)
+        if live_camera or _camera_source(scenario) == "events":
             # Live control still needs the scenario's calibration, so the trace
             # is loaded for its intrinsics and world scale and then discarded
             # as a trajectory source.
@@ -100,7 +116,11 @@ class LingbotDemoAdapter(LingbotModelAdapter):
         return PreparedScenario(
             initial_inputs=inference_input_from_replay_inputs(replay_inputs),
             user_inputs=user_inputs,
-            source_schema=_source_schema(user_inputs),
+            source_schema=_source_schema(
+                user_inputs,
+                include_keyboard=live_camera,
+                include_text_events=live_camera and bool(text_event_prompts),
+            ),
             canonicalizer=_canonicalizer(text_event_prompts),
             mapping=mapping,
             metadata={
@@ -127,6 +147,48 @@ def _camera_source(scenario: Any) -> str:
     return "trace"
 
 
+def _keyboard_driving_scenario(
+    spec: DemoSpec,
+    *,
+    output: WebRTCOutputSpec,
+) -> Mapping[str, Any]:
+    webrtc_scenario = resolve_webrtc_scenario(spec.scenario)
+    scenario: dict[str, Any] = (
+        dict(spec.scenario) if isinstance(spec.scenario, Mapping) else {}
+    )
+    scenario.setdefault("camera_source", "events")
+    scenario.setdefault("example_data", True)
+    scenario.setdefault("example_idx", webrtc_scenario.example_idx)
+    scenario.setdefault(FIELD_TOTAL_BLOCKS, _total_blocks_default(spec))
+    scenario.setdefault(FIELD_PIXEL_HEIGHT, output.video_height)
+    scenario.setdefault(FIELD_PIXEL_WIDTH, output.video_width)
+    scenario.setdefault(FIELD_FPS, output.fps)
+    config = spec.config
+    if config is not None and "text_events" not in scenario:
+        text_events = config.runtime_options.get("text_events")
+        if text_events is not None:
+            scenario["text_events"] = text_events
+    return scenario
+
+
+def _total_blocks_default(spec: DemoSpec) -> int:
+    config = spec.config
+    if config is not None:
+        total_blocks = config.runtime_options.get("total_blocks")
+        if total_blocks is not None:
+            return int(total_blocks)
+    return 1_000_000
+
+
+def _default_prompt(adapter: LingbotDemoAdapter, spec: DemoSpec) -> str:
+    config = spec.config
+    if config is not None:
+        default_prompt = config.runtime_options.get("default_prompt")
+        if default_prompt is not None:
+            return str(default_prompt)
+    return adapter.default_replay_prompt(config)
+
+
 _KEY_EVENT_TYPES = frozenset({"key_down", "key_up"})
 
 _KEYBOARD_CAPABILITIES = (
@@ -140,7 +202,12 @@ _TEXT_EVENT_CAPABILITY = UserInputCapability(
 )
 
 
-def _source_schema(user_inputs: UserInputs) -> UserInputSchema:
+def _source_schema(
+    user_inputs: UserInputs,
+    *,
+    include_keyboard: bool = False,
+    include_text_events: bool = False,
+) -> UserInputSchema:
     """Declare what this scenario's event source can provide.
 
     Capabilities describe the source, not the particular trace. A keyboard
@@ -152,9 +219,9 @@ def _source_schema(user_inputs: UserInputs) -> UserInputSchema:
     """
     observed = {event.event_type for event in user_inputs.events}
     capabilities: list[UserInputCapability] = []
-    if observed & _KEY_EVENT_TYPES:
+    if include_keyboard or observed & _KEY_EVENT_TYPES:
         capabilities.extend(_KEYBOARD_CAPABILITIES)
-    if "text_event" in observed:
+    if include_text_events or "text_event" in observed:
         capabilities.append(_TEXT_EVENT_CAPABILITY)
     for event_type in sorted(observed - _KEY_EVENT_TYPES - {"text_event"}):
         payload_fields: frozenset[str] = frozenset()

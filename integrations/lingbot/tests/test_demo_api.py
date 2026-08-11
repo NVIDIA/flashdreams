@@ -72,18 +72,45 @@ def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> 
     )
 
 
+def _patch_lingbot_webrtc_example(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    example_idx: int = 0,
+) -> Path:
+    """Provide a local example-data directory for shared WebRTC preparation."""
+    import lingbot.runtime as runtime_module
+
+    example_dir = tmp_path / f"example-{example_idx:02d}"
+    example_dir.mkdir()
+    (example_dir / "image.jpg").write_bytes(b"fake")
+    _write_camera_assets(example_dir / "poses.npy", example_dir / "intrinsics.npy")
+    (example_dir / "prompt.txt").write_text("drive through a forest\n")
+
+    def fake_download(*, is_rank_zero: bool, example_idx: int) -> Path:
+        del is_rank_zero, example_idx
+        return example_dir
+
+    monkeypatch.setattr(
+        runtime_module,
+        "ensure_example_data_downloaded",
+        fake_download,
+    )
+    return example_dir
+
+
 def test_lingbot_demo_defaults_to_interactive_preset() -> None:
     args = parse_args(["replay", "--output", "demo.mp4"])
 
     assert args.preset_id == "lingbot-world-fast-taehv-window15-sink3"
 
 
-def test_lingbot_demo_adapter_declares_replay_modes_only() -> None:
+def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
     adapter = LingbotDemoAdapter()
 
     assert adapter.model_id == LINGBOT_MODEL_ID
-    assert adapter.supported_input_modes() == ("replay",)
-    assert adapter.supported_output_modes() == ("mp4",)
+    assert adapter.supported_input_modes() == ("replay", "keyboard-driving")
+    assert adapter.supported_output_modes() == ("mp4", "webrtc")
     fields = {
         field.name
         for field in adapter.inference_input_schema.global_conditioning_fields
@@ -478,7 +505,48 @@ def test_lingbot_webrtc_cli_builds_keyboard_driving_spec() -> None:
     assert spec.config.runtime_options["example_idx"] == 2
 
 
-def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
+def test_lingbot_adapter_prepares_public_webrtc_scenario_as_live_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
+    adapter = LingbotDemoAdapter()
+    spec = DemoSpec(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=DEFAULT_LINGBOT_PRESET,
+        input_mode="keyboard-driving",
+        scenario=LingbotWebRTCScenario(example_idx=0),
+        output=WebRTCOutputSpec(fps=16, video_width=64, video_height=32),
+        config=InferenceConfig(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=DEFAULT_LINGBOT_PRESET,
+            runtime_options={
+                "text_events": [
+                    {
+                        "event_id": "storm",
+                        "label": "Storm",
+                        "prompt": "A storm moves through the scene.",
+                    }
+                ]
+            },
+        ),
+    )
+
+    prepared = adapter.prepare_scenario(spec)
+    provider = adapter.create_model_input_provider(spec, prepared)
+
+    assert isinstance(provider, LingbotInputProvider)
+    assert provider.capabilities.supports_realtime_clock is True
+    assert {"key_down", "key_up", "text_event"}.issubset(
+        prepared.source_schema.declared_event_types()
+    )
+
+
+def test_lingbot_webrtc_demo_uses_shared_manager_with_model_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_lingbot_webrtc_example(monkeypatch, tmp_path, example_idx=2)
     pipeline_config = object()
     spec = DemoSpec(
         model_id=LINGBOT_MODEL_ID,
@@ -514,6 +582,17 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
     runtime = manager._runtime
     assert isinstance(runtime, _FakeWebRTCRuntime)
     assert type(manager) is BaseWebRTCSessionManager
+    assert isinstance(manager._shared_adapter, LingbotDemoAdapter)
+    assert manager._shared_spec is not None
+    assert manager._shared_spec.input_mode == "keyboard-driving"
+    assert isinstance(manager._shared_spec.output, WebRTCOutputSpec)
+    assert manager._shared_scenario is not None
+    provider = manager._shared_adapter.create_model_input_provider(
+        manager._shared_spec,
+        manager._shared_scenario,
+    )
+    assert isinstance(provider, LingbotInputProvider)
+    assert provider.capabilities.supports_realtime_clock is True
     assert manager.runtime_config is runtime.config
     assert runtime.config.pipeline_config is pipeline_config
     assert runtime.config.config_name == DEFAULT_LINGBOT_PRESET
@@ -531,9 +610,11 @@ def test_lingbot_webrtc_demo_uses_existing_manager_with_model_config() -> None:
 
 def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     import flashdreams.runtime.demo.webrtc as shared_webrtc_module
 
+    _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
     app_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_app(**kwargs: Any) -> web.Application:
@@ -588,9 +669,11 @@ def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
 
 def test_lingbot_webrtc_demo_serves_through_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     import flashdreams.runtime.demo.webrtc as shared_webrtc_module
 
+    _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
     server_calls: list[dict[str, Any]] = []
 
     def fake_create_packaged_app(**kwargs: Any) -> web.Application:

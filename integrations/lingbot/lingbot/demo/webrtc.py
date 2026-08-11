@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from importlib.resources import files
 from typing import Any
 
@@ -19,7 +20,12 @@ from flashdreams.runtime.demo.webrtc import (
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import create_webrtc_app
+from lingbot.demo import LingbotDemoAdapter
 from lingbot.runtime import (
+    FIELD_FPS,
+    FIELD_PIXEL_HEIGHT,
+    FIELD_PIXEL_WIDTH,
+    FIELD_TOTAL_BLOCKS,
     LingbotModelAdapter,
     build_lingbot_webrtc_runtime_config,
 )
@@ -27,7 +33,6 @@ from lingbot.webrtc.server import configure_lingbot_webrtc_app
 from lingbot.webrtc.session import (
     LingbotInferenceRuntime,
     LingbotRuntimeConfig,
-    create_lingbot_webrtc_session_manager,
 )
 
 from .spec import resolve_webrtc_scenario
@@ -80,11 +85,24 @@ def serve_lingbot_webrtc_demo(
         runtime_options=config.runtime_options,
     )
     runtime = runtime_factory(config=runtime_config)
-    manager = create_lingbot_webrtc_session_manager(
+    demo_adapter = LingbotDemoAdapter()
+    shared_spec = _shared_webrtc_spec(
+        spec,
+        runtime_config=runtime_config,
+        example_idx=scenario.example_idx,
+    )
+    prepared = demo_adapter.prepare_scenario(shared_spec)
+    manager = BaseWebRTCSessionManager(
         runtime=runtime,
         runtime_config=runtime_config,
         fps=spec.output.fps,
+        identity=runtime_config.config_name,
+        busy_message="A Lingbot session is already active.",
+        warmup_label="Lingbot WebRTC",
         client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
+        shared_adapter=demo_adapter,
+        shared_spec=shared_spec,
+        shared_scenario=prepared,
     )
     return serve_webrtc_demo(
         output=spec.output,
@@ -103,6 +121,45 @@ def serve_lingbot_webrtc_demo(
 
 def _option(config: InferenceConfig, name: str, default: Any) -> Any:
     return config.runtime_options.get(name, default)
+
+
+def _shared_webrtc_spec(
+    spec: DemoSpec,
+    *,
+    runtime_config: LingbotRuntimeConfig,
+    example_idx: int,
+) -> DemoSpec:
+    config = spec.config
+    if config is None:
+        raise RuntimeError("DemoSpec.config was not initialized.")
+    runtime_options = dict(config.runtime_options)
+    runtime_options.update(
+        {
+            "default_prompt": runtime_config.default_prompt,
+            "pipeline_config": runtime_config.pipeline_config,
+            "seed": runtime_config.seed,
+        }
+    )
+    return replace(
+        spec,
+        scenario={
+            "camera_source": "events",
+            "example_data": True,
+            "example_idx": example_idx,
+            "text_events": runtime_config.text_events,
+            FIELD_TOTAL_BLOCKS: int(_option(config, "total_blocks", 1_000_000)),
+            FIELD_PIXEL_HEIGHT: runtime_config.video_height,
+            FIELD_PIXEL_WIDTH: runtime_config.video_width,
+            FIELD_FPS: runtime_config.fps,
+        },
+        config=replace(
+            config,
+            preset_id=runtime_config.config_name,
+            device=runtime_config.device,
+            seed=runtime_config.seed,
+            runtime_options=runtime_options,
+        ),
+    )
 
 
 __all__ = [
