@@ -632,7 +632,6 @@ class GamePhysicsWorld:
             dt_s,
             handbrake_active=handbrake_active,
             steering_active=steering_active,
-            max_yaw_rate_radps=self._vehicle.max_collision_yaw_rate_radps,
         )
         active_objects = {
             scene_object.object_id: scene_object

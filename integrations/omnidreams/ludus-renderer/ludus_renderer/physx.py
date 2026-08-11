@@ -496,7 +496,6 @@ class PhysXWorld:
         *,
         handbrake_active: bool = False,
         steering_active: bool = False,
-        max_yaw_rate_radps: float | None = None,
     ) -> _CompactPhysicsStep:
         """Advance all tracked actors with one native call and narrow readback."""
         if self._closed:
@@ -518,7 +517,6 @@ class PhysXWorld:
             float(dt_s),
             bool(handbrake_active),
             bool(steering_active),
-            0.0 if max_yaw_rate_radps is None else float(max_yaw_rate_radps),
             self.actor_collision_enabled,
         )
         # The ego escapes through the public result, so keep its snapshot stable.

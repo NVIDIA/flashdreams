@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import gc
 import math
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -634,25 +635,29 @@ def test_physx_vehicle_yaw_does_not_snap_at_road_boundary() -> None:
     assert resolved.angular_velocity_radps[2] <= 1.0e-5
 
 
-def test_collision_yaw_rate_stays_within_controller_continuity_envelope() -> None:
-    config = VehicleConfig(max_collision_yaw_rate_radps=0.35)
+def test_collision_cannot_override_requested_ego_heading() -> None:
+    config = VehicleConfig()
     world = GamePhysicsWorld(_scene(_track(x_m=5.0, y_m=0.75)), config)
-    before = _moving_ego()
+    before = replace(
+        _moving_ego(),
+        yaw_rad=0.25,
+        yaw_rate_radps=0.4,
+    )
     dt_s = 1.0 / 30.0
 
-    resolved, _ = world.step(before, timestamp_us=0, dt_s=dt_s)
+    try:
+        resolved, _ = world.step(before, timestamp_us=0, dt_s=dt_s)
 
-    assert resolved.ragdoll_active is True
-    assert abs(resolved.yaw_rate_radps) <= config.max_collision_yaw_rate_radps
-    yaw_delta = math.atan2(
-        math.sin(resolved.yaw_rad - before.yaw_rad),
-        math.cos(resolved.yaw_rad - before.yaw_rad),
-    )
-    assert abs(yaw_delta) <= config.max_collision_yaw_rate_radps * dt_s + 1.0e-5
-    world.close()
+        assert resolved.ragdoll_active is True
+        assert resolved.yaw_rad == pytest.approx(before.yaw_rad, abs=1.0e-5)
+        assert resolved.yaw_rate_radps == pytest.approx(
+            before.yaw_rate_radps, abs=1.0e-5
+        )
+    finally:
+        world.close()
 
 
-def test_boundary_heading_correction_is_published_while_contacting() -> None:
+def test_boundary_contact_cannot_rotate_ego_without_steering() -> None:
     boundary = WorldLineSegments(
         segments_world=np.asarray(
             [[[-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]]], dtype=np.float32
@@ -696,10 +701,7 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
         world.close()
 
     assert len(contact_yaws) == 8
-    per_frame_turns = np.abs(np.diff(np.asarray(contact_yaws)))
-    max_contact_turn = config.max_collision_yaw_rate_radps / 30.0
-    assert np.max(per_frame_turns) <= max_contact_turn + 1.0e-5
-    assert abs(contact_yaws[-1]) < abs(contact_yaws[0])
+    np.testing.assert_allclose(contact_yaws, initial_yaw, atol=1.0e-5)
 
 
 def test_held_throttle_cannot_drive_ego_inside_another_vehicle() -> None:
@@ -1482,7 +1484,7 @@ def test_pedal_brake_stops_ego_quickly_through_physx_world() -> None:
     assert state.x_m < 18.0
 
 
-def test_handbrake_performs_bounded_u_turn_through_physx_world() -> None:
+def test_handbrake_turn_stops_with_vehicle_through_physx_world() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(), config)
     state = VehicleState(
@@ -1516,12 +1518,13 @@ def test_handbrake_performs_bounded_u_turn_through_physx_world() -> None:
 
     world.close()
 
-    assert abs(state.yaw_rad) > math.radians(150.0)
+    assert abs(state.yaw_rad) > math.radians(25.0)
     assert abs(state.speed_mps) < 2.0
     per_frame_turns = np.abs(np.diff(np.unwrap(np.asarray(yaws))))
     assert np.max(per_frame_turns) <= (
         config.max_handbrake_yaw_rate_radps / 30.0 + 1.0e-5
     )
+    assert np.max(per_frame_turns[-10:]) < math.radians(0.1)
 
 
 def test_releasing_handbrake_catches_quarter_turn_without_spinout() -> None:
@@ -1786,7 +1789,7 @@ def test_held_s_keeps_driving_after_road_boundary_impact() -> None:
     assert np.linalg.norm(final_xy - impact_xy) > 3.0
 
 
-def test_oblique_road_boundary_impact_redirects_heading_along_boundary() -> None:
+def test_oblique_road_boundary_impact_redirects_velocity_not_heading() -> None:
     boundary = WorldLineSegments(
         segments_world=np.asarray(
             [[[-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]]], dtype=np.float32
@@ -1809,23 +1812,25 @@ def test_oblique_road_boundary_impact_redirects_heading_along_boundary() -> None
         velocity_y_mps=8.0 * math.sin(initial_yaw),
     )
     forward = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
+    initial_lateral_velocity = state.velocity_y_mps
     collision_frame = None
-    for frame_index in range(90):
-        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
-        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
-        if state.ragdoll_active:
-            collision_frame = frame_index
-            break
+    try:
+        for frame_index in range(90):
+            state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+            state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+            if state.ragdoll_active:
+                collision_frame = frame_index
+                break
 
-    assert collision_frame is not None
-    impact_yaw = state.yaw_rad
-    for frame_index in range(collision_frame + 1, collision_frame + 16):
-        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
-        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+        assert collision_frame is not None
+        for frame_index in range(collision_frame + 1, collision_frame + 16):
+            state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
+            state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+    finally:
+        world.close()
 
-    world.close()
-
-    assert abs(state.yaw_rad) < abs(impact_yaw) - math.radians(5.0)
+    assert state.yaw_rad == pytest.approx(initial_yaw, abs=1.0e-5)
+    assert abs(state.velocity_y_mps or 0.0) < abs(initial_lateral_velocity or 0.0)
 
 
 def test_reverse_steering_pivots_in_commanded_direction_at_boundary() -> None:
