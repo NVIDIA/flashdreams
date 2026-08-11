@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from lingbot.demo.providers import PROVIDER_INPUTS_METADATA_KEY, LingbotInputProvider
 from lingbot.demo.spec import resolve_text_event_prompts, resolve_user_input_events
 from lingbot.input_mapping import (
     CAMERA_COMMAND,
@@ -25,12 +26,14 @@ from flashdreams.runtime import (
     InferenceInput,
     InputCanonicalizer,
     StepRequest,
+    StepRequirements,
     TimeWindow,
     UserInputCapability,
     UserInputEvent,
     UserInputs,
     UserInputSchema,
 )
+from flashdreams.runtime.demo import UserInputWindow
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -384,7 +387,7 @@ def test_declared_modalities_match_what_the_converters_produce() -> None:
     assert not empty.supports(CAMERA_COMMAND)
 
 
-def test_event_driven_scenario_builds_a_live_mapping(tmp_path: Path) -> None:
+def test_event_driven_scenario_uses_shared_input_provider(tmp_path: Path) -> None:
     """A scenario can drive the camera from events instead of the pose trace."""
     from lingbot.demo.adapter import LingbotDemoAdapter
     from lingbot.runtime import LINGBOT_MODEL_ID
@@ -426,26 +429,31 @@ def test_event_driven_scenario_builds_a_live_mapping(tmp_path: Path) -> None:
 
     prepared = LingbotDemoAdapter().prepare_scenario(spec)
 
-    assert isinstance(prepared.mapping, LingbotInputMapping)
-    assert prepared.mapping.mapping_schema.consumes == (CAMERA_COMMAND, TEXT_EVENT)
+    assert prepared.mapping is None
+    assert prepared.canonicalizer.converters == ()
+    assert PROVIDER_INPUTS_METADATA_KEY in prepared.metadata
     assert len(prepared.user_inputs.events) == 2
-    # The declared source must actually cover the trace it carries, or the
-    # canonicalizer silently drops the keyboard converter.
-    canonical_schema = prepared.canonicalizer.canonical_schema(prepared.source_schema)
-    assert canonical_schema.supports(CAMERA_COMMAND)
-    assert canonical_schema.supports(TEXT_EVENT)
 
     request = _step_request(step_index=0, frame_start=0, num_frames=4)
     assert request.user_input_window is not None
-    step_inputs = prepared.mapping.map_step_inputs(
-        canonical_inputs=prepared.canonicalizer.canonicalize(
-            prepared.user_inputs,
-            window=request.user_input_window,
-            source_schema=prepared.source_schema,
-        ),
-        inference_input=InferenceInput(),
-        request=request,
+    provider = LingbotInputProvider(
+        scenario=prepared,
+        inference_input_schema=LingbotDemoAdapter().inference_input_schema,
     )
+    step = provider.prepare_step(
+        request=StepRequirements(
+            step_index=request.step_index,
+            input_frame_count=4,
+            metadata=request.metadata,
+        ),
+        user_window=UserInputWindow(
+            start_s=request.user_input_window.start_s,
+            end_s=request.user_input_window.end_s,
+            inputs=prepared.user_inputs,
+        ),
+    )
+    assert step.inference_input is not None
+    step_inputs = step.inference_input
     poses = step_inputs.step[FIELD_CAMERA_TRAJECTORY]
     assert poses.shape == (4, 4, 4)
     assert not torch.allclose(poses[0], poses[-1])
