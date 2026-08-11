@@ -87,7 +87,7 @@ class VehicleConfig:
     handbrake_decel_mps2: float = DEFAULT_HANDBRAKE_DECEL_MPS2
     handbrake_yaw_gain: float = 3.25
     max_handbrake_yaw_rate_radps: float = 5.0
-    max_lateral_accel_mps2: float = 6.2
+    max_lateral_accel_mps2: float = 8.5
     drag_mps2: float = 0.7
     mass_kg: float = 1_550.0
     tire_grip: float = 1.35

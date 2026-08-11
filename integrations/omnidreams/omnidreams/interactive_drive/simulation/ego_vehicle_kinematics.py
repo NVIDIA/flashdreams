@@ -60,8 +60,7 @@ def integrate_vehicle(
 ) -> VehicleState:
     steer_rad = state.steer_rad
     if command.steer_is_direct:
-        max_steer = 0.4 if command.manual_control else vehicle.max_steer_rad
-        steer_rad = command.steer * max_steer
+        steer_rad = command.steer * vehicle.max_steer_rad
     elif abs(command.steer) > 1e-5:
         steer_rad += command.steer * vehicle.steer_rate_rad_per_s * dt_s
     else:
@@ -189,68 +188,15 @@ def integrate_vehicle(
         lateral_speed = float(np.dot(velocity, left))
         lateral_speed *= max(0.0, 1.0 - 2.0 * dt_s)
     else:
-        speed_abs = abs(speed)
-        if speed_abs < 0.75 or speed < 0.0:
-            response = 1.0 - math.exp(-8.0 * dt_s)
-            yaw_rate = (
-                state.yaw_rate_radps
-                + (commanded_yaw_rate - state.yaw_rate_radps) * response
-            )
-            # The state pose is at the vehicle CG, not at the rear axle. In a
-            # no-slip bicycle turn the CG therefore has lateral velocity
-            # ``rear_axle_to_cg * yaw_rate``. Keeping it here also makes the
-            # transition into the dynamic tire model continuous.
-            lateral_speed = design.rear_axle_to_cg_m * yaw_rate
-        else:
-            lateral_speed = float(np.dot(velocity, left))
-            front_slip = steer_rad - math.atan2(
-                lateral_speed + design.front_axle_to_cg_m * state.yaw_rate_radps,
-                speed_abs,
-            )
-            rear_slip = -math.atan2(
-                lateral_speed - design.rear_axle_to_cg_m * state.yaw_rate_radps,
-                speed_abs,
-            )
-            front_load_fraction = design.rear_axle_to_cg_m / design.wheel_base_m
-            rear_load_fraction = 1.0 - front_load_fraction
-            front_force = float(
-                np.clip(
-                    design.cornering_stiffness_n_per_rad
-                    * front_load_fraction
-                    * front_slip,
-                    -vehicle.mass_kg
-                    * front_load_fraction
-                    * design.max_lateral_accel_mps2,
-                    vehicle.mass_kg
-                    * front_load_fraction
-                    * design.max_lateral_accel_mps2,
-                )
-            )
-            rear_force = float(
-                np.clip(
-                    design.cornering_stiffness_n_per_rad
-                    * rear_load_fraction
-                    * rear_slip,
-                    -vehicle.mass_kg
-                    * rear_load_fraction
-                    * design.max_lateral_accel_mps2,
-                    vehicle.mass_kg
-                    * rear_load_fraction
-                    * design.max_lateral_accel_mps2,
-                )
-            )
-            steered_front_force = front_force * math.cos(steer_rad)
-            lateral_accel = (
-                steered_front_force + rear_force
-            ) / vehicle.mass_kg - state.yaw_rate_radps * speed
-            yaw_accel = (
-                design.front_axle_to_cg_m * steered_front_force
-                - design.rear_axle_to_cg_m * rear_force
-            ) / design.yaw_inertia_kg_m2
-            lateral_speed += lateral_accel * dt_s
-            yaw_rate = state.yaw_rate_radps + yaw_accel * dt_s
-            max_yaw_rate = design.max_lateral_accel_mps2 / speed_abs
-            yaw_rate = float(np.clip(yaw_rate, -max_yaw_rate, max_yaw_rate))
+        # Normal steering is an arcade control target, while PhysX remains
+        # responsible for contact impulses and tire forces. Running a second
+        # stateful tire-slip model here made the same input depend on speed,
+        # residual side-slip, and collision history before PhysX saw it.
+        # Publish the driver's target directly; the PhysX follower supplies
+        # the one physical response curve. Smoothing here as well created two
+        # serial low-pass filters and made steering unexpectedly stiff.
+        yaw_rate = commanded_yaw_rate
+        lateral_speed = design.rear_axle_to_cg_m * yaw_rate
 
     yaw = state.yaw_rad + yaw_rate * dt_s
     if not state.ragdoll_active:
