@@ -7,7 +7,7 @@ import time
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
-from omnidreams.interactive_drive.math3d import rig_pose_from_state
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.simulation.components import (
     GameEntity,
     game_entity_from_vehicle_state,
@@ -294,6 +294,7 @@ def sample_chunk_trajectory(
         dtype=np.int64,
     )
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
+    vehicle_states: list[VehicleState] = []
 
     state = VehicleState(**start_state.__dict__)
     actor_samples: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]] = []
@@ -354,14 +355,8 @@ def sample_chunk_trajectory(
                 physics_debug_frames.append(physics_world.debug_frame(state))
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
-        poses[frame_idx] = rig_pose_from_state(
-            x_m=state.x_m,
-            y_m=state.y_m,
-            z_m=state.z_m,
-            yaw_rad=state.yaw_rad,
-            pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
-            roll_rad=state.roll_rad + state.suspension_roll_rad,
-        )
+        vehicle_states.append(VehicleState(**state.__dict__))
+        poses[frame_idx] = rig_pose_from_vehicle_state(state)
 
     dynamic_actors = (
         physics_world.build_trajectories(timestamps, actor_samples)
@@ -371,6 +366,7 @@ def sample_chunk_trajectory(
     return TrajectoryChunk(
         timestamps_us=timestamps,
         rig_poses_world=poses,
+        vehicle_states=tuple(vehicle_states),
         boundary_state_after_chunk=state,
         dynamic_actors=dynamic_actors,
         physics_debug_frames=tuple(physics_debug_frames),

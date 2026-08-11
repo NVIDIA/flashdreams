@@ -19,10 +19,15 @@ from omnidreams.interactive_drive.presenter import (
     _NonBlockingCudaStream,
 )
 from omnidreams.interactive_drive.slangpy_hud_presenter import (
+    MPS_TO_MPH,
     SlangPyHudPresenter,
     _bev_ego_footprint_points,
 )
-from omnidreams.interactive_drive.types import PhysicsDebugFrame, PresentedFrame
+from omnidreams.interactive_drive.types import (
+    PhysicsDebugFrame,
+    PresentedFrame,
+    VehicleState,
+)
 from PIL import Image, ImageDraw
 
 
@@ -579,12 +584,12 @@ def test_hud_prepare_frame_does_not_advance_taxi_display_state() -> None:
         rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
         depth_host_f32=None,
     )
-    presenter._latest_taxi_frame = displayed
+    presenter._latest_presented_frame = displayed
     presenter._cuda_hud_interop = None
 
     presenter.prepare_frame(queued, view_mode="rgb")
 
-    assert presenter._latest_taxi_frame is displayed
+    assert presenter._latest_presented_frame is displayed
 
 
 def test_hud_present_frame_latches_taxi_state_before_render() -> None:
@@ -599,13 +604,31 @@ def test_hud_present_frame_latches_taxi_state_before_render() -> None:
     presenter._present_cuda_hud_frame = lambda frame, rgb: False
     presenter._update_camera_pil = lambda rgb: None
     presenter._render_canvas = lambda status: rendered_frames.append(
-        presenter._latest_taxi_frame
+        presenter._latest_presented_frame
     )
     presenter._present_canvas = lambda **kwargs: None
 
     presenter.present_frame(frame, view_mode="rgb")
 
     assert rendered_frames == [frame]
+
+
+def test_hud_speed_uses_displayed_state_instead_of_future_telemetry() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._keyboard = KeyboardState()
+    presenter._keyboard.update_telemetry(VehicleState(20.0, 0.0, 0.0, 1.0, 30.0, 0.0))
+    displayed_state = VehicleState(2.0, 0.0, 0.0, 0.1, 4.0, 0.0)
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        vehicle_state=displayed_state,
+    )
+    presenter._speed_mph = 0.0
+
+    presenter._update_speed(SimpleNamespace())
+
+    assert presenter._speed_mph == pytest.approx(4.0 * MPS_TO_MPH * 0.18)
 
 
 def test_hud_prepare_frame_prefetches_one_bev_per_raster_batch() -> None:

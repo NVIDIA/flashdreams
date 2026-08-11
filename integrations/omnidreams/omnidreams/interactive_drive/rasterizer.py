@@ -5,8 +5,7 @@
 
 When :class:`BevConfig` is enabled it also renders a top-down BEV via a
 synthetic ``FThetaCamera`` above the rig (pinhole projection + a fixed
-straight-down sensor-to-rig matrix). The public facade pipelines BEV one chunk
-behind RGB so presentation almost never waits for a current-chunk BEV.
+straight-down sensor-to-rig matrix).
 """
 
 import concurrent.futures
@@ -435,18 +434,14 @@ class _LudusConditionRasterizerImpl:
             )
         if bev_frames is not None and int(bev_frames.frames_hwc_uint8.shape[0]) == 0:
             bev_frames = None
+        if bev_frames is not None and int(bev_frames.frames_hwc_uint8.shape[0]) != len(
+            timestamps_us
+        ):
+            raise ValueError("BEV render count must match the timestamp count")
         if physx_frames is not None and int(
             physx_frames.frames_hwc_uint8.shape[0]
         ) != len(timestamps_us):
             raise ValueError("PhysX debug render count must match the timestamp count")
-        bev_frame_indices = _resampled_frame_indices(
-            source_count=(
-                int(bev_frames.frames_hwc_uint8.shape[0])
-                if bev_frames is not None
-                else 0
-            ),
-            target_count=len(timestamps_us),
-        )
         if self._use_cuda_frames:
             frames = [
                 PresentedFrame(
@@ -460,7 +455,7 @@ class _LudusConditionRasterizerImpl:
                     bev_host_uint8=(
                         _LazyRasterFrame(
                             bev_frames.frames_hwc_uint8,
-                            bev_frame_indices[idx],
+                            idx,
                             source_event=bev_frames.ready_event,
                         )
                         if bev_frames is not None
@@ -493,9 +488,7 @@ class _LudusConditionRasterizerImpl:
                 rgb_host_uint8=rgb_host_frames[idx],
                 depth_host_f32=None,
                 bev_host_uint8=(
-                    bev_host_frames[bev_frame_indices[idx]]
-                    if bev_host_frames is not None
-                    else None
+                    bev_host_frames[idx] if bev_host_frames is not None else None
                 ),
                 physx_debug=(
                     physics_debug_frames[idx] if physics_debug_frames else None
@@ -587,16 +580,9 @@ class LudusConditionRasterizer:
         self._impl: _LudusConditionRasterizerImpl | None = self._exec.submit(
             _LudusConditionRasterizerImpl, raster, bev
         ).result()
-        self._bev_enabled = bool(bev is not None and bev.enabled)
-        self._pending_bev: (
-            concurrent.futures.Future[_RenderedCameraFrames | None] | None
-        ) = None
-        self._latest_bev: _RenderedCameraFrames | None = None
 
     def load_scene(self, scene: SceneBundle) -> None:
         exec_, impl = self._require_alive()
-        self._clear_pending_bev()
-        self._latest_bev = None
         return exec_.submit(impl.load_scene, scene).result()
 
     def render_chunk(
@@ -607,63 +593,16 @@ class LudusConditionRasterizer:
         physics_debug_frames: tuple[PhysicsDebugFrame, ...] = (),
     ) -> "RasterChunk":
         exec_, impl = self._require_alive()
-        actors_detached = any(actor.detached_from_track for actor in dynamic_actors)
-        if actors_detached:
-            self._clear_pending_bev()
-            self._latest_bev = None
-            return exec_.submit(
-                impl.render_chunk,
-                rig_poses_world,
-                timestamps_us,
-                dynamic_actors,
-                physics_debug_frames,
-            ).result()
-        if not self._bev_enabled:
-            return exec_.submit(
-                impl.render_chunk,
-                rig_poses_world,
-                timestamps_us,
-                dynamic_actors,
-                physics_debug_frames,
-            ).result()
-
-        lagged_bev = self._poll_ready_bev()
-
-        (
-            chunk_timestamps_us,
-            rig_poses_torch,
-            rgb_frames,
-        ) = exec_.submit(
-            impl.render_rgb_frames,
+        # Render every view from the same pose batch. A previous optimization
+        # attached the prior chunk's BEV to current camera frames, which made
+        # collisions and sharp turns appear to move the world independently.
+        return exec_.submit(
+            impl.render_chunk,
             rig_poses_world,
             timestamps_us,
             dynamic_actors,
-        ).result()
-
-        # RGB rendering gives the previous BEV another chance to finish without
-        # ever making it part of the critical path. Render PhysX before queuing
-        # the next BEV: both use the same single-thread executor, so submitting
-        # BEV first would put the debug view behind unrelated minimap work.
-        lagged_bev = self._poll_ready_bev()
-        physx_frames = exec_.submit(
-            impl.render_physx_debug_frames,
-            rig_poses_torch=rig_poses_torch,
-            timestamps_us=chunk_timestamps_us,
             physics_debug_frames=physics_debug_frames,
         ).result()
-        if self._pending_bev is None:
-            self._pending_bev = exec_.submit(
-                impl.render_bev_frames,
-                rig_poses_torch=rig_poses_torch,
-                timestamps_us=chunk_timestamps_us,
-            )
-        return impl.build_chunk(
-            timestamps_us=chunk_timestamps_us,
-            rgb_frames=rgb_frames,
-            bev_frames=lagged_bev,
-            physics_debug_frames=physics_debug_frames,
-            physx_frames=physx_frames,
-        )
 
     def render_physx_debug_lazy_frames(
         self,
@@ -692,7 +631,6 @@ class LudusConditionRasterizer:
         exec_ = getattr(self, "_exec", None)
         if exec_ is None:
             return
-        self._clear_pending_bev()
         impl = self._impl
         self._impl = None
         if impl is not None:
@@ -705,22 +643,6 @@ class LudusConditionRasterizer:
         with contextlib.suppress(Exception):
             self.cleanup()
 
-    def _clear_pending_bev(self) -> None:
-        pending = getattr(self, "_pending_bev", None)
-        if pending is None:
-            return
-        pending.cancel()
-        with contextlib.suppress(Exception):
-            pending.result(timeout=0)
-        self._pending_bev = None
-
-    def _poll_ready_bev(self) -> _RenderedCameraFrames | None:
-        pending = self._pending_bev
-        if pending is not None and pending.done():
-            self._latest_bev = pending.result()
-            self._pending_bev = None
-        return self._latest_bev
-
 
 def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarray]:
     synchronize = getattr(rendered.ready_event, "synchronize", None)
@@ -729,16 +651,6 @@ def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarra
     frames = rendered.frames_hwc_uint8.detach().cpu().numpy()
     frames = np.ascontiguousarray(frames, dtype=np.uint8)
     return [frames[idx] for idx in range(frames.shape[0])]
-
-
-def _resampled_frame_indices(*, source_count: int, target_count: int) -> list[int]:
-    """Map a lagged chunk across the current chunk without assuming equal sizes."""
-    if source_count <= 0 or target_count <= 0:
-        return []
-    if source_count == 1 or target_count == 1:
-        return [0] * target_count
-    scale = (source_count - 1) / (target_count - 1)
-    return [round(index * scale) for index in range(target_count)]
 
 
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:

@@ -58,19 +58,24 @@ def minimal_scene() -> SceneBundle:
 
 
 def make_trajectory(chunk_size: int) -> TrajectoryChunk:
-    return TrajectoryChunk(
-        timestamps_us=np.arange(chunk_size, dtype=np.int64),
-        rig_poses_world=np.repeat(
-            np.eye(4, dtype=np.float32)[None], chunk_size, axis=0
-        ),
-        boundary_state_after_chunk=VehicleState(
+    states = tuple(
+        VehicleState(
             x_m=0.0,
             y_m=0.0,
             z_m=0.0,
             yaw_rad=0.0,
             speed_mps=0.0,
             steer_rad=0.0,
+        )
+        for _ in range(chunk_size)
+    )
+    return TrajectoryChunk(
+        timestamps_us=np.arange(chunk_size, dtype=np.int64),
+        rig_poses_world=np.repeat(
+            np.eye(4, dtype=np.float32)[None], chunk_size, axis=0
         ),
+        vehicle_states=states,
+        boundary_state_after_chunk=states[-1],
     )
 
 

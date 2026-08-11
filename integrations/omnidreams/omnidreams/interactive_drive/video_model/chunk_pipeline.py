@@ -281,6 +281,7 @@ class ChunkPipeline:
                 synchronized_frame = replace(
                     frame,
                     rig_to_world=trajectory.rig_poses_world[frame_index].copy(),
+                    vehicle_state=replace(trajectory.vehicle_states[frame_index]),
                     taxi_game_snapshot=taxi_snapshot,
                 )
                 frame_times = chunk_times.frames[frame_index]
