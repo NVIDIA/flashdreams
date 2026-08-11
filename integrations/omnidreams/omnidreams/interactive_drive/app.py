@@ -15,7 +15,10 @@ from omnidreams.interactive_drive.crazy_robotaxi.driving import (
     integrate_taxi_vehicle,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameController
-from omnidreams.interactive_drive.crazy_robotaxi.physics import TaxiPhysicsWorld
+from omnidreams.interactive_drive.crazy_robotaxi.physics import (
+    TaxiPhysicsWorld,
+    step_taxi_physics_world,
+)
 from omnidreams.interactive_drive.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
@@ -479,6 +482,7 @@ class InteractiveDriveApp:
                         vehicle,
                         traffic_density=self._config.taxi_game.traffic_density,
                     ),
+                    physics_step_fn=step_taxi_physics_world,
                 )
             simulation = EgoVehicleKinematics(
                 initial_state=state_from_initial_pose(
