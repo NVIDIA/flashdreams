@@ -271,6 +271,32 @@ class _FakeInputBackend:
         return SampledInput(command=DriverCommand(), sample_time=time.perf_counter())
 
 
+class _TaxiRuntime:
+    def __init__(
+        self, controller: TaxiGameController, controls: _FakeRuntimeControls
+    ) -> None:
+        self._controller = controller
+        self._controls = controls
+
+    @property
+    def is_running(self) -> bool:
+        return self._controller.is_playing
+
+    def process_events(self, state: VehicleState) -> None:
+        name = self._controls.consume_taxi_name_submission()
+        if name is not None:
+            self._controller.submit_high_score_name(name)
+        self.publish_boundary(state)
+
+    def advance_frames(
+        self, trajectory: TrajectoryChunk, frame_interval_s: float
+    ) -> tuple[object | None, ...]:
+        return tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+
+    def publish_boundary(self, state: VehicleState) -> None:
+        del state
+
+
 class _FakeSimulation:
     """Returns a canned trajectory."""
 
@@ -385,7 +411,9 @@ def _drive_loop(
                 stop_after_consumed_chunks=stop_after_consumed_chunks,
                 visual_flare_enabled=visual_flare_enabled,
             ),
-            taxi_game=taxi_game,
+            runtime_application=(
+                None if taxi_game is None else _TaxiRuntime(taxi_game, controls)
+            ),
             trace_context=trace_context,
         )
     finally:

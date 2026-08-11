@@ -9,13 +9,19 @@ import numpy as np
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
 from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
-from omnidreams.interactive_drive.streaming_presenter import (
+from omnidreams.interactive_drive.crazy_robotaxi.input import (
+    CrazyRobotaxiKeyboardState,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.streaming_presenter import (
     _INDEX_HTML,
     MJPEGStreamingPresenter,
     _as_rgb_host_uint8,
     _publish_if_open,
     _wait_for_bus_frame,
+)
+from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.streaming_presenter import (
+    MJPEGStreamingPresenter as BaseMJPEGStreamingPresenter,
 )
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
@@ -83,7 +89,7 @@ def test_streaming_presenter_draws_visible_world_marker() -> None:
         rgb_host_uint8=np.zeros((80, 100, 3), dtype=np.uint8),
         depth_host_f32=None,
         rig_to_world=np.eye(4, dtype=np.float32),
-        taxi_game_snapshot=taxi,
+        application_state=taxi,
     )
     presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
     presenter._taxi_camera_calibration = calibration
@@ -121,7 +127,7 @@ def test_streaming_presenter_frame_wait_returns_none_after_bus_close() -> None:
 
 
 def test_streaming_state_snapshot_includes_taxi_payload() -> None:
-    keyboard = KeyboardState()
+    keyboard = CrazyRobotaxiKeyboardState()
     vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 3.0, 0.0)
     future_vehicle = VehicleState(20.0, 5.0, 0.0, 1.0, 30.0, 0.4)
     taxi = TaxiGameSnapshot(
@@ -144,7 +150,7 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
         rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
         depth_host_f32=None,
         vehicle_state=vehicle,
-        taxi_game_snapshot=taxi,
+        application_state=taxi,
     )
 
     snapshot = presenter._state_snapshot()
@@ -161,7 +167,7 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
     keyboard = KeyboardState()
     keyboard.update_telemetry(VehicleState(0.0, 0.0, 0.0, 0.5, 3.0, 0.25))
-    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter = BaseMJPEGStreamingPresenter.__new__(BaseMJPEGStreamingPresenter)
     presenter._keyboard = keyboard
     presenter._taxi_enabled = False
 

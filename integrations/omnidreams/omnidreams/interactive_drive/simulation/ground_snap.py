@@ -13,6 +13,7 @@ works on the ``--backend raster`` (no GPU) path too.
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -35,8 +36,10 @@ class GroundSnapper:
         grid_resolution_m: float = 2.0,
         max_translation_m: float = 1.5,
         max_rotation_deg: float = 10.0,
+        max_absolute_rotation_deg: float | None = None,
         num_sample_points: int = 16,
         min_intersections: int = 6,
+        invalid_sample_handler: Callable[[VehicleState], VehicleState] | None = None,
     ) -> None:
         if vertices_xyz.ndim != 2 or vertices_xyz.shape[1] != 3:
             raise ValueError(f"vertices must be (N, 3), got {vertices_xyz.shape}")
@@ -47,9 +50,15 @@ class GroundSnapper:
 
         self._max_translation_m = float(max_translation_m)
         self._max_rotation_rad = math.radians(max_rotation_deg)
+        self._max_absolute_rotation_rad = (
+            None
+            if max_absolute_rotation_deg is None
+            else math.radians(max_absolute_rotation_deg)
+        )
         self._num_sample_points = int(num_sample_points)
         self._min_intersections = int(min_intersections)
         self._anchor_offset_m: float | None = None
+        self._invalid_sample_handler = invalid_sample_handler
 
         vertices_d = np.asarray(vertices_xyz, dtype=np.float64)
         faces_i = np.asarray(faces_ijk, dtype=np.int32)
@@ -98,18 +107,6 @@ class GroundSnapper:
             cell: np.asarray(idxs, dtype=np.int32)
             for cell, idxs in cell_buckets.items()
         }
-
-    @staticmethod
-    def _settle_attitude(state: VehicleState) -> VehicleState:
-        """Ease stale ground attitude toward level after an invalid sample."""
-        settle_fraction = 0.25
-        pitch = state.pitch_rad * (1.0 - settle_fraction)
-        roll = state.roll_rad * (1.0 - settle_fraction)
-        if abs(pitch) < 1.0e-4:
-            pitch = 0.0
-        if abs(roll) < 1.0e-4:
-            roll = 0.0
-        return replace(state, pitch_rad=pitch, roll_rad=roll)
 
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
@@ -185,14 +182,14 @@ class GroundSnapper:
                 n_total,
                 self._min_intersections,
             )
-            return self._settle_attitude(state)
+            return self._handle_invalid_sample(state)
         ground_pts = np.column_stack(
             [world_pts[mask, 0], world_pts[mask, 1], ground_zs[mask]]
         )
         try:
             centroid_g, normal_g = _fit_plane(ground_pts.T)
         except _InsufficientPoints:
-            return self._settle_attitude(state)
+            return self._handle_invalid_sample(state)
         if normal_g[2] < 0.0:
             normal_g = -normal_g
         local_ground_z = float(
@@ -215,19 +212,27 @@ class GroundSnapper:
         new_pitch = math.atan2(target_x, target_z)
         delta_z = abs(new_z - state.z_m)
         if delta_z > self._max_translation_m:
-            return self._settle_attitude(state)
-        target_rot = max(abs(new_pitch), abs(new_roll))
+            return self._handle_invalid_sample(state)
         delta_rot = max(
             abs(new_pitch - state.pitch_rad), abs(new_roll - state.roll_rad)
         )
-        if target_rot > self._max_rotation_rad or delta_rot > self._max_rotation_rad:
-            return self._settle_attitude(state)
+        target_rot = max(abs(new_pitch), abs(new_roll))
+        if delta_rot > self._max_rotation_rad or (
+            self._max_absolute_rotation_rad is not None
+            and target_rot > self._max_absolute_rotation_rad
+        ):
+            return self._handle_invalid_sample(state)
         return replace(
             state,
             z_m=float(new_z),
             pitch_rad=float(new_pitch),
             roll_rad=float(new_roll),
         )
+
+    def _handle_invalid_sample(self, state: VehicleState) -> VehicleState:
+        if self._invalid_sample_handler is None:
+            return state
+        return self._invalid_sample_handler(state)
 
     def _raycast(self, x: float, y: float, z_ref: float) -> float:
         z = self._ground_z_at(x, y, z_ref)

@@ -1278,6 +1278,7 @@ version = "0.1.0"
 source = { editable = "integrations/omnidreams" }
 dependencies = [
     { name = "einops" },
+    { name = "filelock" },
     { name = "flashdreams", extra = ["serving"] },
     { name = "grpcio" },
     { name = "grpcio-tools" },
@@ -1323,6 +1324,7 @@ rtx-postprocess = [
 [package.metadata]
 requires-dist = [
     { name = "einops", specifier = ">=0.8" },
+    { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },

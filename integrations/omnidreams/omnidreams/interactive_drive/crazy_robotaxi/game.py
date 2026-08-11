@@ -23,8 +23,10 @@ from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
     default_high_scores_path,
 )
 from omnidreams.interactive_drive.math3d import (
+    extract_yaw_from_transform,
     invert_transform,
     level_rig_pose_from_vehicle_state,
+    rig_pose_from_state,
     rig_pose_from_vehicle_state,
 )
 from omnidreams.interactive_drive.types import (
@@ -313,6 +315,22 @@ def project_target_to_bev(
         Horizontal coordinate, vertical coordinate, and whether the point is
         inside the BEV camera frustum.
     """
+    rig_to_world = level_rig_pose_from_vehicle_state(vehicle_state)
+    return project_target_pose_to_bev(target_xyz_m, rig_to_world, bev)
+
+
+def project_target_pose_to_bev(
+    target_xyz_m: tuple[float, float, float],
+    rig_to_world: npt.NDArray[np.float32],
+    bev: BevConfig,
+) -> tuple[float, float, bool]:
+    """Project a target using the exact rig pose that produced a BEV image."""
+    leveled_rig_to_world = rig_pose_from_state(
+        float(rig_to_world[0, 3]),
+        float(rig_to_world[1, 3]),
+        float(rig_to_world[2, 3]),
+        extract_yaw_from_transform(rig_to_world),
+    )
     theta = math.radians(float(bev.tilt_deg))
     cos_t = math.cos(theta)
     sin_t = math.sin(theta)
@@ -325,8 +343,7 @@ def project_target_to_bev(
         ],
         dtype=np.float32,
     )
-    rig_to_world = level_rig_pose_from_vehicle_state(vehicle_state)
-    world_to_sensor = invert_transform(rig_to_world @ sensor_to_rig)
+    world_to_sensor = invert_transform(leveled_rig_to_world @ sensor_to_rig)
     target_h = np.array([*target_xyz_m, 1.0], dtype=np.float32)
     target_sensor_flu = (world_to_sensor @ target_h)[:3]
     depth = float(target_sensor_flu[0])
@@ -643,18 +660,28 @@ class TaxiGameController:
                 < math.pi * 0.5
             ]
 
-        eligible_set = frozenset(
-            index
-            for index in eligible
-            if distances[index] <= self._config.initial_pickup_max_distance_m
-        )
+        eligible_set = frozenset(eligible)
         eligible_visible = [index for index in visible if index in eligible_set]
         if eligible_visible:
-            if initial_camera is None:
-                return min(eligible_visible, key=distances.__getitem__)
-            return int(self._rng.choice(eligible_visible))
+            ideal_distance_m = self._config.initial_pickup_max_distance_m
+            return min(
+                eligible_visible,
+                key=lambda index: (
+                    abs(distances[index] - ideal_distance_m),
+                    distances[index],
+                    index,
+                ),
+            )
         if visible:
-            return max(visible, key=distances.__getitem__)
+            ideal_distance_m = self._config.initial_pickup_max_distance_m
+            return min(
+                visible,
+                key=lambda index: (
+                    abs(distances[index] - ideal_distance_m),
+                    distances[index],
+                    index,
+                ),
+            )
         return self._select_pickup(x_m, y_m, excluded=frozenset())
 
     def _pickup_candidates(

@@ -180,7 +180,7 @@ def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
     assert pickup.target_xyz_m[1] == pytest.approx(0.0)
 
 
-def test_initial_pickup_is_limited_to_200_meters() -> None:
+def test_initial_pickup_prefers_visible_candidate_closest_to_200_meters() -> None:
     controller = TaxiGameController(
         scene_id="bounded-visible-pickup",
         reference_route_world=np.asarray(
@@ -194,6 +194,24 @@ def test_initial_pickup_is_limited_to_200_meters() -> None:
     pickup = controller.snapshot(_state())
 
     assert 20.0 <= pickup.distance_m <= 200.0
+
+
+def test_initial_pickup_can_exceed_200_when_that_is_the_closest_visible_choice() -> (
+    None
+):
+    controller = TaxiGameController(
+        scene_id="nearest-visible-pickup",
+        reference_route_world=np.asarray(
+            [[210.0, 0.0, 0.0], [450.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(enabled=True, seed=2, waypoint_spacing_m=240.0),
+        initial_camera=_camera_calibration(),
+    )
+
+    pickup = controller.snapshot(_state())
+
+    assert pickup.distance_m == pytest.approx(210.0)
 
 
 def test_later_pickups_are_sampled_across_the_map() -> None:
@@ -273,9 +291,8 @@ def test_navigation_routes_move_dropoffs_to_other_streets() -> None:
         _state(pickup.target_xyz_m[0], pickup.target_xyz_m[1])
     )
 
-    assert pickup.target_xyz_m[1] == 0.0
     assert dropoff.phase == "to_dropoff"
-    assert dropoff.target_xyz_m[1] == 100.0
+    assert dropoff.target_xyz_m[1] != pickup.target_xyz_m[1]
 
 
 def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:

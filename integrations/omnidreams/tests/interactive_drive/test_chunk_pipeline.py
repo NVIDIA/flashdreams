@@ -200,7 +200,7 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
         ChunkRequest(
             trajectory=make_trajectory(3),
             chunk_times=chunk_times,
-            taxi_snapshots=taxi_snapshots,
+            frame_application_states=taxi_snapshots,
         )
     )
 
@@ -214,8 +214,8 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     assert chunk_times.chunk_render_start_time is not None
     assert chunk_times.chunk_ready_time is not None
     assert chunk_times.frames[0].image_ready_time is not None
-    assert first.frame.taxi_game_snapshot is taxi_snapshots[0]
-    assert second.frame.taxi_game_snapshot is taxi_snapshots[1]
+    assert first.frame.application_state is taxi_snapshots[0]
+    assert second.frame.application_state is taxi_snapshots[1]
     assert third.frame.rig_to_world is not None
     assert third.frame.vehicle_state == make_trajectory(3).vehicle_states[2]
     assert backend.warmup_model_calls == 1

@@ -1,7 +1,19 @@
-# SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-"""Single-process slangpy-window HUD presenter for ``interactive-drive``.
+"""Single-process native HUD presenter for Crazy Robotaxi.
 
 Plugs into the same engine seam as ``SlangPyPresenter`` (``--no-hud``), but
 draws PIL chrome (panel, dropdowns, BEV minimap, speed/wheel/pedals) over the
@@ -15,6 +27,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import math as _math
+import string
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -22,10 +35,16 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import (
     BevConfig,
     RasterConfig,
     VehicleConfig,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiGameSnapshot,
+    project_target_pose_to_bev,
+    project_taxi_marker_to_camera,
 )
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
@@ -34,7 +53,11 @@ from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
-from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    DriverCommand,
+    PresentedFrame,
+)
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
     darken_rgb,
@@ -280,7 +303,13 @@ class KeyboardStateDriveSink:
         self._source = source
 
     def set_drive(
-        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+        self,
+        *,
+        steer: float,
+        throttle: float,
+        brake: float,
+        handbrake: bool = False,
+        reverse: bool = False,
     ) -> None:
         # ``manual_control`` + ``steer_is_direct`` keep the engine state
         # identical regardless of transport. ``reverse`` is set by either a
@@ -290,6 +319,7 @@ class KeyboardStateDriveSink:
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                handbrake=bool(handbrake),
                 reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
@@ -373,6 +403,10 @@ class SlangPyHudPresenter:
         self._scene_options = scene_options
         self._control_assets = control_assets
         self._wheel = wheel
+        self._taxi_camera_calibration: CameraCalibration | None = None
+        self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
+        self._taxi_name_buffer = ""
+        self._last_taxi_session_state: str | None = None
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -460,6 +494,7 @@ class SlangPyHudPresenter:
         ) = None
 
         self._latest_camera_pil: Image.Image | None = None
+        self._latest_presented_frame: PresentedFrame | None = None
         self._latest_bev_source: object | None = None
         self._latest_ego_dimensions_lwh: object | None = None
         self._prepared_bev_source_key: object | None = None
@@ -595,6 +630,9 @@ class SlangPyHudPresenter:
         if view_mode == "physx" and frame.physx_debug is None:
             return
         rgb = self._select_view_rgb(frame, view_mode)
+        source_size = _rgb_source_size(rgb)
+        if source_size is not None:
+            self._latest_camera_src_size = source_size
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
             _prefetch_to_numpy(rgb)
         if frame.bev_host_uint8 is not None:
@@ -639,6 +677,10 @@ class SlangPyHudPresenter:
             # presentation tick. Drop this transition frame instead of using
             # old-size CUDA/Vulkan buffers against the newly resized window.
             return
+
+        # Display metadata advances only with the frame handed to the
+        # swapchain. ``prepare_frame`` can run several queued frames ahead.
+        self._latest_presented_frame = frame
         try:
             cuda_presented = (
                 self._present_cuda_hud_frame(frame, rgb, flare_opacity=flare_opacity)
@@ -669,13 +711,18 @@ class SlangPyHudPresenter:
             )
         else:
             self._render_canvas(frame.status_message)
-            self._present_canvas(use_gpu_camera=frame.status_message is None)
+            self._present_canvas(
+                use_gpu_camera=(
+                    frame.status_message is None and frame.application_state is None
+                )
+            )
 
     def present_world_model_loading(self, *, process_events: bool = True) -> None:
         """Paint the HUD's world-model loading state during blocking setup work."""
         if process_events:
             self.process_events()
         self.set_engine_active(True)
+        self._latest_presented_frame = None
         self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
@@ -1342,15 +1389,23 @@ class SlangPyHudPresenter:
         if camera_transparent:
             camera_drawn = True
         elif self._latest_camera_pil is not None:
-            if status_message is None and not force_cpu_camera:
+            taxi_overlay_active = (
+                getattr(self, "_latest_presented_frame", None) is not None
+                and self._latest_presented_frame.application_state is not None
+            )
+            if (
+                status_message is None
+                and not force_cpu_camera
+                and not taxi_overlay_active
+            ):
                 # GPU camera path fills the centred fit rect after the canvas
                 # upload; here we only repaint the letterbox bars (~0.3 ms) so
                 # they don't show last frame's content when the fit rect resizes.
                 draw.rectangle(camera_area, fill=BG_COLOR + (255,))
             else:
-                # CPU camera path: composite onto canvas so the status
-                # overlay (drawn after this) sits on top of the
-                # loading-frame contents. Only used during warmup.
+                # CPU camera path: composite onto canvas so status and taxi
+                # overlays sit above the camera. Used during warmup and as the
+                # fallback when CUDA HUD interop is unavailable in taxi mode.
                 self._draw_camera(canvas, self._latest_camera_pil, camera_area)
             camera_drawn = True
         if not camera_drawn:
@@ -1383,6 +1438,11 @@ class SlangPyHudPresenter:
         if panel_w > 0:
             self._draw_panel(canvas, draw, panel_rect, wheel_state)
 
+        self._draw_taxi_world_marker(
+            draw, camera_area, getattr(self, "_latest_presented_frame", None)
+        )
+        self._draw_taxi_hud(draw, camera_area)
+
         if self._scene_dropdown_open:
             self._draw_scene_dropdown(canvas, draw)
         if self._variant_dropdown_open:
@@ -1392,6 +1452,327 @@ class SlangPyHudPresenter:
             self._draw_status_overlay(canvas, draw, camera_area, status_message)
 
     # -- Camera area -------------------------------------------------
+
+    def _draw_taxi_hud(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+    ) -> None:
+        frame = getattr(self, "_latest_presented_frame", None)
+        snapshot = None if frame is None else frame.application_state
+        live_snapshot = self._keyboard.taxi_game_state
+        if live_snapshot is not None and live_snapshot.session_state != "playing":
+            snapshot = live_snapshot
+        if snapshot is None:
+            return
+        if snapshot.session_state != self._last_taxi_session_state:
+            if snapshot.session_state == "awaiting_name":
+                self._taxi_name_buffer = ""
+            if snapshot.session_state != "playing":
+                self._release_taxi_drive_keys()
+            self._last_taxi_session_state = snapshot.session_state
+        if snapshot.session_state != "playing":
+            self._draw_taxi_game_over(draw, camera_area, snapshot)
+            return
+        ax, ay, ar, _ = camera_area
+        cx = (ax + ar) // 2
+        arrow_cy = ay + 74
+        color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
+
+        draw.ellipse(
+            (cx - 42, arrow_cy - 42, cx + 42, arrow_cy + 42),
+            fill=(12, 12, 18, 210),
+            outline=color + (255,),
+            width=3,
+        )
+        radius = 30.0
+        bearing = snapshot.relative_bearing_rad
+        direction_x = -_math.sin(bearing)
+        direction_y = -_math.cos(bearing)
+        tip = (
+            cx + int(direction_x * radius),
+            arrow_cy + int(direction_y * radius),
+        )
+        head_base = (
+            cx + int(direction_x * radius * 0.25),
+            arrow_cy + int(direction_y * radius * 0.25),
+        )
+        tail = (
+            cx - int(direction_x * radius * 0.62),
+            arrow_cy - int(direction_y * radius * 0.62),
+        )
+        draw.line((tail, head_base), fill=(0, 0, 0, 255), width=11)
+        draw.line((tail, head_base), fill=color + (255,), width=7)
+        perp_x = int(-direction_y * radius * 0.42)
+        perp_y = int(direction_x * radius * 0.42)
+        draw.polygon(
+            [
+                tip,
+                (head_base[0] - perp_x, head_base[1] - perp_y),
+                (head_base[0] + perp_x, head_base[1] + perp_y),
+            ],
+            fill=color + (255,),
+            outline=(0, 0, 0, 255),
+            width=2,
+        )
+
+        phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        timer = (
+            ""
+            if snapshot.remaining_time_s is None
+            else f"  {snapshot.remaining_time_s:04.1f}s"
+        )
+        score_label = f"SCORE {snapshot.score}"
+        if snapshot.high_score is not None:
+            score_label += f"  HIGH {snapshot.high_score}"
+        label = (
+            f"GAME {snapshot.global_remaining_time_s:04.1f}s  {phase}  "
+            f"{snapshot.distance_m:.0f}m{timer}  {score_label}"
+        )
+        bbox = _measure_text(self._font_medium, label)
+        width = bbox[2] - bbox[0]
+        draw.rounded_rectangle(
+            (cx - width // 2 - 14, ay + 122, cx + width // 2 + 14, ay + 158),
+            radius=9,
+            fill=(12, 12, 18, 210),
+        )
+        draw.text(
+            (cx - width // 2 - bbox[0], ay + 128 - bbox[1]),
+            label,
+            fill=color,
+            font=self._font_medium,
+        )
+        if snapshot.event is not None:
+            if snapshot.event == "pickup_complete":
+                event_text = "PASSENGER PICKED UP"
+            elif snapshot.event == "fare_complete":
+                event_text = (
+                    f"FARE COMPLETE  +{snapshot.awarded_points}  "
+                    f"+{snapshot.awarded_global_time_s:g}s"
+                )
+            else:
+                event_text = "TIME EXPIRED"
+            event_box = _measure_text(self._font_large, event_text)
+            event_width = event_box[2] - event_box[0]
+            draw.text(
+                (cx - event_width // 2 - event_box[0], ay + 174 - event_box[1]),
+                event_text,
+                fill=color,
+                font=self._font_large,
+                stroke_width=3,
+                stroke_fill=(0, 0, 0),
+            )
+
+    def _draw_taxi_game_over(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: TaxiGameSnapshot,
+    ) -> None:
+        """Draw the name-entry or leaderboard game-over modal."""
+        ax, ay, ar, ab = camera_area
+        cx, cy = (ax + ar) // 2, (ay + ab) // 2
+        panel_width = min(680, max(420, ar - ax - 80))
+        panel_height = min(720, max(430, ab - ay - 80))
+        rect = (
+            cx - panel_width // 2,
+            cy - panel_height // 2,
+            cx + panel_width // 2,
+            cy + panel_height // 2,
+        )
+        draw.rounded_rectangle(
+            rect,
+            radius=20,
+            fill=(10, 10, 16, 240),
+            outline=NVIDIA_GREEN + (255,),
+            width=4,
+        )
+
+        title = (
+            "NEW HIGH SCORE!"
+            if snapshot.session_state == "awaiting_name"
+            else "HIGH SCORES"
+        )
+        title_box = _measure_text(self._font_large, title)
+        draw.text(
+            (cx - (title_box[2] - title_box[0]) // 2, rect[1] + 28),
+            title,
+            fill=NVIDIA_GREEN,
+            font=self._font_large,
+        )
+        score_text = f"FINAL SCORE  {snapshot.score}"
+        score_box = _measure_text(self._font_medium, score_text)
+        draw.text(
+            (cx - (score_box[2] - score_box[0]) // 2, rect[1] + 92),
+            score_text,
+            fill=TEXT_COLOR,
+            font=self._font_medium,
+        )
+
+        if snapshot.session_state == "awaiting_name":
+            rank_text = f"You reached #{snapshot.high_score_rank}"
+            rank_box = _measure_text(self._font_medium, rank_text)
+            draw.text(
+                (cx - (rank_box[2] - rank_box[0]) // 2, rect[1] + 135),
+                rank_text,
+                fill=ACCENT_AMBER,
+                font=self._font_medium,
+            )
+            input_rect = (cx - 230, rect[1] + 195, cx + 230, rect[1] + 250)
+            draw.rounded_rectangle(
+                input_rect,
+                radius=8,
+                fill=(28, 28, 40, 255),
+                outline=(255, 255, 255, 255),
+                width=2,
+            )
+            entered = self._taxi_name_buffer or "TYPE YOUR NAME"
+            entered_color = TEXT_COLOR if self._taxi_name_buffer else LABEL_COLOR
+            entered_box = _measure_text(self._font_medium, entered)
+            draw.text(
+                (
+                    cx - (entered_box[2] - entered_box[0]) // 2,
+                    input_rect[1] + 13,
+                ),
+                entered,
+                fill=entered_color,
+                font=self._font_medium,
+            )
+            hint = "Letters / numbers / space / - / _   Backspace   Enter to submit"
+            hint_box = _measure_text(self._font_small, hint)
+            draw.text(
+                (cx - (hint_box[2] - hint_box[0]) // 2, rect[1] + 275),
+                hint,
+                fill=LABEL_COLOR,
+                font=self._font_small,
+            )
+            return
+
+        row_y = rect[1] + 145
+        for rank, entry in enumerate(snapshot.leaderboard, start=1):
+            row = f"{rank:>2}.  {entry.name:<12}  {entry.score:>7}"
+            draw.text(
+                (cx - 210, row_y),
+                row,
+                fill=ACCENT_AMBER if rank == snapshot.high_score_rank else TEXT_COLOR,
+                font=self._font_medium,
+            )
+            row_y += 38
+        hint = "Press R to start a new game"
+        hint_box = _measure_text(self._font_small, hint)
+        draw.text(
+            (cx - (hint_box[2] - hint_box[0]) // 2, rect[3] - 46),
+            hint,
+            fill=NVIDIA_GREEN,
+            font=self._font_small,
+        )
+
+    def _draw_taxi_world_marker(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        frame: PresentedFrame | None,
+    ) -> None:
+        """Draw a camera-projected target without off-screen clamping."""
+        if (
+            frame is None
+            or frame.application_state is None
+            or frame.application_state.session_state != "playing"
+            or frame.rig_to_world is None
+            or self._taxi_camera_calibration is None
+            or self._latest_camera_src_size is None
+        ):
+            return
+        source_width, source_height = self._latest_camera_src_size
+        model_key = (source_width, source_height)
+        camera_model = self._taxi_camera_models.get(model_key)
+        if camera_model is None:
+            camera_model = FThetaCameraModel(
+                self._taxi_camera_calibration,
+                output_width=source_width,
+                output_height=source_height,
+            )
+            self._taxi_camera_models[model_key] = camera_model
+        marker = project_taxi_marker_to_camera(
+            frame.application_state,
+            frame.rig_to_world,
+            camera_model,
+            image_width=source_width,
+            image_height=source_height,
+        )
+        fit = self._compute_camera_fit()
+        if marker is None or fit is None:
+            return
+        fit_width, fit_height, offset_x, offset_y = fit
+        area_x, area_y, _area_right, _area_bottom = camera_area
+
+        def display_point(point: tuple[float, float]) -> tuple[int, int]:
+            return (
+                area_x + offset_x + int(point[0] * fit_width / source_width),
+                area_y + offset_y + int(point[1] * fit_height / source_height),
+            )
+
+        color = (
+            NVIDIA_GREEN
+            if frame.application_state.phase == "seeking_pickup"
+            else ACCENT_AMBER
+        )
+        for edge in marker.ring_edges_uv:
+            line = (display_point(edge[0]), display_point(edge[1]))
+            draw.line(line, fill=(0, 0, 0, 220), width=7)
+            draw.line(line, fill=color + (245,), width=4)
+
+        anchor = display_point(marker.anchor_uv)
+        if marker.beacon_top_uv is None:
+            top = (anchor[0], anchor[1] - 64)
+        else:
+            projected_top = display_point(marker.beacon_top_uv)
+            vector_x = projected_top[0] - anchor[0]
+            vector_y = projected_top[1] - anchor[1]
+            length = max(1.0, _math.hypot(vector_x, vector_y))
+            display_length = min(170.0, max(52.0, length))
+            top = (
+                anchor[0] + int(vector_x * display_length / length),
+                anchor[1] + int(vector_y * display_length / length),
+            )
+        draw.line((anchor, top), fill=(0, 0, 0, 235), width=9)
+        draw.line((anchor, top), fill=color + (255,), width=5)
+        draw.ellipse(
+            (anchor[0] - 9, anchor[1] - 9, anchor[0] + 9, anchor[1] + 9),
+            fill=color + (255,),
+            outline=(255, 255, 255, 255),
+            width=3,
+        )
+        label = (
+            "PICKUP"
+            if frame.application_state.phase == "seeking_pickup"
+            else "DROPOFF"
+        )
+        label_box = _measure_text(self._font_small, label)
+        label_width = label_box[2] - label_box[0]
+        label_height = label_box[3] - label_box[1]
+        label_rect = (
+            top[0] - label_width // 2 - 8,
+            top[1] - label_height - 15,
+            top[0] + label_width // 2 + 8,
+            top[1] + 5,
+        )
+        draw.rounded_rectangle(
+            label_rect,
+            radius=6,
+            fill=(8, 8, 12, 225),
+            outline=color + (255,),
+            width=2,
+        )
+        draw.text(
+            (
+                top[0] - label_width // 2 - label_box[0],
+                top[1] - label_height - 10 - label_box[1],
+            ),
+            label,
+            fill=color,
+            font=self._font_small,
+        )
 
     def _draw_camera(
         self,
@@ -2081,6 +2462,9 @@ class SlangPyHudPresenter:
         if panel_image is not None:
             canvas.paste(panel_image, (inner[0], inner[1]))
 
+        marker_size = max(10, min(inner_w, inner_h) // 14)
+        self._draw_bev_taxi_target(draw, inner, inner_w, inner_h, marker_size)
+
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
         # Physics snapshots are captured only while the optional PhysX debug
         # view is active. Keep the normal RGB/model views' ego marker visible
@@ -2089,6 +2473,50 @@ class SlangPyHudPresenter:
         if ego_dimensions is None:
             ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
         self._draw_bev_ego_footprint(draw, inner, ego_dimensions, self._bev_config)
+
+    def _draw_bev_taxi_target(
+        self,
+        draw: ImageDraw.ImageDraw,
+        inner: tuple[int, int, int, int],
+        inner_w: int,
+        inner_h: int,
+        marker_size: int,
+    ) -> None:
+        frame = getattr(self, "_latest_presented_frame", None)
+        if frame is None:
+            return
+        snapshot = frame.application_state
+        bev = self._bev_config
+        bev_pose = frame.bev_rig_to_world
+        if bev_pose is None or snapshot is None or bev is None or not bev.enabled:
+            return
+        u, v, visible = project_target_pose_to_bev(
+            snapshot.target_xyz_m, bev_pose, bev
+        )
+        if not visible:
+            return
+
+        scale = max(inner_w / float(bev.width), inner_h / float(bev.height))
+        scaled_w = float(bev.width) * scale
+        scaled_h = float(bev.height) * scale
+        crop_left = (scaled_w - inner_w) / 2.0
+        crop_top = (scaled_h - inner_h) / 2.0
+        cx = int(inner[0] + u * scaled_w - crop_left)
+        cy = int(inner[1] + v * scaled_h - crop_top)
+        if not (inner[0] <= cx <= inner[2] and inner[1] <= cy <= inner[3]):
+            return
+        color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
+        radius = max(8, marker_size - 2)
+        draw.ellipse(
+            (cx - radius - 3, cy - radius - 3, cx + radius + 3, cy + radius + 3),
+            fill=(255, 255, 255, 255),
+        )
+        draw.ellipse(
+            (cx - radius, cy - radius, cx + radius, cy + radius),
+            fill=color + (255,),
+            outline=(20, 20, 30, 255),
+            width=2,
+        )
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
@@ -2287,17 +2715,16 @@ class SlangPyHudPresenter:
         return False
 
     def _update_speed(self, wheel_state: Any) -> None:
-        # Drive the digit from the authoritative ego speed
-        # (``KeyboardState.vehicle_state``, same source as the MJPEG /state),
-        # not the HUD's ``target_speed_mps`` integrator which drifts and never
-        # resets on R/respawn. Magnitude only; reverse shows via the "R" box.
-        telemetry = self._keyboard.vehicle_state
+        # Read the state attached to the displayed camera frame. The simulation
+        # can already be generating the next chunk, so live telemetry is ahead
+        # of the image and must not drive presentation chrome.
+        frame = getattr(self, "_latest_presented_frame", None)
+        telemetry = None if frame is None else frame.vehicle_state
         if telemetry is not None:
             target_mph = abs(telemetry.speed_mps) * MPS_TO_MPH
         else:
-            # No chunk yet (warmup / between scenes): hold at zero rather than
-            # showing the integrator's creep-to-10mph target before the ego
-            # has actually moved.
+            # No chunk yet (warmup / between scenes): hold at zero until the
+            # simulation publishes authoritative telemetry.
             target_mph = 0.0
         delta = target_mph - self._speed_mph
         self._speed_mph += delta * 0.18
@@ -2306,7 +2733,7 @@ class SlangPyHudPresenter:
 
     def _build_key_codes(self) -> dict[str, Any]:
         spy = self._spy
-        return {
+        key_codes = {
             "escape": _lookup_key(spy.KeyCode, "escape"),
             "f11": _lookup_key(spy.KeyCode, "f11"),
             "w": _lookup_key(spy.KeyCode, "w"),
@@ -2323,7 +2750,52 @@ class SlangPyHudPresenter:
             "key1": _lookup_key(spy.KeyCode, "key1", "digit1", "num_1"),
             "key2": _lookup_key(spy.KeyCode, "key2", "digit2", "num_2"),
             "key3": _lookup_key(spy.KeyCode, "key3", "digit3", "num_3"),
+            "backspace": _lookup_key(spy.KeyCode, "backspace"),
+            "enter": _lookup_key(spy.KeyCode, "enter", "return_key", "return"),
+            "minus": _lookup_key(spy.KeyCode, "minus", "hyphen"),
+            "underscore": _lookup_key(spy.KeyCode, "underscore"),
         }
+        for character in string.ascii_lowercase:
+            key_codes[f"name_{character}"] = _lookup_key(spy.KeyCode, character)
+        for character in string.digits:
+            key_codes[f"name_{character}"] = _lookup_key(
+                spy.KeyCode,
+                f"key{character}",
+                f"digit{character}",
+                f"num_{character}",
+            )
+        return key_codes
+
+    def _taxi_name_character_for_key(self, key: Any) -> str | None:
+        for character in string.ascii_lowercase + string.digits:
+            if self._key_matches(key, f"name_{character}"):
+                return character.upper()
+        if self._key_matches(key, "space"):
+            return " "
+        if self._key_matches(key, "minus"):
+            return "-"
+        if self._key_matches(key, "underscore"):
+            return "_"
+        return None
+
+    def _release_taxi_drive_keys(self) -> None:
+        """Clear held driving keys when the global game timer expires."""
+        for keysym in ("w", "a", "s", "d", "Up", "Down", "Left", "Right", "space"):
+            self._keyboard_drive.set_key(keysym, False)
+        self._keyboard.set_key("space", False)
+        self._pending_drive_releases.clear()
+
+    def _handle_taxi_name_key(self, key: Any) -> None:
+        if self._key_matches(key, "backspace"):
+            self._taxi_name_buffer = self._taxi_name_buffer[:-1]
+            return
+        if self._key_matches(key, "enter"):
+            if self._keyboard.submit_taxi_name(self._taxi_name_buffer):
+                self._taxi_name_buffer = ""
+            return
+        character = self._taxi_name_character_for_key(key)
+        if character is not None and len(self._taxi_name_buffer) < 12:
+            self._taxi_name_buffer += character
 
     def _on_keyboard_event(self, event: Any) -> None:
         # Treat the dedicated ``is_key_repeat`` events as presses so OS
@@ -2340,6 +2812,17 @@ class SlangPyHudPresenter:
         key = event.key
         if self._key_matches(key, "escape") and is_press:
             self._should_close_flag = True
+            return
+        taxi_state = self._keyboard.taxi_game_state
+        if taxi_state is not None and taxi_state.session_state == "awaiting_name":
+            if is_press or is_repeat:
+                self._handle_taxi_name_key(key)
+            return
+        if taxi_state is not None and taxi_state.session_state == "leaderboard":
+            if is_press and self._key_matches(key, "r"):
+                self._keyboard.request_reset()
+            elif is_press and self._key_matches(key, "x"):
+                self.exit_scene()
             return
         # Drive keys flow through ``_keyboard_drive`` so the smoothed
         # steer / throttle / brake the wheel + speed-digit chrome reads
@@ -2744,6 +3227,7 @@ class SlangPyHudPresenter:
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
         self._latest_camera_pil = None
+        self._latest_presented_frame = None
         self._latest_bev_source = None
         self._prepared_bev_source_key = None
         self._bev_source_generation = 0
@@ -2786,6 +3270,22 @@ class SlangPyHudPresenter:
         self._keyboard_drive = KeyboardDriveState(
             KeyboardStateDriveSink(keyboard, source="keyboard")
         )
+
+    def configure_taxi_hud(self, bev: BevConfig) -> None:
+        """Configure BEV projection used by taxi target overlays."""
+        from omnidreams.interactive_drive.crazy_robotaxi.driving import (
+            TaxiKeyboardDriveState,
+        )
+
+        self._bev_config = bev
+        self._keyboard_drive = TaxiKeyboardDriveState(
+            KeyboardStateDriveSink(self._keyboard, source="keyboard")
+        )
+
+    def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
+        """Configure camera projection for world-anchored taxi markers."""
+        self._taxi_camera_calibration = calibration
+        self._taxi_camera_models.clear()
 
 
 # -- Module-level helpers ---------------------------------------------
