@@ -567,6 +567,47 @@ def test_hud_prepare_frame_keeps_cuda_model_rgb_lazy() -> None:
     assert bev.prefetch_calls == 1
 
 
+def test_hud_prepare_frame_does_not_advance_taxi_display_state() -> None:
+    presenter = _hud_presenter_without_window()
+    displayed = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+        depth_host_f32=None,
+    )
+    queued = PresentedFrame(
+        timestamp_us=1,
+        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+        depth_host_f32=None,
+    )
+    presenter._latest_taxi_frame = displayed
+    presenter._cuda_hud_interop = None
+
+    presenter.prepare_frame(queued, view_mode="rgb")
+
+    assert presenter._latest_taxi_frame is displayed
+
+
+def test_hud_present_frame_latches_taxi_state_before_render() -> None:
+    presenter = _hud_presenter_without_window()
+    rendered_frames: list[PresentedFrame | None] = []
+    frame = PresentedFrame(
+        timestamp_us=1,
+        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+        depth_host_f32=None,
+    )
+    presenter._pending_resize = None
+    presenter._present_cuda_hud_frame = lambda frame, rgb: False
+    presenter._update_camera_pil = lambda rgb: None
+    presenter._render_canvas = lambda status: rendered_frames.append(
+        presenter._latest_taxi_frame
+    )
+    presenter._present_canvas = lambda **kwargs: None
+
+    presenter.present_frame(frame, view_mode="rgb")
+
+    assert rendered_frames == [frame]
+
+
 def test_hud_prepare_frame_prefetches_one_bev_per_raster_batch() -> None:
     presenter = _hud_presenter_without_window()
     first = _LazyFrame()
