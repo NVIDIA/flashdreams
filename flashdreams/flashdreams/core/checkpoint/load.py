@@ -20,14 +20,16 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
 from collections.abc import Callable, Mapping
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, overload
 from urllib.parse import unquote, urlparse
 
 import torch
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
 from loguru import logger
+from safetensors import safe_open
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors
@@ -239,7 +241,7 @@ def _safetensors_device(map_location: str | torch.device) -> str:
 def _hf_hub_download_shard_task(
     args: tuple[str, str, str | None, str],
 ) -> tuple[str, str]:
-    """Picklable worker: download one shard; used by ProcessPoolExecutor."""
+    """Download or resolve one Hugging Face shard."""
     repo_id, shard_file, subfolder, revision = args
     settings: dict[str, object] = {
         "repo": repo_id,
@@ -275,7 +277,7 @@ def _parallel_hf_hub_download_shards(
     subfolder: str | None,
     revision: str,
 ) -> dict[str, str]:
-    """Download unique shard files in parallel processes; returns shard -> local path."""
+    """Download unique shard files in parallel workers; returns shard -> local path."""
     if not shard_files:
         return {}
     if len(shard_files) == 1:
@@ -297,10 +299,10 @@ def _parallel_hf_hub_download_shards(
     work = [(repo_id, s, subfolder, revision) for s in shard_files]
     logger.info(
         f"Downloading {len(shard_files)} Hugging Face safetensors shards "
-        f"with up to {max_workers} parallel processes"
+        f"with up to {max_workers} parallel workers"
     )
     shard_to_path: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=max_workers) as pool:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for shard_file, path in pool.map(_hf_hub_download_shard_task, work):
             shard_to_path[shard_file] = path
     return shard_to_path
@@ -737,10 +739,332 @@ def _load_checkpoint_from_local(
 ) -> dict[str, torch.Tensor]:
     """Load checkpoint from local filesystem."""
     if ext == ".safetensors":
-        with open(path, "rb") as f:
-            return load_safetensors(f.read())
+        return load_safetensors_file(path, device=_safetensors_device(map_location))
     else:
         return torch.load(path, map_location=map_location, weights_only=False)
+
+
+def _copy_checkpoint_tensor(destination: torch.Tensor, source: torch.Tensor) -> int:
+    """Copy one checkpoint tensor into ``destination`` with bounded staging."""
+    checkpoint_bytes = source.numel() * source.element_size()
+    if destination.device.type != "cpu":
+        staged = source.to(dtype=destination.dtype)
+        if staged.data_ptr() == source.data_ptr():
+            staged = staged.clone()
+        destination.copy_(staged)
+        if destination.device.type == "cuda":
+            # Keep the CPU staging buffer alive until CUDA has consumed it.
+            torch.cuda.synchronize(destination.device)
+        del staged
+        return checkpoint_bytes
+
+    destination.copy_(source.to(device=destination.device, dtype=destination.dtype))
+    return checkpoint_bytes
+
+
+def _stream_safetensors_into_model(
+    model: torch.nn.Module,
+    path: str,
+) -> torch.nn.Module:
+    """Copy a safetensors checkpoint into a model with bounded host residency."""
+    model_state = model.state_dict()
+
+    with safe_open(path, framework="pt", device="cpu") as source:
+        checkpoint_keys = set(source.keys())
+        model_keys = set(model_state)
+        missing = sorted(model_keys - checkpoint_keys)
+        unexpected = sorted(checkpoint_keys - model_keys)
+        if missing or unexpected:
+            details = []
+            if missing:
+                details.append(f"Missing key(s): {', '.join(missing[:20])}")
+            if unexpected:
+                details.append(f"Unexpected key(s): {', '.join(unexpected[:20])}")
+            raise RuntimeError(
+                f"Checkpoint does not match {type(model).__name__}: "
+                + "; ".join(details)
+            )
+
+        for name, destination in model_state.items():
+            source_shape = tuple(source.get_slice(name).get_shape())
+            if source_shape != tuple(destination.shape):
+                raise RuntimeError(
+                    f"Checkpoint tensor {name!r} has shape {source_shape}, "
+                    f"expected {tuple(destination.shape)}"
+                )
+
+        with torch.no_grad():
+            for name, destination in model_state.items():
+                tensor = source.get_tensor(name)
+                try:
+                    _copy_checkpoint_tensor(destination, tensor)
+                finally:
+                    del tensor
+
+    return model
+
+
+def _stream_sharded_safetensors_into_model(
+    model: torch.nn.Module,
+    *,
+    weight_map: Mapping[str, str],
+    resolve_shard_path: Callable[[str], str],
+) -> torch.nn.Module:
+    """Copy a sharded safetensors checkpoint into a model one shard at a time."""
+    model_state = model.state_dict()
+    checkpoint_keys = set(weight_map)
+    model_keys = set(model_state)
+    missing = sorted(model_keys - checkpoint_keys)
+    unexpected = sorted(checkpoint_keys - model_keys)
+    if missing or unexpected:
+        details = []
+        if missing:
+            details.append(f"Missing key(s): {', '.join(missing[:20])}")
+        if unexpected:
+            details.append(f"Unexpected key(s): {', '.join(unexpected[:20])}")
+        raise RuntimeError(
+            f"Checkpoint does not match {type(model).__name__}: " + "; ".join(details)
+        )
+
+    keys_by_shard: dict[str, list[str]] = {}
+    for tensor_name, shard_file in weight_map.items():
+        keys_by_shard.setdefault(shard_file, []).append(tensor_name)
+
+    shard_files = sorted(keys_by_shard)
+    destination_devices = sorted(
+        {str(tensor.device) for tensor in model_state.values()}
+    )
+    destination_dtypes = sorted({str(tensor.dtype) for tensor in model_state.values()})
+    logger.info(
+        "Streaming sharded safetensors into {}: {} shard(s), {} tensor(s), "
+        "destination devices={}, dtypes={}",
+        type(model).__name__,
+        len(shard_files),
+        len(weight_map),
+        destination_devices,
+        destination_dtypes,
+    )
+
+    for shard_index, shard_file in enumerate(shard_files, start=1):
+        shard_path = resolve_shard_path(shard_file)
+        tensor_names = keys_by_shard[shard_file]
+        shard_size_gib = os.path.getsize(shard_path) / 1024**3
+        started = time.perf_counter()
+        logger.info(
+            "Validating safetensors shard {}/{}: {} tensors, {:.2f} GiB, {}",
+            shard_index,
+            len(shard_files),
+            len(tensor_names),
+            shard_size_gib,
+            shard_file,
+        )
+        with safe_open(shard_path, framework="pt", device="cpu") as source:
+            shard_keys = set(source.keys())
+            for name in tensor_names:
+                if name not in shard_keys:
+                    raise KeyError(
+                        f"Key {name!r} missing from shard {shard_file!r} "
+                        f"(path {shard_path!r})"
+                    )
+                source_shape = tuple(source.get_slice(name).get_shape())
+                destination = model_state[name]
+                if source_shape != tuple(destination.shape):
+                    raise RuntimeError(
+                        f"Checkpoint tensor {name!r} has shape {source_shape}, "
+                        f"expected {tuple(destination.shape)}"
+                    )
+        logger.info(
+            "Validated safetensors shard {}/{} in {:.1f}s: {}",
+            shard_index,
+            len(shard_files),
+            time.perf_counter() - started,
+            shard_file,
+        )
+
+    total_copied_bytes = 0
+    total_started = time.perf_counter()
+    with torch.no_grad():
+        for shard_index, shard_file in enumerate(shard_files, start=1):
+            shard_path = resolve_shard_path(shard_file)
+            tensor_names = keys_by_shard[shard_file]
+            shard_copied_bytes = 0
+            started = time.perf_counter()
+            logger.info(
+                "Streaming safetensors shard {}/{} into model: {} tensors, {}",
+                shard_index,
+                len(shard_files),
+                len(tensor_names),
+                shard_file,
+            )
+            with safe_open(shard_path, framework="pt", device="cpu") as source:
+                for name in tensor_names:
+                    tensor = source.get_tensor(name)
+                    try:
+                        tensor_bytes = _copy_checkpoint_tensor(
+                            model_state[name], tensor
+                        )
+                        shard_copied_bytes += tensor_bytes
+                        total_copied_bytes += tensor_bytes
+                    finally:
+                        del tensor
+            elapsed = time.perf_counter() - started
+            throughput = (
+                shard_copied_bytes / 1024**3 / elapsed if elapsed > 0 else float("inf")
+            )
+            logger.info(
+                "Streamed safetensors shard {}/{} in {:.1f}s: {:.2f} GiB copied "
+                "({:.2f} GiB/s), {}",
+                shard_index,
+                len(shard_files),
+                elapsed,
+                shard_copied_bytes / 1024**3,
+                throughput,
+                shard_file,
+            )
+
+    elapsed = time.perf_counter() - total_started
+    throughput = total_copied_bytes / 1024**3 / elapsed if elapsed > 0 else float("inf")
+    logger.info(
+        "Finished streaming {} safetensors shard(s) in {:.1f}s: {:.2f} GiB copied "
+        "({:.2f} GiB/s)",
+        len(shard_files),
+        elapsed,
+        total_copied_bytes / 1024**3,
+        throughput,
+    )
+
+    return model
+
+
+def _stream_sharded_safetensors_index_into_model(
+    checkpoint_path: str,
+    *,
+    model: torch.nn.Module,
+    checkpoint_min_free_gb: float | None,
+) -> torch.nn.Module | None:
+    """Stream a safetensors index checkpoint into ``model`` without merging."""
+    if checkpoint_path.startswith("s3://"):
+        return None
+
+    if _is_huggingface_checkpoint_url(checkpoint_path):
+        repo_id, index_filename, subfolder, revision = (
+            _parse_huggingface_checkpoint_url(checkpoint_path)
+        )
+        logger.info(
+            f"Streaming sharded safetensors checkpoint from Hugging Face: "
+            f"{checkpoint_path}"
+        )
+        settings: dict[str, object] = {
+            "repo": repo_id,
+            "filename": index_filename,
+            "revision": revision,
+        }
+        _preflight_checkpoint_cache_requirement(
+            label="Hugging Face sharded checkpoint cache",
+            min_free_gb=checkpoint_min_free_gb,
+            settings=settings,
+        )
+        min_bytes = _preflight_hf_cache(
+            label="Hugging Face checkpoint index cache",
+            settings=settings,
+        )
+        try:
+            index_local = hf_hub_download(
+                repo_id=repo_id,
+                filename=index_filename,
+                subfolder=subfolder,
+                revision=revision,
+            )
+        except Exception as exc:
+            _raise_hf_cache_disk_error(
+                exc,
+                label="Hugging Face checkpoint index cache",
+                required_bytes=min_bytes,
+                settings=settings,
+            )
+            raise
+        with open(index_local) as f:
+            index = json.load(f)
+        weight_map = index.get("weight_map")
+        if not isinstance(weight_map, dict) or not weight_map:
+            raise ValueError(
+                f"Invalid or empty weight_map in safetensors index: {index_local}"
+            )
+
+        unique_shards = sorted(set(weight_map.values()))
+        shard_to_path = _parallel_hf_hub_download_shards(
+            repo_id=repo_id,
+            shard_files=unique_shards,
+            subfolder=subfolder,
+            revision=revision,
+        )
+
+        def resolve_shard_path(shard_file: str) -> str:
+            return shard_to_path[shard_file]
+
+        return _stream_sharded_safetensors_into_model(
+            model,
+            weight_map=weight_map,
+            resolve_shard_path=resolve_shard_path,
+        )
+
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(
+            f"Sharded safetensors index not found: {checkpoint_path}"
+        )
+    logger.info(
+        f"Streaming sharded safetensors checkpoint from local index: {checkpoint_path}"
+    )
+    with open(checkpoint_path) as f:
+        index = json.load(f)
+    weight_map = index.get("weight_map")
+    if not isinstance(weight_map, dict) or not weight_map:
+        raise ValueError(
+            f"Invalid or empty weight_map in safetensors index: {checkpoint_path}"
+        )
+    base_dir = os.path.dirname(os.path.abspath(checkpoint_path))
+
+    def resolve_shard_path(shard_file: str) -> str:
+        return os.path.join(base_dir, shard_file)
+
+    return _stream_sharded_safetensors_into_model(
+        model,
+        weight_map=weight_map,
+        resolve_shard_path=resolve_shard_path,
+    )
+
+
+def _resolve_streamable_safetensors_path(
+    checkpoint_path: str,
+    *,
+    local_cache_dir: str,
+    checkpoint_min_free_gb: float | None,
+) -> str | None:
+    """Resolve a locally available safetensors file for streaming model loads."""
+    if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
+        if checkpoint_path.startswith("s3://"):
+            return None
+        cache_path = _sharded_safetensors_merge_cache_path(
+            checkpoint_path, local_cache_dir
+        )
+        if os.path.exists(cache_path):
+            logger.info(f"Streaming merged sharded checkpoint from cache: {cache_path}")
+            return cache_path
+        return None
+
+    if _get_checkpoint_extension(checkpoint_path) != ".safetensors":
+        return None
+    if _is_huggingface_checkpoint_url(checkpoint_path):
+        return _download_checkpoint_from_huggingface_url(
+            checkpoint_path,
+            checkpoint_min_free_gb=checkpoint_min_free_gb,
+        )
+    if checkpoint_path.startswith("s3://"):
+        cache_path = os.path.join(
+            local_cache_dir, checkpoint_path.removeprefix("s3://")
+        )
+        return cache_path if os.path.exists(cache_path) else None
+    return checkpoint_path
 
 
 def _load_checkpoint_from_s3(
@@ -837,8 +1161,9 @@ def load_checkpoint(
     Args:
         checkpoint_path: ``s3://`` URI, local path, or HF URL. Single-file or
             DCP directory.
-        model: Model to load weights into. Required for DCP. Optional for
-            single-file: when provided, ``load_state_dict`` is called.
+        model: Model to load weights into. Required for DCP. Cached
+            safetensors are streamed into a provided model; other single-file
+            formats use ``load_state_dict``.
         checkpoint_type: ``"auto"``, ``"single"``, or ``"distributed"``.
         local_cache_dir: Directory for caches.
         credential_path: S3 credentials path.
@@ -873,6 +1198,25 @@ def load_checkpoint(
                 checkpoint_type = "distributed"
 
     if checkpoint_type == "single":
+        if model is not None:
+            if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
+                streamed_model = _stream_sharded_safetensors_index_into_model(
+                    checkpoint_path,
+                    model=model,
+                    checkpoint_min_free_gb=checkpoint_min_free_gb,
+                )
+                if streamed_model is not None:
+                    logger.info(f"Streamed checkpoint into model: {checkpoint_path}")
+                    return streamed_model
+            stream_path = _resolve_streamable_safetensors_path(
+                checkpoint_path,
+                local_cache_dir=local_cache_dir,
+                checkpoint_min_free_gb=checkpoint_min_free_gb,
+            )
+            if stream_path is not None:
+                _stream_safetensors_into_model(model, stream_path)
+                logger.info(f"Streamed checkpoint into model: {checkpoint_path}")
+                return model
         state_dict = load_single_checkpoint(
             checkpoint_path=checkpoint_path,
             local_cache_dir=local_cache_dir,

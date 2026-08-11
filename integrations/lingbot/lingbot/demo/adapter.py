@@ -71,9 +71,7 @@ class LingbotDemoAdapter(LingbotModelAdapter):
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         if spec.input_mode == "replay":
             if not isinstance(spec.output, (Mp4OutputSpec, NullOutputSpec)):
-                raise ValueError(
-                    "Lingbot replay demo requires MP4 or null output."
-                )
+                raise ValueError("Lingbot replay demo requires MP4 or null output.")
             scenario = spec.scenario
             live_camera = False
         elif spec.input_mode == "keyboard-driving":

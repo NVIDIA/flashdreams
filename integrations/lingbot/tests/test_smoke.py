@@ -297,6 +297,14 @@ def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
         )
 
 
+def test_lingbot_configs_enable_streaming_checkpoint_load() -> None:
+    """Use bounded checkpoint loading for every LingBot model preset."""
+    for cfg in RUNNER_CONFIGS.values():
+        transformer = cfg.pipeline.diffusion_model.transformer
+        assert isinstance(transformer, LingbotWorldTransformerConfig)
+        assert transformer.stream_checkpoint
+
+
 def test_v2_only_replaces_the_v1_checkpoint() -> None:
     """Derive the v2 model by replacing only the v1 checkpoint and slug."""
     expected = derive_config(

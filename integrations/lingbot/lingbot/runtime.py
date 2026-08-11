@@ -17,6 +17,7 @@ import torch.distributed as dist
 from loguru import logger
 
 from flashdreams.core.distributed import init as init_distributed
+from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
     load_first_frame_tensor,
@@ -954,6 +955,10 @@ def _apply_webrtc_runtime_options(
 
 
 def _default_pipeline_factory(pipeline_config: Any, device: str) -> Any:
+    pipeline_config = derive_config(
+        base_config=pipeline_config,
+        diffusion_model=dict(transformer=dict(init_device=device)),
+    )
     return pipeline_config.setup().to(device=device).eval()
 
 

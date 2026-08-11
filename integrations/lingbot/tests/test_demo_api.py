@@ -146,6 +146,7 @@ def test_lingbot_replay_cli_builds_null_output_spec() -> None:
     assert spec.model_id == LINGBOT_MODEL_ID
     assert spec.input_mode == "replay"
     assert isinstance(spec.output, NullOutputSpec)
+    assert isinstance(spec.scenario, dict)
     assert spec.scenario[FIELD_TOTAL_BLOCKS] == 1
 
 
