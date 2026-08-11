@@ -32,9 +32,7 @@ namespace {
 
 constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
-constexpr std::int64_t kEgoObjectId = 0;
-constexpr float kBoundaryHeadingAlignRateRadps = 0.6f;
-constexpr float kActorContactDetectionMarginM = 0.15f;
+constexpr float kMaxOffRoadYawRad = 0.4363323129985824f;
 
 PxFilterFlags vehicleFilterShader(
     PxFilterObjectAttributes,
@@ -73,8 +71,6 @@ struct BodyRecord {
     PxMaterial* material = nullptr;
     std::size_t slot = 0;
     PxVec3 halfExtents{0.0f};
-    PxVec3 chassisHalfExtents{0.0f};
-    float chassisBevel = 0.0f;
     float mass = 0.0f;
     float restitution = 0.0f;
     bool collisionActive = false;
@@ -99,8 +95,6 @@ struct BodyRecord {
     float maxBrakeForce = 0.0f;
     float maxDriveSpeed = 0.0f;
     bool driveIntentActive = false;
-    bool handbrakeActive = false;
-    bool steeringActive = false;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -110,50 +104,6 @@ struct BodyRecord {
     bool hasTrack() const { return !timestampsUs.empty(); }
     bool hasVehicle() const { return wheelRadius > 0.0f; }
 };
-
-float vehicleChassisBevel(const PxVec3& halfExtents)
-{
-    return std::min({0.45f, halfExtents.x * 0.18f, halfExtents.y * 0.35f});
-}
-
-PxConvexMesh* createBeveledChassisMesh(
-    PxPhysics& physics, const PxVec3& halfExtents, float bevel)
-{
-    const float x = halfExtents.x;
-    const float y = halfExtents.y;
-    const float z = halfExtents.z;
-    const std::array<PxVec3, 16> vertices{
-        PxVec3(-x + bevel, -y, -z), PxVec3(x - bevel, -y, -z),
-        PxVec3(x, -y + bevel, -z), PxVec3(x, y - bevel, -z),
-        PxVec3(x - bevel, y, -z), PxVec3(-x + bevel, y, -z),
-        PxVec3(-x, y - bevel, -z), PxVec3(-x, -y + bevel, -z),
-        PxVec3(-x + bevel, -y, z), PxVec3(x - bevel, -y, z),
-        PxVec3(x, -y + bevel, z), PxVec3(x, y - bevel, z),
-        PxVec3(x - bevel, y, z), PxVec3(-x + bevel, y, z),
-        PxVec3(-x, y - bevel, z), PxVec3(-x, -y + bevel, z)};
-    PxConvexMeshDesc description;
-    description.points.count = static_cast<PxU32>(vertices.size());
-    description.points.stride = sizeof(PxVec3);
-    description.points.data = vertices.data();
-    description.flags = PxConvexFlag::eCOMPUTE_CONVEX;
-    return PxCreateConvexMesh(
-        PxCookingParams(physics.getTolerancesScale()),
-        description,
-        physics.getPhysicsInsertionCallback());
-}
-
-float planarSupport(
-    const BodyRecord& body,
-    const PxVec2& normal,
-    const PxVec2& forward,
-    const PxVec2& left)
-{
-    const float forwardProjection = std::abs(normal.dot(forward));
-    const float lateralProjection = std::abs(normal.dot(left));
-    return body.chassisHalfExtents.x * forwardProjection
-        + body.chassisHalfExtents.y * lateralProjection
-        - body.chassisBevel * std::min(forwardProjection, lateralProjection);
-}
 
 struct BarrierRecord {
     PxRigidStatic* actor = nullptr;
@@ -304,27 +254,13 @@ public:
             releaseSlot(slot);
             throw std::runtime_error("failed to create PhysX body");
         }
-        const float chassisBevel = hasVehicle ? vehicleChassisBevel(chassisHalf) : 0.0f;
-        PxConvexMesh* chassisMesh = nullptr;
-        PxShape* shape = nullptr;
-        if (hasVehicle) {
-            chassisMesh = createBeveledChassisMesh(
-                *mPhysics, chassisHalf, chassisBevel);
-            if (chassisMesh) {
-                shape = mPhysics->createShape(
-                    PxConvexMeshGeometry(chassisMesh), *material, true);
-            }
-        } else {
-            shape = mPhysics->createShape(
-                PxBoxGeometry(chassisHalf), *material, true);
-        }
-        if (chassisMesh)
-            chassisMesh->release();
+        PxShape* shape = mPhysics->createShape(
+            PxBoxGeometry(chassisHalf), *material, true);
         if (!shape) {
             actor->release();
             material->release();
             releaseSlot(slot);
-            throw std::runtime_error("failed to create PhysX collision shape");
+            throw std::runtime_error("failed to create PhysX box shape");
         }
         shape->setLocalPose(PxTransform(chassisCenter));
         shape->setRestOffset(0.01f);
@@ -350,8 +286,6 @@ public:
         record.material = material;
         record.slot = slot;
         record.halfExtents = half;
-        record.chassisHalfExtents = chassisHalf;
-        record.chassisBevel = chassisBevel;
         record.mass = mass;
         record.restitution = restitution;
         record.collisionActive = collisionEnabled;
@@ -601,8 +535,6 @@ public:
         const py::array_t<float, py::array::c_style>& egoAngularVelocity,
         std::int64_t timestampUs,
         float dt,
-        bool egoHandbrakeActive,
-        bool egoSteeringActive,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -611,9 +543,7 @@ public:
         const PxTransform requestedEgoPose = poseFromArray(egoPose);
         const PxVec3 requestedEgoLinear = vectorFromArray(egoLinearVelocity, "linear_velocity");
         const PxVec3 requestedEgoAngular = vectorFromArray(egoAngularVelocity, "angular_velocity");
-        BodyRecord& ego = bodyAt(kEgoObjectId);
-        ego.handbrakeActive = egoHandbrakeActive;
-        ego.steeringActive = egoSteeringActive;
+        BodyRecord& ego = bodyAt(0);
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -660,8 +590,7 @@ public:
                         requestedEgoPose,
                         ego.halfExtents,
                         actorTransform,
-                        body.halfExtents,
-                        kActorContactDetectionMarginM);
+                        body.halfExtents);
                 const PxVec3 separation = actorTransform.p - requestedEgoPose.p;
                 const PxVec3 relativeVelocity = actorVelocity - requestedEgoLinear;
                 if (
@@ -687,7 +616,6 @@ public:
             const auto actorEnd = StepClock::now();
 
             simulateSubsteps(dt);
-            applyEgoDriveHeading(requestedEgoPose, requestedEgoAngular);
             const auto solverEnd = StepClock::now();
 
             for (const auto& entry : mBodies) {
@@ -824,68 +752,15 @@ private:
             mScene->simulate(substepDt);
             if (!mScene->fetchResults(true))
                 throw std::runtime_error("PhysX fetchResults failed");
-            constrainEgoUpright();
-            constrainVehicleYawsAtBarriers(substepDt);
+            constrainVehicleYawsAtBarriers();
         }
     }
 
-    void constrainEgoUpright()
-    {
-        BodyRecord& ego = bodyAt(kEgoObjectId);
-        if (
-            !ego.hasVehicle()
-            || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
-            return;
-
-        PxTransform pose = ego.actor->getGlobalPose();
-        const PxVec3 up = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
-        if (
-            std::abs(up.x) > 1.0e-4f
-            || std::abs(up.y) > 1.0e-4f
-            || up.z < 0.9999f) {
-            pose.q = PxQuat(
-                yawFromQuaternion(pose.q),
-                PxVec3(0.0f, 0.0f, 1.0f));
-            ego.actor->setGlobalPose(pose, false);
-        }
-
-        PxVec3 angularVelocity = ego.actor->getAngularVelocity();
-        if (
-            std::abs(angularVelocity.x) > 1.0e-5f
-            || std::abs(angularVelocity.y) > 1.0e-5f) {
-            angularVelocity.x = 0.0f;
-            angularVelocity.y = 0.0f;
-            ego.actor->setAngularVelocity(angularVelocity, false);
-        }
-    }
-
-    void applyEgoDriveHeading(
-        const PxTransform& requestedPose,
-        const PxVec3& requestedAngularVelocity)
-    {
-        BodyRecord& ego = bodyAt(kEgoObjectId);
-        if (
-            !ego.hasVehicle()
-            || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
-            return;
-
-        // Translation and velocity remain PhysX-owned. Heading comes from the
-        // same vehicle trajectory used for HD-map conditioning so contacts
-        // cannot rotate the map independently of the generated camera.
-        PxTransform pose = ego.actor->getGlobalPose();
-        pose.q = PxQuat(
-            yawFromQuaternion(requestedPose.q),
-            PxVec3(0.0f, 0.0f, 1.0f));
-        ego.actor->setGlobalPose(pose, false);
-        ego.actor->setAngularVelocity(requestedAngularVelocity, false);
-    }
-
-    void constrainVehicleYawsAtBarriers(float dt)
+    void constrainVehicleYawsAtBarriers()
     {
         for (auto& entry : mBodies) {
             BodyRecord& body = entry.second;
             if (!body.hasVehicle()
-                || entry.first == kEgoObjectId
                 || body.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
                 continue;
 
@@ -897,8 +772,8 @@ private:
             const BarrierRecord* nearestBoundary = nullptr;
             float nearestClearance = std::numeric_limits<float>::max();
             const float bodyRadius = std::sqrt(
-                body.chassisHalfExtents.x * body.chassisHalfExtents.x
-                + body.chassisHalfExtents.y * body.chassisHalfExtents.y) + 0.05f;
+                body.halfExtents.x * body.halfExtents.x
+                + body.halfExtents.y * body.halfExtents.y) + 0.05f;
             for (const auto& barrierEntry : mBarriers) {
                 const BarrierRecord& barrier = barrierEntry.second;
                 const float broadPhaseRadius =
@@ -919,7 +794,8 @@ private:
                 const PxVec2 normal = distance > 1.0e-6f
                     ? offset / distance
                     : PxVec2(-barrier.segment.y, barrier.segment.x).getNormalized();
-                const float support = planarSupport(body, normal, forward, left);
+                const float support = std::abs(normal.dot(forward)) * body.halfExtents.x
+                    + std::abs(normal.dot(left)) * body.halfExtents.y;
                 const float clearance = distance - support - barrier.thickness * 0.5f;
                 if (clearance <= 0.05f && clearance < nearestClearance) {
                     nearestBoundary = &barrier;
@@ -931,33 +807,18 @@ private:
             if (!nearestBoundary)
                 continue;
 
-            const float requestedYawRate = body.desiredAngularVelocity.z;
-            if (body.steeringActive && std::abs(requestedYawRate) > 1.0e-3f) {
-                // When the driver is steering, the contact point should act
-                // like a pivot for the turn rather than snapping the chassis
-                // toward whichever parallel curb heading is closest. This is
-                // especially important while reversing through a three-point
-                // turn, where the natural bicycle-model yaw is reversed.
-                PxVec3 angularVelocity = body.actor->getAngularVelocity();
-                angularVelocity.z = requestedYawRate;
-                body.actor->setAngularVelocity(angularVelocity, true);
-                continue;
-            }
-
             float yawError = wrappedAngle(yaw - nearestBoundary->yaw);
             if (yawError > 1.5707963267948966f)
                 yawError -= 3.1415926535897932f;
             else if (yawError < -1.5707963267948966f)
                 yawError += 3.1415926535897932f;
-            const float alignmentDelta =
-                std::min(std::abs(yawError), kBoundaryHeadingAlignRateRadps * dt);
-            const float alignedYawError =
-                yawError - std::copysign(alignmentDelta, yawError);
-            if (alignedYawError == yawError)
+            const float constrainedYawError = std::clamp(
+                yawError, -kMaxOffRoadYawRad, kMaxOffRoadYawRad);
+            if (constrainedYawError == yawError)
                 continue;
 
             pose.q = PxQuat(
-                alignedYawError - yawError,
+                constrainedYawError - yawError,
                 PxVec3(0.0f, 0.0f, 1.0f)) * pose.q;
             pose.q.normalize();
             body.actor->setGlobalPose(pose, false);
@@ -985,10 +846,7 @@ private:
             const PxVec3 suspensionUp = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
             const PxVec3 suspensionDown = -suspensionUp;
             const float rayLength = body.suspensionRestLength + body.wheelRadius;
-            for (std::size_t wheelIndex = 0;
-                 wheelIndex < body.suspensionMounts.size();
-                 ++wheelIndex) {
-                const PxVec3& localMount = body.suspensionMounts[wheelIndex];
+            for (const PxVec3& localMount : body.suspensionMounts) {
                 const PxVec3 mount = pose.transform(localMount);
                 PxRaycastBuffer hit;
                 if (!mScene->raycast(
@@ -1041,11 +899,7 @@ private:
                 const float lateralSpeed = contactVelocity.dot(lateral);
                 const float slipAngle = std::atan2(
                     lateralSpeed, std::abs(longitudinalSpeed) + 0.5f);
-                const bool rearWheel = wheelIndex >= 2;
-                const float handbrakeGripScale =
-                    body.handbrakeActive && rearWheel ? 0.08f : 1.0f;
-                const float frictionLimit =
-                    body.tireFriction * wheelLoad * handbrakeGripScale;
+                const float frictionLimit = body.tireFriction * wheelLoad;
                 const float lateralForce = std::clamp(
                     -0.25f * body.corneringStiffness * slipAngle,
                     -frictionLimit,
@@ -1138,8 +992,7 @@ private:
         const PxTransform& first,
         const PxVec3& firstHalf,
         const PxTransform& second,
-        const PxVec3& secondHalf,
-        float margin)
+        const PxVec3& secondHalf)
     {
         const float firstYaw = yawFromQuaternion(first.q);
         const float secondYaw = yawFromQuaternion(second.q);
@@ -1154,7 +1007,7 @@ private:
                 + firstHalf.y * std::abs(axes[1].dot(axis));
             const float secondRadius = secondHalf.x * std::abs(axes[2].dot(axis))
                 + secondHalf.y * std::abs(axes[3].dot(axis));
-            if (std::abs(delta.dot(axis)) > firstRadius + secondRadius + margin)
+            if (std::abs(delta.dot(axis)) > firstRadius + secondRadius)
                 return false;
         }
         return true;
@@ -1199,7 +1052,6 @@ private:
             forceLimit);
         const float lateralForceLimit = body.hasVehicle()
             ? body.tireFriction * body.mass * 9.81f
-                * (body.handbrakeActive ? 0.15f : 1.0f)
             : body.mass * 6.5f;
         const float lateralForce = std::clamp(
             body.mass
@@ -1212,37 +1064,24 @@ private:
             PxForceMode::eFORCE,
             true);
 
-        if (body.handbrakeActive || body.steeringActive) {
-            // Blend active steering toward the arcade controller's yaw target
-            // directly. Tire and contact forces can still perturb the chassis
-            // within each PhysX substep, but cannot make ordinary steering
-            // stiffness depend on leftover collision or side-slip momentum.
-            PxVec3 angularVelocity = actor->getAngularVelocity();
-            const float responseRate = body.handbrakeActive ? 16.0f : 10.0f;
-            const float yawResponse = 1.0f - std::exp(-responseRate * dt);
-            angularVelocity.z +=
-                (body.desiredAngularVelocity.z - angularVelocity.z) * yawResponse;
-            actor->setAngularVelocity(angularVelocity, true);
-        } else {
-            const float yawInertia = actor->getMassSpaceInertiaTensor().z;
-            const float unconstrainedYawTorque = yawInertia
-                * (body.desiredAngularVelocity.z - actor->getAngularVelocity().z)
-                / std::max(dt, 1.0e-3f);
-            const float halfWheelBase = body.hasVehicle()
-                ? std::max(std::abs(body.suspensionMounts[0].x), 0.5f)
-                : 0.5f;
-            const float maxYawTorque = body.hasVehicle()
-                ? body.tireFriction * body.mass * 9.81f * halfWheelBase
-                : yawInertia * 4.0f;
-            actor->addTorque(
-                PxVec3(
-                    0.0f,
-                    0.0f,
-                    std::clamp(
-                        unconstrainedYawTorque, -maxYawTorque, maxYawTorque)),
-                PxForceMode::eFORCE,
-                true);
-        }
+        const float yawInertia = actor->getMassSpaceInertiaTensor().z;
+        const float unconstrainedYawTorque = yawInertia
+            * (body.desiredAngularVelocity.z - actor->getAngularVelocity().z)
+            / std::max(dt, 1.0e-3f);
+        const float halfWheelBase = body.hasVehicle()
+            ? std::max(std::abs(body.suspensionMounts[0].x), 0.5f)
+            : 0.5f;
+        const float maxYawTorque = body.hasVehicle()
+            ? body.tireFriction * body.mass * 9.81f * halfWheelBase
+            : yawInertia * 4.0f;
+        actor->addTorque(
+            PxVec3(
+                0.0f,
+                0.0f,
+                std::clamp(
+                    unconstrainedYawTorque, -maxYawTorque, maxYawTorque)),
+            PxForceMode::eFORCE,
+            true);
 
         if (body.verticalTrackControl) {
             constexpr float maxVerticalAcceleration = 12.0f;
@@ -1340,8 +1179,8 @@ private:
         const PxVec2 forward(std::cos(yaw), std::sin(yaw));
         const PxVec2 left(-forward.y, forward.x);
         const float egoRadius = std::sqrt(
-            ego.chassisHalfExtents.x * ego.chassisHalfExtents.x
-            + ego.chassisHalfExtents.y * ego.chassisHalfExtents.y) + 0.05f;
+            ego.halfExtents.x * ego.halfExtents.x
+            + ego.halfExtents.y * ego.halfExtents.y) + 0.05f;
         for (const auto& entry : mBarriers) {
             const BarrierRecord& barrier = entry.second;
             const float broadPhaseRadius = egoRadius + barrier.thickness * 0.5f;
@@ -1368,7 +1207,8 @@ private:
                     ? -horizontalVelocity / speed
                     : PxVec2(1.0f, 0.0f);
             }
-            const float support = planarSupport(ego, normal, forward, left);
+            const float support = std::abs(normal.dot(forward)) * ego.halfExtents.x
+                + std::abs(normal.dot(left)) * ego.halfExtents.y;
             if (distance > support + barrier.thickness * 0.5f + 0.05f)
                 continue;
             const float normalSpeed = egoVelocity.x * normal.x + egoVelocity.y * normal.y;

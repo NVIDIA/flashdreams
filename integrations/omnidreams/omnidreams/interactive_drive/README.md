@@ -238,14 +238,14 @@ flags:
 
 Collision physics and the vehicle speed limit are off by default. Add
 `--game-mode` to enable the speed limit and collisions with scene actors and
-static map geometry:
+static map geometry, together with the collision visual effect:
 
 ```bash
 uv run --package flashdreams-omnidreams interactive-drive --game-mode
 ```
 
-The full-screen collision flare is disabled by default. The legacy
-`--disable-visual-flare` option remains accepted for compatible launch scripts.
+To keep collision physics but suppress the full-screen collision flare, combine
+`--game-mode` with `--disable-visual-flare`.
 
 For a richer remote-viewing experience with a polished frontend and lower
 latency than an in-process MJPEG stream, prefer the separate
@@ -302,6 +302,12 @@ appears; zero-point runs are not recorded. Scores persist at
 by default; pass `--taxi-seed N` when debugging to reproduce the same layout for
 the same scene. Manual reset, OOB respawn, and scene changes start a fresh run
 without saving the unfinished score.
+
+Taxi mode also owns its arcade driving policy: rollouts start stationary,
+`S` brakes and then reverses after stopping, `Space` applies the handbrake,
+steering and acceleration respond more quickly, and `--traffic-density`
+selects the fraction of recorded motor traffic retained. These changes are not
+applied to normal Interactive Drive or `--game-mode`.
 
 **Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
 settings) into `configs/wheels/` and the HUD will pick it up at startup. With
@@ -448,9 +454,13 @@ matches the desktop modes' affordances:
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light
   the same chiclets as their letter equivalents.
-- **Coasting**: releasing the controls lets the ego coast toward a stop.
-  A new rollout starts stationary, and both the browser and desktop HUD
-  use the same manual-control behavior.
+- **Auto-crawl**: releasing throttle keeps the ego creeping toward
+  ~10 mph (4.47 m/s) instead of coasting to a stop, matching the
+  alpasim manual-driver behaviour and the slangpy HUD's keyboard
+  path. The `--stream-mjpeg` presenter routes browser keypresses
+  through the same `KeyboardDriveState` integrator the desktop HUD
+  uses, so it posts `DriverCommand(manual_control=True, ...)` which
+  unlocks the creep branch in `EgoVehicleKinematics.integrate_vehicle`.
 
 If you're running on a remote box (cloud GPU, lab machine, headless
 server), the demo port may not be reachable directly from your laptop.
@@ -505,11 +515,11 @@ environment variable for the bare presenter.
 Controls (apply in all three modes):
 
 - `W` throttle
-- `S` brake, then reverse after stopping
+- `S` brake / reverse drag
 - `A` steer left
 - `D` steer right
 - arrow keys mirror `W/A/S/D`
-- `Space` handbrake
+- `Space` stop
 - `1` generated driving view
 - `2` HD map view
 - `3` first-person PhysX collider view (actor chassis and invisible walls)
@@ -562,20 +572,14 @@ than being velocity-clamped. PhysX therefore owns translation,
 vertical suspension travel, body attitude, rigid-body contact, and
 mass-dependent momentum transfer without locking any axis. A struck actor
 remains an integrated vehicle body instead of reverting to a sliding visual box.
-When an impact produces at least a 5 mph speed change, traffic AI suppresses the
-struck vehicle's track-driving command so that only its transferred momentum
-moves it. Driving is restored only after the body has remained stationary for
-one continuous simulated second; the native physics layer owns neither that
-timer nor that decision.
+When an impact meets the collision visual effect's 5 mph speed-change threshold,
+traffic AI suppresses the struck vehicle's track-driving command so that only
+its transferred momentum moves it. Driving is restored only after the body has
+remained stationary for one continuous simulated second; the native physics
+layer owns neither that timer nor that decision.
 
 Road-boundary, curb, building, house, and wall line/polygon layers are solid
 barriers. The large scene AABB remains a separate last-resort respawn boundary.
-The vehicle trajectory is the sole authority for ego heading. PhysX contacts
-remain authoritative for translation and velocity, but cannot independently
-rotate the ego away from the HD-map conditioning trajectory. Curb turns use the
-same speed-dependent steering target as ordinary driving. Handbrake steering is
-capped at 1.5 rad/s and stops rotating once the vehicle stops, avoiding camera
-motion that the autoregressive world model was not trained to represent.
 The complete typed scene stays in the abstract graph for rendering; Ludus
 copies a 350 m active window into PhysX and coalesces densely sampled map
 strokes into roughly 2 m collision walls. This keeps long-HD-map preload cost
@@ -584,6 +588,14 @@ For active actors, Ludus renders the authoritative per-frame PhysX poses as
 oriented HD-map boxes for both RGB and BEV/model inputs. The first topology
 change replaces one scene slot; subsequent chunks update the actor cube pool in
 place without clearing static map or camera buffers.
+
+With `--taxi-game`, the app's Taxi trajectory remains the sole authority for
+ego heading. PhysX contacts still resolve translation and velocity, while the
+Taxi adapter prevents contact rotation from diverging from the HD-map and
+world-model conditioning trajectory. The adapter also insets vehicle chassis
+boxes by 16 cm on each horizontal axis to reduce rectangular-corner snagging;
+the reusable Ludus renderer and normal Interactive Drive collision models are
+unchanged.
 
 Each simulated frame also carries its authoritative ego state alongside the rig
 pose derived from that state. Camera conditioning, the current BEV, native HUD,

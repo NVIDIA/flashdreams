@@ -3,6 +3,7 @@
 
 import math
 import time
+from collections.abc import Callable
 
 import numpy as np
 from loguru import logger
@@ -31,27 +32,6 @@ def _move_towards(current: float, target: float, max_delta: float) -> float:
     return max(current - max_delta, target)
 
 
-def _apply_brake_or_reverse(
-    speed_mps: float,
-    command: DriverCommand,
-    *,
-    dt_s: float,
-    brake_decel_mps2: float,
-    reverse_accel_mps2: float,
-    max_reverse_speed_mps: float,
-) -> float:
-    brake_delta = brake_decel_mps2 * command.brake * dt_s
-    if command.throttle > 0.01 or command.reverse:
-        return _move_towards(speed_mps, 0.0, brake_delta)
-    reverse_dt_s = dt_s
-    if speed_mps > 0.0:
-        if brake_delta <= speed_mps:
-            return max(0.0, speed_mps - brake_delta)
-        reverse_dt_s -= speed_mps / (brake_decel_mps2 * command.brake)
-    reverse_delta = reverse_accel_mps2 * command.brake * reverse_dt_s
-    return max(-max_reverse_speed_mps, min(0.0, speed_mps) - reverse_delta)
-
-
 def integrate_vehicle(
     state: VehicleState,
     command: DriverCommand,
@@ -60,7 +40,8 @@ def integrate_vehicle(
 ) -> VehicleState:
     steer_rad = state.steer_rad
     if command.steer_is_direct:
-        steer_rad = command.steer * vehicle.max_steer_rad
+        max_steer = 0.4 if command.manual_control else vehicle.max_steer_rad
+        steer_rad = command.steer * max_steer
     elif abs(command.steer) > 1e-5:
         steer_rad += command.steer * vehicle.steer_rate_rad_per_s * dt_s
     else:
@@ -72,21 +53,18 @@ def integrate_vehicle(
     speed = state.speed_mps
     if command.stop:
         speed = 0.0
-    elif command.handbrake:
-        speed = _move_towards(speed, 0.0, vehicle.handbrake_decel_mps2 * dt_s)
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
+        # Brake wins over throttle: holding both pedals bleeds speed toward a
+        # stop, matching real cars and the demo.py target-speed integrators.
         if command.brake > 0.01:
-            speed = _apply_brake_or_reverse(
-                speed,
-                command,
-                dt_s=dt_s,
-                brake_decel_mps2=vehicle.max_brake_mps2,
-                reverse_accel_mps2=vehicle.reverse_accel_mps2,
-                max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
-            )
+            decel = 12.0 * command.brake * dt_s
+            if speed > 0:
+                speed = max(0.0, speed - decel)
+            elif speed < 0:
+                speed = min(0.0, speed + decel)
         elif command.throttle > 0.01:
-            accel = vehicle.max_accel_mps2 * command.throttle * dt_s
+            accel = 2.0 * command.throttle * dt_s
             if intended_direction < 0.0:
                 speed -= accel
             elif vehicle.speed_limit_enabled:
@@ -104,28 +82,22 @@ def integrate_vehicle(
             else:
                 speed += accel
         else:
-            speed = _move_towards(speed, 0.0, 0.5 * dt_s)
+            if speed > 0.0:
+                speed = max(0.0, speed - 0.5 * dt_s)
+            elif speed < 0.0:
+                speed = min(0.0, speed + 0.5 * dt_s)
         if vehicle.speed_limit_enabled:
             speed = float(
                 np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
             )
     else:
-        if command.brake > 0.01:
-            speed = _apply_brake_or_reverse(
-                speed,
-                command,
-                dt_s=dt_s,
-                brake_decel_mps2=vehicle.max_brake_mps2,
-                reverse_accel_mps2=vehicle.reverse_accel_mps2,
-                max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
-            )
-        elif command.throttle > 0.01:
-            intended_direction = -1.0 if command.reverse else 1.0
-            accel_delta = command.throttle * vehicle.max_accel_mps2 * dt_s
-            if speed * intended_direction < 0.0:
-                speed = _move_towards(speed, 0.0, accel_delta * 1.5)
-            else:
-                speed += intended_direction * accel_delta
+        intended_direction = -1.0 if command.reverse else 1.0
+        accel = command.throttle * vehicle.max_accel_mps2 * dt_s
+        brake = command.brake * vehicle.max_brake_mps2 * dt_s
+        if brake > 0.0:
+            speed = _move_towards(speed, 0.0, brake)
+        elif accel > 0.0:
+            speed += intended_direction * accel
         else:
             if speed > 0.0:
                 speed = max(0.0, speed - vehicle.drag_mps2 * dt_s)
@@ -139,15 +111,11 @@ def integrate_vehicle(
     commanded_yaw_rate = 0.0
     if abs(steer_rad) > 1e-5 and abs(speed) > 1e-5:
         commanded_yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad)
-        if command.handbrake:
-            commanded_yaw_rate *= vehicle.handbrake_yaw_gain
-            max_yaw_rate = vehicle.max_handbrake_yaw_rate_radps
-        else:
-            # A fixed steering angle becomes unrealistically aggressive as speed
-            # rises because bicycle-model lateral acceleration scales with v^2.
-            # Limit yaw rate by the configured grip envelope while preserving the
-            # full steering response at parking and neighbourhood speeds.
-            max_yaw_rate = vehicle.max_lateral_accel_mps2 / abs(speed)
+        # A fixed steering angle becomes unrealistically aggressive as speed
+        # rises because bicycle-model lateral acceleration scales with v^2.
+        # Limit yaw rate by the configured grip envelope while preserving the
+        # full steering response at parking and neighbourhood speeds.
+        max_yaw_rate = vehicle.max_lateral_accel_mps2 / abs(speed)
         commanded_yaw_rate = float(
             np.clip(commanded_yaw_rate, -max_yaw_rate, max_yaw_rate)
         )
@@ -174,29 +142,72 @@ def integrate_vehicle(
         velocity -= left * lateral_speed * grip
         longitudinal_speed = float(np.dot(velocity, forward))
         velocity += forward * (speed - longitudinal_speed)
-        response = 1.0 - math.exp(-8.0 * dt_s)
-        yaw_rate = (
-            state.yaw_rate_radps
-            + (commanded_yaw_rate - state.yaw_rate_radps) * response
-        )
-    elif command.handbrake:
-        response = 1.0 - math.exp(-4.0 * dt_s)
-        yaw_rate = (
-            state.yaw_rate_radps
-            + (commanded_yaw_rate - state.yaw_rate_radps) * response
-        )
-        lateral_speed = float(np.dot(velocity, left))
-        lateral_speed *= max(0.0, 1.0 - 2.0 * dt_s)
+        yaw_rate = state.yaw_rate_radps * max(
+            0.0, 1.0 - 1.8 * dt_s
+        ) + commanded_yaw_rate * min(1.0, 2.5 * dt_s)
     else:
-        # Normal steering is an arcade control target, while PhysX remains
-        # responsible for contact impulses and tire forces. Running a second
-        # stateful tire-slip model here made the same input depend on speed,
-        # residual side-slip, and collision history before PhysX saw it.
-        # Publish the driver's target directly; the PhysX follower supplies
-        # the one physical response curve. Smoothing here as well created two
-        # serial low-pass filters and made steering unexpectedly stiff.
-        yaw_rate = commanded_yaw_rate
-        lateral_speed = design.rear_axle_to_cg_m * yaw_rate
+        speed_abs = abs(speed)
+        if speed_abs < 0.75 or speed < 0.0:
+            response = 1.0 - math.exp(-8.0 * dt_s)
+            yaw_rate = (
+                state.yaw_rate_radps
+                + (commanded_yaw_rate - state.yaw_rate_radps) * response
+            )
+            # The state pose is at the vehicle CG, not at the rear axle. In a
+            # no-slip bicycle turn the CG therefore has lateral velocity
+            # ``rear_axle_to_cg * yaw_rate``. Keeping it here also makes the
+            # transition into the dynamic tire model continuous.
+            lateral_speed = design.rear_axle_to_cg_m * yaw_rate
+        else:
+            lateral_speed = float(np.dot(velocity, left))
+            front_slip = steer_rad - math.atan2(
+                lateral_speed + design.front_axle_to_cg_m * state.yaw_rate_radps,
+                speed_abs,
+            )
+            rear_slip = -math.atan2(
+                lateral_speed - design.rear_axle_to_cg_m * state.yaw_rate_radps,
+                speed_abs,
+            )
+            front_load_fraction = design.rear_axle_to_cg_m / design.wheel_base_m
+            rear_load_fraction = 1.0 - front_load_fraction
+            front_force = float(
+                np.clip(
+                    design.cornering_stiffness_n_per_rad
+                    * front_load_fraction
+                    * front_slip,
+                    -vehicle.mass_kg
+                    * front_load_fraction
+                    * design.max_lateral_accel_mps2,
+                    vehicle.mass_kg
+                    * front_load_fraction
+                    * design.max_lateral_accel_mps2,
+                )
+            )
+            rear_force = float(
+                np.clip(
+                    design.cornering_stiffness_n_per_rad
+                    * rear_load_fraction
+                    * rear_slip,
+                    -vehicle.mass_kg
+                    * rear_load_fraction
+                    * design.max_lateral_accel_mps2,
+                    vehicle.mass_kg
+                    * rear_load_fraction
+                    * design.max_lateral_accel_mps2,
+                )
+            )
+            steered_front_force = front_force * math.cos(steer_rad)
+            lateral_accel = (
+                steered_front_force + rear_force
+            ) / vehicle.mass_kg - state.yaw_rate_radps * speed
+            yaw_accel = (
+                design.front_axle_to_cg_m * steered_front_force
+                - design.rear_axle_to_cg_m * rear_force
+            ) / design.yaw_inertia_kg_m2
+            lateral_speed += lateral_accel * dt_s
+            yaw_rate = state.yaw_rate_radps + yaw_accel * dt_s
+            max_yaw_rate = design.max_lateral_accel_mps2 / speed_abs
+            yaw_rate = float(np.clip(yaw_rate, -max_yaw_rate, max_yaw_rate))
 
     yaw = state.yaw_rad + yaw_rate * dt_s
     if not state.ragdoll_active:
@@ -209,7 +220,7 @@ def integrate_vehicle(
     y_m = state.y_m + float(velocity[1]) * dt_s
 
     longitudinal_accel = (speed - state.speed_mps) / max(dt_s, 1e-6)
-    lateral_accel = speed * yaw_rate * (0.35 if command.handbrake else 1.0)
+    lateral_accel = speed * yaw_rate
     target_pitch = float(
         np.clip(
             -longitudinal_accel
@@ -285,6 +296,9 @@ def sample_chunk_trajectory(
     ground_snapper: GroundSnapper | None,
     physics_world: GamePhysicsWorld | None = None,
     capture_physics_debug: bool = False,
+    integrate_fn: Callable[
+        [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
+    ] = integrate_vehicle,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -294,9 +308,9 @@ def sample_chunk_trajectory(
         dtype=np.int64,
     )
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
-    vehicle_states: list[VehicleState] = []
 
     state = VehicleState(**start_state.__dict__)
+    vehicle_states: list[VehicleState] = []
     actor_samples: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]] = []
     physics_debug_frames = []
     physx_elapsed_s = 0.0
@@ -319,7 +333,7 @@ def sample_chunk_trajectory(
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
     for frame_idx in range(chunk_size):
-        state = integrate_vehicle(
+        state = integrate_fn(
             state, command, chunk_config.frame_interval_s, vehicle_config
         )
         if physics_world is not None:
@@ -328,8 +342,6 @@ def sample_chunk_trajectory(
                 state,
                 int(timestamps[frame_idx]),
                 chunk_config.frame_interval_s,
-                handbrake_active=command.handbrake,
-                steering_active=abs(command.steer) > 1.0e-3,
             )
             actor_collision_this_frame = bool(
                 getattr(physics_world, "last_step_actor_collision", False)
@@ -355,7 +367,7 @@ def sample_chunk_trajectory(
                 physics_debug_frames.append(physics_world.debug_frame(state))
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
-        vehicle_states.append(VehicleState(**state.__dict__))
+        vehicle_states.append(state)
         poses[frame_idx] = rig_pose_from_vehicle_state(state)
 
     dynamic_actors = (
@@ -455,6 +467,12 @@ class EgoVehicleKinematics:
         oob_margin_m: float = 50.0,
         oob_warning_zone_m: float = 100.0,
         scene: SceneBundle | None = None,
+        integrate_fn: Callable[
+            [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
+        ] = integrate_vehicle,
+        physics_world_factory: Callable[
+            [SceneBundle, VehicleConfig], GamePhysicsWorld
+        ] = GamePhysicsWorld,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
@@ -463,8 +481,9 @@ class EgoVehicleKinematics:
         self._map_bounds = map_bounds
         self._oob_margin_m = float(oob_margin_m)
         self._oob_warning_zone_m = float(oob_warning_zone_m)
+        self._integrate_fn = integrate_fn
         self._physics_world = (
-            GamePhysicsWorld(scene, vehicle_config) if scene is not None else None
+            physics_world_factory(scene, vehicle_config) if scene is not None else None
         )
         self._capture_physics_debug = False
 
@@ -535,6 +554,7 @@ class EgoVehicleKinematics:
             ground_snapper=self._ground_snapper,
             physics_world=self._physics_world,
             capture_physics_debug=self._capture_physics_debug,
+            integrate_fn=self._integrate_fn,
         )
         self._state = trajectory.boundary_state_after_chunk
         self._next_timestamp_us = int(

@@ -21,7 +21,9 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
-from omnidreams.interactive_drive.high_scores import default_high_scores_path
+from omnidreams.interactive_drive.high_scores import (
+    default_high_scores_path,
+)
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.taxi_game import TaxiGameConfig
@@ -255,7 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.4,
         metavar="FRACTION",
         help=(
-            "Fraction of recorded motor vehicles to retain in game/taxi mode "
+            "Fraction of recorded motor vehicles to retain in taxi-game mode "
             "(default: 0.4). Pedestrians, cyclists, and motorcycles are unaffected."
         ),
     )
@@ -519,10 +521,10 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
-        game_mode=bool(args.game_mode or args.taxi_game),
-        game_traffic_density=float(args.traffic_density),
+        game_mode=bool(args.game_mode),
         taxi_game=TaxiGameConfig(
             enabled=bool(args.taxi_game),
+            traffic_density=float(args.traffic_density),
             seed=None if args.taxi_seed is None else int(args.taxi_seed),
             high_scores_path=(
                 args.taxi_highscores.expanduser()
