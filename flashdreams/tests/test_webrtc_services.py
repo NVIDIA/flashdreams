@@ -237,25 +237,55 @@ async def test_webrtc_output_bridge_prepares_payload_before_async_delivery() -> 
 
 
 @pytest.mark.asyncio
-async def test_webrtc_output_bridge_drops_full_queue_before_payload_prepare() -> None:
+async def test_webrtc_output_bridge_replaces_full_pending_queue() -> None:
     loop = asyncio.get_running_loop()
     encoder = _BlockingEncoder()
+    track = _FakeVideoTrack()
     bridge = ThreadSafeWebRTCOutputBridge(
         loop=loop,
         video_encoder=encoder,
-        video_track=_FakeVideoTrack(),
+        video_track=track,
         max_pending_chunks=1,
     )
     sink = WebRTCOutputSink(bridge=bridge)
     sink.open(SessionInfo())
 
     first = sink.write(StepResult(step_index=0, frame_count=1))
+    await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
     second = sink.write(StepResult(step_index=1, frame_count=1))
 
     assert not first.dropped
-    assert second.dropped
-    assert second.drop_policy == "drop_newest"
-    assert encoder.prepared_payloads == [0]
+    assert not second.dropped
+    assert encoder.prepared_payloads == [0, 1]
+    for _ in range(10):
+        if track.flush_count:
+            break
+        await asyncio.sleep(0)
+    assert track.flush_count == 1
+
+    encoder.release.set()
+    await asyncio.wait_for(encoder.done.wait(), timeout=1.0)
+    sink.close()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_output_bridge_flushes_full_track_queue_before_delivery() -> None:
+    loop = asyncio.get_running_loop()
+    encoder = _BlockingEncoder()
+    track = _FakeVideoTrack(queue_depth=2)
+    bridge = ThreadSafeWebRTCOutputBridge(
+        loop=loop,
+        video_encoder=encoder,
+        video_track=track,
+    )
+    sink = WebRTCOutputSink(bridge=bridge)
+    sink.open(SessionInfo())
+
+    decision = sink.write(StepResult(step_index=0, frame_count=2))
+
+    assert not decision.dropped
+    await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
+    assert track.flush_count == 1
 
     encoder.release.set()
     await asyncio.wait_for(encoder.done.wait(), timeout=1.0)
@@ -739,11 +769,13 @@ class _BlockingEncoder:
 class _FakeVideoTrack:
     fps = 30
 
-    def __init__(self) -> None:
+    def __init__(self, *, queue_depth: int = 0) -> None:
+        self.queue_depth = queue_depth
         self.flush_count = 0
 
     def qsize(self) -> int:
-        return 0
+        return self.queue_depth
 
     async def flush(self) -> None:
         self.flush_count += 1
+        self.queue_depth = 0

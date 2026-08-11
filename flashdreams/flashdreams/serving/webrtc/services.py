@@ -686,6 +686,7 @@ class ThreadSafeWebRTCOutputBridge:
         self._on_chunk_delivery = on_chunk_delivery
         self._on_error = on_error
         self._pending: dict[Future[WebRTCChunkDelivery], int] = {}
+        self._delivery_lock = asyncio.Lock()
         self._lock = threading.Lock()
         self._closed = False
         self._generation = 0
@@ -742,12 +743,12 @@ class ThreadSafeWebRTCOutputBridge:
                     metadata={"reason": "stale generation"},
                 )
             if len(self._pending) >= self._max_pending_chunks:
-                return WebRTCOutputBridgeDecision(
-                    accepted=False,
-                    dropped=True,
-                    drop_policy="drop_newest",
-                    metadata={"reason": "pending queue full"},
-                )
+                stale = self._pop_pending_locked()
+            else:
+                stale = ()
+        if stale:
+            self._cancel_stale_deliveries(stale)
+            self._schedule_track_flush()
         payload = prepare(result, self._video_track)
         chunk = WebRTCChunkDelivery(
             delivery=None,
@@ -775,11 +776,27 @@ class ThreadSafeWebRTCOutputBridge:
                     metadata={"reason": "stale generation"},
                 )
             if len(self._pending) >= self._max_pending_chunks:
+                stale = self._pop_pending_locked()
+            else:
+                stale = ()
+        if stale:
+            self._cancel_stale_deliveries(stale)
+            self._schedule_track_flush()
+        with self._lock:
+            if self._closed:
+                return WebRTCOutputBridgeDecision(
+                    accepted=False,
+                    should_stop=True,
+                    dropped=True,
+                    drop_policy="drop_newest",
+                    metadata={"reason": "closed"},
+                )
+            if generation < self._generation:
                 return WebRTCOutputBridgeDecision(
                     accepted=False,
                     dropped=True,
                     drop_policy="drop_newest",
-                    metadata={"reason": "pending queue full"},
+                    metadata={"reason": "stale generation"},
                 )
             future = asyncio.run_coroutine_threadsafe(
                 self._deliver(
@@ -820,11 +837,16 @@ class ThreadSafeWebRTCOutputBridge:
         with self._lock:
             if self._closed or generation < self._generation:
                 raise asyncio.CancelledError
-        delivery = await self._video_encoder.deliver_prepared_chunk(
-            payload,
-            self._video_track,
-            force_keyframe=force_keyframe,
-        )
+        async with self._delivery_lock:
+            with self._lock:
+                if self._closed or generation < self._generation:
+                    raise asyncio.CancelledError
+            await self._flush_full_track_queue(frame_count=chunk.frame_count)
+            delivery = await self._video_encoder.deliver_prepared_chunk(
+                payload,
+                self._video_track,
+                force_keyframe=force_keyframe,
+            )
         with self._lock:
             if self._closed or generation < self._generation:
                 stale_after_delivery = True
@@ -859,6 +881,18 @@ class ThreadSafeWebRTCOutputBridge:
         if self._on_chunk_delivery is not None:
             self._on_chunk_delivery(result)
 
+    def _pop_pending_locked(self) -> tuple[Future[WebRTCChunkDelivery], ...]:
+        pending = tuple(self._pending)
+        self._pending.clear()
+        return pending
+
+    @staticmethod
+    def _cancel_stale_deliveries(
+        futures: Sequence[Future[WebRTCChunkDelivery]],
+    ) -> None:
+        for future in futures:
+            future.cancel()
+
     def _track_backpressure_s(self) -> float:
         qsize = getattr(self._video_track, "qsize", None)
         fps = getattr(self._video_track, "fps", None) or getattr(
@@ -876,6 +910,28 @@ class ThreadSafeWebRTCOutputBridge:
         if frames_per_second <= 0.0:
             return 0.0
         return max(0.0, queue_depth / frames_per_second)
+
+    async def _flush_full_track_queue(self, *, frame_count: int) -> None:
+        if frame_count <= 0:
+            return
+        qsize = getattr(self._video_track, "qsize", None)
+        flush = getattr(self._video_track, "flush", None)
+        if not callable(qsize) or not callable(flush):
+            return
+        try:
+            queue_depth = int(qsize())
+        except (TypeError, ValueError):
+            return
+        if queue_depth < frame_count:
+            return
+
+        # WebRTC is interactive: a full track queue means a whole generated
+        # chunk is stale relative to the latest input window. Drop that queued
+        # media before enqueueing the current chunk so visual latency stays
+        # bounded instead of preserving every frame.
+        result = flush()
+        if inspect.isawaitable(result):
+            await result
 
     def _schedule_track_close(self) -> None:
         close = getattr(self._video_track, "close", None)

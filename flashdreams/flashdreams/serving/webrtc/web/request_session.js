@@ -605,15 +605,6 @@ function enqueueAction(action) {
   }
 }
 
-function enqueueHeldKeyRepeats() {
-  const heldKeys = Array.from(activeKeys).sort((a, b) => {
-    return (heldKeyOrder.get(a) || 0) - (heldKeyOrder.get(b) || 0)
-  })
-  for (const key of heldKeys) {
-    enqueueAction({ event: "keydown", key })
-  }
-}
-
 function setKeyHeld(key, source, held) {
   const normalized = normalizeKey(key)
   if (!allowedKeys.has(normalized)) {
@@ -695,9 +686,6 @@ function handleControlMessage(rawMessage) {
     logEvent(parts.join(", "))
     setStatus(activeKeys.size > 0 ? "Generating" : "Waiting", activeKeys.size > 0 ? "generating" : "waiting")
     setFlow(`chunk ${payload.chunk_index} complete`)
-    if (activeKeys.size > 0) {
-      enqueueHeldKeyRepeats()
-    }
     modelAdapter?.onControlMessage?.(payload, modelContext)
     return
   }
