@@ -62,15 +62,26 @@ def test_keyboard_drive_state_publishes_space_as_handbrake() -> None:
     assert sink.commands[-1]["handbrake"] is True
 
 
-def test_keyboard_steering_publishes_full_lock_immediately() -> None:
+def test_keyboard_steering_ramps_to_full_lock_and_recenters() -> None:
     sink = _RecordingDriveSink()
     keyboard = KeyboardDriveState(sink)
     keyboard.set_key("a", True)
+    keyboard._last_update_s -= 0.1
 
     state = keyboard.update()
 
+    assert state.steering == pytest.approx(0.35)
+    assert sink.commands[-1]["steer"] == pytest.approx(0.35)
+
+    for _ in range(2):
+        keyboard._last_update_s -= 0.1
+        state = keyboard.update()
     assert state.steering == pytest.approx(1.0)
-    assert sink.commands[-1]["steer"] == pytest.approx(1.0)
+
+    keyboard.set_key("a", False)
+    keyboard._last_update_s -= 0.1
+    state = keyboard.update()
+    assert state.steering == pytest.approx(0.5)
 
 
 def test_keyboard_brake_target_enters_reverse_from_rest() -> None:
