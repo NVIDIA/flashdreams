@@ -51,8 +51,8 @@ from flashdreams.runtime import (
     OutputArtifact,
     OutputTarget,
     StepRequest,
-    StepResult,
     StepRequirements,
+    StepResult,
     UserInputEvent,
     UserInputs,
 )
