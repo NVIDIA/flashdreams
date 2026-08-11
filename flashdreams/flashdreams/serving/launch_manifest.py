@@ -47,6 +47,12 @@ class FlashDreamsLaunchManifest:
 def load_launch_manifest(path: str | Path) -> FlashDreamsLaunchManifest:
     """Load and strictly validate one YAML launch manifest."""
     manifest_path = Path(path).expanduser().resolve()
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"Launch manifest path does not exist or is not a file: {manifest_path}. "
+            "Manifest paths are resolved relative to the current working directory "
+            f"({Path.cwd()})."
+        )
     raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise TypeError(f"Launch manifest {manifest_path} must contain a YAML mapping.")

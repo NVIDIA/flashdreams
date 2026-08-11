@@ -57,6 +57,27 @@ output:
     assert manifest.apply_runner_overrides(_config()).device == "cuda:3"
 
 
+def test_launch_manifest_does_not_guess_configs_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path = tmp_path / "configs" / "launch_manifest" / "demo.yaml"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        'schema_version: 1\nrunner: demo-runner\nmode: "null"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    requested_path = tmp_path / "launch_manifest" / "demo.yaml"
+    with pytest.raises(FileNotFoundError) as exc_info:
+        load_launch_manifest("launch_manifest/demo.yaml")
+
+    message = str(exc_info.value)
+    assert str(requested_path) in message
+    assert "resolved relative to the current working directory" in message
+
+
 @pytest.mark.parametrize(
     "body, match",
     [
@@ -273,7 +294,9 @@ runner_overrides:
 )
 def test_documented_launch_manifests_resolve(filename: str) -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    manifest = load_launch_manifest(repo_root / "configs" / "launch_manifest" / filename)
+    manifest = load_launch_manifest(
+        repo_root / "configs" / "launch_manifest" / filename
+    )
     config = manifest.apply_runner_overrides(cli.all_runners()[manifest.runner])
 
     if manifest.mode != "run":
