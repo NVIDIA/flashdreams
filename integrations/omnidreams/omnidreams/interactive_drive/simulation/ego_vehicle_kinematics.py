@@ -137,20 +137,30 @@ def integrate_vehicle(
             )
 
     commanded_yaw_rate = 0.0
-    if abs(steer_rad) > 1e-5 and abs(speed) > 1e-5:
-        commanded_yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad)
+    if abs(steer_rad) > 1e-5:
         if command.handbrake:
-            commanded_yaw_rate *= vehicle.handbrake_yaw_gain
-            max_yaw_rate = vehicle.max_handbrake_yaw_rate_radps
-        else:
+            # Make the drift a predictable, bounded pivot instead of deriving
+            # an extreme yaw rate from speed and then losing the turn at rest.
+            # Holding the handbrake can complete a U-turn without ever asking
+            # the HD-map-conditioned world model to absorb a yaw impulse.
+            if abs(state.yaw_rate_radps) > 1.0e-3:
+                turn_sign = math.copysign(1.0, state.yaw_rate_radps)
+            else:
+                direction = speed if abs(speed) > 1.0e-3 else state.speed_mps
+                if abs(direction) <= 1.0e-3:
+                    direction = 1.0
+                turn_sign = math.copysign(1.0, steer_rad * direction)
+            commanded_yaw_rate = turn_sign * vehicle.max_handbrake_yaw_rate_radps
+        elif abs(speed) > 1e-5:
+            commanded_yaw_rate = speed / vehicle.wheel_base_m * math.tan(steer_rad)
             # A fixed steering angle becomes unrealistically aggressive as speed
             # rises because bicycle-model lateral acceleration scales with v^2.
             # Limit yaw rate by the configured grip envelope while preserving the
             # full steering response at parking and neighbourhood speeds.
             max_yaw_rate = vehicle.max_lateral_accel_mps2 / abs(speed)
-        commanded_yaw_rate = float(
-            np.clip(commanded_yaw_rate, -max_yaw_rate, max_yaw_rate)
-        )
+            commanded_yaw_rate = float(
+                np.clip(commanded_yaw_rate, -max_yaw_rate, max_yaw_rate)
+            )
 
     design = vehicle_dynamics_from_config(vehicle)
     forward = np.asarray(
