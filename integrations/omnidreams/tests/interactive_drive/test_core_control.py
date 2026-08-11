@@ -59,6 +59,17 @@ def test_keyboard_drive_state_publishes_space_as_handbrake() -> None:
     assert sink.commands[-1]["handbrake"] is True
 
 
+def test_keyboard_steering_publishes_full_lock_immediately() -> None:
+    sink = _RecordingDriveSink()
+    keyboard = KeyboardDriveState(sink)
+    keyboard.set_key("a", True)
+
+    state = keyboard.update()
+
+    assert state.steering == pytest.approx(1.0)
+    assert sink.commands[-1]["steer"] == pytest.approx(1.0)
+
+
 def test_keyboard_brake_target_enters_reverse_from_rest() -> None:
     sink = _RecordingDriveSink()
     keyboard = KeyboardDriveState(sink)
@@ -363,6 +374,57 @@ def test_integrate_vehicle_recenters_steering_after_release() -> None:
         released, DriverCommand(steer=0.0), dt_s=0.3, vehicle=vehicle
     )
     assert released.steer_rad == pytest.approx(0.0)
+
+
+def test_direct_manual_steering_uses_full_configured_lock() -> None:
+    vehicle = VehicleConfig(max_steer_rad=0.5, drag_mps2=0.0)
+    state = VehicleState(
+        x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=4.0, steer_rad=0.0
+    )
+
+    advanced = integrate_vehicle(
+        state,
+        DriverCommand(
+            steer=1.0,
+            steer_is_direct=True,
+            manual_control=True,
+        ),
+        dt_s=1.0 / 30.0,
+        vehicle=vehicle,
+    )
+
+    assert advanced.steer_rad == pytest.approx(vehicle.max_steer_rad)
+
+
+def test_normal_steering_converges_despite_stale_collision_motion() -> None:
+    vehicle = VehicleConfig(drag_mps2=0.0)
+    command = DriverCommand(
+        steer=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+    def steer_from(*, lateral_speed: float, yaw_rate: float) -> VehicleState:
+        state = VehicleState(
+            x_m=0.0,
+            y_m=0.0,
+            z_m=0.0,
+            yaw_rad=0.0,
+            speed_mps=8.0,
+            steer_rad=0.0,
+            velocity_x_mps=8.0,
+            velocity_y_mps=lateral_speed,
+            yaw_rate_radps=yaw_rate,
+        )
+        for _ in range(30):
+            state = integrate_vehicle(state, command, 1.0 / 30.0, vehicle)
+        return state
+
+    settled = steer_from(lateral_speed=0.0, yaw_rate=0.0)
+    disturbed = steer_from(lateral_speed=-3.0, yaw_rate=-0.8)
+
+    assert settled.yaw_rate_radps > 1.0
+    assert disturbed.yaw_rate_radps == pytest.approx(settled.yaw_rate_radps, abs=5.0e-5)
 
 
 @pytest.mark.parametrize("speed_mps", [0.5, -4.0])

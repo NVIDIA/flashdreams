@@ -1372,6 +1372,40 @@ def test_full_throttle_reaches_city_speed_quickly_through_physx_world() -> None:
     assert state.speed_mps > 13.0
 
 
+def test_normal_steering_tracks_arcade_yaw_through_physx_world() -> None:
+    config = VehicleConfig(drag_mps2=0.0)
+    world = GamePhysicsWorld(_scene(), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=8.0,
+        steer_rad=0.0,
+        velocity_x_mps=8.0,
+        velocity_y_mps=0.0,
+    )
+    turn = DriverCommand(
+        steer=1.0,
+        steer_is_direct=True,
+    )
+
+    try:
+        for frame_index in range(30):
+            state = integrate_vehicle(state, turn, 1.0 / 30.0, config)
+            state, _ = world.step(
+                state,
+                frame_index * 33_333,
+                1.0 / 30.0,
+                steering_active=True,
+            )
+    finally:
+        world.close()
+
+    assert state.yaw_rad > math.radians(45.0)
+    assert state.yaw_rate_radps > 0.75
+
+
 def test_pedal_brake_stops_ego_quickly_through_physx_world() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(), config)
