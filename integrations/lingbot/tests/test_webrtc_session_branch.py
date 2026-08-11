@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""The manager's ``InferenceSession`` branch must preserve camera controls.
+"""The manager's legacy ``InferenceSession`` branch must preserve camera controls.
 
-The session branch buffers raw events, canonicalizes them over the chunk
-window, and maps them into per-step ``InferenceInput``. The resulting camera
-trajectory must match the direct resampler/integrator reference, or moving
-LingBot's live path onto the runtime API would silently change how it drives.
+The old direct WebRTC session branch buffers raw events, canonicalizes them
+over the chunk window, and maps them into per-step ``InferenceInput``. The
+resulting camera trajectory must match the direct resampler/integrator
+reference while this compatibility path remains available.
 """
 
 from __future__ import annotations
@@ -457,15 +457,6 @@ def test_real_lingbot_inference_session_steps_on_runtime_worker() -> None:
         ),
     )
     runtime._model_session._cache = object()
-    runtime._input_canonicalizer = InputCanonicalizer(
-        [KeyboardToCameraCommand(), TextEventSelection()]
-    )
-    runtime._input_mapping = LingbotInputMapping(
-        fps=_FPS,
-        base_intrinsics=_BASE_INTRINSICS,
-        world_scale=1.0,
-        text_event_prompts={},
-    )
 
     try:
         inference_session = asyncio.run(runtime.start_inference_session())
@@ -502,5 +493,5 @@ def test_session_start_requires_an_initialized_rollout() -> None:
 
     runtime = LingbotInferenceRuntime(config=LingbotRuntimeConfig(device="cpu"))
 
-    with pytest.raises(LingbotRuntimeError, match="input mapping is not initialized"):
+    with pytest.raises(LingbotRuntimeError, match="Runtime is not initialized"):
         asyncio.run(runtime.start_inference_session())

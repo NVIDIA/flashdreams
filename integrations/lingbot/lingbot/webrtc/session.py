@@ -631,15 +631,15 @@ class LingbotInferenceRuntime(
     async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
         """Return an ``InferenceSession`` view of the current rollout.
 
-        The shared manager canonicalizes raw key and text events and maps them
-        into per-step model inputs before stepping the session.
+        Shared demo providers prepare per-step model inputs before handing them
+        to this session. The legacy direct WebRTC path may still expose
+        ``input_mapping``/``input_canonicalizer`` to the shared manager, but
+        starting a session only requires an initialized rollout.
         """
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
-        if self._input_mapping is None:
-            raise LingbotRuntimeError(
-                "Runtime input mapping is not initialized; reset the rollout first."
-            )
+        if not self._is_runtime_initialized():
+            raise LingbotRuntimeError("Runtime is not initialized.")
         return LingbotWebRTCInferenceSession(runtime=self)
 
     @property
@@ -689,7 +689,7 @@ class LingbotInferenceRuntime(
         self._input_mapping.set_base_prompt(self._prompt or "")
 
     def _next_step_request_sync(self) -> StepRequest:
-        """Describe the next mapped-input chunk for the session branch."""
+        """Describe the next provider-prepared chunk for the session branch."""
         if self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
         step_index = self._model_session.step_index
@@ -1135,8 +1135,8 @@ class LingbotInferenceRuntime(
     ) -> StepResult:
         """Generate one chunk from an already-resolved camera trajectory.
 
-        Shared by the segment path and the mapped-input session path so both
-        reach the model through identical conditioning.
+        Shared by the segment path and the provider-prepared session path so
+        both reach the model through identical conditioning.
         """
         if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
@@ -1235,7 +1235,7 @@ class LingbotWebRTCInferenceSession:
 
     The rollout itself is owned by :class:`LingbotInferenceRuntime`; this only
     adapts it to the runtime-API stepping surface so the shared manager can
-    drive it with mapped inputs.
+    drive it with provider-prepared inputs.
     """
 
     def __init__(self, *, runtime: LingbotInferenceRuntime) -> None:

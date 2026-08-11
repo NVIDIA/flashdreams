@@ -707,6 +707,9 @@ def test_lingbot_webrtc_demo_uses_shared_manager_with_model_config(
     assert manager._shared_spec.input_mode == "keyboard-driving"
     assert isinstance(manager._shared_spec.output, WebRTCOutputSpec)
     assert manager._shared_scenario is not None
+    assert manager._shared_scenario.mapping is None
+    assert manager._shared_scenario.canonicalizer.converters == ()
+    assert manager._needs_legacy_segment_metadata() is False
     provider = manager._shared_adapter.create_model_input_provider(
         manager._shared_spec,
         manager._shared_scenario,
