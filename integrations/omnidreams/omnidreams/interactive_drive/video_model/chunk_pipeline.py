@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from loguru import logger
 from omnidreams.interactive_drive.types import (
@@ -26,9 +26,6 @@ from flashdreams.serving.realtime.timing import (
     event_dependencies,
     trace_time_ns,
 )
-
-if TYPE_CHECKING:
-    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 
 
 class VideoModelBackend(Protocol):
@@ -66,7 +63,8 @@ class ChunkRequest:
     trajectory: TrajectoryChunk
     chunk_times: ChunkTimes
     trace_dependency_event: int | None = None
-    taxi_snapshots: tuple[TaxiGameSnapshot, ...] | None = None
+    frame_application_states: tuple[object | None, ...] | None = None
+    """Opaque application state synchronized to each requested frame."""
 
 
 @dataclass(frozen=True)
@@ -201,17 +199,17 @@ class ChunkPipeline:
     def request_pose_chunk(self, request: ChunkRequest) -> None:
         self._raise_worker_error_if_any()
 
-        if request.taxi_snapshots is not None and len(request.taxi_snapshots) != len(
-            request.trajectory.timestamps_us
-        ):
+        if request.frame_application_states is not None and len(
+            request.frame_application_states
+        ) != len(request.trajectory.timestamps_us):
             raise ValueError(
-                "Taxi snapshots must match the requested trajectory frame count."
+                "Frame application states must match the trajectory frame count."
             )
 
         chunk_times = request.chunk_times
         trajectory = request.trajectory
         trace_dependency_event = request.trace_dependency_event
-        taxi_snapshots = request.taxi_snapshots
+        frame_application_states = request.frame_application_states
         submit_generation = self.current_generation
 
         def render_command(backend: VideoModelBackend) -> bool:
@@ -275,14 +273,16 @@ class ChunkPipeline:
             if frame_chunk.frames:
                 self._first_chunk_produced.set()
             for frame_index, frame in enumerate(frame_chunk.frames):
-                taxi_snapshot = (
-                    None if taxi_snapshots is None else taxi_snapshots[frame_index]
+                application_state = (
+                    None
+                    if frame_application_states is None
+                    else frame_application_states[frame_index]
                 )
                 synchronized_frame = replace(
                     frame,
                     rig_to_world=trajectory.rig_poses_world[frame_index].copy(),
                     vehicle_state=replace(trajectory.vehicle_states[frame_index]),
-                    taxi_game_snapshot=taxi_snapshot,
+                    application_state=application_state,
                 )
                 frame_times = chunk_times.frames[frame_index]
                 frame_times.image_ready_time = time.perf_counter()

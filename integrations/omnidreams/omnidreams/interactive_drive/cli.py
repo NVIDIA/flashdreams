@@ -21,10 +21,6 @@ from omnidreams.interactive_drive.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
-from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
-from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
-    default_high_scores_path,
-)
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams.interactive_drive.world_model.manifest import (
@@ -522,16 +518,6 @@ def prepare_config_and_backend(
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
         game_mode=bool(args.game_mode),
-        taxi_game=TaxiGameConfig(
-            enabled=bool(args.taxi_game),
-            traffic_density=float(args.traffic_density),
-            seed=None if args.taxi_seed is None else int(args.taxi_seed),
-            high_scores_path=(
-                args.taxi_highscores.expanduser()
-                if args.taxi_highscores is not None
-                else default_high_scores_path()
-            ),
-        ),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         visual_flare_enabled=False if args.disable_visual_flare else None,
@@ -582,5 +568,18 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
     """
     configure_logging()
     config, backend = prepare_config_and_backend(args)
-    app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
+    if args.taxi_game:
+        from omnidreams.interactive_drive.crazy_robotaxi.app import (
+            CrazyRobotaxiApp,
+            taxi_config_from_args,
+        )
+
+        app = CrazyRobotaxiApp(
+            config=config,
+            taxi_config=taxi_config_from_args(args),
+            backend=backend,
+            trace_sink=trace_sink,
+        )
+    else:
+        app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
     app.run()

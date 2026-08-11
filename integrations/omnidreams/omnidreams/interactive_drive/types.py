@@ -6,15 +6,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
 from flashdreams.serving.realtime.timing import VideoModelTimings
-
-if TYPE_CHECKING:
-    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
@@ -153,9 +150,6 @@ class SceneBundle:
     initial_timestamp_us: int
     initial_yaw_rad: float
     initial_speed_mps: float
-    reference_route_world: FloatArray
-    """Recorded rig positions ``[N, 3]`` used for road-valid navigation targets."""
-
     initial_rgb: UInt8Array
     prompt: str
     line_layers: tuple[WorldLineSegments, ...]
@@ -168,8 +162,6 @@ class SceneBundle:
     # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
-    navigation_routes_world: tuple[FloatArray, ...] = ()
-    """Car-lane centerlines used for road-valid navigation targets."""
 
 
 @dataclass(frozen=True)
@@ -402,8 +394,11 @@ class PresentedFrame:
     vehicle_state: VehicleState | None = None
     """Authoritative ego state synchronized to this frame."""
 
-    taxi_game_snapshot: TaxiGameSnapshot | None = None
-    """Taxi state synchronized to this frame, when taxi mode is active."""
+    bev_rig_to_world: FloatArray | None = None
+    """Rig pose used to render this frame's potentially lagged BEV image."""
+
+    application_state: object | None = None
+    """Opaque application state synchronized to this frame."""
 
 
 @dataclass(frozen=True)

@@ -775,6 +775,27 @@ class GamePhysicsWorld:
         )
         return result_state, samples
 
+    def synchronize_ego_state(self, state: VehicleState) -> None:
+        """Publish an app-authoritative ego state to the owned PhysX scene.
+
+        This adapter contains the native body identifier and state-array layout so
+        application policies do not depend on Ludus implementation details.
+
+        Args:
+            state: Authoritative vehicle state to publish.
+        """
+        body = _body_state_from_vehicle(state, self._ego_model.half_extents_m[2])
+        pose = np.concatenate((body.position_m, body.orientation_xyzw)).astype(
+            np.float32, copy=False
+        )
+        self._world._scene.update_body(
+            0,
+            pose,
+            np.asarray(body.linear_velocity_mps, dtype=np.float32),
+            np.asarray(body.angular_velocity_radps, dtype=np.float32),
+            False,
+        )
+
     def close(self) -> None:
         """Release the Ludus PhysX world."""
         self._world.close()

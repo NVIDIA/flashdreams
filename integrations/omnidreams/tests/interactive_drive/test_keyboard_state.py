@@ -13,6 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
+from omnidreams.interactive_drive.crazy_robotaxi.input import (
+    CrazyRobotaxiKeyboardState,
+)
 from omnidreams.interactive_drive.demo import KeyboardDriveState
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.streaming_presenter import (
@@ -99,8 +102,7 @@ def test_keyboard_drive_command_overrides_connected_wheel_command() -> None:
 
 
 def test_space_overrides_active_drive_command_with_handbrake() -> None:
-    keyboard = KeyboardState()
-    keyboard.enable_taxi_controls()
+    keyboard = CrazyRobotaxiKeyboardState()
     keyboard.set_drive_command(
         DriverCommand(
             throttle=1.0,
@@ -138,7 +140,7 @@ def test_consume_exit_scene_request_returns_true_once_per_request() -> None:
 
 
 def test_runtime_state_publishes_vehicle_and_taxi_atomically() -> None:
-    keyboard = KeyboardState()
+    keyboard = CrazyRobotaxiKeyboardState()
     vehicle = VehicleState(1.0, 2.0, 0.0, 0.0, 3.0, 0.0)
     taxi = TaxiGameSnapshot(
         phase="seeking_pickup",
@@ -161,7 +163,7 @@ def test_runtime_state_publishes_vehicle_and_taxi_atomically() -> None:
 
 
 def test_keyboard_state_validates_and_consumes_taxi_name_once() -> None:
-    keyboard = KeyboardState()
+    keyboard = CrazyRobotaxiKeyboardState()
 
     assert keyboard.submit_taxi_name(" Player 1 ") is True
     assert keyboard.consume_taxi_name_submission() == "Player 1"
@@ -170,7 +172,7 @@ def test_keyboard_state_validates_and_consumes_taxi_name_once() -> None:
 
 
 def test_keyboard_state_suppresses_driving_after_taxi_game_over() -> None:
-    keyboard = KeyboardState()
+    keyboard = CrazyRobotaxiKeyboardState()
     keyboard.set_key("w", True)
     vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     taxi = TaxiGameSnapshot(

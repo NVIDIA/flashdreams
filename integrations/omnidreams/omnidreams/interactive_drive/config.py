@@ -5,22 +5,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 BackendName = Literal["raster", "omnidreams"]
 ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
-
-if TYPE_CHECKING:
-    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
-
-
-def _default_taxi_game_config() -> TaxiGameConfig:
-    from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameConfig
-
-    return TaxiGameConfig()
 
 
 @dataclass(frozen=True)
@@ -84,6 +75,10 @@ class VehicleConfig:
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
     collision_friction: float = 0.65
+    # Bound impact-induced camera rotation.  Normal steering keeps its full
+    # response; this only filters single-frame PhysX yaw impulses that would
+    # turn the conditioning view away from the struck actor.
+    # This prevents the cache from forgetting whom you hit.
     max_collision_yaw_rate_radps: float = 0.35
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0
@@ -144,8 +139,6 @@ class AppConfig:
         default_factory=VideoPostprocessChainConfig
     )
     bev: BevConfig = BevConfig()
-    taxi_game: TaxiGameConfig = field(default_factory=_default_taxi_game_config)
-    """Overlay-only taxi-game configuration."""
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
     # against the AABB-distance proximity.

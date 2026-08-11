@@ -32,7 +32,7 @@ PhysicsStepFn = Callable[
 ]
 
 
-def _step_physics_world(
+def step_physics_world(
     physics_world: GamePhysicsWorld,
     state: VehicleState,
     command: DriverCommand,
@@ -316,7 +316,7 @@ def sample_chunk_trajectory(
     integrate_fn: Callable[
         [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
     ] = integrate_vehicle,
-    physics_step_fn: PhysicsStepFn = _step_physics_world,
+    physics_step_fn: PhysicsStepFn = step_physics_world,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -493,7 +493,7 @@ class EgoVehicleKinematics:
         physics_world_factory: Callable[
             [SceneBundle, VehicleConfig], GamePhysicsWorld
         ] = GamePhysicsWorld,
-        physics_step_fn: PhysicsStepFn = _step_physics_world,
+        physics_step_fn: PhysicsStepFn = step_physics_world,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config

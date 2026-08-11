@@ -1,18 +1,32 @@
-# SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-"""MJPEG-over-HTTP presenter: CPU-JPEG-encoded frames served as a
+"""MJPEG-over-HTTP presenter for Crazy Robotaxi.
+
+CPU-JPEG-encoded frames are served as a
 ``multipart/x-mixed-replace`` stream with keydown/keyup posted back.
 
 Dependency-free fallback for headless / compute-only hosts with no
-graphics GPU; prefer the centralized ``webrtc`` mode for a richer viewer.
+graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 """
 
 from __future__ import annotations
 
-import concurrent.futures
 import contextlib
 import json
+import math as _math
 import shutil
 import subprocess
 import threading
@@ -25,15 +39,25 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 from loguru import logger
-from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.camera import FThetaCameraModel
+from omnidreams.interactive_drive.config import BevConfig, RasterConfig
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    project_target_to_bev,
+    project_taxi_marker_to_camera,
+)
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
 from omnidreams.interactive_drive.physx_debug import select_presented_rgb
-from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.types import (
+    CameraCalibration,
+    DriverCommand,
+    PresentedFrame,
+)
 from omnidreams.interactive_drive.visual_flare import (
     CollisionVisualFlare,
     darken_rgb,
 )
+from PIL import Image, ImageDraw
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
@@ -90,13 +114,20 @@ class _KeyboardDriveSink:
         self._keyboard = keyboard
 
     def set_drive(
-        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+        self,
+        *,
+        steer: float,
+        throttle: float,
+        brake: float,
+        handbrake: bool = False,
+        reverse: bool = False,
     ) -> None:
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                handbrake=bool(handbrake),
                 reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
@@ -191,6 +222,70 @@ _INDEX_HTML = """<!doctype html>
   .speed-value { font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .speed-unit { font-size: 18px; opacity: 0.75; letter-spacing: 0.04em; text-transform: uppercase; }
   .speed.disconnected .speed-value { color: #888; }
+  .taxi-hud {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    min-width: 360px; padding: 10px 18px;
+    border-radius: 12px; background: rgba(0, 0, 0, 0.72);
+    border: 2px solid #76b900; color: #76b900;
+    text-align: center; pointer-events: none;
+    text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9);
+  }
+  .taxi-hud.hidden, .taxi-map.hidden { display: none; }
+  .taxi-arrow {
+    width: 58px; height: 64px; margin: 0 auto 2px;
+    transform-origin: center; color: inherit;
+  }
+  .taxi-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .taxi-arrow path {
+    fill: currentColor; stroke: black; stroke-width: 3px;
+    stroke-linejoin: round; paint-order: stroke fill;
+  }
+  .taxi-status { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .taxi-event { min-height: 18px; color: white; font-weight: 700; margin-top: 3px; }
+  .taxi-hud.dropoff { color: #c89632; border-color: #c89632; }
+  .taxi-map {
+    position: fixed; top: 18px; right: 18px; width: 240px;
+    border: 3px solid rgba(255, 255, 255, 0.85); border-radius: 10px;
+    overflow: hidden; background: #222; pointer-events: none;
+  }
+  .taxi-map img { display: block; width: 100%; height: auto; }
+  .taxi-pin {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    border: 3px solid white; background: #76b900;
+    transform: translate(-50%, -50%); box-shadow: 0 2px 6px black;
+  }
+  .taxi-pin.dropoff { background: #c89632; }
+  .taxi-pin.hidden { display: none; }
+  .game-over {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(0, 0, 0, 0.72);
+    color: white; z-index: 20;
+  }
+  .game-over.hidden { display: none; }
+  .game-over-card {
+    width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 48px);
+    overflow-y: auto; box-sizing: border-box; padding: 28px;
+    border: 3px solid #76b900; border-radius: 16px;
+    background: rgba(12, 12, 18, 0.97); text-align: center;
+  }
+  .game-over-card h1 { margin: 0 0 8px; color: #76b900; }
+  .final-score { font-size: 24px; font-weight: 700; margin-bottom: 20px; }
+  .name-entry.hidden, .leaderboard.hidden { display: none; }
+  .name-entry input {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 10px 0;
+    border: 2px solid white; border-radius: 7px; background: #242432;
+    color: white; font-size: 20px; text-align: center;
+  }
+  .game-button {
+    padding: 10px 18px; border: none; border-radius: 7px;
+    background: #76b900; color: #111; font-weight: 700; cursor: pointer;
+  }
+  .name-error { min-height: 18px; margin-top: 8px; color: #ff8585; }
+  .score-table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; }
+  .score-table td { padding: 5px 8px; text-align: left; }
+  .score-table td:first-child { width: 36px; text-align: right; color: #aaa; }
+  .score-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .score-table tr.current { color: #c89632; font-weight: 700; }
   .keys { display: flex; flex-direction: column; gap: 6px; align-items: center; }
   .key-row { display: flex; gap: 6px; }
   .key {
@@ -327,7 +422,37 @@ _INDEX_HTML = """<!doctype html>
 </head>
 <body>
 <img id="stream" src="/stream">
-<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
+<div class="taxi-hud hidden" id="taxi-hud">
+  <div class="taxi-arrow" id="taxi-arrow" aria-hidden="true">
+    <svg viewBox="0 0 64 72">
+      <path d="M32 3 L57 36 L42 36 L42 68 L22 68 L22 36 L7 36 Z"></path>
+    </svg>
+  </div>
+  <div class="taxi-status" id="taxi-status"></div>
+  <div class="taxi-event" id="taxi-event"></div>
+</div>
+<div class="taxi-map hidden" id="taxi-map">
+  <img id="taxi-bev" src="/bev_stream">
+  <div class="taxi-pin" id="taxi-pin"></div>
+</div>
+<div class="game-over hidden" id="game-over">
+  <div class="game-over-card">
+    <h1 id="game-over-title">HIGH SCORES</h1>
+    <div class="final-score" id="final-score"></div>
+    <form class="name-entry hidden" id="name-entry">
+      <div id="high-score-rank"></div>
+      <input id="player-name" maxlength="12" autocomplete="nickname"
+             pattern="[A-Za-z0-9 _-]{1,12}" placeholder="Your name" required>
+      <button class="game-button" type="submit">Save score</button>
+      <div class="name-error" id="name-error"></div>
+    </form>
+    <div class="leaderboard hidden" id="leaderboard">
+      <table class="score-table"><tbody id="score-rows"></tbody></table>
+      <button class="game-button" id="new-game" type="button">New Game</button>
+    </div>
+  </div>
+</div>
+<div class="hint" id="drive-hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
     <span>Scenes</span>
@@ -391,17 +516,135 @@ function shouldIgnoreKey(e) {
 }
 document.addEventListener('keydown', e => { if (!shouldIgnoreKey(e)) send(e.key, true); });
 document.addEventListener('keyup', e => { if (!shouldIgnoreKey(e)) send(e.key, false); });
-// When the page loses focus we must release all keys so the car doesn't keep steering.
-window.addEventListener('blur', () => {
+function releaseAllKeys() {
   DOWN_KEYS.forEach(k => send(k, false));
   PRESSED_INDICATORS.clear();
   ["w","a","s","d"].forEach(paintIndicator);
-});
+}
+// When the page loses focus we must release all keys so the car doesn't keep steering.
+window.addEventListener('blur', releaseAllKeys);
 // Speed readout polling. 100 ms keeps the digit lively without
 // generating meaningful HTTP load (~10 req/s of <100 B each).
 const speedEl = document.getElementById('speed');
 const speedValueEl = document.getElementById('speed-value');
+const driveHintEl = document.getElementById('drive-hint');
+const taxiHudEl = document.getElementById('taxi-hud');
+const taxiArrowEl = document.getElementById('taxi-arrow');
+const taxiStatusEl = document.getElementById('taxi-status');
+const taxiEventEl = document.getElementById('taxi-event');
+const taxiMapEl = document.getElementById('taxi-map');
+const taxiPinEl = document.getElementById('taxi-pin');
+const gameOverEl = document.getElementById('game-over');
+const gameOverTitleEl = document.getElementById('game-over-title');
+const finalScoreEl = document.getElementById('final-score');
+const nameEntryEl = document.getElementById('name-entry');
+const highScoreRankEl = document.getElementById('high-score-rank');
+const playerNameEl = document.getElementById('player-name');
+const nameErrorEl = document.getElementById('name-error');
+const leaderboardEl = document.getElementById('leaderboard');
+const scoreRowsEl = document.getElementById('score-rows');
+const newGameEl = document.getElementById('new-game');
 const MPS_TO_MPH = 2.236936;
+let previousTaxiSession = null;
+function paintGameOver(taxi) {
+  const state = taxi && taxi.session_state;
+  const gameOver = state === 'awaiting_name' || state === 'leaderboard';
+  gameOverEl.classList.toggle('hidden', !gameOver);
+  if (!gameOver) {
+    previousTaxiSession = state || null;
+    return;
+  }
+  finalScoreEl.textContent = `FINAL SCORE  ${taxi.score}`;
+  if (previousTaxiSession !== state) releaseAllKeys();
+  const enteringName = state === 'awaiting_name';
+  gameOverTitleEl.textContent = enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES';
+  nameEntryEl.classList.toggle('hidden', !enteringName);
+  leaderboardEl.classList.toggle('hidden', enteringName);
+  if (enteringName) {
+    highScoreRankEl.textContent = `Congratulations — you reached #${taxi.high_score_rank}`;
+    if (previousTaxiSession !== state) {
+      playerNameEl.value = '';
+      nameErrorEl.textContent = '';
+      setTimeout(() => playerNameEl.focus(), 0);
+    }
+  } else {
+    scoreRowsEl.replaceChildren();
+    (taxi.leaderboard || []).forEach((entry, index) => {
+      const row = document.createElement('tr');
+      if (index + 1 === taxi.high_score_rank) row.classList.add('current');
+      [String(index + 1), entry.name, String(entry.score)].forEach(value => {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      scoreRowsEl.appendChild(row);
+    });
+  }
+  previousTaxiSession = state;
+}
+function paintTaxi(taxi) {
+  driveHintEl.textContent = taxi
+    ? 'WASD / Arrows = Drive · Space = Handbrake · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
+    : 'WASD / Arrows = Drive · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout';
+  if (!taxi) {
+    taxiHudEl.classList.add('hidden');
+    taxiMapEl.classList.add('hidden');
+    paintGameOver(null);
+    return;
+  }
+  paintGameOver(taxi);
+  if (taxi.session_state !== 'playing') {
+    taxiHudEl.classList.add('hidden');
+    taxiMapEl.classList.add('hidden');
+    return;
+  }
+  const dropoff = taxi.phase === 'to_dropoff';
+  taxiHudEl.classList.remove('hidden');
+  taxiHudEl.classList.toggle('dropoff', dropoff);
+  taxiArrowEl.style.transform = `rotate(${-taxi.relative_bearing_rad * 180 / Math.PI}deg)`;
+  const phase = dropoff ? 'DROPOFF' : 'PICKUP';
+  const timer = typeof taxi.remaining_time_s === 'number'
+    ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
+  const highScore = typeof taxi.high_score === 'number'
+    ? `  HIGH ${taxi.high_score}` : '';
+  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
+  taxiEventEl.textContent = taxi.event === 'pickup_complete'
+    ? 'PASSENGER PICKED UP'
+    : (taxi.event === 'fare_complete'
+      ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
+      : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
+  const marker = taxi.bev_target;
+  const showMap = taxi.bev_enabled;
+  const showPin = showMap && marker && marker.visible;
+  taxiMapEl.classList.toggle('hidden', !showMap);
+  taxiPinEl.classList.toggle('hidden', !showPin);
+  if (showPin) {
+    taxiPinEl.style.left = `${marker.u * 100}%`;
+    taxiPinEl.style.top = `${marker.v * 100}%`;
+    taxiPinEl.classList.toggle('dropoff', dropoff);
+  }
+}
+nameEntryEl.addEventListener('submit', async event => {
+  event.preventDefault();
+  nameErrorEl.textContent = '';
+  try {
+    const response = await fetch('/taxi/name', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: playerNameEl.value}),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || 'Could not save that name.');
+    }
+  } catch (error) {
+    nameErrorEl.textContent = error.message || 'Could not save that name.';
+  }
+});
+newGameEl.addEventListener('click', async () => {
+  await fetch('/control?key=r&down=1').catch(() => {});
+  await fetch('/control?key=r&down=0').catch(() => {});
+});
 async function pollState() {
   try {
     const r = await fetch('/state', { cache: 'no-store' });
@@ -414,9 +657,11 @@ async function pollState() {
       speedValueEl.textContent = '--';
       speedEl.classList.add('disconnected');
     }
+    paintTaxi(s.taxi || null);
   } catch {
     speedValueEl.textContent = '--';
     speedEl.classList.add('disconnected');
+    paintTaxi(null);
   }
 }
 setInterval(pollState, 100);
@@ -556,6 +801,10 @@ class MJPEGStreamingPresenter:
         self._raster = raster
         self._keyboard = keyboard
         self._visual_flare = CollisionVisualFlare()
+        self._taxi_enabled = False
+        self._bev_config: BevConfig | None = None
+        self._taxi_camera_calibration: CameraCalibration | None = None
+        self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
@@ -563,11 +812,7 @@ class MJPEGStreamingPresenter:
         # clients of /bev_stream can paginate at a different rate than
         # /stream (e.g. if the HUD process throttles).
         self._bev_frame_bus = LatestFrameBus[bytes]()
-        self._bev_publish_exec = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="interactive_drive-bev-publish",
-        )
-        self._bev_publish_future: concurrent.futures.Future[None] | None = None
+        self._latest_presented_frame: PresentedFrame | None = None
         # Scene options surfaced to the browser dropdown via /scenes.
         # Each entry is a dict with ``label``, ``path``, ``variants``;
         # the demo wrapper builds these from its scene-discovery layer
@@ -609,11 +854,7 @@ class MJPEGStreamingPresenter:
         # imports the streaming presenter via the CLI's presenter
         # factory; a top-level import would be circular. The integrator
         # owns the same ``set_drive`` -> ``KeyboardState`` plumbing the
-        # slangpy HUD uses, which is what gives us the alpasim-style
-        # ~10 mph auto-crawl on key release: the integrator posts
-        # ``DriverCommand(manual_control=True, throttle=0, brake=0)``
-        # which routes through ``integrate_vehicle``'s manual branch
-        # where the creep-toward-4.47-m/s logic lives.
+        # slangpy HUD uses, keeping browser and desktop controls aligned.
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
         self._keyboard_drive_factory = KeyboardDriveState
@@ -726,13 +967,32 @@ class MJPEGStreamingPresenter:
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
         self._keyboard = keyboard
+        self._latest_presented_frame = None
         self._keyboard_drive = self._keyboard_drive_factory(
             _KeyboardDriveSink(keyboard)
         )
 
+    def configure_taxi_hud(self, bev: BevConfig) -> None:
+        """Configure BEV projection used by browser taxi overlays."""
+        from omnidreams.interactive_drive.crazy_robotaxi.driving import (
+            TaxiKeyboardDriveState,
+        )
+
+        self._taxi_enabled = True
+        self._bev_config = bev
+        self._keyboard_drive_factory = TaxiKeyboardDriveState
+        self._keyboard_drive = TaxiKeyboardDriveState(
+            _KeyboardDriveSink(self._keyboard)
+        )
+
+    def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
+        """Configure camera projection for world-anchored taxi markers."""
+        self._taxi_camera_calibration = calibration
+        self._taxi_camera_models.clear()
+
     def process_events(self) -> None:
-        # Per-tick integrator update so auto-crawl smoothing advances at sim
-        # cadence regardless of how often the browser posts /control events.
+        # Update the integrator at simulation cadence regardless of how often
+        # the browser posts /control events.
         self._keyboard_drive.update()
 
     def trigger_visual_flare(self) -> None:
@@ -765,6 +1025,7 @@ class MJPEGStreamingPresenter:
             return
         visual_flare = getattr(self, "_visual_flare", None)
         flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
+        self._latest_presented_frame = frame
 
         def with_flare(rgb: object) -> np.ndarray:
             return darken_rgb(_as_rgb_host_uint8(rgb), flare_opacity)
@@ -772,43 +1033,28 @@ class MJPEGStreamingPresenter:
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
         if view_mode == "physx":
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        select_presented_rgb(
-                            frame,
-                            view_mode,
-                            width=self._raster.width,
-                            height=self._raster.height,
-                        ),
-                        frame.status_message,
-                    )
-                )
+            image = _with_status_overlay(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                ),
+                frame.status_message,
             )
         elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(
-                        frame.model_rgb_host_uint8, frame.status_message
-                    )
-                )
+            image = _with_status_overlay(
+                frame.model_rgb_host_uint8, frame.status_message
             )
         else:
-            self._publish(
-                with_flare(
-                    _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-                )
-            )
+            image = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        image = self._with_taxi_world_marker(image, frame)
+        self._publish(with_flare(image))
         if frame.bev_host_uint8 is not None:
-            self._submit_bev_publish(frame.bev_host_uint8)
+            self._publish_bev(frame.bev_host_uint8)
 
     def close(self) -> None:
         self._stop_event.set()
-        future = self._bev_publish_future
-        if future is not None:
-            with contextlib.suppress(Exception):
-                future.result(timeout=1.0)
-        self._bev_publish_exec.shutdown(wait=True, cancel_futures=True)
         self._frame_bus.close()
         self._bev_frame_bus.close()
         self._server.shutdown()
@@ -826,17 +1072,92 @@ class MJPEGStreamingPresenter:
         )
         _publish_if_open(self._frame_bus, jpeg, stop_event=self._stop_event)
 
-    def _submit_bev_publish(self, bev_rgb_host_uint8: object) -> None:
-        future = self._bev_publish_future
-        if future is not None:
-            if not future.done():
-                return
-            with contextlib.suppress(Exception):
-                future.result()
-        self._bev_publish_future = self._bev_publish_exec.submit(
-            self._publish_bev,
-            bev_rgb_host_uint8,
+    def _with_taxi_world_marker(
+        self, rgb_host_uint8: np.ndarray, frame: PresentedFrame
+    ) -> np.ndarray:
+        """Overlay the in-view world target while leaving off-screen targets alone."""
+        snapshot = frame.application_state
+        if (
+            snapshot is None
+            or snapshot.session_state != "playing"
+            or frame.rig_to_world is None
+            or self._taxi_camera_calibration is None
+        ):
+            return rgb_host_uint8
+        image_height, image_width = rgb_host_uint8.shape[:2]
+        model_key = (image_width, image_height)
+        camera_model = self._taxi_camera_models.get(model_key)
+        if camera_model is None:
+            camera_model = FThetaCameraModel(
+                self._taxi_camera_calibration,
+                output_width=image_width,
+                output_height=image_height,
+            )
+            self._taxi_camera_models[model_key] = camera_model
+        marker = project_taxi_marker_to_camera(
+            snapshot,
+            frame.rig_to_world,
+            camera_model,
+            image_width=image_width,
+            image_height=image_height,
         )
+        if marker is None:
+            return rgb_host_uint8
+
+        color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
+        image = Image.fromarray(rgb_host_uint8, mode="RGB")
+        draw = ImageDraw.Draw(image)
+        for edge in marker.ring_edges_uv:
+            draw.line(edge, fill=(0, 0, 0), width=7)
+            draw.line(edge, fill=color, width=4)
+
+        anchor = marker.anchor_uv
+        if marker.beacon_top_uv is None:
+            top = (anchor[0], anchor[1] - 64.0)
+        else:
+            vector_x = marker.beacon_top_uv[0] - anchor[0]
+            vector_y = marker.beacon_top_uv[1] - anchor[1]
+            length = max(1.0, _math.hypot(vector_x, vector_y))
+            display_length = min(170.0, max(52.0, length))
+            top = (
+                anchor[0] + vector_x * display_length / length,
+                anchor[1] + vector_y * display_length / length,
+            )
+        draw.line((anchor, top), fill=(0, 0, 0), width=9)
+        draw.line((anchor, top), fill=color, width=5)
+        draw.ellipse(
+            (
+                anchor[0] - 9,
+                anchor[1] - 9,
+                anchor[0] + 9,
+                anchor[1] + 9,
+            ),
+            fill=color,
+            outline=(255, 255, 255),
+            width=3,
+        )
+        label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        label_box = draw.textbbox((0, 0), label)
+        label_width = label_box[2] - label_box[0]
+        label_height = label_box[3] - label_box[1]
+        draw.rounded_rectangle(
+            (
+                top[0] - label_width / 2 - 8,
+                top[1] - label_height - 15,
+                top[0] + label_width / 2 + 8,
+                top[1] + 5,
+            ),
+            radius=6,
+            fill=(8, 8, 12),
+            outline=color,
+            width=2,
+        )
+        draw.text(
+            (top[0] - label_width / 2, top[1] - label_height - 10),
+            label,
+            fill=color,
+        )
+        return np.asarray(image)
 
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
@@ -877,8 +1198,7 @@ class MJPEGStreamingPresenter:
         # Direction keys (W/A/S/D + arrows + Space) flow through the
         # ``KeyboardDriveState`` integrator so the MJPEG path posts the
         # exact same ``DriverCommand(manual_control=True, ...)`` shape
-        # the slangpy HUD does -- which is what unlocks the integrator's
-        # ~10 mph creep-toward-target on key release.
+        # the slangpy HUD does.
         drive_keysym = _BROWSER_KEY_TO_DRIVE_KEYSYM.get(key)
         if drive_keysym is not None and self._keyboard_drive.set_key(
             drive_keysym, down
@@ -894,24 +1214,61 @@ class MJPEGStreamingPresenter:
             if key in ("r", "R"):
                 self._keyboard.request_reset()
 
-    def _state_snapshot(self) -> dict[str, float | None]:
-        """JSON-serialisable telemetry snapshot from ``KeyboardState.vehicle_state``.
+    def _state_snapshot(self) -> dict[str, object]:
+        """Return a JSON-serializable vehicle and taxi telemetry snapshot.
 
         Returns ``None`` fields before the first chunk so the browser shows
         ``--`` instead of a stale zero.
         """
-        snapshot = self._keyboard.vehicle_state
-        if snapshot is None:
+        if not self._taxi_enabled:
+            snapshot = self._keyboard.vehicle_state
+            if snapshot is None:
+                return {
+                    "speed_mps": None,
+                    "steer_rad": None,
+                    "yaw_rad": None,
+                }
             return {
-                "speed_mps": None,
-                "steer_rad": None,
-                "yaw_rad": None,
+                "speed_mps": float(snapshot.speed_mps),
+                "steer_rad": float(snapshot.steer_rad),
+                "yaw_rad": float(snapshot.yaw_rad),
             }
-        return {
-            "speed_mps": float(snapshot.speed_mps),
-            "steer_rad": float(snapshot.steer_rad),
-            "yaw_rad": float(snapshot.yaw_rad),
+        frame = self._latest_presented_frame
+        vehicle_state = None if frame is None else frame.vehicle_state
+        taxi_state = None if frame is None else frame.application_state
+        live_taxi_state = self._keyboard.taxi_game_state
+        if live_taxi_state is not None and live_taxi_state.session_state != "playing":
+            taxi_state = live_taxi_state
+        result: dict[str, object] = {
+            "speed_mps": None,
+            "steer_rad": None,
+            "yaw_rad": None,
+            "taxi": None,
         }
+        if vehicle_state is not None:
+            result.update(
+                speed_mps=float(vehicle_state.speed_mps),
+                steer_rad=float(vehicle_state.steer_rad),
+                yaw_rad=float(vehicle_state.yaw_rad),
+            )
+        if taxi_state is not None:
+            taxi_payload = taxi_state.as_dict()
+            taxi_payload["bev_enabled"] = bool(
+                self._bev_config is not None and self._bev_config.enabled
+            )
+            if vehicle_state is not None and self._bev_config is not None:
+                u, v, visible = project_target_to_bev(
+                    taxi_state.target_xyz_m, vehicle_state, self._bev_config
+                )
+                taxi_payload["bev_target"] = {
+                    "u": u,
+                    "v": v,
+                    "visible": visible,
+                }
+            else:
+                taxi_payload["bev_target"] = None
+            result["taxi"] = taxi_payload
+        return result
 
     def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
         """Validate a ``/scene/select`` request against registered ``_scenes`` and stash it.
@@ -978,6 +1335,13 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 self._serve_thumbnail(parse_qs(parsed.query))
             elif parsed.path == "/control":
                 self._serve_control(parse_qs(parsed.query))
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+
+        def do_POST(self) -> None:  # noqa: N802 (http.server mandated name)
+            parsed = urlparse(self.path)
+            if parsed.path == "/taxi/name":
+                self._serve_taxi_name()
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -1121,6 +1485,41 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                 down = False
             if key:
                 presenter._apply_control(key, down)
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _serve_taxi_name(self) -> None:
+            """Validate and queue a high-score name from the browser modal."""
+            taxi_state = presenter._keyboard.taxi_game_state
+            if taxi_state is None or taxi_state.session_state != "awaiting_name":
+                self.send_error(HTTPStatus.CONFLICT)
+                return
+            try:
+                content_length = max(
+                    0, min(int(self.headers.get("Content-Length", "0")), 1024)
+                )
+                payload = json.loads(self.rfile.read(content_length))
+                name = payload.get("name", "") if isinstance(payload, dict) else ""
+            except (TypeError, ValueError, json.JSONDecodeError):
+                name = ""
+            if not isinstance(name, str) or not presenter._keyboard.submit_taxi_name(
+                name
+            ):
+                body = json.dumps(
+                    {
+                        "error": (
+                            "Name must be 1-12 characters using letters, numbers, "
+                            "spaces, hyphens, or underscores."
+                        )
+                    }
+                ).encode("utf-8")
+                self.send_response(HTTPStatus.BAD_REQUEST)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Content-Length", "0")
             self.end_headers()

@@ -19,7 +19,6 @@ from omnidreams.interactive_drive.types import DriverCommand, SceneBundle, Vehic
 
 _MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
 _CHASSIS_INSET_M = 0.16
-_EGO_NATIVE_ID = 0
 
 
 def select_traffic_tracks(
@@ -125,49 +124,8 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             velocity_x_mps=float(velocity[0]),
             velocity_y_mps=float(velocity[1]),
         )
-        self._synchronize_native_ego(resolved)
+        self.synchronize_ego_state(resolved)
         return resolved, samples
-
-    def _synchronize_native_ego(self, state: VehicleState) -> None:
-        """Publish the Taxi-authoritative planar pose to the owned PhysX ego."""
-        half_yaw = state.yaw_rad * 0.5
-        pose = np.asarray(
-            [
-                state.x_m,
-                state.y_m,
-                state.z_m + self._ego_model.half_extents_m[2],
-                0.0,
-                0.0,
-                math.sin(half_yaw),
-                math.cos(half_yaw),
-            ],
-            dtype=np.float32,
-        )
-        forward = np.asarray(
-            [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
-        )
-        linear_velocity = np.asarray(
-            [
-                state.velocity_x_mps
-                if state.velocity_x_mps is not None
-                else forward[0] * state.speed_mps,
-                state.velocity_y_mps
-                if state.velocity_y_mps is not None
-                else forward[1] * state.speed_mps,
-                0.0,
-            ],
-            dtype=np.float32,
-        )
-        angular_velocity = np.asarray(
-            [0.0, 0.0, state.yaw_rate_radps], dtype=np.float32
-        )
-        self._world._scene.update_body(
-            _EGO_NATIVE_ID,
-            pose,
-            linear_velocity,
-            angular_velocity,
-            False,
-        )
 
     def step(
         self,
