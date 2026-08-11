@@ -10,9 +10,7 @@ import numpy as np
 import pytest
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig
-from omnidreams.interactive_drive.high_scores import HighScoreStore
-from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
-from omnidreams.interactive_drive.taxi_game import (
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
     TaxiGameSnapshot,
@@ -20,6 +18,8 @@ from omnidreams.interactive_drive.taxi_game import (
     project_taxi_marker_to_camera,
     relative_target_bearing_rad,
 )
+from omnidreams.interactive_drive.crazy_robotaxi.high_scores import HighScoreStore
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     TrajectoryChunk,

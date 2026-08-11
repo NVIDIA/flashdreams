@@ -27,13 +27,13 @@ import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
-from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
-from omnidreams.interactive_drive.physx_debug import select_presented_rgb
-from omnidreams.interactive_drive.taxi_game import (
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
     project_target_to_bev,
     project_taxi_marker_to_camera,
 )
+from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     DriverCommand,
@@ -960,7 +960,7 @@ class MJPEGStreamingPresenter:
 
     def configure_taxi_hud(self, bev: BevConfig) -> None:
         """Configure BEV projection used by browser taxi overlays."""
-        from omnidreams.interactive_drive.taxi_driving import (
+        from omnidreams.interactive_drive.crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
         )
 

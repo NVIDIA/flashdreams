@@ -12,12 +12,12 @@ processed twice.
 from types import SimpleNamespace
 
 import pytest
+from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 from omnidreams.interactive_drive.demo import KeyboardDriveState
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.streaming_presenter import (
     _BROWSER_KEY_TO_VIEW_MODE,
 )
-from omnidreams.interactive_drive.taxi_game import TaxiGameSnapshot
 from omnidreams.interactive_drive.types import DriverCommand, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
