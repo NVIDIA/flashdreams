@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import torch
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.video_output import VideoOutputStream
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -150,9 +153,27 @@ class T2VRuntime:
                 diffusion_model={"transformer": {"compile_network": config.compile}},
             )
         self.pipeline = pipeline_config.setup().to(config.device or "cuda").eval()
+        self._latest_artifact: tuple[Path, T2VScenario] | None = None
+
+    def blocks_for_duration(self, duration_s: float, *, fps: int) -> int:
+        """Return enough autoregressive chunks to reach the requested duration."""
+        target_frames = int(duration_s * fps)
+        frames = 0
+        index = 0
+        while frames < target_frames:
+            frames += int(self.pipeline.get_num_output_frames(index))
+            index += 1
+        return index
+
+    def record_artifact(self, path: Path, scenario: T2VScenario) -> None:
+        self._latest_artifact = (path, scenario)
+
+    @property
+    def latest_artifact(self) -> tuple[Path, T2VScenario] | None:
+        return self._latest_artifact
 
     def start_session(self, inputs: InferenceInput) -> "T2VSession":
-        return T2VSession(pipeline=self.pipeline, scenario=_scenario_from_inputs(inputs))
+        return T2VSession(pipeline=self.pipeline, scenario=_scenario_from_inputs(inputs), runtime=self)
 
     def close(self) -> None:
         close = getattr(self.pipeline, "close", None)
@@ -165,9 +186,14 @@ class T2VRuntime:
 class T2VSession(InferenceSession):
     """A cache-isolated T2V session that yields chunks as they are generated."""
 
-    def __init__(self, *, pipeline: Any, scenario: T2VScenario) -> None:
+    def __init__(self, *, pipeline: Any, scenario: T2VScenario, runtime: T2VRuntime) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
+        self._runtime = runtime
+        self._artifact_path = Path("outputs/t2v-webrtc") / f"{uuid4()}.mp4"
+        self._artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        self._artifact_output = Mp4VideoOutputTarget(output_path=self._artifact_path, fps=scenario.fps, output_layout="tchw")
+        self._artifact_output.open()
         self._step_index = 0
         self._closed = False
         self._output_stream = VideoOutputStream(postprocess_stream=None, output_layout="tchw")
@@ -195,12 +221,12 @@ class T2VSession(InferenceSession):
         video = self.pipeline.generate(autoregressive_index=index, cache=self._cache)
         stats = self.pipeline.finalize(autoregressive_index=index, cache=self._cache)
         self._step_index += 1
-        return self._output_stream.process(
-            video,
-            autoregressive_index=index,
-            metrics=stats,
+        result = self._output_stream.process(
+            video, autoregressive_index=index, metrics=stats,
             metadata={"prompt": self.scenario.prompt},
         )
+        self._artifact_output.write(result)
+        return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None and _scenario_from_inputs(inputs) != self.scenario:
@@ -208,7 +234,12 @@ class T2VSession(InferenceSession):
         raise RuntimeError("T2V sessions are finite; create a new session instead of reset().")
 
     def close(self) -> None:
+        if self._closed:
+            return
         self._closed = True
+        artifacts = self._artifact_output.close()
+        if artifacts:
+            self._runtime.record_artifact(self._artifact_path, self.scenario)
 
 
 def _scenario_from_value(value: Any, backend: T2VBackend) -> T2VScenario:

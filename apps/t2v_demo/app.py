@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import io
+import json
+import zipfile
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
@@ -146,11 +149,16 @@ class T2VDemoApplication(DemoApplication):
 class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
     """Shared manager with a prompt update for the next browser session."""
 
-    def update_prompt(self, prompt: str) -> None:
+    def update_prompt(self, prompt: str, duration_s: float) -> None:
         if not prompt.strip():
             raise ValueError("Prompt must be non-empty.")
+        if not 0 < duration_s <= 60:
+            raise ValueError("Duration must be greater than 0 and at most 60 seconds.")
         scenario = dict(self._shared_spec.scenario or {})
         scenario[FIELD_PROMPT] = prompt.strip()
+        scenario[FIELD_TOTAL_BLOCKS] = self.runtime.blocks_for_duration(
+            duration_s, fps=int(scenario[FIELD_FPS])
+        )
         self._shared_spec = replace(self._shared_spec, scenario=scenario)
         self._shared_scenario = self._shared_adapter.prepare_scenario(self._shared_spec)
 
@@ -163,14 +171,38 @@ def _configure_app(app: web.Application, *, manager: T2VWebRTCSessionManager, ar
         payload = await request.json()
         if not isinstance(payload, dict) or not isinstance(payload.get("prompt"), str):
             raise web.HTTPBadRequest(reason="Expected a JSON prompt.")
+        duration_s = payload.get("duration_s")
+        if not isinstance(duration_s, int | float):
+            raise web.HTTPBadRequest(reason="Expected numeric duration_s.")
         try:
-            manager.update_prompt(payload["prompt"])
+            manager.update_prompt(payload["prompt"], float(duration_s))
         except (RuntimeError, ValueError) as exc:
             raise web.HTTPBadRequest(reason=str(exc)) from exc
         return web.json_response({"status": "ok"})
 
+    async def download(_: web.Request) -> web.StreamResponse:
+        artifact = manager.runtime.latest_artifact
+        if artifact is None:
+            raise web.HTTPNotFound(reason="No completed generation is available yet.")
+        video_path, scenario = artifact
+        if not video_path.is_file():
+            raise web.HTTPNotFound(reason="Generated MP4 is no longer available.")
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(video_path, "video.mp4")
+            archive.writestr("prompt.json", json.dumps({"prompt": scenario.prompt, "total_blocks": scenario.total_blocks, "fps": scenario.fps, "width": scenario.pixel_width, "height": scenario.pixel_height}, indent=2))
+        return web.Response(body=buffer.getvalue(), headers={"Content-Disposition": "attachment; filename=flashdreams-generation.zip"}, content_type="application/zip")
+
+    async def playback(_: web.Request) -> web.StreamResponse:
+        artifact = manager.runtime.latest_artifact
+        if artifact is None or not artifact[0].is_file():
+            raise web.HTTPNotFound(reason="No completed MP4 is available yet.")
+        return web.FileResponse(artifact[0])
+
     app.router.add_get("/api/t2v/config", config)
     app.router.add_post("/api/t2v/prompt", update_prompt)
+    app.router.add_get("/api/t2v/download", download)
+    app.router.add_get("/api/t2v/playback", playback)
 
 
 def _scenario(args: argparse.Namespace) -> dict[str, object]:

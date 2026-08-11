@@ -555,6 +555,7 @@ class _ManagedWebRTCSessionEdgeFactory:
             loop=self._loop,
             video_encoder=self._managed_session.video_encoder,
             video_track=self._managed_session.video_track,
+            close_track=not self._manager._keep_connection_after_completed,
             on_chunk_delivery=self._on_chunk_delivery,
             on_error=self._on_delivery_error,
         )
@@ -1916,6 +1917,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 )
                 managed_session.reservation = None
                 if result.status != "completed":
+                    if (
+                        self._keep_connection_after_completed
+                        and result.status == "not_activated"
+                        and result.reason == "transport closed"
+                    ):
+                        break
                     logger.warning(
                         "Shared WebRTC session ended with status={} reason={}",
                         result.status,
@@ -1936,8 +1943,23 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         {"type": "generation_complete"},
                     )
                 input_source = managed_session.input_source
-                if input_source is not None:
-                    input_source.reset(start_v=asyncio.get_running_loop().time())
+                transport = managed_session.transport
+                if input_source is None or transport is None:
+                    break
+                input_source.reset(start_v=asyncio.get_running_loop().time())
+                # Do not construct another driver until the user submits the
+                # next prompt/generation. This keeps an idle T2V peer alive
+                # without surfacing an expected disconnect as a failed run.
+                activated = asyncio.create_task(input_source.activation_signal.wait())
+                closed = asyncio.create_task(transport.closed_signal.wait())
+                done, pending = await asyncio.wait(
+                    {activated, closed}, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                if closed in done or not transport.is_active():
+                    break
         finally:
             managed_session.reservation = None
             if self._active_session is managed_session:

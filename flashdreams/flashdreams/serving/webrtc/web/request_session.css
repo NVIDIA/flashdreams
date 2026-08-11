@@ -602,3 +602,5 @@ body[data-status="generating"] .statusLine strong {
 .promptGenerationActions button { min-height: 34px; border: 1px solid rgba(142,240,28,.45); border-radius: 6px; background: rgba(142,240,28,.12); color: var(--text); cursor: pointer; font-weight: 700; padding: 0 10px; }
 .promptGenerationActions button:disabled { cursor: not-allowed; opacity: .5; }
 .promptGenerationHint { margin: 10px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }
+.controlCard[hidden] { display: none; }
+.promptDurationInput { width: 8rem; min-height: 34px; margin-top: 12px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; background: rgba(12,14,15,.86); color: var(--text); padding: 0 9px; }

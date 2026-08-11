@@ -67,6 +67,7 @@ let connected = false
 let disconnecting = false
 let heldKeySequence = 0
 let postprocessAvailable = false
+let liveVideoStream = null
 
 const metrics = {
   fps: null,
@@ -341,6 +342,7 @@ async function loadModelAdapter() {
     }
   }
   configurePromptGeneration(adapter.promptGeneration)
+  document.querySelector(".controlCard")?.toggleAttribute("hidden", adapter.promptGeneration?.hideControls === true)
   await adapter.mount?.(modelContext)
 }
 
@@ -699,10 +701,23 @@ function handleControlMessage(rawMessage) {
 
   if (payload.type === "generation_complete") {
     inferenceInFlight = false
-    if (promptGenerationControls) promptGenerationControls.generate.disabled = false
+    if (promptGenerationControls) {
+      promptGenerationControls.generate.disabled = false
+      promptGenerationControls.download.disabled = false
+    }
     setStatus("Waiting", "waiting")
     setFlow("generation complete; ready for another prompt")
     logEvent("generation complete", { source: "server" })
+    stopPromptRecording()
+    const playbackEndpoint = promptGenerationControls?.config.playbackEndpoint
+    if (playbackEndpoint) {
+      remoteVideo.pause()
+      remoteVideo.srcObject = null
+      remoteVideo.src = `${playbackEndpoint}?generation=${Date.now()}`
+      remoteVideo.loop = true
+      remoteVideo.playbackRate = 1
+      void remoteVideo.play()
+    }
     return
   }
 
@@ -943,6 +958,7 @@ async function connectSession() {
     pc.ontrack = (event) => {
       const [stream] = event.streams
       if (stream) {
+        liveVideoStream = stream
         remoteVideo.srcObject = stream
         updateMetricsFromVideo()
       }
@@ -1149,10 +1165,13 @@ function configurePromptGeneration(config) {
   panel.innerHTML = `<label class="promptGenerationField"><span>${label}</span><textarea rows="5" placeholder="${placeholder}"></textarea></label><div class="promptGenerationActions"><button type="button" class="promptGenerateButton">${generateLabel}</button><button type="button" class="promptPlaybackButton" disabled>Pause</button><button type="button" class="promptDownloadButton" disabled>Download recording</button></div><p class="promptGenerationHint">Keep this session open and submit another prompt whenever you are ready.</p>`
   modelPanelSlot.append(panel)
   const prompt = panel.querySelector("textarea")
+  const duration = document.createElement("input")
+  duration.type = "number"; duration.min = "1"; duration.max = "60"; duration.value = "5"; duration.className = "promptDurationInput"; duration.setAttribute("aria-label", "Video duration in seconds")
+  panel.querySelector(".promptGenerationActions").before(duration)
   const generate = panel.querySelector(".promptGenerateButton")
   const playback = panel.querySelector(".promptPlaybackButton")
   const download = panel.querySelector(".promptDownloadButton")
-  promptGenerationControls = { config, prompt, generate, playback, download }
+  promptGenerationControls = { config, prompt, duration, generate, playback, download }
   generate.addEventListener("click", () => void requestPromptGeneration())
   playback.addEventListener("click", () => {
     if (remoteVideo.paused) { void remoteVideo.play(); playback.textContent = "Pause" } else { remoteVideo.pause(); playback.textContent = "Play" }
@@ -1165,10 +1184,12 @@ async function requestPromptGeneration() {
   const controls = promptGenerationControls
   if (!controls) return
   const prompt = controls.prompt.value.trim()
+  const duration_s = Number(controls.duration.value)
+  if (!Number.isFinite(duration_s) || duration_s < 1 || duration_s > 60) { controls.duration.focus(); setFlow("choose 1–60 seconds"); return }
   if (!prompt) { controls.prompt.focus(); setFlow("enter a prompt"); return }
   controls.generate.disabled = true
   try {
-    const response = await fetch(controls.config.endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) })
+    const response = await fetch(controls.config.endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, duration_s }) })
     if (!response.ok) throw new Error(await response.text())
     logEvent("prompt accepted", { source: "client" })
     if (!connected) {
@@ -1186,6 +1207,7 @@ async function requestPromptGeneration() {
 }
 
 function triggerPromptGeneration() {
+  if (remoteVideo.src) { remoteVideo.pause(); URL.revokeObjectURL(remoteVideo.src); remoteVideo.removeAttribute("src"); remoteVideo.srcObject = liveVideoStream; remoteVideo.loop = false }
   if (!sendModelMessage({ type: "action", action: { event: "step" } })) return
   inferenceInFlight = true
   if (promptGenerationControls) promptGenerationControls.generate.disabled = true
@@ -1210,10 +1232,6 @@ function stopPromptRecording() {
 }
 
 function downloadPromptRecording() {
-  if (!recordedChunks.length) return
-  const blob = new Blob(recordedChunks, { type: recording?.mimeType || "video/webm" })
-  const url = URL.createObjectURL(blob)
-  const anchor = Object.assign(document.createElement("a"), { href: url, download: "flashdreams-generation.webm" })
-  anchor.click()
-  URL.revokeObjectURL(url)
+  const endpoint = promptGenerationControls?.config.downloadEndpoint
+  if (endpoint) { window.location.assign(endpoint); return }
 }
