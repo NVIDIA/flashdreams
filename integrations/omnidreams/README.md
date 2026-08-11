@@ -160,6 +160,14 @@ explicitly to opt into Sparge/SageAttention-3 experiments. Use
 `native_dit_sparge_hybrid_period > 1` with `"sparge"` to enable the FP8
 Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 
+The native extension targets the current CUDA device automatically, including
+`10.3a` for GB300 and `12.0a` for compute capability 12.0 GPUs. Set
+`OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST` to override the detected target, or set
+`TORCH_CUDA_ARCH_LIST` to use PyTorch's standard override (which takes
+precedence). Builds for different targets use separate extension caches, so
+switching between GB300 and compute capability 12.0 does not reuse an
+incompatible kernel image.
+
 ## Run WebRTC server
 
 From the workspace root, run:

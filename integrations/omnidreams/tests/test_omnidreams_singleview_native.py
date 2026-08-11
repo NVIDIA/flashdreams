@@ -153,6 +153,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: "10.3a")
     monkeypatch.delenv("MAX_JOBS", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
@@ -274,7 +275,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     )
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cflags"]
     assert (
-        '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"12.0a\\"' in captured["extra_cflags"]
+        '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"10.3a\\"' in captured["extra_cflags"]
     )
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cuda_cflags"]
     if os.name == "nt":
@@ -283,9 +284,63 @@ def test_load_extension_uses_build_root_for_torch_cache(
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cuda_cflags"]
     assert captured["with_cuda"] is True
     assert captured["max_jobs_env"] == "8"
-    assert captured["cuda_arch_list_env"] == "12.0a"
+    assert captured["cuda_arch_list_env"] == "10.3a"
     assert "MAX_JOBS" not in os.environ
     assert "TORCH_CUDA_ARCH_LIST" not in os.environ
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("capability", "expected"),
+    [
+        ((8, 9), "8.9"),
+        ((10, 3), "10.3a"),
+        ((12, 0), "12.0a"),
+    ],
+)
+def test_format_cuda_arch_list(
+    capability: tuple[int, int],
+    expected: str,
+) -> None:
+    assert native._format_cuda_arch_list(capability) == expected
+
+
+@pytest.mark.ci_cpu
+def test_detected_cuda_arch_list_uses_current_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (10, 3))
+
+    assert native._detected_cuda_arch_list() == "10.3a"
+
+
+@pytest.mark.ci_cpu
+def test_effective_cuda_arch_list_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: "10.3a")
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
+
+    assert native._effective_cuda_arch_list() == "10.3a"
+
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
+    assert native._effective_cuda_arch_list() == "12.0a"
+
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.9")
+    assert native._effective_cuda_arch_list() == "8.9"
+
+
+@pytest.mark.ci_cpu
+def test_effective_cuda_arch_list_falls_back_without_cuda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: None)
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
+
+    assert native._effective_cuda_arch_list() == native._DEFAULT_CUDA_ARCH_LIST
 
 
 @pytest.mark.ci_cpu
@@ -398,6 +453,45 @@ def test_load_extension_caches_separate_sage3_modes(
 
 
 @pytest.mark.ci_cpu
+def test_load_extension_caches_separate_cuda_architectures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch.utils.cpp_extension as cpp_extension
+
+    extensions: list[ModuleType] = []
+
+    def fake_load_torch_extension(**_: object) -> ModuleType:
+        extension = _fake_extension_module()
+        extensions.append(extension)
+        return extension
+
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    monkeypatch.setattr(native, "_extension", {})
+    monkeypatch.setattr(native, "_extension_load_error", None)
+    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    sm103_extension = native.load_extension(build_root=tmp_path / "native-build")
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
+    sm120_extension = native.load_extension(build_root=tmp_path / "native-build")
+
+    assert sm103_extension is extensions[0]
+    assert sm120_extension is extensions[1]
+    assert (
+        native.load_extension(build_root=tmp_path / "native-build") is sm120_extension
+    )
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    assert (
+        native.load_extension(build_root=tmp_path / "native-build") is sm103_extension
+    )
+    assert len(extensions) == 2
+
+
+@pytest.mark.ci_cpu
 def test_extension_name_isolated_by_sage3_build_opt_out(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -413,6 +507,26 @@ def test_extension_name_isolated_by_sage3_build_opt_out(
     assert stubbed_name != full_name
     assert "_sage3_1_" in full_name
     assert "_sage3_0_" in stubbed_name
+
+
+@pytest.mark.ci_cpu
+def test_extension_name_isolated_by_cuda_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    monkeypatch.setattr(native, "_source_fingerprint", lambda: "fixed-fingerprint")
+
+    sm103_name = native._extension_name(
+        thirdparty_info,
+        cuda_arch_list="10.3a",
+    )
+    sm120_name = native._extension_name(
+        thirdparty_info,
+        cuda_arch_list="12.0a",
+    )
+
+    assert sm103_name != sm120_name
 
 
 @pytest.mark.ci_cpu
@@ -937,10 +1051,7 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert extension.is_available()
     build_info = extension.build_info()
     assert build_info["with_cuda"] is True
-    expected_arch = os.environ.get(
-        "TORCH_CUDA_ARCH_LIST",
-        os.environ.get("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a"),
-    )
+    expected_arch = native._effective_cuda_arch_list()
     assert build_info["cuda_arch_list"] == expected_arch
     assert hasattr(extension, "native_tensor_descriptor")
     assert hasattr(extension, "native_tensor_ref_descriptor")
