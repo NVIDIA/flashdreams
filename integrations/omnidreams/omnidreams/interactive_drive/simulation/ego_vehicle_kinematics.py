@@ -175,9 +175,11 @@ def integrate_vehicle(
         velocity -= left * lateral_speed * grip
         longitudinal_speed = float(np.dot(velocity, forward))
         velocity += forward * (speed - longitudinal_speed)
-        yaw_rate = state.yaw_rate_radps * max(
-            0.0, 1.0 - 1.8 * dt_s
-        ) + commanded_yaw_rate * min(1.0, 2.5 * dt_s)
+        response = 1.0 - math.exp(-8.0 * dt_s)
+        yaw_rate = (
+            state.yaw_rate_radps
+            + (commanded_yaw_rate - state.yaw_rate_radps) * response
+        )
     elif command.handbrake:
         response = 1.0 - math.exp(-4.0 * dt_s)
         yaw_rate = (
