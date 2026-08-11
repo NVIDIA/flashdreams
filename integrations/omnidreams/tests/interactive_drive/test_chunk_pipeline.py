@@ -217,6 +217,7 @@ def test_chunk_pipeline_stamps_timing_and_orders_frames() -> None:
     assert first.frame.taxi_game_snapshot is taxi_snapshots[0]
     assert second.frame.taxi_game_snapshot is taxi_snapshots[1]
     assert third.frame.rig_to_world is not None
+    assert third.frame.vehicle_state == make_trajectory(3).vehicle_states[2]
     assert backend.warmup_model_calls == 1
     assert backend.load_scene_calls == 1
 

@@ -123,6 +123,7 @@ def test_streaming_presenter_frame_wait_returns_none_after_bus_close() -> None:
 def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     keyboard = KeyboardState()
     vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 3.0, 0.0)
+    future_vehicle = VehicleState(20.0, 5.0, 0.0, 1.0, 30.0, 0.4)
     taxi = TaxiGameSnapshot(
         phase="to_dropoff",
         target_xyz_m=(10.0, 0.0, 0.0),
@@ -133,10 +134,17 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
         score=100,
         high_score=500,
     )
-    keyboard.update_runtime_state(vehicle, taxi)
+    keyboard.update_runtime_state(future_vehicle, taxi)
     presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
     presenter._keyboard = keyboard
     presenter._bev_config = BevConfig(tilt_deg=0.0)
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        vehicle_state=vehicle,
+        taxi_game_snapshot=taxi,
+    )
 
     snapshot = presenter._state_snapshot()
 

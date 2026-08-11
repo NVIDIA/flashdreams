@@ -37,11 +37,12 @@ from ludus_renderer import (
     SceneObject,
     TimestampedScene,
 )
-from omnidreams.interactive_drive.config import VehicleConfig
+from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
 )
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.physx_debug import (
     build_physx_debug_cube_pool,
     select_presented_rgb,
@@ -60,6 +61,7 @@ from omnidreams.interactive_drive.simulation.components import (
 from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     integrate_vehicle,
+    sample_chunk_trajectory,
 )
 from omnidreams.interactive_drive.simulation.game_physics import (
     GamePhysicsWorld,
@@ -333,6 +335,43 @@ def test_collision_detaches_actor_and_applies_physics_response() -> None:
         assert trajectory.is_simulated is True
     finally:
         world.close()
+
+
+def test_collision_chunk_keeps_every_visual_on_its_authoritative_state() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(_track()), config)
+
+    try:
+        trajectory = sample_chunk_trajectory(
+            start_state=_moving_ego(),
+            start_timestamp_us=0,
+            command=DriverCommand(throttle=1.0),
+            chunk_size=16,
+            chunk_config=ChunkConfig(fps=30),
+            vehicle_config=config,
+            ground_snapper=None,
+            physics_world=world,
+            capture_physics_debug=True,
+        )
+    finally:
+        world.close()
+
+    assert trajectory.actor_collision_detected is True
+    for state, pose, debug in zip(
+        trajectory.vehicle_states,
+        trajectory.rig_poses_world,
+        trajectory.physics_debug_frames,
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            pose, rig_pose_from_vehicle_state(state), atol=1.0e-6
+        )
+        np.testing.assert_allclose(
+            debug.ego_position_m[:2], [state.x_m, state.y_m], atol=1.0e-5
+        )
+        assert _yaw_from_quaternion_xyzw(debug.ego_orientation_xyzw) == pytest.approx(
+            state.yaw_rad, abs=1.0e-5
+        )
 
 
 def test_head_on_collision_keeps_detached_car_in_render_trajectory() -> None:
