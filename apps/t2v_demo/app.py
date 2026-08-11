@@ -23,7 +23,10 @@ from flashdreams.runtime.demo import (
     WebRTCAppResources,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.bootstrap import configure_logging, initialize_cuda_distributed
+from flashdreams.runtime.demo.bootstrap import (
+    configure_logging,
+    initialize_cuda_distributed,
+)
 from flashdreams.runtime.demo.host import RuntimeHost
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
@@ -90,11 +93,19 @@ def launch_t2v(
     if mode in {"mp4", "null"}:
         output = _replay_output(
             mode=mode,
-            output_path=output_overrides.get("path", output_overrides.get("output", config.output)),
+            output_path=output_overrides.get(
+                "path", output_overrides.get("output", config.output)
+            ),
             fps=int(output_overrides.get("fps", scenario[FIELD_FPS])),
         )
         result = run_replay_demo(
-            spec=_spec(config, adapter=adapter, scenario=scenario, input_mode="replay", output=output),
+            spec=_spec(
+                config,
+                adapter=adapter,
+                scenario=scenario,
+                input_mode="replay",
+                output=output,
+            ),
             adapter=adapter,
         )
         if result.status != "completed":
@@ -107,11 +118,17 @@ def launch_t2v(
         host=str(host or output_overrides.get("host", "0.0.0.0")),
         port=int(port if port is not None else output_overrides.get("port", 8080)),
         fps=int(output_overrides.get("fps", scenario[FIELD_FPS])),
-        video_width=int(output_overrides.get("video_width", scenario[FIELD_PIXEL_WIDTH])),
-        video_height=int(output_overrides.get("video_height", scenario[FIELD_PIXEL_HEIGHT])),
+        video_width=int(
+            output_overrides.get("video_width", scenario[FIELD_PIXEL_WIDTH])
+        ),
+        video_height=int(
+            output_overrides.get("video_height", scenario[FIELD_PIXEL_HEIGHT])
+        ),
         warmup_chunks=int(output_overrides.get("warmup_chunks", 0)),
         warmup_timeout_s=float(output_overrides.get("warmup_timeout_s", 600.0)),
-        client_liveness_timeout_s=float(output_overrides.get("client_liveness_timeout_s", 30.0)),
+        client_liveness_timeout_s=float(
+            output_overrides.get("client_liveness_timeout_s", 30.0)
+        ),
         preload_name="FlashDreams T2V",
     )
     spec = _spec(
@@ -165,8 +182,10 @@ def _scenario(
     def value(name: str, default: object) -> object:
         overridden = overrides.get(name)
         configured = getattr(config, name)
-        return default if overridden is None and configured is None else (
-            configured if overridden is None else overridden
+        return (
+            default
+            if overridden is None and configured is None
+            else (configured if overridden is None else overridden)
         )
 
     return {
@@ -210,9 +229,7 @@ def _replay_output(
         return NullOutputSpec()
     if output_path is None:
         raise ValueError("T2V MP4 mode requires an output path.")
-    return Mp4OutputSpec(
-        path=Path(str(output_path)), fps=fps, output_layout="tchw"
-    )
+    return Mp4OutputSpec(path=Path(str(output_path)), fps=fps, output_layout="tchw")
 
 
 def _configure_app(
@@ -264,7 +281,9 @@ def _configure_app(
             )
         return web.Response(
             body=buffer.getvalue(),
-            headers={"Content-Disposition": "attachment; filename=flashdreams-generation.zip"},
+            headers={
+                "Content-Disposition": "attachment; filename=flashdreams-generation.zip"
+            },
             content_type="application/zip",
         )
 

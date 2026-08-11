@@ -25,7 +25,9 @@ class T2VDemoRunnerConfig(RunnerConfig):
         "t2v_demo.launch:LAUNCH_CAPABILITY"
     )
     pipeline: Annotated[Any, tyro.conf.Suppress] = field(
-        default_factory=lambda: resolve_backend("causal-forcing").resolve_runner().pipeline
+        default_factory=lambda: resolve_backend("causal-forcing")
+        .resolve_runner()
+        .pipeline
     )
     backend: str = "causal-forcing"
     """Backend key: one of ``causal-forcing``, ``cosmos-predict2``, or ``self-forcing``."""

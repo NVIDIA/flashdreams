@@ -14,7 +14,6 @@ import torch
 
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.video_output import VideoOutputStream
-from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -33,6 +32,7 @@ from flashdreams.runtime.demo.session_inputs import (
 )
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import StepResult
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 from .backends import T2VBackend, resolve_backend
 
@@ -78,7 +78,9 @@ class T2VDemoAdapter(ModelAdapter):
 
     def validate_config(self, config: InferenceConfig) -> None:
         if config.model_id != self.model_id:
-            raise ValueError(f"Expected model_id={self.model_id!r}, got {config.model_id!r}.")
+            raise ValueError(
+                f"Expected model_id={self.model_id!r}, got {config.model_id!r}."
+            )
         if config.runtime_options.get("backend") != self.backend.key:
             raise ValueError("T2V runtime backend does not match its demo adapter.")
 
@@ -173,7 +175,9 @@ class T2VRuntime:
         return self._latest_artifact
 
     def start_session(self, inputs: InferenceInput) -> "T2VSession":
-        return T2VSession(pipeline=self.pipeline, scenario=_scenario_from_inputs(inputs), runtime=self)
+        return T2VSession(
+            pipeline=self.pipeline, scenario=_scenario_from_inputs(inputs), runtime=self
+        )
 
     def close(self) -> None:
         close = getattr(self.pipeline, "close", None)
@@ -186,21 +190,29 @@ class T2VRuntime:
 class T2VSession(InferenceSession):
     """A cache-isolated T2V session that yields chunks as they are generated."""
 
-    def __init__(self, *, pipeline: Any, scenario: T2VScenario, runtime: T2VRuntime) -> None:
+    def __init__(
+        self, *, pipeline: Any, scenario: T2VScenario, runtime: T2VRuntime
+    ) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
         self._runtime = runtime
         self._artifact_path = Path("outputs/t2v-webrtc") / f"{uuid4()}.mp4"
         self._artifact_path.parent.mkdir(parents=True, exist_ok=True)
-        self._artifact_output = Mp4VideoOutputTarget(output_path=self._artifact_path, fps=scenario.fps, output_layout="tchw")
+        self._artifact_output = Mp4VideoOutputTarget(
+            output_path=self._artifact_path, fps=scenario.fps, output_layout="tchw"
+        )
         self._artifact_output.open()
         self._step_index = 0
         self._closed = False
-        self._output_stream = VideoOutputStream(postprocess_stream=None, output_layout="tchw")
+        self._output_stream = VideoOutputStream(
+            postprocess_stream=None, output_layout="tchw"
+        )
         assert isinstance(pipeline.decoder, StreamingVideoDecoder)
         ratio = pipeline.decoder.spatial_compression_ratio
         if scenario.pixel_height % ratio or scenario.pixel_width % ratio:
-            raise ValueError("T2V dimensions must be divisible by the decoder spatial compression ratio.")
+            raise ValueError(
+                "T2V dimensions must be divisible by the decoder spatial compression ratio."
+            )
         self._cache = pipeline.initialize_cache(
             text=[scenario.prompt],
             image=None,
@@ -222,7 +234,9 @@ class T2VSession(InferenceSession):
         stats = self.pipeline.finalize(autoregressive_index=index, cache=self._cache)
         self._step_index += 1
         result = self._output_stream.process(
-            video, autoregressive_index=index, metrics=stats,
+            video,
+            autoregressive_index=index,
+            metrics=stats,
             metadata={"prompt": self.scenario.prompt},
         )
         self._artifact_output.write(result)
@@ -230,8 +244,12 @@ class T2VSession(InferenceSession):
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         if inputs is not None and _scenario_from_inputs(inputs) != self.scenario:
-            raise ValueError("Create a new T2V session to change the prompt or dimensions.")
-        raise RuntimeError("T2V sessions are finite; create a new session instead of reset().")
+            raise ValueError(
+                "Create a new T2V session to change the prompt or dimensions."
+            )
+        raise RuntimeError(
+            "T2V sessions are finite; create a new session instead of reset()."
+        )
 
     def close(self) -> None:
         if self._closed:
@@ -250,9 +268,15 @@ def _scenario_from_value(value: Any, backend: T2VBackend) -> T2VScenario:
         raise ValueError("A non-empty text-to-video prompt is required.")
     return T2VScenario(
         prompt=prompt,
-        total_blocks=int(source.get(FIELD_TOTAL_BLOCKS, getattr(runner, FIELD_TOTAL_BLOCKS, 1))),
-        pixel_height=int(source.get(FIELD_PIXEL_HEIGHT, getattr(runner, FIELD_PIXEL_HEIGHT, 480))),
-        pixel_width=int(source.get(FIELD_PIXEL_WIDTH, getattr(runner, FIELD_PIXEL_WIDTH, 832))),
+        total_blocks=int(
+            source.get(FIELD_TOTAL_BLOCKS, getattr(runner, FIELD_TOTAL_BLOCKS, 1))
+        ),
+        pixel_height=int(
+            source.get(FIELD_PIXEL_HEIGHT, getattr(runner, FIELD_PIXEL_HEIGHT, 480))
+        ),
+        pixel_width=int(
+            source.get(FIELD_PIXEL_WIDTH, getattr(runner, FIELD_PIXEL_WIDTH, 832))
+        ),
         fps=int(source.get(FIELD_FPS, getattr(runner, FIELD_FPS, 16))),
     )
 

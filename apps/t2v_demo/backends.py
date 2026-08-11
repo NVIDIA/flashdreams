@@ -33,18 +33,29 @@ class T2VBackend:
 
 BACKENDS: dict[str, T2VBackend] = {
     "causal-forcing": T2VBackend(
-        key="causal-forcing", label="Causal-Forcing (Wan 2.1)",
+        key="causal-forcing",
+        label="Causal-Forcing (Wan 2.1)",
         default_preset_name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
-        preset_names=("causal-forcing-wan2.1-t2v-1.3b-chunkwise", "causal-forcing-wan2.1-t2v-1.3b-framewise"),
+        preset_names=(
+            "causal-forcing-wan2.1-t2v-1.3b-chunkwise",
+            "causal-forcing-wan2.1-t2v-1.3b-framewise",
+        ),
     ),
     "cosmos-predict2": T2VBackend(
-        key="cosmos-predict2", label="Cosmos Predict2",
-        default_preset_name="cosmos2-t2v-2b-720p", preset_names=("cosmos2-t2v-2b-720p",),
+        key="cosmos-predict2",
+        label="Cosmos Predict2",
+        default_preset_name="cosmos2-t2v-2b-720p",
+        preset_names=("cosmos2-t2v-2b-720p",),
     ),
     "self-forcing": T2VBackend(
-        key="self-forcing", label="Self-Forcing (Wan 2.1)",
+        key="self-forcing",
+        label="Self-Forcing (Wan 2.1)",
         default_preset_name="self-forcing-wan2.1-t2v-1.3b",
-        preset_names=("self-forcing-wan2.1-t2v-1.3b", "self-forcing-wan2.1-t2v-1.3b-taehv", "self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope"),
+        preset_names=(
+            "self-forcing-wan2.1-t2v-1.3b",
+            "self-forcing-wan2.1-t2v-1.3b-taehv",
+            "self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope",
+        ),
     ),
 }
 
@@ -54,7 +65,9 @@ def resolve_backend(value: str) -> T2VBackend:
     try:
         return BACKENDS[value]
     except KeyError as exc:
-        raise ValueError(f"Unknown backend {value!r}. Available backends: {', '.join(BACKENDS)}.") from exc
+        raise ValueError(
+            f"Unknown backend {value!r}. Available backends: {', '.join(BACKENDS)}."
+        ) from exc
 
 
 def backend_choices() -> tuple[str, ...]:
@@ -65,6 +78,11 @@ def backend_choices() -> tuple[str, ...]:
 def backend_metadata() -> list[dict[str, Any]]:
     """Return browser-safe backend names and app-owned presets."""
     return [
-        {"key": backend.key, "label": backend.label, "default_preset": backend.default_preset_name, "presets": backend.preset_names}
+        {
+            "key": backend.key,
+            "label": backend.label,
+            "default_preset": backend.default_preset_name,
+            "presets": backend.preset_names,
+        }
         for backend in BACKENDS.values()
     ]

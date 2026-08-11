@@ -33,7 +33,11 @@ class T2VLaunchCapability:
         return ResolvedLaunch(
             mode=mode,
             label=f"T2V {mode} launch",
-            summary={"runner": config.runner_name, "mode": mode, "device": config.device},
+            summary={
+                "runner": config.runner_name,
+                "mode": mode,
+                "device": config.device,
+            },
             launch=partial(_launch, config=config, mode=mode, options=options),
         )
 

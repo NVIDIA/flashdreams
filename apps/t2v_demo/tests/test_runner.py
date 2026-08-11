@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import pytest
-
 from t2v_demo import app
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
 
