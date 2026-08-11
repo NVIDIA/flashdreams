@@ -319,8 +319,27 @@ function applyInitialScene(scene) {
   }
   renderEventControls()
   context.setModelName(scene.model || "Lingbot")
+  applyVideoSizing(scene.resolution)
   context.setResolution(scene.resolution?.width, scene.resolution?.height)
   updatePreview()
+}
+
+function applyVideoSizing(resolution) {
+  const width = Number(resolution?.width)
+  const height = Number(resolution?.height)
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return
+  }
+  const style = document.documentElement.style
+  style.setProperty("--lingbot-video-width", `${width}px`)
+  style.setProperty("--lingbot-video-height", `${height}px`)
+  style.setProperty("--lingbot-video-width-from-vh", `${(width / height) * 100}vh`)
+  style.setProperty("--lingbot-video-aspect", `${width} / ${height}`)
 }
 
 function mockInitialScene() {
@@ -476,7 +495,7 @@ function attachListeners() {
 
 export default {
   modelName: "Lingbot",
-  stylesheet: new URL("./adapter.css", import.meta.url).href,
+  stylesheet: new URL("./adapter.css?v=lingbot-video-size-v2", import.meta.url).href,
   controls,
 
   async mount(sharedContext) {
