@@ -252,7 +252,7 @@ runner_overrides:
 )
 def test_documented_launch_manifests_resolve(filename: str) -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    manifest = load_launch_manifest(repo_root / "docs/launch_manifests" / filename)
+    manifest = load_launch_manifest(repo_root / "configs" / filename)
     config = manifest.apply_runner_overrides(cli.all_runners()[manifest.runner])
 
     if manifest.mode != "run":

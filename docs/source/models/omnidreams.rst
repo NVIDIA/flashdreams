@@ -181,7 +181,7 @@ Run the WebRTC demo:
 
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest docs/launch_manifests/omnidreams_webrtc.yaml
+       --manifest configs/omnidreams_webrtc.yaml
 
 Then open ``http://<server-ip>:8089/request_session`` in any browser on the
 same network.
@@ -200,7 +200,7 @@ same network.
 .. note::
 
    For local-window, set ``output.offload_text_encoder: true`` in a copy of
-   ``docs/launch_manifests/omnidreams_local_window.yaml`` to reduce peak VRAM
+   ``configs/omnidreams_local_window.yaml`` to reduce peak VRAM
    usage by ~15 GB, then launch it with the central command:
 
    .. code-block:: bash
@@ -223,7 +223,7 @@ On a GPU with a graphics stack, launch the Vulkan window:
 
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-       --manifest docs/launch_manifests/omnidreams_local_window.yaml
+       --manifest configs/omnidreams_local_window.yaml
 
 The local window's HUD adds a weather-variant selector (clear, rain, snow)
 next to the scene picker, so the same scene can be switched between
@@ -312,7 +312,7 @@ point the demo at the perf manifest:
 
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-       --manifest docs/launch_manifests/omnidreams_local_window.yaml
+       --manifest configs/omnidreams_local_window.yaml
 
 ``native_dit_acceleration: required`` makes the manifest fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
@@ -330,7 +330,7 @@ on top of the same OmniDreams pipeline.
    # from the repo root
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest docs/launch_manifests/omnidreams_webrtc.yaml
+       --manifest configs/omnidreams_webrtc.yaml
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.

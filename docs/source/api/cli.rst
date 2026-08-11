@@ -45,7 +45,7 @@ Launch a WebRTC demo from a versioned manifest:
 .. code-block:: bash
 
    uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest docs/launch_manifests/lingbot_webrtc.yaml
+       --manifest configs/lingbot_webrtc.yaml
 
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA

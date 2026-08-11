@@ -60,7 +60,7 @@ and streams the generated camera view to a browser over WebRTC:
 
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest docs/launch_manifests/omnidreams_webrtc.yaml
+       --manifest configs/omnidreams_webrtc.yaml
 
 Then open ``http://<server-ip>:8089/request_session`` in a browser on the same network
 (use ``localhost`` on the same machine). The first launch spends several
@@ -74,7 +74,7 @@ loading checkpoints:
 
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest docs/launch_manifests/omnidreams_webrtc.yaml \
+       --manifest configs/omnidreams_webrtc.yaml \
        --no-instantiate
 
 See :doc:`/models/omnidreams` for scripted generation, scene variants,

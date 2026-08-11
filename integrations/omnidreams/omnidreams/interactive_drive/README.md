@@ -254,7 +254,7 @@ process.
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
   omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-  --manifest docs/launch_manifests/omnidreams_local_window.yaml
+  --manifest configs/omnidreams_local_window.yaml
 ```
 
 The default `--scene` resolves to
@@ -466,7 +466,7 @@ CUDA:
 ```bash
 uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
   omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-  --manifest docs/launch_manifests/omnidreams_local_window.yaml
+  --manifest configs/omnidreams_local_window.yaml
 ```
 
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host

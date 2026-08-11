@@ -79,7 +79,7 @@ fails instead of silently launching a different preset:
 .. code-block:: bash
 
    uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest docs/launch_manifests/lingbot_webrtc.yaml
+       --manifest configs/lingbot_webrtc.yaml
 
 Examples
 --------
@@ -88,16 +88,16 @@ Examples
 
    # WebRTC
    uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest docs/launch_manifests/lingbot_webrtc.yaml
+       --manifest configs/lingbot_webrtc.yaml
 
    # MP4 replay
    uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest docs/launch_manifests/lingbot_mp4.yaml
+       --manifest configs/lingbot_mp4.yaml
 
    # Resolve an OmniDreams launch without loading the model
    uv run flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-       --manifest docs/launch_manifests/omnidreams_webrtc.yaml \
+       --manifest configs/omnidreams_webrtc.yaml \
        --no-instantiate
 
 OmniDreams local-window also accepts the existing

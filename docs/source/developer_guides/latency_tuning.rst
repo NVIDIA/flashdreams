@@ -52,7 +52,7 @@ Run the perf manifest only on hosts that can build and load the native extension
    uv run --package flashdreams-omnidreams omnidreams-prepare --perf
    uv run --package flashdreams-omnidreams flashdreams-run \
        omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf local-window \
-       --manifest docs/launch_manifests/omnidreams_local_window.yaml
+       --manifest configs/omnidreams_local_window.yaml
 
 ``native_dit_acceleration: required`` is intentional. If the native extension is
 not available, startup fails instead of silently falling back to the slower

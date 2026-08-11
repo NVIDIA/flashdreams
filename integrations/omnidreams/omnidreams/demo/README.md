@@ -31,7 +31,7 @@ Run a short replay without writing video output:
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
   omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae null \
-  --manifest docs/launch_manifests/omnidreams_null.yaml
+  --manifest configs/omnidreams_null.yaml
 ```
 
 ## Precomputed MP4 Replay
@@ -41,7 +41,7 @@ Generate an MP4 from bundled single-view sample data and pre-rendered HDMaps:
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
   omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae mp4 \
-  --manifest docs/launch_manifests/omnidreams_mp4.yaml
+  --manifest configs/omnidreams_mp4.yaml
 ```
 
 This replay path mirrors the benchmark runner path: it uses a prompt, first
@@ -75,7 +75,7 @@ conditioning with Ludus, and runs OmniDreams from browser WASD controls:
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
   omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae webrtc \
-  --manifest docs/launch_manifests/omnidreams_webrtc.yaml
+  --manifest configs/omnidreams_webrtc.yaml
 ```
 
 The scene UUID is optional; when omitted, the runtime uses the default
