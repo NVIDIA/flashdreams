@@ -32,6 +32,7 @@ namespace {
 
 constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
+constexpr std::int64_t kEgoObjectId = 0;
 constexpr float kBoundaryHeadingAlignRateRadps = 0.6f;
 constexpr float kActorContactDetectionMarginM = 0.15f;
 
@@ -100,7 +101,6 @@ struct BodyRecord {
     bool driveIntentActive = false;
     bool handbrakeActive = false;
     bool steeringActive = false;
-    float uncommandedYawRateLimit = 0.0f;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -603,7 +603,6 @@ public:
         float dt,
         bool egoHandbrakeActive,
         bool egoSteeringActive,
-        float egoUncommandedYawRateLimit,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -612,10 +611,9 @@ public:
         const PxTransform requestedEgoPose = poseFromArray(egoPose);
         const PxVec3 requestedEgoLinear = vectorFromArray(egoLinearVelocity, "linear_velocity");
         const PxVec3 requestedEgoAngular = vectorFromArray(egoAngularVelocity, "angular_velocity");
-        BodyRecord& ego = bodyAt(0);
+        BodyRecord& ego = bodyAt(kEgoObjectId);
         ego.handbrakeActive = egoHandbrakeActive;
         ego.steeringActive = egoSteeringActive;
-        ego.uncommandedYawRateLimit = egoUncommandedYawRateLimit;
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -689,6 +687,7 @@ public:
             const auto actorEnd = StepClock::now();
 
             simulateSubsteps(dt);
+            applyEgoDriveHeading(requestedEgoPose, requestedEgoAngular);
             const auto solverEnd = StepClock::now();
 
             for (const auto& entry : mBodies) {
@@ -821,69 +820,64 @@ private:
             std::max(1.0f, std::ceil(dt / maxSubstepS)));
         const float substepDt = dt / static_cast<float>(substepCount);
         for (std::size_t substep = 0; substep < substepCount; ++substep) {
-            const float egoYawBeforeStep =
-                yawFromQuaternion(bodyAt(0).actor->getGlobalPose().q);
             applyVehicleForces(substepDt);
             mScene->simulate(substepDt);
             if (!mScene->fetchResults(true))
                 throw std::runtime_error("PhysX fetchResults failed");
+            constrainEgoUpright();
             constrainVehicleYawsAtBarriers(substepDt);
-            constrainEgoPlanarMotion(egoYawBeforeStep, substepDt);
         }
     }
 
-    void constrainEgoPlanarMotion(float previousYaw, float dt)
+    void constrainEgoUpright()
     {
-        BodyRecord& ego = bodyAt(0);
+        BodyRecord& ego = bodyAt(kEgoObjectId);
         if (
             !ego.hasVehicle()
             || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
             return;
 
-        // Keep every source of chassis rotation inside one final authority.
-        // Interactive-drive renders pitch/roll separately, and the HD-map world
-        // model cannot follow single-frame yaw impulses from contacts.
         PxTransform pose = ego.actor->getGlobalPose();
-        const float currentYaw = yawFromQuaternion(pose.q);
-        const float commandedYawRate = std::abs(ego.desiredAngularVelocity.z);
-        const float allowedYawRate =
-            std::max(commandedYawRate, ego.uncommandedYawRateLimit);
-        const float yawDelta = wrappedAngle(currentYaw - previousYaw);
-        const float allowedYawDelta = allowedYawRate * dt;
-        const bool controlledHandbrakePivot =
-            ego.handbrakeActive
-            && ego.steeringActive
-            && commandedYawRate > 1.0e-3f;
-        const float limitedYawDelta = controlledHandbrakePivot
-            ? ego.desiredAngularVelocity.z * dt
-            : (allowedYawRate > 0.0f
-                    ? std::clamp(yawDelta, -allowedYawDelta, allowedYawDelta)
-                    : yawDelta);
-        const float limitedYaw = previousYaw + limitedYawDelta;
+        const PxVec3 up = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
         if (
-            std::abs(limitedYawDelta - yawDelta) > 1.0e-6f
-            || std::abs(pose.q.x) > 1.0e-5f
-            || std::abs(pose.q.y) > 1.0e-5f) {
-            pose.q = PxQuat(limitedYaw, PxVec3(0.0f, 0.0f, 1.0f));
+            std::abs(up.x) > 1.0e-4f
+            || std::abs(up.y) > 1.0e-4f
+            || up.z < 0.9999f) {
+            pose.q = PxQuat(
+                yawFromQuaternion(pose.q),
+                PxVec3(0.0f, 0.0f, 1.0f));
             ego.actor->setGlobalPose(pose, false);
         }
 
         PxVec3 angularVelocity = ego.actor->getAngularVelocity();
-        const float originalYawRate = angularVelocity.z;
-        if (controlledHandbrakePivot) {
-            angularVelocity.z = ego.desiredAngularVelocity.z;
-        } else if (allowedYawRate > 0.0f) {
-            angularVelocity.z = std::clamp(
-                angularVelocity.z, -allowedYawRate, allowedYawRate);
-        }
         if (
             std::abs(angularVelocity.x) > 1.0e-5f
-            || std::abs(angularVelocity.y) > 1.0e-5f
-            || std::abs(angularVelocity.z - originalYawRate) > 1.0e-6f) {
+            || std::abs(angularVelocity.y) > 1.0e-5f) {
             angularVelocity.x = 0.0f;
             angularVelocity.y = 0.0f;
             ego.actor->setAngularVelocity(angularVelocity, false);
         }
+    }
+
+    void applyEgoDriveHeading(
+        const PxTransform& requestedPose,
+        const PxVec3& requestedAngularVelocity)
+    {
+        BodyRecord& ego = bodyAt(kEgoObjectId);
+        if (
+            !ego.hasVehicle()
+            || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
+            return;
+
+        // Translation and velocity remain PhysX-owned. Heading comes from the
+        // same vehicle trajectory used for HD-map conditioning so contacts
+        // cannot rotate the map independently of the generated camera.
+        PxTransform pose = ego.actor->getGlobalPose();
+        pose.q = PxQuat(
+            yawFromQuaternion(requestedPose.q),
+            PxVec3(0.0f, 0.0f, 1.0f));
+        ego.actor->setGlobalPose(pose, false);
+        ego.actor->setAngularVelocity(requestedAngularVelocity, false);
     }
 
     void constrainVehicleYawsAtBarriers(float dt)
@@ -891,6 +885,7 @@ private:
         for (auto& entry : mBodies) {
             BodyRecord& body = entry.second;
             if (!body.hasVehicle()
+                || entry.first == kEgoObjectId
                 || body.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
                 continue;
 
@@ -954,11 +949,8 @@ private:
                 yawError -= 3.1415926535897932f;
             else if (yawError < -1.5707963267948966f)
                 yawError += 3.1415926535897932f;
-            const float alignmentRate = body.uncommandedYawRateLimit > 0.0f
-                ? body.uncommandedYawRateLimit
-                : kBoundaryHeadingAlignRateRadps;
             const float alignmentDelta =
-                std::min(std::abs(yawError), alignmentRate * dt);
+                std::min(std::abs(yawError), kBoundaryHeadingAlignRateRadps * dt);
             const float alignedYawError =
                 yawError - std::copysign(alignmentDelta, yawError);
             if (alignedYawError == yawError)

@@ -315,14 +315,12 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
             *,
             handbrake_active: bool = False,
             steering_active: bool = False,
-            max_yaw_rate_radps: float | None = None,
         ) -> tuple[VehicleState, tuple[object, ...]]:
             del (
                 timestamp_us,
                 dt_s,
                 handbrake_active,
                 steering_active,
-                max_yaw_rate_radps,
             )
             self.last_step_actor_collision = self._step_index == 1
             self._step_index += 1
