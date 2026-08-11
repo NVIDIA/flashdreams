@@ -622,7 +622,6 @@ class SlangPyHudPresenter:
         source_size = _rgb_source_size(rgb)
         if source_size is not None:
             self._latest_camera_src_size = source_size
-        self._latest_taxi_frame = frame
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
             _prefetch_to_numpy(rgb)
         if frame.bev_host_uint8 is not None:
@@ -667,6 +666,10 @@ class SlangPyHudPresenter:
             # presentation tick. Drop this transition frame instead of using
             # old-size CUDA/Vulkan buffers against the newly resized window.
             return
+
+        # Display metadata advances only with the frame handed to the
+        # swapchain. ``prepare_frame`` can run several queued frames ahead.
+        self._latest_taxi_frame = frame
         try:
             cuda_presented = (
                 self._present_cuda_hud_frame(frame, rgb, flare_opacity=flare_opacity)
@@ -3206,6 +3209,7 @@ class SlangPyHudPresenter:
         self._camera_resize_cache_key = None
         self._camera_resize_cache = None
         self._latest_camera_pil = None
+        self._latest_taxi_frame = None
         self._latest_bev_source = None
         self._prepared_bev_source_key = None
         self._bev_source_generation = 0
