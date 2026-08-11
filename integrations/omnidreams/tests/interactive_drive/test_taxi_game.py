@@ -180,6 +180,22 @@ def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
     assert pickup.target_xyz_m[1] == pytest.approx(0.0)
 
 
+def test_initial_pickup_is_limited_to_200_meters() -> None:
+    controller = TaxiGameController(
+        scene_id="bounded-visible-pickup",
+        reference_route_world=np.asarray(
+            [[150.0, 0.0, 0.0], [250.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(enabled=True, seed=2, waypoint_spacing_m=100.0),
+        initial_camera=_camera_calibration(),
+    )
+
+    pickup = controller.snapshot(_state())
+
+    assert 20.0 <= pickup.distance_m <= 200.0
+
+
 def test_later_pickups_are_sampled_across_the_map() -> None:
     routes = (
         np.asarray([[-100.0, -100.0, 0.0], [100.0, -100.0, 0.0]], dtype=np.float32),

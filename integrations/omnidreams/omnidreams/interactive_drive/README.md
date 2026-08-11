@@ -288,11 +288,11 @@ the extra rasterizer dispatch when you don't need it.
 Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
 road-valid pickups from the scene's car-lane centerlines (falling back to the
 recorded route when lane data is unavailable). Only the first pickup is
-constrained to project inside the starting camera view, and it may be distant;
-later pickups are sampled across all eligible map waypoints instead of always
-choosing the nearest one. Taxi mode starts a distance-scaled trip timer with a
-2x deadline multiplier after pickup and shows the active target, direction
-arrow, score, trip
+constrained to project inside the starting camera view and be no farther than
+200 meters; later pickups are sampled across all eligible map waypoints instead
+of always choosing the nearest one. Taxi mode starts a distance-scaled trip
+timer with a 2x deadline multiplier after pickup and shows the active target,
+direction arrow, score, trip
 time, and global game time. Each game starts with 60 seconds. A successful
 dropoff awards 500 points plus 100 points per whole trip second remaining and
 adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
