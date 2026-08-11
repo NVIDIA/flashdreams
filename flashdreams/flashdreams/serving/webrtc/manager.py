@@ -33,7 +33,6 @@ from flashdreams.runtime.demo import (
     ProviderCapabilities,
     ResamplerRealtimeClock,
     RunContext,
-    RunResult,
     RuntimeHost,
     SessionEdges,
     SessionInfo,
@@ -79,7 +78,6 @@ from flashdreams.serving.webrtc.messages import (
 from flashdreams.serving.webrtc.runtime import (
     WebRTCControlSignal,
     WebRTCRuntimeConfig,
-    WebRTCSessionRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
@@ -681,6 +679,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         shared_host: RuntimeHost | None = None,
         shared_adapter: Any | None = None,
         shared_spec: DemoSpec | None = None,
+        shared_spec_factory: Callable[[Any], DemoSpec] | None = None,
         shared_scenario: PreparedScenario | None = None,
         shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
     ) -> None:
@@ -711,6 +710,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._shared_context: RunContext | None = None
         self._shared_adapter = shared_adapter
         self._shared_spec = shared_spec
+        self._shared_spec_factory = shared_spec_factory
         self._shared_scenario = shared_scenario
         self._shared_pipeline_factory = shared_pipeline_factory
         self._shared_video_encoder: VideoEncoder | None = None
@@ -1844,6 +1844,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         adapter = self._shared_adapter
         spec = self._shared_spec
         scenario = self._shared_scenario
+        spec_factory = self._shared_spec_factory
         if adapter is None or spec is None:
             adapter = _LegacyWebRTCDemoAdapter(
                 runtime=self._runtime,
@@ -1851,6 +1852,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 session_input=session_input,
             )
             spec = self._shared_demo_spec()
+        elif spec_factory is not None and session_input is not None:
+            spec = spec_factory(session_input)
+            scenario = None
         if scenario is None:
             scenario = adapter.prepare_scenario(spec)
         run_mode = WebRTCRunMode(

@@ -15,12 +15,17 @@ from flashdreams.runtime import (
     StepRequest,
     StepRequirements,
     TimeWindow,
+    UserInputs,
 )
 from flashdreams.runtime.demo import (
     PreparedScenario,
     PreparedStep,
     ProviderCapabilities,
     UserInputWindow,
+)
+from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
 )
 from lingbot.input_mapping import CAMERA_COMMAND, LingbotInputMapping
 from lingbot.runtime import LingbotModelAdapter
@@ -86,6 +91,7 @@ class LingbotInputProvider:
         if user_window.control is not None:
             return PreparedStep(control=user_window.control)
 
+        self._advance_skipped_input_state(user_window)
         legacy_request = self._legacy_step_request(
             request=request,
             user_window=user_window,
@@ -146,6 +152,29 @@ class LingbotInputProvider:
         self._scenario.canonicalizer.reset()
         self._mapping.reset()
         self._next_frame_start = 0
+
+    def _advance_skipped_input_state(self, user_window: UserInputWindow) -> None:
+        skipped_inputs = user_window.metadata.get(WEBRTC_SKIPPED_INPUTS_METADATA_KEY)
+        skipped_window = user_window.metadata.get(WEBRTC_SKIPPED_WINDOW_METADATA_KEY)
+        if not isinstance(skipped_inputs, UserInputs):
+            return
+        if not isinstance(skipped_window, tuple) or len(skipped_window) != 2:
+            return
+        start_value, end_value = skipped_window
+        if not isinstance(start_value, int | float) or not isinstance(
+            end_value,
+            int | float,
+        ):
+            return
+        start_s = float(start_value)
+        end_s = float(end_value)
+        if end_s <= start_s:
+            return
+        self._scenario.canonicalizer.canonicalize(
+            skipped_inputs,
+            window=TimeWindow(start_s=start_s, end_s=end_s),
+            source_schema=self._scenario.source_schema,
+        )
 
     def _require_open(self) -> None:
         if self._closed:

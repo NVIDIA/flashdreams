@@ -25,6 +25,7 @@ from lingbot.runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
     FIELD_PIXEL_WIDTH,
+    FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
     LingbotModelAdapter,
     build_lingbot_webrtc_runtime_config,
@@ -102,6 +103,12 @@ def serve_lingbot_webrtc_demo(
         client_liveness_timeout_s=spec.output.client_liveness_timeout_s,
         shared_adapter=demo_adapter,
         shared_spec=shared_spec,
+        shared_spec_factory=lambda session_input: _shared_webrtc_spec(
+            spec,
+            runtime_config=runtime_config,
+            example_idx=scenario.example_idx,
+            session_input=session_input,
+        ),
         shared_scenario=prepared,
     )
     return serve_webrtc_demo(
@@ -128,6 +135,7 @@ def _shared_webrtc_spec(
     *,
     runtime_config: LingbotRuntimeConfig,
     example_idx: int,
+    session_input: Any = None,
 ) -> DemoSpec:
     config = spec.config
     if config is None:
@@ -140,18 +148,28 @@ def _shared_webrtc_spec(
             "seed": runtime_config.seed,
         }
     )
+    scenario: dict[str, Any] = {
+        "camera_source": "events",
+        "example_data": True,
+        "example_idx": example_idx,
+        "text_events": runtime_config.text_events,
+        FIELD_TOTAL_BLOCKS: int(_option(config, "total_blocks", 1_000_000)),
+        FIELD_PIXEL_HEIGHT: runtime_config.video_height,
+        FIELD_PIXEL_WIDTH: runtime_config.video_width,
+        FIELD_FPS: runtime_config.fps,
+    }
+    # Browser-provided first-frame payloads stay runtime/session-owned because
+    # they can be bytes or remote payloads. The provider only needs the active
+    # prompt/catalog plus example-data calibration for live camera mapping.
+    prompt = getattr(session_input, "prompt", None)
+    if prompt:
+        scenario[FIELD_PROMPT] = str(prompt)
+    text_events = getattr(session_input, "text_events", None)
+    if text_events is not None:
+        scenario["text_events"] = text_events
     return replace(
         spec,
-        scenario={
-            "camera_source": "events",
-            "example_data": True,
-            "example_idx": example_idx,
-            "text_events": runtime_config.text_events,
-            FIELD_TOTAL_BLOCKS: int(_option(config, "total_blocks", 1_000_000)),
-            FIELD_PIXEL_HEIGHT: runtime_config.video_height,
-            FIELD_PIXEL_WIDTH: runtime_config.video_width,
-            FIELD_FPS: runtime_config.fps,
-        },
+        scenario=scenario,
         config=replace(
             config,
             preset_id=runtime_config.config_name,

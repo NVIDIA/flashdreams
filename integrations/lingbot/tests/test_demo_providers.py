@@ -33,6 +33,10 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, PreparedScenario
 from flashdreams.runtime.demo.session_inputs import UserInputWindow
+from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
+    WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -158,6 +162,67 @@ def test_lingbot_provider_uses_driver_user_window_inputs(tmp_path: Path) -> None
 
     poses = actual_step.step[FIELD_CAMERA_TRAJECTORY]
     assert torch.allclose(poses, expected_step.step[FIELD_CAMERA_TRAJECTORY])
+    assert not torch.allclose(poses[0], poses[-1])
+
+
+def test_lingbot_provider_folds_webrtc_skipped_inputs_into_state(
+    tmp_path: Path,
+) -> None:
+    adapter = LingbotDemoAdapter()
+    scenario_events = ({"t": 10.0, "type": "key_down", "key": "a"},)
+    with_skip = _prepared_scenario(
+        tmp_path,
+        adapter=adapter,
+        camera_source="events",
+        events=scenario_events,
+    )
+    idle = _prepared_scenario(
+        tmp_path,
+        adapter=adapter,
+        camera_source="events",
+        events=scenario_events,
+    )
+    provider = LingbotInputProvider(
+        scenario=with_skip,
+        inference_input_schema=adapter.inference_input_schema,
+    )
+    idle_provider = LingbotInputProvider(
+        scenario=idle,
+        inference_input_schema=adapter.inference_input_schema,
+    )
+    skipped_inputs = UserInputs(
+        events=(
+            UserInputEvent(
+                timestamp_s=0.0,
+                event_type="key_down",
+                payload={"key": "w"},
+            ),
+        )
+    )
+
+    provider.prepare_initial_input()
+    idle_provider.prepare_initial_input()
+    actual = _provider_step(
+        provider,
+        step_index=0,
+        frame_start=4,
+        num_frames=4,
+        inputs=UserInputs(),
+        metadata={
+            WEBRTC_SKIPPED_INPUTS_METADATA_KEY: skipped_inputs,
+            WEBRTC_SKIPPED_WINDOW_METADATA_KEY: (0.0, 0.25),
+        },
+    )
+    expected_idle = _provider_step(
+        idle_provider,
+        step_index=0,
+        frame_start=4,
+        num_frames=4,
+        inputs=UserInputs(),
+    )
+
+    poses = actual.step[FIELD_CAMERA_TRAJECTORY]
+    assert not torch.allclose(poses, expected_idle.step[FIELD_CAMERA_TRAJECTORY])
     assert not torch.allclose(poses[0], poses[-1])
 
 
@@ -332,6 +397,7 @@ def _provider_step(
     frame_start: int,
     num_frames: int,
     inputs: UserInputs,
+    metadata: dict[str, object] | None = None,
 ) -> InferenceInput:
     prepared = provider.prepare_step(
         request=StepRequirements(
@@ -343,6 +409,7 @@ def _provider_step(
             start_s=frame_start / 16,
             end_s=(frame_start + num_frames) / 16,
             inputs=inputs,
+            metadata={} if metadata is None else metadata,
         ),
     )
     assert prepared.inference_input is not None

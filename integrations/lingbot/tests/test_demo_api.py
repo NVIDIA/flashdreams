@@ -38,7 +38,11 @@ from lingbot.runtime import (
     FIELD_TOTAL_BLOCKS,
     inference_input_from_replay_inputs,
 )
-from lingbot.webrtc.session import LingbotRuntimeConfig
+from lingbot.webrtc.session import (
+    LingbotRuntimeConfig,
+    LingbotSessionInput,
+    TextEventSpec,
+)
 
 from flashdreams.runtime import (
     CanonicalInputs,
@@ -48,10 +52,14 @@ from flashdreams.runtime import (
     OutputTarget,
     StepRequest,
     StepResult,
+    StepRequirements,
+    UserInputEvent,
+    UserInputs,
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
+    UserInputWindow,
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.replay import run_replay_demo
@@ -601,11 +609,104 @@ def test_lingbot_webrtc_demo_uses_shared_manager_with_model_config(
     assert runtime.config.video_width == 64
     assert runtime.config.video_height == 32
     assert runtime.config.fps == 24
+    assert runtime.config.warmup_chunks == 0
+    assert runtime.config.warmup_timeout_s == 1.0
     assert runtime.config.encoder_backend == "default"
     assert runtime.config.example_data_dir.name == "02"
+    assert isinstance(spec.output, WebRTCOutputSpec)
+    assert manager.client_liveness_timeout_s == spec.output.client_liveness_timeout_s
     assert manager.identity == DEFAULT_LINGBOT_PRESET
     assert calls[0]["host"] == "0.0.0.0"
     assert calls[0]["port"] == 8080
+
+
+def test_lingbot_webrtc_shared_provider_reflects_pending_session_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_lingbot_webrtc_example(monkeypatch, tmp_path)
+    pipeline_config = object()
+    spec = DemoSpec(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=DEFAULT_LINGBOT_PRESET,
+        input_mode="keyboard-driving",
+        scenario=LingbotWebRTCScenario(example_idx=0),
+        output=WebRTCOutputSpec(
+            fps=16,
+            video_width=64,
+            video_height=32,
+            warmup_chunks=8,
+            warmup_timeout_s=2.5,
+        ),
+        config=InferenceConfig(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=DEFAULT_LINGBOT_PRESET,
+            runtime_options={"pipeline_config": pipeline_config},
+        ),
+    )
+    calls: list[dict[str, Any]] = []
+    pending = LingbotSessionInput(
+        prompt="drive through a custom city",
+        text_events=(
+            TextEventSpec(
+                event_id="rain",
+                label="Rain",
+                prompt="heavy rain falls on the road",
+            ),
+        ),
+    )
+
+    serve_lingbot_webrtc_demo(
+        spec=spec,
+        runtime_factory=_FakeWebRTCRuntime,
+        server_runner=lambda **kwargs: calls.append(kwargs),
+    )
+
+    manager = calls[0]["session_manager"]
+    assert callable(manager._shared_spec_factory)
+    session_spec = manager._shared_spec_factory(pending)
+    assert isinstance(session_spec.output, WebRTCOutputSpec)
+    assert session_spec.output.video_width == 64
+    assert session_spec.output.video_height == 32
+    assert session_spec.output.warmup_chunks == 8
+    prepared = manager._shared_adapter.prepare_scenario(session_spec)
+    provider = manager._shared_adapter.create_model_input_provider(
+        session_spec,
+        prepared,
+    )
+
+    initial = provider.prepare_initial_input()
+    assert initial.global_conditioning[FIELD_PROMPT] == "drive through a custom city"
+    assert initial.global_conditioning[FIELD_PIXEL_HEIGHT] == 32
+    assert initial.global_conditioning[FIELD_PIXEL_WIDTH] == 64
+    assert {"key_down", "key_up", "text_event"}.issubset(
+        prepared.source_schema.declared_event_types()
+    )
+    prepared_step = provider.prepare_step(
+        request=StepRequirements(
+            step_index=0,
+            input_frame_count=4,
+            metadata={"frame_start": 0, "num_frames": 4},
+        ),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=0.25,
+            inputs=UserInputs(
+                events=(
+                    UserInputEvent(
+                        timestamp_s=0.0,
+                        event_type="text_event",
+                        payload={"event_id": "rain"},
+                    ),
+                )
+            ),
+        ),
+    )
+    assert prepared_step.inference_input is not None
+    assert (
+        prepared_step.inference_input.global_conditioning[FIELD_PROMPT]
+        == "heavy rain falls on the road"
+    )
 
 
 def test_lingbot_webrtc_demo_uses_shared_viewer_shell(
