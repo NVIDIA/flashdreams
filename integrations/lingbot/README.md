@@ -98,6 +98,51 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     lingbot-world-fast --example-data True --total-blocks 21
 ```
 
+## Run (shared demo API)
+
+The current unified-demo-runtime path is exposed through `lingbot-demo`.
+From the repository root on a CUDA machine:
+
+```bash
+export HF_TOKEN=<your-hf-token>
+
+uv sync --python 3.12 --package flashdreams-lingbot --no-dev
+```
+
+Generate a short MP4 from the bundled example assets:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot lingbot-demo replay \
+  --device cuda:0 \
+  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
+  --example-idx 0 \
+  --total-blocks 10 \
+  --fps 16 \
+  --pixel-height 352 \
+  --pixel-width 640 \
+  --output outputs/lingbot-demo-replay.mp4
+```
+
+Serve the shared WebRTC demo:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot lingbot-demo webrtc \
+  --host 0.0.0.0 \
+  --port 8089 \
+  --device cuda:0 \
+  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
+  --warmup-chunks 8 \
+  --fps 16 \
+  --video-height 352 \
+  --video-width 640 \
+  --example-idx 0
+```
+
+Then open:
+
+- [http://localhost:8089/request_session](http://localhost:8089/request_session)
+- [http://localhost:8089/healthz](http://localhost:8089/healthz)
+
 ## Programmatic access
 
 Access via runner.
@@ -143,7 +188,7 @@ for i in range(total_blocks):
     generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
 ```
 
-## Run (WebRTC interactive demo)
+## Run (compatibility WebRTC server)
 
 The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
 binds the integration pipeline to keyboard input over a DataChannel and streams the
