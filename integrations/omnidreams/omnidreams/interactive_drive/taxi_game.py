@@ -54,6 +54,9 @@ class TaxiGameConfig:
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
 
+    initial_pickup_max_distance_m: float = 200.0
+    """Maximum preferred distance to the camera-visible initial pickup."""
+
     pickup_radius_m: float = 5.0
     """Distance at which the ego collects a pickup."""
 
@@ -626,7 +629,11 @@ class TaxiGameController:
                 < math.pi * 0.5
             ]
 
-        eligible_set = frozenset(eligible)
+        eligible_set = frozenset(
+            index
+            for index in eligible
+            if distances[index] <= self._config.initial_pickup_max_distance_m
+        )
         eligible_visible = [index for index in visible if index in eligible_set]
         if eligible_visible:
             if initial_camera is None:
