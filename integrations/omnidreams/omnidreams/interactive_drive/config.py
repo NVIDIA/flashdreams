@@ -85,8 +85,8 @@ class VehicleConfig:
 
     max_brake_mps2: float = DEFAULT_BRAKE_DECEL_MPS2
     handbrake_decel_mps2: float = DEFAULT_HANDBRAKE_DECEL_MPS2
-    handbrake_yaw_gain: float = 3.25
-    max_handbrake_yaw_rate_radps: float = 5.0
+    max_handbrake_yaw_rate_radps: float = 1.5
+    """Maximum handbrake yaw rate compatible with world-model conditioning."""
     max_lateral_accel_mps2: float = 8.5
     drag_mps2: float = 0.7
     mass_kg: float = 1_550.0
@@ -95,8 +95,8 @@ class VehicleConfig:
     aero_drag_coefficient: float = 0.42
     collision_restitution: float = 0.22
     collision_friction: float = 0.65
-    max_collision_yaw_rate_radps: float = 1.0
-    """Maximum non-handbrake chassis yaw rate applied inside PhysX."""
+    max_collision_yaw_rate_radps: float = 0.35
+    """Maximum uncommanded contact yaw; larger driver targets remain authoritative."""
 
     suspension_stiffness: float = 42.0
     suspension_damping: float = 9.0

@@ -576,6 +576,12 @@ timer nor that decision.
 
 Road-boundary, curb, building, house, and wall line/polygon layers are solid
 barriers. The large scene AABB remains a separate last-resort respawn boundary.
+The driver's yaw target remains authoritative during steering, including a
+bounded handbrake pivot. Uncommanded contact yaw is limited to 0.35 rad/s;
+larger driver targets define the envelope while steering. PhysX applies the
+limit once, after contact solving and curb alignment, so neither collision
+impulses nor boundary helpers can rotate the HD-map conditioning faster than
+the autoregressive world model can follow.
 The complete typed scene stays in the abstract graph for rendering; Ludus
 copies a 350 m active window into PhysX and coalesces densely sampled map
 strokes into roughly 2 m collision walls. This keeps long-HD-map preload cost

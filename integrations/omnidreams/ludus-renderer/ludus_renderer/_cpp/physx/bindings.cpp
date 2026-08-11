@@ -33,7 +33,6 @@ namespace {
 constexpr std::size_t kStateWidth = 13;
 constexpr std::size_t kTrackStateWidth = 10;
 constexpr float kBoundaryHeadingAlignRateRadps = 0.6f;
-constexpr float kBoundarySteeringPivotRateRadps = 0.9f;
 constexpr float kActorContactDetectionMarginM = 0.15f;
 
 PxFilterFlags vehicleFilterShader(
@@ -101,7 +100,7 @@ struct BodyRecord {
     bool driveIntentActive = false;
     bool handbrakeActive = false;
     bool steeringActive = false;
-    float maxYawRate = 0.0f;
+    float uncommandedYawRateLimit = 0.0f;
     PxVec3 desiredLinearVelocity{0.0f};
     PxVec3 desiredAngularVelocity{0.0f};
     bool verticalTrackControl = false;
@@ -604,7 +603,7 @@ public:
         float dt,
         bool egoHandbrakeActive,
         bool egoSteeringActive,
-        float egoMaxYawRate,
+        float egoUncommandedYawRateLimit,
         bool actorCollisionEnabled)
     {
         ensureOpen();
@@ -616,7 +615,7 @@ public:
         BodyRecord& ego = bodyAt(0);
         ego.handbrakeActive = egoHandbrakeActive;
         ego.steeringActive = egoSteeringActive;
-        ego.maxYawRate = egoMaxYawRate;
+        ego.uncommandedYawRateLimit = egoUncommandedYawRateLimit;
         bool impact = false;
         std::size_t visibleCount = 0;
         std::size_t detachedCount = 0;
@@ -822,16 +821,18 @@ private:
             std::max(1.0f, std::ceil(dt / maxSubstepS)));
         const float substepDt = dt / static_cast<float>(substepCount);
         for (std::size_t substep = 0; substep < substepCount; ++substep) {
+            const float egoYawBeforeStep =
+                yawFromQuaternion(bodyAt(0).actor->getGlobalPose().q);
             applyVehicleForces(substepDt);
             mScene->simulate(substepDt);
             if (!mScene->fetchResults(true))
                 throw std::runtime_error("PhysX fetchResults failed");
-            constrainEgoUpright();
             constrainVehicleYawsAtBarriers(substepDt);
+            constrainEgoPlanarMotion(egoYawBeforeStep, substepDt);
         }
     }
 
-    void constrainEgoUpright()
+    void constrainEgoPlanarMotion(float previousYaw, float dt)
     {
         BodyRecord& ego = bodyAt(0);
         if (
@@ -839,32 +840,46 @@ private:
             || ego.actor->getRigidBodyFlags().isSet(PxRigidBodyFlag::eKINEMATIC))
             return;
 
-        // Interactive-drive publishes a yaw-only ego pose and renders body
-        // pitch/roll separately. Letting the native chassis settle on its side
-        // makes the upright camera appear mysteriously stuck and removes wheel
-        // traction, so preserve collision translation and yaw but reject rollovers.
+        // Keep every source of chassis rotation inside one final authority.
+        // Interactive-drive renders pitch/roll separately, and the HD-map world
+        // model cannot follow single-frame yaw impulses from contacts.
         PxTransform pose = ego.actor->getGlobalPose();
-        const PxVec3 up = pose.q.rotate(PxVec3(0.0f, 0.0f, 1.0f));
+        const float currentYaw = yawFromQuaternion(pose.q);
+        const float commandedYawRate = std::abs(ego.desiredAngularVelocity.z);
+        const float allowedYawRate =
+            std::max(commandedYawRate, ego.uncommandedYawRateLimit);
+        const float yawDelta = wrappedAngle(currentYaw - previousYaw);
+        const float allowedYawDelta = allowedYawRate * dt;
+        const bool controlledHandbrakePivot =
+            ego.handbrakeActive
+            && ego.steeringActive
+            && commandedYawRate > 1.0e-3f;
+        const float limitedYawDelta = controlledHandbrakePivot
+            ? ego.desiredAngularVelocity.z * dt
+            : (allowedYawRate > 0.0f
+                    ? std::clamp(yawDelta, -allowedYawDelta, allowedYawDelta)
+                    : yawDelta);
+        const float limitedYaw = previousYaw + limitedYawDelta;
         if (
-            std::abs(up.x) > 1.0e-4f
-            || std::abs(up.y) > 1.0e-4f
-            || up.z < 0.9999f) {
-            pose.q = PxQuat(
-                yawFromQuaternion(pose.q),
-                PxVec3(0.0f, 0.0f, 1.0f));
+            std::abs(limitedYawDelta - yawDelta) > 1.0e-6f
+            || std::abs(pose.q.x) > 1.0e-5f
+            || std::abs(pose.q.y) > 1.0e-5f) {
+            pose.q = PxQuat(limitedYaw, PxVec3(0.0f, 0.0f, 1.0f));
             ego.actor->setGlobalPose(pose, false);
         }
 
         PxVec3 angularVelocity = ego.actor->getAngularVelocity();
         const float originalYawRate = angularVelocity.z;
-        if (!ego.handbrakeActive && ego.maxYawRate > 0.0f) {
+        if (controlledHandbrakePivot) {
+            angularVelocity.z = ego.desiredAngularVelocity.z;
+        } else if (allowedYawRate > 0.0f) {
             angularVelocity.z = std::clamp(
-                angularVelocity.z, -ego.maxYawRate, ego.maxYawRate);
+                angularVelocity.z, -allowedYawRate, allowedYawRate);
         }
         if (
             std::abs(angularVelocity.x) > 1.0e-5f
             || std::abs(angularVelocity.y) > 1.0e-5f
-            || angularVelocity.z != originalYawRate) {
+            || std::abs(angularVelocity.z - originalYawRate) > 1.0e-6f) {
             angularVelocity.x = 0.0f;
             angularVelocity.y = 0.0f;
             ego.actor->setAngularVelocity(angularVelocity, false);
@@ -929,11 +944,7 @@ private:
                 // especially important while reversing through a three-point
                 // turn, where the natural bicycle-model yaw is reversed.
                 PxVec3 angularVelocity = body.actor->getAngularVelocity();
-                angularVelocity.z = std::copysign(
-                    std::max(
-                        std::abs(requestedYawRate),
-                        kBoundarySteeringPivotRateRadps),
-                    requestedYawRate);
+                angularVelocity.z = requestedYawRate;
                 body.actor->setAngularVelocity(angularVelocity, true);
                 continue;
             }
@@ -943,9 +954,11 @@ private:
                 yawError -= 3.1415926535897932f;
             else if (yawError < -1.5707963267948966f)
                 yawError += 3.1415926535897932f;
-            const float alignmentDelta = std::min(
-                std::abs(yawError),
-                kBoundaryHeadingAlignRateRadps * dt);
+            const float alignmentRate = body.uncommandedYawRateLimit > 0.0f
+                ? body.uncommandedYawRateLimit
+                : kBoundaryHeadingAlignRateRadps;
+            const float alignmentDelta =
+                std::min(std::abs(yawError), alignmentRate * dt);
             const float alignedYawError =
                 yawError - std::copysign(alignmentDelta, yawError);
             if (alignedYawError == yawError)
