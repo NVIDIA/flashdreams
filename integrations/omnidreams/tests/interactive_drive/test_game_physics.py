@@ -815,6 +815,61 @@ def test_ego_remains_driveable_after_collision_physics_takes_authority() -> None
     world.close()
 
 
+def test_forward_steering_releases_reverse_collision_yaw() -> None:
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(_track(x_m=-6.0)), config)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=-6.0,
+        steer_rad=0.0,
+        velocity_x_mps=-6.0,
+        velocity_y_mps=0.0,
+    )
+    reverse_turn = DriverCommand(
+        throttle=1.0,
+        reverse=True,
+        steer=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+    frame_index = 0
+
+    try:
+        for frame_index in range(60):
+            state = integrate_vehicle(state, reverse_turn, 1.0 / 30.0, config)
+            state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
+            if state.ragdoll_active:
+                break
+
+        assert state.ragdoll_active is True
+        assert state.yaw_rate_radps < 0.0
+
+        forward_turn = DriverCommand(
+            throttle=1.0,
+            steer=1.0,
+            steer_is_direct=True,
+            manual_control=True,
+        )
+        positive_speed_yaw_rates = []
+        for forward_frame in range(30):
+            state = integrate_vehicle(state, forward_turn, 1.0 / 30.0, config)
+            state, _ = world.step(
+                state,
+                (frame_index + forward_frame + 1) * 33_333,
+                1.0 / 30.0,
+            )
+            if state.speed_mps > 0.25:
+                positive_speed_yaw_rates.append(state.yaw_rate_radps)
+    finally:
+        world.close()
+
+    assert len(positive_speed_yaw_rates) >= 6
+    assert any(yaw_rate > 0.05 for yaw_rate in positive_speed_yaw_rates[:6])
+
+
 def test_approaching_truck_triggers_flare_and_allows_reverse_after_impact() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(_track("Truck", x_m=15.0)), config)

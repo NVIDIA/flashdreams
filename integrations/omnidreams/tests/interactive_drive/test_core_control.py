@@ -395,3 +395,30 @@ def test_low_speed_and_reverse_turns_keep_the_rear_axle_no_slip(
 
     assert state.yaw_rate_radps == pytest.approx(expected_yaw_rate, rel=1e-6)
     assert rear_axle_lateral_speed == pytest.approx(0.0, abs=1e-6)
+
+
+def test_collision_steering_quickly_reverses_stale_yaw_momentum() -> None:
+    vehicle = VehicleConfig(drag_mps2=0.0)
+    state = VehicleState(
+        x_m=0.0,
+        y_m=0.0,
+        z_m=0.0,
+        yaw_rad=0.0,
+        speed_mps=2.0,
+        steer_rad=0.0,
+        velocity_x_mps=2.0,
+        velocity_y_mps=0.0,
+        yaw_rate_radps=-0.8,
+        ragdoll_active=True,
+    )
+    forward_turn = DriverCommand(
+        throttle=1.0,
+        steer=1.0,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+    for _ in range(6):
+        state = integrate_vehicle(state, forward_turn, 1.0 / 30.0, vehicle)
+
+    assert state.yaw_rate_radps > 0.0
