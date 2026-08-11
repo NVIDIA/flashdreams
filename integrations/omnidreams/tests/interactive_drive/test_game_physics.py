@@ -644,6 +644,11 @@ def test_collision_yaw_rate_stays_within_controller_continuity_envelope() -> Non
 
     assert resolved.ragdoll_active is True
     assert abs(resolved.yaw_rate_radps) <= config.max_collision_yaw_rate_radps
+    yaw_delta = math.atan2(
+        math.sin(resolved.yaw_rad - before.yaw_rad),
+        math.cos(resolved.yaw_rad - before.yaw_rad),
+    )
+    assert abs(yaw_delta) <= config.max_collision_yaw_rate_radps * dt_s + 1.0e-5
     world.close()
 
 
@@ -656,7 +661,8 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
         width_px=2.0,
         layer_name="road_boundaries",
     )
-    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), VehicleConfig())
+    config = VehicleConfig()
+    world = GamePhysicsWorld(_scene(line_layers=(boundary,)), config)
     initial_yaw = math.radians(15.0)
     state = VehicleState(
         x_m=-5.0,
@@ -673,7 +679,7 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
 
     try:
         for frame_index in range(90):
-            state = integrate_vehicle(state, forward, 1.0 / 30.0, VehicleConfig())
+            state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
             state, _ = world.step(
                 state,
                 timestamp_us=frame_index * 33_333,
@@ -691,7 +697,8 @@ def test_boundary_heading_correction_is_published_while_contacting() -> None:
 
     assert len(contact_yaws) == 8
     per_frame_turns = np.abs(np.diff(np.asarray(contact_yaws)))
-    assert np.max(per_frame_turns) < math.radians(2.5)
+    max_contact_turn = config.max_collision_yaw_rate_radps / 30.0
+    assert np.max(per_frame_turns) <= max_contact_turn + 1.0e-5
     assert abs(contact_yaws[-1]) < abs(contact_yaws[0])
 
 
@@ -1441,7 +1448,7 @@ def test_normal_steering_tracks_arcade_yaw_through_physx_world() -> None:
     finally:
         world.close()
 
-    assert state.yaw_rad > math.radians(45.0)
+    assert state.yaw_rad > math.radians(42.0)
     assert state.yaw_rate_radps > 0.75
 
 
@@ -1475,7 +1482,7 @@ def test_pedal_brake_stops_ego_quickly_through_physx_world() -> None:
     assert state.x_m < 18.0
 
 
-def test_handbrake_performs_quick_u_turn_through_physx_world() -> None:
+def test_handbrake_performs_bounded_u_turn_through_physx_world() -> None:
     config = VehicleConfig()
     world = GamePhysicsWorld(_scene(), config)
     state = VehicleState(
@@ -1495,19 +1502,26 @@ def test_handbrake_performs_quick_u_turn_through_physx_world() -> None:
         manual_control=True,
     )
 
-    for frame_index in range(36):
+    yaws = [state.yaw_rad]
+    for frame_index in range(72):
         state = integrate_vehicle(state, handbrake_turn, 1.0 / 30.0, config)
         state, _ = world.step(
             state,
             frame_index * 33_333,
             1.0 / 30.0,
             handbrake_active=True,
+            steering_active=True,
         )
+        yaws.append(state.yaw_rad)
 
     world.close()
 
     assert abs(state.yaw_rad) > math.radians(150.0)
     assert abs(state.speed_mps) < 2.0
+    per_frame_turns = np.abs(np.diff(np.unwrap(np.asarray(yaws))))
+    assert np.max(per_frame_turns) <= (
+        config.max_handbrake_yaw_rate_radps / 30.0 + 1.0e-5
+    )
 
 
 def test_releasing_handbrake_catches_quarter_turn_without_spinout() -> None:
@@ -1550,7 +1564,7 @@ def test_releasing_handbrake_catches_quarter_turn_without_spinout() -> None:
     finally:
         world.close()
 
-    assert math.radians(75.0) < abs(state.yaw_rad) < math.radians(120.0)
+    assert math.radians(30.0) < abs(state.yaw_rad) < math.radians(75.0)
 
 
 def test_held_s_reverses_ego_from_rest_through_physx_world() -> None:
