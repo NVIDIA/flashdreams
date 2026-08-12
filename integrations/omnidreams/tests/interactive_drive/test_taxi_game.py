@@ -284,6 +284,39 @@ def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
     assert 40.0 <= dropoff.target_xyz_m[1] <= 60.0
 
 
+def test_default_targets_stay_one_hundred_meters_inside_map_bounds() -> None:
+    bounds = MapBounds(x_min=0.0, y_min=0.0, x_max=500.0, y_max=500.0)
+    controller = TaxiGameController(
+        scene_id="default-bounded-targets",
+        reference_route_world=np.asarray(
+            [[0.0, 250.0, 0.0], [500.0, 250.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(250.0, 250.0),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=10.0,
+            pickup_grid_spacing_m=20.0,
+        ),
+        map_bounds=bounds,
+    )
+
+    seeking = controller.snapshot(_state(250.0, 250.0))
+    assert seeking.pickup_targets_xyz_m
+    assert all(
+        100.0 <= target[0] <= 400.0 and 100.0 <= target[1] <= 400.0
+        for target in seeking.pickup_targets_xyz_m
+    )
+
+    pickup = seeking.target_xyz_m
+    controller.advance(_trajectory(pickup[:2]), 0.0)
+    dropoff = controller.snapshot(_state(*pickup[:2]))
+
+    assert dropoff.phase == "to_dropoff"
+    assert 100.0 <= dropoff.target_xyz_m[0] <= 400.0
+    assert 100.0 <= dropoff.target_xyz_m[1] <= 400.0
+
+
 def test_fare_completion_survives_no_directed_route_to_next_pickup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
