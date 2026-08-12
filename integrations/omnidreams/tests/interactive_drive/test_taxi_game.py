@@ -397,6 +397,52 @@ def test_dropoffs_stay_within_reachable_road_component() -> None:
     assert dropoff.target_xyz_m[1] == pickup.target_xyz_m[1]
 
 
+def test_dropoff_is_at_least_two_hundred_route_meters_when_available() -> None:
+    controller = TaxiGameController(
+        scene_id="long-fare",
+        reference_route_world=np.asarray(
+            [[0.0, 0.0, 0.0], [500.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=25.0,
+            pickup_grid_spacing_m=50.0,
+        ),
+    )
+    pickup = controller.snapshot(_state()).target_xyz_m
+
+    controller.advance(_trajectory(pickup[:2]), 0.0)
+    dropoff = controller.snapshot(_state(*pickup[:2]))
+
+    assert dropoff.phase == "to_dropoff"
+    assert dropoff.distance_m >= 200.0
+
+
+def test_dropoff_falls_back_to_shorter_fare_when_no_long_fare_exists() -> None:
+    controller = TaxiGameController(
+        scene_id="short-fare-fallback",
+        reference_route_world=np.asarray(
+            [[0.0, 0.0, 0.0], [150.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=25.0,
+            pickup_grid_spacing_m=50.0,
+        ),
+    )
+    pickup = controller.snapshot(_state()).target_xyz_m
+
+    controller.advance(_trajectory(pickup[:2]), 0.0)
+    dropoff = controller.snapshot(_state(*pickup[:2]))
+
+    assert dropoff.phase == "to_dropoff"
+    assert 0.0 < dropoff.distance_m < 200.0
+
+
 def test_fare_uses_routed_distance() -> None:
     lanes = (
         NavigationLane(
