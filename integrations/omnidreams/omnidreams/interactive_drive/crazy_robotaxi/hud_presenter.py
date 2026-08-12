@@ -46,10 +46,6 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameSnapshot,
     project_target_pose_to_bev,
     project_taxi_markers_to_camera,
-    project_turn_signs_to_camera,
-)
-from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
-    draw_floating_turn_sign,
 )
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
@@ -1443,9 +1439,6 @@ class SlangPyHudPresenter:
         if panel_w > 0:
             self._draw_panel(canvas, draw, panel_rect, wheel_state)
 
-        self._draw_taxi_turn_signs(
-            draw, camera_area, getattr(self, "_latest_presented_frame", None)
-        )
         self._draw_taxi_world_marker(
             draw, camera_area, getattr(self, "_latest_presented_frame", None)
         )
@@ -1798,60 +1791,6 @@ class SlangPyHudPresenter:
             fill=color,
             font=self._font_small,
         )
-
-    def _draw_taxi_turn_signs(
-        self,
-        draw: ImageDraw.ImageDraw,
-        camera_area: tuple[int, int, int, int],
-        frame: PresentedFrame | None,
-    ) -> None:
-        """Draw the camera-visible upcoming dropoff turn arrow."""
-        if (
-            frame is None
-            or frame.application_state is None
-            or frame.application_state.session_state != "playing"
-            or frame.rig_to_world is None
-            or self._taxi_camera_calibration is None
-            or self._latest_camera_src_size is None
-        ):
-            return
-        source_width, source_height = self._latest_camera_src_size
-        model_key = (source_width, source_height)
-        camera_model = self._taxi_camera_models.get(model_key)
-        if camera_model is None:
-            camera_model = FThetaCameraModel(
-                self._taxi_camera_calibration,
-                output_width=source_width,
-                output_height=source_height,
-            )
-            self._taxi_camera_models[model_key] = camera_model
-        projections = project_turn_signs_to_camera(
-            frame.application_state,
-            frame.rig_to_world,
-            camera_model,
-            image_width=source_width,
-            image_height=source_height,
-        )
-        fit = self._compute_camera_fit()
-        if not projections or fit is None:
-            return
-        fit_width, fit_height, offset_x, offset_y = fit
-        area_x, area_y, _area_right, _area_bottom = camera_area
-        for projection in projections:
-            center = (
-                area_x
-                + offset_x
-                + int(projection.center_uv[0] * fit_width / source_width),
-                area_y
-                + offset_y
-                + int(projection.center_uv[1] * fit_height / source_height),
-            )
-            draw_floating_turn_sign(
-                draw,
-                center,
-                projection.instruction.maneuver,
-                alpha=235,
-            )
 
     def _draw_camera(
         self,

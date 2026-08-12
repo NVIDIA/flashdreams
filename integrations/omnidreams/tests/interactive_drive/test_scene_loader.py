@@ -12,9 +12,7 @@ from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.scene import (
-    _build_intersection_polygons,
     _build_lane_centerlines,
-    _build_navigation_lanes,
     load_scene_data,
 )
 from omnidreams.interactive_drive.scene_loader import (
@@ -52,76 +50,6 @@ def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
         centerlines[0],
         np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float32),
     )
-
-
-def test_navigation_lanes_preserve_maneuver_labels() -> None:
-    rows = [
-        {
-            "lane": {
-                "left_rail": [_point(0.0, 2.0), _point(10.0, 2.0)],
-                "right_rail": [_point(0.0, -2.0), _point(10.0, -2.0)],
-                "vehicle_types": ["CAR"],
-                "lane_direction": "U_TURN",
-            }
-        }
-    ]
-
-    lanes = _build_navigation_lanes(rows)
-
-    assert len(lanes) == 1
-    assert lanes[0].maneuver_label == "U_TURN"
-
-
-def test_intersection_loader_rejects_invalid_polygons() -> None:
-    rows = [
-        {
-            "intersection_area": {
-                "location": [
-                    _point(0.0, 0.0),
-                    _point(10.0, 0.0),
-                    _point(10.0, 10.0),
-                ]
-            }
-        },
-        {"intersection_area": {"location": [_point(0.0, 0.0)]}},
-    ]
-
-    polygons = _build_intersection_polygons(rows)
-
-    assert len(polygons) == 1
-    assert polygons[0].shape == (3, 3)
-
-
-def test_intersection_loader_excludes_internal_junctions_and_cul_de_sacs() -> None:
-    triangle = [
-        _point(0.0, 0.0),
-        _point(10.0, 0.0),
-        _point(10.0, 10.0),
-    ]
-    rows = [
-        {
-            "intersection_area": {
-                "category": "FOUR_WAY_ASYMMETRICAL_PUBLIC_UNCONTROLLED",
-                "location": triangle,
-            }
-        },
-        {
-            "intersection_area": {
-                "category": "T_JUNCTION_ASYMMETRICAL_INTERNAL",
-                "location": triangle,
-            }
-        },
-        {
-            "intersection_area": {
-                "category": "CUL_DE_SAC",
-                "location": triangle,
-            }
-        },
-    ]
-
-    polygons = _build_intersection_polygons(rows)
-
-    assert len(polygons) == 1
 
 
 def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
@@ -166,8 +94,6 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert len(scene_data.reference_route_world) >= 2
     assert len(scene_data.navigation_routes_world) > 100
     assert len(scene_data.navigation_lanes) > 100
-    assert len(scene_data.intersection_polygons_world) > 0
-    assert any(lane.maneuver_label == "U_TURN" for lane in scene_data.navigation_lanes)
     navigation_points = np.concatenate(scene_data.navigation_routes_world, axis=0)
     assert np.ptp(navigation_points[:, 0]) > 200.0
     assert np.ptp(navigation_points[:, 1]) > 200.0
