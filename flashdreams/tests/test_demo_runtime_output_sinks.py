@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ import torch
 
 from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
+    BenchmarkStatsOutputSink,
+    CompositeOutputSink,
     DemoSpec,
     Mp4OutputSink,
     Mp4OutputSpec,
@@ -21,6 +24,7 @@ from flashdreams.runtime.demo import (
     OutputDecision,
     SessionInfo,
     WebRTCOutputSpec,
+    build_benchmark_output_sink,
     build_output_sink,
 )
 
@@ -182,6 +186,242 @@ def test_null_output_sink_records_steps_without_artifacts() -> None:
     assert sink.results == [
         {"step_index": 0, "frame_count": 1, "metrics": {}, "metadata": {}},
         {"step_index": 1, "frame_count": 2, "metrics": {}, "metadata": {}},
+    ]
+
+
+def test_benchmark_stats_output_sink_writes_runtime_metric_samples(
+    tmp_path: Path,
+) -> None:
+    sink = BenchmarkStatsOutputSink(output_path=tmp_path / "stats" / "run.json")
+    sink.open(
+        SessionInfo(
+            output_layout="bvtchw",
+            steady_output_frame_count=3,
+            metadata={"scenario_id": "fake"},
+        )
+    )
+    sink.begin_generation(0)
+
+    decision = sink.write(
+        StepResult.from_video_chunk(
+            step_index=2,
+            video_chunk=torch.zeros((1, 1, 2, 3, 4, 5)),
+            layout="bvtchw",
+            output_window=TimeWindow(start_s=1.0, end_s=1.5),
+            metadata={"provider": "fake"},
+            metrics={
+                "model_step_s": 0.25,
+                "encode_ms": 12.0,
+                "pixel_fps": 30.0,
+            },
+        )
+    )
+    artifacts = tuple(sink.close())
+    second_close = tuple(sink.close())
+
+    assert decision == OutputDecision()
+    assert artifacts == second_close
+    assert artifacts == (
+        OutputArtifact(
+            kind="application/json",
+            uri=str(tmp_path / "stats" / "run.json"),
+            metadata={
+                "artifact_type": "benchmark_stats",
+                "schema_version": 1,
+                "step_count": 1,
+                "sample_count": 3,
+            },
+        ),
+    )
+
+    payload = json.loads((tmp_path / "stats" / "run.json").read_text(encoding="utf-8"))
+    assert payload["artifact_type"] == "flashdreams.runtime.demo.benchmark_stats"
+    assert payload["session"] == {
+        "output_layout": "bvtchw",
+        "steady_output_frame_count": 3,
+        "metadata": {"scenario_id": "fake"},
+    }
+    assert payload["steps"] == [
+        {
+            "frame_count": 2,
+            "layout": "bvtchw",
+            "metadata": {"provider": "fake"},
+            "metrics": {
+                "encode_ms": 12.0,
+                "model_step_s": 0.25,
+                "pixel_fps": 30.0,
+            },
+            "output_window": [1.0, 1.5],
+            "sample_count": 3,
+            "step_index": 2,
+        }
+    ]
+    assert payload["samples"] == [
+        {
+            "category": "timing",
+            "metadata": {
+                "frame_count": 2,
+                "layout": "bvtchw",
+                "output_window": {"end_s": 1.5, "start_s": 1.0},
+                "result_metadata": {"provider": "fake"},
+            },
+            "name": "model_step_s",
+            "step_index": 2,
+            "unit": "s",
+            "value": 0.25,
+        },
+        {
+            "category": "timing",
+            "metadata": {
+                "frame_count": 2,
+                "layout": "bvtchw",
+                "output_window": {"end_s": 1.5, "start_s": 1.0},
+                "result_metadata": {"provider": "fake"},
+            },
+            "name": "encode_s",
+            "step_index": 2,
+            "unit": "s",
+            "value": 0.012,
+        },
+        {
+            "category": "throughput",
+            "metadata": {
+                "frame_count": 2,
+                "layout": "bvtchw",
+                "output_window": {"end_s": 1.5, "start_s": 1.0},
+                "result_metadata": {"provider": "fake"},
+            },
+            "name": "pixel_fps",
+            "step_index": 2,
+            "unit": "fps",
+            "value": 30.0,
+        },
+    ]
+
+
+def test_benchmark_output_sink_supports_stats_only(tmp_path: Path) -> None:
+    sink = build_benchmark_output_sink(None, stats_path=tmp_path / "stats.json")
+    sink.open(SessionInfo())
+
+    sink.write(StepResult(step_index=0, frame_count=1, metrics={"model_step_s": 0.1}))
+    artifacts = tuple(sink.close())
+
+    assert isinstance(sink, BenchmarkStatsOutputSink)
+    assert sink.produces_artifacts
+    assert artifacts[0].uri == str(tmp_path / "stats.json")
+
+
+def test_benchmark_output_sink_composes_with_null_output(tmp_path: Path) -> None:
+    sink = build_benchmark_output_sink(
+        NullOutputSpec(store_results=True),
+        stats_path=tmp_path / "stats.json",
+    )
+    sink.open(SessionInfo())
+
+    sink.write(StepResult(step_index=0, frame_count=1, metrics={"model_step_s": 0.1}))
+    artifacts = tuple(sink.close())
+
+    assert isinstance(sink, CompositeOutputSink)
+    assert sink.produces_artifacts
+    assert isinstance(sink.sinks[0], NullOutputSink)
+    assert sink.sinks[0].results == [
+        {
+            "frame_count": 1,
+            "metadata": {},
+            "metrics": {"model_step_s": 0.1},
+            "step_index": 0,
+        }
+    ]
+    assert artifacts == (
+        OutputArtifact(
+            kind="application/json",
+            uri=str(tmp_path / "stats.json"),
+            metadata={
+                "artifact_type": "benchmark_stats",
+                "schema_version": 1,
+                "step_count": 1,
+                "sample_count": 1,
+            },
+        ),
+    )
+
+
+def test_benchmark_output_sink_composes_with_mp4_output(tmp_path: Path) -> None:
+    writer_calls: list[dict[str, Any]] = []
+
+    def fake_writer(
+        video: torch.Tensor,
+        path: Path,
+        *,
+        fps: int | float,
+        layout: str,
+        install_hint: str,
+    ) -> Path:
+        del install_hint
+        writer_calls.append(
+            {
+                "shape": tuple(video.shape),
+                "path": path,
+                "fps": fps,
+                "layout": layout,
+            }
+        )
+        return path
+
+    sink = build_benchmark_output_sink(
+        Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=12),
+        stats_path=tmp_path / "stats.json",
+        mp4_writer=fake_writer,
+    )
+    sink.open(SessionInfo(output_layout="bvtchw"))
+
+    sink.write(
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((1, 1, 2, 3, 4, 5)),
+            layout="bvtchw",
+            metrics={"model_step_s": 0.1},
+        )
+    )
+    artifacts = tuple(sink.close())
+
+    assert isinstance(sink, CompositeOutputSink)
+    assert isinstance(sink.sinks[0], Mp4OutputSink)
+    assert artifacts == (
+        OutputArtifact(
+            kind="video/mp4",
+            uri=str(tmp_path / "demo.mp4"),
+            metadata={
+                "fps": 12,
+                "source_layout": "bvtchw",
+                "shape": (1, 1, 2, 3, 4, 5),
+                "stats_history": (
+                    {
+                        "frames": 2,
+                        "model_step_s": 0.1,
+                        "step_index": 0,
+                    },
+                ),
+            },
+        ),
+        OutputArtifact(
+            kind="application/json",
+            uri=str(tmp_path / "stats.json"),
+            metadata={
+                "artifact_type": "benchmark_stats",
+                "schema_version": 1,
+                "step_count": 1,
+                "sample_count": 1,
+            },
+        ),
+    )
+    assert writer_calls == [
+        {
+            "shape": (2, 4, 5, 3),
+            "path": tmp_path / "demo.mp4",
+            "fps": 12,
+            "layout": "thwc",
+        }
     ]
 
 
