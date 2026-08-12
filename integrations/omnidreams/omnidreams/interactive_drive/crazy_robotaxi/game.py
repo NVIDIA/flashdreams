@@ -88,8 +88,8 @@ class TaxiGameConfig:
     dropoff_radius_m: float = 6.0
     """Distance at which the ego completes a dropoff."""
 
-    fare_min_route_distance_m: float = 40.0
-    """Preferred minimum straight-line distance between fare endpoints."""
+    fare_min_route_distance_m: float = 200.0
+    """Preferred minimum routed distance between fare endpoints."""
 
     fare_max_route_distance_m: float = 250.0
     """Preferred maximum straight-line distance between fare endpoints."""
@@ -900,14 +900,19 @@ class TaxiGameController:
             ]
             if not reachable:
                 continue
-            eligible = [
+            preferred = [
                 index
                 for index in reachable
                 if self._config.fare_min_route_distance_m
                 <= route_distances[index]
                 <= self._config.fare_max_route_distance_m
             ]
-            dropoff_index = int(self._rng.choice(eligible or reachable))
+            far_enough = [
+                index
+                for index in reachable
+                if route_distances[index] >= self._config.fare_min_route_distance_m
+            ]
+            dropoff_index = int(self._rng.choice(preferred or far_enough or reachable))
             plan = self._navigation.route(source, self._waypoints[dropoff_index])
             if plan is not None:
                 return dropoff_index, plan

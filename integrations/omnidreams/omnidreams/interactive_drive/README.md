@@ -294,11 +294,12 @@ map coverage and omits out-of-view targets. While seeking, the compass follows
 the nearest available pickup as the player moves. The initial layout includes a
 pickup constrained to project inside the starting camera view and preferably be
 no farther than 200 meters. Collecting any pickup randomly selects a reachable
-dropoff through the scene's directed car-lane graph. Pickup and dropoff
-candidates are kept at least 50 meters inside the playable map bounds. Taxi mode
-starts a trip timer scaled by the shortest legal road distance, with a 2x
-deadline multiplier after pickup, and shows the active target, direction arrow,
-score, trip time, and global game time.
+dropoff at least 200 routed meters away through the scene's directed car-lane
+graph, falling back to a shorter fare only when no such destination is
+reachable. Pickup and dropoff candidates are kept at least 50 meters inside the
+playable map bounds. Taxi mode starts a trip timer scaled by the shortest legal
+road distance, with a 2x deadline multiplier after pickup, and shows the active
+target, direction arrow, score, trip time, and global game time.
 Each game starts with 60 seconds. A successful
 dropoff awards 500 points plus 100 points per whole trip second remaining and
 adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
