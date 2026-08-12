@@ -73,7 +73,7 @@ class TaxiGameConfig:
     pickup_grid_spacing_m: float = 60.0
     """Grid spacing used to distribute simultaneous pickup points across the map."""
 
-    waypoint_edge_margin_m: float = 50.0
+    waypoint_edge_margin_m: float = 100.0
     """Minimum map-boundary clearance for pickup and dropoff targets."""
 
     pickup_min_distance_m: float = 20.0
