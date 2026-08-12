@@ -16,6 +16,12 @@ const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
+const promptInput = document.getElementById("promptInput")
+const promptApplyButton = document.getElementById("promptApplyButton")
+const promptResetButton = document.getElementById("promptResetButton")
+const spawnCarButton = document.getElementById("spawnCarButton")
+const spawnConeButton = document.getElementById("spawnConeButton")
+const clearActorsButton = document.getElementById("clearActorsButton")
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
 const keyAliases = new Map([
@@ -437,6 +443,36 @@ function enqueueAction(action) {
   }
 }
 
+function sendPromptEvent(prompt, state) {
+  if (!connected || !controlChannel || controlChannel.readyState !== "open") {
+    logEvent("prompt not sent: connect session first", { level: "error" })
+    return false
+  }
+  controlChannel.send(
+    JSON.stringify({
+      type: "event",
+      event_id: prompt,
+      state,
+    })
+  )
+  logEvent(
+    state === "trigger" ? `prompt sent: ${prompt}` : "prompt reset to scene default",
+    { source: "client" }
+  )
+  return true
+}
+
+function applyPromptFromInput() {
+  const prompt = (promptInput.value || "").trim()
+  if (!prompt) {
+    logEvent("prompt is empty; use Reset to restore the scene prompt", {
+      level: "error",
+    })
+    return
+  }
+  sendPromptEvent(prompt, "trigger")
+}
+
 function enqueueHeldKeyRepeats() {
   const heldKeys = Array.from(activeKeys).sort((a, b) => {
     return (heldKeyOrder.get(a) || 0) - (heldKeyOrder.get(b) || 0)
@@ -530,6 +566,13 @@ function handleControlMessage(rawMessage) {
     if (activeKeys.size > 0) {
       enqueueHeldKeyRepeats()
     }
+    return
+  }
+
+  if (payload.type === "event_ack") {
+    const applied = payload.applied || "ok"
+    const promptText = payload.prompt ? `: ${payload.prompt}` : ""
+    logEvent(`prompt ${applied}${promptText}`)
     return
   }
 
@@ -843,7 +886,19 @@ async function connectSession() {
   }
 }
 
+function isTextEntryTarget(event) {
+  const target = event.target
+  if (!target) {
+    return false
+  }
+  const tag = String(target.tagName || "").toLowerCase()
+  return tag === "textarea" || tag === "input" || target.isContentEditable === true
+}
+
 function handleKeyDown(event) {
+  if (isTextEntryTarget(event)) {
+    return
+  }
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -857,6 +912,9 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
+  if (isTextEntryTarget(event)) {
+    return
+  }
   const key = normalizeKey(event.key)
   if (!allowedKeys.has(key)) {
     return
@@ -933,6 +991,26 @@ remoteVideo.addEventListener("playing", () => {
 remoteVideo.addEventListener("emptied", () => {
   setVideoVisible(false)
 })
+promptApplyButton.addEventListener("click", applyPromptFromInput)
+promptResetButton.addEventListener("click", () => {
+  sendPromptEvent("", "clear")
+})
+spawnCarButton.addEventListener("click", () => {
+  sendPromptEvent("/spawn car 12", "trigger")
+})
+spawnConeButton.addEventListener("click", () => {
+  sendPromptEvent("/spawn cone 8", "trigger")
+})
+clearActorsButton.addEventListener("click", () => {
+  sendPromptEvent("/clear-actors", "trigger")
+})
+promptInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
+    applyPromptFromInput()
+  }
+})
+
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
 window.addEventListener("blur", releaseAllKeys)

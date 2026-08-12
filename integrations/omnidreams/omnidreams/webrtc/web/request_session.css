@@ -571,3 +571,79 @@ body[data-status="generating"] .statusLine strong {
     border-bottom: 0;
   }
 }
+
+.promptCard {
+  position: absolute;
+  left: clamp(18px, 3vw, 48px);
+  bottom: clamp(238px, 30vh, 300px);
+  width: min(380px, calc(100vw - 36px));
+  padding: 18px 20px 20px;
+}
+
+.promptCard h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 1.08rem;
+  font-weight: 740;
+  letter-spacing: 0;
+}
+
+.promptCard h2 span {
+  width: 3px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(142, 240, 28, 0.42);
+}
+
+.promptInput {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid rgba(142, 240, 28, 0.30);
+  border-radius: 6px;
+  background: rgba(10, 14, 8, 0.55);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+.promptInput:focus {
+  outline: none;
+  border-color: rgba(142, 240, 28, 0.6);
+}
+
+.promptButtons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.promptButton {
+  flex: 1;
+  min-height: 32px;
+  border: 1px solid rgba(142, 240, 28, 0.45);
+  border-radius: 6px;
+  background: rgba(142, 240, 28, 0.12);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.promptButton:hover {
+  background: rgba(142, 240, 28, 0.20);
+}
+
+.promptButtonSecondary {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+
+.promptButtonSecondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}

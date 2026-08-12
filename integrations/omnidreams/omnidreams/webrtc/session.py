@@ -44,6 +44,16 @@ from omnidreams.scenes import (
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc.actors import (
+    ACTOR_PRESETS,
+    SpawnedActor,
+    TrackTemplate,
+    actors_to_cube_pool,
+    clone_template_pool,
+    extract_parked_templates,
+    find_empty_gap,
+    spawn_actor_ahead,
+)
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -462,6 +472,17 @@ class OmnidreamsRuntimeConfig:
     encoder_backend: EncoderBackend = "auto"
     encoder_bitrate_bps: int = 6_000_000
     encoder_gop: int = 30
+    # Mid-stream prompt-swap knobs (datachannel ``event`` messages); see
+    # OmnidreamsConditioningWrapper for semantics. Defaults from the
+    # 2026-08-08 calibration sweep: s=3 for 6 chunks is the sweet spot
+    # (edits land convincingly; s=5 causes transition artifacts).
+    text_edit_guidance_scale: float = 3.0
+    text_edit_guidance_chunks: int = 6
+    text_edit_recache: bool = True
+    # Optional guidance-distillation LoRA: edit windows run at guided
+    # strength through pre-merged weights (single forward per step) instead
+    # of the two-branch combine.
+    text_edit_lora_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,6 +533,12 @@ class OmnidreamsInferenceRuntime:
         self._scene_data: Any | None = None
         self._initial_rgb_frames: torch.Tensor | None = None
         self._text_prompts: list[TextPrompt] | None = None
+        self._initial_prompt: str | None = None
+        self._active_prompt: str | None = None
+        self._spawned_actors: list[SpawnedActor] = []
+        self._template_placements: list[tuple[TrackTemplate, float, float]] = []
+        self._templates_cache: list[TrackTemplate] | None = None
+        self._last_ego_pose: np.ndarray | None = None
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
         self._next_timestamp_us: int = 0
@@ -590,6 +617,31 @@ class OmnidreamsInferenceRuntime:
         finally:
             self._executor.shutdown(wait=False, cancel_futures=True)
 
+    async def trigger_event(
+        self, *, event_id: str, state: str = "trigger"
+    ) -> dict[str, str | None]:
+        """Mid-stream prompt swap driven by datachannel ``event`` messages.
+
+        ``event_id`` carries the free-text prompt verbatim (there is no
+        fixed event vocabulary — the model takes arbitrary prompts). A
+        clearing ``state`` (``clear``/``release``/``off``/``none``) or an
+        empty prompt restores the scene's original prompt.
+        """
+        if self._closed:
+            raise OmnidreamsRuntimeError("Runtime is closed.")
+        if self._wrapper is None:
+            raise OmnidreamsRuntimeError("Runtime is not initialized.")
+        async with self._step_lock:
+            if self._closed:
+                raise OmnidreamsRuntimeError("Runtime is closed.")
+            if self._wrapper is None:
+                raise OmnidreamsRuntimeError("Runtime is not initialized.")
+            return await self._run_on_runtime_thread(
+                self._trigger_event_sync_all_ranks,
+                event_id,
+                state,
+            )
+
     async def generate_chunk(
         self,
         *,
@@ -665,9 +717,201 @@ class OmnidreamsInferenceRuntime:
     ) -> WebRTCStepResult:
         return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
 
+    @distributed_op(WebRTCControlSignal.EVENT)
+    def _trigger_event_sync_all_ranks(
+        self,
+        event_id: str,
+        state: str = "trigger",
+    ) -> dict[str, str | None]:
+        return self._trigger_event_sync(event_id=event_id, state=state)
+
     @distributed_op(WebRTCControlSignal.CLOSE)
     def _close_sync_all_ranks(self) -> None:
         self._close_sync()
+
+    _EVENT_CLEAR_STATES = frozenset({"clear", "release", "off", "none"})
+
+    def _trigger_event_sync(
+        self, *, event_id: str, state: str
+    ) -> dict[str, str | None]:
+        if self._wrapper is None:
+            raise OmnidreamsRuntimeError("Runtime is not initialized.")
+
+        if event_id.strip().startswith("/"):
+            return self._handle_actor_command_sync(event_id.strip())
+
+        prompt = event_id.strip()
+        if state.strip().lower() in self._EVENT_CLEAR_STATES or not prompt:
+            if self._initial_prompt is None:
+                raise OmnidreamsRuntimeError("No scene prompt available to restore.")
+            prompt = self._initial_prompt
+
+        if prompt == self._active_prompt:
+            return {"prompt": prompt, "applied": "unchanged"}
+
+        text_prompts = [TextPrompt(positive=prompt)]
+        if self._state is None or self._state.pipeline_cache is None:
+            # Rollout has not produced a chunk yet (or HDMap-only debug
+            # mode): stage the prompt for start_generation instead.
+            self._text_prompts = text_prompts
+            self._active_prompt = prompt
+            return {"prompt": prompt, "applied": "at_start"}
+
+        swap_t0 = time.perf_counter()
+        self._wrapper.apply_text_prompts(self._state, text_prompts)
+        self._active_prompt = prompt
+        logger.info(
+            "Swapped Omnidreams prompt in {:.0f} ms (chunk={}): {}",
+            (time.perf_counter() - swap_t0) * 1000.0,
+            self.autoregressive_index,
+            prompt,
+        )
+        return {"prompt": prompt, "applied": "immediate"}
+
+    def _spawn_template_sync(
+        self, args: list[str], command: str
+    ) -> dict[str, str | None]:
+        """``/spawnt <fwd_m|auto> [lateral_m] [template_idx]``.
+
+        Clones a real parked-vehicle track from the scene (dimensions,
+        orientation, per-frame jitter, colors) and places it at the target.
+        ``auto`` picks the largest actor-free forward gap on the lateral
+        line. Placements are anchored to the session's initial ego pose.
+        """
+        if (
+            self._renderer is None
+            or self._initial_ego_pose is None
+            or self._scene_data is None
+        ):
+            raise OmnidreamsRuntimeError("Scene state is not initialized.")
+        pools = list(self._renderer._base_timestamped_scene.cube_pools or [])
+        if self._templates_cache is None:
+            self._templates_cache = extract_parked_templates(
+                pools,
+                ego_pose=self._initial_ego_pose,
+                t0_us=int(self._scene_data.ego_poses[0].timestamp),
+            )
+        templates = self._templates_cache
+        if not templates:
+            raise OmnidreamsRuntimeError("No parked-vehicle templates in this scene.")
+
+        try:
+            template_idx = int(args[2]) if len(args) > 2 else 0
+            template = templates[template_idx % len(templates)]
+            lateral_m = float(args[1]) if len(args) > 1 else template.source_lateral_m
+            if not args or args[0].lower() == "auto":
+                fwd_m, gap = find_empty_gap(
+                    pools, ego_pose=self._initial_ego_pose, lateral_m=lateral_m
+                )
+                if gap < float(template.scale.max()) + 2.0:
+                    raise OmnidreamsRuntimeError(
+                        f"No free gap on lateral {lateral_m:.1f} m "
+                        f"(largest {gap:.1f} m)."
+                    )
+            else:
+                fwd_m = float(args[0])
+        except (ValueError, IndexError) as exc:
+            raise OmnidreamsRuntimeError(
+                f"Bad arguments in {command!r}: {exc}. Use "
+                "/spawnt <fwd_m|auto> [lateral_m] [template_idx]"
+            ) from exc
+
+        self._template_placements.append((template, fwd_m, lateral_m))
+        logger.info(
+            "Template-spawned clone (template {} of {}) at fwd {:.1f} m, "
+            "lateral {:.1f} m; {} active.",
+            template_idx % len(templates),
+            len(templates),
+            fwd_m,
+            lateral_m,
+            len(self._template_placements),
+        )
+        return {
+            "prompt": None,
+            "applied": (
+                f"cloned template at {fwd_m:.1f}m fwd, {lateral_m:.1f}m lateral "
+                f"({len(self._template_placements)} active)"
+            ),
+        }
+
+    def _handle_actor_command_sync(self, command: str) -> dict[str, str | None]:
+        """``/spawn <preset> [dist] [speed] [lateral]`` and ``/clear-actors``.
+
+        Commands share the datachannel ``event`` path with prompt swaps
+        (anything starting with ``/`` is a command). Spawned actors become
+        wireframe bboxes in the HDMap conditioning from the next chunk on —
+        the model materializes an object there; the prompt names its look.
+        """
+        parts = command.removeprefix("/").split()
+        name = parts[0].lower() if parts else ""
+
+        if name in {"clear-actors", "clear_actors", "despawn", "clear"}:
+            cleared = len(self._spawned_actors) + len(self._template_placements)
+            self._spawned_actors.clear()
+            self._template_placements.clear()
+            return {"prompt": None, "applied": f"cleared {cleared} actors"}
+
+        if name == "spawnt":
+            return self._spawn_template_sync(parts[1:], command)
+
+        if name != "spawn":
+            raise OmnidreamsRuntimeError(
+                f"Unknown command {command!r}. Use "
+                "/spawn <preset> [dist_m] [speed_mps] [lateral_m] "
+                f"(presets: {', '.join(sorted(ACTOR_PRESETS))}) or /clear-actors."
+            )
+
+        preset = parts[1].lower() if len(parts) > 1 else "car"
+        if preset not in ACTOR_PRESETS:
+            raise OmnidreamsRuntimeError(
+                f"Unknown actor preset {preset!r}; "
+                f"available: {', '.join(sorted(ACTOR_PRESETS))}."
+            )
+        try:
+            distance_m = float(parts[2]) if len(parts) > 2 else 12.0
+            speed_mps = float(parts[3]) if len(parts) > 3 else 0.0
+            lateral_m = float(parts[4]) if len(parts) > 4 else 0.0
+            yaw_offset_deg = float(parts[5]) if len(parts) > 5 else 0.0
+        except ValueError as exc:
+            raise OmnidreamsRuntimeError(
+                f"Non-numeric spawn argument in {command!r}: {exc}"
+            ) from exc
+
+        ego_pose = (
+            self._last_ego_pose
+            if self._last_ego_pose is not None
+            else self._initial_ego_pose
+        )
+        if ego_pose is None:
+            raise OmnidreamsRuntimeError("Scene state is not initialized.")
+
+        actor = spawn_actor_ahead(
+            preset=preset,
+            ego_pose=ego_pose,
+            spawn_timestamp_us=self._next_timestamp_us,
+            distance_m=distance_m,
+            speed_mps=speed_mps,
+            lateral_m=lateral_m,
+            yaw_offset_deg=yaw_offset_deg,
+        )
+        self._spawned_actors.append(actor)
+        logger.info(
+            "Spawned actor {} at {:.1f} m ahead (speed {:.1f} m/s, lateral "
+            "{:.1f} m); {} active (chunk={}).",
+            preset,
+            distance_m,
+            speed_mps,
+            lateral_m,
+            len(self._spawned_actors),
+            self.autoregressive_index,
+        )
+        return {
+            "prompt": None,
+            "applied": (
+                f"spawned {preset} {distance_m:g}m ahead"
+                f" ({len(self._spawned_actors)} active)"
+            ),
+        }
 
     def _initialize_sync(self) -> None:
         if self._wrapper is not None:
@@ -747,7 +991,9 @@ class OmnidreamsInferenceRuntime:
         )
 
         prompt = prompt_path.read_text(encoding="utf-8").strip() or AV_POSITIVE_PROMPT
+        self._initial_prompt = prompt
         self._text_prompts = [TextPrompt(positive=prompt)]
+        self._active_prompt = prompt
 
         loadable_clipgt_dir = self._prepare_clipgt_dir(clipgt_dir)
         logger.info("Loading Omnidreams scene data from {}", loadable_clipgt_dir)
@@ -797,6 +1043,10 @@ class OmnidreamsInferenceRuntime:
             resolution_wh=(cfg.video_width, cfg.video_height),
             seed_for_every_rollout=cfg.seed,
             device=self._device,
+            text_edit_guidance_scale=cfg.text_edit_guidance_scale,
+            text_edit_guidance_chunks=cfg.text_edit_guidance_chunks,
+            text_edit_recache=cfg.text_edit_recache,
+            text_edit_lora_path=cfg.text_edit_lora_path,
         )
         logger.info(
             "Omnidreams pipeline setup complete in {:.1f}s.",
@@ -918,6 +1168,14 @@ class OmnidreamsInferenceRuntime:
         self.autoregressive_index = 0
         self._next_timestamp_us = int(self._scene_data.ego_poses[0].timestamp)
         self._wrapper.set_rollout_seed(self.config.seed)
+        # A new session always starts from the scene's own prompt; mid-stream
+        # swaps and spawned actors from the previous session must not leak in.
+        if self._initial_prompt is not None:
+            self._text_prompts = [TextPrompt(positive=self._initial_prompt)]
+            self._active_prompt = self._initial_prompt
+        self._spawned_actors = []
+        self._template_placements = []
+        self._last_ego_pose = None
 
     def _close_sync(self) -> None:
         state = self._state
@@ -928,6 +1186,8 @@ class OmnidreamsInferenceRuntime:
         self._scene_data = None
         self._initial_rgb_frames = None
         self._text_prompts = None
+        self._initial_prompt = None
+        self._active_prompt = None
         self._camera_to_rig = None
         self._initial_ego_pose = None
         self._close_postprocess_stream()
@@ -1025,11 +1285,26 @@ class OmnidreamsInferenceRuntime:
         ego_poses = self.pose_integrator.integrate_chunk(
             segments=segments, frame_times=frame_times
         )
+        self._last_ego_pose = ego_poses[-1].copy()
         ego_poses_t = torch.from_numpy(ego_poses).to(
             device=self._device, dtype=torch.float32
         )
         camera_poses = torch.einsum("nij,jk->nik", ego_poses_t, self._camera_to_rig)
         frame_timestamps_us = self._consume_timestamps(num_frames)
+
+        dynamic_actor_pool = None
+        if self._spawned_actors:
+            dynamic_actor_pool = actors_to_cube_pool(
+                self._spawned_actors, frame_timestamps_us, self._device
+            )
+        if self._template_placements:
+            # Cloned real tracks materialize where synthetic presets do not
+            # (2026-08-11 finding); template placements take precedence when
+            # both kinds are active.
+            assert self._initial_ego_pose is not None
+            dynamic_actor_pool = clone_template_pool(
+                self._template_placements, ego_pose=self._initial_ego_pose
+            )
 
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
@@ -1043,6 +1318,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                dynamic_actor_pool=dynamic_actor_pool,
             )
             self._state = output.state
         else:
@@ -1052,6 +1328,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                dynamic_actor_pool=dynamic_actor_pool,
             )
             self._state = output.state
 
