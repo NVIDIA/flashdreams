@@ -272,3 +272,26 @@ def test_no_instantiate_reports_launch_without_setting_up_model(
     assert "Available modes: run, mp4, null, webrtc" in output
     assert "Selected launch: LingBot WebRTC server" in output
     assert "'host': '127.0.0.1'" in output
+
+
+def test_launch_mode_uses_compact_summary_by_default(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lingbot.demo import app
+
+    monkeypatch.setattr(app, "launch_from_runner", lambda **kwargs: None)
+    config = _runner_config(runner_name="lingbot-world-fast")
+
+    cli.main(
+        config,
+        mode="null",
+        scenario_overrides={"total_blocks": 1},
+    )
+
+    output = capsys.readouterr().out
+    assert "Resolved config for" not in output
+    assert "Available modes:" not in output
+    assert "Resolved runner: 'lingbot-world-fast'" in output
+    assert "Selected launch: LingBot null replay" in output
+    assert "Scenario: {'total_blocks': 1}" in output

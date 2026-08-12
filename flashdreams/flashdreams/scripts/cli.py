@@ -119,11 +119,16 @@ def main(
         )
 
     if int(os.environ.get("LOCAL_RANK", "0")) == 0:
-        print(f"Resolved config for {config.runner_name!r}:")
-        print(config)
-        print(
-            f"Available modes: {', '.join(available_launch_modes(config, launch_options))}"
-        )
+        print_full_config = mode == "run" or no_instantiate
+        if print_full_config:
+            print(f"Resolved config for {config.runner_name!r}:")
+            print(config)
+            print(
+                "Available modes: "
+                f"{', '.join(available_launch_modes(config, launch_options))}"
+            )
+        else:
+            print(f"Resolved runner: {config.runner_name!r}")
         if launch_manifest is not None:
             print(f"Launch manifest: {launch_manifest.path}")
             print(f"Launch mode: {launch_manifest.mode}")
