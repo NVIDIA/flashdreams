@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -18,6 +19,7 @@ from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
     distributed_op,
 )
+from flashdreams.runtime.demo.spec import WebRTCOutputSpec
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.runtime.worker import ThreadAffineRuntimeWorker
 from flashdreams.serving.webrtc.encoders import (
@@ -47,6 +49,30 @@ class WebRTCRuntimeConfig(Protocol):
     video_height: int
     warmup_chunks: int
     warmup_timeout_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class WebRTCSessionConfig:
+    """Default settings consumed by :class:`BaseWebRTCSessionManager`."""
+
+    video_width: int = 1280
+    """Encoded video width in pixels. Defaults to 1280."""
+    video_height: int = 720
+    """Encoded video height in pixels. Defaults to 720."""
+    warmup_chunks: int = 0
+    """Number of chunks to generate before admitting clients. Defaults to 0."""
+    warmup_timeout_s: float = 30.0
+    """Maximum warmup duration in seconds. Defaults to 30 seconds."""
+
+    @classmethod
+    def from_output(cls, output: WebRTCOutputSpec) -> "WebRTCSessionConfig":
+        """Copy the manager-relevant settings from a WebRTC output spec."""
+        return cls(
+            video_width=output.video_width,
+            video_height=output.video_height,
+            warmup_chunks=output.warmup_chunks,
+            warmup_timeout_s=output.warmup_timeout_s,
+        )
 
 
 class ThreadAffineWebRTCRuntimeConfig(WebRTCRuntimeConfig, Protocol):

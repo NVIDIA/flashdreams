@@ -6,6 +6,12 @@ from __future__ import annotations
 import pytest
 from t2v_demo import app
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
+from t2v_demo.runtime import make_adapter
+
+from flashdreams.runtime import InferenceInput
+from flashdreams.runtime.demo import DemoSpec, PreparedScenario
+from flashdreams.runtime.demo.spec import WebRTCOutputSpec
+from flashdreams.serving.webrtc.runtime import WebRTCSessionConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -45,3 +51,19 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
     assert spec.scenario["total_blocks"] == 3
     assert str(spec.output.path) == "outputs/test.mp4"
     assert spec.output.fps == 24
+
+
+def test_t2v_uses_shared_demo_and_webrtc_defaults() -> None:
+    adapter = make_adapter("self-forcing")
+    assert adapter.supported_input_modes() == ("replay", "webrtc")
+    assert adapter.supported_output_modes() == ("mp4", "null", "webrtc")
+    provider = adapter.create_model_input_provider(
+        DemoSpec(
+            model_id=adapter.model_id,
+            input_mode="replay",
+            output=WebRTCOutputSpec(),
+        ),
+        PreparedScenario(initial_inputs=InferenceInput()),
+    )
+    assert provider.prepare_initial_input() == InferenceInput()
+    assert WebRTCSessionConfig.from_output(WebRTCOutputSpec()) == WebRTCSessionConfig()

@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -31,7 +31,7 @@ from flashdreams.runtime.demo.host import RuntimeHost
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
-from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
+from flashdreams.serving.webrtc.runtime import WebRTCSessionConfig
 
 from .backends import backend_metadata, resolve_backend
 from .runtime import (
@@ -48,17 +48,7 @@ if TYPE_CHECKING:
     from .runner import T2VDemoRunnerConfig
 
 
-@dataclass(frozen=True, slots=True)
-class T2VWebRTCConfig(WebRTCRuntimeConfig):
-    """Shared WebRTC settings required by the prompt-only T2V demo."""
-
-    video_width: int
-    video_height: int
-    warmup_chunks: int
-    warmup_timeout_s: float
-
-
-class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
+class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, WebRTCSessionConfig]):
     """Shared manager with a prompt update for the next browser session."""
 
     def update_prompt(self, prompt: str, duration_s: float) -> None:
@@ -143,12 +133,7 @@ def launch_t2v(
     runtime = adapter.create_runtime(spec.config)
     manager = T2VWebRTCSessionManager(
         runtime=runtime,
-        runtime_config=T2VWebRTCConfig(
-            video_width=output.video_width,
-            video_height=output.video_height,
-            warmup_chunks=output.warmup_chunks,
-            warmup_timeout_s=output.warmup_timeout_s,
-        ),
+        runtime_config=WebRTCSessionConfig.from_output(output),
         fps=output.fps,
         identity=adapter.model_id,
         supported_control_keys=frozenset({"g"}),

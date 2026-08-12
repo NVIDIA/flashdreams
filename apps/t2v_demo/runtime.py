@@ -16,7 +16,6 @@ from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.video_output import VideoOutputStream
 from flashdreams.runtime import (
     CanonicalInputSchema,
-    IdentityInputMapping,
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
@@ -24,12 +23,7 @@ from flashdreams.runtime import (
     ModelAdapter,
     StepRequest,
 )
-from flashdreams.runtime.demo import DemoSpec, PreparedScenario
-from flashdreams.runtime.demo.session_inputs import (
-    PreparedStep,
-    ProviderCapabilities,
-    UserInputWindow,
-)
+from flashdreams.runtime.demo import DemoSpec, PreparedScenario, ReplayWebRTCDemoAdapter
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget
@@ -54,7 +48,7 @@ class T2VScenario:
     fps: int
 
 
-class T2VDemoAdapter(ModelAdapter):
+class T2VDemoAdapter(ReplayWebRTCDemoAdapter, ModelAdapter):
     """Model adapter shared by replay and WebRTC T2V launch paths."""
 
     model_id = "flashdreams-t2v"
@@ -66,15 +60,6 @@ class T2VDemoAdapter(ModelAdapter):
 
     def __init__(self, *, backend: T2VBackend) -> None:
         self.backend = backend
-
-    def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay", "webrtc")
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "null", "webrtc")
-
-    def default_input_mapping(self) -> IdentityInputMapping:
-        return IdentityInputMapping()
 
     def validate_config(self, config: InferenceConfig) -> None:
         if config.model_id != self.model_id:
@@ -101,42 +86,6 @@ class T2VDemoAdapter(ModelAdapter):
     def create_runtime(self, config: InferenceConfig) -> "T2VRuntime":
         self.validate_config(config)
         return T2VRuntime(config=config, backend=self.backend)
-
-    def create_model_input_provider(
-        self, spec: DemoSpec, scenario: PreparedScenario
-    ) -> "T2VInputProvider":
-        """Supply fixed prompt conditioning to every shared-demo step."""
-        del spec
-        return T2VInputProvider(initial_inputs=scenario.initial_inputs)
-
-
-class T2VInputProvider:
-    """No-control input provider for finite prompt-only generation."""
-
-    capabilities = ProviderCapabilities(
-        supports_realtime_clock=True,
-        supports_recorded_input=True,
-        deterministic_given_inputs=True,
-    )
-
-    def __init__(self, *, initial_inputs: InferenceInput) -> None:
-        self._initial_inputs = initial_inputs
-
-    def prepare_initial_input(self) -> InferenceInput:
-        return self._initial_inputs
-
-    def prepare_step(
-        self, *, request: Any, user_window: UserInputWindow
-    ) -> PreparedStep:
-        del request, user_window
-        return PreparedStep(inference_input=InferenceInput())
-
-    def reset(self, inputs: InferenceInput | None = None) -> None:
-        if inputs is not None:
-            self._initial_inputs = inputs
-
-    def close(self) -> None:
-        pass
 
 
 class T2VRuntime:
