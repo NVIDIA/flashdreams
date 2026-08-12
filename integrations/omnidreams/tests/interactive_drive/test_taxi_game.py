@@ -222,14 +222,13 @@ def test_initial_pickup_can_exceed_200_when_that_is_the_closest_visible_choice()
 def test_later_pickups_are_sampled_across_the_map() -> None:
     routes = (
         np.asarray([[-100.0, -100.0, 0.0], [100.0, -100.0, 0.0]], dtype=np.float32),
-        np.asarray([[-100.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32),
-        np.asarray([[-100.0, 100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
-        np.asarray([[-100.0, -100.0, 0.0], [-100.0, 100.0, 0.0]], dtype=np.float32),
         np.asarray([[100.0, -100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
+        np.asarray([[100.0, 100.0, 0.0], [-100.0, 100.0, 0.0]], dtype=np.float32),
+        np.asarray([[-100.0, 100.0, 0.0], [-100.0, -100.0, 0.0]], dtype=np.float32),
     )
     controller = TaxiGameController(
         scene_id="varied-pickups",
-        reference_route_world=routes[1],
+        reference_route_world=routes[0],
         navigation_routes_world=routes,
         initial_state=_state(),
         config=TaxiGameConfig(enabled=True, seed=17, waypoint_spacing_m=20.0),
@@ -310,7 +309,7 @@ def test_fare_uses_routed_distance_and_hides_signs_when_no_reroute_exists() -> N
             "LEFT_TURN",
         ),
         NavigationLane(
-            np.asarray([[20.0, 10.0, 0.0], [30.0, 10.0, 0.0]], dtype=np.float32)
+            np.asarray([[20.0, 10.0, 0.0], [20.0, 20.0, 0.0]], dtype=np.float32)
         ),
     )
     intersection = np.asarray(
@@ -365,6 +364,48 @@ def test_fare_uses_routed_distance_and_hides_signs_when_no_reroute_exists() -> N
 
     assert off_route.phase == "to_dropoff"
     assert off_route.turn_instructions == ()
+
+
+def test_pickup_route_includes_public_intersection_instructions() -> None:
+    lanes = (
+        NavigationLane(
+            np.asarray([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float32)
+        ),
+        NavigationLane(
+            np.asarray([[10.0, 0.0, 0.0], [20.0, 10.0, 0.0]], dtype=np.float32)
+        ),
+        NavigationLane(
+            np.asarray([[20.0, 10.0, 0.0], [20.0, 40.0, 0.0]], dtype=np.float32)
+        ),
+    )
+    intersection = np.asarray(
+        [
+            [8.0, -2.0, 0.0],
+            [22.0, -2.0, 0.0],
+            [22.0, 15.0, 0.0],
+            [8.0, 15.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    controller = TaxiGameController(
+        scene_id="routed-pickup",
+        reference_route_world=lanes[0].centerline_world,
+        navigation_lanes=lanes,
+        intersection_polygons_world=(intersection,),
+        initial_state=_state(),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=4,
+            waypoint_spacing_m=1000.0,
+        ),
+    )
+
+    pickup = controller.snapshot(_state())
+
+    assert pickup.phase == "seeking_pickup"
+    assert [instruction.maneuver for instruction in pickup.turn_instructions] == [
+        "left"
+    ]
 
 
 def test_pickup_and_dropoff_can_complete_inside_one_chunk() -> None:
@@ -622,12 +663,12 @@ def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:
 def test_turn_sign_projection_culls_offscreen_and_sorts_far_to_near() -> None:
     camera_model = FThetaCameraModel(_camera_calibration())
     snapshot = TaxiGameSnapshot(
-        phase="to_dropoff",
+        phase="seeking_pickup",
         target_xyz_m=(20.0, 0.0, 0.0),
         distance_m=20.0,
         relative_bearing_rad=0.0,
         target_radius_m=6.0,
-        remaining_time_s=20.0,
+        remaining_time_s=None,
         score=0,
         turn_instructions=(
             TaxiTurnInstruction("left", (10.0, 0.0, 3.0), 10.0),

@@ -92,6 +92,38 @@ def test_intersection_loader_rejects_invalid_polygons() -> None:
     assert polygons[0].shape == (3, 3)
 
 
+def test_intersection_loader_excludes_internal_junctions_and_cul_de_sacs() -> None:
+    triangle = [
+        _point(0.0, 0.0),
+        _point(10.0, 0.0),
+        _point(10.0, 10.0),
+    ]
+    rows = [
+        {
+            "intersection_area": {
+                "category": "FOUR_WAY_ASYMMETRICAL_PUBLIC_UNCONTROLLED",
+                "location": triangle,
+            }
+        },
+        {
+            "intersection_area": {
+                "category": "T_JUNCTION_ASYMMETRICAL_INTERNAL",
+                "location": triangle,
+            }
+        },
+        {
+            "intersection_area": {
+                "category": "CUL_DE_SAC",
+                "location": triangle,
+            }
+        },
+    ]
+
+    polygons = _build_intersection_polygons(rows)
+
+    assert len(polygons) == 1
+
+
 def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as zf:

@@ -39,7 +39,7 @@ class CrazyRobotaxiSceneData:
     """Directed car-lane centerlines with mapped maneuver labels."""
 
     intersection_polygons_world: tuple[np.ndarray, ...]
-    """World-space intersection footprints used to anchor turn signs."""
+    """World-space public-road intersection footprints used for turn arrows."""
 
     @property
     def navigation_routes_world(self) -> tuple[np.ndarray, ...]:
@@ -154,10 +154,13 @@ def _build_navigation_lanes(
 def _build_intersection_polygons(
     rows: list[dict[str, Any]],
 ) -> tuple[np.ndarray, ...]:
-    """Return valid world-space intersection polygons from ClipGT records."""
+    """Return valid public-road intersection polygons from ClipGT records."""
     polygons: list[np.ndarray] = []
     for row in rows:
         payload = row["intersection_area"]
+        category = str(payload.get("category") or "").upper()
+        if "INTERNAL" in category or category == "CUL_DE_SAC":
+            continue
         points = _points_from_records(payload.get("location", []))
         if len(points) >= 3 and np.isfinite(points).all():
             polygons.append(points)
