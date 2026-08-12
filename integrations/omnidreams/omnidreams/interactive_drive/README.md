@@ -293,7 +293,7 @@ pickup constrained to project inside the starting camera view and preferably be
 no farther than 200 meters. Collecting any pickup randomly selects a reachable
 dropoff at least 200 routed meters away through the scene's directed car-lane
 graph, falling back to a shorter fare only when no such destination is
-reachable. Pickup and dropoff candidates are kept at least 50 meters inside the
+reachable. Pickup and dropoff candidates are kept at least 100 meters inside the
 playable map bounds. Taxi mode starts a trip timer scaled by the shortest legal
 road distance, with a 2x deadline multiplier after pickup, and shows the active
 target, direction arrow, score, trip time, and global game time.
