@@ -42,8 +42,9 @@ from loguru import logger
 from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiCameraMarkerProjection,
     project_target_to_bev,
-    project_taxi_marker_to_camera,
+    project_taxi_markers_to_camera,
     project_turn_signs_to_camera,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
@@ -259,7 +260,6 @@ _INDEX_HTML = """<!doctype html>
     transform: translate(-50%, -50%); box-shadow: 0 2px 6px black;
   }
   .taxi-pin.dropoff { background: #c89632; }
-  .taxi-pin.hidden { display: none; }
   .game-over {
     position: fixed; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.72);
@@ -437,7 +437,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <div class="taxi-map hidden" id="taxi-map">
   <img id="taxi-bev" src="/bev_stream">
-  <div class="taxi-pin" id="taxi-pin"></div>
+  <div id="taxi-pins"></div>
 </div>
 <div class="game-over hidden" id="game-over">
   <div class="game-over-card">
@@ -537,7 +537,7 @@ const taxiArrowEl = document.getElementById('taxi-arrow');
 const taxiStatusEl = document.getElementById('taxi-status');
 const taxiEventEl = document.getElementById('taxi-event');
 const taxiMapEl = document.getElementById('taxi-map');
-const taxiPinEl = document.getElementById('taxi-pin');
+const taxiPinsEl = document.getElementById('taxi-pins');
 const gameOverEl = document.getElementById('game-over');
 const gameOverTitleEl = document.getElementById('game-over-title');
 const finalScoreEl = document.getElementById('final-score');
@@ -617,16 +617,17 @@ function paintTaxi(taxi) {
     : (taxi.event === 'fare_complete'
       ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
       : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
-  const marker = taxi.bev_target;
+  const markers = taxi.bev_targets || [];
   const showMap = taxi.bev_enabled;
-  const showPin = showMap && marker && marker.visible;
   taxiMapEl.classList.toggle('hidden', !showMap);
-  taxiPinEl.classList.toggle('hidden', !showPin);
-  if (showPin) {
-    taxiPinEl.style.left = `${marker.u * 100}%`;
-    taxiPinEl.style.top = `${marker.v * 100}%`;
-    taxiPinEl.classList.toggle('dropoff', dropoff);
-  }
+  taxiPinsEl.replaceChildren();
+  markers.filter(marker => marker.visible).forEach(marker => {
+    const pin = document.createElement('div');
+    pin.className = `taxi-pin${dropoff ? ' dropoff' : ''}`;
+    pin.style.left = `${marker.u * 100}%`;
+    pin.style.top = `${marker.v * 100}%`;
+    taxiPinsEl.appendChild(pin);
+  });
 }
 nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
@@ -1098,7 +1099,7 @@ class MJPEGStreamingPresenter:
                 output_height=image_height,
             )
             self._taxi_camera_models[model_key] = camera_model
-        marker = project_taxi_marker_to_camera(
+        markers = project_taxi_markers_to_camera(
             snapshot,
             frame.rig_to_world,
             camera_model,
@@ -1112,7 +1113,7 @@ class MJPEGStreamingPresenter:
             image_width=image_width,
             image_height=image_height,
         )
-        if marker is None and not turn_signs:
+        if not markers and not turn_signs:
             return rgb_host_uint8
 
         image = Image.fromarray(rgb_host_uint8, mode="RGB")
@@ -1123,10 +1124,21 @@ class MJPEGStreamingPresenter:
                 (int(projection.center_uv[0]), int(projection.center_uv[1])),
                 projection.instruction.maneuver,
             )
-        if marker is None:
-            return np.asarray(image)
-
         color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
+        label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        for marker in markers:
+            self._draw_taxi_marker(draw, marker, color=color, label=label)
+        return np.asarray(image)
+
+    @staticmethod
+    def _draw_taxi_marker(
+        draw: ImageDraw.ImageDraw,
+        marker: TaxiCameraMarkerProjection,
+        *,
+        color: tuple[int, int, int],
+        label: str,
+    ) -> None:
+        """Draw one camera-projected pickup or dropoff marker."""
         for edge in marker.ring_edges_uv:
             draw.line(edge, fill=(0, 0, 0), width=7)
             draw.line(edge, fill=color, width=4)
@@ -1156,7 +1168,6 @@ class MJPEGStreamingPresenter:
             outline=(255, 255, 255),
             width=3,
         )
-        label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
         label_box = draw.textbbox((0, 0), label)
         label_width = label_box[2] - label_box[0]
         label_height = label_box[3] - label_box[1]
@@ -1177,7 +1188,6 @@ class MJPEGStreamingPresenter:
             label,
             fill=color,
         )
-        return np.asarray(image)
 
     def _publish_bev(self, bev_rgb_host_uint8: object) -> None:
         """Encode the BEV minimap (quality 95, not 85) and stash it for ``/bev_stream``.
@@ -1277,16 +1287,21 @@ class MJPEGStreamingPresenter:
                 self._bev_config is not None and self._bev_config.enabled
             )
             if vehicle_state is not None and self._bev_config is not None:
-                u, v, visible = project_target_to_bev(
-                    taxi_state.target_xyz_m, vehicle_state, self._bev_config
+                targets = (
+                    taxi_state.pickup_targets_xyz_m
+                    if taxi_state.phase == "seeking_pickup"
+                    and taxi_state.pickup_targets_xyz_m
+                    else (taxi_state.target_xyz_m,)
                 )
-                taxi_payload["bev_target"] = {
-                    "u": u,
-                    "v": v,
-                    "visible": visible,
-                }
+                bev_targets = []
+                for target in targets:
+                    u, v, visible = project_target_to_bev(
+                        target, vehicle_state, self._bev_config
+                    )
+                    bev_targets.append({"u": u, "v": v, "visible": visible})
+                taxi_payload["bev_targets"] = bev_targets
             else:
-                taxi_payload["bev_target"] = None
+                taxi_payload["bev_targets"] = []
             result["taxi"] = taxi_payload
         return result
 

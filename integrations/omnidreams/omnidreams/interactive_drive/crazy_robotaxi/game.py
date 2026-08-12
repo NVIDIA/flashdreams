@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -70,6 +70,9 @@ class TaxiGameConfig:
     waypoint_spacing_m: float = 10.0
     """Arc-length spacing between candidates sampled from each navigation route."""
 
+    pickup_grid_spacing_m: float = 60.0
+    """Grid spacing used to distribute simultaneous pickup points across the map."""
+
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
 
@@ -125,6 +128,8 @@ class TaxiGameConfig:
         """Validate Taxi-only values at configuration time."""
         if not 0.0 < self.traffic_density <= 1.0:
             raise ValueError("traffic_density must be greater than 0 and at most 1")
+        if self.pickup_grid_spacing_m <= 0.0:
+            raise ValueError("pickup_grid_spacing_m must be positive")
 
 
 @dataclass(frozen=True)
@@ -176,8 +181,11 @@ class TaxiGameSnapshot:
     awarded_global_time_s: float = 0.0
     """Global time awarded by the visible completion event."""
 
+    pickup_targets_xyz_m: tuple[tuple[float, float, float], ...] = ()
+    """All pickup positions available during the pickup phase."""
+
     turn_instructions: tuple[TaxiTurnInstruction, ...] = ()
-    """Remaining routed intersection arrows for the active target."""
+    """Upcoming routed turn for an active dropoff."""
 
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation of the snapshot."""
@@ -197,6 +205,9 @@ class TaxiGameSnapshot:
             "event": self.event,
             "awarded_points": self.awarded_points,
             "awarded_global_time_s": self.awarded_global_time_s,
+            "pickup_targets_xyz_m": [
+                list(target) for target in self.pickup_targets_xyz_m
+            ],
             "turn_instructions": [
                 instruction.as_dict() for instruction in self.turn_instructions
             ],
@@ -373,6 +384,33 @@ def project_taxi_marker_to_camera(
     )
 
 
+def project_taxi_markers_to_camera(
+    snapshot: TaxiGameSnapshot,
+    rig_to_world: npt.NDArray[np.float32],
+    camera_model: FThetaCameraModel,
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[TaxiCameraMarkerProjection, ...]:
+    """Project every available pickup or the active dropoff into a camera image."""
+    targets = (
+        snapshot.pickup_targets_xyz_m
+        if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
+        else (snapshot.target_xyz_m,)
+    )
+    projections = (
+        project_taxi_marker_to_camera(
+            replace(snapshot, target_xyz_m=target),
+            rig_to_world,
+            camera_model,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        for target in targets
+    )
+    return tuple(projection for projection in projections if projection is not None)
+
+
 def project_turn_signs_to_camera(
     snapshot: TaxiGameSnapshot,
     rig_to_world: npt.NDArray[np.float32],
@@ -454,6 +492,7 @@ class TaxiGameController:
         self._waypoints = self._navigation.sample_waypoints(
             config.waypoint_spacing_m, offset
         )
+        self._pickup_point_indices = self._sample_pickup_point_indices()
         self._phase: TaxiPhase = "seeking_pickup"
         self._session_state: TaxiSessionState = "playing"
         self._score = 0
@@ -479,6 +518,12 @@ class TaxiGameController:
             initial_camera,
         )
         self._route_source_lane_index = self._route_plan.lane_indices[0]
+        self._available_pickup_indices = self._pickup_indices(
+            initial_state,
+            excluded=frozenset(),
+        )
+        if self._target_index not in self._available_pickup_indices:
+            self._available_pickup_indices += (self._target_index,)
 
     @property
     def config(self) -> TaxiGameConfig:
@@ -541,25 +586,28 @@ class TaxiGameController:
                 snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
                 continue
             self._advance_banner(frame_interval_s)
-            target = self._waypoints[self._target_index]
-            distance = math.hypot(
-                float(target.xyz_m[0]) - x_m, float(target.xyz_m[1]) - y_m
-            )
             if self._phase == "seeking_pickup":
-                if distance <= self._config.pickup_radius_m:
-                    self._start_fare(vehicle_state)
+                pickup_index = self._collected_pickup_index(x_m, y_m)
+                if pickup_index is not None:
+                    self._start_fare(pickup_index, vehicle_state)
                 else:
                     self._update_route(vehicle_state)
-            elif distance <= self._config.dropoff_radius_m:
-                self._complete_fare(vehicle_state)
             else:
-                self._update_route(vehicle_state)
-                assert self._remaining_time_s is not None
-                self._remaining_time_s = max(
-                    0.0, self._remaining_time_s - frame_interval_s
+                target = self._waypoints[self._target_index]
+                distance = math.hypot(
+                    float(target.xyz_m[0]) - x_m,
+                    float(target.xyz_m[1]) - y_m,
                 )
-                if self._remaining_time_s <= 0.0:
-                    self._expire_fare(vehicle_state)
+                if distance <= self._config.dropoff_radius_m:
+                    self._complete_fare(vehicle_state)
+                else:
+                    self._update_route(vehicle_state)
+                    assert self._remaining_time_s is not None
+                    self._remaining_time_s = max(
+                        0.0, self._remaining_time_s - frame_interval_s
+                    )
+                    if self._remaining_time_s <= 0.0:
+                        self._expire_fare(vehicle_state)
 
             self._global_remaining_time_s = max(
                 0.0, self._global_remaining_time_s - frame_interval_s
@@ -615,12 +663,89 @@ class TaxiGameController:
             awarded_global_time_s=(
                 self._awarded_global_time_s if self._event_remaining_s > 0.0 else 0.0
             ),
+            pickup_targets_xyz_m=(
+                tuple(
+                    tuple(float(value) for value in self._waypoints[index].xyz_m)
+                    for index in self._available_pickup_indices
+                )
+                if self._phase == "seeking_pickup"
+                else ()
+            ),
             turn_instructions=(
-                self._route_plan.turn_instructions
-                if self._route_plan is not None
+                self._route_plan.turn_instructions[:1]
+                if self._phase == "to_dropoff" and self._route_plan is not None
                 else ()
             ),
         )
+
+    def _pickup_indices(
+        self,
+        vehicle_state: VehicleState,
+        *,
+        excluded: frozenset[int],
+    ) -> tuple[int, ...]:
+        """Return every pickup that is available from the current position."""
+        _distances, eligible = self._pickup_candidates(
+            vehicle_state.x_m,
+            vehicle_state.y_m,
+            excluded=excluded,
+        )
+        if eligible:
+            return tuple(eligible)
+        return tuple(
+            index for index in self._pickup_point_indices if index not in excluded
+        )
+
+    def _sample_pickup_point_indices(self) -> tuple[int, ...]:
+        """Choose one stable pickup point per world-space grid cell."""
+        cell_size = self._config.pickup_grid_spacing_m
+        candidates_by_cell: dict[tuple[int, int], list[int]] = {}
+        for index, waypoint in enumerate(self._waypoints):
+            point = waypoint.xyz_m
+            cell = (
+                math.floor(float(point[0]) / cell_size),
+                math.floor(float(point[1]) / cell_size),
+            )
+            candidates_by_cell.setdefault(cell, []).append(index)
+        selected = tuple(
+            sorted(
+                min(
+                    candidates,
+                    key=lambda index: (
+                        (
+                            float(self._waypoints[index].xyz_m[0])
+                            - (cell[0] + 0.5) * cell_size
+                        )
+                        ** 2
+                        + (
+                            float(self._waypoints[index].xyz_m[1])
+                            - (cell[1] + 0.5) * cell_size
+                        )
+                        ** 2,
+                        index,
+                    ),
+                )
+                for cell, candidates in candidates_by_cell.items()
+            )
+        )
+        if len(selected) >= 2:
+            return selected
+        return tuple(range(min(2, len(self._waypoints))))
+
+    def _collected_pickup_index(self, x_m: float, y_m: float) -> int | None:
+        """Return the closest available pickup inside its activation radius."""
+        candidates = (
+            (
+                math.hypot(
+                    float(self._waypoints[index].xyz_m[0]) - x_m,
+                    float(self._waypoints[index].xyz_m[1]) - y_m,
+                ),
+                index,
+            )
+            for index in self._available_pickup_indices
+        )
+        distance, index = min(candidates, default=(math.inf, -1))
+        return index if distance <= self._config.pickup_radius_m else None
 
     def _select_pickup(
         self,
@@ -638,10 +763,12 @@ class TaxiGameController:
         )
         for source in self._route_sources(vehicle_state):
             route_distances = self._navigation.route_distances(source, self._waypoints)
+            pickup_indices = frozenset(self._pickup_point_indices)
             reachable = [
                 index
                 for index, route_distance in enumerate(route_distances)
-                if index not in excluded
+                if index in pickup_indices
+                and index not in excluded
                 and math.isfinite(route_distance)
                 and distances[index] > 1.0
             ]
@@ -680,7 +807,7 @@ class TaxiGameController:
             )
             visible = [
                 index
-                for index in range(len(self._waypoints))
+                for index in self._pickup_point_indices
                 if bool(forward[index])
                 and 0.0 <= float(uv[index, 0]) < float(initial_camera.width)
                 and 0.0 <= float(uv[index, 1]) < float(initial_camera.height)
@@ -688,7 +815,8 @@ class TaxiGameController:
         else:
             visible = [
                 index
-                for index, point in enumerate(self._waypoints)
+                for index in self._pickup_point_indices
+                for point in (self._waypoints[index],)
                 if abs(
                     relative_target_bearing_rad(
                         x_m,
@@ -748,8 +876,9 @@ class TaxiGameController:
         ]
         eligible = [
             index
-            for index, distance in enumerate(distances)
-            if index not in excluded and distance >= self._config.pickup_min_distance_m
+            for index in self._pickup_point_indices
+            if index not in excluded
+            and distances[index] >= self._config.pickup_min_distance_m
         ]
         return distances, eligible
 
@@ -789,18 +918,7 @@ class TaxiGameController:
                 <= route_distances[index]
                 <= self._config.fare_max_route_distance_m
             ]
-            if eligible:
-                dropoff_index = int(self._rng.choice(eligible))
-            else:
-                ideal_distance_m = self._config.fare_max_route_distance_m
-                dropoff_index = min(
-                    reachable,
-                    key=lambda index: (
-                        abs(route_distances[index] - ideal_distance_m),
-                        route_distances[index],
-                        index,
-                    ),
-                )
+            dropoff_index = int(self._rng.choice(eligible or reachable))
             plan = self._navigation.route(source, self._waypoints[dropoff_index])
             if plan is not None:
                 return dropoff_index, plan
@@ -818,14 +936,15 @@ class TaxiGameController:
         )
         return nearby or matches
 
-    def _start_fare(self, vehicle_state: VehicleState) -> None:
-        self._pickup_index = self._target_index
+    def _start_fare(self, pickup_index: int, vehicle_state: VehicleState) -> None:
+        self._pickup_index = pickup_index
         self._dropoff_index, self._route_plan = self._select_dropoff(
             self._pickup_index, vehicle_state
         )
         self._route_source_lane_index = self._route_plan.lane_indices[0]
         self._target_index = self._dropoff_index
         self._phase = "to_dropoff"
+        self._available_pickup_indices = ()
         raw_time = self._route_plan.distance_m / max(
             self._config.target_speed_mps, 1e-6
         )
@@ -906,6 +1025,12 @@ class TaxiGameController:
             vehicle_state,
             excluded=excluded,
         )
+        self._available_pickup_indices = self._pickup_indices(
+            vehicle_state,
+            excluded=excluded,
+        )
+        if self._target_index not in self._available_pickup_indices:
+            self._available_pickup_indices += (self._target_index,)
         self._phase = "seeking_pickup"
         self._remaining_time_s = None
         self._route_source_lane_index = self._route_plan.lane_indices[0]
