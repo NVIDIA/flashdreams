@@ -42,9 +42,10 @@ from omnidreams.interactive_drive.config import (
     VehicleConfig,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
     project_target_pose_to_bev,
-    project_taxi_marker_to_camera,
+    project_taxi_markers_to_camera,
     project_turn_signs_to_camera,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
@@ -1700,7 +1701,7 @@ class SlangPyHudPresenter:
                 output_height=source_height,
             )
             self._taxi_camera_models[model_key] = camera_model
-        marker = project_taxi_marker_to_camera(
+        markers = project_taxi_markers_to_camera(
             frame.application_state,
             frame.rig_to_world,
             camera_model,
@@ -1708,7 +1709,7 @@ class SlangPyHudPresenter:
             image_height=source_height,
         )
         fit = self._compute_camera_fit()
-        if marker is None or fit is None:
+        if not markers or fit is None:
             return
         fit_width, fit_height, offset_x, offset_y = fit
         area_x, area_y, _area_right, _area_bottom = camera_area
@@ -1724,6 +1725,28 @@ class SlangPyHudPresenter:
             if frame.application_state.phase == "seeking_pickup"
             else ACCENT_AMBER
         )
+        label = (
+            "PICKUP" if frame.application_state.phase == "seeking_pickup" else "DROPOFF"
+        )
+        for marker in markers:
+            self._draw_taxi_marker_projection(
+                draw,
+                marker,
+                display_point=display_point,
+                color=color,
+                label=label,
+            )
+
+    def _draw_taxi_marker_projection(
+        self,
+        draw: ImageDraw.ImageDraw,
+        marker: TaxiCameraMarkerProjection,
+        *,
+        display_point: Callable[[tuple[float, float]], tuple[int, int]],
+        color: tuple[int, int, int],
+        label: str,
+    ) -> None:
+        """Draw one projected pickup or dropoff marker."""
         for edge in marker.ring_edges_uv:
             line = (display_point(edge[0]), display_point(edge[1]))
             draw.line(line, fill=(0, 0, 0, 220), width=7)
@@ -1749,9 +1772,6 @@ class SlangPyHudPresenter:
             fill=color + (255,),
             outline=(255, 255, 255, 255),
             width=3,
-        )
-        label = (
-            "PICKUP" if frame.application_state.phase == "seeking_pickup" else "DROPOFF"
         )
         label_box = _measure_text(self._font_small, label)
         label_width = label_box[2] - label_box[0]
@@ -1785,7 +1805,7 @@ class SlangPyHudPresenter:
         camera_area: tuple[int, int, int, int],
         frame: PresentedFrame | None,
     ) -> None:
-        """Draw every camera-visible routed intersection arrow."""
+        """Draw the camera-visible upcoming dropoff turn arrow."""
         if (
             frame is None
             or frame.application_state is None
@@ -2549,31 +2569,41 @@ class SlangPyHudPresenter:
         bev_pose = frame.bev_rig_to_world
         if bev_pose is None or snapshot is None or bev is None or not bev.enabled:
             return
-        u, v, visible = project_target_pose_to_bev(snapshot.target_xyz_m, bev_pose, bev)
-        if not visible:
-            return
-
         scale = max(inner_w / float(bev.width), inner_h / float(bev.height))
         scaled_w = float(bev.width) * scale
         scaled_h = float(bev.height) * scale
         crop_left = (scaled_w - inner_w) / 2.0
         crop_top = (scaled_h - inner_h) / 2.0
-        cx = int(inner[0] + u * scaled_w - crop_left)
-        cy = int(inner[1] + v * scaled_h - crop_top)
-        if not (inner[0] <= cx <= inner[2] and inner[1] <= cy <= inner[3]):
-            return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)
-        draw.ellipse(
-            (cx - radius - 3, cy - radius - 3, cx + radius + 3, cy + radius + 3),
-            fill=(255, 255, 255, 255),
+        targets = (
+            snapshot.pickup_targets_xyz_m
+            if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
+            else (snapshot.target_xyz_m,)
         )
-        draw.ellipse(
-            (cx - radius, cy - radius, cx + radius, cy + radius),
-            fill=color + (255,),
-            outline=(20, 20, 30, 255),
-            width=2,
-        )
+        for target in targets:
+            u, v, visible = project_target_pose_to_bev(target, bev_pose, bev)
+            if not visible:
+                continue
+            cx = int(inner[0] + u * scaled_w - crop_left)
+            cy = int(inner[1] + v * scaled_h - crop_top)
+            if not (inner[0] <= cx <= inner[2] and inner[1] <= cy <= inner[3]):
+                continue
+            draw.ellipse(
+                (
+                    cx - radius - 3,
+                    cy - radius - 3,
+                    cx + radius + 3,
+                    cy + radius + 3,
+                ),
+                fill=(255, 255, 255, 255),
+            )
+            draw.ellipse(
+                (cx - radius, cy - radius, cx + radius, cy + radius),
+                fill=color + (255,),
+                outline=(20, 20, 30, 255),
+                width=2,
+            )
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
