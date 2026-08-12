@@ -67,7 +67,9 @@ from omnidreams.eval.worldlens import (
     write_worldlens_consistency_config,
 )
 
-DEFAULT_GENERATION_RECIPE = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+# Use the registered runner slug so flashdreams-run can build a parser for the
+# selected runner instead of the full installed-runner union.
+DEFAULT_GENERATION_RECIPE = "omnidreams"
 
 
 def main(argv: list[str] | None = None) -> int:

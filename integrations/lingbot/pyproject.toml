@@ -41,6 +41,9 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+[project.scripts]
+lingbot-demo = "lingbot.demo.app:main"
+
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)
 # scans this group at CLI startup; the entry-point name itself is purely
@@ -57,10 +60,8 @@ exclude = ["tests"]
 
 [tool.setuptools.package-data]
 "lingbot.webrtc.web" = [
-    "*.html",
-    "*.css",
-    "*.js",
-    "assets/*.svg",
+    "adapter.css",
+    "adapter.js",
 ]
 
 [tool.uv]

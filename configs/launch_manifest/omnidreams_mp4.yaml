@@ -1,0 +1,13 @@
+schema_version: 1
+runner: omnidreams
+mode: mp4
+
+scenario:
+  example_data: true
+  total_blocks: 60
+  pixel_width: 1280
+  pixel_height: 704
+
+output:
+  path: ../../outputs/omnidreams-replay.mp4
+  fps: 30

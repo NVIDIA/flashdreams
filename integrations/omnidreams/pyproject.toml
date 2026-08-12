@@ -20,8 +20,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams-omnidreams"
 version = "0.1.0"
-description = "Omnidreams inference with flashdreams (webrtc / gRPC servers + the interactive-drive desktop demo)"
+description = "Omnidreams inference with FlashDreams unified WebRTC and local-window launch modes"
 readme = "README.md"
+# PyNvVideoCodec 2.1 currently publishes wheels through CPython 3.12.
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # Core inference / serving deps (consumed by ``omnidreams.webrtc``,
@@ -79,8 +80,8 @@ ludus-renderer = { workspace = true }
 interactive-drive = [
     "slangpy==0.42.0",
 ]
-# Optional NVIDIA VFX runtime for selecting RTX postprocess presets such as
-# ``--postprocess-preset rtx-super-resolution`` in the WebRTC or local demo.
+# Optional NVIDIA VFX runtime for selecting RTX postprocess presets in the
+# local interactive demo.
 rtx-postprocess = [
     "flashdreams[rtx-postprocess]",
 ]
@@ -93,8 +94,8 @@ dev = [
 ]
 
 [project.scripts]
-# ``omnidreams-prepare`` stages resources used by *both* demo paths
-# (desktop ``interactive-drive`` *and* ``omnidreams.webrtc.server``):
+# ``omnidreams-prepare`` stages resources used by both ``local-window`` and
+# ``webrtc`` launch modes:
 # the scene USDZs from ``nvidia/omni-dreams-scenes`` and the
 # Cosmos-Reason1 text encoder pinned to its runtime revision. Lives at
 # the package level (``omnidreams.prepare``) rather than under
@@ -106,11 +107,6 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.eval.cli:main"
 
-# Desktop interactive-drive demo entry point. Requires the
-# ``interactive-drive`` extra (it adds slangpy); without it the
-# presenter import fails fast with a clear message.
-interactive-drive = "omnidreams.interactive_drive.demo:main"
-
 # Tkinter wizard that calibrates a connected steering wheel or game
 # controller and writes a local input profile the demo auto-discovers.
 # Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
@@ -121,8 +117,8 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 # scans this group at CLI startup; the entry-point name itself is purely
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
-"omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
+"omnidreams-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
 
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]
@@ -135,7 +131,7 @@ exclude = ["tests"]
 # workspace editable. Editable installs pick these up from the source
 # tree automatically.
 [tool.setuptools.package-data]
-"omnidreams.webrtc.web" = ["*.html", "*.css", "*.js", "assets/*.svg"]
+"omnidreams.demo" = ["web/adapter.js", "web/adapter.css"]
 "omnidreams.interactive_drive" = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",

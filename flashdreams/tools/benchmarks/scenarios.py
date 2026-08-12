@@ -305,7 +305,7 @@ def built_in_scenarios() -> dict[str, BenchmarkScenario]:
             tags=("public", "runner", "world-model", "i2v"),
             command=(
                 "flashdreams-run",
-                "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+                "omnidreams",
                 "--example-data",
                 "--total-blocks",
                 "8",

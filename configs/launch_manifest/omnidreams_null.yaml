@@ -1,0 +1,10 @@
+schema_version: 1
+runner: omnidreams
+mode: "null"
+
+scenario:
+  example_data: true
+  total_blocks: 10
+  pixel_width: 1280
+  pixel_height: 704
+  fps: 30

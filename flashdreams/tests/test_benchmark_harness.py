@@ -242,6 +242,48 @@ def test_shipped_one_minute_demo_scenarios_load() -> None:
     }
 
 
+def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    scenarios = load_scenario_file(
+        repo_root / "configs" / "omnidreams_demo_replay_benchmarks.json"
+    )
+
+    assert set(scenarios) == {
+        "omnidreams-sv-runner-baseline",
+        "omnidreams-sv-demo-replay",
+    }
+
+    baseline = scenarios["omnidreams-sv-runner-baseline"]
+    assert baseline.report_group is not None
+    assert baseline.report_group.id == "omnidreams-demo"
+    assert _command_value(baseline.command, "--total-blocks") == "226"
+    assert "omnidreams" in baseline.command
+    assert "omnidreams-perf" not in baseline.command
+    assert baseline.quality_baseline_compare is False
+
+    demo = scenarios["omnidreams-sv-demo-replay"]
+    assert demo.output_dir_arg is None
+    assert demo.command[:5] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "omnidreams-demo",
+    )
+    assert demo.command[5] == "replay"
+    assert _command_value(demo.command, "--preset-id") == (
+        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+    )
+    assert _command_value(demo.command, "--total-blocks") == "226"
+    assert _command_value(demo.command, "--output") == (
+        "{output_dir}/omnidreams-sv-demo-replay.mp4"
+    )
+    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
+        demo.command
+    )
+    assert demo.quality_baseline_compare is False
+
+
 def test_shipped_deterministic_quality_scenarios_load() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     scenarios = load_scenario_file(
@@ -264,10 +306,8 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
         "-m",
         "tools.benchmarks.strict_run",
     )
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" in omnidreams.command
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
-        omnidreams.command
-    )
+    assert "omnidreams" in omnidreams.command
+    assert "omnidreams-perf" not in omnidreams.command
     assert omnidreams.report_group is not None
     assert omnidreams.report_group.id == "omnidreams"
     assert omnidreams.report_group.name == "Omnidreams"
@@ -290,13 +330,8 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
 
     omnidreams_review = scenarios["omnidreams-sv-one-minute-review"]
     assert _command_value(omnidreams_review.command, "--total-blocks") == "226"
-    assert (
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
-        in omnidreams_review.command
-    )
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
-        omnidreams_review.command
-    )
+    assert "omnidreams" in omnidreams_review.command
+    assert "omnidreams-perf" not in omnidreams_review.command
     assert "--pipeline.diffusion-model.seed" in omnidreams_review.command
     assert omnidreams_review.quality_baseline_compare is False
 

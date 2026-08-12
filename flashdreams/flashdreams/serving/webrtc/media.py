@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import cast
 
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -16,17 +16,31 @@ from av import VideoFrame
 from av.packet import Packet
 from loguru import logger
 
-from flashdreams.serving.realtime.media import tensor_chunk_to_rgb_frames
-
-if TYPE_CHECKING:
-    import torch
+from flashdreams.runtime import StepResult
+from flashdreams.serving.realtime.media import (
+    FrameLayout,
+    ValueRange,
+    rgb_array_to_uint8_frames,
+)
+from flashdreams.serving.realtime.media import (
+    tensor_chunk_to_rgb_frames as tensor_chunk_to_rgb_frames,
+)
 
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
 
 
-def _default_frame_converter(video_chunk: torch.Tensor) -> list[np.ndarray]:
-    return tensor_chunk_to_rgb_frames(video_chunk, sync_device=True)
+def _default_frame_converter(result: StepResult) -> list[np.ndarray]:
+    video_chunk = result.video_chunk
+    value_range: ValueRange = (
+        "minus_one_one" if video_chunk.is_floating_point() else "uint8"
+    )
+    return rgb_array_to_uint8_frames(
+        video_chunk,
+        layout=cast(FrameLayout, result.layout),
+        value_range=value_range,
+        sync_device=True,
+    )
 
 
 class BufferedVideoTrack(MediaStreamTrack):
@@ -39,7 +53,7 @@ class BufferedVideoTrack(MediaStreamTrack):
         *,
         fps: int,
         maxsize: int,
-        frame_converter: Callable[[torch.Tensor], list[np.ndarray]] | None = None,
+        frame_converter: Callable[[StepResult], list[np.ndarray]] | None = None,
     ) -> None:
         super().__init__()
         if fps <= 0:
@@ -67,15 +81,36 @@ class BufferedVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._frames.qsize()
 
-    async def enqueue_chunk(self, video_chunk: torch.Tensor) -> int:
+    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+        if self._closed:
+            return ()
+        return tuple(self._frame_converter(result))
+
+    async def enqueue_frames(self, frames: Sequence[np.ndarray]) -> int:
         if self._closed:
             return 0
-        frames = await asyncio.to_thread(self._frame_converter, video_chunk)
         for i, frame in enumerate(frames):
             if self._closed:
                 return i
             await self._frames.put(frame)
         return len(frames)
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        if self._closed:
+            return 0
+        frames = await asyncio.to_thread(self.prepare_result_frames, result)
+        return await self.enqueue_frames(frames)
+
+    async def flush(self) -> None:
+        """Drop queued frames while keeping the RTP timestamp sequence alive."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> VideoFrame:
         if self._closed:
@@ -219,6 +254,17 @@ class NVENCVideoTrack(MediaStreamTrack):
                 )
         self._packets.put_nowait(packet)
         return True
+
+    async def flush(self) -> None:
+        """Drop queued encoded packets while preserving the open media track."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._packets.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> Packet:
         if self._closed:

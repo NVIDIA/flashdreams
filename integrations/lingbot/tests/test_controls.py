@@ -19,13 +19,13 @@ import math
 
 import numpy as np
 import pytest
-
-from flashdreams.serving.webrtc.controls import (
+from lingbot.controls import (
     CameraPoseIntegrator,
     KeyboardResampler,
-    KeyboardState,
     PoseSegment,
 )
+
+from flashdreams.runtime.keyboard import KeyboardState
 
 pytestmark = pytest.mark.ci_cpu
 

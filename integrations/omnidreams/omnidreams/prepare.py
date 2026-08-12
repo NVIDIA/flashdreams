@@ -8,7 +8,7 @@ Stages the resources both demo paths share:
 
 * ``nvidia/omni-dreams-scenes`` USDZ archives -> consumed sealed by the
   desktop ``interactive-drive`` demo and unpacked on demand by
-  ``omnidreams.webrtc.server`` (both read from the shared cache at
+  the centralized ``webrtc`` launch (both read from the shared cache at
   ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``; see
   :mod:`omnidreams.scenes`).
 * The Cosmos-Reason1 text encoder used by the flashdreams world-model

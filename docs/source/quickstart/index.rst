@@ -54,28 +54,32 @@ Run your first model
 --------------------
 
 Launch the OmniDreams interactive driving demo. It runs the world model
-and streams the generated camera view to a browser:
+and streams the generated camera view to a browser over WebRTC:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 
-Then open ``http://<server-ip>:8080/`` in a browser on the same network
+Then open ``http://<server-ip>:8089/request_session`` in a browser on the same network
 (use ``localhost`` on the same machine). The first launch spends several
 minutes loading checkpoints and compiling kernels; later launches reuse
 the cached assets.
 
-On VRAM-constrained GPUs, add ``--offload-text-encoder`` to reduce peak
-VRAM usage by about 15 GB:
+Inspect the complete resolved runner, launch mode, scenario, and output without
+loading checkpoints:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive \
-       --stream-mjpeg :8080 \
-       --offload-text-encoder
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
+       --no-instantiate
 
-See :doc:`/models/omnidreams` for the offload trade-offs, scripted
-generation, scene variants, WebRTC serving, and multi-GPU options.
+See :doc:`/models/omnidreams` for scripted generation, scene variants,
+local-window serving, and multi-GPU options. See
+:doc:`/api/launch_manifests` for the shared manifest schema.
 
 Where to next
 -------------
@@ -83,7 +87,7 @@ Where to next
 - :doc:`/models/index`: every shipped model with its CLI slug and the
   command to run it.
 - :doc:`/models/omnidreams`: drive a world model in real time with the
-  ``interactive-drive`` demo.
+  ``local-window`` or ``webrtc`` launch mode.
 - :doc:`/developer_guides/inference_pipeline_overview`: the generation
   loop end to end: KV cache, ring attention, CUDA-graph capture.
 - :doc:`/developer_guides/config_system`: the configuration layer

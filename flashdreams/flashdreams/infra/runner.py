@@ -39,7 +39,7 @@ from flashdreams.infra.postprocess import (
     VideoTensorLayout,
     create_runner_postprocess_stream,
 )
-from flashdreams.infra.video_output import RunnerVideoOutputStream
+from flashdreams.infra.video_output import VideoOutputStream
 
 
 def _is_torchrun_env() -> bool:
@@ -62,6 +62,9 @@ class RunnerConfig(InstantiateConfig):
     ``flashdreams-run --help``. ``tyro.conf.Suppress`` hides it from
     per-runner ``--help`` (it's metadata, not a knob); a non-empty
     value is enforced for in-tree runners by the registry test."""
+
+    launch_capability: Annotated[str | None, tyro.conf.Suppress] = None
+    """Optional ``module:attribute`` implementing non-``run`` launch modes."""
 
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
@@ -183,19 +186,16 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         self,
         *,
         fps: float | None = None,
-        move_to_cpu: bool = True,
-    ) -> RunnerVideoOutputStream:
-        """Create the standard runner video output stream for one rollout."""
+    ) -> VideoOutputStream:
+        """Create the standard post-processing stream for one rollout."""
         layout = self.config.postprocess_output_layout
         if layout is None:
             raise ValueError(
                 "Runner video output collection requires an output layout."
             )
-        return RunnerVideoOutputStream(
+        return VideoOutputStream(
             postprocess_stream=self.create_postprocess_stream(fps=fps),
             output_layout=layout,
-            collect_output=self.is_rank_zero,
-            move_to_cpu=move_to_cpu,
         )
 
     @abstractmethod

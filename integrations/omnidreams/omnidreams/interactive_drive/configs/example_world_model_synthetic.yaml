@@ -5,7 +5,8 @@
 # interactive-drive latency path runs on local random-initialized weights with
 # no checkpoint downloads. synthetic_model swaps only weight sources, not perf
 # knobs. To avoid drift, prefer running the real manifest with the flag:
-#   interactive-drive --manifest example_world_model_perf.yaml --synthetic-model
+# Reference this file from output.world_model_manifest_path in a local-window
+# FlashDreams launch manifest, and set output.synthetic_model: true.
 synthetic_model: true
 resolution_wh: [1168, 640]
 fps: 30

@@ -37,6 +37,7 @@ dependencies = [
     "numpy>=1.24,<2.5",
     "nvidia-ml-py>=12.0",
     "psutil>=7.0",
+    "pyyaml>=6.0",
     "safetensors>=0.4",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
@@ -135,6 +136,9 @@ version = {attr = "flashdreams._version.__version__"}
 [tool.setuptools.packages.find]
 include = ["flashdreams*", "tools*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
+
+[tool.setuptools.package-data]
+"flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
 
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to

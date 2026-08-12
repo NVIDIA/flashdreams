@@ -25,6 +25,8 @@ from fractions import Fraction
 import pytest
 import torch
 
+from flashdreams.runtime import StepResult
+
 pytestmark = pytest.mark.ci_gpu
 
 # ``PyNvVideoCodec`` probes for the NVIDIA driver library at import time
@@ -103,7 +105,11 @@ def test_encode_chunk_produces_annex_b_keyframe_with_sps_pps(
         )
         packets: list = []
         num_frames, num_keyframes, encode_ms = encoder.encode_chunk_sync(
-            chunk,
+            StepResult.from_video_chunk(
+                step_index=0,
+                video_chunk=chunk,
+                layout="tchw",
+            ),
             force_keyframe=True,
             on_packet=packets.append,
         )

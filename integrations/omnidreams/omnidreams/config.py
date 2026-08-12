@@ -430,7 +430,7 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
 """All shipped Omnidreams variants, keyed by ``name``."""
 
 
-## Per-variant runner-config literals (slug == ``name``).
+## Per-variant runner-config literals.
 
 _DEFAULT_PROMPT_1V = (
     "Driving scene from a front-facing car camera. Urban environment with roads, "
@@ -450,14 +450,14 @@ _DEFAULT_PROMPT_4V = (
 )
 
 RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.name,
+    runner_name="omnidreams",
     description="Single-view 2-step distilled chunk2 (LightVAE + LightTAE).",
     pipeline=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
     prompt=_DEFAULT_PROMPT_1V,
 )
 
 RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF = OmnidreamsRunnerConfig(
-    runner_name=SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.name,
+    runner_name="omnidreams-perf",
     description=(
         "Single-view chunk2 perf preset (compile + CUDA graphs across all stages)."
     ),

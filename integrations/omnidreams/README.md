@@ -121,9 +121,11 @@ Interpret the report as follows:
   baseline JSON; the baseline should contain only expected metric values and
   tolerances.
 
-## Run interactive-drive (desktop demo)
-The `omnidreams.interactive_drive` subpackage ships a single-process
-driving demo. Refer to [README for full guide](omnidreams/interactive_drive/README.md)
+## Run the local-window desktop demo
+
+The `local-window` mode launches the single-process driving demo. Refer to the
+[interactive guide](omnidreams/interactive_drive/README.md) for controls and
+runtime requirements.
 
 Validated & Supported GPU: RTX 6000 Pro Blackwell
 Validated & Supported OS: Ubuntu 26.04
@@ -154,6 +156,11 @@ uv run --package flashdreams-omnidreams interactive-drive \
 	--manifest example_world_model_perf.yaml --auto-start --game-mode
 
 # add `--stream-mjpeg :8080` to stream to your browser; required if running headless system
+
+# Or run the centralized local-window launch
+uv run --package flashdreams-omnidreams flashdreams-run \
+    omnidreams-perf local-window \
+    --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
 
 ## Native DiT defaults
@@ -176,7 +183,9 @@ Sparge/SageAttention-3 hybrid schedule when the extension and GPU support it.
 From the workspace root, run:
 
 ```bash
-uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 -m omnidreams.webrtc.server --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf --scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 --port 8089
+uv run --package flashdreams-omnidreams flashdreams-run \
+    omnidreams webrtc \
+    --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 ```
 
 When `--scene_dir` is omitted, the server downloads the selected scene from the
@@ -188,10 +197,11 @@ Weather variants ship as sibling archives; pass `--scene-variant rain` (or
 from the scene's first ground-truth camera frame
 (`clipgt/frames/<camera>/<ts>.jpeg`, falling back to `clipgt/first_image.*`) and
 the weather-matched `clipgt/prompt<N>.txt` (falling back to `clipgt/prompt.txt`).
-Pass `--scene_dir <path>` to use a pre-staged local scene instead.
+Set `scenario.scene_dir` in the launch manifest to use a pre-staged local
+scene instead.
 
-To enable video post-processing by default, pass a registered preset such as
-`--postprocess-preset rtx-super-resolution`. RTX postprocess presets require the
+To enable video post-processing by default, override the runner's registered
+post-process preset in the launch manifest. RTX postprocess presets require the
 optional NVIDIA VFX runtime:
 
 ```bash

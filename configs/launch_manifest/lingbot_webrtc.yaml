@@ -1,0 +1,16 @@
+schema_version: 1
+runner: lingbot-world-fast
+mode: webrtc
+
+scenario:
+  example_idx: 0
+
+output:
+  host: 0.0.0.0
+  port: 8080
+  fps: 16
+  video_width: 832
+  video_height: 464
+  warmup_chunks: 10
+  warmup_timeout_s: 600
+  client_liveness_timeout_s: 30

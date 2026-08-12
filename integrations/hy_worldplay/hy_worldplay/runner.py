@@ -31,13 +31,12 @@ from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashdreams.recipes.wan.pipeline import WanInferencePipeline
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 __all__ = [
     "DEFAULT_PROMPT",
@@ -341,7 +340,16 @@ class HyWorldPlayWanI2VRunner(
             device=device, dtype=first_param.dtype
         )
 
-        output_stream = self.create_video_output_stream(fps=cfg.fps, move_to_cpu=False)
+        output_stream = self.create_video_output_stream(fps=cfg.fps)
+        out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=out_path,
+            fps=cfg.fps,
+            output_layout=output_stream.output_layout,
+            move_to_cpu=False,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
         start_time = time.time()
@@ -352,24 +360,35 @@ class HyWorldPlayWanI2VRunner(
                 # advances the KV cache; called on every chunk
                 # (including the last) for consistent stats.
                 stats = self.pipeline.finalize(ar_idx, cache)
-                output_stream.process(chunk, autoregressive_index=ar_idx, stats=stats)
-            video = output_stream.finish()
+                output_target.write(
+                    output_stream.process(
+                        chunk,
+                        autoregressive_index=ar_idx,
+                        metrics=stats,
+                    )
+                )
         elapsed = time.time() - start_time
 
-        if video is None:
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
-
-        ensure_output_dir(cfg.output_dir)
-        out_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        write_video_tensor(video, out_path, fps=cfg.fps, layout="btchw")
+        video_artifact = artifacts[0]
+        out_path = Path(video_artifact.uri)
         logger.info(
             f"[{cfg.runner_name}] wrote video "
-            f"({tuple(video.shape)}) -> {out_path.resolve()} in {elapsed:.2f}s"
+            f"({video_artifact.metadata['shape']}) -> {out_path.resolve()} "
+            f"in {elapsed:.2f}s"
         )
 
-        if output_stream.stats_history:
+        stats_history = video_artifact.metadata["stats_history"]
+        if stats_history:
             stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, output_stream.stats_history
+                cfg.output_dir,
+                cfg.runner_name,
+                list(stats_history),
             )
             logger.info(
                 f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"

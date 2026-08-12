@@ -383,7 +383,7 @@ def test_runtime_distributed_ops_use_world_cp_and_rank_seed(
         if rank == 0:
             runtime._initialize_sync_all_ranks()
             runtime._reset_rollout_sync_all_ranks()
-            num_frames = runtime.peek_next_chunk_num_frames()
+            num_frames = runtime._next_input_frame_count()
             per_frame_keys = [frozenset() for _ in range(num_frames)]
             result = runtime._generate_chunk_sync_all_ranks(per_frame_keys)
             result_shape = tuple(result.video_chunk.shape)

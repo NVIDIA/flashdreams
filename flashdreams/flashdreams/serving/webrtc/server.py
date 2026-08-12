@@ -34,6 +34,7 @@ PACKAGE_RESOURCE_STACK_KEY = web.AppKey("package_resource_stack", ExitStack)
 def create_webrtc_app(
     *,
     web_dir: Path,
+    model_web_dir: Path | None = None,
     session_manager: WebRTCSessionManager,
     request_session_url: str,
     index_filename: str = "request_session.html",
@@ -89,6 +90,14 @@ def create_webrtc_app(
             }
         )
 
+    async def ui_config(_: web.Request) -> web.StreamResponse:
+        payload: dict[str, str | None] = {"adapter_module": None}
+        if model_web_dir is not None and (model_web_dir / "adapter.js").is_file():
+            payload["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
+        if model_web_dir is not None and (model_web_dir / "adapter.css").is_file():
+            payload["model_stylesheet"] = "/model-static/adapter.css?v=model-ui-v2"
+        return web.json_response(payload)
+
     async def on_startup(app: web.Application) -> None:
         manager = app[SESSION_MANAGER_KEY]
         logger.info("Preloading {} runtime on startup.", preload_name)
@@ -104,7 +113,10 @@ def create_webrtc_app(
     app.router.add_get("/request_session", request_session_page)
     app.router.add_post("/api/webrtc/offer", offer)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/api/ui/config", ui_config)
     app.router.add_static("/static/", web_dir, show_index=False)
+    if model_web_dir is not None:
+        app.router.add_static("/model-static/", model_web_dir, show_index=False)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     return app
@@ -117,6 +129,7 @@ async def close_package_resources(app: web.Application) -> None:
 def create_packaged_webrtc_app(
     *,
     web_resource: Any,
+    model_web_resource: Any | None = None,
     session_manager: WebRTCSessionManager,
     request_session_url: str,
     preload_name: str,
@@ -136,13 +149,18 @@ def create_packaged_webrtc_app(
     resource_stack = ExitStack()
     try:
         web_dir = resource_stack.enter_context(as_file_fn(web_resource))
-        app = create_app_fn(
-            web_dir=web_dir,
-            session_manager=session_manager,
-            preload_name=preload_name,
-            request_session_url=request_session_url,
-            index_filename=index_filename,
-        )
+        create_kwargs: dict[str, Any] = {
+            "web_dir": web_dir,
+            "session_manager": session_manager,
+            "preload_name": preload_name,
+            "request_session_url": request_session_url,
+            "index_filename": index_filename,
+        }
+        if model_web_resource is not None:
+            create_kwargs["model_web_dir"] = resource_stack.enter_context(
+                as_file_fn(model_web_resource)
+            )
+        app = create_app_fn(**create_kwargs)
         if configure_app is not None:
             configure_app(app)
         app[PACKAGE_RESOURCE_STACK_KEY] = resource_stack

@@ -1,0 +1,325 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.firstFramePreview {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.stageVideo,
+.firstFramePreview {
+  inset: 50% auto auto 50%;
+  width: min(
+    100vw,
+    var(--lingbot-video-width, 832px),
+    var(--lingbot-video-width-from-vh, 179.31vh)
+  );
+  height: auto;
+  max-height: min(100vh, var(--lingbot-video-height, 464px));
+  aspect-ratio: var(--lingbot-video-aspect, 832 / 464);
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  object-position: center;
+}
+
+body.is-ready-preview .firstFramePreview {
+  opacity: 1;
+}
+
+.sceneCard {
+  position: absolute;
+  top: clamp(120px, 15vh, 168px);
+  left: clamp(18px, 3vw, 52px);
+  display: grid;
+  gap: 12px;
+  width: min(560px, calc(100vw - 36px));
+  max-height: min(680px, calc(100vh - 224px));
+  padding: 16px 18px 18px;
+  overflow: auto;
+}
+
+.sceneCard[hidden],
+.eventControls[hidden] {
+  display: none;
+}
+
+.firstFrameSourceRow {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 86px;
+  gap: 8px;
+  min-height: 68px;
+}
+
+.firstFrameSourceRow[data-mode="upload"] {
+  grid-template-columns: minmax(0, 1fr) 86px 86px;
+}
+
+.sourcePane {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload,
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl {
+  border-color: rgba(142, 240, 28, 0.38);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.sourceModeButton,
+.uploadControl {
+  width: 100%;
+  min-height: 68px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.uploadControl {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+}
+
+.uploadControl input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload .uploadControl {
+  display: flex;
+}
+
+.firstFrameSourceRow[data-mode="upload"] .sourcePaneUpload .sourceModeButton,
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl .sourceModeButton {
+  display: none;
+}
+
+.promptControl,
+.textEventEditor,
+.urlControl {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.urlControl {
+  display: none;
+  padding: 8px;
+}
+
+.firstFrameSourceRow[data-mode="url"] .sourcePaneUrl .urlControl {
+  display: grid;
+}
+
+.promptControl textarea,
+.textEventPrompt,
+.textEventLabel,
+.urlControl input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  outline: 0;
+  background: rgba(4, 6, 7, 0.62);
+  color: var(--text);
+  font: 0.84rem/1.3 inherit;
+}
+
+.promptControl textarea {
+  min-height: 94px;
+  resize: vertical;
+}
+
+.promptControl textarea:focus,
+.textEventPrompt:focus,
+.textEventLabel:focus,
+.urlControl input:focus {
+  outline: 2px solid rgba(142, 240, 28, 0.38);
+  outline-offset: 2px;
+}
+
+.urlUpdateButton,
+.textEventAddButton,
+.textEventRemoveButton {
+  border: 1px solid rgba(142, 240, 28, 0.42);
+  border-radius: 7px;
+  background: rgba(142, 240, 28, 0.14);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.urlUpdateButton {
+  min-height: 68px;
+}
+
+.firstFrameUpdateRow {
+  min-height: 0;
+}
+
+.fieldStatus {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fieldStatus[data-state="error"] {
+  color: var(--danger);
+}
+
+.fieldStatus[data-state="success"] {
+  color: var(--accent);
+}
+
+.fieldStatus[data-state="pending"] {
+  color: var(--warning);
+}
+
+.textEventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+}
+
+.textEventAddButton,
+.textEventRemoveButton {
+  min-width: 34px;
+  min-height: 30px;
+}
+
+.textEventRemoveButton {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.textEventList,
+.textEventFields {
+  display: grid;
+  gap: 8px;
+}
+
+.textEventRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: start;
+}
+
+.textEventPrompt {
+  min-height: 62px;
+  resize: vertical;
+}
+
+.eventControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.eventButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eventButton {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 6px;
+  background: rgba(12, 14, 15, 0.62);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.eventButton.is-active {
+  border-color: rgba(99, 216, 255, 0.72);
+  background: rgba(99, 216, 255, 0.16);
+  color: #dff7ff;
+}
+
+@media (min-width: 901px) {
+  .sceneCard,
+  .controlCard {
+    width: min(560px, calc(100vw - 36px));
+  }
+
+  .sceneCard {
+    max-height: clamp(280px, calc(100vh - 500px), 430px);
+  }
+
+  .controlRows {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
+  }
+
+  .controlRow {
+    grid-template-columns: minmax(96px, 176px) 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .stage {
+    min-height: max(100svh, 1660px);
+  }
+
+  .sceneCard {
+    top: 270px;
+    right: 18px;
+    left: 18px;
+    width: auto;
+    max-height: 570px;
+  }
+
+  .controlCard {
+    top: 860px;
+    bottom: auto;
+  }
+
+  .logCard {
+    top: 1216px;
+    bottom: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .stage {
+    min-height: max(100svh, 1900px);
+  }
+
+  .logCard {
+    top: 1395px;
+  }
+
+  .firstFrameSourceRow,
+  .firstFrameSourceRow[data-mode="upload"] {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .urlUpdateButton {
+    grid-column: 1 / -1;
+    min-height: 44px;
+  }
+}
