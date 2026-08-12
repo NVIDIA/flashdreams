@@ -143,7 +143,7 @@ def test_unseeded_waypoint_layout_requests_fresh_entropy(
     ("initial_yaw_rad", "expected_x_sign"),
     [(0.0, 1.0), (math.pi, -1.0)],
 )
-def test_initial_pickup_is_selected_in_front_of_ego(
+def test_initial_pickup_layout_includes_target_in_front_of_ego(
     initial_yaw_rad: float, expected_x_sign: float
 ) -> None:
     route = np.asarray([[-80.0, 0.0, 0.0], [80.0, 0.0, 0.0]], dtype=np.float32)
@@ -157,8 +157,9 @@ def test_initial_pickup_is_selected_in_front_of_ego(
 
     pickup = controller.snapshot(_state(yaw_rad=initial_yaw_rad))
 
-    assert pickup.target_xyz_m[0] * expected_x_sign > 0.0
-    assert abs(pickup.relative_bearing_rad) < math.pi * 0.5
+    assert any(
+        target[0] * expected_x_sign > 0.0 for target in pickup.pickup_targets_xyz_m
+    )
 
 
 def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
@@ -179,8 +180,10 @@ def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
 
     pickup = controller.snapshot(_state())
 
-    assert pickup.distance_m >= 80.0
-    assert pickup.target_xyz_m[1] == pytest.approx(0.0)
+    assert any(
+        target[0] >= 80.0 and target[1] == pytest.approx(0.0)
+        for target in pickup.pickup_targets_xyz_m
+    )
 
 
 def test_initial_pickup_prefers_visible_candidate_closest_to_200_meters() -> None:
@@ -217,7 +220,7 @@ def test_initial_pickup_can_exceed_200_when_that_is_the_closest_visible_choice()
     assert pickup.distance_m == pytest.approx(210.0)
 
 
-def test_later_pickups_are_sampled_across_the_map() -> None:
+def test_available_pickups_are_sampled_across_the_map() -> None:
     routes = (
         np.asarray([[-100.0, -100.0, 0.0], [100.0, -100.0, 0.0]], dtype=np.float32),
         np.asarray([[100.0, -100.0, 0.0], [100.0, 100.0, 0.0]], dtype=np.float32),
@@ -238,30 +241,13 @@ def test_later_pickups_are_sampled_across_the_map() -> None:
         initial_camera=_camera_calibration(),
     )
 
-    position = _state()
-    later_pickups: list[TaxiGameSnapshot] = []
-    for _ in range(12):
-        pickup = controller.snapshot(position)
-        controller.advance(
-            _trajectory((pickup.target_xyz_m[0], pickup.target_xyz_m[1])), 0.0
-        )
-        position = _state(pickup.target_xyz_m[0], pickup.target_xyz_m[1])
-        dropoff = controller.snapshot(position)
-        controller.advance(
-            _trajectory((dropoff.target_xyz_m[0], dropoff.target_xyz_m[1])), 0.0
-        )
-        position = _state(dropoff.target_xyz_m[0], dropoff.target_xyz_m[1])
-        later_pickups.append(controller.snapshot(position))
-
-    selected_xy = {pickup.target_xyz_m[:2] for pickup in later_pickups}
+    pickup = controller.snapshot(_state())
+    selected_xy = {target[:2] for target in pickup.pickup_targets_xyz_m}
     assert len(selected_xy) > 8
-    assert any(pickup.target_xyz_m[0] < 0.0 for pickup in later_pickups)
-    assert any(pickup.target_xyz_m[0] > 0.0 for pickup in later_pickups)
-    assert any(pickup.target_xyz_m[1] < 0.0 for pickup in later_pickups)
-    assert any(pickup.target_xyz_m[1] > 0.0 for pickup in later_pickups)
-    assert any(
-        abs(pickup.relative_bearing_rad) > math.pi * 0.5 for pickup in later_pickups
-    )
+    assert any(target[0] < 0.0 for target in selected_xy)
+    assert any(target[0] > 0.0 for target in selected_xy)
+    assert any(target[1] < 0.0 for target in selected_xy)
+    assert any(target[1] > 0.0 for target in selected_xy)
 
 
 def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
@@ -343,6 +329,34 @@ def test_every_published_pickup_can_start_a_fare() -> None:
     assert active.phase == "to_dropoff"
     assert active.event == "pickup_complete"
     assert active.pickup_targets_xyz_m == ()
+
+
+def test_pickup_compass_tracks_the_nearest_available_pickup() -> None:
+    controller = TaxiGameController(
+        scene_id="nearest-pickup-compass",
+        reference_route_world=np.asarray(
+            [[0.0, 0.0, 0.0], [300.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=20.0,
+            pickup_grid_spacing_m=40.0,
+        ),
+    )
+    initial = controller.snapshot(_state())
+    alternate = max(
+        initial.pickup_targets_xyz_m,
+        key=lambda target: math.hypot(target[0], target[1]),
+    )
+    nearby_state = _state(alternate[0] + 1.0, alternate[1])
+
+    nearby = controller.snapshot(nearby_state)
+
+    assert nearby.phase == "seeking_pickup"
+    assert nearby.target_xyz_m == alternate
+    assert nearby.distance_m == pytest.approx(1.0)
 
 
 def test_taxi_mode_rejects_route_without_travel_distance() -> None:

@@ -571,7 +571,21 @@ class TaxiGameController:
     def _snapshot_for_pose(
         self, x_m: float, y_m: float, yaw_rad: float
     ) -> TaxiGameSnapshot:
-        target = self._waypoints[self._target_index].xyz_m
+        target_index = (
+            min(
+                self._available_pickup_indices,
+                key=lambda index: (
+                    math.hypot(
+                        float(self._waypoints[index].xyz_m[0]) - x_m,
+                        float(self._waypoints[index].xyz_m[1]) - y_m,
+                    ),
+                    index,
+                ),
+            )
+            if self._phase == "seeking_pickup" and self._available_pickup_indices
+            else self._target_index
+        )
+        target = self._waypoints[target_index].xyz_m
         distance = math.hypot(
             float(target[0]) - x_m,
             float(target[1]) - y_m,
