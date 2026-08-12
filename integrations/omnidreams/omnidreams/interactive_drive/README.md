@@ -290,14 +290,15 @@ road-valid pickups from the scene's car-lane centerlines (falling back to the
 recorded route when lane data is unavailable). Every valid pickup remains
 available, but the forward camera shows only the three nearest pickups that are
 currently inside its view; the BEV draws every pickup that is inside its local
-map coverage and omits out-of-view targets. The initial
-direction-arrow target is constrained to project inside the starting camera
-view and preferably be no farther than 200 meters. Collecting any pickup
-randomly selects a reachable dropoff through the scene's directed car-lane
-graph. Pickup and dropoff candidates are kept at least 50 meters inside the
-playable map bounds. Taxi mode starts a trip timer scaled by the shortest legal
-road distance, with a 2x deadline multiplier after pickup, and shows the active
-target, direction arrow, score, trip time, and global game time.
+map coverage and omits out-of-view targets. While seeking, the compass follows
+the nearest available pickup as the player moves. The initial layout includes a
+pickup constrained to project inside the starting camera view and preferably be
+no farther than 200 meters. Collecting any pickup randomly selects a reachable
+dropoff through the scene's directed car-lane graph. Pickup and dropoff
+candidates are kept at least 50 meters inside the playable map bounds. Taxi mode
+starts a trip timer scaled by the shortest legal road distance, with a 2x
+deadline multiplier after pickup, and shows the active target, direction arrow,
+score, trip time, and global game time.
 Each game starts with 60 seconds. A successful
 dropoff awards 500 points plus 100 points per whole trip second remaining and
 adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
