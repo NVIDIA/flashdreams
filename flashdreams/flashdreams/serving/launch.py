@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from functools import cache
+from functools import cache, partial
 from pathlib import Path
 from typing import Literal, Protocol, TypeAlias, runtime_checkable
 
@@ -62,6 +62,51 @@ class LaunchCapability(Protocol):
         mode: LaunchMode,
         options: LaunchOptions,
     ) -> ResolvedLaunch | None: ...
+
+
+LaunchCallback: TypeAlias = Callable[[RunnerConfig, LaunchMode, LaunchOptions], object]
+
+
+@dataclass(frozen=True, slots=True)
+class CallbackLaunchCapability:
+    """Launch standard modes through a callback using resolved CLI arguments."""
+
+    label: str
+    """Human-readable integration name used in the selected-launch label."""
+
+    modes: tuple[LaunchMode, ...]
+    """Non-``run`` modes delegated to :attr:`launch`."""
+
+    launch: LaunchCallback = field(repr=False)
+    """Callback receiving the resolved runner config, mode, and CLI options."""
+
+    def supported_modes(
+        self, config: RunnerConfig, options: LaunchOptions
+    ) -> tuple[LaunchMode, ...]:
+        """Return the modes supplied at construction."""
+        del config, options
+        return self.modes
+
+    def resolve(
+        self,
+        config: RunnerConfig,
+        *,
+        mode: LaunchMode,
+        options: LaunchOptions,
+    ) -> ResolvedLaunch | None:
+        """Bind resolved CLI arguments to the configured launch callback."""
+        if mode not in self.modes:
+            return None
+        return ResolvedLaunch(
+            mode=mode,
+            label=f"{self.label} {mode} launch",
+            summary={
+                "runner": config.runner_name,
+                "mode": mode,
+                "device": config.device,
+            },
+            launch=partial(self.launch, config, mode, options),
+        )
 
 
 def available_launch_modes(
@@ -137,6 +182,8 @@ def _load_launch_capability(path: str) -> LaunchCapability:
 
 __all__ = [
     "LaunchCapability",
+    "LaunchCallback",
+    "CallbackLaunchCapability",
     "LaunchMode",
     "LaunchModeUnavailableError",
     "LaunchOptions",

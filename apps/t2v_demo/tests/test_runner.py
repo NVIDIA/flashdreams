@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import pytest
-from t2v_demo import app
+from t2v_demo import launch
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
 from t2v_demo.runtime import make_adapter
 
+from flashdreams.infra.runner import LaunchOnlyRunner
 from flashdreams.runtime import InferenceInput
 from flashdreams.runtime.demo import DemoSpec, PreparedScenario
 from flashdreams.runtime.demo.spec import WebRTCOutputSpec
@@ -19,6 +20,14 @@ pytestmark = pytest.mark.ci_cpu
 def test_t2v_runner_slug_has_launch_capability() -> None:
     assert RUNNER_T2V.runner_name == "t2v"
     assert RUNNER_T2V.launch_capability == "t2v_demo.launch:LAUNCH_CAPABILITY"
+    resolved = launch.LAUNCH_CAPABILITY.resolve(
+        RUNNER_T2V,
+        mode="mp4",
+        options=launch.LaunchOptions(),
+    )
+    assert resolved is not None
+    assert resolved.label == "T2V mp4 launch"
+    assert isinstance(RUNNER_T2V.setup(), LaunchOnlyRunner)
 
 
 def test_runner_mp4_launch_uses_demo_entrypoint(
@@ -30,7 +39,7 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
         captured.append((spec, adapter))
         return type("Result", (), {"status": "completed"})()
 
-    monkeypatch.setattr(app, "run_replay_demo", fake_replay_demo)
+    monkeypatch.setattr(launch, "run_replay_demo", fake_replay_demo)
     config = T2VDemoRunnerConfig(
         runner_name="t2v",
         description="test",
@@ -39,10 +48,10 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
         total_blocks=3,
     )
 
-    app.launch_t2v(
-        config=config,
-        mode="mp4",
-        output_overrides={"path": "outputs/test.mp4", "fps": 24},
+    launch.launch_t2v(
+        config,
+        "mp4",
+        launch.LaunchOptions(output={"path": "outputs/test.mp4", "fps": 24}),
     )
 
     spec, _adapter = captured[0]

@@ -210,3 +210,17 @@ class Runner(ABC, Generic[RunnerConfigT, PipelineT]):
         4. Persist outputs under ``self.config.output_dir`` and log the
            absolute paths.
         """
+
+
+class LaunchOnlyRunner(Runner[RunnerConfig, Any]):
+    """Delegate the default runner mode to an ``mp4`` launch capability."""
+
+    def __init__(self, config: RunnerConfig) -> None:
+        """Keep the resolved config without constructing its placeholder pipeline."""
+        self.config = config
+
+    def run(self) -> None:
+        """Resolve and run the configured replay launch."""
+        from flashdreams.serving.launch import LaunchOptions, resolve_launch
+
+        resolve_launch(self.config, mode="mp4", options=LaunchOptions()).launch()
