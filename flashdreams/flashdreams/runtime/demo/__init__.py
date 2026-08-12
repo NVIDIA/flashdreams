@@ -3,6 +3,11 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
+from flashdreams.runtime.demo.benchmark import (
+    BenchmarkBatchInputSource,
+    BenchmarkRunMode,
+    run_benchmark_demo,
+)
 from flashdreams.runtime.demo.drivers import (
     CLEANUP_TIMEOUT_S,
     BatchSessionDriver,
@@ -101,6 +106,7 @@ from flashdreams.runtime.demo.validation import (
 
 __all__ = [
     "BatchInputSource",
+    "BenchmarkBatchInputSource",
     "BatchSessionDriver",
     "CLEANUP_TIMEOUT_S",
     "ControlDecision",
@@ -115,6 +121,7 @@ __all__ = [
     "ActivationSignal",
     "AlwaysActiveActivationPolicy",
     "BenchmarkStatsOutputSink",
+    "BenchmarkRunMode",
     "BenchmarkErrorPolicy",
     "InMemorySessionMetricsRecorder",
     "InputSource",
@@ -176,6 +183,7 @@ __all__ = [
     "resolve_run_capabilities",
     "run_demo_session",
     "run_demo_session_async",
+    "run_benchmark_demo",
     "run_replay_demo",
     "shielded_session_cleanup",
     "uncancel_current_task",
