@@ -11,7 +11,9 @@ import numpy as np
 import omnidreams.interactive_drive.world_model.flashdreams_adapter as adapter_module
 import pytest
 import torch
+from omnidreams.interactive_drive.backends.world_model import WorldModelRenderBackend
 from omnidreams.interactive_drive.config import WorldModelProfileConfig
+from omnidreams.interactive_drive.types import PresentedFrame
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _build_pipeline_config,
@@ -107,6 +109,27 @@ def _contains_hf_url(value: object) -> bool:
     if hasattr(value, "__dict__"):
         return any(_contains_hf_url(item) for item in vars(value).values())
     return False
+
+
+def test_world_model_merge_preserves_bev_source_pose() -> None:
+    backend = WorldModelRenderBackend.__new__(WorldModelRenderBackend)
+    bev_pose = np.eye(4, dtype=np.float32)
+    bev_pose[0, 3] = 12.0
+    raster_frame = PresentedFrame(
+        timestamp_us=123,
+        rgb_host_uint8=np.zeros((2, 2, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        bev_host_uint8=np.ones((2, 2, 3), dtype=np.uint8),
+        bev_rig_to_world=bev_pose,
+    )
+
+    merged = backend._merge_frames(
+        (raster_frame,), (np.full((2, 2, 3), 2, dtype=np.uint8),)
+    )
+
+    assert len(merged) == 1
+    assert merged[0].bev_host_uint8 is raster_frame.bev_host_uint8
+    assert merged[0].bev_rig_to_world is bev_pose
 
 
 def test_select_config_name_uses_omnidreams_recipe_slugs() -> None:

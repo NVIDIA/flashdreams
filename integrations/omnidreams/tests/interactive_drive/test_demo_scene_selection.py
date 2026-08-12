@@ -13,6 +13,7 @@ from omnidreams.interactive_drive.demo import (
     SceneOption,
     _materialize_synthetic_scene_for_picker,
     _resolve_scene_variant,
+    _validate_presenter_mode,
     build_parser,
 )
 
@@ -27,33 +28,19 @@ def test_auto_start_flag_and_deprecated_alias() -> None:
     assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
 
 
-def test_central_local_window_launch_builds_namespace_without_reparsing_argv(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: list[argparse.Namespace] = []
-    monkeypatch.setattr(demo_mod, "_run_namespace", captured.append)
-    world_manifest = tmp_path / "world.yaml"
-    scene = tmp_path / "scene.usdz"
-    config = types.SimpleNamespace(
-        postprocess=types.SimpleNamespace(preset="rtx-super-resolution")
+def test_bare_native_taxi_mode_is_rejected() -> None:
+    args = build_parser().parse_args(["--taxi-game", "--no-hud"])
+
+    with pytest.raises(SystemExit, match="has no Taxi or BEV overlays"):
+        _validate_presenter_mode(args)
+
+
+def test_browser_taxi_mode_may_imply_no_hud() -> None:
+    args = build_parser().parse_args(
+        ["--taxi-game", "--no-hud", "--stream-mjpeg", "8080"]
     )
 
-    demo_mod.launch_from_runner(
-        config=config,
-        world_model_manifest=world_manifest,
-        scenario={"scene": scene, "auto_start": True},
-        output={"no_hud": True, "stream_mjpeg": ":8080"},
-    )
-
-    args = captured[0]
-    assert args.backend == "omnidreams"
-    assert args.manifest == world_manifest
-    assert args.scene == scene
-    assert args.auto_start is True
-    assert args.no_hud is True
-    assert args.stream_mjpeg == ":8080"
-    assert args.postprocess_preset == "rtx-super-resolution"
+    _validate_presenter_mode(args)
 
 
 def test_resolve_scene_variant_prefers_weather_archive_path_for_default(
