@@ -15,7 +15,12 @@ from ludus_renderer import RigidBodyModel
 from omnidreams.interactive_drive.config import VehicleConfig
 from omnidreams.interactive_drive.simulation.components import canonical_object_type
 from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
-from omnidreams.interactive_drive.types import DriverCommand, SceneBundle, VehicleState
+from omnidreams.interactive_drive.types import (
+    DriverCommand,
+    PhysicsDebugFrame,
+    SceneBundle,
+    VehicleState,
+)
 
 _MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
 _CHASSIS_INSET_M = 0.16
@@ -90,6 +95,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             "arcade handbrake, inset chassis, traffic_density={:.2f}",
             traffic_density,
         )
+        self._last_contact_resolved_state: VehicleState | None = None
 
     def step_with_command(
         self,
@@ -100,6 +106,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
     ) -> tuple[VehicleState, tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]]:
         """Resolve contacts while keeping Taxi drive intent authoritative."""
         resolved, samples = super().step(state, timestamp_us, dt_s)
+        self._last_contact_resolved_state = resolved
         if command.handbrake and not resolved.ragdoll_active:
             velocity_x_mps = state.velocity_x_mps
             velocity_y_mps = state.velocity_y_mps
@@ -126,6 +133,29 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         )
         self.synchronize_ego_state(resolved)
         return resolved, samples
+
+    def debug_frame(self, state: VehicleState) -> PhysicsDebugFrame:
+        """Capture topology with the pre-policy PhysX contact pose for the ego."""
+        debug = super().debug_frame(state)
+        contact_state = getattr(self, "_last_contact_resolved_state", None)
+        if contact_state is None:
+            return debug
+        half_yaw = contact_state.yaw_rad * 0.5
+        return replace(
+            debug,
+            ego_position_m=np.asarray(
+                [
+                    contact_state.x_m,
+                    contact_state.y_m,
+                    contact_state.z_m + self._ego_model.half_extents_m[2],
+                ],
+                dtype=np.float32,
+            ),
+            ego_orientation_xyzw=np.asarray(
+                [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)],
+                dtype=np.float32,
+            ),
+        )
 
     def step(
         self,

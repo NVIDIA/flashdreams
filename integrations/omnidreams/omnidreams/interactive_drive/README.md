@@ -478,6 +478,36 @@ ssh -L 8080:localhost:8080 <user>@<host>
 
 Then open `http://localhost:8080/`.
 
+#### Crazy Robotaxi alignment diagnostics
+
+Use `--taxi-alignment-diagnostics` when investigating a generated-view/map
+disconnect. The option captures Taxi-aligned frame data before HUD overlays and
+forces a PhysX collider snapshot for every simulated frame:
+
+```bash
+UV_CACHE_DIR=./uv-cache LUDUS_PHYSX_CACHE=./.cache/ludus-physx \
+uv run --package flashdreams-omnidreams interactive-drive \
+  --backend omnidreams \
+  --manifest example_world_model.yaml \
+  --taxi-game \
+  --stream-mjpeg 8080 \
+  --taxi-alignment-diagnostics ./alignment-diagnostics
+```
+
+Each launch creates a timestamped run directory containing:
+
+- `frames/frame_*.png`: synchronized HD-map conditioning, generated RGB, BEV,
+  and pre-policy PhysX contact-pose panels.
+- `telemetry.csv`: authoritative vehicle, conditioning-rig, and pre-policy
+  PhysX contact poses with their numerical position and yaw differences.
+- `metadata.json`: scene, variant, camera calibration, and captured-frame count.
+
+Drive through the collision being investigated, exit cleanly, and inspect the
+first contact sheets where the BEV and generated view begin to disagree. The
+pose-error columns distinguish app/physics synchronization faults from cases
+where the generated RGB fails to follow an otherwise consistent conditioning
+trajectory.
+
 For a richer browser frontend with lower latency, prefer the separate
 `omnidreams.webrtc.server` entry point.
 
@@ -607,6 +637,11 @@ pose derived from that state. Camera conditioning, the current BEV, native HUD,
 MJPEG telemetry, taxi arrow, and waypoint projection all consume that same
 frame record. The runtime may simulate the next chunk ahead of presentation,
 but presentation never reads that future boundary state for current visuals.
+The Omnidreams output responds causally to the preceding HD-map frame, so Crazy
+Robotaxi delays that synchronized frame record by one presented frame and pairs
+it with the generated RGB that it produced. Frame zero remains tied to the
+rollout's unsimulated initial pose. This Taxi-only presenter policy is shared by
+native and MJPEG modes; normal Interactive Drive presentation is unchanged.
 
 ``GameEntity.to_game_engine_dict()`` and
 ``DynamicActorTrajectory.to_game_engine_dict()`` expose JSON-compatible

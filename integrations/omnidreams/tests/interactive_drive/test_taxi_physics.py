@@ -32,6 +32,7 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
 from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
 from omnidreams.interactive_drive.types import (
     DriverCommand,
+    PhysicsDebugFrame,
     VehicleState,
     WorldLineSegments,
 )
@@ -127,6 +128,43 @@ def test_taxi_physics_keeps_app_heading_after_contact_resolution() -> None:
     )
     assert resolved.speed_mps == pytest.approx(expected_speed)
     synchronize.assert_called_once_with(resolved)
+
+
+def test_taxi_debug_frame_preserves_pre_policy_contact_pose() -> None:
+    incoming = VehicleState(
+        x_m=1.0,
+        y_m=2.0,
+        z_m=0.0,
+        yaw_rad=0.75,
+        speed_mps=4.0,
+        steer_rad=0.2,
+    )
+    contact_state = replace(incoming, x_m=1.4, y_m=2.3, yaw_rad=-0.5)
+    world = object.__new__(TaxiPhysicsWorld)
+    world._ego_model = SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8))
+    debug = PhysicsDebugFrame(
+        ego_position_m=np.zeros(3, dtype=np.float32),
+        ego_orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+        ego_dimensions_lwh=np.asarray([4.8, 2.0, 1.6], dtype=np.float32),
+        actor_positions_m=np.empty((0, 3), dtype=np.float32),
+        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
+        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
+        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
+        barrier_thicknesses_m=np.empty((0,), dtype=np.float32),
+        barrier_heights_m=np.empty((0,), dtype=np.float32),
+    )
+    with (
+        patch.object(GamePhysicsWorld, "step", return_value=(contact_state, ())),
+        patch.object(TaxiPhysicsWorld, "synchronize_ego_state"),
+        patch.object(GamePhysicsWorld, "debug_frame", return_value=debug),
+    ):
+        world.step(incoming, timestamp_us=1, dt_s=1.0 / 30.0)
+        captured = world.debug_frame(incoming)
+
+    assert captured.ego_position_m[:2] == pytest.approx([1.4, 2.3])
+    assert _yaw_from_quaternion_xyzw(captured.ego_orientation_xyzw) == pytest.approx(
+        -0.5
+    )
 
 
 def test_taxi_handbrake_keeps_arcade_velocity_without_contact() -> None:

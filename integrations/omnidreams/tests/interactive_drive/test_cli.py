@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+from pathlib import Path
+
 import pytest
 from omnidreams.interactive_drive import cli
 from omnidreams.interactive_drive.cli import build_parser
@@ -78,6 +80,14 @@ def test_taxi_game_selects_frame_synchronous_bev(
     cli.prepare_config_and_backend(build_parser().parse_args(argv))
 
     assert backend_kwargs["synchronize_bev_with_rgb"] is expected_synchronization
+
+
+def test_taxi_alignment_diagnostics_accepts_output_directory() -> None:
+    args = build_parser().parse_args(
+        ["--taxi-game", "--taxi-alignment-diagnostics", "diagnostics"]
+    )
+
+    assert args.taxi_alignment_diagnostics == Path("diagnostics")
 
 
 def test_postprocess_preset_defaults_disabled() -> None:
