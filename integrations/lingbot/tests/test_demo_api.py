@@ -165,8 +165,10 @@ def test_lingbot_direct_runner_launch_builds_null_spec(
     assert result == "completed"
     assert captured[0].preset_id == RUNNER_LINGBOT_WORLD_FAST.runner_name
     assert isinstance(captured[0].output, NullOutputSpec)
-    assert captured[0].scenario[FIELD_TOTAL_BLOCKS] == 3
-    assert captured[0].scenario[FIELD_FPS] == 12
+    scenario = captured[0].scenario
+    assert scenario is not None
+    assert scenario[FIELD_TOTAL_BLOCKS] == 3
+    assert scenario[FIELD_FPS] == 12
 
 
 def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:

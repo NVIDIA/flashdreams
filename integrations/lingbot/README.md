@@ -108,6 +108,7 @@ From the repository root on a CUDA machine:
 ```bash
 export HF_TOKEN=<your-hf-token>
 
+mkdir -p outputs
 uv sync --python 3.12 --package flashdreams-lingbot --no-dev
 ```
 
