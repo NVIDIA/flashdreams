@@ -30,15 +30,19 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+from collections.abc import Callable, Sequence
 from fractions import Fraction
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+import torch
 from av.packet import Packet
 
 pytestmark = pytest.mark.ci_cpu
 
+from flashdreams.runtime import StepResult
 from flashdreams.serving.webrtc import encoders as enc_mod
 from flashdreams.serving.webrtc.encoders import (
     ChunkDeliveryResult,
@@ -209,6 +213,22 @@ class TestSelectStage1Failure:
         with pytest.raises(EncoderInitError, match="driver comms error"):
             select_encoder(backend="nvenc", **_SELECT_KW)
 
+    def test_caps_probe_restores_initialized_torch_cuda_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_nvc = MagicMock()
+        fake_nvc.GetEncoderCaps.side_effect = RuntimeError("unsupported GPU")
+        _install_fake_nvc(monkeypatch, fake_nvc)
+        set_device = MagicMock()
+        monkeypatch.setattr(enc_mod.torch.cuda, "is_initialized", lambda: True)
+        monkeypatch.setattr(enc_mod.torch.cuda, "current_device", lambda: 3)
+        monkeypatch.setattr(enc_mod.torch.cuda, "set_device", set_device)
+
+        enc = select_encoder(backend="auto", **_SELECT_KW)
+
+        assert isinstance(enc, DefaultRTCEncoder)
+        set_device.assert_called_once_with(3)
+
 
 # ---------------------------------------------------------------------------
 # select_encoder: Stage-1 deferred-import failure (package present but
@@ -340,7 +360,7 @@ class TestChunkDeliveryResult:
 
 
 # ---------------------------------------------------------------------------
-# DefaultRTCEncoder.deliver_chunk delegates to track.enqueue_chunk
+# DefaultRTCEncoder.deliver_chunk delegates to track.enqueue_result
 # ---------------------------------------------------------------------------
 
 
@@ -350,37 +370,111 @@ class _FakeBufferedVideoTrack:
     aiortc runtime dependencies without breaking the isinstance check)."""
 
     def __init__(self) -> None:
-        self.enqueued_chunks: list = []
+        self.enqueued_results: list[StepResult] = []
+        self.enqueued_frames: list[object] = []
 
-    async def enqueue_chunk(self, chunk) -> int:
-        self.enqueued_chunks.append(chunk)
-        return 4
+    def prepare_result_frames(self, result: StepResult) -> tuple[object, ...]:
+        self.enqueued_results.append(result)
+        return tuple(object() for _ in range(result.frame_count))
+
+    async def enqueue_frames(self, frames: Sequence[object]) -> int:
+        self.enqueued_frames.extend(frames)
+        return len(frames)
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        return await self.enqueue_frames(self.prepare_result_frames(result))
 
 
 class TestDefaultRTCEncoderDeliver:
+    @pytest.mark.parametrize(
+        ("layout", "shape"),
+        [("tchw", (4, 3, 8, 8)), ("bvtchw", (1, 1, 4, 3, 8, 8))],
+    )
     @pytest.mark.asyncio
-    async def test_deliver_chunk_returns_frames_from_track(self) -> None:
+    async def test_deliver_chunk_returns_frames_from_track(
+        self, layout: str, shape: tuple[int, ...]
+    ) -> None:
         from flashdreams.serving.webrtc import media as media_mod
 
         fake_track = _FakeBufferedVideoTrack()
+        step_result = StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros(shape, dtype=torch.uint8),
+            layout=layout,  # ty:ignore[invalid-argument-type]
+        )
         # Patch the isinstance check inside deliver_chunk to accept our fake.
         with patch.object(media_mod, "BufferedVideoTrack", _FakeBufferedVideoTrack):
             enc = DefaultRTCEncoder(fps=30)
             result = await enc.deliver_chunk(
-                SimpleNamespace(shape=(4, 3, 8, 8)),  # ty:ignore[invalid-argument-type]
+                step_result,
                 fake_track,  # ty:ignore[invalid-argument-type]
             )
         assert result.backend == "aiortc"
         assert result.num_frames == 4
         assert result.num_keyframes == 0
-        assert len(fake_track.enqueued_chunks) == 1
+        assert fake_track.enqueued_results == [step_result]
+        assert len(fake_track.enqueued_frames) == 4
+
+    @pytest.mark.parametrize(
+        ("layout", "shape"),
+        [("tchw", (3, 3, 2, 2)), ("bvtchw", (1, 1, 3, 3, 2, 2))],
+    )
+    @pytest.mark.asyncio
+    async def test_software_conversion_uses_declared_layout(
+        self, layout: str, shape: tuple[int, ...]
+    ) -> None:
+        enc = DefaultRTCEncoder(fps=30)
+        track = enc.create_track(maxsize=3)
+        step_result = StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros(shape, dtype=torch.uint8),
+            layout=layout,  # ty:ignore[invalid-argument-type]
+        )
+
+        delivery = await enc.deliver_chunk(step_result, track)
+
+        assert delivery.num_frames == 3
+        assert track.qsize() == 3
+        await track.close()
+
+    @pytest.mark.asyncio
+    async def test_software_path_prepares_host_frames_with_track(self) -> None:
+        from flashdreams.serving.webrtc.media import BufferedVideoTrack
+
+        source = torch.zeros((2, 3, 2, 2), dtype=torch.uint8)
+        step_result = StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=source,
+            layout="tchw",
+        )
+        seen: list[StepResult] = []
+
+        def _converter(delivered: StepResult) -> list[np.ndarray]:
+            seen.append(delivered)
+            assert delivered is step_result
+            assert delivered.video_chunk.data_ptr() == source.data_ptr()
+            return [np.zeros((2, 2, 3), dtype=np.uint8) for _ in range(2)]
+
+        track = BufferedVideoTrack(fps=30, maxsize=2, frame_converter=_converter)
+        encoder = DefaultRTCEncoder(fps=30)
+        payload = encoder.prepare_chunk_payload(step_result, track)
+        delivery = await encoder.deliver_prepared_chunk(payload, track)
+
+        assert delivery.num_frames == 2
+        assert seen == [step_result]
+        await track.close()
 
     @pytest.mark.asyncio
     async def test_deliver_chunk_rejects_wrong_track_type(self) -> None:
         enc = DefaultRTCEncoder(fps=30)
+        step_result = StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((1, 3, 2, 2), dtype=torch.uint8),
+            layout="tchw",
+        )
         with pytest.raises(TypeError, match="BufferedVideoTrack"):
             await enc.deliver_chunk(
-                SimpleNamespace(),  # ty:ignore[invalid-argument-type]
+                step_result,
                 SimpleNamespace(),  # ty:ignore[invalid-argument-type]
             )
 
@@ -412,6 +506,35 @@ class TestCompatGuards:
         # break the runtime; catch it here before the first RTP packet.
         import aiortc.rtcrtpsender  # noqa: F401
 
+
+class TestNvencResultConversion:
+    @pytest.mark.parametrize(
+        ("layout", "shape"),
+        [("tchw", (2, 3, 2, 3)), ("bvtchw", (1, 1, 2, 3, 2, 3))],
+    )
+    def test_conversion_uses_declared_layout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        layout: str,
+        shape: tuple[int, ...],
+    ) -> None:
+        nvenc_mod = _install_fake_nvc(monkeypatch, MagicMock())
+        video = torch.empty(shape, dtype=torch.uint8)
+        channel_dim = 1 if layout == "tchw" else 3
+        video.select(channel_dim, 0).fill_(10)
+        video.select(channel_dim, 1).fill_(20)
+        video.select(channel_dim, 2).fill_(30)
+        result = StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=video,
+            layout=layout,  # ty:ignore[invalid-argument-type]
+        )
+
+        frames = nvenc_mod._result_to_abgr_frames(result)
+
+        assert frames.shape == (2, 2, 3, 4)
+        assert torch.equal(frames[0, 0, 0], torch.tensor([10, 20, 30, 255]))
+
     def test_getencodercaps_callable_when_library_available(self) -> None:
         # This guard exercises the *real* PyNvVideoCodec surface via
         # ``nvenc``. ``PyNvVideoCodec`` raises ``RuntimeError`` (not
@@ -439,9 +562,9 @@ class _OrderingFakeEncoder:
     marshaling contract without needing CUDA or PyNvVideoCodec.
 
     Encoding runs on an ``asyncio.to_thread`` worker and each emitted
-    packet is delivered to the track via ``loop.call_soon_threadsafe``,
-    exactly as the real hardware encoder does. This lets us assert the
-    end-to-end ordering property without any GPU dependency.
+    packet is delivered to the track via ``run_coroutine_threadsafe``.
+    That mirrors the real hardware encoder's backpressured per-packet
+    handoff without needing any GPU dependency.
 
     The pts counter is guarded by a lock because the fire-and-forget
     test dispatches multiple ``deliver_chunk`` calls concurrently, and
@@ -463,19 +586,19 @@ class _OrderingFakeEncoder:
 
     async def deliver_chunk(
         self,
-        chunk: object,
+        result: StepResult,
         track: NVENCVideoTrack,
         *,
         force_keyframe: bool = False,
     ) -> ChunkDeliveryResult:
-        del chunk, force_keyframe
+        del result, force_keyframe
         loop = asyncio.get_running_loop()
         frames = self._frames_per_chunk
 
         def _encode_worker() -> None:
             # One packet per frame, monotonically-increasing pts. The
-            # per-iteration call_soon_threadsafe hand-off mirrors what
-            # PyNvHardwareEncoder does with its on_packet callback.
+            # The per-iteration run_coroutine_threadsafe hand-off mirrors
+            # what PyNvHardwareEncoder does with its on_packet callback.
             for _ in range(frames):
                 packet = Packet(b"\x00\x00\x00\x01\x67")
                 with self._pts_counter_lock:
@@ -483,10 +606,11 @@ class _OrderingFakeEncoder:
                     self._pts_counter += 1
                 packet.pts = (pts_frame_index * 90_000) // self.fps
                 packet.time_base = self._time_base
-                loop.call_soon_threadsafe(
-                    track.enqueue_encoded_packet_nowait,
-                    packet,
+                future = asyncio.run_coroutine_threadsafe(
+                    track.enqueue_encoded_packet(packet),
+                    loop,
                 )
+                future.result()
 
         await asyncio.to_thread(_encode_worker)
         return ChunkDeliveryResult(
@@ -531,6 +655,76 @@ class TestDeliverChunkOrdering:
     """
 
     @pytest.mark.asyncio
+    async def test_hardware_deliver_streams_before_chunk_encode_returns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """First packet should reach the track while later frames encode.
+
+        This catches whole-chunk buffering regressions where the NVENC
+        callback merely appends packets to a local list and ``deliver_chunk``
+        does not enqueue anything until ``encode_chunk_sync`` has returned.
+        """
+        nvenc_mod = _install_fake_nvc(monkeypatch, MagicMock())
+        encoder = nvenc_mod.PyNvHardwareEncoder.__new__(nvenc_mod.PyNvHardwareEncoder)
+        loop = asyncio.get_running_loop()
+        first_packet_enqueued = asyncio.Event()
+        finish_encode = threading.Event()
+        encode_returned = threading.Event()
+
+        def _packet(pts: int) -> Packet:
+            packet = Packet(b"\x00\x00\x00\x01\x67")
+            packet.pts = pts
+            packet.time_base = Fraction(1, 90_000)
+            return packet
+
+        def _fake_encode_chunk_sync(
+            result: StepResult,
+            *,
+            force_keyframe: bool = False,
+            on_packet: Callable[[Packet], None] | None = None,
+        ) -> tuple[int, int, float]:
+            del result, force_keyframe
+            assert on_packet is not None
+            on_packet(_packet(0))
+            loop.call_soon_threadsafe(first_packet_enqueued.set)
+            assert finish_encode.wait(timeout=1.0)
+            on_packet(_packet(1))
+            encode_returned.set()
+            return (2, 0, 12.5)
+
+        setattr(encoder, "encode_chunk_sync", _fake_encode_chunk_sync)
+        track = NVENCVideoTrack(fps=_ORDERING_FPS, maxsize=4)
+        deliver_task = asyncio.create_task(
+            encoder.deliver_chunk(
+                StepResult.from_video_chunk(
+                    step_index=0,
+                    video_chunk=torch.zeros((2, 3, 2, 2)),
+                    layout="tchw",
+                ),
+                track,
+            )
+        )
+
+        try:
+            await asyncio.wait_for(first_packet_enqueued.wait(), timeout=1.0)
+            assert not encode_returned.is_set()
+            assert track.qsize() == 1
+            first = await asyncio.wait_for(track.recv(), timeout=1.0)
+            assert first.pts == 0
+        finally:
+            finish_encode.set()
+
+        result = await asyncio.wait_for(deliver_task, timeout=1.0)
+        assert result.backend == "pynvvideocodec"
+        assert result.num_frames == 2
+        assert result.num_keyframes == 0
+        assert result.encode_ms == 12.5
+        second = await asyncio.wait_for(track.recv(), timeout=1.0)
+        assert second.pts == 1
+        await track.close()
+
+    @pytest.mark.asyncio
     async def test_sequential_await_produces_monotonic_pts(self) -> None:
         encoder = _OrderingFakeEncoder(
             fps=_ORDERING_FPS,
@@ -538,8 +732,15 @@ class TestDeliverChunkOrdering:
         )
         track = encoder.create_track(maxsize=_ORDERING_TOTAL_FRAMES)
 
-        for _ in range(_ORDERING_NUM_CHUNKS):
-            await encoder.deliver_chunk(object(), track)
+        for step_index in range(_ORDERING_NUM_CHUNKS):
+            await encoder.deliver_chunk(
+                StepResult.from_video_chunk(
+                    step_index=step_index,
+                    video_chunk=torch.zeros((_ORDERING_FRAMES_PER_CHUNK, 3, 1, 1)),
+                    layout="tchw",
+                ),
+                track,
+            )
 
         seen_pts: list[int] = []
         for _ in range(_ORDERING_TOTAL_FRAMES):
@@ -580,8 +781,17 @@ class TestDeliverChunkOrdering:
         # each finish quickly; scheduler order within the loop does not
         # guarantee packets arrive in the same order the tasks were spawned.
         tasks = [
-            asyncio.create_task(encoder.deliver_chunk(object(), track))
-            for _ in range(_ORDERING_NUM_CHUNKS)
+            asyncio.create_task(
+                encoder.deliver_chunk(
+                    StepResult.from_video_chunk(
+                        step_index=step_index,
+                        video_chunk=torch.zeros((_ORDERING_FRAMES_PER_CHUNK, 3, 1, 1)),
+                        layout="tchw",
+                    ),
+                    track,
+                )
+            )
+            for step_index in range(_ORDERING_NUM_CHUNKS)
         ]
         await asyncio.gather(*tasks)
 

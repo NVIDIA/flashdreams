@@ -69,6 +69,15 @@ Installation
    # from the repo root
    uv sync --project integrations/omnidreams
 
+Generate the default MP4 demo from bundled example data:
+
+.. code-block:: bash
+
+   uv run flashdreams-run omnidreams mp4
+
+The command writes ``outputs/omnidreams.mp4``. Use a launch manifest to
+override the scenario, rollout length, frame rate, or output path.
+
 Running the method
 ------------------
 
@@ -79,7 +88,7 @@ example:
 
    uv run --project integrations/omnidreams \
        flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --example-data True \
        --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
        --total-blocks 20
@@ -95,8 +104,10 @@ We provide the following variants:
 
    * - Method
      - Description
-   * - ``omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf``
-     - Single-view 2-step HDMap-conditioned I2V.
+   * - ``omnidreams``
+     - Default single-view 2-step HDMap-conditioned I2V demo and runner.
+   * - ``omnidreams-perf``
+     - Opt-in compile and CUDA-graph tuning across all pipeline stages.
 
 For multi-GPU inference, use:
 
@@ -104,7 +115,7 @@ For multi-GPU inference, use:
 
    uv run --project integrations/omnidreams \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --example-data True \
        --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
        --total-blocks 20
@@ -115,7 +126,7 @@ To inspect all supported CLI arguments and their default values, run:
 
    uv run --project integrations/omnidreams \
        flashdreams-run \
-       omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
+       omnidreams \
        --help
 
 Some generated samples from the above commands:
@@ -148,10 +159,9 @@ Some generated samples from the above commands:
 Launch the interactive demo
 ---------------------------
 
-``interactive-drive`` runs the OmniDreams single-view pipeline in a
-single process and streams the camera view to your browser. The demo
-machine only needs a CUDA-capable GPU -- no graphics-capable GPU,
-display server, or Vulkan support are required.
+OmniDreams exposes ``webrtc`` and ``local-window`` through the shared
+``flashdreams-run <runner> <mode>`` command. WebRTC only requires a
+CUDA-capable GPU; local-window additionally requires a display and Vulkan.
 
 The demo requires access to `NVIDIA/flashdreams <https://github.com/NVIDIA/flashdreams>`_
 and an ``HF_TOKEN`` with read access to
@@ -176,14 +186,30 @@ isn't blocked on network I/O:
 
    uv run --package flashdreams-omnidreams omnidreams-prepare
 
-Run the demo and stream to your browser:
+Run the WebRTC demo:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive --stream-mjpeg :8080
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 
-Then open ``http://<server-ip>:8080/`` in any browser on the same
-network and pick a scene from the picker in the bottom-right.
+Then open ``http://<server-ip>:8089/request_session`` in any browser on the
+same network.
+
+Collision physics, the vehicle speed limit, and the collision visual effect are
+disabled by default. Add ``--game-mode`` to enable the speed limit and
+collisions with scene actors and static map geometry, along with the collision
+visual flare:
+
+.. code-block:: bash
+
+   uv run --package flashdreams-omnidreams interactive-drive \
+       --stream-mjpeg :8080 \
+       --game-mode
+
+Combine ``--game-mode`` with ``--disable-visual-flare`` to retain collision
+physics without the full-screen collision effect.
 
 .. note::
 
@@ -198,13 +224,15 @@ network and pick a scene from the picker in the bottom-right.
 
 .. note::
 
-   Add ``--offload-text-encoder`` to reduce peak VRAM usage by ~15 GB:
+   For local-window, set ``output.offload_text_encoder: true`` in a copy of
+   ``configs/launch_manifest/omnidreams_local_window.yaml`` to reduce peak VRAM
+   usage by ~15 GB, then launch it with the central command:
 
    .. code-block:: bash
 
-      uv run --package flashdreams-omnidreams interactive-drive \
-          --stream-mjpeg :8080 \
-          --offload-text-encoder
+      uv run --package flashdreams-omnidreams flashdreams-run \
+          omnidreams-perf local-window \
+          --manifest path/to/local-window.yaml
 
    The text and first-frame encoders are run once per scene and freed before the
    diffusion pipeline is built, and the resulting embeddings are cached and
@@ -214,13 +242,13 @@ network and pick a scene from the picker in the bottom-right.
    resident, so the first load and scene/variant switches are slower. Prefer it
    when VRAM-constrained; otherwise leave it off for faster switching.
 
-For execution using a consumer NVIDIA GPU that exposes a graphics stack,
-omit the ``--stream-mjpeg`` flag to open the demo in a local Vulkan window
-instead:
+On a GPU with a graphics stack, launch the Vulkan window:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams-perf local-window \
+       --manifest configs/launch_manifest/omnidreams_local_window.yaml
 
 The local window's HUD adds a weather-variant selector (clear, rain, snow)
 next to the scene picker, so the same scene can be switched between
@@ -252,7 +280,7 @@ or joystick is viable. We provide a configuration tool to calibrate these:
 The demo auto-loads your default profile on subsequent launches. When you
 have more than one profile, the configuration tool's start screen lists them
 with **Make default** (plus Edit and Delete) buttons -- re-run the tool to
-choose which profile ``interactive-drive`` loads by default, tweak a profile
+choose which profile ``local-window`` loads by default, tweak a profile
 (steering sensitivity, deadzone, buttons, force feedback), or remove one.
 
 **Multiple devices.** A profile can bind controls across several devices --
@@ -307,38 +335,33 @@ point the demo at the perf manifest:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams interactive-drive \
-       --manifest example_world_model_perf.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams-perf local-window \
+       --manifest configs/launch_manifest/omnidreams_local_window.yaml
 
 ``native_dit_acceleration: required`` makes the manifest fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
 
-Alternative: WebRTC server
---------------------------
+WebRTC server
+-------------
 
 For deployments that require a richer browser frontend with WebRTC's
 lower video-delivery latency and a streaming gRPC service for
-multi-client setups, the standalone server at
-``omnidreams.webrtc.server`` ships a polished HTML5 client on top of
-the same OmniDreams pipeline. The MJPEG path above is the
-recommended starting point for most users; consider WebRTC if you
-need bidirectional camera-control APIs or are already integrating
-the gRPC service into a larger product.
+multi-client setups, the ``webrtc`` launch mode ships a polished HTML5 client
+on top of the same OmniDreams pipeline.
 
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flashdreams-omnidreams torchrun --nproc_per_node 1 \
-       -m omnidreams.webrtc.server \
-       --host 0.0.0.0 --port 8089 \
-       --pipeline_config_name omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf \
-       --scene-uuid "0d404ff7-2b66-498c-b047-1ed8cded60d4"
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams webrtc \
+       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
 Each scene ships clear, rain, and snow weather variants as sibling
-archives; add ``--scene-variant rain`` (or ``snow``) to serve a specific
-one (the default is the clear-weather scene).
+archives; set ``scenario.scene_variant`` to ``rain`` or ``snow`` in the launch
+manifest to serve a specific one (the default is clear weather).
 
 The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.

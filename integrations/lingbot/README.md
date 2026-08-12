@@ -98,6 +98,67 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
     lingbot-world-fast --example-data True --total-blocks 21
 ```
 
+## Run (shared demo API)
+
+The unified-demo-runtime path is exposed through `flashdreams-run`.
+The `lingbot-demo` entry point remains available as a temporary development
+shortcut, but CI and user-facing commands should exercise `flashdreams-run`.
+From the repository root on a CUDA machine:
+
+```bash
+export HF_TOKEN=<your-hf-token>
+
+mkdir -p outputs
+uv sync --python 3.12 --package flashdreams-lingbot --no-dev
+```
+
+Generate a short MP4 from the bundled example assets:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 mp4 \
+  --device cuda:0 \
+  --scenario.example-idx 0 \
+  --scenario.total-blocks 10 \
+  --scenario.pixel-height 352 \
+  --scenario.pixel-width 640 \
+  --output.fps 16 \
+  --output.path outputs/lingbot-demo-replay.mp4
+```
+
+Run the same replay path without writing video:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 null \
+  --device cuda:0 \
+  --scenario.example-idx 0 \
+  --scenario.total-blocks 10 \
+  --scenario.pixel-height 352 \
+  --scenario.pixel-width 640 \
+  --output.fps 16
+```
+
+Serve the shared WebRTC demo:
+
+```bash
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 webrtc \
+  --host 0.0.0.0 \
+  --port 8089 \
+  --device cuda:0 \
+  --scenario.example-idx 0 \
+  --output.warmup-chunks 8 \
+  --output.fps 16 \
+  --output.video-height 352 \
+  --output.video-width 640
+```
+
+Then open:
+
+- [http://localhost:8089/request_session](http://localhost:8089/request_session)
+- [http://localhost:8089/healthz](http://localhost:8089/healthz)
+
 ## Programmatic access
 
 Access via runner.
@@ -143,11 +204,10 @@ for i in range(total_blocks):
     generated_chunks.append(video_chunk.cpu())              # each chunk is [T, C, H, W]
 ```
 
-## Run (WebRTC interactive demo)
+## Run (compatibility WebRTC server)
 
-The `lingbot.webrtc` subpackage exposes a minimal WebRTC server that
-binds the integration pipeline to keyboard input over a DataChannel and streams the
-generated video back to the browser.
+Use the central launcher to bind the LingBot pipeline to keyboard input over a
+DataChannel and stream generated video back to the browser.
 
 - `GET /request_session` serves a standalone viewer page (HTML/CSS/JS files on disk, not inlined in Python).
 - `POST /api/webrtc/offer` performs SDP offer/answer signaling.
@@ -161,16 +221,20 @@ generated video back to the browser.
 From repository root:
 
 ```bash
-uv run --package flashdreams-lingbot python -m lingbot.webrtc.server \
-    --host 0.0.0.0 --port 8089 --config_name lingbot-world-fast-taehv-window15-sink3
+uv run --package flashdreams-lingbot flashdreams-run \
+    lingbot-world-fast-taehv-window15-sink3 webrtc \
+    --host 0.0.0.0 --port 8089
 
 # 4 GPUs
 uv run --package flashdreams-lingbot \
-  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-  -m lingbot.webrtc.server \
-  --host 0.0.0.0 --port 8089 \
-  --config_name lingbot-world-fast-taehv-window15-sink3
+    torchrun --standalone --nnodes=1 --nproc_per_node=4 --no-python \
+    flashdreams-run lingbot-world-fast-taehv-window15-sink3 webrtc \
+    --host 0.0.0.0 --port 8089
 ```
+
+For a reproducible checked-in configuration, use
+`--manifest configs/launch_manifest/lingbot_webrtc.yaml`; the manifest's runner
+must match the selected runner slug.
 
 Then open:
 

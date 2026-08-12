@@ -28,11 +28,6 @@ from ._plugin import _get_plugin, get_log_level, set_log_level
 # Ludus rendering contexts.
 from .context import LudusCudaTimestampedContext
 
-# Vulkan backend: import is lazy and safe even when Vulkan headers/loader
-# are not installed; the ImportError surfaces only when the context is
-# actually constructed.
-from .context_vk import LudusTimestampedContext
-
 # Primitive data types and packing
 from .primitives import (
     CAMERA_TYPE_BEV,
@@ -132,5 +127,4 @@ __all__ = [
     "_triangulate_polygon_ear_clipping",
     # Ludus rendering contexts
     "LudusCudaTimestampedContext",
-    "LudusTimestampedContext",
 ]

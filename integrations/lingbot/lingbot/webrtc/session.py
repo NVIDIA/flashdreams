@@ -17,17 +17,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import http.client
 import io
 import ipaddress
 import re
 import socket
 import ssl
+import threading
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -35,25 +35,37 @@ import torch
 import torch.distributed as dist
 from loguru import logger
 
-from flashdreams.core.distributed.rank_orchestration import (
-    RankCoordinator,
-    distributed_op,
-)
+from flashdreams.core.distributed.rank_orchestration import distributed_op
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
-from flashdreams.serving.webrtc.controls import (
-    CameraPoseIntegrator,
-    PoseSegment,
+from flashdreams.infra.video_output import VideoOutputStream
+from flashdreams.runtime.canonical import InputCanonicalizer
+from flashdreams.runtime.inputs import (
+    InferenceInput,
+    UserInputCapability,
+    UserInputSchema,
 )
+from flashdreams.runtime.types import StepRequest, StepResult
+from flashdreams.serving.webrtc.encoders import EncoderBackend
 from flashdreams.serving.webrtc.manager import (
     DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
     BaseWebRTCSessionManager,
-    ManagedWebRTCSession,
     WebRTCControlSignal,
-    WebRTCStepResult,
+)
+from flashdreams.serving.webrtc.runtime import (
+    ThreadAffineDistributedWebRTCRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
+from lingbot.controls import CameraPoseIntegrator, PoseSegment
 from lingbot.encoder.utils import preprocess_example_poses
+from lingbot.input_mapping import (
+    FIELD_CAMERA_INTRINSICS,
+    FIELD_CAMERA_TRAJECTORY,
+    KeyboardToCameraCommand,
+    LingbotInputMapping,
+    TextEventSelection,
+)
+from lingbot.model_session import LingbotModelSessionCore
 
 _INTRINSICS_REFERENCE_HEIGHT = 480
 _INTRINSICS_REFERENCE_WIDTH = 832
@@ -445,6 +457,7 @@ class LingbotRuntimeConfig:
     device: str = "cuda:0"
     video_height: int = 464
     video_width: int = 832
+    fps: int = 16
     world_scale: float | None = None
     default_intrinsics: tuple[float, float, float, float] | None = None
     default_prompt: str = ""
@@ -454,6 +467,9 @@ class LingbotRuntimeConfig:
     default_poses_url: str | None = _DEFAULT_POSES_URL
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
+    encoder_backend: EncoderBackend = "auto"
+    encoder_bitrate_bps: int = 6_000_000
+    encoder_gop: int = 30
 
     example_data_dir: Path = field(
         default_factory=lambda: default_flashdreams_cache_dir()
@@ -466,6 +482,8 @@ class LingbotRuntimeConfig:
     text_events: tuple[TextEventSpec, ...] = field(
         default_factory=lambda: DEFAULT_TEXT_EVENTS
     )
+    pipeline_config: Any | None = None
+    """Optional pre-resolved pipeline config used by shared demo adapters."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -559,74 +577,36 @@ def normalize_text_events(raw_events: object) -> tuple[TextEventSpec, ...]:
     return tuple(text_events)
 
 
-class LingbotInferenceRuntime:
+class LingbotInferenceRuntime(
+    ThreadAffineDistributedWebRTCRuntime[
+        LingbotRuntimeConfig,
+        LingbotSessionInput,
+    ]
+):
     """Single-session Lingbot runtime with action-bound chunk generation."""
 
     def __init__(self, config: LingbotRuntimeConfig | None = None) -> None:
-        self.config = config or LingbotRuntimeConfig()
-        self.MASTER_RANK = 0
-        self.rank = 0 if not dist.is_initialized() else dist.get_rank()
-
-        control_device = torch.device(self.config.device)
-        if control_device.type == "cuda" and control_device.index is None:
-            control_device = torch.device(
-                f"cuda:{torch.cuda.current_device()}"
-                if torch.cuda.is_available()
-                else "cuda:0"
-            )
+        super().__init__(
+            config=config or LingbotRuntimeConfig(),
+            runtime_error_type=LingbotRuntimeError,
+            thread_name="lingbot-webrtc-runtime",
+        )
 
         self.pose_integrator = CameraPoseIntegrator()
-        self.autoregressive_index = 0
 
-        self._device: torch.device | None = None
         self._pipeline: Any | None = None
-        self._cache: Any | None = None
+        self._model_session: LingbotModelSessionCore | None = None
         self._base_intrinsics: torch.Tensor | None = None
         self._first_frames: torch.Tensor | None = None
         self._prompt: str | None = None
         self._base_text_embeddings: torch.Tensor | None = None
         self._event_embeddings: dict[str, torch.Tensor] = {}
+        self._prompt_embeddings: dict[str, torch.Tensor] = {}
         self._active_event_id: str | None = None
+        self._input_mapping: LingbotInputMapping | None = None
+        self._input_canonicalizer: InputCanonicalizer | None = None
+        self._sync_step_lock = threading.Lock()
         self._world_scale = 1.0
-        self._closed = False
-
-        self._step_lock = asyncio.Lock()
-        self.rank_coordinator = RankCoordinator(
-            device=control_device,
-            signal_type=WebRTCControlSignal,
-            is_master=self.is_master,
-            master_rank=self.MASTER_RANK,
-        )
-        self.rank_coordinator.register_distributed_ops(self)
-
-    @property
-    def is_master(self) -> bool:
-        return self.rank == self.MASTER_RANK
-
-    def wait_for_termination(self) -> None:
-        self.rank_coordinator.worker_loop(exit_signal=WebRTCControlSignal.EXIT)
-
-    def send_exit_signal(self) -> None:
-        if self.is_master:
-            self.rank_coordinator.send_exit(exit_signal=WebRTCControlSignal.EXIT)
-
-    async def initialize(self) -> None:
-        if self._pipeline is not None:
-            return
-        await asyncio.to_thread(self._initialize_sync_all_ranks)
-
-    async def reset_for_new_session(
-        self, session_input: LingbotSessionInput | None = None
-    ) -> None:
-        if self._closed:
-            raise LingbotRuntimeError("Runtime is closed.")
-        if self._pipeline is None:
-            raise LingbotRuntimeError("Runtime is not initialized.")
-        await asyncio.to_thread(self._reset_rollout_sync_all_ranks, session_input)
-
-    async def close(self) -> None:
-        self._closed = True
-        await asyncio.to_thread(self._close_sync_all_ranks)
 
     async def trigger_event(
         self, *, event_id: str, state: str = "trigger"
@@ -634,65 +614,103 @@ class LingbotInferenceRuntime:
         """Activate or clear a precomputed text event for subsequent chunks."""
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
         event_id, state = self._validate_event_request(event_id=event_id, state=state)
         async with self._step_lock:
             if self._closed:
                 raise LingbotRuntimeError("Runtime is closed.")
-            if self._pipeline is None or self._cache is None:
+            if self._pipeline is None or self._model_session is None:
                 raise LingbotRuntimeError("Runtime is not initialized.")
-            return await asyncio.to_thread(
+            return await self._worker.call(
                 self._trigger_event_sync_all_ranks,
                 event_id,
                 state,
             )
 
-    async def generate_chunk(
-        self,
-        *,
-        segments: list[PoseSegment],
-        frame_times: list[float],
-    ) -> WebRTCStepResult:
-        """Generate one autoregressive chunk from a piecewise-constant timeline.
+    async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
+        """Return an ``InferenceSession`` view of the current rollout.
 
-        Args:
-            segments: Piecewise-constant keyboard-state segments
-                covering the chunk's virtual-time window; produced by
-                :meth:`KeyboardResampler.sample_chunk`.
-            frame_times: Virtual times at which to sample the camera
-                pose; must have length equal to
-                :meth:`peek_next_chunk_num_frames` at call time.
-
-        Returns:
-            :class:`WebRTCStepResult` carrying the produced video chunk
-            and the post-generation pipeline stats.
-
-        Raises:
-            LingbotRuntimeError: Runtime is closed or not initialized.
+        Shared demo providers prepare per-step model inputs before handing them
+        to this session. The legacy direct WebRTC path may still expose
+        ``input_mapping``/``input_canonicalizer`` to the shared manager, but
+        starting a session only requires an initialized rollout.
         """
         if self._closed:
-            raise LingbotRuntimeError("Session is closed.")
-        if self._pipeline is None or self._cache is None:
+            raise LingbotRuntimeError("Runtime is closed.")
+        if not self._is_runtime_initialized():
             raise LingbotRuntimeError("Runtime is not initialized.")
+        return LingbotWebRTCInferenceSession(runtime=self)
 
-        async with self._step_lock:
+    @property
+    def input_mapping(self) -> LingbotInputMapping:
+        if self._input_mapping is None:
+            raise LingbotRuntimeError("Runtime input mapping is not initialized.")
+        return self._input_mapping
+
+    @property
+    def input_canonicalizer(self) -> InputCanonicalizer:
+        if self._input_canonicalizer is None:
+            raise LingbotRuntimeError("Runtime canonicalizer is not initialized.")
+        return self._input_canonicalizer
+
+    @property
+    def input_source_schema(self) -> UserInputSchema:
+        return LINGBOT_WEBRTC_SOURCE_SCHEMA
+
+    def validate_user_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Validate one raw WebRTC user event before it is acknowledged."""
+        if event_type != "text_event":
+            return payload
+        event_id_value = payload.get("event_id")
+        event_id = "" if event_id_value is None else str(event_id_value)
+        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        clears = state in {"clear", "release", "off", "none"}
+        return {"event_id": None if clears else event_id, "state": state}
+
+    def _build_input_layers_sync(self, text_events: tuple[TextEventSpec, ...]) -> None:
+        """Build the canonicalizer and mapping for the current rollout."""
+        if self._base_intrinsics is None:
+            self._input_mapping = None
+            self._input_canonicalizer = None
+            return
+        self._input_canonicalizer = InputCanonicalizer(
+            [KeyboardToCameraCommand(), TextEventSelection()]
+        )
+        self._input_mapping = LingbotInputMapping(
+            fps=int(self.config.fps),
+            base_intrinsics=self._base_intrinsics.detach().reshape(4).cpu(),
+            world_scale=self._world_scale or 1.0,
+            text_event_prompts={event.event_id: event.prompt for event in text_events},
+        )
+        self._input_mapping.set_base_prompt(self._prompt or "")
+
+    def _next_step_request_sync(self) -> StepRequest:
+        """Describe the next provider-prepared chunk for the session branch."""
+        if self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        step_index = self._model_session.step_index
+        num_frames = self._model_session.next_num_frames()
+        return StepRequest(
+            step_index=step_index,
+            metadata={
+                "input_frame_count": num_frames,
+                "num_frames": num_frames,
+                "frame_start": step_index * num_frames,
+            },
+        )
+
+    def _step_blocking(self, inputs: InferenceInput) -> StepResult:
+        """Run one mapped step from synchronous ``InferenceSession`` code."""
+        if self._closed:
+            raise LingbotRuntimeError("Session is closed.")
+        with self._sync_step_lock:
             if self._closed:
                 raise LingbotRuntimeError("Session is closed.")
-            return await asyncio.to_thread(
-                self._generate_chunk_sync_all_ranks, segments, frame_times
-            )
-
-    def peek_next_chunk_num_frames(self) -> int:
-        """Return the number of frames the next chunk's pipeline call will emit.
-
-        Master-only read with no distributed broadcast; safe to call from
-        the master rank's asyncio event loop to size the resampler's
-        per-chunk request.
-        """
-        if self._pipeline is None:
-            raise LingbotRuntimeError("Runtime is not initialized.")
-        return int(self._pipeline.get_num_output_frames(self.autoregressive_index))
+            return self._worker.call_blocking(self._step_sync_all_ranks, inputs)
 
     # Arbitrary index well past the AR-step transient; for the Wan/lingbot
     # pipelines used here the per-step count is constant for any index
@@ -702,7 +720,20 @@ class LingbotInferenceRuntime:
     # boundary of that transient.
     _STEADY_STATE_AR_PROBE_INDEX: int = 1000
 
-    def peek_steady_chunk_num_frames(self) -> int:
+    def _is_runtime_initialized(self) -> bool:
+        return self._pipeline is not None and self._model_session is not None
+
+    def _runtime_step_index(self) -> int:
+        if self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        return self._model_session.step_index
+
+    def _next_input_frame_count(self) -> int:
+        if self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        return self._model_session.next_num_frames()
+
+    def _steady_output_frame_count(self) -> int:
         """Return the steady-state per-chunk frame count.
 
         AR step 0 emits *fewer* frames than every subsequent step
@@ -721,23 +752,9 @@ class LingbotInferenceRuntime:
             self._pipeline.get_num_output_frames(self._STEADY_STATE_AR_PROBE_INDEX)
         )
 
-    @distributed_op(WebRTCControlSignal.INITIALIZE)
-    def _initialize_sync_all_ranks(self) -> None:
-        self._initialize_sync()
-
-    @distributed_op(WebRTCControlSignal.RESET_SESSION)
-    def _reset_rollout_sync_all_ranks(
-        self, session_input: LingbotSessionInput | None = None
-    ) -> None:
-        self._reset_rollout_sync(session_input=session_input)
-
-    @distributed_op(WebRTCControlSignal.ACTION_STEP)
-    def _generate_chunk_sync_all_ranks(
-        self,
-        segments: list[PoseSegment],
-        frame_times: list[float],
-    ) -> WebRTCStepResult:
-        return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
+    @distributed_op(WebRTCControlSignal.SESSION_STEP)
+    def _step_sync_all_ranks(self, inputs: InferenceInput) -> StepResult:
+        return self._step_sync(inputs)
 
     @distributed_op(WebRTCControlSignal.EVENT)
     def _trigger_event_sync_all_ranks(
@@ -747,23 +764,21 @@ class LingbotInferenceRuntime:
     ) -> dict[str, str | None]:
         return self._trigger_event_sync(event_id=event_id, state=state)
 
-    @distributed_op(WebRTCControlSignal.CLOSE)
-    def _close_sync_all_ranks(self) -> None:
-        self._close_sync()
-
     def _initialize_sync(self) -> None:
         if self._pipeline is not None:
             return
 
-        pipeline_configs = _pipeline_configs()
-        if self.config.config_name not in pipeline_configs:
-            supported = ", ".join(sorted(pipeline_configs))
-            raise ValueError(
-                f"Unknown config_name={self.config.config_name!r}. "
-                f"Supported: {supported}"
-            )
+        pipeline_config_base = self.config.pipeline_config
+        if pipeline_config_base is None:
+            pipeline_configs = _pipeline_configs()
+            if self.config.config_name not in pipeline_configs:
+                supported = ", ".join(sorted(pipeline_configs))
+                raise ValueError(
+                    f"Unknown config_name={self.config.config_name!r}. "
+                    f"Supported: {supported}"
+                )
+            pipeline_config_base = pipeline_configs[self.config.config_name]
 
-        self._device = torch.device(self.config.device)
         if self._device.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for Lingbot runtime.")
 
@@ -776,15 +791,26 @@ class LingbotInferenceRuntime:
             else self.config.seed
         )
         pipeline_config = derive_config(
-            base_config=pipeline_configs[self.config.config_name],
+            base_config=pipeline_config_base,
             enable_sync_and_profile=True,
             diffusion_model=dict(
                 seed=rollout_seed,
-                transformer=dict(compile_network=self.config.compile_network),
+                transformer=dict(
+                    compile_network=self.config.compile_network,
+                    init_device=str(self._device),
+                ),
             ),
         )
         self._pipeline = pipeline_config.setup().to(device=self._device)
+        self._model_session = LingbotModelSessionCore(
+            pipeline=self._pipeline,
+            output_stream_factory=lambda: VideoOutputStream(
+                postprocess_stream=None,
+                output_layout="tchw",
+            ),
+        )
         self._reset_rollout_sync()
+        self._initialize_video_encoder_sync()
 
     def _encode_text_embeddings_sync(self, texts: list[str]) -> torch.Tensor:
         if self._pipeline is None:
@@ -798,6 +824,7 @@ class LingbotInferenceRuntime:
     ) -> None:
         if not text_events:
             self._event_embeddings = {}
+            self._prompt_embeddings = {}
             return
         event_ids = [event.event_id for event in text_events]
         if len(event_ids) != len(set(event_ids)):
@@ -808,10 +835,15 @@ class LingbotInferenceRuntime:
             event_id: embeddings[index : index + 1].contiguous()
             for index, event_id in enumerate(event_ids)
         }
+        # The session branch receives a prompt rather than an event id, so keep
+        # a prompt-keyed view of the same tensors. Without it a live text event
+        # would pay a text-encoder pass mid-rollout.
+        self._prompt_embeddings = {
+            prompt: self._event_embeddings[event_id]
+            for prompt, event_id in zip(prompts, event_ids, strict=True)
+        }
 
     def _build_base_intrinsics(self) -> torch.Tensor:
-        if self._device is None:
-            raise LingbotRuntimeError("Runtime device is not initialized.")
         intrinsics_path = self.config.example_data_dir / self.config.intrinsics_filename
         if self.config.default_intrinsics is not None:
             intrinsics = np.asarray(self.config.default_intrinsics, dtype=np.float32)
@@ -926,8 +958,6 @@ class LingbotInferenceRuntime:
         )
 
     def _first_frame_to_tensor(self, image_rgb: np.ndarray) -> torch.Tensor:
-        if self._device is None:
-            raise LingbotRuntimeError("Runtime device is not initialized.")
         # Bicubic to match the upstream Lingbot World demo / generate_fast.py
         # (which uses ``F.interpolate(mode='bicubic')`` over the ``[-1, 1]``
         # tensor); bilinear here would give a different first-frame VAE latent.
@@ -983,12 +1013,8 @@ class LingbotInferenceRuntime:
     def _reset_rollout_sync(
         self, session_input: LingbotSessionInput | None = None
     ) -> None:
-        if self._pipeline is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime pipeline is not initialized.")
-
-        if self._cache is not None:
-            del self._cache
-            self._cache = None
 
         self._prepare_session_input_state(session_input)
         text_events = (
@@ -1001,23 +1027,19 @@ class LingbotInferenceRuntime:
             raise LingbotRuntimeError("Runtime input state is not initialized.")
 
         self.pose_integrator = CameraPoseIntegrator()
-        self.autoregressive_index = 0
         self._active_event_id = None
-        self._cache = self._pipeline.initialize_cache(
-            text=[self._prompt],
-            image=self._first_frames,
+        self._model_session.reset(
+            prompt=self._prompt,
+            first_frames=self._first_frames,
         )
+        # Rebuilt per rollout: the mapping carries the rollout's text-event
+        # catalog, base prompt, and pose integrator state.
+        self._build_input_layers_sync(text_events)
 
     def _replace_rollout_text_embeddings(self, text_embeddings: torch.Tensor) -> None:
-        if self._pipeline is None or self._cache is None:
+        if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        transformer = self._pipeline.diffusion_model.transformer
-        replace_text_embeddings = getattr(transformer, "replace_text_embeddings", None)
-        if not callable(replace_text_embeddings):
-            raise LingbotRuntimeError(
-                "Current pipeline does not support runtime text-event swapping."
-            )
-        replace_text_embeddings(self._cache.transformer_cache, text_embeddings)
+        self._model_session.replace_text_embeddings(text_embeddings)
 
     def _validate_event_request(self, *, event_id: str, state: str) -> tuple[str, str]:
         state = state.strip().lower() or "trigger"
@@ -1051,9 +1073,9 @@ class LingbotInferenceRuntime:
         return {"active_event_id": event_id}
 
     def _close_sync(self) -> None:
-        cache = self._cache
+        model_session = self._model_session
         pipeline = self._pipeline
-        self._cache = None
+        self._model_session = None
         self._pipeline = None
         self._base_intrinsics = None
         self._first_frames = None
@@ -1061,131 +1083,232 @@ class LingbotInferenceRuntime:
         self._base_text_embeddings = None
         self._event_embeddings = {}
         self._active_event_id = None
-
-        if cache is not None:
-            del cache
+        if model_session is not None:
+            model_session.close()
         if pipeline is not None:
             del pipeline
 
-        if self._device is not None and self._device.type == "cuda":
+        if self._device.type == "cuda":
             torch.cuda.synchronize(device=self._device)
             torch.cuda.empty_cache()
 
     def _generate_one_chunk_sync(
         self,
         *,
-        segments: list[PoseSegment],
+        segments: list[Any],
         frame_times: list[float],
-    ) -> WebRTCStepResult:
+    ) -> StepResult:
         if (
             self._pipeline is None
-            or self._cache is None
+            or self._model_session is None
             or self._base_intrinsics is None
         ):
             raise LingbotRuntimeError("Runtime is not initialized.")
-        if self._device is None:
-            raise LingbotRuntimeError("Runtime device is not initialized.")
-
-        num_frames = int(
-            self._pipeline.get_num_output_frames(self.autoregressive_index)
-        )
+        step_index = self._runtime_step_index()
+        num_frames = int(self._pipeline.get_num_output_frames(step_index))
         if len(frame_times) != num_frames:
             raise LingbotRuntimeError(
                 f"Expected {num_frames} frame_times for "
-                f"chunk={self.autoregressive_index}, got {len(frame_times)}."
+                f"chunk={step_index}, got {len(frame_times)}."
             )
         if not segments:
-            raise LingbotRuntimeError(
-                f"Chunk={self.autoregressive_index} received empty segments."
-            )
+            raise LingbotRuntimeError(f"Chunk={step_index} received empty segments.")
+        pose_segments = cast(list[PoseSegment], segments)
         poses = self.pose_integrator.integrate_chunk(
-            segments=segments, frame_times=frame_times
+            segments=pose_segments, frame_times=frame_times
         )
         poses_t = torch.from_numpy(poses).to(device=self._device, dtype=torch.float32)
         poses_t = poses_t.view(num_frames, 4, 4)
         intrinsics_t = self._base_intrinsics.view(1, 4).repeat(num_frames, 1)
+        return self._generate_from_camera_inputs(
+            poses=poses_t,
+            intrinsics=intrinsics_t,
+            num_frames=num_frames,
+        )
+
+    def _generate_from_camera_inputs(
+        self,
+        *,
+        poses: torch.Tensor,
+        intrinsics: torch.Tensor,
+        num_frames: int,
+    ) -> StepResult:
+        """Generate one chunk from an already-resolved camera trajectory.
+
+        Shared by the segment path and the provider-prepared session path so
+        both reach the model through identical conditioning.
+        """
+        if self._pipeline is None or self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
 
         from lingbot.encoder.camctrl import CamCtrlInput  # noqa: PLC0415
 
         camctrl_input = CamCtrlInput(
-            intrinsics=intrinsics_t,
-            poses=poses_t,
+            intrinsics=intrinsics.to(device=self._device, dtype=torch.float32),
+            poses=poses.to(device=self._device, dtype=torch.float32),
             world_scale=self._world_scale,
         )
-        video_chunk = self._pipeline.generate(
-            autoregressive_index=self.autoregressive_index,
-            cache=self._cache,
-            input=camctrl_input,
-        )
-        stats = self._pipeline.finalize(self.autoregressive_index, self._cache)
-
-        result = WebRTCStepResult(
-            chunk_index=self.autoregressive_index,
-            num_frames=num_frames,
-            video_chunk=video_chunk.detach().cpu(),
-            stats=stats,
-        )
-        self.autoregressive_index += 1
+        try:
+            result = self._model_session.step(
+                camctrl_input,
+                metadata={"active_event_id": self._active_event_id},
+            )
+        except RuntimeError as exc:
+            raise LingbotRuntimeError(str(exc)) from exc
         return result
 
+    def _step_sync(self, inputs: InferenceInput) -> StepResult:
+        """Generate one chunk from mapped model inputs."""
+        if self._pipeline is None or self._model_session is None:
+            raise LingbotRuntimeError("Runtime is not initialized.")
+        num_frames = self._model_session.next_num_frames()
+        self._apply_conditioning_update_sync(inputs)
+        poses = _require_camera_tensor(
+            inputs, FIELD_CAMERA_TRAJECTORY, expected_shape=(num_frames, 4, 4)
+        )
+        intrinsics = _require_camera_tensor(
+            inputs, FIELD_CAMERA_INTRINSICS, expected_shape=(num_frames, 4)
+        )
+        return self._generate_from_camera_inputs(
+            poses=poses,
+            intrinsics=intrinsics,
+            num_frames=num_frames,
+        )
 
-_ManagedLingbotSession = ManagedWebRTCSession
+    def _apply_conditioning_update_sync(self, inputs: InferenceInput) -> None:
+        """Apply a text-event prompt swap requested by the mapping."""
+        prompt = inputs.global_conditioning.get("prompt")
+        if prompt is None or prompt == self._prompt:
+            return
+        embeddings = self._prompt_embeddings.get(prompt)
+        if embeddings is None:
+            embeddings = self._encode_text_embeddings_sync([prompt])
+        self._replace_rollout_text_embeddings(embeddings)
+        self._prompt = prompt
+        self._active_event_id = next(
+            (
+                event_id
+                for event_id, tensor in self._event_embeddings.items()
+                if tensor is embeddings
+            ),
+            None,
+        )
 
 
-class LingbotWebRTCSessionManager(
-    BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]
-):
-    """Owns one active WebRTC session and forwards actions into Lingbot runtime."""
+def _require_camera_tensor(
+    inputs: InferenceInput,
+    name: str,
+    *,
+    expected_shape: tuple[int, ...],
+) -> torch.Tensor:
+    """Return one required per-step camera tensor, shape-checked."""
+    if name not in inputs.step:
+        raise LingbotRuntimeError(
+            f"Lingbot step inputs are missing {name!r}; the selected input "
+            f"mapping must produce it for every step."
+        )
+    value = inputs.step[name]
+    if not isinstance(value, torch.Tensor):
+        value = torch.as_tensor(np.asarray(value), dtype=torch.float32)
+    if tuple(value.shape) != expected_shape:
+        raise LingbotRuntimeError(
+            f"Lingbot step input {name!r} must have shape {expected_shape}, got "
+            f"{tuple(value.shape)}."
+        )
+    return value
 
-    _busy_message = "A Lingbot session is already active."
-    _warmup_label = "Lingbot WebRTC"
-    _runtime_error_types = (LingbotRuntimeError,)
+
+LINGBOT_WEBRTC_SOURCE_SCHEMA = UserInputSchema(
+    capabilities=(
+        UserInputCapability(event_type="key_down", payload_fields=frozenset({"key"})),
+        UserInputCapability(event_type="key_up", payload_fields=frozenset({"key"})),
+        UserInputCapability(
+            event_type="text_event", payload_fields=frozenset({"event_id"})
+        ),
+    ),
+    description="Lingbot WebRTC data-channel input.",
+)
+
+
+class LingbotWebRTCInferenceSession:
+    """``InferenceSession`` view of a live Lingbot WebRTC rollout.
+
+    The rollout itself is owned by :class:`LingbotInferenceRuntime`; this only
+    adapts it to the runtime-API stepping surface so the shared manager can
+    drive it with provider-prepared inputs.
+    """
+
+    def __init__(self, *, runtime: LingbotInferenceRuntime) -> None:
+        self._runtime = runtime
+
+    def next_step_request(self) -> StepRequest | None:
+        return self._runtime._next_step_request_sync()
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        return self._runtime._step_blocking(inputs)
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        raise LingbotRuntimeError(
+            "Reset a Lingbot WebRTC rollout through the runtime's session "
+            "lifecycle, not through the inference session."
+        )
+
+    def close(self) -> None:
+        # The runtime outlives the session and is closed by the serve loop.
+        return None
+
+
+def create_lingbot_webrtc_session_manager(
+    *,
+    runtime: LingbotInferenceRuntime | None = None,
+    runtime_config: LingbotRuntimeConfig | None = None,
+    fps: int | None = None,
+    client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+) -> BaseWebRTCSessionManager[LingbotInferenceRuntime, LingbotRuntimeConfig]:
+    """Configure the shared WebRTC manager for the Lingbot runtime."""
+    runtime_config = runtime_config or getattr(runtime, "config", None)
+    if not isinstance(runtime_config, LingbotRuntimeConfig):
+        runtime_config = LingbotRuntimeConfig()
+    fps = runtime_config.fps if fps is None else fps
+    if fps <= 0:
+        raise ValueError("fps must be > 0")
+    runtime = runtime or LingbotInferenceRuntime(config=runtime_config)
+    return BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=runtime_config,
+        fps=fps,
+        identity=runtime_config.config_name,
+        busy_message="A Lingbot session is already active.",
+        warmup_label="Lingbot WebRTC",
+        client_liveness_timeout_s=client_liveness_timeout_s,
+    )
+
+
+class LingbotWebRTCSessionController:
+    """Own Lingbot browser inputs and preview data outside the transport manager."""
 
     def __init__(
         self,
-        *,
-        runtime_config: LingbotRuntimeConfig | None = None,
-        fps: int = 16,
-        client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        manager: BaseWebRTCSessionManager[
+            LingbotInferenceRuntime,
+            LingbotRuntimeConfig,
+        ],
     ) -> None:
-        if fps <= 0:
-            raise ValueError("fps must be > 0")
-        runtime_config = runtime_config or LingbotRuntimeConfig()
-        super().__init__(
-            runtime=LingbotInferenceRuntime(config=runtime_config),
-            runtime_config=runtime_config,
-            fps=fps,
-            client_liveness_timeout_s=client_liveness_timeout_s,
-        )
-        self._pending_session_input: LingbotSessionInput | None = None
-
-    def _model_name(self) -> str:
-        return self.runtime_config.config_name
-
-    def _chunk_done_extra(self) -> dict[str, object]:
-        return {"active_event_id": getattr(self._runtime, "_active_event_id", None)}
-
-    def _peek_pending_session_input(self) -> LingbotSessionInput | None:
-        return self._pending_session_input
-
-    def _clear_pending_session_input(self) -> None:
-        self._pending_session_input = None
-
-    async def _reset_runtime_for_session(
-        self, session_input: LingbotSessionInput | None
-    ) -> None:
-        await self._runtime.reset_for_new_session(session_input=session_input)
+        self._manager = manager
+        self._runtime = manager.runtime
+        self._runtime_config = manager.runtime_config
 
     def _effective_text_events(self) -> tuple[TextEventSpec, ...]:
+        pending_session_input = self._manager.pending_session_input
         if (
-            self._pending_session_input is not None
-            and self._pending_session_input.text_events is not None
+            pending_session_input is not None
+            and pending_session_input.text_events is not None
         ):
-            return self._pending_session_input.text_events
-        return self.runtime_config.text_events
+            return pending_session_input.text_events
+        return self._runtime_config.text_events
 
     def get_initial_scene(self) -> dict[str, object]:
-        pending_input = self._pending_session_input
+        pending_input = self._manager.pending_session_input
         text_events = self._effective_text_events()
         prompt = (
             normalize_prompt_text(pending_input.prompt)
@@ -1195,11 +1318,11 @@ class LingbotWebRTCSessionManager(
         if pending_input is not None and pending_input.first_frame_image_url:
             image_url = pending_input.first_frame_image_url
         else:
-            image_url = self.runtime_config.default_image_url
+            image_url = self._runtime_config.default_image_url
         input_source = "uploaded" if pending_input is not None else "default"
         first_frame_path = (
-            self.runtime_config.example_data_dir
-            / self.runtime_config.first_frame_filename
+            self._runtime_config.example_data_dir
+            / self._runtime_config.first_frame_filename
         )
         has_first_frame = (
             bool(
@@ -1210,27 +1333,27 @@ class LingbotWebRTCSessionManager(
                 )
             )
             or first_frame_path.exists()
-            or bool(self.runtime_config.default_image_url)
+            or bool(self._runtime_config.default_image_url)
         )
         return {
             "first_frame_url": "/api/session/first_frame",
             "image_url": image_url,
-            "default_image_url": self.runtime_config.default_image_url,
+            "default_image_url": self._runtime_config.default_image_url,
             "has_first_frame": has_first_frame,
             "prompt": prompt,
             "input_source": input_source,
-            "model": self.runtime_config.config_name,
+            "model": self._runtime_config.config_name,
             "capabilities": {"text_events": bool(text_events)},
             "event_catalog": [event.as_public_dict() for event in text_events],
             "active_event_id": getattr(self._runtime, "_active_event_id", None),
             "resolution": {
-                "width": self.runtime_config.video_width,
-                "height": self.runtime_config.video_height,
+                "width": self._runtime_config.video_width,
+                "height": self._runtime_config.video_height,
             },
         }
 
     def get_first_frame(self) -> LingbotImagePayload:
-        pending_input = self._pending_session_input
+        pending_input = self._manager.pending_session_input
         if pending_input is not None and pending_input.first_frame_image_bytes:
             return LingbotImagePayload(
                 data=pending_input.first_frame_image_bytes,
@@ -1250,8 +1373,8 @@ class LingbotWebRTCSessionManager(
             return LingbotImagePayload(data=image_bytes, content_type=content_type)
 
         first_frame_path = (
-            self.runtime_config.example_data_dir
-            / self.runtime_config.first_frame_filename
+            self._runtime_config.example_data_dir
+            / self._runtime_config.first_frame_filename
         )
         if first_frame_path.exists():
             return LingbotImagePayload(
@@ -1266,11 +1389,11 @@ class LingbotWebRTCSessionManager(
         return LingbotImagePayload(data=encoded.tobytes(), content_type="image/jpeg")
 
     def set_pending_session_input(self, session_input: LingbotSessionInput) -> None:
-        if self.has_active_session():
+        if self._manager.has_active_session():
             raise SessionBusyError(
                 "Cannot update Lingbot input while a session is active."
             )
-        current = self._pending_session_input
+        current = self._manager.pending_session_input
 
         first_frame_image_bytes = (
             current.first_frame_image_bytes if current is not None else None
@@ -1318,15 +1441,17 @@ class LingbotWebRTCSessionManager(
             if session_input.text_events is not None
             else (current.text_events if current is not None else None)
         )
-        self._pending_session_input = LingbotSessionInput(
-            prompt=(
-                normalize_prompt_text(session_input.prompt)
-                if session_input.prompt is not None
-                else (current.prompt if current is not None else None)
-            ),
-            first_frame_image_bytes=first_frame_image_bytes,
-            first_frame_image_url=first_frame_image_url,
-            first_frame_content_type=first_frame_content_type,
-            first_frame_remote_payload=first_frame_remote_payload,
-            text_events=text_events,
+        self._manager.set_pending_session_input(
+            LingbotSessionInput(
+                prompt=(
+                    normalize_prompt_text(session_input.prompt)
+                    if session_input.prompt is not None
+                    else (current.prompt if current is not None else None)
+                ),
+                first_frame_image_bytes=first_frame_image_bytes,
+                first_frame_image_url=first_frame_image_url,
+                first_frame_content_type=first_frame_content_type,
+                first_frame_remote_payload=first_frame_remote_payload,
+                text_events=text_events,
+            )
         )

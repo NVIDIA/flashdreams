@@ -32,12 +32,14 @@ from loguru import logger
 from flashdreams.core.distributed import (
     init as distributed_init,
 )
+from flashdreams.runtime import InferenceConfig
 from flashdreams.serving.network import get_external_ip
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
     run_webrtc_server,
 )
+from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import (
     SESSION_MANAGER_KEY,
     SessionBusyError,
@@ -48,35 +50,46 @@ from flashdreams.serving.webrtc.server import (
 from flashdreams.serving.webrtc.server import (
     close_package_resources as _close_package_resources,
 )
-from lingbot.runner import (
+from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
-    EXAMPLE_DATA_BASE_URL,
-    EXAMPLE_DATA_DIR_LOCAL,
     ensure_example_data_downloaded,
-    example_data_dirname,
+)
+from lingbot.runtime import (
+    LINGBOT_MODEL_ID,
+    LingbotModelAdapter,
+    build_lingbot_webrtc_runtime_config,
 )
 from lingbot.webrtc.session import (
     LingbotImagePayload,
+    LingbotInferenceRuntime,
     LingbotRuntimeConfig,
     LingbotSessionInput,
-    LingbotWebRTCSessionManager,
+    LingbotWebRTCSessionController,
+    create_lingbot_webrtc_session_manager,
     normalize_prompt_text,
     normalize_text_events,
 )
 
-WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
+WEB_DIR_RESOURCE = files("flashdreams.serving.webrtc").joinpath("web")
+MODEL_WEB_DIR_RESOURCE = files("lingbot.webrtc").joinpath("web")
 MAX_UPLOAD_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_PROMPT_CHARS = 2_000
 
 
-class LingbotSessionManager(WebRTCSessionManager, Protocol):
+class LingbotSessionController(Protocol):
     def get_initial_scene(self) -> dict[str, object]: ...
     def get_first_frame(self) -> LingbotImagePayload: ...
     def set_pending_session_input(self, session_input: LingbotSessionInput) -> None: ...
 
 
-def _get_lingbot_manager(app: web.Application) -> LingbotSessionManager:
-    return cast(LingbotSessionManager, app[SESSION_MANAGER_KEY])
+LINGBOT_SESSION_CONTROLLER_KEY = web.AppKey(
+    "lingbot_session_controller",
+    LingbotSessionController,
+)
+
+
+def _get_lingbot_controller(app: web.Application) -> LingbotSessionController:
+    return app[LINGBOT_SESSION_CONTROLLER_KEY]
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,6 +117,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="cuda:0",
         help="Torch device used for the Lingbot runtime.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Base random seed for the Lingbot rollout.",
     )
     parser.add_argument(
         "--warmup_chunks",
@@ -138,6 +157,16 @@ def parse_args() -> argparse.Namespace:
         help="Output video pixel width. Must be divisible by 16.",
     )
     parser.add_argument(
+        "--prefer_sw_encoder",
+        action="store_true",
+        help=(
+            "Force aiortc's default software encoder instead of probing NVENC. "
+            "Without this flag, LingBot uses NVENC when the driver reports "
+            "support at the target resolution and falls back to software "
+            "otherwise."
+        ),
+    )
+    parser.add_argument(
         "--example-idx",
         "--example_idx",
         type=int,
@@ -152,34 +181,68 @@ def create_app(
     *,
     request_session_url: str,
     session_manager: WebRTCSessionManager | None = None,
+    session_controller: LingbotSessionController | None = None,
 ) -> web.Application:
-    manager = session_manager or LingbotWebRTCSessionManager()
+    manager = session_manager or create_lingbot_webrtc_session_manager()
+    if session_controller is None and not isinstance(manager, BaseWebRTCSessionManager):
+        # Lightweight server tests may provide one object for both protocols.
+        session_controller = cast(LingbotSessionController, manager)
 
-    def _configure_app(app: web.Application) -> None:
-        app.router.add_get("/api/session/initial_scene", _initial_scene)
-        app.router.add_get("/api/session/first_frame", _first_frame)
-        app.router.add_post("/api/session/input", _session_input)
+    def configure_app(app: web.Application) -> None:
+        configure_lingbot_webrtc_app(
+            app,
+            session_controller=session_controller,
+        )
 
     return create_packaged_webrtc_app(
         web_resource=WEB_DIR_RESOURCE,
+        model_web_resource=MODEL_WEB_DIR_RESOURCE,
         session_manager=manager,
         preload_name="Lingbot",
         request_session_url=request_session_url,
-        configure_app=_configure_app,
+        configure_app=configure_app,
         as_file_fn=as_file,
         create_app_fn=create_webrtc_app,
         cleanup_callback=_close_package_resources,
     )
 
 
+def configure_lingbot_webrtc_app(
+    app: web.Application,
+    *,
+    session_controller: LingbotSessionController | None = None,
+) -> None:
+    """Register Lingbot-only initial-scene and session-input routes."""
+    if session_controller is None:
+        manager = app[SESSION_MANAGER_KEY]
+        if not isinstance(manager, BaseWebRTCSessionManager):
+            raise TypeError(
+                "Lingbot routes require BaseWebRTCSessionManager or an "
+                "explicit session_controller."
+            )
+        session_controller = LingbotWebRTCSessionController(
+            cast(
+                BaseWebRTCSessionManager[
+                    LingbotInferenceRuntime,
+                    LingbotRuntimeConfig,
+                ],
+                manager,
+            )
+        )
+    app[LINGBOT_SESSION_CONTROLLER_KEY] = session_controller
+    app.router.add_get("/api/session/initial_scene", _initial_scene)
+    app.router.add_get("/api/session/first_frame", _first_frame)
+    app.router.add_post("/api/session/input", _session_input)
+
+
 async def _initial_scene(request: web.Request) -> web.StreamResponse:
-    manager = _get_lingbot_manager(request.app)
-    return web.json_response(manager.get_initial_scene())
+    controller = _get_lingbot_controller(request.app)
+    return web.json_response(controller.get_initial_scene())
 
 
 async def _first_frame(request: web.Request) -> web.StreamResponse:
-    manager = _get_lingbot_manager(request.app)
-    payload = await asyncio.to_thread(manager.get_first_frame)
+    controller = _get_lingbot_controller(request.app)
+    payload = await asyncio.to_thread(controller.get_first_frame)
     if not isinstance(payload, LingbotImagePayload):
         raise web.HTTPInternalServerError(reason="Invalid Lingbot first-frame payload.")
     return web.Response(body=payload.data, content_type=payload.content_type)
@@ -298,7 +361,7 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
             )
         )
 
-    manager = _get_lingbot_manager(request.app)
+    controller = _get_lingbot_controller(request.app)
     session_input = LingbotSessionInput(
         prompt=prompt or None,
         first_frame_image_bytes=image_bytes,
@@ -307,12 +370,12 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
         text_events=normalized_text_events,
     )
     try:
-        await asyncio.to_thread(manager.set_pending_session_input, session_input)
+        await asyncio.to_thread(controller.set_pending_session_input, session_input)
     except SessionBusyError as exc:
         raise web.HTTPConflict(reason=str(exc)) from exc
     except ValueError as exc:
         raise web.HTTPBadRequest(reason=str(exc)) from exc
-    return web.json_response(manager.get_initial_scene())
+    return web.json_response(controller.get_initial_scene())
 
 
 def build_runtime_config(
@@ -325,30 +388,31 @@ def build_runtime_config(
         raise ValueError("--video-height and --video-width must be > 0")
     if args.video_height % 16 != 0 or args.video_width % 16 != 0:
         raise ValueError("--video-height and --video-width must be divisible by 16")
-    example_idx = getattr(args, "example_idx", 0)
-    example_dirname = example_data_dirname(example_idx)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
-    if (
-        example_idx == 0
-        and not example_dir.exists()
-        and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
-    ):
-        example_dir = EXAMPLE_DATA_DIR_LOCAL
-    return LingbotRuntimeConfig(
-        config_name=args.config_name,
+
+    inference_config = InferenceConfig(
+        model_id=LINGBOT_MODEL_ID,
+        preset_id=args.config_name,
+        device=device_override or args.device,
+        compile=not args.no_compile,
+        runtime_options={"context_parallel_size": context_parallel_size},
+    )
+    adapter = LingbotModelAdapter()
+    adapter.validate_config(inference_config)
+    return build_lingbot_webrtc_runtime_config(
+        preset_id=adapter.preset_id(inference_config),
+        pipeline_config=adapter.pipeline_config(inference_config),
+        device=inference_config.device or args.device,
+        seed=int(getattr(args, "seed", 42)),
         compile_network=not args.no_compile,
         context_parallel_size=context_parallel_size,
-        device=device_override or args.device,
-        warmup_chunks=args.warmup_chunks,
-        warmup_timeout_s=args.warmup_timeout_s,
         video_height=args.video_height,
         video_width=args.video_width,
-        example_data_dir=example_dir,
-        default_image_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/image.jpg",
-        default_intrinsics_url=(
-            f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/intrinsics.npy"
-        ),
-        default_poses_url=f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/poses.npy",
+        fps=args.fps,
+        warmup_chunks=args.warmup_chunks,
+        warmup_timeout_s=args.warmup_timeout_s,
+        example_idx=getattr(args, "example_idx", 0),
+        prefer_sw_encoder=getattr(args, "prefer_sw_encoder", False),
+        runtime_options=inference_config.runtime_options,
     )
 
 
@@ -397,7 +461,7 @@ def main() -> None:
         device_override=str(runtime_device),
         context_parallel_size=context_parallel_size,
     )
-    session_manager = LingbotWebRTCSessionManager(
+    session_manager = create_lingbot_webrtc_session_manager(
         runtime_config=runtime_config,
         fps=args.fps,
     )
@@ -416,7 +480,3 @@ def main() -> None:
         host=args.host,
         port=args.port,
     )
-
-
-if __name__ == "__main__":
-    main()

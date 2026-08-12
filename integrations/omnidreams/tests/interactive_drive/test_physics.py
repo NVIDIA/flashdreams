@@ -15,6 +15,7 @@ import math
 from pathlib import Path
 
 import numpy as np
+import omnidreams.interactive_drive.simulation.ego_vehicle_kinematics as kinematics_module
 import pytest
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
 from omnidreams.interactive_drive.ply_io import load_mesh_vf, save_mesh_vf
@@ -249,6 +250,55 @@ def test_sample_chunk_trajectory_without_snapper_is_unchanged() -> None:
     assert chunk.boundary_state_after_chunk.z_m == pytest.approx(4.2, abs=1e-5)
     assert chunk.boundary_state_after_chunk.pitch_rad == 0.0
     assert chunk.boundary_state_after_chunk.roll_rad == 0.0
+
+
+def test_sample_chunk_trajectory_tracks_only_physx_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PhysicsWorld:
+        def __init__(self) -> None:
+            self._step_index = 0
+            self.last_step_actor_collision = False
+
+        def synchronize_window(
+            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+        ) -> None:
+            del center_xy_m, timestamp_us
+
+        def step(
+            self, state: VehicleState, timestamp_us: int, dt_s: float
+        ) -> tuple[VehicleState, tuple[object, ...]]:
+            del timestamp_us, dt_s
+            self.last_step_actor_collision = self._step_index == 1
+            self._step_index += 1
+            return state, ()
+
+        def debug_frame(self, state: VehicleState) -> object:
+            return state
+
+        def build_trajectories(
+            self, timestamps_us: np.ndarray, samples_by_frame: list[tuple[object, ...]]
+        ) -> tuple[object, ...]:
+            del timestamps_us, samples_by_frame
+            return ()
+
+    clock = iter([1.0, 1.002, 2.0, 2.003, 3.0, 3.005])
+    monkeypatch.setattr(kinematics_module.time, "perf_counter", lambda: next(clock))
+
+    chunk = sample_chunk_trajectory(
+        start_state=_state(),
+        start_timestamp_us=0,
+        command=DriverCommand(),
+        chunk_size=2,
+        chunk_config=ChunkConfig(fps=30),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        physics_world=_PhysicsWorld(),  # type: ignore[arg-type]
+    )
+
+    assert chunk.physx_elapsed_s == pytest.approx(0.010)
+    assert chunk.actor_collision_detected is True
+    assert chunk.actor_collision_frame_index == 1
 
 
 def test_sample_chunk_trajectory_with_snapper_follows_slope() -> None:

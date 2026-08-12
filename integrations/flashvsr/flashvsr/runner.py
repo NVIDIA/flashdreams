@@ -30,15 +30,14 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig, _is_torchrun_env
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     read_video_fps,
     read_video_rgb,
     resolve_input_path,
     rgb_video_to_normalized_tensor,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashvsr.encoder import FlashVSREncoder
 from flashvsr.pipeline import (
     FlashVSRPipeline,
@@ -424,8 +423,15 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
 
         cache = self._initialize_cache()
 
-        postprocess_stream = self.create_postprocess_stream(fps=fps)
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=fps)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=fps,
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         for chunk_idx, (start, size) in enumerate(chunks):
             clip = video_t[:, :, start : start + size]
             video_chunk = self.pipeline.generate(
@@ -435,11 +441,8 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
             )
             pipeline_frames = int(video_chunk.shape[2])
             stats = self.pipeline.finalize(autoregressive_index=chunk_idx, cache=cache)
-            postprocess_stream.process(
-                video_chunk,
-                autoregressive_index=chunk_idx,
-            )
-            if postprocess_stream.collect_output and stats is not None:
+            metrics = dict(stats or {})
+            if stats is not None:
                 # Pipeline throughput is based on this AR step's direct output.
                 # Postprocess emission/buffering is reported separately.
                 chunk_total_ms = stats["total_ms"]
@@ -448,31 +451,40 @@ class FlashVSRRunner(Runner[FlashVSRRunnerConfig, FlashVSRPipeline]):
                     if chunk_total_ms > 0
                     else 0.0
                 )
-                stats_history.append(
+                metrics.update(
                     {
-                        "autoregressive_index": chunk_idx,
-                        **postprocess_stream.add_process_stats(stats),
-                        "frames": pipeline_frames,
-                        "fps": chunk_fps,
+                        "pipeline_frames": pipeline_frames,
+                        "pipeline_fps": chunk_fps,
                     }
                 )
+            output_target.write(
+                output_stream.process(
+                    video_chunk,
+                    autoregressive_index=chunk_idx,
+                    metrics=metrics,
+                )
+            )
 
-        generated = postprocess_stream.finish()
-        if generated is None:
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
-
-        ensure_output_dir(config.output_dir)
-        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        write_video_tensor(generated, video_path, fps=fps, layout="bcthw")
+        video_artifact = artifacts[0]
+        video_path = Path(video_artifact.uri)
 
         logger.info(
-            f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
+            f"[{config.runner_name}] wrote video {video_artifact.metadata['shape']} "
             f"-> {video_path.resolve()}"
         )
 
+        stats_history = video_artifact.metadata["stats_history"]
         if stats_history:
             stats_path = write_runner_stats(
-                config.output_dir, config.runner_name, stats_history
+                config.output_dir,
+                config.runner_name,
+                list(stats_history),
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> "

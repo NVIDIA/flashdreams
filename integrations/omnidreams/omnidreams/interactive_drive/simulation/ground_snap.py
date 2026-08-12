@@ -13,6 +13,7 @@ works on the ``--backend raster`` (no GPU) path too.
 
 import logging
 import math
+from dataclasses import replace
 
 import numpy as np
 import numpy.typing as npt
@@ -208,13 +209,9 @@ class GroundSnapper:
         )
         if delta_rot > self._max_rotation_rad:
             return state
-        return VehicleState(
-            x_m=state.x_m,
-            y_m=state.y_m,
+        return replace(
+            state,
             z_m=float(new_z),
-            yaw_rad=state.yaw_rad,
-            speed_mps=state.speed_mps,
-            steer_rad=state.steer_rad,
             pitch_rad=float(new_pitch),
             roll_rad=float(new_roll),
         )

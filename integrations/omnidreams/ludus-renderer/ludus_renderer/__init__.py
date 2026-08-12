@@ -14,12 +14,7 @@
 # limitations under the License.
 
 """
-Ludus Renderer - GPU-native F-theta fisheye renderer with two backends:
-
-- ``LudusCudaTimestampedContext`` (always available): CUDA software
-  rasterizer based on the HPG 2011 CudaRaster triangle pipeline.
-- ``LudusTimestampedContext`` (requires Vulkan 1.3 + VK_EXT_mesh_shader):
-  hardware mesh-shader pipeline with CUDA-Vulkan external-memory interop.
+Ludus Renderer - GPU-native F-theta CUDA software renderer and PhysX scene.
 
 High-level API::
 
@@ -31,13 +26,6 @@ High-level API::
     scene_id = ctx.upload_scene(scene.timestamped_scene)
     images = ctx.render(scene_ids, camera_ids, timestamps_us, camera_type_ids,
                         camera_poses, resolution=(H, W))
-
-The Vulkan backend exposes the same public method surface so it is a
-near drop-in replacement::
-
-    from ludus_renderer import LudusTimestampedContext
-    ctx = LudusTimestampedContext(device="cuda")
-    # ... same upload_cameras / upload_scene / render API ...
 
 NVJPEG Encoding (GPU-accelerated JPEG)::
 
@@ -72,7 +60,6 @@ from ._ops import (
     FThetaCamera,
     # Contexts
     LudusCudaTimestampedContext,
-    LudusTimestampedContext,
     ObstaclePool,
     Polygon,
     # Primitives
@@ -91,6 +78,18 @@ from .clipgt import (
     load_clipgt_scene,
     load_scene,
 )
+from .dynamic_scene import MutableObjectSceneBuffer, build_hdmap_object_pool
+from .object_graph import (
+    BodyState,
+    InvisibleBarrier,
+    ObjectPose,
+    PhysicsObjectGraph,
+    PhysicsStep,
+    RigidBodyModel,
+    SceneObject,
+    VehicleModel,
+)
+from .physx import PhysXWorld, prepare_physx
 
 # Scene cache
 from .scene_cache import (
@@ -126,7 +125,7 @@ __all__ = [
     "mirror_augment_scene",
     # Rendering contexts
     "LudusCudaTimestampedContext",
-    "LudusTimestampedContext",
+    "MutableObjectSceneBuffer",
     # Primitives
     "Polyline",
     "Polygon",
@@ -151,6 +150,18 @@ __all__ = [
     "CAMERA_TYPE_REGULAR",
     "CAMERA_TYPE_BEV",
     "CUBE_FLAG_WIREFRAME",
+    # PhysX-first object graph
+    "BodyState",
+    "InvisibleBarrier",
+    "ObjectPose",
+    "PhysicsObjectGraph",
+    "PhysicsStep",
+    "PhysXWorld",
+    "prepare_physx",
+    "RigidBodyModel",
+    "SceneObject",
+    "VehicleModel",
+    "build_hdmap_object_pool",
     # Utilities
     "rgb",
     "resample_timestamps",

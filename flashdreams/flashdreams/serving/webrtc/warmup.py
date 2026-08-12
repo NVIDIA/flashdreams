@@ -13,6 +13,8 @@ from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from loguru import logger as loguru_logger
 
+from .messages import MESSAGE_TYPE_CHUNK_DONE, MESSAGE_TYPE_ERROR
+
 
 class CreateAnswerCallback(Protocol):
     async def __call__(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]: ...
@@ -47,13 +49,29 @@ async def run_loopback_warmup_session(
     client_peer.addTransceiver("video", direction="recvonly")
     channel_open = asyncio.Event()
     warmup_done = asyncio.Event()
+    warmup_failure: str | None = None
     received_chunks = 0
     drain_tasks: set[asyncio.Task[Any]] = set()
     heartbeat_task: asyncio.Task[Any] | None = None
 
+    def fail_warmup(reason: str) -> None:
+        nonlocal warmup_failure
+        if warmup_done.is_set():
+            return
+        warmup_failure = reason
+        warmup_done.set()
+
     @control_channel.on("open")
     def on_open() -> None:
         channel_open.set()
+
+    @control_channel.on("close")
+    def on_close() -> None:
+        if received_chunks < num_chunks:
+            fail_warmup(
+                f"{label} loopback warmup data channel closed before warmup "
+                f"completed ({received_chunks}/{num_chunks} chunk(s))."
+            )
 
     @control_channel.on("message")
     def on_message(message: Any) -> None:
@@ -64,7 +82,14 @@ async def run_loopback_warmup_session(
             payload = json.loads(message)
         except json.JSONDecodeError:
             return
-        if not isinstance(payload, dict) or payload.get("type") != "chunk_done":
+        if not isinstance(payload, dict):
+            return
+        message_type = payload.get("type")
+        if message_type == MESSAGE_TYPE_ERROR:
+            message_text = str(payload.get("message", "unknown error"))
+            fail_warmup(f"{label} loopback warmup failed: {message_text}")
+            return
+        if message_type != MESSAGE_TYPE_CHUNK_DONE:
             return
         received_chunks += 1
         logger.info(
@@ -109,6 +134,8 @@ async def run_loopback_warmup_session(
         for action_payload in action_payloads:
             control_channel.send(json.dumps(action_payload))
         await asyncio.wait_for(warmup_done.wait(), timeout=warmup_timeout_s)
+        if warmup_failure is not None:
+            raise RuntimeError(warmup_failure)
     finally:
         if heartbeat_task is not None:
             heartbeat_task.cancel()

@@ -13,12 +13,17 @@ from loguru import logger
 from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
 from omnidreams.interactive_drive.simulation.backend import SimulationBackend
-from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.types import (
+    DriverCommand,
+    PhysXChunkTimings,
+    PresentedFrame,
+)
 from omnidreams.interactive_drive.video_model.chunk_pipeline import (
     ChunkPipeline,
     ChunkRequest,
     QueuedFrame,
 )
+from omnidreams.interactive_drive.visual_flare import VisualFlareEventQueue
 
 from flashdreams.infra.acceleration.prewarm import is_warmup_index
 from flashdreams.serving.realtime.timing import (
@@ -38,6 +43,10 @@ _PROFILE_INPUT_TO_PRESENT_INTERVAL_S_ENV = (
 )
 
 _PROFILE_E2E_WINDOW = InputToPresentProfileWindow()
+
+
+def _noop_visual_flare() -> None:
+    return
 
 
 def _profile_input_to_present_enabled() -> bool:
@@ -148,6 +157,7 @@ class LoopConfig:
     # off the present queue. Chunk 0 is warmup and excluded from the trace,
     # so consuming chunks 0..N yields N traced chunks (1..N).
     stop_after_consumed_chunks: int | None = None
+    visual_flare_enabled: bool = True
 
 
 # OOB overlay strings, module-level so the HUD can match on them for styling.
@@ -159,6 +169,22 @@ def should_request_chunk(state: MainLoopState) -> bool:
     return state.chunks_outstanding < 1
 
 
+def _advance_present_deadline(
+    scheduled_time: float, completed_time: float, frame_interval_s: float
+) -> float:
+    """Return the next presentation deadline without catch-up bursts.
+
+    Preserve the fixed-rate clock while presentation is on schedule. If work on
+    the main thread overruns the following deadline, rebase from completion so
+    queued frames remain evenly paced instead of being presented back-to-back
+    until an old deadline catches up with wall time.
+    """
+    next_scheduled_time = scheduled_time + frame_interval_s
+    if next_scheduled_time <= completed_time:
+        return completed_time + frame_interval_s
+    return next_scheduled_time
+
+
 def make_chunk_request(
     state: MainLoopState,
     simulation: SimulationBackend,
@@ -168,6 +194,7 @@ def make_chunk_request(
     config: LoopConfig,
     input_sample_event: int | None = None,
     trace_context: TraceContext | None = None,
+    view_mode: str = "rgb",
 ) -> ChunkRequest:
     request_time = time.perf_counter()
     request_event = _trace_main_instant(
@@ -179,6 +206,9 @@ def make_chunk_request(
     )
     chunk_index = state.next_chunk_index
     chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
+    set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
+    if callable(set_physx_debug_enabled):
+        set_physx_debug_enabled(view_mode == "physx")
     trajectory = simulation.pose_chunk(
         command=command,
         chunk_size=chunk_size,
@@ -194,6 +224,12 @@ def make_chunk_request(
         depends_on=event_dependencies(request_event),
         chunk_index=chunk_index,
         chunk_size=chunk_size,
+        physx_ms=(
+            trajectory.physx_elapsed_s * 1000.0
+            if trajectory.physx_elapsed_s is not None
+            else None
+        ),
+        physx_timings=trajectory.physx_timings,
     )
     prediction = ChunkPrediction.create(
         request_time=request_time, frame_interval_s=config.frame_interval_s
@@ -445,6 +481,12 @@ def run_main_loop(
     last_presented_frame: PresentedFrame = initial_presented_frame
     ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory(config.history_capacity)
+    visual_flare_events = VisualFlareEventQueue()
+    trigger_visual_flare_callback = getattr(
+        presenter, "trigger_visual_flare", _noop_visual_flare
+    )
+    if not callable(trigger_visual_flare_callback):
+        trigger_visual_flare_callback = _noop_visual_flare
     last_input_sample_event: int | None = None
     last_present_wait_event: int | None = None
     if _profile_input_to_present_enabled():
@@ -452,6 +494,7 @@ def run_main_loop(
 
     while not presenter.should_close:
         presenter.process_events()
+        visual_flare_events.update(trigger_visual_flare_callback)
         if presenter.should_close:
             break
         if runtime_controls.consume_reset_request():
@@ -470,7 +513,10 @@ def run_main_loop(
             depends_on=[],
         )
 
-        # Keep one chunk in flight.
+        view_mode = runtime_controls.view_mode
+
+        # Keep one chunk in flight. Snapshot the current view on the request so
+        # PhysX debug geometry is captured only for chunks that can display it.
         if should_request_chunk(state):
             chunk_request = make_chunk_request(
                 state=state,
@@ -481,7 +527,21 @@ def run_main_loop(
                 config=config,
                 input_sample_event=last_input_sample_event,
                 trace_context=active_trace,
+                view_mode=view_mode,
             )
+            if (
+                config.visual_flare_enabled
+                and chunk_request.trajectory.actor_collision_detected
+            ):
+                collision_frame_index = (
+                    chunk_request.trajectory.actor_collision_frame_index
+                )
+                visual_flare_events.schedule(
+                    chunk_index=chunk_request.chunk_times.chunk_index,
+                    frame_index=(
+                        0 if collision_frame_index is None else collision_frame_index
+                    ),
+                )
             pipeline.request_pose_chunk(chunk_request)
             # The pose chunk just advanced authoritative state, so refresh the
             # OOB overlay from the new boundary frame and auto-respawn (same
@@ -492,7 +552,6 @@ def run_main_loop(
             # presenter's ``/state`` endpoint) see the latest state.
             push_telemetry(runtime_controls, simulation)
 
-        view_mode = runtime_controls.view_mode
         _drain_pipeline_frames(
             pipeline=pipeline,
             ready_frames=ready_frames,
@@ -528,6 +587,13 @@ def run_main_loop(
                 None
                 if is_warmup_index(queued_frame.chunk_times.chunk_index)
                 else trace_context
+            )
+            visual_flare_events.update(
+                trigger_visual_flare_callback,
+                displayed_position=(
+                    queued_frame.chunk_times.chunk_index,
+                    queued_frame.frame_index,
+                ),
             )
             present_queued_frame(
                 queued_frame,
@@ -570,7 +636,11 @@ def run_main_loop(
                 view_mode=view_mode,
             )
 
-        state.next_present_time += config.frame_interval_s
+        state.next_present_time = _advance_present_deadline(
+            state.next_present_time,
+            time.perf_counter(),
+            config.frame_interval_s,
+        )
     return False
 
 
@@ -606,6 +676,8 @@ def _trace_main_range(
     per_frame_error_ms: float | None = None,
     input_sample_time_ns: int | None = None,
     image_ready_time_ns: int | None = None,
+    physx_ms: float | None = None,
+    physx_timings: PhysXChunkTimings | None = None,
 ) -> int | None:
     if trace_context is None:
         return None
@@ -622,6 +694,21 @@ def _trace_main_range(
         components["input_sample_time_ns"] = input_sample_time_ns
     if image_ready_time_ns is not None:
         components["image_ready_time_ns"] = image_ready_time_ns
+    if physx_ms is not None:
+        components["physx_ms"] = physx_ms
+    if physx_timings is not None:
+        components.update(
+            {
+                "physx_sync_ms": physx_timings.synchronize_ms,
+                "physx_actor_update_ms": physx_timings.actor_update_ms,
+                "physx_solver_ms": physx_timings.solver_ms,
+                "physx_readback_ms": physx_timings.readback_ms,
+                "physx_bridge_ms": physx_timings.bridge_ms,
+                "physx_steps": physx_timings.step_count,
+                "physx_visible_actors": physx_timings.max_visible_actors,
+                "physx_detached_actors": physx_timings.max_detached_actors,
+            }
+        )
     return trace_context.add_range(
         name,
         thread=trace_context.main_thread,

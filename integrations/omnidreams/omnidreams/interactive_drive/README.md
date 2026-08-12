@@ -20,7 +20,7 @@ The implementation is intentionally narrow:
 
 - one scene loaded at startup
 - one camera view
-- ego-only kinematic controls from the keyboard
+- fixed-step vehicle dynamics with collision-driven dynamic actors
 - one UI thread and one simulation thread
 - explicit WSL-safe CPU staging between Vulkan and CUDA when needed
 
@@ -136,10 +136,9 @@ prerequisites:
 ### 3. Sync and stage assets
 
 Run everything from the **flashdreams workspace root** — the standard
-flashdreams convention. The `interactive-drive` extra pulls in `slangpy`
-(the Vulkan-backed local windowing runtime) on top of the base
-`flashdreams-omnidreams` deps; server-only users (`omnidreams.webrtc` /
-`omnidreams.grpc`) skip it.
+flashdreams convention. Ludus always installs NVIDIA PhysX because simulation
+has one supported physics implementation. The `interactive-drive` extra adds
+only `slangpy`, the local-window presentation runtime.
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive
@@ -182,7 +181,7 @@ Common `omnidreams-prepare` flags:
 - `--skip-text-encoder` — skip the ~14 GB text-encoder prewarm when you're
   using a precomputed prompt embedding or want a lighter first-time setup.
 - `--skip-scene` — don't stage any scene (for when you're supplying your
-  own USDZ via `interactive-drive --scene`).
+  own USDZ via ``scenario.scene`` in a local-window launch manifest).
 
 If `omnidreams-prepare` fails with `401`, `403`, or a gated-repo
 error, verify `HF_TOKEN` and confirm you have requested (and been granted)
@@ -228,18 +227,30 @@ this subpackage (via `__file__`), so you don't have to pass long
 `integrations/omnidreams/omnidreams/interactive_drive/...` paths unless
 you want to override them.
 
-There is one entry point — `interactive-drive` — and three modes selected by
-flags:
+There is one public entry point — `flashdreams-run` — with ``local-window``
+and ``webrtc`` modes. Local-window presentation variants are selected in the
+launch manifest:
 
 | Mode | When to use | How |
 |---|---|---|
-| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | `interactive-drive ...` |
-| **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | `interactive-drive --no-hud ...` |
-| **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies `--no-hud`. | `interactive-drive --stream-mjpeg [HOST:]PORT ...` |
+| **HUD (default)** | You have a graphical desktop session and want the full demo: scene/variant selector, steering wheel + pedals overlay, BEV minimap, keyboard *and* wheel input. | ``local-window`` with default output settings |
+| **Bare backend, local window** | You want the lightweight setup: a single Vulkan window showing the world-model output, no HUD chrome. | ``local-window`` with ``output.no_hud: true`` |
+| **Bare backend, browser** | The demo machine has no graphics-capable GPU (e.g. compute-only GB300) or you want to view from a laptop browser while the model runs elsewhere. Implies no HUD. | ``local-window`` with ``output.stream_mjpeg: :8080`` |
+
+Collision physics and the vehicle speed limit are off by default. Add
+`--game-mode` to enable the speed limit and collisions with scene actors and
+static map geometry, together with the collision visual effect:
+
+```bash
+uv run --package flashdreams-omnidreams interactive-drive --game-mode
+```
+
+To keep collision physics but suppress the full-screen collision flare, combine
+`--game-mode` with `--disable-visual-flare`.
 
 For a richer remote-viewing experience with a polished frontend and lower
-latency than an in-process MJPEG stream, prefer the separate
-`omnidreams.webrtc.server` entry point (see
+latency than an in-process MJPEG stream, prefer the centralized ``webrtc``
+mode (see
 [`integrations/omnidreams/README.md`](../../README.md)).
 
 The HUD itself uses pygame/SDL2 for rendering, which keeps the demo responsive
@@ -251,7 +262,9 @@ process.
 ### HUD mode (default)
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
 
 The default `--scene` resolves to
@@ -368,7 +381,9 @@ This is the lighter-weight path that matches the older standalone
 output, no HUD chrome, no scene selector.
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive --no-hud
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest path/to/local-window-with-no-hud.yaml
 ```
 
 You should initially see the generated driving view. Press `2` to switch to the
@@ -383,11 +398,12 @@ network, or when you want to demo from a laptop browser while the model
 runs elsewhere. Implies `--no-hud` because the user is then viewing
 through a browser, not a local Vulkan window — the slangpy HUD itself
 is a Vulkan presenter, so it can't run on the same hosts that need
-`--stream-mjpeg`.
+``output.stream_mjpeg`` in the launch manifest.
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive \
-  --stream-mjpeg 8080
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest path/to/local-window-mjpeg.yaml
 ```
 
 Open `http://<host-ip>:8080/` in a browser on the same network; keyboard
@@ -434,10 +450,10 @@ ssh -L 8080:localhost:8080 <user>@<host>
 
 Then open `http://localhost:8080/`.
 
-For a richer browser frontend with lower latency, prefer the separate
-`omnidreams.webrtc.server` entry point.
+For a richer browser frontend with lower latency, prefer the centralized
+``webrtc`` launch mode.
 
-#### Fully headless: `--stream-mjpeg` with `--auto-start`
+#### Fully headless MJPEG with auto-start
 
 By default the streaming mode waits for the browser scene picker before it
 loads anything, so a freshly launched server idles on "Select a scene to
@@ -447,8 +463,9 @@ add `--auto-start`. It skips the scene selection and immediately loads `--scene`
 or not yet staged):
 
 ```bash
-uv run --package flashdreams-omnidreams interactive-drive \
-  --stream-mjpeg 8080 --auto-start --scene <clip-id-name-or-path>
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest path/to/headless-auto-start.yaml
 ```
 
 The interactive-drive CUDA fast path is enabled by default. HDMap raster frames
@@ -457,8 +474,16 @@ SlangPy CUDA interop for generated RGB frames when the model output is still on
 CUDA:
 
 ```bash
-uv run --no-sync --package flashdreams-omnidreams interactive-drive
+uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest configs/launch_manifest/omnidreams_local_window.yaml
 ```
+
+The packaged interactive manifests leave the one-shot image/per-chunk HDMap
+encoders and display decoder eager (`compile_encoders: false` and
+`compile_decoder: false`) to reduce first-scene latency. Native DiT compilation
+remains enabled for steady generation. Prewarmed deployments can enable either
+wrapper when measurements justify its additional startup cost.
 
 Set `INTERACTIVE_DRIVE_DISABLE_CUDA_INTEROP=1` to force the conservative host
 path for both HDMap raster conditioning and presenter CUDA interop. In HUD mode,
@@ -477,6 +502,7 @@ Controls (apply in all three modes):
 - `Space` stop
 - `1` generated driving view
 - `2` HD map view
+- `3` first-person PhysX collider view (actor chassis and invisible walls)
 - `R` reset rollout
 - `X` exit scene (return to the scene selector; HUD mode only)
 - `Esc` quit
@@ -485,6 +511,68 @@ The browser control hint is static today, so it does not confirm every keydown
 visually. If the world-model backend is still producing a chunk, input can be
 accepted before the visual response arrives.
 
+### Interactive startup profile
+
+The packaged encoder/decoder policy is recommended for interactive sessions.
+On an RTX PRO 6000 Blackwell (driver 596.72, CUDA 13.0, PyTorch 2.12.1), a warm
+native-extension run on 2026-07-31 measured 32.0 s from process start through
+one steady chunk, versus 87.3 s with compiled encoder/decoder wrappers. Model
+warmup was 14.95 s, the first chunk was 5.73 s, and the next 8-frame chunk was
+356.6 ms. The compiled-wrapper baseline's steady chunk was 319.7 ms, so this
+trades about 37 ms per chunk for roughly 55 s less startup.
+
+FlashDreams stores Inductor FX-graph and Triton cubin artifacts together under
+`$FLASHDREAMS_CACHE_DIR/torchinductor` (by default
+`~/.cache/flashdreams/torchinductor`). Set `TORCHINDUCTOR_CACHE_DIR` to override
+that location. Keep the FX-graph and `triton/` subtrees together when copying or
+cleaning this cache; deleting only one side forces kernel recovery on the next
+compiled run.
+
+```bash
+uv run --no-sync --package flashdreams-omnidreams interactive-drive \
+  --manifest example_world_model_perf.yaml --synthetic-model \
+  --synthetic-scene --auto-start --stream-mjpeg 127.0.0.1:18765 \
+  --stop-after-chunks 1 --no-bev --profile-world-model
+```
+
+The simulation uses fixed timesteps and a PhysX-first object graph owned by
+Ludus. Interactive-drive maps typed scene tracks into that graph. Throttle and
+braking preserve momentum; steering
+feeds a bicycle-model yaw target and lateral tire grip; a spring-damper adds
+game-style body pitch and roll. Every semantic type has a fixed mass (cars
+1,550 kg, trucks 8,000 kg, buses 12,000 kg, trailers 10,000 kg). Each road
+vehicle also carries dimension-derived chassis geometry and four per-instance
+wheel contacts. PhysX raycasts those wheels against static geometry and applies
+spring, damper, cornering, friction, and rolling-resistance forces at their
+contact points. Recorded position and heading samples are controller targets:
+bounded forces and torques ask each actor to follow its track, but no track pose
+is written into the body after creation. Non-ego track-driving commands are
+limited to 15 mph; collision impulses remain ordinary rigid-body forces rather
+than being velocity-clamped. PhysX therefore owns translation,
+vertical suspension travel, body attitude, rigid-body contact, and
+mass-dependent momentum transfer without locking any axis. A struck actor
+remains an integrated vehicle body instead of reverting to a sliding visual box.
+When an impact meets the collision visual effect's 5 mph speed-change threshold,
+traffic AI suppresses the struck vehicle's track-driving command so that only
+its transferred momentum moves it. Driving is restored only after the body has
+remained stationary for one continuous simulated second; the native physics
+layer owns neither that timer nor that decision.
+
+Road-boundary, curb, building, house, and wall line/polygon layers are solid
+barriers. The large scene AABB remains a separate last-resort respawn boundary.
+The complete typed scene stays in the abstract graph for rendering; Ludus
+copies a 350 m active window into PhysX and coalesces densely sampled map
+strokes into roughly 2 m collision walls. This keeps long-HD-map preload cost
+bounded without dropping far-away objects from RGB or BEV rendering.
+For active actors, Ludus renders the authoritative per-frame PhysX poses as
+oriented HD-map boxes for both RGB and BEV/model inputs. The first topology
+change replaces one scene slot; subsequent chunks update the actor cube pool in
+place without clearing static map or camera buffers.
+
+``GameEntity.to_game_engine_dict()`` and
+``DynamicActorTrajectory.to_game_engine_dict()`` expose JSON-compatible
+component data and timestamped transform keyframes for an external game engine.
+
 ### Generated-frame e2e profiling
 
 Set `INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1` to log generated-frame
@@ -492,7 +580,9 @@ input-to-present timing while the demo runs:
 
 ```bash
 INTERACTIVE_DRIVE_PROFILE_INPUT_TO_PRESENT=1 \
-  uv run --no-sync --package flashdreams-omnidreams interactive-drive --auto-start
+  uv run --no-sync --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest path/to/auto-start-local-window.yaml
 ```
 
 The log line is `[profile] e2e ...`. `wall_present_fps` counts only frames
@@ -578,9 +668,9 @@ feeds it to the same loader the regular flow uses:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-prepare --skip-scene
-uv run --package flashdreams-omnidreams interactive-drive \
-  --synthetic-scene \
-  --synthetic-initial-rgb path/to/forward_facing_road_photo.jpg
+uv run --package flashdreams-omnidreams flashdreams-run \
+  omnidreams-perf local-window \
+  --manifest path/to/synthetic-scene-local-window.yaml
 ```
 
 The world model is trained on natural driving frames, so passing your own

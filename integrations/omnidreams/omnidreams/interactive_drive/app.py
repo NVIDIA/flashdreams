@@ -81,7 +81,7 @@ class InteractiveDriveApp:
         Vulkan window) or, when ``config.stream_mjpeg_bind`` is set, an
         :class:`MJPEGStreamingPresenter` that serves frames over HTTP with
         no GPU-graphics dependency. Browser viewers with a richer frontend
-        are served by ``omnidreams.webrtc.server`` instead.
+        are served by the centralized ``webrtc`` launch mode instead.
         """
         self._config = config
         self._backend = backend
@@ -465,6 +465,7 @@ class InteractiveDriveApp:
                 map_bounds=self._map_bounds,
                 oob_margin_m=self._config.oob_margin_m,
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
+                scene=self._scene,
             )
             # Publish the freshly-built initial state up front so read-side
             # speed readouts (the HUD speed digit, the browser ``/state``
@@ -475,29 +476,33 @@ class InteractiveDriveApp:
             # displayed speed" symptom.
             self._keyboard.update_telemetry(simulation.current_state)
             input_backend = KeyboardInputBackend(self._keyboard)
-            reset_requested = run_main_loop(
-                presenter=self._presenter,
-                runtime_controls=self._keyboard,
-                initial_presented_frame=loading_frame,
-                input_backend=input_backend,
-                simulation=simulation,
-                pipeline=self._pipeline,
-                config=LoopConfig(
-                    initial_chunk_size=self._config.chunk.initial_chunk_frames,
-                    chunk_size=self._config.chunk.chunk_frames,
-                    frame_interval_s=self._config.chunk.frame_interval_s,
-                    oob_warn_proximity=self._config.oob_warn_proximity,
-                    oob_respawn_proximity=self._config.oob_respawn_proximity,
-                    oob_respawn_debounce_chunks=(
-                        self._config.oob_respawn_debounce_chunks
+            try:
+                reset_requested = run_main_loop(
+                    presenter=self._presenter,
+                    runtime_controls=self._keyboard,
+                    initial_presented_frame=loading_frame,
+                    input_backend=input_backend,
+                    simulation=simulation,
+                    pipeline=self._pipeline,
+                    config=LoopConfig(
+                        initial_chunk_size=self._config.chunk.initial_chunk_frames,
+                        chunk_size=self._config.chunk.chunk_frames,
+                        frame_interval_s=self._config.chunk.frame_interval_s,
+                        oob_warn_proximity=self._config.oob_warn_proximity,
+                        oob_respawn_proximity=self._config.oob_respawn_proximity,
+                        oob_respawn_debounce_chunks=(
+                            self._config.oob_respawn_debounce_chunks
+                        ),
+                        stop_after_consumed_chunks=(
+                            self._config.stop_after_consumed_chunks
+                        ),
+                        visual_flare_enabled=self._config.visual_flare_enabled,
                     ),
-                    stop_after_consumed_chunks=(
-                        self._config.stop_after_consumed_chunks
-                    ),
-                ),
-                loading_status=loading_status,
-                trace_context=self._trace_context,
-            )
+                    loading_status=loading_status,
+                    trace_context=self._trace_context,
+                )
+            finally:
+                simulation.close()
             if not reset_requested:
                 break
             self._pipeline.reset()
@@ -575,7 +580,7 @@ def _build_presenter(config: AppConfig, keyboard: KeyboardState) -> PresenterBac
     :class:`SlangPyPresenter` -- a local Vulkan window.
 
 
-    For browser viewers with a richer frontend, ``omnidreams.webrtc.server``
+    For browser viewers with a richer frontend, the centralized ``webrtc`` mode
     (a separate entry point) is the preferred path; this MJPEG fallback
     is the in-process, dependency-free alternative for headless boxes.
     """

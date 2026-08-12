@@ -17,8 +17,8 @@
 
 The full numerics / GPU tests live alongside this file (they need GPU
 + checkpoints). These smoke tests just confirm the plugin is wired
-correctly: importable, every ``runner_name`` mirrors its
-``pipeline.name``, descriptions are non-empty, and the
+correctly: importable, public slugs map to their intended internal
+pipeline presets, descriptions are non-empty, and the
 entry-point declarations in ``pyproject.toml`` match the
 ``omnidreams.config`` ``RUNNER_*`` literals exactly.
 """
@@ -46,14 +46,15 @@ def test_runners_dict_is_non_empty() -> None:
     assert OMNIDREAMS_RUNNERS, "OMNIDREAMS_RUNNERS is empty"
 
 
-def test_runner_name_mirrors_pipeline_name() -> None:
-    """``runner_name`` must equal ``pipeline.name`` per the CLI contract."""
-    drifted = {
-        slug: (cfg.runner_name, cfg.pipeline.name)
-        for slug, cfg in OMNIDREAMS_RUNNERS.items()
-        if cfg.runner_name != cfg.pipeline.name
+def test_public_runner_slugs_map_to_internal_pipeline_presets() -> None:
+    """Short public slugs must keep selecting the intended model presets."""
+    expected = {
+        "omnidreams": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
+        "omnidreams-perf": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
     }
-    assert not drifted, f"runner_name != pipeline.name: {drifted}"
+    actual = {slug: cfg.pipeline.name for slug, cfg in OMNIDREAMS_RUNNERS.items()}
+    assert actual == expected
+    assert all(slug == cfg.runner_name for slug, cfg in OMNIDREAMS_RUNNERS.items())
 
 
 def test_runners_have_descriptions() -> None:

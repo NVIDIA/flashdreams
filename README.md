@@ -102,7 +102,8 @@ pip install flashdreams
 
 ### Try the interactive driving demo
 
-Drive a world model in real time with the OmniDreams `interactive-drive` demo. See the
+Drive a world model in real time with the unified OmniDreams `local-window` or
+`webrtc` launch mode. See the
 **[interactive demo guide](https://nvidia.github.io/flashdreams/main/models/omnidreams.html#launch-the-interactive-demo)**.
 
 ## Supported models

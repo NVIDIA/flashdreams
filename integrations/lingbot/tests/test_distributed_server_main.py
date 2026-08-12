@@ -48,6 +48,7 @@ def _args(device: str = "cuda:0") -> Namespace:
         fps=16,
         video_height=352,
         video_width=640,
+        prefer_sw_encoder=False,
         example_idx=0,
     )
 
@@ -161,7 +162,11 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
         manager_fps.append(fps)
         return fake_manager
 
-    monkeypatch.setattr(server, "LingbotWebRTCSessionManager", _make_manager)
+    monkeypatch.setattr(
+        server,
+        "create_lingbot_webrtc_session_manager",
+        _make_manager,
+    )
     monkeypatch.setattr(server, "get_external_ip", lambda: "203.0.113.10")
 
     def _create_app(*, session_manager, request_session_url=None):
@@ -182,6 +187,8 @@ def test_main_rank0_sends_exit_signal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert runtime_configs[0].context_parallel_size == 1
     assert runtime_configs[0].video_height == 352
     assert runtime_configs[0].video_width == 640
+    assert runtime_configs[0].fps == 16
+    assert runtime_configs[0].encoder_backend == "auto"
     assert manager_fps == [16]
     assert request_session_urls == ["http://203.0.113.10:8080/request_session"]
 
@@ -210,7 +217,11 @@ def test_main_worker_rank_waits_for_termination(
         manager_fps.append(fps)
         return fake_manager
 
-    monkeypatch.setattr(server, "LingbotWebRTCSessionManager", _make_manager)
+    monkeypatch.setattr(
+        server,
+        "create_lingbot_webrtc_session_manager",
+        _make_manager,
+    )
 
     server.main()
 
@@ -220,7 +231,25 @@ def test_main_worker_rank_waits_for_termination(
     assert runtime_configs[0].context_parallel_size == 2
     assert runtime_configs[0].video_height == 352
     assert runtime_configs[0].video_width == 640
+    assert runtime_configs[0].fps == 16
+    assert runtime_configs[0].encoder_backend == "auto"
     assert manager_fps == [16]
+
+
+@pytest.mark.parametrize(
+    "prefer_sw_encoder, expected_backend",
+    [(False, "auto"), (True, "default")],
+)
+def test_build_runtime_config_maps_prefer_sw_encoder_to_backend(
+    prefer_sw_encoder: bool,
+    expected_backend: str,
+) -> None:
+    args = _args()
+    args.prefer_sw_encoder = prefer_sw_encoder
+
+    config = server.build_runtime_config(args)
+
+    assert config.encoder_backend == expected_backend
 
 
 def test_build_runtime_config_rejects_non_patch_aligned_resolution() -> None:

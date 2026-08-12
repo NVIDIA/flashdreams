@@ -29,6 +29,8 @@ visible.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 import torch
 from torch import Tensor
@@ -36,22 +38,27 @@ from torch import Tensor
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
 
-try:
-    from transformer_engine.pytorch.attention.rope import (
-        apply_rotary_pos_emb as _te_apply_rotary_pos_emb,
-    )
 
-    _TE_AVAILABLE = True
-except (ImportError, OSError):
+def _load_te_apply_rope() -> Callable[..., Tensor] | None:
     try:
-        from transformer_engine.pytorch.attention import (
-            apply_rotary_pos_emb as _te_apply_rotary_pos_emb,
-        )
-
-        _TE_AVAILABLE = True
+        from transformer_engine.pytorch.attention.rope import apply_rotary_pos_emb
     except (ImportError, OSError):
-        _te_apply_rotary_pos_emb = None
-        _TE_AVAILABLE = False
+        try:
+            from transformer_engine.pytorch.attention import apply_rotary_pos_emb
+        except (ImportError, OSError):
+            return None
+    except RuntimeError as exc:
+        # CPU CI intentionally installs the TE meta-package without its
+        # framework extension. Treat only that known state as unavailable;
+        # unexpected TE initialization errors should still fail the test run.
+        if "empty `transformer-engine` meta package" not in str(exc):
+            raise
+        return None
+    return apply_rotary_pos_emb
+
+
+_te_apply_rotary_pos_emb = _load_te_apply_rope()
+_TE_AVAILABLE = _te_apply_rotary_pos_emb is not None
 
 
 _requires_te = pytest.mark.skipif(

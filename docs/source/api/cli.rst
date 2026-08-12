@@ -34,11 +34,23 @@ Inspect one runner's full options:
 
    uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
 
-Run a single-GPU inference:
+Run a single-GPU inference (``run`` is the default mode):
 
 .. code-block:: bash
 
    uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+
+Launch a WebRTC demo from a versioned manifest:
+
+.. code-block:: bash
+
+   uv run flashdreams-run lingbot-world-fast webrtc \
+       --manifest configs/launch_manifest/lingbot_webrtc.yaml
+
+The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
+advertises modes it implements; unsupported pairs fail before CUDA
+initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and
+``local-window``.
 
 Run a multi-GPU inference:
 
@@ -51,7 +63,7 @@ Resolve config only (no model instantiation):
 
 .. code-block:: bash
 
-   uv run flashdreams-run --no-instantiate self-forcing-wan2.1-t2v-1.3b-taehv
+   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --no-instantiate
 
 Post-processing presets
 -----------------------
@@ -73,5 +85,7 @@ See also
 --------
 
 - :doc:`/quickstart/index`
+- :doc:`/api/launch_manifests`
 - :doc:`/developer_guides/config_system`
+- :doc:`/developer_guides/runner_slugs`
 - :doc:`/api/infra`

@@ -17,6 +17,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
 from omnidreams.interactive_drive.input.backend import SampledInput
 from omnidreams.interactive_drive.runtime.loop import (
     LoopConfig,
+    _advance_present_deadline,
     present_queued_frame,
     run_main_loop,
 )
@@ -84,6 +85,14 @@ def _loop_config(*, frame_interval_s: float) -> LoopConfig:
         frame_interval_s=frame_interval_s,
         poll_timeout_s=0.0,
     )
+
+
+def test_present_deadline_preserves_fixed_rate_clock_while_on_schedule() -> None:
+    assert _advance_present_deadline(10.0, 10.01, 0.1) == pytest.approx(10.1)
+
+
+def test_present_deadline_rebases_after_missed_tick_to_avoid_catch_up() -> None:
+    assert _advance_present_deadline(10.0, 10.35, 0.1) == pytest.approx(10.45)
 
 
 @dataclass(frozen=True)
@@ -172,6 +181,7 @@ class _CountingPresenter:
         self._close_on_frame = close_on_frame
         self.records: list[_PresentRecord] = []
         self.process_events_calls = 0
+        self.visual_flare_triggers = 0
 
     @property
     def should_close(self) -> bool:
@@ -194,6 +204,9 @@ class _CountingPresenter:
         # fixture has nothing to release, so this is a no-op; it just
         # exists to satisfy the Protocol.
         return
+
+    def trigger_visual_flare(self) -> None:
+        self.visual_flare_triggers += 1
 
 
 class _PreparingPresenter(_CountingPresenter):
@@ -240,10 +253,21 @@ class _FakeInputBackend:
 class _FakeSimulation:
     """Returns a canned trajectory."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        actor_collision_detected: bool = False,
+        actor_collision_frame_index: int | None = None,
+    ) -> None:
+        self._actor_collision_detected = actor_collision_detected
+        self._actor_collision_frame_index = actor_collision_frame_index
         self._state = VehicleState(
             x_m=0.0, y_m=0.0, z_m=0.0, yaw_rad=0.0, speed_mps=0.0, steer_rad=0.0
         )
+        self.physx_debug_requests: list[bool] = []
+
+    def set_physx_debug_enabled(self, enabled: bool) -> None:
+        self.physx_debug_requests.append(enabled)
 
     @property
     def current_state(self) -> VehicleState:
@@ -257,7 +281,29 @@ class _FakeSimulation:
         extrapolation_offset_s: float,
     ) -> TrajectoryChunk:
         del command, frame_interval_s, extrapolation_offset_s
-        return make_trajectory(chunk_size)
+        return replace(
+            make_trajectory(chunk_size),
+            actor_collision_detected=self._actor_collision_detected,
+            actor_collision_frame_index=self._actor_collision_frame_index,
+        )
+
+
+@pytest.mark.parametrize(("view_mode", "expected"), [("rgb", False), ("physx", True)])
+def test_chunk_request_gates_physx_debug_capture_on_view_mode(
+    view_mode: str, expected: bool
+) -> None:
+    simulation = _FakeSimulation()
+    loop_module.make_chunk_request(
+        state=loop_module.MainLoopState(),
+        simulation=simulation,
+        command=DriverCommand(),
+        input_sample_time=time.perf_counter(),
+        chunk_history=loop_module.ChunkHistory(4),
+        config=_loop_config(frame_interval_s=1.0 / 30.0),
+        view_mode=view_mode,
+    )
+
+    assert simulation.physx_debug_requests == [expected]
 
 
 def _drive_loop(
@@ -270,6 +316,7 @@ def _drive_loop(
     frame_interval_s: float,
     trace_context: TraceContext | None = None,
     stop_after_consumed_chunks: int | None = None,
+    visual_flare_enabled: bool = True,
 ) -> bool:
     pipeline = ChunkPipeline(backend, trace_context=trace_context)
     pipeline.request_scene(minimal_scene())
@@ -284,11 +331,66 @@ def _drive_loop(
             config=replace(
                 _loop_config(frame_interval_s=frame_interval_s),
                 stop_after_consumed_chunks=stop_after_consumed_chunks,
+                visual_flare_enabled=visual_flare_enabled,
             ),
             trace_context=trace_context,
         )
     finally:
         pipeline.shutdown()
+
+
+class _FlareClosingPresenter(_CountingPresenter):
+    def __init__(self, present_budget: int) -> None:
+        super().__init__(present_budget)
+        self.records_before_flare: list[_PresentRecord] = []
+
+    def trigger_visual_flare(self) -> None:
+        self.records_before_flare = list(self.records)
+        super().trigger_visual_flare()
+        self._closed = True
+
+
+def test_actor_collision_flare_waits_until_colliding_frame_is_presented() -> None:
+    initial = _make_frame()
+    presenter = _FlareClosingPresenter(present_budget=500)
+    controls = _FakeRuntimeControls()
+    controls.bind_presenter(presenter)
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=1),
+        simulation=_FakeSimulation(
+            actor_collision_detected=True,
+            actor_collision_frame_index=0,
+        ),
+        initial=initial,
+        frame_interval_s=0.001,
+    )
+
+    assert presenter.visual_flare_triggers == 1
+    assert presenter.records_before_flare
+    assert all(record.frame is initial for record in presenter.records_before_flare)
+    assert presenter.records[-1].frame is not initial
+
+
+def test_actor_collision_flare_can_be_disabled() -> None:
+    initial = _make_frame()
+    presenter = _CountingPresenter(present_budget=1)
+    controls = _FakeRuntimeControls()
+    controls.bind_presenter(presenter)
+
+    _drive_loop(
+        presenter=presenter,
+        controls=controls,
+        backend=FakeVideoModelBackend(frames_per_render=0),
+        simulation=_FakeSimulation(actor_collision_detected=True),
+        initial=initial,
+        frame_interval_s=0.0,
+        visual_flare_enabled=False,
+    )
+
+    assert presenter.visual_flare_triggers == 0
 
 
 def test_present_timestamp_recorded_after_present_call_returns() -> None:

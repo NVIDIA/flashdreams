@@ -19,34 +19,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Annotated
 
-import numpy as np
-import torch
+import tyro
 from loguru import logger
 
-from flashdreams.core.io.disk import default_flashdreams_cache_dir
-from flashdreams.core.io.download import download_to_cache
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
-from flashdreams.infra.runner_io import (
-    ensure_output_dir,
-    load_first_frame_tensor,
-    runner_artifact_path,
-    write_runner_stats,
-    write_video_tensor,
-)
-from lingbot.encoder.camctrl import CamCtrlInput
-from lingbot.encoder.utils import (
-    get_Ks_transformed,
-    preprocess_example_poses,
+from flashdreams.infra.runner_io import runner_artifact_path
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, OutputSpec
+from flashdreams.runtime.demo.replay import run_replay_demo
+from lingbot.demo import LingbotDemoAdapter
+from lingbot.example_data import (
+    EXAMPLE_DATA_AVAILABLE_IDXS,
+    EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS,
+    ensure_example_data_downloaded,
+    example_data_dirname,
 )
 from lingbot.pipeline import (
     LingbotWorldInferencePipeline,
 )
+from lingbot.runtime import (
+    LINGBOT_MODEL_ID,
+    LingbotRunnerOutputTarget,
+    inference_config_from_runner_config,
+    replay_inputs_from_runner_config,
+)
 
 __all__ = [
+    "EXAMPLE_DATA_AVAILABLE_IDXS",
     "LingbotWorldRunnerConfig",
     "LingbotWorldRunner",
+    "example_data_dirname",
 ]
 
 
@@ -58,67 +62,6 @@ land on the right pixel centers at the runner's actual frame size."""
 _INTRINSICS_REFERENCE_WIDTH = 832
 """Capture-resolution width matching :data:`_INTRINSICS_REFERENCE_HEIGHT`."""
 
-EXAMPLE_DATA_BASE_URL = (
-    "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples"
-)
-"""HTTP base URL for the canonical examples shared by all LingBot versions."""
-
-EXAMPLE_DATA_DIR_LOCAL = default_flashdreams_cache_dir() / "example_data/lingbot_world"
-"""Local cache root where downloaded example folders are stored."""
-
-EXAMPLE_DATA_FILENAMES = (
-    "image.jpg",
-    "poses.npy",
-    "intrinsics.npy",
-    "prompt.txt",
-)
-"""Example assets downloaded when each file is available upstream."""
-
-EXAMPLE_DATA_AVAILABLE_IDXS = (0, 1, 2, 3, 4, 5)
-"""Supported upstream example indices currently hosted under ``examples/``."""
-
-EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS = (0, 1, 2, 5)
-"""Example indices that provide their own upstream ``prompt.txt`` file."""
-
-
-def example_data_dirname(example_idx: int) -> str:
-    """Format ``example_idx`` into the upstream folder naming convention."""
-    assert example_idx in EXAMPLE_DATA_AVAILABLE_IDXS, (
-        f"--example_idx must be one of {EXAMPLE_DATA_AVAILABLE_IDXS}."
-    )
-    return f"{example_idx:02d}"
-
-
-def ensure_example_data_downloaded(*, is_rank_zero: bool, example_idx: int) -> Path:
-    """Download bundled GitHub example files on rank 0; barrier other ranks.
-
-    The runner calls this from :meth:`LingbotWorldRunner._fill_example_data_defaults`;
-    the WebRTC server calls it from its ``main()`` so the same files
-    land on disk before the server's
-    ``LingbotWebRTCSessionManager._initialize_sync`` checks for them. The
-    download itself is small (image + intrinsics + poses, plus a prompt
-    when available), uses the public LingBot-World GitHub raw URLs, and
-    is cached at :data:`EXAMPLE_DATA_DIR_LOCAL` so repeat calls are
-    no-ops.
-    """
-    example_dirname = example_data_dirname(example_idx)
-    cache_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
-    if is_rank_zero:
-        for filename in EXAMPLE_DATA_FILENAMES:
-            if (
-                filename == "prompt.txt"
-                and example_idx not in EXAMPLE_DATA_PROMPT_AVAILABLE_IDXS
-            ):
-                continue
-            download_to_cache(
-                f"{EXAMPLE_DATA_BASE_URL}/{example_dirname}/{filename}",
-                cache_dir=cache_dir,
-                filename=filename,
-            )
-    if torch.distributed.is_initialized():
-        torch.distributed.barrier()
-    return cache_dir
-
 
 @dataclass(kw_only=True)
 class LingbotWorldRunnerConfig(RunnerConfig):
@@ -126,6 +69,9 @@ class LingbotWorldRunnerConfig(RunnerConfig):
 
     _target: type["LingbotWorldRunner"] = field(
         default_factory=lambda: LingbotWorldRunner
+    )
+    launch_capability: Annotated[str | None, tyro.conf.Suppress] = (
+        "lingbot.launch:LAUNCH_CAPABILITY"
     )
 
     prompt: str = ""
@@ -222,128 +168,49 @@ class LingbotWorldRunner(
             cfg.prompt_path = example_dir / "prompt.txt"
 
     def run(self) -> None:
-        """Drive an AR rollout until the camera stream is exhausted."""
+        """Drive an AR rollout through the Lingbot runtime API path."""
         cfg = self.config
-        if cfg.example_data:
-            self._fill_example_data_defaults()
-        assert cfg.image_path is not None, (
-            "LingbotWorldRunner requires --image_path (first-frame RGB image)."
+        adapter = LingbotDemoAdapter()
+        inference_config = inference_config_from_runner_config(
+            cfg,
+            device=f"cuda:{self.local_rank}" if self.world_size > 1 else cfg.device,
+            pipeline=self.pipeline,
         )
-        assert cfg.pose_path is not None, (
-            "LingbotWorldRunner requires --pose_path "
-            "(.npy of [T, 4, 4] camera-to-world matrices)."
+        replay_inputs = replay_inputs_from_runner_config(
+            cfg,
+            is_rank_zero=self.is_rank_zero,
         )
-        assert cfg.intrinsic_path is not None, (
-            "LingbotWorldRunner requires --intrinsic_path "
-            "(.npy of [T, 4] camera intrinsics)."
-        )
-
-        prompt = self._resolve_prompt()
-        device = torch.device(f"cuda:{self.local_rank}")
-
-        # Pipeline / encoder accept ``[*batch_shape, ...]`` shapes; the
-        # shipped configs pin ``batch_shape=()`` so a single-rollout layout
-        # is just ``[T, C, H, W]`` (image) / ``[T, 4, 4]`` (poses) /
-        # ``[T, 4]`` (intrinsics).
-        first_frames_t = load_first_frame_tensor(
-            cfg.image_path,
-            pixel_height=cfg.pixel_height,
-            pixel_width=cfg.pixel_width,
-            device=device,
-            dtype=torch.bfloat16,
-            interpolation="cubic",
-            install_hint="Install the lingbot plugin: pip install flashdreams-lingbot.",
+        spec = DemoSpec(
+            model_id=LINGBOT_MODEL_ID,
+            preset_id=str(cfg.pipeline.name),
+            input_mode="replay",
+            output=Mp4OutputSpec(
+                path=runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4"),
+                fps=cfg.fps,
+                output_layout=cfg.postprocess_output_layout or "tchw",
+            ),
+            scenario=replay_inputs,
+            config=inference_config,
         )
 
-        Ks = np.load(cfg.intrinsic_path)
-        Ks_t = torch.from_numpy(Ks).to(device=device, dtype=torch.float32)
-        # Rescale capture-resolution intrinsics to the runner's frame size.
-        camera_intrinsics_t = get_Ks_transformed(
-            Ks_t,
-            height_org=_INTRINSICS_REFERENCE_HEIGHT,
-            width_org=_INTRINSICS_REFERENCE_WIDTH,
-            height_resize=cfg.pixel_height,
-            width_resize=cfg.pixel_width,
-            height_final=cfg.pixel_height,
-            width_final=cfg.pixel_width,
-        )
-
-        c2ws = np.load(cfg.pose_path)
-        c2ws, trans_normalizer = preprocess_example_poses(c2ws)
-        camera_poses_t = torch.from_numpy(c2ws).to(device=device, dtype=torch.float32)
-        total_camera_frames = camera_poses_t.shape[0]
-
-        if self.is_rank_zero:
-            logger.info(
-                f"[{cfg.runner_name}] loaded first_frame="
-                f"{tuple(first_frames_t.shape)}, camera_poses="
-                f"{tuple(camera_poses_t.shape)}"
+        def _output_target_factory(
+            output_spec: OutputSpec,
+        ) -> LingbotRunnerOutputTarget:
+            del output_spec
+            return LingbotRunnerOutputTarget(
+                output_stream=self.create_video_output_stream(fps=cfg.fps),
+                output_dir=cfg.output_dir,
+                runner_name=cfg.runner_name,
+                fps=cfg.fps,
             )
 
-        cache = self.pipeline.initialize_cache(text=[prompt], image=first_frames_t)
-
-        torch.cuda.synchronize()
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-
-        postprocess_stream = self.create_postprocess_stream(fps=cfg.fps)
-        stats_history: list[dict[str, object]] = []
-        start = 0
-        for i in range(cfg.total_blocks):
-            num_frames = self.pipeline.get_num_output_frames(i)
-            end = start + num_frames
-            if end > total_camera_frames:
-                break
-            if self.is_rank_zero:
-                logger.info(
-                    f"[{cfg.runner_name}] AR step {i}/{cfg.total_blocks}, "
-                    f"num_frames={num_frames}, frames=[{start}, {end})"
-                )
-            camctrl_input = CamCtrlInput(
-                intrinsics=camera_intrinsics_t[start:end],
-                poses=camera_poses_t[start:end],
-                world_scale=float(trans_normalizer),
-            )
-            video_chunk = self.pipeline.generate(
-                autoregressive_index=i,
-                cache=cache,
-                input=camctrl_input,
-            )
-            stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = postprocess_stream.process(
-                video_chunk, autoregressive_index=i
-            )
-            if postprocess_stream.collect_output and stats is not None:
-                stats_history.append(
-                    {
-                        "autoregressive_index": i,
-                        **postprocess_stream.add_process_stats(stats),
-                    }
-                )
-            start = end
-
-        video = postprocess_stream.finish()
-        if video is None:
-            return
-
-        ensure_output_dir(cfg.output_dir)
-        video_path = runner_artifact_path(cfg.output_dir, cfg.runner_name, "mp4")
-        write_video_tensor(
-            video,
-            video_path,
-            fps=cfg.fps,
-            layout="tchw",
-            install_hint="Install the lingbot plugin: pip install flashdreams-lingbot.",
+        result = run_replay_demo(
+            spec=spec,
+            adapter=adapter,
+            output_target_factory=_output_target_factory,
         )
-        logger.info(
-            f"[{cfg.runner_name}] wrote video {tuple(video.shape)} "
-            f"-> {video_path.resolve()}"
-        )
-
-        if stats_history:
-            stats_path = write_runner_stats(
-                cfg.output_dir, cfg.runner_name, stats_history
-            )
-            logger.info(
-                f"[{cfg.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
+        if result.status != "completed":
+            raise RuntimeError(
+                f"Lingbot runner failed with status {result.status!r}: "
+                f"{result.reason or result.error or 'unknown error'}"
             )

@@ -125,7 +125,8 @@ class WheelState:
 
 class KeyboardDriveState:
     def __init__(self, control: Any) -> None:
-        # ``control`` is a drive sink with ``set_drive(steer, throttle, brake)``
+        # ``control`` is a drive sink with
+        # ``set_drive(steer, throttle, brake, reverse)``
         # (the HUD's ``KeyboardStateDriveSink``, writing into ``KeyboardState``).
         self._control = control
         self._pressed: set[str] = set()
@@ -135,6 +136,11 @@ class KeyboardDriveState:
     @property
     def state(self) -> WheelState:
         return WheelState(**self._state.__dict__)
+
+    @property
+    def has_active_input(self) -> bool:
+        """Whether a keyboard drive key is currently held."""
+        return bool(self._pressed)
 
     def set_key(self, keysym: str, down: bool) -> bool:
         key = _keyboard_drive_key(keysym)
@@ -162,28 +168,41 @@ class KeyboardDriveState:
             else KEYBOARD_STEER_RETURN_RATE_PER_S
         )
         steer = _move_towards(self._state.steering, target_steer, rate * dt)
-        throttle = 1.0 if {"w", "up"} & self._pressed else 0.0
-        brake = 1.0 if {"s", "down", "space"} & self._pressed else 0.0
-        target_speed = self._update_target_speed(throttle=throttle, brake=brake, dt=dt)
+        forward = bool({"w", "up"} & self._pressed)
+        reverse = bool({"s", "down"} & self._pressed)
+        throttle = 1.0 if forward != reverse else 0.0
+        brake = 1.0 if (forward and reverse) or "space" in self._pressed else 0.0
+        reverse = reverse and not forward
+        target_speed = self._update_target_speed(
+            throttle=throttle, brake=brake, reverse=reverse, dt=dt
+        )
         self._state = WheelState(
             steering=steer,
             throttle=throttle,
             brake=brake,
             target_speed_mps=target_speed,
             connected=False,
+            reverse=reverse,
         )
-        self._control.set_drive(steer=steer, throttle=throttle, brake=brake)
+        self._control.set_drive(
+            steer=steer, throttle=throttle, brake=brake, reverse=reverse
+        )
         return self.state
 
     def clear(self) -> None:
         self._pressed.clear()
         self._state = WheelState()
-        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0)
+        self._control.set_drive(steer=0.0, throttle=0.0, brake=0.0, reverse=False)
+
+    def release_control(self) -> None:
+        """Release this input source without changing its display state."""
+        self._control.release_all()
 
     def _update_target_speed(
-        self, *, throttle: float, brake: float, dt: float
+        self, *, throttle: float, brake: float, reverse: bool, dt: float
     ) -> float:
         speed = self._state.target_speed_mps
+        direction = -1.0 if reverse else 1.0
         if throttle > 0.01 and brake <= 0.05:
             accel = 2.0 * throttle * dt
             current = abs(speed)
@@ -193,16 +212,12 @@ class KeyboardDriveState:
             else:
                 excess = (current - high_speed_knee) / max(1e-6, 36.0 - high_speed_knee)
                 taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
-            speed += accel * taper
+            speed += direction * accel * taper
         elif brake > 0.01:
-            speed = max(0.0, speed - 12.0 * brake * dt)
+            speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
         else:
-            creep_target = 4.47
-            if speed < creep_target + 0.1:
-                speed += (creep_target - speed) * 0.18 * dt
-            else:
-                speed = max(0.0, speed - 0.5 * dt)
-        return max(0.0, min(36.0, speed))
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
+        return max(-36.0, min(36.0, speed))
 
 
 @dataclass(frozen=True)
@@ -466,17 +481,8 @@ class WheelBridge:
         elif brake > 0.01:
             # Brake bleeds speed toward a stop regardless of travel direction.
             speed = _move_towards(speed, 0.0, 12.0 * brake * dt)
-        elif self._reverse:
-            # No auto-crawl in reverse; coast toward a stop.
-            speed = _move_towards(speed, 0.0, 0.5 * dt)
         else:
-            creep_target = 4.47  # 10 mph, matching the AlpaSim manual-driver creep.
-            if speed < creep_target + 0.1:
-                # Demo crawl should be gentle: a first-order approach that
-                # takes several seconds to reach 10 mph from a stop.
-                speed += (creep_target - speed) * 0.18 * dt
-            else:
-                speed = max(0.0, speed - 0.5 * dt)
+            speed = _move_towards(speed, 0.0, 0.5 * dt)
         return max(-36.0, min(36.0, speed))
 
 
@@ -508,7 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
         " window entirely and serve frames to a browser as an MJPEG"
         " HTTP stream (useful on compute-only hosts without a Vulkan"
         " GPU). For a richer browser viewer use the separate"
-        " ``omnidreams.webrtc.server`` entry point."
+        " centralized ``webrtc`` launch mode."
     )
     parser.add_argument(
         "--no-hud",
@@ -526,7 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Directory of USDZ scenes shown in the HUD scene selector. "
             "Defaults to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``, "
             "the shared cache root used by both this demo and the "
-            "``omnidreams.webrtc.server`` scene pipeline."
+            "centralized ``webrtc`` scene pipeline."
         ),
     )
     parser.add_argument(
@@ -692,8 +698,46 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
 
 
 def main() -> None:
+    """Run the legacy parser entry point used by internal development tools."""
+    _run_namespace(build_parser().parse_args())
+
+
+def launch_from_runner(
+    *,
+    config: object,
+    world_model_manifest: Path,
+    scenario: dict[str, object],
+    output: dict[str, object],
+) -> None:
+    """Launch the local window directly from the central resolved launch."""
+    args = build_parser().parse_args([])
+    args.backend = "omnidreams"
+    args.manifest = world_model_manifest
+    preset = getattr(getattr(config, "postprocess", None), "preset", "")
+    args.postprocess_preset = output.get("postprocess_preset", preset)
+    for key, value in scenario.items():
+        if value is not None:
+            setattr(args, key, _coerce_launch_path(key, value))
+    for key, value in output.items():
+        if (
+            key not in {"world_model_manifest_path", "postprocess_preset"}
+            and value is not None
+        ):
+            setattr(args, key, _coerce_launch_path(key, value))
+    _run_namespace(args)
+
+
+def _coerce_launch_path(key: str, value: object) -> object:
+    if key.endswith(("_path", "_dir")) or key in {"scene", "wheel_device"}:
+        return Path(value)  # type: ignore[arg-type]
+    if key.endswith("_axis") and isinstance(value, (list, tuple)):
+        return tuple(int(item) for item in value)
+    return value
+
+
+def _run_namespace(args: argparse.Namespace) -> None:
+    """Execute one already-resolved local-window namespace."""
     configure_logging()
-    args = build_parser().parse_args()
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a
@@ -814,7 +858,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         wheel = WheelBridge(
             device_paths=device_paths,
             profile=profile,
-            control=KeyboardStateDriveSink(app.keyboard),
+            control=KeyboardStateDriveSink(app.keyboard, source="wheel"),
         )
         wheel.start()
         presenter.set_wheel(wheel)

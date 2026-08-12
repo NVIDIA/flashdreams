@@ -75,7 +75,7 @@ class VideoPostprocessStepStats:
 
 
 class VideoPostprocessStream:
-    """Process and collect decoded video chunks through one configured chain.
+    """Process decoded video chunks through one configured chain.
 
     This object belongs to the runner or serving output layer. It deliberately
     sits outside :class:`StreamInferencePipeline`, whose contract remains
@@ -91,9 +91,6 @@ class VideoPostprocessStream:
         per_view: bool = False,
         world_size: int = 1,
         profile: bool = False,
-        collect_output: bool = True,
-        move_to_cpu: bool = True,
-        empty_message: str = "post-processing emitted no video frames",
     ) -> None:
         postprocess.validate_execution(world_size=world_size)
         self.postprocess = postprocess
@@ -102,18 +99,14 @@ class VideoPostprocessStream:
         self.per_view = per_view
         self.world_size = world_size
         self.profile = profile
-        self.collect_output = collect_output
-        self.move_to_cpu = move_to_cpu
-        self.empty_message = empty_message
         self.state = _VideoPostprocessStreamState()
         self._time_dim = _video_layout_time_dim(output_layout)
-        self._chunks: list[Tensor] = []
         self._closed = False
         self._prepared = False
         self.last_process_stats: VideoPostprocessStepStats | None = None
 
     def process(self, output: Tensor, *, autoregressive_index: int) -> Tensor:
-        """Process and collect one decoded chunk."""
+        """Process one decoded chunk and return emitted frames."""
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
         self.last_process_stats = None
@@ -128,7 +121,6 @@ class VideoPostprocessStream:
                 autoregressive_index=autoregressive_index,
                 output=output,
             )
-            self._append_if_nonempty(result)
             return result
 
         profiler = self._create_event_profiler()
@@ -156,7 +148,6 @@ class VideoPostprocessStream:
             f"input {tuple(output.shape)} output {tuple(result.shape)} | "
             f"buffering {self.last_process_stats.buffering}"
         )
-        self._append_if_nonempty(result)
         return result
 
     def add_process_stats(self, stats: dict[str, float]) -> dict[str, object]:
@@ -167,20 +158,17 @@ class VideoPostprocessStream:
         return combined
 
     def finish(self) -> Tensor | None:
-        """Flush buffered output and return the collected rank-zero video."""
+        """Close the stream and return any post-processing tail frames."""
         if self._closed:
             return None
         self._closed = True
         if not self.profile:
-            flushed = flush_video_postprocess(
+            return flush_video_postprocess(
                 postprocess=self.postprocess,
                 output_layout=self.output_layout,
                 per_view=self.per_view,
                 state=self.state,
             )
-            if flushed is not None:
-                self._append_if_nonempty(flushed)
-            return self._collected_output()
 
         profiler = self._create_event_profiler()
         result = flush_video_postprocess(
@@ -193,9 +181,7 @@ class VideoPostprocessStream:
         elapsed_ms = profiler.sync_and_summarize()["postprocess_flush"]
         output_shape = None if result is None else tuple(result.shape)
         logger.info(f"postprocess flush {elapsed_ms:.3f} ms | output {output_shape}")
-        if result is not None:
-            self._append_if_nonempty(result)
-        return self._collected_output()
+        return result
 
     def _create_event_profiler(self) -> EventProfiler:
         # The stream owns its one explicit readiness barrier in ``_prepare``.
@@ -225,19 +211,35 @@ class VideoPostprocessStream:
             torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
         self._prepared = True
 
-    def _append_if_nonempty(self, output: Tensor) -> None:
-        if not self.collect_output or output.shape[self._time_dim] == 0:
-            return
-        self._chunks.append(output.cpu() if self.move_to_cpu else output)
 
-    def _collected_output(self) -> Tensor | None:
-        if not self.collect_output:
-            return None
-        if not self._chunks:
-            raise ValueError(self.empty_message)
-        output = torch.cat(self._chunks, dim=self._time_dim)
-        self._chunks.clear()
-        return output
+def create_video_postprocess_stream(
+    *,
+    postprocess: VideoPostprocessChainConfig,
+    output_layout: VideoTensorLayout,
+    fps: float | None,
+    per_view: bool,
+    world_size: int,
+    is_rank_zero: bool = True,
+    profile: bool = False,
+) -> VideoPostprocessStream | None:
+    """Create a post-processing stream for one generated video rollout."""
+    if not postprocess.is_enabled():
+        return None
+    postprocess.validate_execution(world_size=world_size)
+    if (
+        world_size > 1
+        and not is_rank_zero
+        and not postprocess.requires_all_ranks(world_size=world_size)
+    ):
+        return None
+    return VideoPostprocessStream(
+        postprocess=postprocess,
+        output_layout=output_layout,
+        fps=fps,
+        per_view=per_view,
+        world_size=world_size,
+        profile=profile,
+    )
 
 
 def create_runner_postprocess_stream(
@@ -251,14 +253,6 @@ def create_runner_postprocess_stream(
     postprocess = getattr(config, "postprocess")
     if not postprocess.is_enabled():
         return None
-    postprocess.validate_execution(world_size=world_size)
-    if (
-        world_size > 1
-        and not is_rank_zero
-        and not postprocess.requires_all_ranks(world_size=world_size)
-    ):
-        return None
-
     output_layout = getattr(config, "postprocess_output_layout")
     if output_layout is None:
         raise ValueError(
@@ -270,13 +264,13 @@ def create_runner_postprocess_stream(
     if configured_fps is None:
         configured_fps = getattr(config, "fps", getattr(config, "output_fps", None))
 
-    return VideoPostprocessStream(
+    return create_video_postprocess_stream(
         postprocess=postprocess,
         output_layout=output_layout,
         fps=configured_fps,
         per_view=getattr(config, "postprocess_per_view"),
         world_size=world_size,
-        collect_output=is_rank_zero,
+        is_rank_zero=is_rank_zero,
         profile=bool(
             getattr(getattr(config, "pipeline", None), "enable_sync_and_profile", False)
         ),
@@ -519,8 +513,8 @@ def _postprocess_chunks_to_tensor(
         )
     # A streaming post-processor may consume this AR chunk without emitting
     # frames yet. Keep ``process()`` tensor-only by returning an empty tensor
-    # in the caller's layout instead of ``None``; ``_append_if_nonempty`` skips
-    # collection later by checking that the time dimension is zero.
+    # in the caller's layout instead of ``None``; output sinks can skip it by
+    # checking that the time dimension is zero.
     canonical = to_bvtchw(reference, layout=layout)[:, :, :0]
     return from_bvtchw(canonical, layout=layout)
 

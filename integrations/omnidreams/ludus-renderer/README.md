@@ -1,22 +1,20 @@
 # Ludus Renderer
 
-GPU-native F-theta renderer for autonomous vehicle simulation, with two
-interchangeable backends:
-
-- **CUDA software rasterizer** (`LudusCudaTimestampedContext`): always
-  available, no graphics driver required, built on the HPG 2011
-  CudaRaster triangle pipeline.
-- **Vulkan mesh-shader backend** (`LudusTimestampedContext`): opt-in,
-  uses `VK_EXT_mesh_shader` for hardware-accelerated procedural geometry
-  with CUDA-Vulkan external-memory interop.
+GPU-native F-theta renderer and PhysX-first object graph for autonomous
+vehicle simulation. Rendering is CUDA-only and is built on the HPG 2011
+CudaRaster triangle pipeline.
 
 ## Features
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
-- **Two rendering backends**: CUDA software rasterizer or Vulkan mesh shaders
+- **One CUDA rendering path**: no graphics API interop or duplicate backend
+- **PhysX object graph**: generic rigid bodies and invisible map barriers;
+  applications own semantic vehicle design and driving policy
+- **Mutable simulation buffers**: actor add/update/remove operations preserve one
+  native scene and one fixed-capacity state table
 - **Timestamped Rendering**: Efficient temporal queries for simulation playback
 - **Adaptive Tessellation**: Automatic subdivision based on distortion error
-- **MSAA**: 4x antialiasing (2x supersampling on CUDA, hardware MSAA on Vulkan)
+- **MSAA**: configurable CUDA supersampling
 - **Mirror Augmentation**: Extend scenes by tiling reflected copies for longer driving sequences
 - **GPU Spatial Culling**: Per-element AABB/sphere culling for large scenes
 
@@ -32,13 +30,8 @@ interchangeable backends:
 - NVIDIA GPU (Turing or later)
 - CUDA 11+
 - Python 3.10+
+- A C++17 compiler (Visual Studio 2022 on Windows)
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
-
-**For the Vulkan backend additionally:**
-- Vulkan 1.3 SDK or `libvulkan-dev` + `libvulkan1` (Debian/Ubuntu)
-- An NVIDIA GPU + driver that exposes `VK_EXT_mesh_shader` (Ada generation
-  and later on the latest production drivers; consult `vulkaninfo`).
-- To rebuild shaders from source: `glslangValidator` from the Vulkan SDK.
 
 ## Installation
 
@@ -51,60 +44,45 @@ Dependencies installed:
 - NumPy, Pandas, SciPy
 - PyArrow (for parquet scene files)
 - Pillow, ImageIO (for image handling)
+- CMake 4+ for the one-time native module build
+- NVIDIA PhysX 5.9.0, fetched from the official repository at a pinned commit
+  and verified by SHA-256
+
+Prebuild PhysX during environment setup so interactive startup never pays the
+one-time compile cost:
+
+```bash
+uv run --package ludus-renderer python -c "from ludus_renderer import prepare_physx; prepare_physx()"
+```
 
 ## Usage
 
-The default CUDA backend just works everywhere:
+The CUDA renderer is the only public rendering backend:
 
 ```python
 from ludus_renderer import LudusCudaTimestampedContext
 ctx = LudusCudaTimestampedContext(device="cuda")
 ```
 
-The Vulkan backend has the same public API and is selected at construction:
+`PhysXWorld` consumes `PhysicsObjectGraph` and creates `PxScene`, rigid actors,
+materials, and shapes directly, without an intermediate scene-format runtime.
+The first PhysX use in each process asks CMake to configure and build the pinned
+CPU module. CMake reuses the platform build cache and only rebuilds targets that
+are out of date; later PhysX worlds in the same process reuse the already-loaded
+module without invoking CMake again. Set `LUDUS_PHYSX_CACHE` to place this cache
+elsewhere.
 
-```python
-from ludus_renderer import LudusTimestampedContext
-ctx = LudusTimestampedContext(device="cuda")
-# ... ctx.upload_cameras / upload_scene / render_batch ...
-```
+`PhysicsObjectGraph.upsert_object`, `remove_object`, `upsert_barrier`, and
+`remove_barrier` edit graph topology. `PhysXWorld.synchronize` applies only those
+differences to the live scene. Its `state_buffer` and `active_buffer` views keep
+the same addresses while body slots are recycled. `MutableObjectSceneBuffer`
+owns the CUDA renderer's update-versus-reallocate policy, so interactive clients
+do not manage packed-scene replacement themselves.
 
-If Vulkan headers / loader / `VK_EXT_mesh_shader` are missing, the
-constructor raises a friendly `ImportError`. The CUDA backend stays
-fully usable.
-
-### Choosing a backend
-
-| Aspect | CUDA backend | Vulkan backend |
-| --- | --- | --- |
-| Driver requirement | CUDA only | CUDA + Vulkan 1.3 + `VK_EXT_mesh_shader` |
-| Geometry generation | CUDA kernels (CPU-side dispatch) | Task/Mesh shaders on the GPU |
-| Render dispatch | One CUDA kernel per query (Python loop) | Single Vulkan submission per batch |
-| MSAA | 2x supersampling | Hardware 4x MSAA |
-| First-call cost | Plugin JIT (~10s once) | Plugin JIT (~10s once) + Vulkan context init |
-
-### Shader build (Vulkan only)
-
-The Vulkan backend ships with pre-compiled SPIR-V embedded in
-`_cpp/render/shaders_spv.h`. The GLSL sources in `ludus_renderer/shaders/`
-are hand-maintained `GL_EXT_mesh_shader` style; regenerate after editing them
-with:
-
-```bash
-bash ludus_renderer/shaders/compile.sh    # GLSL -> SPIR-V -> embed in shaders_spv.h
-```
-
-### v1 caveats for the Vulkan backend
-
-- Dot-primitive rendering (`PRIM_DOT_*`) is implemented in the CUDA
-  backend but not yet plumbed through the Vulkan task/mesh pipeline.
-- The CUDA-Vulkan handoff uses opaque file-descriptor external memory,
-  which is Linux-only; the Vulkan plugin currently refuses to build on
-  Windows. The CUDA backend remains cross-platform.
-- Diagnostics: set `LUDUS_VK_DEBUG=1` to enable internal `[Vulkan] ...`
-  trace logs, and `LUDUS_VK_CLEAR_RED=1` to clear the framebuffer to
-  opaque red instead of transparent black (useful to verify the
-  render-pass and readback path are alive independent of the shaders).
+`build_hdmap_object_pool` turns simulated graph tracks into the same oriented
+boxes used by regular-camera and BEV model inputs. `PhysicsObjectGraph.copy_for_physx`
+creates a bounded active topology while the complete graph remains available to
+render model-input and BEV boxes.
 
 ## Examples
 

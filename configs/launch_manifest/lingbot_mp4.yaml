@@ -1,0 +1,14 @@
+schema_version: 1
+runner: lingbot-world-fast
+mode: mp4
+
+scenario:
+  example_data: true
+  example_idx: 0
+  total_blocks: 20
+  pixel_width: 832
+  pixel_height: 464
+
+output:
+  path: ../../outputs/lingbot-replay.mp4
+  fps: 16

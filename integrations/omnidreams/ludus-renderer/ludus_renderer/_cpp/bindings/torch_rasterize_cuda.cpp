@@ -18,6 +18,7 @@
 #include "../common/common.h"
 #include "../render/ludus_cuda.h"
 #include "../cudaraster/CudaRaster.hpp"
+#include <limits>
 #include <tuple>
 
 //------------------------------------------------------------------------
@@ -48,6 +49,7 @@ public:
 
 CudaRasterTestWrapper::CudaRasterTestWrapper(int cudaDeviceIdx)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, cudaDeviceIdx));
     m_impl = new Impl(cudaDeviceIdx);
 }
 
@@ -199,22 +201,42 @@ static torch::Tensor flu_to_rdf_cuda(const torch::Tensor& camera_poses)
 // CUDA renderer state wrapper.
 
 LudusCudaStateWrapper::LudusCudaStateWrapper(int cudaDeviceIdx_)
+    : pState(nullptr)
+    , cudaDeviceIdx(cudaDeviceIdx_)
+    , lastUseEvent(nullptr)
+    , hasLastUseEvent(false)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, cudaDeviceIdx));
     pState = new LudusCudaState();
-    cudaDeviceIdx = cudaDeviceIdx_;
+    AT_CUDA_CHECK(cudaEventCreateWithFlags(&lastUseEvent, cudaEventDisableTiming));
     ludusCudaInit(NVDR_CTX_PARAMS, *pState);
 }
 
 LudusCudaStateWrapper::~LudusCudaStateWrapper(void)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (hasLastUseEvent)
+        AT_CUDA_CHECK(cudaEventSynchronize(lastUseEvent));
     ludusCudaDestroy(NVDR_CTX_PARAMS, *pState);
     delete pState;
+    AT_CUDA_CHECK(cudaEventDestroy(lastUseEvent));
+}
+
+static void synchronizeStateForMutation(LudusCudaStateWrapper& stateWrapper)
+{
+    if (stateWrapper.hasLastUseEvent)
+        AT_CUDA_CHECK(cudaEventSynchronize(stateWrapper.lastUseEvent));
 }
 
 void LudusCudaStateWrapper::setLineWidths(float polyline_regular, float polyline_bev,
                                            float ego_traj_regular, float ego_traj_bev,
                                            float wireframe)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     pState->widthPolylineRegular = polyline_regular;
     pState->widthPolylineBev = polyline_bev;
     pState->widthEgoTrajRegular = ego_traj_regular;
@@ -224,21 +246,43 @@ void LudusCudaStateWrapper::setLineWidths(float polyline_regular, float polyline
 
 void LudusCudaStateWrapper::setResolutionScale(float scale)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     pState->resolutionScale = scale;
 }
 
 void LudusCudaStateWrapper::setDepthScaling(float enabled)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     pState->depthScaling = enabled;
 }
 
 void LudusCudaStateWrapper::setCullRadius(float radius)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     pState->cullRadiusScale = radius;
 }
 
 void LudusCudaStateWrapper::setMaxTessellationLevels(int polyline, int polygon, int cube)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
+    NVDR_CHECK(polyline >= 0 && polyline <= 4,
+               "polyline tessellation level must be in [0, 4]");
+    NVDR_CHECK(polygon >= 0 && polygon <= 3,
+               "polygon tessellation level must be in [0, 3]");
+    NVDR_CHECK(cube >= 0 && cube <= 3,
+               "cube tessellation level must be in [0, 3]");
     pState->maxTessPolyline = polyline;
     pState->maxTessPolygon = polygon;
     pState->maxTessCube = cube;
@@ -246,6 +290,10 @@ void LudusCudaStateWrapper::setMaxTessellationLevels(int polyline, int polygon, 
 
 void LudusCudaStateWrapper::setMsaaSamples(int samples)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     NVDR_CHECK(samples == 0 || samples == 4,
                "CUDA renderer MSAA samples must be 0 (disabled) or 4 (4x SSAA)");
     pState->msaaSamples = samples;
@@ -253,6 +301,10 @@ void LudusCudaStateWrapper::setMsaaSamples(int samples)
 
 void LudusCudaStateWrapper::uploadColorPalette(torch::Tensor colors)
 {
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
     NVDR_CHECK(colors.dim() == 1, "color palette must be 1D tensor of packed RGBA8 uint32");
     int count = colors.size(0);
     std::vector<uint32_t> hostPalette(count);
@@ -278,6 +330,9 @@ torch::Tensor ludus_render_fwd_cuda(
 {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(camera_poses));
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    std::lock_guard<std::mutex> state_lock(stateWrapper.stateMutex);
+    if (stateWrapper.hasLastUseEvent)
+        AT_CUDA_CHECK(cudaStreamWaitEvent(stream, stateWrapper.lastUseEvent, 0));
     LudusCudaState& s = *stateWrapper.pState;
 
     NVDR_CHECK_DEVICE(polyline_headers, polygon_headers, cubes, vertices, triangles, camera_intrinsics, camera_poses);
@@ -334,6 +389,9 @@ torch::Tensor ludus_render_fwd_cuda(
                     nullptr, 0,
                     nullptr, 0);
 
+    AT_CUDA_CHECK(cudaEventRecord(stateWrapper.lastUseEvent, stream));
+    stateWrapper.hasLastUseEvent = true;
+
     return out_rgba;
 }
 
@@ -359,6 +417,9 @@ torch::Tensor ludus_render_fwd_cuda_ts(
 {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(camera_poses));
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    std::lock_guard<std::mutex> state_lock(stateWrapper.stateMutex);
+    if (stateWrapper.hasLastUseEvent)
+        AT_CUDA_CHECK(cudaStreamWaitEvent(stream, stateWrapper.lastUseEvent, 0));
     LudusCudaState& s = *stateWrapper.pState;
 
     NVDR_CHECK_DEVICE(polyline_headers, polygon_headers, cubes, vertices, triangles, camera_intrinsics, camera_poses);
@@ -440,6 +501,9 @@ torch::Tensor ludus_render_fwd_cuda_ts(
                     pools.data(), numPools,
                     dotGroups.data(), numDotGroups);
 
+    AT_CUDA_CHECK(cudaEventRecord(stateWrapper.lastUseEvent, stream));
+    stateWrapper.hasLastUseEvent = true;
+
     return out_rgba;
 }
 
@@ -456,7 +520,9 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
     torch::Tensor polyline_pools,     // [num_pl_pools, 16] uint32
     torch::Tensor polygon_pools,      // [num_pg_pools, 16] uint32
     torch::Tensor cube_pools,         // [num_cb_pools, 16] uint32
-    int64_t query_timestamp_us,
+    int total_cubes,
+    std::vector<int64_t> cube_pool_counts,
+    std::vector<int64_t> query_timestamps_us,
     int max_extrapolation_us,
     int max_varrays_per_ts_polyline,
     int max_varrays_per_ts_polygon,
@@ -468,12 +534,63 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
 {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(camera_poses));
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    std::lock_guard<std::mutex> state_lock(stateWrapper.stateMutex);
+    if (stateWrapper.hasLastUseEvent)
+        AT_CUDA_CHECK(cudaStreamWaitEvent(stream, stateWrapper.lastUseEvent, 0));
     LudusCudaState& s = *stateWrapper.pState;
 
+    NVDR_CHECK_DEVICE(timestamps, int32_data, vertices, triangles, float_data,
+                      polyline_pools, polygon_pools, cube_pools,
+                      camera_intrinsics, camera_poses);
+    NVDR_CHECK_CONTIGUOUS(timestamps, int32_data, vertices, triangles, float_data,
+                          polyline_pools, polygon_pools, cube_pools,
+                          camera_intrinsics, camera_poses);
+    NVDR_CHECK(timestamps.dtype() == torch::kInt64, "timestamps must be int64");
+    NVDR_CHECK_I32(int32_data, triangles, polyline_pools, polygon_pools, cube_pools);
+    NVDR_CHECK_F32(vertices, float_data, camera_intrinsics, camera_poses);
+
+    int inputDevice = camera_poses.get_device();
+    NVDR_CHECK(timestamps.get_device() == inputDevice &&
+               int32_data.get_device() == inputDevice &&
+               vertices.get_device() == inputDevice &&
+               triangles.get_device() == inputDevice &&
+               float_data.get_device() == inputDevice &&
+               polyline_pools.get_device() == inputDevice &&
+               polygon_pools.get_device() == inputDevice &&
+               cube_pools.get_device() == inputDevice &&
+               camera_intrinsics.get_device() == inputDevice,
+               "all timestamped renderer tensors must be on the same CUDA device");
     NVDR_CHECK(camera_poses.get_device() == stateWrapper.cudaDeviceIdx,
                "CUDA context must reside on the same device as input tensors");
 
+    NVDR_CHECK(timestamps.dim() == 1, "timestamps must have shape [N]");
+    NVDR_CHECK(int32_data.dim() == 1, "int32_data must have shape [N]");
+    NVDR_CHECK(vertices.dim() == 2 && vertices.size(1) == 4,
+               "vertices must have shape [N, 4]");
+    NVDR_CHECK(triangles.dim() == 2 && triangles.size(1) == 4,
+               "triangles must have shape [N, 4]");
+    NVDR_CHECK(float_data.dim() == 1, "float_data must have shape [N]");
+    NVDR_CHECK(polyline_pools.dim() == 2 && polyline_pools.size(1) == 16,
+               "polyline_pools must have shape [N, 16]");
+    NVDR_CHECK(polygon_pools.dim() == 2 && polygon_pools.size(1) == 16,
+               "polygon_pools must have shape [N, 16]");
+    NVDR_CHECK(cube_pools.dim() == 2 && cube_pools.size(1) == 16,
+               "cube_pools must have shape [N, 16]");
+    NVDR_CHECK(camera_intrinsics.dim() == 2 && camera_intrinsics.size(1) == 18,
+               "camera_intrinsics must have shape [C, 18]");
+    NVDR_CHECK(camera_poses.dim() == 3 && camera_poses.size(1) == 4 && camera_poses.size(2) == 4,
+               "camera_poses must have shape [C, 4, 4]");
+    NVDR_CHECK(camera_intrinsics.size(0) == camera_poses.size(0),
+               "camera intrinsics and poses must have matching camera counts");
+    NVDR_CHECK(max_varrays_per_ts_polyline >= 0 && max_varrays_per_ts_polygon >= 0,
+               "max varrays per timestamp must be non-negative");
+    NVDR_CHECK(total_cubes >= 0, "total cubes must be non-negative");
+    NVDR_CHECK(camera_type_id == 0 || camera_type_id == 1,
+               "camera_type_id must be 0 (regular) or 1 (BEV)");
+
     int numCameras = camera_intrinsics.size(0);
+    NVDR_CHECK((int)query_timestamps_us.size() == numCameras,
+               "query timestamps must match camera count");
     int height = std::get<0>(resolution);
     int width = std::get<1>(resolution);
     NVDR_CHECK(height > 0 && width > 0, "resolution must be [>0, >0]");
@@ -506,6 +623,16 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
     int numPlPools = polyline_pools.size(0);
     int numPgPools = polygon_pools.size(0);
     int numCbPools = cube_pools.size(0);
+    NVDR_CHECK((int)cube_pool_counts.size() == numCbPools,
+               "cube pool counts must match cube pool count");
+    int64_t countedCubes = 0;
+    for (int64_t count : cube_pool_counts) {
+        NVDR_CHECK(count >= 0 && count <= std::numeric_limits<int>::max(),
+                   "cube pool counts must fit non-negative int32");
+        countedCubes += count;
+    }
+    NVDR_CHECK(countedCubes == total_cubes,
+               "cube pool counts must sum to total cubes");
 
     const TsPolylinePoolHeader* plPoolPtr = numPlPools > 0 ?
         reinterpret_cast<const TsPolylinePoolHeader*>(polyline_pools.data_ptr<int32_t>()) : nullptr;
@@ -530,13 +657,17 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
                                plPoolPtr, numPlPools,
                                pgPoolPtr, numPgPools,
                                cbPoolPtr, numCbPools,
-                               query_timestamp_us, max_extrapolation_us,
+                               total_cubes, cube_pool_counts.data(),
+                               query_timestamps_us.data(), max_extrapolation_us,
                                max_varrays_per_ts_polyline,
                                max_varrays_per_ts_polygon,
                                params,
                                intrinsicsPtr, posePtr,
                                numCameras, width, height,
                                out_rgba.data_ptr<uint8_t>());
+
+    AT_CUDA_CHECK(cudaEventRecord(stateWrapper.lastUseEvent, stream));
+    stateWrapper.hasLastUseEvent = true;
 
     return out_rgba;
 }

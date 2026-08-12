@@ -15,7 +15,6 @@ from omnidreams.interactive_drive.config import WorldModelProfileConfig
 from omnidreams.interactive_drive.world_model.flashdreams_adapter import (
     FlashdreamsWorldModelSession,
     _build_pipeline_config,
-    _LazyRGBFrame,
     _select_config_name,
 )
 from omnidreams.interactive_drive.world_model.manifest import WorldModelManifest
@@ -24,6 +23,7 @@ from omnidreams.interactive_drive.world_model.synthetic_fixture import (
 )
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from flashdreams.infra.video_output import LazyRGBFrame
 
 
 class _FakePipeline:
@@ -240,6 +240,18 @@ def test_build_pipeline_config_synthetic_swaps_only_weight_sources(
     assert not _contains_hf_url(synthetic)
 
 
+def test_build_pipeline_config_can_skip_io_compilation() -> None:
+    config = _build_pipeline_config(
+        replace(_manifest(), compile_encoders=False, compile_decoder=False),
+        profile=WorldModelProfileConfig(),
+    )
+
+    assert config.encoder.use_compile is False
+    assert config.image_encoder.use_compile is False
+    assert config.decoder.use_compile is False
+    assert config.diffusion_model.transformer.compile_network is True
+
+
 def test_native_vae_encoder_requires_light_vae_recipe() -> None:
     with pytest.raises(ValueError, match="native_vae_encoder=fp8 requires light_vae"):
         _build_pipeline_config(
@@ -288,6 +300,7 @@ def test_session_postprocesses_local_frames_and_supports_live_toggle(
             self.kwargs = kwargs
             self.calls: list[int] = []
             self.finished = False
+            self.last_process_stats = None
             streams.append(self)
 
         def process(
@@ -317,7 +330,9 @@ def test_session_postprocesses_local_frames_and_supports_live_toggle(
     first_stream = streams[0]
     assert first_stream.calls == [0]
     assert first_stream.kwargs["output_layout"] == "bvtchw"
-    assert first_stream.kwargs["collect_output"] is False
+    assert first_stream.kwargs["fps"] == session.manifest.fps
+    assert "collect_output" not in first_stream.kwargs
+    assert "move_to_cpu" not in first_stream.kwargs
 
     session.set_postprocess_enabled(False)
     assert first_stream.finished is True
@@ -382,7 +397,7 @@ def test_session_synchronizes_generated_frame_events_before_return(monkeypatch) 
 
 def test_lazy_rgb_frame_exposes_tensor_before_host_materialization() -> None:
     frames = torch.arange(2 * 2 * 3 * 3, dtype=torch.uint8).reshape(2, 2, 3, 3)
-    lazy = _LazyRGBFrame(frames, frame_index=1)
+    lazy = LazyRGBFrame(frames, frame_index=1)
 
     tensor = lazy.to_cuda_tensor()
 

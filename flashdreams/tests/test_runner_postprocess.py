@@ -104,7 +104,7 @@ def test_rank_zero_processor_is_skipped_on_nonzero_rank() -> None:
     assert stream is None
 
 
-def test_all_rank_processor_stream_does_not_collect_on_nonzero_rank() -> None:
+def test_all_rank_processor_stream_is_created_on_nonzero_rank() -> None:
     config = _config(
         VideoPostprocessChainConfig(
             processors=(_DistributedProcessorConfig(attention_mode="full"),)
@@ -118,4 +118,5 @@ def test_all_rank_processor_stream_does_not_collect_on_nonzero_rank() -> None:
     )
 
     assert stream is not None
-    assert not stream.collect_output
+    assert stream.world_size == 2
+    assert stream.postprocess is config.postprocess

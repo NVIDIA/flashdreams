@@ -129,15 +129,25 @@ class WorldModelRenderBackend(RenderBackend):
             raster_chunk = self._rasterizer.render_chunk(
                 rig_poses_world=trajectory.rig_poses_world,
                 timestamps_us=trajectory.timestamps_us,
+                physics_debug_frames=trajectory.physics_debug_frames,
             )
             raster_end = time.perf_counter()
             condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
             display_frames = raster_chunk.frames
         else:
-            raster_end = time.perf_counter()
             condition_frames = [
                 frame.copy() for frame in self._debug_first_chunk_condition_frames
             ]
+            physx_frames = (
+                self._rasterizer.render_physx_debug_lazy_frames(
+                    trajectory.rig_poses_world,
+                    trajectory.timestamps_us,
+                    trajectory.physics_debug_frames,
+                )
+                if trajectory.physics_debug_frames
+                else ()
+            )
+            raster_end = time.perf_counter()
             display_frames = tuple(
                 PresentedFrame(
                     timestamp_us=int(timestamp_us),
@@ -145,11 +155,21 @@ class WorldModelRenderBackend(RenderBackend):
                     depth_host_f32=None,
                     rgb_native=None,
                     depth_native=None,
+                    physx_debug=(
+                        trajectory.physics_debug_frames[index]
+                        if trajectory.physics_debug_frames
+                        else None
+                    ),
+                    physx_rgb_host_uint8=(
+                        physx_frames[index] if physx_frames else None
+                    ),
                 )
-                for timestamp_us, frame in zip(
-                    trajectory.timestamps_us,
-                    self._debug_first_chunk_condition_frames,
-                    strict=True,
+                for index, (timestamp_us, frame) in enumerate(
+                    zip(
+                        trajectory.timestamps_us,
+                        self._debug_first_chunk_condition_frames,
+                        strict=True,
+                    )
                 )
             )
             logger.info(
@@ -195,6 +215,8 @@ class WorldModelRenderBackend(RenderBackend):
         raster_chunk = self._rasterizer.render_chunk(
             rig_poses_world=trajectory.rig_poses_world,
             timestamps_us=trajectory.timestamps_us,
+            dynamic_actors=trajectory.dynamic_actors,
+            physics_debug_frames=trajectory.physics_debug_frames,
         )
         raster_end = time.perf_counter()
         condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
@@ -204,6 +226,24 @@ class WorldModelRenderBackend(RenderBackend):
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
         total_ms = (merge_end - chunk_start) * 1000.0
+        if trajectory.physx_timings is not None:
+            timing = trajectory.physx_timings
+            physx_timing = (
+                f"physx_ms={timing.total_ms:.1f} "
+                # f"physx_sync_ms={timing.synchronize_ms:.1f} "
+                # f"physx_actor_update_ms={timing.actor_update_ms:.1f} "
+                # f"physx_solver_ms={timing.solver_ms:.1f} "
+                # f"physx_readback_ms={timing.readback_ms:.1f} "
+                # f"physx_bridge_ms={timing.bridge_ms:.1f} "
+                # f"physx_visible_actors={timing.max_visible_actors} "
+                # f"physx_detached_actors={timing.max_detached_actors} "
+            )
+        else:
+            physx_timing = (
+                f"physx_ms={trajectory.physx_elapsed_s * 1000.0:.1f} "
+                if trajectory.physx_elapsed_s is not None
+                else ""
+            )
         if (
             self._next_chunk_count <= 3
             or self._next_chunk_count % 10 == 0
@@ -213,6 +253,7 @@ class WorldModelRenderBackend(RenderBackend):
                 "[world-model] next_chunk "
                 f"index={self._next_chunk_count} "
                 f"frames={len(trajectory.timestamps_us)} "
+                f"{physx_timing}"
                 f"raster_ms={(raster_end - chunk_start) * 1000.0:.1f} "
                 f"model_ms={(model_end - raster_end) * 1000.0:.1f} "
                 f"merge_ms={(merge_end - model_end) * 1000.0:.1f} "
@@ -302,6 +343,8 @@ class WorldModelRenderBackend(RenderBackend):
                     depth_native=raster_frame.depth_native,
                     model_rgb_host_uint8=model_rgb,
                     bev_host_uint8=raster_frame.bev_host_uint8,
+                    physx_debug=raster_frame.physx_debug,
+                    physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
                     status_message=(
                         _FIRST_STEADY_STATE_WARMUP_MESSAGE
                         if annotate_first_transition and index == last_index

@@ -13,10 +13,10 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Interactive-drive latency tuning
-================================
+OmniDreams interactive latency tuning
+=====================================
 
-``interactive-drive`` latency has two different components:
+Interactive launch latency has two different components:
 
 - **Model / chunk latency** is the time spent preparing HDMap conditioning,
   running the OmniDreams DiT, decoding the generated chunk, and updating model
@@ -50,8 +50,9 @@ Run the perf manifest only on hosts that can build and load the native extension
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-   uv run --package flashdreams-omnidreams interactive-drive \
-       --manifest example_world_model_perf.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run \
+       omnidreams-perf local-window \
+       --manifest configs/launch_manifest/omnidreams_local_window.yaml
 
 ``native_dit_acceleration: required`` is intentional. If the native extension is
 not available, startup fails instead of silently falling back to the slower
@@ -142,10 +143,11 @@ Pick transport based on where the viewer runs:
 
 - Local Vulkan window: lowest-overhead local presentation when the host has a
   graphics-capable GPU and display stack.
-- ``--stream-mjpeg [HOST:]PORT``: simple browser delivery from the same process.
+- ``output.stream_mjpeg`` in a local-window manifest: simple browser delivery
+  from the same process.
   Use it on compute-only hosts such as GB300 systems without a graphics queue,
   or when a laptop browser views a remote model host.
-- ``omnidreams.webrtc.server``: richer browser frontend with WebRTC's lower
+- ``webrtc`` launch mode: richer browser frontend with WebRTC's lower
   video-delivery latency and streaming gRPC service support. Prefer this for
   product-style remote viewing or multi-client integration.
 
@@ -156,8 +158,9 @@ resolution, and native-acceleration knobs first.
 Profiling and validated reference
 ---------------------------------
 
-Use ``--profile-world-model`` to enable FlashDreams CUDA-event profiling for the
-world-model runtime. Use ``--sync-gpu-timing`` only when you need raster compute
+Set ``output.profile_world_model: true`` to enable FlashDreams CUDA-event
+profiling for the world-model runtime. Set ``output.sync_gpu_timing: true`` only
+when you need raster compute
 timings; it synchronizes GPU work and is not a throughput setting.
 
 The validated published reference for interactive-drive latency is the

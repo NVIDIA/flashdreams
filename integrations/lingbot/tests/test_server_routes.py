@@ -133,7 +133,9 @@ def test_create_app_keeps_package_web_resource_materialized() -> None:
         assert len(static_resources) == 1
         web_dir = static_resources[0].get_info()["directory"]
         assert web_dir.is_dir()
-        assert "Lingbot WebRTC Viewer" in (web_dir / "request_session.html").read_text()
+        assert (
+            "FlashDreams WebRTC Drive" in (web_dir / "request_session.html").read_text()
+        )
     finally:
         app[PACKAGE_RESOURCE_STACK_KEY].close()
 
@@ -181,7 +183,26 @@ async def test_request_session_serves_html() -> None:
         response = await client.get("/request_session")
         body = await response.text()
         assert response.status == 200
-        assert "Lingbot WebRTC Viewer" in body
+        assert "FlashDreams WebRTC Drive" in body
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_lingbot_model_adapter_is_served() -> None:
+    client = await _build_client(FakeSessionManager())
+    try:
+        config = await (await client.get("/api/ui/config")).json()
+        assert config["adapter_module"].startswith("/model-static/adapter.js")
+        response = await client.get("/model-static/adapter.js")
+        body = await response.text()
+        assert response.status == 200
+        assert 'modelName: "Lingbot"' in body
+        assert "/api/session/initial_scene" in body
+        assert '{ key: "w"' in body
+        assert '{ key: "q"' in body
+        assert "enablePostprocess" not in body
+        assert "RTCPeerConnection" not in body
     finally:
         await client.close()
 

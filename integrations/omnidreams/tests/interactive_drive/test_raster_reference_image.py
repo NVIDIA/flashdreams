@@ -40,7 +40,7 @@ import numpy.typing as npt
 import pytest
 from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.backends.raster import RasterRenderBackend
-from omnidreams.interactive_drive.config import AppConfig
+from omnidreams.interactive_drive.config import AppConfig, VehicleConfig
 from omnidreams.interactive_drive.control import iterate_frame_chunks
 from omnidreams.interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from omnidreams.interactive_drive.scene_loader import load_scene_bundle
@@ -146,7 +146,15 @@ def test_raster_reference_image(
     scene_path = scene_factory(tmp_path)
     reference_png = _ARTIFACTS_DIR / reference_png_name
 
-    config = AppConfig(scene_path=scene_path, backend="raster")
+    # Keep this raster regression independent of production camera-body effects.
+    # Acceleration-induced suspension pitch intentionally changes the rig pose,
+    # which otherwise looks like a rasterization regression against this fixed
+    # reference even when the renderer itself is unchanged.
+    config = AppConfig(
+        scene_path=scene_path,
+        backend="raster",
+        vehicle=VehicleConfig(suspension_visual_gain=0.0),
+    )
     scene = load_scene_bundle(
         scene_path=config.scene_path,
         camera_name=config.camera_name,

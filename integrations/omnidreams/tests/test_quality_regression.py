@@ -32,7 +32,7 @@ from flashdreams.quality.clip_compare import (
 pytestmark = pytest.mark.ci_gpu
 
 _ENV_PREFIX = "FLASHDREAMS_OMNIDREAMS_QUALITY_"
-_DEFAULT_RUNNER = "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
+_DEFAULT_RUNNER = "omnidreams"
 _DEFAULT_TOTAL_BLOCKS = 4  # ~1 second for chunk2 + 30fps output.
 
 

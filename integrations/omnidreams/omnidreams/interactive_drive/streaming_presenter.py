@@ -5,7 +5,7 @@
 ``multipart/x-mixed-replace`` stream with keydown/keyup posted back.
 
 Dependency-free fallback for headless / compute-only hosts with no
-graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
+graphics GPU; prefer the centralized ``webrtc`` mode for a richer viewer.
 """
 
 from __future__ import annotations
@@ -28,7 +28,12 @@ from loguru import logger
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.visual_flare import (
+    CollisionVisualFlare,
+    darken_rgb,
+)
 
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
@@ -67,8 +72,10 @@ _BROWSER_KEY_TO_DRIVE_KEYSYM: dict[str, str] = {
 _BROWSER_KEY_TO_VIEW_MODE: dict[str, str] = {
     # 1 = world-model RGB (the generated drive view, the main demo output).
     # 2 = HDMap with traffic (the rasterizer's conditioning input).
+    # 3 = active PhysX colliders and invisible walls.
     "1": "model_rgb",
     "2": "rgb",
+    "3": "physx",
 }
 
 
@@ -82,19 +89,23 @@ class _KeyboardDriveSink:
     def __init__(self, keyboard: KeyboardState) -> None:
         self._keyboard = keyboard
 
-    def set_drive(self, *, steer: float, throttle: float, brake: float) -> None:
+    def set_drive(
+        self, *, steer: float, throttle: float, brake: float, reverse: bool = False
+    ) -> None:
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
                 brake=max(0.0, min(1.0, brake)),
                 steer=max(-1.0, min(1.0, steer)),
+                reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
-            )
+            ),
+            source="browser",
         )
 
     def release_all(self) -> None:
-        self._keyboard.set_drive_command(None)
+        self._keyboard.set_drive_command(None, source="browser")
 
     # No-ops in-process: the streaming presenter writes directly via
     # ``KeyboardState`` from its HTTP handler thread.
@@ -316,7 +327,7 @@ _INDEX_HTML = """<!doctype html>
 </head>
 <body>
 <img id="stream" src="/stream">
-<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; R = Reset Rollout</div>
+<div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
 <div class="scene-picker hidden" id="scene-picker">
   <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
     <span>Scenes</span>
@@ -544,6 +555,7 @@ class MJPEGStreamingPresenter:
     ) -> None:
         self._raster = raster
         self._keyboard = keyboard
+        self._visual_flare = CollisionVisualFlare()
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
@@ -723,8 +735,23 @@ class MJPEGStreamingPresenter:
         # cadence regardless of how often the browser posts /control events.
         self._keyboard_drive.update()
 
+    def trigger_visual_flare(self) -> None:
+        """Start the collision-feedback fade."""
+        self._visual_flare.trigger()
+
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
-        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+        if view_mode == "physx":
+            if frame.physx_debug is None:
+                return
+            _prefetch_to_numpy(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                )
+            )
+        elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
             _prefetch_to_numpy(frame.model_rgb_host_uint8)
         else:
             _prefetch_to_numpy(frame.rgb_host_uint8)
@@ -732,15 +759,45 @@ class MJPEGStreamingPresenter:
             _prefetch_to_numpy(frame.bev_host_uint8)
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if view_mode == "physx" and frame.physx_debug is None:
+            # Preserve the last published JPEG until a PhysX-enabled chunk is
+            # ready; publishing frame.rgb_host_uint8 here flashes the HDMap.
+            return
+        visual_flare = getattr(self, "_visual_flare", None)
+        flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
+
+        def with_flare(rgb: object) -> np.ndarray:
+            return darken_rgb(_as_rgb_host_uint8(rgb), flare_opacity)
+
         # Mirror SlangPyPresenter.present_frame's view-mode branching so
         # the user's `1`/`2` toggles behave identically.
-        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+        if view_mode == "physx":
             self._publish(
-                _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
+                with_flare(
+                    _with_status_overlay(
+                        select_presented_rgb(
+                            frame,
+                            view_mode,
+                            width=self._raster.width,
+                            height=self._raster.height,
+                        ),
+                        frame.status_message,
+                    )
+                )
+            )
+        elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+            self._publish(
+                with_flare(
+                    _with_status_overlay(
+                        frame.model_rgb_host_uint8, frame.status_message
+                    )
+                )
             )
         else:
             self._publish(
-                _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+                with_flare(
+                    _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+                )
             )
         if frame.bev_host_uint8 is not None:
             self._submit_bev_publish(frame.bev_host_uint8)

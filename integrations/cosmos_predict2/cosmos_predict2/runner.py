@@ -28,19 +28,18 @@ from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     load_first_frame_tensor,
     read_image_rgb,
     resolve_input_path,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashdreams.recipes.cosmos.pipeline import (
     CosmosInferencePipeline,
     CosmosInferencePipelineCache,
 )
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 __all__ = [
     "Cosmos2I2VRunner",
@@ -137,28 +136,40 @@ class Cosmos2T2VRunner(Runner[Cosmos2T2VRunnerConfig, CosmosInferencePipeline]):
 
         cache = self._initialize_cache()
 
-        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
+        output_stream = self.create_video_output_stream(fps=config.fps)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=config.fps,
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         generated = self.pipeline.generate(autoregressive_index=0, cache=cache)
         stats = self.pipeline.finalize(autoregressive_index=0, cache=cache)
-        postprocess_stream.process(generated, autoregressive_index=0)
-        generated = postprocess_stream.finish()
-        if generated is None:
+        output_target.write(
+            output_stream.process(generated, autoregressive_index=0, metrics=stats)
+        )
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
-
-        ensure_output_dir(config.output_dir)
-        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        write_video_tensor(generated, video_path, fps=config.fps, layout="tchw")
+        video_artifact = artifacts[0]
+        video_path = Path(video_artifact.uri)
 
         logger.info(
             f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
             f"-> {video_path.resolve()}"
         )
 
-        if stats is not None:
+        stats_history = video_artifact.metadata["stats_history"]
+        if stats_history:
             stats_path = write_runner_stats(
                 config.output_dir,
                 config.runner_name,
-                [{"autoregressive_index": 0, **stats}],
+                list(stats_history),
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats "

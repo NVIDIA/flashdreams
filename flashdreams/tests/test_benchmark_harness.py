@@ -19,18 +19,15 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import time
 import types
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import pytest
 
 from tools.benchmarks import cli as benchmark_cli
-from tools.benchmarks import harness as benchmark_harness
 from tools.benchmarks import pai_bench_profile
 from tools.benchmarks import quality as benchmark_quality
 from tools.benchmarks.harness import run_benchmark_suite
@@ -245,6 +242,47 @@ def test_shipped_one_minute_demo_scenarios_load() -> None:
     }
 
 
+def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    scenarios = load_scenario_file(
+        repo_root / "configs" / "omnidreams_demo_replay_benchmarks.json"
+    )
+
+    assert set(scenarios) == {
+        "omnidreams-sv-runner-baseline",
+        "omnidreams-sv-demo-replay",
+    }
+
+    baseline = scenarios["omnidreams-sv-runner-baseline"]
+    assert baseline.report_group is not None
+    assert baseline.report_group.id == "omnidreams-demo"
+    assert _command_value(baseline.command, "--total-blocks") == "226"
+    assert "omnidreams" in baseline.command
+    assert "omnidreams-perf" not in baseline.command
+    assert baseline.quality_baseline_compare is False
+
+    demo = scenarios["omnidreams-sv-demo-replay"]
+    assert demo.output_dir_arg is None
+    assert demo.command[:5] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "flashdreams-run",
+    )
+    assert demo.command[5:7] == ("omnidreams", "mp4")
+    assert "omnidreams-demo" not in demo.command
+    assert _command_value(demo.command, "--scenario.example-data") == "true"
+    assert _command_value(demo.command, "--scenario.total-blocks") == "226"
+    assert _command_value(demo.command, "--output.path") == (
+        "{output_dir}/omnidreams-sv-demo-replay.mp4"
+    )
+    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
+        demo.command
+    )
+    assert demo.quality_baseline_compare is False
+
+
 def test_shipped_deterministic_quality_scenarios_load() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     scenarios = load_scenario_file(
@@ -267,10 +305,8 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
         "-m",
         "tools.benchmarks.strict_run",
     )
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae" in omnidreams.command
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
-        omnidreams.command
-    )
+    assert "omnidreams" in omnidreams.command
+    assert "omnidreams-perf" not in omnidreams.command
     assert omnidreams.report_group is not None
     assert omnidreams.report_group.id == "omnidreams"
     assert omnidreams.report_group.name == "Omnidreams"
@@ -293,13 +329,8 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
 
     omnidreams_review = scenarios["omnidreams-sv-one-minute-review"]
     assert _command_value(omnidreams_review.command, "--total-blocks") == "226"
-    assert (
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
-        in omnidreams_review.command
-    )
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
-        omnidreams_review.command
-    )
+    assert "omnidreams" in omnidreams_review.command
+    assert "omnidreams-perf" not in omnidreams_review.command
     assert "--pipeline.diffusion-model.seed" in omnidreams_review.command
     assert omnidreams_review.quality_baseline_compare is False
 
@@ -684,7 +715,6 @@ def test_run_benchmark_suite_emits_progress_heartbeat(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
 def test_scenario_timeout_terminates_descendant_processes(tmp_path: Path) -> None:
     child_marker = tmp_path / "child_survived.txt"
     spawned_marker = tmp_path / "child_spawned.txt"
@@ -733,142 +763,6 @@ def test_scenario_timeout_terminates_descendant_processes(tmp_path: Path) -> Non
     assert spawned_marker.is_file()
     time.sleep(1.2)
     assert not child_marker.exists()
-
-
-def test_windows_popen_uses_new_process_group(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
-    monkeypatch.setattr(
-        benchmark_harness.subprocess,
-        "CREATE_NEW_PROCESS_GROUP",
-        512,
-        raising=False,
-    )
-
-    assert benchmark_harness._process_group_popen_kwargs() == {"creationflags": 512}
-
-
-def test_windows_timeout_uses_taskkill_process_tree(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FakeProcess:
-        pid = 1234
-        returncode: int | None = None
-        killed = False
-
-        def poll(self) -> int | None:
-            return self.returncode
-
-        def wait(self, timeout: float | None = None) -> int:
-            if self.returncode is None:
-                raise subprocess.TimeoutExpired("fake", timeout or 0.0)
-            return self.returncode
-
-        def kill(self) -> None:
-            self.killed = True
-            self.returncode = -9
-
-    process = FakeProcess()
-    commands: list[list[str]] = []
-
-    def fake_run(
-        command: list[str],
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
-        process.returncode = 1
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
-    monkeypatch.setattr(benchmark_harness.subprocess, "run", fake_run)
-
-    benchmark_harness._terminate_process(cast(subprocess.Popen[str], process))
-
-    assert commands == [["taskkill", "/F", "/T", "/PID", "1234"]]
-    assert process.killed is False
-
-
-def test_windows_timeout_uses_powershell_when_taskkill_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FakeProcess:
-        pid = 1234
-        returncode: int | None = None
-        killed = False
-
-        def poll(self) -> int | None:
-            return self.returncode
-
-        def wait(self, timeout: float | None = None) -> int:
-            if self.returncode is None:
-                raise subprocess.TimeoutExpired("fake", timeout or 0.0)
-            return self.returncode
-
-        def kill(self) -> None:
-            self.killed = True
-            self.returncode = -9
-
-    process = FakeProcess()
-    commands: list[list[str]] = []
-
-    def fake_run(
-        command: list[str],
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
-        if command[0] == "taskkill":
-            return subprocess.CompletedProcess(command, 1)
-        process.returncode = 1
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
-    monkeypatch.setattr(benchmark_harness.subprocess, "run", fake_run)
-
-    benchmark_harness._terminate_process(cast(subprocess.Popen[str], process))
-
-    assert commands[0] == ["taskkill", "/F", "/T", "/PID", "1234"]
-    assert commands[1][0] == "powershell.exe"
-    assert "-Command" in commands[1]
-    assert commands[1][-1] == "1234"
-    assert process.killed is False
-
-
-def test_windows_timeout_cleanup_failure_is_explicit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FakeProcess:
-        pid = 1234
-        returncode: int | None = None
-        killed = False
-
-        def poll(self) -> int | None:
-            return self.returncode
-
-        def wait(self, timeout: float | None = None) -> int:
-            if self.returncode is None:
-                raise subprocess.TimeoutExpired("fake", timeout or 0.0)
-            return self.returncode
-
-        def kill(self) -> None:
-            self.killed = True
-            self.returncode = -9
-
-    process = FakeProcess()
-
-    def fake_run(
-        command: list[str],
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 1)
-
-    monkeypatch.setattr(benchmark_harness.os, "name", "nt")
-    monkeypatch.setattr(benchmark_harness.subprocess, "run", fake_run)
-
-    with pytest.raises(RuntimeError, match="Failed to terminate Windows process tree"):
-        benchmark_harness._terminate_process(cast(subprocess.Popen[str], process))
-
-    assert process.killed is True
 
 
 def test_quality_command_can_report_skipped_status(tmp_path: Path) -> None:

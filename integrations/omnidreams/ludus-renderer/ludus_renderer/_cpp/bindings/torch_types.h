@@ -14,6 +14,7 @@
 // limitations under the License.
 
 #include "torch_common.inl"
+#include <mutex>
 #include <optional>
 
 //------------------------------------------------------------------------
@@ -42,6 +43,9 @@ public:
 
     LudusCudaState*             pState;
     int                         cudaDeviceIdx;
+    cudaEvent_t                 lastUseEvent;
+    bool                        hasLastUseEvent;
+    std::mutex                  stateMutex;
 };
 
 //------------------------------------------------------------------------

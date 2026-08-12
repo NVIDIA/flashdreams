@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import cast
 
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -16,17 +16,31 @@ from av import VideoFrame
 from av.packet import Packet
 from loguru import logger
 
-from flashdreams.serving.realtime.media import tensor_chunk_to_rgb_frames
-
-if TYPE_CHECKING:
-    import torch
+from flashdreams.runtime import StepResult
+from flashdreams.serving.realtime.media import (
+    FrameLayout,
+    ValueRange,
+    rgb_array_to_uint8_frames,
+)
+from flashdreams.serving.realtime.media import (
+    tensor_chunk_to_rgb_frames as tensor_chunk_to_rgb_frames,
+)
 
 _STALL_THRESHOLD_MS = 1.0
 _PACING_LAG_LOG_MS = 5.0
 
 
-def _default_frame_converter(video_chunk: torch.Tensor) -> list[np.ndarray]:
-    return tensor_chunk_to_rgb_frames(video_chunk, sync_device=True)
+def _default_frame_converter(result: StepResult) -> list[np.ndarray]:
+    video_chunk = result.video_chunk
+    value_range: ValueRange = (
+        "minus_one_one" if video_chunk.is_floating_point() else "uint8"
+    )
+    return rgb_array_to_uint8_frames(
+        video_chunk,
+        layout=cast(FrameLayout, result.layout),
+        value_range=value_range,
+        sync_device=True,
+    )
 
 
 class BufferedVideoTrack(MediaStreamTrack):
@@ -39,7 +53,7 @@ class BufferedVideoTrack(MediaStreamTrack):
         *,
         fps: int,
         maxsize: int,
-        frame_converter: Callable[[torch.Tensor], list[np.ndarray]] | None = None,
+        frame_converter: Callable[[StepResult], list[np.ndarray]] | None = None,
     ) -> None:
         super().__init__()
         if fps <= 0:
@@ -67,15 +81,36 @@ class BufferedVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._frames.qsize()
 
-    async def enqueue_chunk(self, video_chunk: torch.Tensor) -> int:
+    def prepare_result_frames(self, result: StepResult) -> tuple[np.ndarray, ...]:
+        if self._closed:
+            return ()
+        return tuple(self._frame_converter(result))
+
+    async def enqueue_frames(self, frames: Sequence[np.ndarray]) -> int:
         if self._closed:
             return 0
-        frames = await asyncio.to_thread(self._frame_converter, video_chunk)
         for i, frame in enumerate(frames):
             if self._closed:
                 return i
             await self._frames.put(frame)
         return len(frames)
+
+    async def enqueue_result(self, result: StepResult) -> int:
+        if self._closed:
+            return 0
+        frames = await asyncio.to_thread(self.prepare_result_frames, result)
+        return await self.enqueue_frames(frames)
+
+    async def flush(self) -> None:
+        """Drop queued frames while keeping the RTP timestamp sequence alive."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> VideoFrame:
         if self._closed:
@@ -145,8 +180,9 @@ class NVENCVideoTrack(MediaStreamTrack):
     ``RTCRtpSender`` routes through ``H264Encoder.pack()`` for RTP
     fragmentation only. The encoder sets ``pts`` and ``time_base`` on
     each packet before enqueueing; this track only paces delivery to
-    ``fps`` and applies a drop-oldest overflow policy so a slow
-    consumer cannot stall the encode worker.
+    ``fps``. The async enqueue path applies backpressure so the browser
+    receives every frame in timestamp order instead of seeing silent
+    server-side drops.
     """
 
     kind = "video"
@@ -182,14 +218,28 @@ class NVENCVideoTrack(MediaStreamTrack):
     def qsize(self) -> int:
         return self._packets.qsize()
 
+    async def enqueue_encoded_packet(self, packet: Packet) -> bool:
+        """Enqueue one encoded packet, waiting for sender-side queue space."""
+        if self._closed:
+            return False
+        await self._packets.put(packet)
+        return True
+
+    async def enqueue_encoded_packets(self, packets: Sequence[Packet]) -> int:
+        """Enqueue encoded packets in order, applying backpressure if full."""
+        for i, packet in enumerate(packets):
+            if not await self.enqueue_encoded_packet(packet):
+                return i
+        return len(packets)
+
     def enqueue_encoded_packet_nowait(self, packet: Packet) -> bool:
         """Synchronously enqueue one packet on the loop thread.
 
-        Called from the encode worker via ``loop.call_soon_threadsafe`` so
-        packets become visible to :meth:`recv` as soon as they are
-        produced, without waiting for the whole chunk to finish encoding.
-        Drops the oldest queued packet on overflow so real-time streaming
-        does not stall behind a slow consumer.
+        This compatibility helper is intentionally lossy on overflow.
+        The production NVENC path uses :meth:`enqueue_encoded_packets`
+        so playback preserves every frame; tests and diagnostic probes
+        can still use this helper when they explicitly want nonblocking
+        enqueue semantics.
         """
         if self._closed:
             return False
@@ -204,6 +254,17 @@ class NVENCVideoTrack(MediaStreamTrack):
                 )
         self._packets.put_nowait(packet)
         return True
+
+    async def flush(self) -> None:
+        """Drop queued encoded packets while preserving the open media track."""
+        if self._closed:
+            return
+        while True:
+            try:
+                self._packets.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._next_deadline_s = None
 
     async def recv(self) -> Packet:
         if self._closed:

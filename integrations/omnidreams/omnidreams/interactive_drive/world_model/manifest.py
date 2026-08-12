@@ -26,6 +26,8 @@ _RESOLUTION_ALIGNMENT_PX = 16
 _NATIVE_DIT_ACCELERATION_MODES = ("auto", "disabled", "required")
 _NATIVE_DIT_BACKENDS = ("fp8_kvcache_cudnn", "bf16")
 _NATIVE_VAE_ENCODERS = ("disabled", "fp8")
+_INTERACTIVE_DRIVE_ROOT = Path(__file__).resolve().parents[1]
+_CONFIGS_ROOT = _INTERACTIVE_DRIVE_ROOT / "configs"
 
 
 def _is_hf_url(raw: str) -> bool:
@@ -99,6 +101,28 @@ def _resolve_manifest_path(raw_path: str | None, *, manifest_dir: Path) -> Path 
     return path
 
 
+def resolve_world_model_manifest_path(path: str | Path) -> Path:
+    """Resolve a CLI manifest value against cwd and bundled configs."""
+    raw_path = Path(path).expanduser()
+    if raw_path.is_absolute():
+        return raw_path
+
+    cwd_path = raw_path.resolve()
+    if cwd_path.exists():
+        return cwd_path
+
+    package_path = (_INTERACTIVE_DRIVE_ROOT / raw_path).resolve()
+    if package_path.exists():
+        return package_path
+
+    if len(raw_path.parts) == 1:
+        configs_path = (_CONFIGS_ROOT / raw_path).resolve()
+        if configs_path.exists():
+            return configs_path
+
+    return cwd_path
+
+
 def _parse_resolution_wh(raw: object) -> tuple[int, int]:
     if raw is None:
         return _DEFAULT_RESOLUTION_WH
@@ -151,6 +175,8 @@ class WorldModelManifest:
     fps: int = 30
     num_frames_per_block: int = 8
     compile_net: bool = True
+    compile_encoders: bool = True
+    compile_decoder: bool = True
     light_vae: bool = True
     encode_with_pixel_shuffle: bool = False
     local_attn_size: int = 6
@@ -202,6 +228,8 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
         fps=int(data.get("fps", 30)),
         num_frames_per_block=int(data.get("num_frames_per_block", 8)),
         compile_net=bool(data.get("compile_net", True)),
+        compile_encoders=bool(data.get("compile_encoders", True)),
+        compile_decoder=bool(data.get("compile_decoder", True)),
         light_vae=bool(data.get("light_vae", True)),
         encode_with_pixel_shuffle=bool(data.get("encode_with_pixel_shuffle", False)),
         local_attn_size=int(data.get("local_attn_size", 6)),

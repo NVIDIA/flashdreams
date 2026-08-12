@@ -18,12 +18,15 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
 import tomli as tomllib
 from lingbot import config as config_mod
+from lingbot import example_data as example_data_mod
 from lingbot import runner as runner_mod
 from lingbot.config import (
     LINGBOT_WORLD_V2_CHECKPOINT_PATH,
@@ -39,6 +42,11 @@ from lingbot.runner import (
     LingbotWorldRunnerConfig,
     example_data_dirname,
 )
+from lingbot.runtime import (
+    LINGBOT_MODEL_ID,
+    LingbotReplayInputs,
+    LingbotRunnerOutputTarget,
+)
 from lingbot.transformer import (
     LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB,
     LingbotWorldTransformer,
@@ -47,8 +55,22 @@ from lingbot.transformer import (
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime import InferenceConfig
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, RunResult
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _write_camera_assets(poses: Path, intrinsics: Path, *, frames: int = 64) -> None:
+    """Write real .npy camera assets; the input mapping loads them for real."""
+    trajectory = np.tile(np.eye(4, dtype=np.float32), (frames, 1, 1))
+    trajectory[:, 2, 3] = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+    np.save(poses, trajectory)
+    np.save(
+        intrinsics,
+        np.tile(np.array([416.0, 416.0, 416.0, 240.0], dtype=np.float32), (frames, 1)),
+    )
+
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
 
@@ -77,10 +99,10 @@ def test_examples_download_from_canonical_v2_repository(
         del cache_dir, filename
         urls.append(url)
 
-    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
-    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+    monkeypatch.setattr(example_data_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(example_data_mod, "download_to_cache", _record_download)
 
-    runner_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
+    example_data_mod.ensure_example_data_downloaded(is_rank_zero=True, example_idx=0)
 
     expected_base_url = (
         "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples/00"
@@ -105,10 +127,10 @@ def test_promptless_examples_skip_the_prompt_download(
     def _record_download(url: str, *, cache_dir: Path, filename: str) -> None:
         downloads.append((url, cache_dir, filename))
 
-    monkeypatch.setattr(runner_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
-    monkeypatch.setattr(runner_mod, "download_to_cache", _record_download)
+    monkeypatch.setattr(example_data_mod, "EXAMPLE_DATA_DIR_LOCAL", tmp_path)
+    monkeypatch.setattr(example_data_mod, "download_to_cache", _record_download)
 
-    cache_dir = runner_mod.ensure_example_data_downloaded(
+    cache_dir = example_data_mod.ensure_example_data_downloaded(
         is_rank_zero=True,
         example_idx=example_idx,
     )
@@ -162,6 +184,86 @@ def test_promptless_example_resolves_to_empty_string(
     ]
 
 
+def test_runner_delegates_to_runtime_api_with_direct_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep the CLI runner on the shared replay runtime path."""
+    image = tmp_path / "image.jpg"
+    poses = tmp_path / "poses.npy"
+    intrinsics = tmp_path / "intrinsics.npy"
+    image.write_bytes(b"fake")
+    _write_camera_assets(poses, intrinsics)
+    runner = object.__new__(LingbotWorldRunner)
+    runner_config = cast(
+        LingbotWorldRunnerConfig,
+        derive_config(
+            RUNNER_CONFIGS["lingbot-world-fast-taehv-window15-sink3"],
+            prompt="drive through a city",
+            image_path=image,
+            pose_path=poses,
+            intrinsic_path=intrinsics,
+            total_blocks=1,
+            device="cpu",
+            output_dir=tmp_path,
+        ),
+    )
+    pipeline = object()
+    output_stream = object()
+    captured: dict[str, object] = {}
+
+    def _fake_run_replay_demo(**kwargs: object) -> RunResult:
+        captured.update(kwargs)
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(
+        runner,
+        "create_video_output_stream",
+        lambda **_kwargs: output_stream,
+    )
+    monkeypatch.setattr(
+        runner_mod,
+        "run_replay_demo",
+        _fake_run_replay_demo,
+    )
+    runner.config = runner_config
+    runner.pipeline = pipeline
+    runner.local_rank = 0
+    runner.world_size = 1
+    runner.is_rank_zero = True
+
+    runner.run()
+
+    spec = captured["spec"]
+    assert isinstance(spec, DemoSpec)
+    assert spec.model_id == LINGBOT_MODEL_ID
+    assert spec.input_mode == "replay"
+    assert spec.preset_id == str(runner_config.pipeline.name)
+    config = spec.config
+    assert isinstance(config, InferenceConfig)
+    assert config.model_id == LINGBOT_MODEL_ID
+    assert config.device == "cpu"
+    assert config.runtime_options["pipeline"] is pipeline
+    scenario = spec.scenario
+    assert isinstance(scenario, LingbotReplayInputs)
+    assert scenario.prompt == "drive through a city"
+    assert scenario.first_frame_path == image
+    assert scenario.total_blocks == 1
+    output_spec = spec.output
+    assert isinstance(output_spec, Mp4OutputSpec)
+    assert output_spec.path == tmp_path / f"{runner_config.runner_name}.mp4"
+    assert output_spec.fps == runner_config.fps
+    assert output_spec.output_layout == "tchw"
+    output_target_factory = cast(
+        Callable[[Mp4OutputSpec], LingbotRunnerOutputTarget],
+        captured["output_target_factory"],
+    )
+    assert callable(output_target_factory)
+    output = output_target_factory(output_spec)
+    assert isinstance(output, LingbotRunnerOutputTarget)
+    assert output.output_stream is output_stream
+
+
 def test_runners_dict_is_non_empty() -> None:
     """Plugin must expose at least one runner."""
     assert RUNNER_CONFIGS, "RUNNER_CONFIGS is empty"
@@ -193,6 +295,14 @@ def test_lingbot_configs_carry_documented_checkpoint_disk_requirement() -> None:
         assert (
             transformer.checkpoint_min_free_gb == LINGBOT_WORLD_MIN_CHECKPOINT_FREE_GB
         )
+
+
+def test_lingbot_configs_enable_streaming_checkpoint_load() -> None:
+    """Use bounded checkpoint loading for every LingBot model preset."""
+    for cfg in RUNNER_CONFIGS.values():
+        transformer = cfg.pipeline.diffusion_model.transformer
+        assert isinstance(transformer, LingbotWorldTransformerConfig)
+        assert transformer.stream_checkpoint
 
 
 def test_v2_only_replaces_the_v1_checkpoint() -> None:

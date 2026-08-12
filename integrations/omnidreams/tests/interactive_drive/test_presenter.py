@@ -10,15 +10,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from omnidreams.interactive_drive.config import BevConfig
 from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
     _CudaRGBFrame,
     _CudaRGBInterop,
     _NonBlockingCudaStream,
 )
-from omnidreams.interactive_drive.slangpy_hud_presenter import SlangPyHudPresenter
-from omnidreams.interactive_drive.types import PresentedFrame
-from PIL import Image
+from omnidreams.interactive_drive.slangpy_hud_presenter import (
+    SlangPyHudPresenter,
+    _bev_ego_footprint_points,
+)
+from omnidreams.interactive_drive.types import PhysicsDebugFrame, PresentedFrame
+from PIL import Image, ImageDraw
 
 
 class _LazyFrame:
@@ -40,6 +44,18 @@ def _presenter_without_window() -> SlangPyPresenter:
 
 def _hud_presenter_without_window() -> SlangPyHudPresenter:
     return SlangPyHudPresenter.__new__(SlangPyHudPresenter)
+
+
+def test_hud_keyboard_drive_overrides_connected_wheel_while_key_is_held() -> None:
+    presenter = _hud_presenter_without_window()
+    keyboard_state = object()
+    presenter._wheel = SimpleNamespace(state=SimpleNamespace(connected=True))
+    presenter._keyboard_drive = SimpleNamespace(
+        has_active_input=True,
+        update=lambda: keyboard_state,
+    )
+
+    assert presenter._poll_drive_state() is keyboard_state
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(
@@ -318,6 +334,51 @@ def test_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None:
     assert lazy.numpy_calls == 0
 
 
+def test_physx_debug_uses_cuda_path_without_materializing_lazy_frame() -> None:
+    presenter = _presenter_without_window()
+    presenter._raster = SimpleNamespace(width=4, height=4)
+    lazy = _LazyFrame()
+    cuda_calls: list[tuple[object, str | None]] = []
+
+    def present_cuda_rgb(rgb_frame: object, *, status_message: str | None) -> bool:
+        cuda_calls.append((rgb_frame, status_message))
+        return True
+
+    presenter._present_cuda_rgb = present_cuda_rgb
+    presenter._present_array = lambda rgb: pytest.fail("host path should not run")
+    frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        physx_debug=object(),  # type: ignore[arg-type]
+        physx_rgb_host_uint8=lazy,
+    )
+
+    presenter.present_frame(frame, view_mode="physx")
+
+    assert cuda_calls == [(lazy, None)]
+    assert lazy.numpy_calls == 0
+
+
+def test_physx_view_does_not_fall_back_to_hdmap_before_debug_frame_arrives() -> None:
+    presenter = _presenter_without_window()
+    presenter._present_cuda_rgb = lambda *args, **kwargs: pytest.fail(
+        "PhysX mode must not present the HDMap fallback"
+    )
+    presenter._present_array = lambda *args, **kwargs: pytest.fail(
+        "PhysX mode must not present the HDMap fallback"
+    )
+
+    presenter.present_frame(
+        PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.full((4, 4, 3), 99, dtype=np.uint8),
+            depth_host_f32=None,
+        ),
+        view_mode="physx",
+    )
+
+
 def test_model_rgb_falls_back_to_host_when_cuda_path_declines() -> None:
     presenter = _presenter_without_window()
     lazy = _LazyFrame()
@@ -511,6 +572,86 @@ def test_hud_prepare_frame_prefetches_one_bev_per_raster_batch() -> None:
     assert second.prefetch_calls == 0
 
 
+def test_hud_physx_view_keeps_bev_preparation_independent() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._cuda_hud_interop = None
+    first = _LazyFrame()
+    second = _LazyFrame()
+    batch_key = object()
+    first.source_group_key = lambda: batch_key  # type: ignore[attr-defined]
+    second.source_group_key = lambda: batch_key  # type: ignore[attr-defined]
+
+    for bev in (first, second):
+        presenter.prepare_frame(
+            PresentedFrame(
+                timestamp_us=0,
+                rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+                depth_host_f32=None,
+                bev_host_uint8=bev,
+                physx_debug=object(),  # type: ignore[arg-type]
+                physx_rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+            ),
+            view_mode="physx",
+        )
+
+    assert first.prefetch_calls == 1
+    assert second.prefetch_calls == 0
+
+
+def test_hud_physx_view_replaces_primary_but_updates_bev() -> None:
+    presenter = _hud_presenter_without_window()
+    physx_rgb = np.full((4, 4, 3), 42, dtype=np.uint8)
+    bev = np.full((4, 4, 3), 84, dtype=np.uint8)
+    updated: dict[str, object] = {}
+    presenter._pending_resize = None
+    presenter._cuda_hud_interop = None
+    presenter._select_view_rgb = (  # type: ignore[method-assign]
+        lambda frame, mode: physx_rgb
+    )
+    presenter._update_camera_pil = (  # type: ignore[method-assign]
+        lambda rgb: updated.setdefault("primary", rgb)
+    )
+    presenter._update_bev_pil = (  # type: ignore[method-assign]
+        lambda rgb: updated.setdefault("bev", rgb)
+    )
+    presenter._render_canvas = (  # type: ignore[method-assign]
+        lambda status: updated.setdefault("status", status)
+    )
+    presenter._present_canvas = lambda **kwargs: None  # type: ignore[method-assign]
+
+    presenter.present_frame(
+        PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+            depth_host_f32=None,
+            bev_host_uint8=bev,
+            physx_debug=object(),  # type: ignore[arg-type]
+            physx_rgb_host_uint8=physx_rgb,
+        ),
+        view_mode="physx",
+    )
+
+    assert updated["primary"] is physx_rgb
+    assert updated["bev"] is bev
+
+
+def test_hud_physx_view_waits_instead_of_showing_hdmap_fallback() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._pending_resize = None
+    presenter._select_view_rgb = lambda *args, **kwargs: pytest.fail(
+        "HUD must retain its current surface until a PhysX frame arrives"
+    )
+
+    presenter.present_frame(
+        PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.full((4, 4, 3), 99, dtype=np.uint8),
+            depth_host_f32=None,
+        ),
+        view_mode="physx",
+    )
+
+
 def test_hud_bev_panel_reuses_completed_image_while_refresh_is_in_flight() -> None:
     presenter = _hud_presenter_without_window()
     pending: concurrent.futures.Future[object] = concurrent.futures.Future()
@@ -561,6 +702,99 @@ def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
     assert lazy.numpy_calls == 0
 
 
+def test_hud_bev_marker_is_green_top_down_ego_footprint() -> None:
+    canvas = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+
+    SlangPyHudPresenter._draw_bev_ego_footprint(
+        ImageDraw.Draw(canvas),
+        (0, 0, 64, 64),
+        np.array([4.8, 2.0, 1.6], dtype=np.float32),
+        BevConfig(width=64, height=64, height_m=15.0, fov_deg=60.0),
+    )
+
+    pixels = np.asarray(canvas)
+    painted = pixels[pixels[..., 3] != 0]
+    assert painted.shape[0] > 0
+    assert (118, 185, 0, 255) in map(tuple, painted)
+    assert (45, 82, 0, 255) in map(tuple, painted)
+
+
+def test_hud_bev_marker_is_visible_without_physx_debug_snapshot() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._latest_bev_source = object()
+    presenter._latest_ego_dimensions_lwh = None
+    presenter._bev_config = BevConfig(width=64, height=64, height_m=15.0)
+    presenter._get_bev_panel_image = lambda _size: Image.new(
+        "RGB", (64, 64), (234, 226, 209)
+    )
+    canvas = Image.new("RGBA", (72, 172), (0, 0, 0, 0))
+
+    presenter._draw_bev(
+        canvas,
+        ImageDraw.Draw(canvas),
+        (0, 0, 72, 172),
+        controls_bottom_y=0,
+    )
+
+    assert (118, 185, 0, 255) in map(tuple, np.asarray(canvas).reshape(-1, 4))
+
+
+def test_hud_bev_footprint_is_centered_and_uses_length_and_width() -> None:
+    config = BevConfig(fov_deg=60.0)
+    viewport = (0, 0, 456, 410)
+
+    assert config.tilt_deg == 0.0
+
+    baseline = _bev_ego_footprint_points((4.8, 2.0, 1.6), viewport, config)
+    longer = _bev_ego_footprint_points((7.2, 2.0, 1.6), viewport, config)
+    wider = _bev_ego_footprint_points((4.8, 3.0, 1.6), viewport, config)
+    taller = _bev_ego_footprint_points((4.8, 2.0, 2.4), viewport, config)
+
+    assert baseline is not None
+    center_x = sum(point[0] for point in baseline) / len(baseline)
+    center_y = sum(point[1] for point in baseline) / len(baseline)
+    assert center_x == pytest.approx((viewport[0] + viewport[2]) / 2.0, abs=1.0)
+    assert center_y == pytest.approx((viewport[1] + viewport[3]) / 2.0, abs=1.0)
+    assert baseline[0][1] < baseline[3][1]
+    assert longer is not None and longer != baseline
+    assert wider is not None and wider != baseline
+    assert taller == baseline
+
+
+def test_hud_captures_ego_bbox_only_for_bev_overlay() -> None:
+    presenter = _hud_presenter_without_window()
+    presenter._pending_resize = None
+    presenter._cuda_hud_interop = None
+    presenter._latest_ego_dimensions_lwh = None
+    presenter._update_camera_pil = lambda rgb: None
+    presenter._render_canvas = lambda status: None
+    presenter._present_canvas = lambda **kwargs: None
+    bbox = np.array([5.4, 2.1, 1.5], dtype=np.float32)
+    debug = PhysicsDebugFrame(
+        ego_position_m=np.zeros(3, dtype=np.float32),
+        ego_orientation_xyzw=np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+        ego_dimensions_lwh=bbox,
+        actor_positions_m=np.empty((0, 3), dtype=np.float32),
+        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
+        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
+        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
+        barrier_thicknesses_m=np.empty(0, dtype=np.float32),
+        barrier_heights_m=np.empty(0, dtype=np.float32),
+    )
+
+    presenter.present_frame(
+        PresentedFrame(
+            timestamp_us=0,
+            rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+            depth_host_f32=None,
+            physx_debug=debug,
+        ),
+        view_mode="hdmap",
+    )
+
+    assert presenter._latest_ego_dimensions_lwh is bbox
+
+
 def test_hud_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None:
     presenter = _hud_presenter_without_window()
     lazy = _LazyFrame()
@@ -586,6 +820,32 @@ def test_hud_model_rgb_uses_cuda_path_without_materializing_host_frame() -> None
     )
 
     presenter.present_frame(frame, view_mode="model_rgb")
+
+    assert cuda_calls == [(frame, lazy)]
+    assert lazy.numpy_calls == 0
+
+
+def test_hud_physx_debug_uses_cuda_path_without_materializing_lazy_frame() -> None:
+    presenter = _hud_presenter_without_window()
+    lazy = _LazyFrame()
+    cuda_calls: list[tuple[PresentedFrame, object]] = []
+
+    def present_cuda_hud_frame(frame: PresentedFrame, rgb: object) -> bool:
+        cuda_calls.append((frame, rgb))
+        return True
+
+    presenter._pending_resize = None
+    presenter._present_cuda_hud_frame = present_cuda_hud_frame
+    presenter._update_camera_pil = lambda rgb: pytest.fail("host path should not run")
+    frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        physx_debug=object(),  # type: ignore[arg-type]
+        physx_rgb_host_uint8=lazy,
+    )
+
+    presenter.present_frame(frame, view_mode="physx")
 
     assert cuda_calls == [(frame, lazy)]
     assert lazy.numpy_calls == 0
@@ -679,6 +939,23 @@ def test_hud_postprocess_control_toggles_configured_preset() -> None:
 
     assert calls == [False, True]
     assert presenter._postprocess_enabled is True
+
+
+@pytest.mark.ci_cpu
+def test_hud_postprocess_control_ignores_click_without_configured_preset() -> None:
+    presenter = _hud_presenter_without_window()
+    calls: list[bool] = []
+    presenter._postprocess_rect = (10, 20, 110, 52)
+    presenter._postprocess_preset = ""
+    presenter._postprocess_enabled = False
+    presenter._postprocess_callback = calls.append
+    presenter._scene_dropdown_open = False
+    presenter._variant_dropdown_open = False
+
+    presenter._handle_click((20, 30))
+
+    assert calls == []
+    assert presenter._postprocess_enabled is False
 
 
 def test_hud_scene_dropdown_blocks_underlying_upsample_toggle() -> None:

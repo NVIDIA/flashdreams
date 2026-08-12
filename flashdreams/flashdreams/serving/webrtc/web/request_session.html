@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlashDreams WebRTC Drive</title>
+  <link rel="stylesheet" href="/static/request_session.css?v=shared-webrtc-v3">
+</head>
+<body>
+  <main class="appShell">
+    <section class="stage" aria-label="FlashDreams WebRTC Drive">
+      <h1 class="srOnly">FlashDreams WebRTC Drive</h1>
+      <div class="stageBackdrop" aria-hidden="true"></div>
+      <canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>
+      <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
+      <div id="modelStageSlot" class="modelStageSlot"></div>
+      <div class="stageVignette" aria-hidden="true"></div>
+
+      <header class="brandOverlay" aria-label="FlashDreams World Model">
+        <img class="brandLogo" src="/static/assets/horizontal-dark.svg" alt="FlashDreams">
+      </header>
+
+      <section class="statusCard overlayPanel" aria-live="polite">
+        <span class="panelLabel">Status</span>
+        <div class="statusLine">
+          <span id="statusDot" class="statusDot" aria-hidden="true"></span>
+          <strong id="statusText">Idle</strong>
+        </div>
+        <button id="connectButton" class="connectButton" type="button" disabled>Connect Session</button>
+        <label id="postprocessField" class="postprocessField" for="postprocessSelect" hidden>
+          <span>Post-process</span>
+          <select id="postprocessSelect">
+            <option value="">Off</option>
+          </select>
+        </label>
+        <div id="modelStatusSlot" class="modelStatusSlot"></div>
+        <div class="flowLine">
+          <span>Flow</span>
+          <strong id="flowText">waiting</strong>
+        </div>
+      </section>
+
+      <div id="modelPanelSlot" class="modelPanelSlot"></div>
+
+      <section class="controlCard overlayPanel" aria-label="Controls">
+        <h2><span aria-hidden="true"></span>Controls</h2>
+        <div id="controlRows" class="controlRows"></div>
+        <div id="modelControlSlot" class="modelControlSlot"></div>
+      </section>
+
+      <section class="logCard overlayPanel" aria-label="Client Logs">
+        <h2><span aria-hidden="true"></span>Client Logs</h2>
+        <div id="eventLog" class="logList" aria-live="polite"></div>
+        <div class="logFooter">
+          <span class="liveDot" aria-hidden="true"></span>
+          <span id="logState">Waiting</span>
+        </div>
+      </section>
+
+      <section class="metricsBar" aria-label="Session telemetry">
+        <div class="metric">
+          <span>FPS</span>
+          <strong id="fpsValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>Latency</span>
+          <strong id="latencyValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>Resolution</span>
+          <strong id="resolutionValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>Step</span>
+          <strong id="stepValue">--</strong>
+        </div>
+        <div class="metric">
+          <span>World Model</span>
+          <strong id="modelValue">World Model</strong>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/static/request_session.js?v=shared-webrtc-v4" type="module"></script>
+</body>
+</html>

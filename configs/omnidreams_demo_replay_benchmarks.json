@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "description": "Manual one-minute local benchmark scenarios for comparing the legacy Omnidreams single-view runner against the experimental shared demo replay path. The runner writes the legacy stacked HDMap/RGB canvas while the shared demo writes generated RGB output, so use the report for manual MP4 comparison rather than automatic pixel quality scoring.",
+  "scenarios": [
+    {
+      "id": "omnidreams-sv-runner-baseline",
+      "name": "Omnidreams single-view runner baseline",
+      "description": "Runs the stable legacy Omnidreams single-view runner with the bundled example data for the same one-minute block count used by the shipped Omnidreams baseline.",
+      "report_group": {
+        "id": "omnidreams-demo",
+        "name": "Omnidreams Demo Comparison"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "omnidreams",
+        "i2v",
+        "replay",
+        "baseline"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "flashdreams-run",
+        "omnidreams",
+        "--example-data",
+        "True",
+        "--example-data-uuid",
+        "239560dc-33d1-11ef-9720-00044bcbccac",
+        "--total-blocks",
+        "226"
+      ],
+      "warmup_steps": 1,
+      "quality_baseline_compare": false,
+      "timeout_s": 7200
+    },
+    {
+      "id": "omnidreams-sv-demo-replay",
+      "name": "Omnidreams shared demo replay",
+      "description": "Runs the experimental shared demo API replay path with the same stable non-perf preset, bundled example data, and one-minute block count as the legacy runner.",
+      "report_group": {
+        "id": "omnidreams-demo",
+        "name": "Omnidreams Demo Comparison"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-demo",
+        "omnidreams",
+        "i2v",
+        "replay",
+        "shared-demo"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "flashdreams-run",
+        "omnidreams",
+        "mp4",
+        "--scenario.example-data",
+        "true",
+        "--scenario.example-data-uuid",
+        "239560dc-33d1-11ef-9720-00044bcbccac",
+        "--scenario.total-blocks",
+        "226",
+        "--output.path",
+        "{output_dir}/omnidreams-sv-demo-replay.mp4"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "quality_baseline_compare": false,
+      "timeout_s": 7200
+    }
+  ]
+}

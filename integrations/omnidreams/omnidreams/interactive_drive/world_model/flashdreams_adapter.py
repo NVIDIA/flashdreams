@@ -18,6 +18,7 @@ from omnidreams.interactive_drive.world_model.synthetic_fixture import (
     build_synthetic_world_model_assets,
     default_synthetic_asset_dir,
 )
+from omnidreams.model_session import OmnidreamsModelSessionCore
 
 from flashdreams.infra.acceleration.encoder_lifecycle import (
     collect_and_release_cuda_memory,
@@ -26,12 +27,12 @@ from flashdreams.infra.acceleration.encoder_lifecycle import (
     run_one_shot_encoder_stage,
     setup_one_shot_encoder,
 )
-from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
+from flashdreams.infra.video_output import VideoOutputStream
 
 PipelineFactory = Callable[[WorldModelManifest, WorldModelProfileConfig], Any]
 _VIEW_NAMES = ["camera_front_wide_120fov"]
@@ -99,6 +100,8 @@ def _pipeline_config_log_line(
     encoder_native = getattr(encoder, "native_vae_acceleration", None)
     image_encoder_native = getattr(image_encoder, "native_vae_acceleration", None)
     native_backend = getattr(encoder, "native_vae_backend", None)
+    encoder_compile = getattr(encoder, "use_compile", None)
+    decoder_compile = getattr(config.decoder, "use_compile", None)
     return (
         "[flashdreams-session] resolved pipeline config "
         f"selected_recipe={config_name} "
@@ -109,6 +112,8 @@ def _pipeline_config_log_line(
         f"dit_attn={transformer.native_dit_attention_backend} "
         f"compile_network={transformer.compile_network} "
         f"use_cuda_graph={transformer.use_cuda_graph} "
+        f"encoder_compile={encoder_compile} "
+        f"decoder_compile={decoder_compile} "
         f"denoising_steps={list(scheduler.denoising_timesteps)} "
         f"encoder_native_vae={encoder_native} "
         f"image_encoder_native_vae={image_encoder_native} "
@@ -140,10 +145,8 @@ def _build_pipeline_config(
         else int(manifest.seed_for_every_rollout)
     )
 
-    # The lightvae chassis maps to the perf preset (use_compile + cuda_graph
-    # on every encoder/decoder). ``OMNIDREAMS_CONFIGS`` values are shared
-    # global instances, so use ``derive_config`` to get a deep-copied
-    # override-applied instance instead of mutating the global.
+    # Select the requested encoder startup policy without mutating the shared
+    # ``OMNIDREAMS_CONFIGS`` instances.
     transformer_overrides = _transformer_overrides(manifest)
     base_config_name = _base_config_name(config_name, manifest)
     base = OMNIDREAMS_CONFIGS[base_config_name]
@@ -156,6 +159,8 @@ def _build_pipeline_config(
             transformer=transformer_overrides,
         ),
     )
+    if not manifest.compile_decoder:
+        config = derive_config(config, decoder=dict(use_compile=False))
     scheduler_uses_manifest_steps = False
 
     if not scheduler_uses_manifest_steps and hasattr(
@@ -257,7 +262,7 @@ def _base_config_name(config_name: str, manifest: WorldModelManifest) -> str:
             raise ValueError("native_vae_encoder=fp8 requires light_vae=true.")
         return _LIGHTVAE_NATIVE_PERF_RECIPE
     if config_name == _LIGHTVAE_RECIPE:
-        return _LIGHTVAE_PERF_RECIPE
+        return _LIGHTVAE_PERF_RECIPE if manifest.compile_encoders else _LIGHTVAE_RECIPE
     return config_name
 
 
@@ -493,13 +498,10 @@ class FlashdreamsWorldModelSession:
         self._offload_text_encoder = bool(offload_text_encoder)
         self._pipeline_factory = pipeline_factory
         self._pipeline: Any | None = None
-        self._cache: Any | None = None
+        self._model_session: OmnidreamsModelSessionCore | None = None
         self._precomputed_embeddings: dict[str, torch.Tensor | None] | None = None
-        self._pending_finalization_index: int | None = None
-        self._next_block_index = 0
         self._postprocess = postprocess or VideoPostprocessChainConfig()
         self._postprocess_enabled = self._postprocess.is_enabled()
-        self._postprocess_stream: VideoPostprocessStream | None = None
 
     @property
     def pipeline(self) -> Any:
@@ -607,6 +609,9 @@ class FlashdreamsWorldModelSession:
     def _release_pipeline(self) -> None:
         if self._pipeline is None:
             return
+        if self._model_session is not None:
+            self._model_session.close()
+            self._model_session = None
         self._pipeline = None
         device = torch.device(self.manifest.device)
         collect_and_release_cuda_memory(
@@ -621,7 +626,8 @@ class FlashdreamsWorldModelSession:
         condition_frames: list[object],
         prompt: str,
     ) -> list[object]:
-        expected_frames = self.pipeline.get_num_frames(0)
+        model_session = self._ensure_model_session()
+        expected_frames = model_session.next_num_frames()
         if len(condition_frames) != expected_frames:
             raise ValueError(
                 "First condition chunk length does not match flashdreams initial chunk size: "
@@ -630,25 +636,22 @@ class FlashdreamsWorldModelSession:
 
         start = time.perf_counter()
         with torch.no_grad():
-            self._cache = self._initialize_cache(initial_rgb, prompt)
-            video = self.pipeline.generate(
-                autoregressive_index=0,
-                cache=self._cache,
-                hdmap=self._condition_tensor(condition_frames),
+            model_session.reset(lambda: self._initialize_cache(initial_rgb, prompt))
+            result = model_session.step(
+                self._condition_tensor(condition_frames),
+                delay_finalization=True,
             )
-            video = self._postprocess_video(video, autoregressive_index=0)
-            model_frames = self._video_tensor_to_frames(video)
+            model_frames = list(result.lazy_rgb_frames())
             _synchronize_cuda_frame_event(model_frames)
-        self._pending_finalization_index = 0
-        self._next_block_index = 1
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(f"[flashdreams-session] start total_ms={elapsed_ms:.1f}")
         return model_frames
 
     def continue_generation(self, condition_frames: list[object]) -> list[object]:
-        if self._cache is None:
+        model_session = self._model_session
+        if model_session is None or not model_session.initialized:
             raise RuntimeError("start() must be called before continue_generation()")
-        expected_frames = self.pipeline.get_num_frames(self._next_block_index)
+        expected_frames = model_session.next_num_frames()
         if len(condition_frames) != expected_frames:
             raise ValueError(
                 "Condition chunk length does not match flashdreams steady-state chunk size: "
@@ -657,22 +660,13 @@ class FlashdreamsWorldModelSession:
 
         start = time.perf_counter()
         with torch.no_grad():
-            if self._pending_finalization_index is not None:
-                self.pipeline.finalize(self._pending_finalization_index, self._cache)
-                self._pending_finalization_index = None
-            video = self.pipeline.generate(
-                autoregressive_index=self._next_block_index,
-                cache=self._cache,
-                hdmap=self._condition_tensor(condition_frames),
+            result = model_session.step(
+                self._condition_tensor(condition_frames),
+                delay_finalization=True,
             )
-            video = self._postprocess_video(
-                video, autoregressive_index=self._next_block_index
-            )
-            model_frames = self._video_tensor_to_frames(video)
+            model_frames = list(result.lazy_rgb_frames())
             _synchronize_cuda_frame_event(model_frames)
-        block_index = self._next_block_index
-        self._pending_finalization_index = block_index
-        self._next_block_index += 1
+        block_index = result.step_index
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         if block_index <= 3 or elapsed_ms > 500.0:
             logger.info(
@@ -681,10 +675,8 @@ class FlashdreamsWorldModelSession:
         return model_frames
 
     def reset(self, *, clear_precomputed_embeddings: bool = False) -> None:
-        self._close_postprocess_stream()
-        self._cache = None
-        self._pending_finalization_index = None
-        self._next_block_index = 0
+        if self._model_session is not None:
+            self._model_session.clear(finalize_pending=False)
         if clear_precomputed_embeddings:
             self._precomputed_embeddings = None
             logger.info(
@@ -693,11 +685,9 @@ class FlashdreamsWorldModelSession:
             )
 
     def close(self) -> None:
-        self._close_postprocess_stream()
-        if self._cache is not None and self._pending_finalization_index is not None:
-            self.pipeline.finalize(self._pending_finalization_index, self._cache)
-            self._pending_finalization_index = None
-        self._cache = None
+        if self._model_session is not None:
+            self._model_session.close()
+            self._model_session = None
         self._pipeline = None
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
@@ -709,45 +699,37 @@ class FlashdreamsWorldModelSession:
             )
         if enabled == self._postprocess_enabled:
             return
-        self._close_postprocess_stream()
         self._postprocess_enabled = enabled
+        if self._model_session is not None:
+            self._model_session.replace_output_stream(self._new_output_stream)
         logger.info(
             "[flashdreams-session] post-processing {} preset={!r}",
             "enabled" if enabled else "disabled",
             self._postprocess.preset,
         )
 
-    def _postprocess_video(
-        self, video: torch.Tensor, *, autoregressive_index: int
-    ) -> torch.Tensor:
-        if not self._postprocess_enabled:
-            return video
-        if self._postprocess_stream is None:
-            self._postprocess_stream = VideoPostprocessStream(
+    def _new_output_stream(self) -> VideoOutputStream:
+        postprocess_stream = None
+        if self._postprocess_enabled:
+            postprocess_stream = VideoPostprocessStream(
                 postprocess=self._postprocess,
                 output_layout="bvtchw",
                 fps=self.manifest.fps,
                 per_view=False,
                 world_size=1,
-                collect_output=False,
-                move_to_cpu=False,
             )
-        processed = self._postprocess_stream.process(
-            video, autoregressive_index=autoregressive_index
+        return VideoOutputStream(
+            postprocess_stream=postprocess_stream,
+            output_layout="bvtchw",
         )
-        if processed.shape[2] != video.shape[2]:
-            raise RuntimeError(
-                "Interactive post-processing must emit one display frame for "
-                "each generated frame; got "
-                f"{processed.shape[2]} output frames for {video.shape[2]} inputs."
-            )
-        return processed
 
-    def _close_postprocess_stream(self) -> None:
-        if self._postprocess_stream is None:
-            return
-        self._postprocess_stream.finish()
-        self._postprocess_stream = None
+    def _ensure_model_session(self) -> OmnidreamsModelSessionCore:
+        if self._model_session is None:
+            self._model_session = OmnidreamsModelSessionCore(
+                pipeline=self.pipeline,
+                output_stream_factory=self._new_output_stream,
+            )
+        return self._model_session
 
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
         if self.manifest.synthetic_model:
@@ -844,45 +826,6 @@ class FlashdreamsWorldModelSession:
 
     def _to_model_range(self, tensor: torch.Tensor) -> torch.Tensor:
         return _to_model_range(tensor, device=self.pipeline.device)
-
-    @staticmethod
-    def _video_tensor_to_frames(video: torch.Tensor) -> list[object]:
-        if video.ndim != 6:
-            raise ValueError(
-                f"Expected [B,V,T,3,H,W] video tensor, got shape {tuple(video.shape)}"
-            )
-        frames = video[0, 0]
-        if frames.dtype != torch.uint8:
-            frames = frames.clamp(-1.0, 1.0)
-            frames = ((frames + 1.0) * 127.5).round().to(torch.uint8)
-        frames = frames.permute(0, 2, 3, 1).contiguous()
-        source_event = None
-        if frames.is_cuda:
-            source_event = torch.cuda.Event()
-            source_event.record(torch.cuda.current_stream(frames.device))
-        return [
-            _LazyRGBFrame(frames, frame_index, source_event=source_event)
-            for frame_index in range(frames.shape[0])
-        ]
-
-
-class _LazyRGBFrame(LazyCudaFrame):
-    """Defer GPU-to-host copies until the presenter consumes each frame."""
-
-    def __init__(
-        self,
-        frames_hwc_uint8: torch.Tensor,
-        frame_index: int,
-        *,
-        source_event: object | None = None,
-    ) -> None:
-        super().__init__(
-            frames_hwc_uint8,
-            frame_index,
-            source_event=source_event,
-            lost_source_message="Lazy RGB frame lost its source tensor before materialization.",
-            already_materialized_message="Lazy RGB frame was already materialized on the host.",
-        )
 
 
 def _rgb_hwc_uint8(frame: object) -> np.ndarray:

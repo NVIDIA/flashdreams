@@ -15,12 +15,14 @@
 
 """Ludus rendering context - ``LudusCudaTimestampedContext``."""
 
+from collections.abc import Sequence
 from typing import List, Optional, Tuple
 
 import torch
 
 from ._plugin import _get_plugin
 from .primitives import (
+    CubePool,
     FThetaCamera,
     TimestampedScene,
     _pack_cameras,
@@ -70,12 +72,14 @@ class LudusCudaTimestampedContext:
             with torch.cuda.device(device):
                 cuda_device_idx = torch.cuda.current_device()
         self.cuda_device_idx = cuda_device_idx
-        self.cpp_wrapper = _get_plugin().LudusCudaStateWrapper(cuda_device_idx)
+        with torch.cuda.device(cuda_device_idx):
+            self.cpp_wrapper = _get_plugin().LudusCudaStateWrapper(cuda_device_idx)
         self._tessellation_threshold = 1.0
         self._max_extrapolation_us = 500_000
 
         self._cameras: List[FThetaCamera] = []
         self._camera_intrinsics: Optional[torch.Tensor] = None
+        self._uniform_intrinsics_cache: dict[tuple[int, int], torch.Tensor] = {}
         self.needs_vflip = False  # CUDA renders top-down (standard image convention)
 
         # Per-scene flat buffers
@@ -91,6 +95,7 @@ class LudusCudaTimestampedContext:
         device = torch.device(f"cuda:{self.cuda_device_idx}")
         self._cameras = cameras
         self._camera_intrinsics = _pack_cameras(cameras, device)
+        self._uniform_intrinsics_cache.clear()
 
     # ------------------------------------------------------------------
     def upload_scene(self, scene: TimestampedScene) -> int:
@@ -105,6 +110,7 @@ class LudusCudaTimestampedContext:
         polyline_pool_headers: List[torch.Tensor] = []
         polygon_pool_headers: List[torch.Tensor] = []
         cube_pool_headers: List[torch.Tensor] = []
+        cube_pool_metadata: List[dict[str, int]] = []
 
         ts_offset = 0
         int32_offset = 0
@@ -236,6 +242,21 @@ class LudusCudaTimestampedContext:
             header[10] = float_offset + n_track_poses * 7 + n_cubes * 3  # colors
             header[11] = pool.render_flags
             cube_pool_headers.append(header)
+            cube_pool_metadata.append(
+                {
+                    "prim_type_id": int(pool.prim_type_id),
+                    "n_cubes": n_cubes,
+                    "n_global_ts": n_global_ts,
+                    "n_track_poses": n_track_poses,
+                    "timestamp_offset": ts_offset,
+                    "track_timestamp_offset": ts_offset + n_global_ts,
+                    "int32_offset": int32_offset,
+                    "translation_offset": float_offset,
+                    "quaternion_offset": float_offset + n_track_poses * 3,
+                    "scale_offset": float_offset + n_track_poses * 7,
+                    "color_offset": float_offset + n_track_poses * 7 + n_cubes * 3,
+                }
+            )
 
             timestamps_list.append(pool.timestamps_us.to(device))
             timestamps_list.append(pool.track_timestamps_us.to(device))
@@ -302,11 +323,134 @@ class LudusCudaTimestampedContext:
                 "polyline_pools": all_pl_pools,
                 "polygon_pools": all_pg_pools,
                 "cube_pools": all_cb_pools,
+                "cube_pool_metadata": cube_pool_metadata,
+                "cube_pool_counts": [
+                    metadata["n_cubes"] for metadata in cube_pool_metadata
+                ],
+                "total_cubes": sum(
+                    metadata["n_cubes"] for metadata in cube_pool_metadata
+                ),
                 "max_varrays_per_ts_polyline": max_varrays_per_ts_polyline,
                 "max_varrays_per_ts_polygon": max_varrays_per_ts_polygon,
             }
         )
         return scene_id
+
+    def replace_scene(self, scene_id: int, scene: TimestampedScene) -> int:
+        """Replace one scene slot without invalidating IDs or other scenes."""
+        if not 0 <= scene_id < len(self._scenes):
+            raise IndexError(f"scene_id {scene_id} is out of range")
+        temporary_id = self.upload_scene(scene)
+        replacement = self._scenes.pop(temporary_id)
+        self._scenes[scene_id] = replacement
+        return scene_id
+
+    def update_cube_pool(
+        self, scene_id: int, prim_type_id: int, pool: CubePool
+    ) -> bool:
+        """Copy a same-topology cube pool into existing CUDA scene buffers.
+
+        Returns ``False`` when topology differs so the caller can perform a
+        one-time :meth:`replace_scene`. A successful update preserves every
+        allocation and all static HD-map data.
+        """
+        if not 0 <= scene_id < len(self._scenes):
+            raise IndexError(f"scene_id {scene_id} is out of range")
+        scene = self._scenes[scene_id]
+        candidates = [
+            (index, metadata)
+            for index, metadata in enumerate(scene["cube_pool_metadata"])
+            if metadata["prim_type_id"] == int(prim_type_id)
+        ]
+        if len(candidates) != 1:
+            return False
+        pool_index, _ = candidates[0]
+        return self.update_cube_pool_at_index(scene_id, pool_index, pool)
+
+    def update_cube_pool_at_index(
+        self, scene_id: int, pool_index: int, pool: CubePool
+    ) -> bool:
+        """Copy a same-topology cube pool into one exact scene slot."""
+        if not 0 <= scene_id < len(self._scenes):
+            raise IndexError(f"scene_id {scene_id} is out of range")
+        scene = self._scenes[scene_id]
+        metadata_values = scene["cube_pool_metadata"]
+        if not 0 <= pool_index < len(metadata_values):
+            raise IndexError(f"cube pool index {pool_index} is out of range")
+        metadata = metadata_values[pool_index]
+        n_cubes = int(pool.scales.shape[0])
+        n_global_ts = int(pool.timestamps_us.shape[0])
+        n_track_poses = int(pool.translations.shape[0])
+        if (
+            int(pool.prim_type_id) != metadata["prim_type_id"]
+            or n_cubes != metadata["n_cubes"]
+            or n_global_ts != metadata["n_global_ts"]
+            or n_track_poses != metadata["n_track_poses"]
+            or tuple(pool.quaternions.shape) != (n_track_poses, 4)
+            or tuple(pool.scales.shape) != (n_cubes, 3)
+            or tuple(pool.colors.shape) != (n_cubes, 6)
+        ):
+            return False
+
+        timestamps = scene["timestamps"]
+        int32 = scene["int32"]
+        floats = scene["floats"]
+
+        def _copy_slice(
+            destination: torch.Tensor,
+            offset: int,
+            source: torch.Tensor,
+            dtype: torch.dtype,
+        ) -> None:
+            flattened = source.to(
+                device=destination.device, dtype=dtype, non_blocking=True
+            ).reshape(-1)
+            destination[offset : offset + flattened.numel()].copy_(flattened)
+
+        _copy_slice(
+            timestamps,
+            metadata["timestamp_offset"],
+            pool.timestamps_us,
+            torch.int64,
+        )
+        _copy_slice(
+            timestamps,
+            metadata["track_timestamp_offset"],
+            pool.track_timestamps_us,
+            torch.int64,
+        )
+        _copy_slice(
+            int32,
+            metadata["int32_offset"],
+            pool.cube_ts_prefix_sum,
+            torch.int32,
+        )
+        _copy_slice(
+            floats,
+            metadata["translation_offset"],
+            pool.translations,
+            torch.float32,
+        )
+        _copy_slice(
+            floats,
+            metadata["quaternion_offset"],
+            pool.quaternions,
+            torch.float32,
+        )
+        _copy_slice(
+            floats,
+            metadata["scale_offset"],
+            pool.scales,
+            torch.float32,
+        )
+        _copy_slice(
+            floats,
+            metadata["color_offset"],
+            pool.colors,
+            torch.float32,
+        )
+        scene["cube_pools"][pool_index, 11] = int(pool.render_flags)
+        return True
 
     # ------------------------------------------------------------------
     def set_tessellation_threshold(self, threshold: float) -> None:
@@ -418,26 +562,61 @@ class LudusCudaTimestampedContext:
     ) -> torch.Tensor:
         """Render a batch of queries.
 
-        Currently only single-query rendering is supported (one scene, one
-        camera at a time); the batch is dispatched as a Python loop over
-        the per-query CUDA kernel call.
+        Queries sharing a scene and camera type are submitted as one
+        multi-camera CUDA render with per-camera timestamps. Query metadata
+        crosses to the host once for grouping instead of synchronizing scalar
+        ``.item()`` calls or entering the native renderer for every image.
         """
         assert self._camera_intrinsics is not None, "call upload_cameras first"
 
         n = scene_ids.shape[0]
-        all_images = []
+        if n == 0:
+            height, width = resolution
+            return torch.empty(
+                (0, height, width, 4),
+                dtype=torch.uint8,
+                device=camera_poses.device,
+            )
+
+        metadata = (
+            torch.stack(
+                (
+                    scene_ids.to(dtype=torch.int64),
+                    camera_ids.to(dtype=torch.int64),
+                    timestamps_us.to(dtype=torch.int64),
+                    camera_type_ids.to(dtype=torch.int64),
+                ),
+                dim=1,
+            )
+            .detach()
+            .cpu()
+            .tolist()
+        )
+
+        groups: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
+        for output_index, (sid, cid, ts_val, cam_type) in enumerate(metadata):
+            groups.setdefault((sid, cam_type), []).append((output_index, cid, ts_val))
+
+        all_images: list[Optional[torch.Tensor]] = [None] * n
 
         plugin = _get_plugin()
 
-        for i in range(n):
-            sid = int(scene_ids[i].item())
-            cid = int(camera_ids[i].item())
-            ts_val = int(timestamps_us[i].item())
-            cam_type = int(camera_type_ids[i].item())
-
+        for (sid, cam_type), members in groups.items():
             sd = self._scenes[sid]
-            cam_intrinsics = self._camera_intrinsics[cid : cid + 1].contiguous()
-            pose = camera_poses[i : i + 1].contiguous()
+            output_indices = torch.tensor(
+                [member[0] for member in members],
+                dtype=torch.int64,
+                device=camera_poses.device,
+            )
+            camera_indices = torch.tensor(
+                [member[1] for member in members],
+                dtype=torch.int64,
+                device=self._camera_intrinsics.device,
+            )
+            cam_intrinsics = self._camera_intrinsics.index_select(
+                0, camera_indices
+            ).contiguous()
+            pose = camera_poses.index_select(0, output_indices).contiguous()
 
             img = plugin.ludus_render_fwd_cuda_timestamped(
                 self.cpp_wrapper,
@@ -449,7 +628,9 @@ class LudusCudaTimestampedContext:
                 sd["polyline_pools"],
                 sd["polygon_pools"],
                 sd["cube_pools"],
-                ts_val,
+                sd["total_cubes"],
+                sd["cube_pool_counts"],
+                [member[2] for member in members],
                 self._max_extrapolation_us,
                 sd["max_varrays_per_ts_polyline"],
                 sd["max_varrays_per_ts_polygon"],
@@ -459,6 +640,73 @@ class LudusCudaTimestampedContext:
                 resolution,
                 self._tessellation_threshold,
             )
-            all_images.append(img)
+            for group_index, (output_index, _, _) in enumerate(members):
+                all_images[output_index] = img[group_index : group_index + 1]
 
-        return torch.cat(all_images, dim=0)
+        return torch.cat([image for image in all_images if image is not None], dim=0)
+
+    def render_uniform(
+        self,
+        *,
+        scene_id: int,
+        camera_id: int,
+        timestamps_us: Sequence[int] | torch.Tensor,
+        camera_type_id: int,
+        camera_poses: torch.Tensor,
+        resolution: Tuple[int, int],
+    ) -> torch.Tensor:
+        """Render a uniform query batch without allocating grouping metadata."""
+        assert self._camera_intrinsics is not None, "call upload_cameras first"
+        if not 0 <= scene_id < len(self._scenes):
+            raise IndexError(f"scene_id {scene_id} is out of range")
+        if not 0 <= camera_id < len(self._cameras):
+            raise IndexError(f"camera_id {camera_id} is out of range")
+
+        frame_count = int(camera_poses.shape[0])
+        if len(timestamps_us) != frame_count:
+            raise ValueError("timestamps_us must match the camera pose count")
+        if frame_count == 0:
+            height, width = resolution
+            return torch.empty(
+                (0, height, width, 4),
+                dtype=torch.uint8,
+                device=camera_poses.device,
+            )
+        if isinstance(timestamps_us, torch.Tensor):
+            timestamp_values = timestamps_us.detach().cpu().tolist()
+        else:
+            timestamp_values = [int(timestamp) for timestamp in timestamps_us]
+
+        cache_key = (camera_id, frame_count)
+        cam_intrinsics = self._uniform_intrinsics_cache.get(cache_key)
+        if cam_intrinsics is None:
+            cam_intrinsics = (
+                self._camera_intrinsics[camera_id : camera_id + 1]
+                .expand(frame_count, -1)
+                .contiguous()
+            )
+            self._uniform_intrinsics_cache[cache_key] = cam_intrinsics
+
+        scene = self._scenes[scene_id]
+        return _get_plugin().ludus_render_fwd_cuda_timestamped(
+            self.cpp_wrapper,
+            scene["timestamps"],
+            scene["int32"],
+            scene["vertices"],
+            scene["triangles"],
+            scene["floats"],
+            scene["polyline_pools"],
+            scene["polygon_pools"],
+            scene["cube_pools"],
+            scene["total_cubes"],
+            scene["cube_pool_counts"],
+            timestamp_values,
+            self._max_extrapolation_us,
+            scene["max_varrays_per_ts_polyline"],
+            scene["max_varrays_per_ts_polygon"],
+            camera_type_id,
+            cam_intrinsics,
+            camera_poses.contiguous(),
+            resolution,
+            self._tessellation_threshold,
+        )

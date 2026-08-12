@@ -78,7 +78,7 @@ your environment needs Hugging Face authentication for model or dataset access.
 mkdir -p /tmp/omnidreams_quality_ref /tmp/omnidreams_quality_artifacts
 
 uv run --project integrations/omnidreams flashdreams-run \
-  omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae \
+  omnidreams \
   --example-data True \
   --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
   --total-blocks 4 \

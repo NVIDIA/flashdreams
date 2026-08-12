@@ -1,5 +1,13 @@
 This project includes third-party software:
 
+Name: NVIDIA PhysX 5.9.0
+Source: https://github.com/NVIDIA-Omniverse/PhysX
+License: BSD-3-Clause
+
+Ludus downloads a pinned PhysX source archive at first use, verifies its
+SHA-256, and builds it into a platform-local cache. PhysX source and binaries
+are not redistributed in this package.
+
 Name: cudaraster
 Source path: ludus_renderer/_cpp/cudaraster
 License: BSD-3-Clause-style

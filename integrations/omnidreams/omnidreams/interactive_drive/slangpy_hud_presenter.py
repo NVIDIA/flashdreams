@@ -22,14 +22,23 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from omnidreams.interactive_drive.config import RasterConfig
+from omnidreams.interactive_drive.config import (
+    BevConfig,
+    RasterConfig,
+    VehicleConfig,
+)
 from omnidreams.interactive_drive.cuda_env import DISABLE_CUDA_INTEROP_ENV
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.presenter import (
     _CudaRGBInterop,
     _env_truthy,
 )
 from omnidreams.interactive_drive.types import DriverCommand, PresentedFrame
+from omnidreams.interactive_drive.visual_flare import (
+    CollisionVisualFlare,
+    darken_rgb,
+)
 from PIL import Image, ImageDraw, ImageFont
 
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
@@ -79,6 +88,67 @@ MPS_TO_MPH = 2.2369362920544
 DRIVE_KEY_RELEASE_DEBOUNCE_S = 0.08
 
 _BevPanelKey = tuple[int, int, int, int]
+
+_DEFAULT_VEHICLE_CONFIG = VehicleConfig()
+_DEFAULT_EGO_DIMENSIONS_LWH = (
+    _DEFAULT_VEHICLE_CONFIG.aabb_length_m,
+    _DEFAULT_VEHICLE_CONFIG.aabb_width_m,
+    _DEFAULT_VEHICLE_CONFIG.aabb_height_m,
+)
+
+
+def _bev_ego_footprint_points(
+    dimensions_lwh: object,
+    viewport: tuple[int, int, int, int],
+    bev: BevConfig,
+) -> tuple[tuple[int, int], ...] | None:
+    """Map the ego footprint into the straight-down, ego-centered panel."""
+    dimensions = np.asarray(dimensions_lwh, dtype=np.float64).reshape(-1)
+    if dimensions.size != 3 or not np.all(np.isfinite(dimensions)):
+        return None
+    length_m, width_m, height_m = (float(value) for value in dimensions)
+    if min(length_m, width_m, height_m) <= 0.0:
+        return None
+
+    left, top, right, bottom = viewport
+    target_w, target_h = right - left, bottom - top
+    if target_w <= 0 or target_h <= 0:
+        return None
+
+    half_fov = _math.radians(float(bev.fov_deg)) * 0.5
+    if not (0.0 < half_fov < _math.pi * 0.5) or float(bev.height_m) <= 0.0:
+        return None
+    metres_per_source_pixel = (
+        2.0 * float(bev.height_m) * _math.tan(half_fov) / float(bev.height)
+    )
+    source_cx = float(bev.width) * 0.5
+    source_cy = float(bev.height) * 0.5
+
+    # The BEV image is cover-fitted into the HUD panel; mirror the resize and
+    # centre-crop performed by ``_build_bev_panel_image``.
+    scale = max(target_w / float(bev.width), target_h / float(bev.height))
+    crop_x = (float(bev.width) * scale - target_w) * 0.5
+    crop_y = (float(bev.height) * scale - target_h) * 0.5
+
+    def project(x_m: float, y_m: float) -> tuple[int, int]:
+        # Rig forward is map-up and rig left is map-left. The BEV source is
+        # centered on the rig, so the authoritative ego footprint must remain
+        # centered instead of being perspective-shifted or clamped onscreen.
+        source_x = source_cx - y_m / metres_per_source_pixel
+        source_y = source_cy - x_m / metres_per_source_pixel
+        return (
+            round(left + source_x * scale - crop_x),
+            round(top + source_y * scale - crop_y),
+        )
+
+    half_l, half_w = length_m * 0.5, width_m * 0.5
+    footprint = (
+        (half_l, half_w),
+        (half_l, -half_w),
+        (-half_l, -half_w),
+        (-half_l, half_w),
+    )
+    return tuple(project(x_m, y_m) for x_m, y_m in footprint)
 
 
 def _allocate_canvas(width: int, height: int) -> tuple[np.ndarray, Image.Image]:
@@ -205,15 +275,16 @@ class KeyboardStateDriveSink:
     ``pulse`` are unused no-ops kept only so the full control surface exists.
     """
 
-    def __init__(self, keyboard: KeyboardState) -> None:
+    def __init__(self, keyboard: KeyboardState, *, source: str = "default") -> None:
         self._keyboard = keyboard
+        self._source = source
 
     def set_drive(
         self, *, steer: float, throttle: float, brake: float, reverse: bool = False
     ) -> None:
         # ``manual_control`` + ``steer_is_direct`` keep the engine state
-        # identical regardless of transport. ``reverse`` is set by a
-        # wheel/controller's bound reverse button (keyboard leaves it False).
+        # identical regardless of transport. ``reverse`` is set by either a
+        # wheel/controller's bound reverse button or the keyboard's S/down key.
         self._keyboard.set_drive_command(
             DriverCommand(
                 throttle=max(0.0, min(1.0, throttle)),
@@ -222,11 +293,12 @@ class KeyboardStateDriveSink:
                 reverse=bool(reverse),
                 steer_is_direct=True,
                 manual_control=True,
-            )
+            ),
+            source=self._source,
         )
 
     def release_all(self) -> None:
-        self._keyboard.set_drive_command(None)
+        self._keyboard.set_drive_command(None, source=self._source)
 
     def request_reset(self) -> None:
         # Lets a wheel/controller's bound reset button trigger the same
@@ -284,7 +356,20 @@ class SlangPyHudPresenter:
         self._spy = spy
         self._raster = raster
         self._keyboard = keyboard
+        self._visual_flare = CollisionVisualFlare()
         self._args = args
+        bev_width, bev_height = (
+            int(component)
+            for component in str(args.bev_resolution).lower().split("x", maxsplit=1)
+        )
+        self._bev_config = BevConfig(
+            enabled=bool(args.bev),
+            width=bev_width,
+            height=bev_height,
+            height_m=float(args.bev_height_m),
+            fov_deg=float(args.bev_fov_deg),
+            tilt_deg=float(args.bev_tilt_deg),
+        )
         self._scene_options = scene_options
         self._control_assets = control_assets
         self._wheel = wheel
@@ -294,12 +379,12 @@ class SlangPyHudPresenter:
         # imports would be circular.
         from omnidreams.interactive_drive.demo import (
             KeyboardDriveState,
-            _bev_marker_y_rel,
             _scene_label,
         )
 
-        self._keyboard_drive = KeyboardDriveState(KeyboardStateDriveSink(keyboard))
-        self._bev_marker_y_rel = _bev_marker_y_rel
+        self._keyboard_drive = KeyboardDriveState(
+            KeyboardStateDriveSink(keyboard, source="keyboard")
+        )
         self._scene_label_fn = _scene_label
 
         # Window + device + surface setup mirrors SlangPyPresenter's
@@ -376,6 +461,7 @@ class SlangPyHudPresenter:
 
         self._latest_camera_pil: Image.Image | None = None
         self._latest_bev_source: object | None = None
+        self._latest_ego_dimensions_lwh: object | None = None
         self._prepared_bev_source_key: object | None = None
         self._bev_source_generation = 0
         # Numpy view of the latest world-model frame (RGBA8 with alpha
@@ -499,7 +585,15 @@ class SlangPyHudPresenter:
         if self._keyboard.consume_exit_scene_request():
             self.exit_scene()
 
+    def trigger_visual_flare(self) -> None:
+        """Start the collision-feedback fade."""
+        self._visual_flare.trigger()
+
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        # View mode selects only the primary camera area.  BEV remains an
+        # independent HUD input and must keep updating in the PhysX view.
+        if view_mode == "physx" and frame.physx_debug is None:
+            return
         rgb = self._select_view_rgb(frame, view_mode)
         if self._cuda_hud_interop is None or not _has_cuda_tensor(rgb):
             _prefetch_to_numpy(rgb)
@@ -515,6 +609,8 @@ class SlangPyHudPresenter:
                 self._prepared_bev_source_key = source_key
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        visual_flare = getattr(self, "_visual_flare", None)
+        flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
         # Apply any pending resize before touching the display texture
         # this frame. Done here (not inside on_resize) so Vulkan
         # resources are only ever rebuilt on the main thread.
@@ -522,6 +618,16 @@ class SlangPyHudPresenter:
             new_size = self._pending_resize
             self._pending_resize = None
             self._apply_resize(new_size[0], new_size[1])
+
+        # A queued frame generated before view 3 was selected has no PhysX
+        # snapshot. Keep the last surface visible until a PhysX-enabled chunk
+        # arrives instead of briefly substituting the HDMap conditioning view.
+        if view_mode == "physx" and frame.physx_debug is None:
+            return
+
+        ego_dimensions = getattr(frame.physx_debug, "ego_dimensions_lwh", None)
+        if ego_dimensions is not None:
+            self._latest_ego_dimensions_lwh = ego_dimensions
 
         rgb = self._select_view_rgb(frame, view_mode)
         if (
@@ -534,7 +640,12 @@ class SlangPyHudPresenter:
             # old-size CUDA/Vulkan buffers against the newly resized window.
             return
         try:
-            if self._present_cuda_hud_frame(frame, rgb):
+            cuda_presented = (
+                self._present_cuda_hud_frame(frame, rgb, flare_opacity=flare_opacity)
+                if flare_opacity > 0.0
+                else self._present_cuda_hud_frame(frame, rgb)
+            )
+            if cuda_presented:
                 return
         except Exception as exc:
             if not self._cuda_hud_error_logged:
@@ -550,8 +661,15 @@ class SlangPyHudPresenter:
         self._update_camera_pil(rgb)
         if frame.bev_host_uint8 is not None:
             self._update_bev_pil(frame.bev_host_uint8)
-        self._render_canvas(frame.status_message)
-        self._present_canvas(use_gpu_camera=frame.status_message is None)
+        if flare_opacity > 0.0:
+            self._render_canvas(frame.status_message, force_cpu_camera=True)
+            self._present_canvas(
+                use_gpu_camera=False,
+                flare_opacity=flare_opacity,
+            )
+        else:
+            self._render_canvas(frame.status_message)
+            self._present_canvas(use_gpu_camera=frame.status_message is None)
 
     def present_world_model_loading(self, *, process_events: bool = True) -> None:
         """Paint the HUD's world-model loading state during blocking setup work."""
@@ -561,7 +679,13 @@ class SlangPyHudPresenter:
         self._render_canvas("Loading World Model")
         self._present_canvas(use_gpu_camera=False)
 
-    def _present_cuda_hud_frame(self, frame: PresentedFrame, rgb: object) -> bool:
+    def _present_cuda_hud_frame(
+        self,
+        frame: PresentedFrame,
+        rgb: object,
+        *,
+        flare_opacity: float = 0.0,
+    ) -> bool:
         if self._cuda_hud_interop is None:
             return False
 
@@ -586,6 +710,7 @@ class SlangPyHudPresenter:
             overlay_rgba=overlay,
             camera_area=camera_area,
             bg_rgb=BG_COLOR,
+            flare_opacity=flare_opacity,
         )
         if not queued:
             return True
@@ -619,11 +744,14 @@ class SlangPyHudPresenter:
 
     # -- Frame helpers ---------------------------------------------
 
-    @staticmethod
-    def _select_view_rgb(frame: PresentedFrame, view_mode: str) -> object:
-        if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            return frame.model_rgb_host_uint8
-        return frame.rgb_host_uint8
+    def _select_view_rgb(self, frame: PresentedFrame, view_mode: str) -> object:
+        raster = getattr(self, "_raster", None)
+        return select_presented_rgb(
+            frame,
+            view_mode,
+            width=raster.width if raster is not None else 1,
+            height=raster.height if raster is not None else 1,
+        )
 
     def _update_camera_pil(self, rgb: object) -> None:
         rgb = _as_rgb_host_uint8(rgb)
@@ -943,7 +1071,12 @@ class SlangPyHudPresenter:
             return False
         return True
 
-    def _present_canvas(self, use_gpu_camera: bool = False) -> None:
+    def _present_canvas(
+        self,
+        use_gpu_camera: bool = False,
+        *,
+        flare_opacity: float = 0.0,
+    ) -> None:
         # Sync to the window's CURRENT size before every present.
         # SDL3 doesn't always fire on_resize for compositor-side rezies
         # (window manager fitting the window to the screen on first
@@ -974,7 +1107,8 @@ class SlangPyHudPresenter:
         # (see :func:`_allocate_canvas`), so this is a direct upload with no
         # PIL-to-numpy memcpy.
         try:
-            self._display_texture.copy_from_numpy(self._canvas_buffer)
+            canvas_buffer = darken_rgb(self._canvas_buffer, flare_opacity)
+            self._display_texture.copy_from_numpy(canvas_buffer)
             encoder = self._device.create_command_encoder()
             if use_gpu_camera:
                 self._composite_camera_gpu(encoder)
@@ -1172,6 +1306,7 @@ class SlangPyHudPresenter:
         status_message: str | None,
         *,
         camera_transparent: bool = False,
+        force_cpu_camera: bool = False,
     ) -> None:
         """Composite camera + chrome into ``self._canvas`` for this frame.
 
@@ -1207,7 +1342,7 @@ class SlangPyHudPresenter:
         if camera_transparent:
             camera_drawn = True
         elif self._latest_camera_pil is not None:
-            if status_message is None:
+            if status_message is None and not force_cpu_camera:
                 # GPU camera path fills the centred fit rect after the canvas
                 # upload; here we only repaint the letterbox bars (~0.3 ms) so
                 # they don't show last frame's content when the fit rect resizes.
@@ -1382,6 +1517,9 @@ class SlangPyHudPresenter:
         the side panel is not drawn (narrow window / camera-only mode).
         """
         if self._wheel is not None and self._wheel.state.connected:
+            if self._keyboard_drive.has_active_input:
+                return self._keyboard_drive.update()
+            self._keyboard_drive.release_control()
             return self._wheel.state
         return self._keyboard_drive.update()
 
@@ -1405,6 +1543,7 @@ class SlangPyHudPresenter:
         header_w = panel_size[0] - margin * 2
         header_y = py + 8
         variant_y = header_y + bar_h + 4
+        postprocess_available = bool(self._postprocess_preset)
         postprocess_y = variant_y + bar_h + 4
         self._scene_header_rect = (
             header_x,
@@ -1418,21 +1557,22 @@ class SlangPyHudPresenter:
             header_x + header_w,
             variant_y + bar_h,
         )
-        self._postprocess_rect = (
-            header_x,
-            postprocess_y,
-            header_x + header_w,
-            postprocess_y + bar_h,
-        )
+        if postprocess_available:
+            self._postprocess_rect = (
+                header_x,
+                postprocess_y,
+                header_x + header_w,
+                postprocess_y + bar_h,
+            )
+            speed_y = postprocess_y + bar_h + 12
+        else:
+            self._postprocess_rect = None
+            speed_y = variant_y + bar_h + 12
 
         center_x = px + panel_size[0] // 2
         # ``speed_y`` is the top of the speed-digit chip. PIL renders
         # text into a tight glyph-bbox image (no leading above the
-        # glyph), so positioning the chip-top right after the variant
-        # bar would still land the visible glyph inside the bar. Add a
-        # ~12 px clearance below ``variant_y + bar_h`` so the digit
-        # never overlaps the headers.
-        speed_y = postprocess_y + bar_h + 12
+        # glyph), so keep a ~12 px clearance below the last visible header.
         self._draw_speed(canvas, draw, center_x, speed_y, int(self._speed_mph))
 
         # Light the reverse indicator red when reverse is engaged; the cached
@@ -1577,55 +1717,50 @@ class SlangPyHudPresenter:
                 font=self._font_small,
             )
 
-        # Post-processing is selected by CLI and can be switched live for the
-        # local window. An empty preset remains visible but disabled so users
-        # know which launch option unlocks the control.
-        postprocess_y = variant_y + bar_h + 4
-        postprocess_rect = (
-            margin,
-            postprocess_y,
-            margin + header_w,
-            postprocess_y + bar_h,
-        )
         postprocess_available = bool(self._postprocess_preset)
-        postprocess_clickable = postprocess_available and not (
-            self._scene_dropdown_open or self._variant_dropdown_open
-        )
-        d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
-        d.text(
-            (margin + 10, postprocess_y + 6),
-            "Upsample 2x",
-            fill=TEXT_COLOR if postprocess_clickable else LABEL_COLOR,
-            font=self._font_small,
-        )
-        state_label = (
-            ("ON" if self._postprocess_enabled else "OFF")
-            if postprocess_available
-            else "N/A"
-        )
-        state_bbox = _measure_text(self._font_small, state_label)
-        state_w = state_bbox[2] - state_bbox[0]
-        state_fill = (
-            NVIDIA_GREEN
-            if self._postprocess_enabled and postprocess_clickable
-            else LABEL_COLOR
-        )
-        d.text(
-            (
-                margin + header_w - state_w - 10 - state_bbox[0],
-                postprocess_y + 6,
-            ),
-            state_label,
-            fill=state_fill,
-            font=self._font_small,
-        )
+        speed_y = variant_y + bar_h + 12
+        if postprocess_available:
+            postprocess_y = variant_y + bar_h + 4
+            postprocess_rect = (
+                margin,
+                postprocess_y,
+                margin + header_w,
+                postprocess_y + bar_h,
+            )
+            postprocess_clickable = not (
+                self._scene_dropdown_open or self._variant_dropdown_open
+            )
+            d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
+            d.text(
+                (margin + 10, postprocess_y + 6),
+                "Upsample 2x",
+                fill=TEXT_COLOR if postprocess_clickable else LABEL_COLOR,
+                font=self._font_small,
+            )
+            state_label = "ON" if self._postprocess_enabled else "OFF"
+            state_bbox = _measure_text(self._font_small, state_label)
+            state_w = state_bbox[2] - state_bbox[0]
+            state_fill = (
+                NVIDIA_GREEN
+                if self._postprocess_enabled and postprocess_clickable
+                else LABEL_COLOR
+            )
+            d.text(
+                (
+                    margin + header_w - state_w - 10 - state_bbox[0],
+                    postprocess_y + 6,
+                ),
+                state_label,
+                fill=state_fill,
+                font=self._font_small,
+            )
+            speed_y = postprocess_y + bar_h + 12
 
         # ``mph`` label baseline + reverse-indicator box. Speed-y must
         # match the live ``_draw_panel`` calculation; both place the
-        # speed-digit chip-top ~12 px below the variant bar so PIL's
-        # tight-bbox glyph chip clears the headers.
+        # speed-digit chip-top ~12 px below the last visible header so PIL's
+        # tight-bbox glyph chip clears the controls.
         center_x = panel_w // 2
-        speed_y = postprocess_y + bar_h + 12
         mbox = _measure_text(self._font_tiny, "mph")
         mw = mbox[2] - mbox[0]
         d.text(
@@ -1946,11 +2081,14 @@ class SlangPyHudPresenter:
         if panel_image is not None:
             canvas.paste(panel_image, (inner[0], inner[1]))
 
-        # Ego marker (Google-Maps chevron) over the BEV panel.
-        marker_cx = inner[0] + inner_w // 2
-        marker_cy = inner[1] + int(inner_h * self._bev_marker_y_rel())
-        marker_size = max(10, min(inner_w, inner_h) // 14)
-        self._draw_bev_marker(draw, marker_cx, marker_cy, marker_size)
+        ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
+        # Physics snapshots are captured only while the optional PhysX debug
+        # view is active. Keep the normal RGB/model views' ego marker visible
+        # with the configured default footprint until an authoritative
+        # snapshot supplies its dimensions.
+        if ego_dimensions is None:
+            ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
+        self._draw_bev_ego_footprint(draw, inner, ego_dimensions, self._bev_config)
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
@@ -1996,35 +2134,20 @@ class SlangPyHudPresenter:
         return None
 
     @staticmethod
-    def _draw_bev_marker(
-        draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int
+    def _draw_bev_ego_footprint(
+        draw: ImageDraw.ImageDraw,
+        viewport: tuple[int, int, int, int],
+        dimensions_lwh: object,
+        bev: BevConfig,
     ) -> None:
-        # Soft drop shadow.
-        shadow_size = size + 4
-        draw.ellipse(
-            (
-                cx - shadow_size,
-                cy - shadow_size + 2,
-                cx + shadow_size,
-                cy + shadow_size + 2,
-            ),
-            fill=(0, 0, 0, 60),
-        )
-        # White outer ring.
-        draw.ellipse(
-            (cx - size, cy - size, cx + size, cy + size), fill=(255, 255, 255, 255)
-        )
-        # Forward chevron in Google-Maps blue.
-        chevron = size - 4
-        draw.polygon(
-            [
-                (cx, cy - chevron),
-                (cx - int(chevron * 0.7), cy + int(chevron * 0.55)),
-                (cx, cy + int(chevron * 0.18)),
-                (cx + int(chevron * 0.7), cy + int(chevron * 0.55)),
-            ],
-            fill=(66, 133, 244, 255),
-        )
+        footprint = _bev_ego_footprint_points(dimensions_lwh, viewport, bev)
+        if footprint is None:
+            return
+        edge = (45, 82, 0, 255)
+        draw.polygon(footprint, fill=NVIDIA_GREEN + (255,), outline=edge)
+        # The first edge is the front bumper. Highlight it so vehicle heading
+        # is unambiguous even when the footprint is only a few pixels wide.
+        draw.line((footprint[0], footprint[1]), fill=(220, 255, 170, 255), width=2)
 
     # -- Dropdowns ---------------------------------------------------
 
@@ -2199,6 +2322,7 @@ class SlangPyHudPresenter:
             "right": _lookup_key(spy.KeyCode, "right", "arrow_right"),
             "key1": _lookup_key(spy.KeyCode, "key1", "digit1", "num_1"),
             "key2": _lookup_key(spy.KeyCode, "key2", "digit2", "num_2"),
+            "key3": _lookup_key(spy.KeyCode, "key3", "digit3", "num_3"),
         }
 
     def _on_keyboard_event(self, event: Any) -> None:
@@ -2251,6 +2375,8 @@ class SlangPyHudPresenter:
             self._keyboard.set_view_mode("model_rgb")
         elif self._key_matches(key, "key2"):
             self._keyboard.set_view_mode("rgb")
+        elif self._key_matches(key, "key3"):
+            self._keyboard.set_view_mode("physx")
         elif self._key_matches(key, "r"):
             self._keyboard.request_reset()
         elif self._key_matches(key, "x"):
@@ -2657,7 +2783,9 @@ class SlangPyHudPresenter:
         from omnidreams.interactive_drive.demo import KeyboardDriveState
 
         self._keyboard = keyboard
-        self._keyboard_drive = KeyboardDriveState(KeyboardStateDriveSink(keyboard))
+        self._keyboard_drive = KeyboardDriveState(
+            KeyboardStateDriveSink(keyboard, source="keyboard")
+        )
 
 
 # -- Module-level helpers ---------------------------------------------

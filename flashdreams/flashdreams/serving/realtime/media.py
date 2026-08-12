@@ -14,7 +14,15 @@ import numpy as np
 if TYPE_CHECKING:
     import torch
 
-FrameLayout = Literal["hwc", "chw", "thwc", "tchw", "bvtchw"]
+FrameLayout = Literal[
+    "hwc",
+    "chw",
+    "thwc",
+    "tchw",
+    "btchw",
+    "bcthw",
+    "bvtchw",
+]
 ValueRange = Literal["minus_one_one", "zero_one", "uint8"]
 
 
@@ -125,6 +133,18 @@ def rgb_array_to_uint8_frames(
                 f"[1, 1, T, 3, H, W], got {array.shape}"
             )
         frames = np.transpose(array[0, 0], (0, 2, 3, 1))
+    elif layout == "btchw":
+        if array.ndim != 5 or array.shape[0] != 1 or array.shape[2] != 3:
+            raise ValueError(
+                f"Expected single-batch video chunk [1, T, 3, H, W], got {array.shape}"
+            )
+        frames = np.transpose(array[0], (0, 2, 3, 1))
+    elif layout == "bcthw":
+        if array.ndim != 5 or array.shape[0] != 1 or array.shape[1] != 3:
+            raise ValueError(
+                f"Expected single-batch video chunk [1, 3, T, H, W], got {array.shape}"
+            )
+        frames = np.transpose(array[0], (1, 2, 3, 0))
     else:
         raise ValueError(f"Unsupported layout={layout!r}.")
 

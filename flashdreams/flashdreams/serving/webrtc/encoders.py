@@ -3,11 +3,9 @@
 
 """Video encoder backends for the WebRTC serving path.
 
-Integrations that opt in to hardware encoding call :func:`select_encoder`
-from their own session init (omnidreams does this today via
-``omnidreams.webrtc.session._initialize_video_encoder_sync``); those that
-do not opt in pick up :class:`DefaultRTCEncoder` transparently through
-:meth:`BaseWebRTCSessionManager._resolve_video_encoder`.
+Thread-affine WebRTC runtimes call :func:`select_encoder` during shared runtime
+initialization. Runtimes that do not opt in pick up :class:`DefaultRTCEncoder`
+transparently through :meth:`BaseWebRTCSessionManager._resolve_video_encoder`.
 
 **This module deliberately does not import** ``PyNvVideoCodec``. The
 hardware encoder lives in a sibling module (:mod:`nvenc`) that
@@ -22,11 +20,13 @@ from __future__ import annotations
 
 import importlib.util
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 import torch
 from aiortc import MediaStreamTrack
 from loguru import logger
+
+from flashdreams.runtime import StepResult
 
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
@@ -69,9 +69,23 @@ class VideoEncoder(Protocol):
 
     def create_track(self, *, maxsize: int) -> BufferedVideoTrack | NVENCVideoTrack: ...
 
+    def prepare_chunk_payload(
+        self,
+        result: StepResult,
+        track: MediaStreamTrack,
+    ) -> object: ...
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult: ...
+
     async def deliver_chunk(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -110,9 +124,23 @@ class DefaultRTCEncoder:
 
         return BufferedVideoTrack(fps=self.fps, maxsize=maxsize)
 
-    async def deliver_chunk(
+    def prepare_chunk_payload(
         self,
-        chunk: torch.Tensor,
+        result: StepResult,
+        track: MediaStreamTrack,
+    ) -> tuple[object, ...]:
+        from flashdreams.serving.webrtc.media import BufferedVideoTrack
+
+        if not isinstance(track, BufferedVideoTrack):
+            raise TypeError(
+                "DefaultRTCEncoder requires a BufferedVideoTrack; got "
+                f"{type(track).__name__}. Create it via encoder.create_track()."
+            )
+        return track.prepare_result_frames(result)
+
+    async def deliver_prepared_chunk(
+        self,
+        payload: object,
         track: MediaStreamTrack,
         *,
         force_keyframe: bool = False,
@@ -128,12 +156,27 @@ class DefaultRTCEncoder:
                 "DefaultRTCEncoder requires a BufferedVideoTrack; got "
                 f"{type(track).__name__}. Create it via encoder.create_track()."
             )
-        enqueued = await track.enqueue_chunk(chunk)
+        if not isinstance(payload, tuple):
+            raise TypeError("DefaultRTCEncoder payload must be a tuple of RGB frames.")
+        enqueued = await track.enqueue_frames(cast(Any, payload))
         return ChunkDeliveryResult(
             backend=self.backend,
             num_frames=enqueued,
             num_keyframes=0,
             encode_ms=0.0,
+        )
+
+    async def deliver_chunk(
+        self,
+        result: StepResult,
+        track: MediaStreamTrack,
+        *,
+        force_keyframe: bool = False,
+    ) -> ChunkDeliveryResult:
+        return await self.deliver_prepared_chunk(
+            self.prepare_chunk_payload(result, track),
+            track,
+            force_keyframe=force_keyframe,
         )
 
     def close(self) -> None:
@@ -202,10 +245,43 @@ def select_encoder(
       — driver bug, session-pool exhaustion, hardware fault, or
       misconfiguration. Log with traceback and re-raise; do not silently
       degrade, because doing so would hide a real problem.
+
+    PyNvVideoCodec may replace the CUDA context current on the calling
+    thread, including when ``GetEncoderCaps`` fails. Preserve an already
+    initialized PyTorch device context so subsequent model work does not
+    inherit the encoder probe's context.
     """
     if backend == "default":
         return DefaultRTCEncoder(fps=fps)
 
+    restore_device = (
+        torch.cuda.current_device() if torch.cuda.is_initialized() else None
+    )
+    try:
+        return _select_hardware_encoder(
+            backend=backend,
+            width=width,
+            height=height,
+            fps=fps,
+            bitrate=bitrate,
+            gpu_id=gpu_id,
+            gop=gop,
+        )
+    finally:
+        if restore_device is not None:
+            torch.cuda.set_device(restore_device)
+
+
+def _select_hardware_encoder(
+    *,
+    backend: Literal["auto", "nvenc"],
+    width: int,
+    height: int,
+    fps: int,
+    bitrate: int,
+    gpu_id: int,
+    gop: int,
+) -> VideoEncoder:
     if not _pynvvideocodec_installed():
         reason = "PyNvVideoCodec library is not installed"
         if backend == "nvenc":

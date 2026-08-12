@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
+from importlib.resources import files
+from typing import Any
 
 import numpy as np
 import pytest
@@ -11,11 +14,11 @@ import torch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from flashdreams.serving.webrtc.controls import (
-    WSAD_SUPPORTED_KEYS,
-    CameraPoseIntegrator,
-    KeyboardResampler,
-    KeyboardState,
+from flashdreams.runtime.demo import RealtimeEventResampler
+from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS, KeyboardState
+from flashdreams.serving.webrtc.manager import (
+    BaseWebRTCSessionManager,
+    ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.media import tensor_chunk_to_rgb_frames
 from flashdreams.serving.webrtc.messages import (
@@ -39,49 +42,6 @@ def test_wsad_keyboard_state_rejects_non_driving_keys() -> None:
     assert state.resolved_effective_keys() == frozenset({"w"})
     assert not state.apply_event(event="keydown", key="q")
     assert state.resolved_effective_keys() == frozenset({"w"})
-
-
-def test_wsad_resampler_preserves_held_key() -> None:
-    resampler = KeyboardResampler(
-        fps=30,
-        start_v=1.0,
-        supported_keys=WSAD_SUPPORTED_KEYS,
-    )
-    resampler.on_edge(arrival_t=0.5, event="keydown", key="w")
-
-    segments, frame_times = resampler.sample_chunk(num_frames=2)
-
-    assert segments == [(1.0, 1.0 + 2 / 30, frozenset({"w"}))]
-    assert frame_times == pytest.approx([1.0 + 1 / 30, 1.0 + 2 / 30])
-
-
-def test_camera_pose_integrator_flu_uses_driving_axes() -> None:
-    integrator = CameraPoseIntegrator(
-        move_speed_per_s=2.0,
-        rotate_speed_rad_per_s=float(np.pi / 2),
-        coordinate_system="FLU",
-    )
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"w"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 3] == pytest.approx([2.0, 0.0, 0.0])
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"a"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 0] == pytest.approx([0.0, 1.0, 0.0], abs=1e-6)
-
-    integrator.reset()
-    poses = integrator.integrate_chunk(
-        segments=[(0.0, 1.0, frozenset({"d"}))],
-        frame_times=[1.0],
-    )
-    assert poses[-1][:3, 0] == pytest.approx([0.0, -1.0, 0.0], abs=1e-6)
 
 
 def test_tensor_chunk_to_rgb_frames_supports_omnidreams_layout() -> None:
@@ -116,6 +76,153 @@ class _FakeSessionManager:
 
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
+
+
+class _FakeCloseable:
+    async def close(self) -> None:
+        return
+
+
+class _FakeControlChannel:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    def send(self, payload: str) -> None:
+        decoded = json.loads(payload)
+        assert isinstance(decoded, dict)
+        self.messages.append(decoded)
+
+
+class _Manager(BaseWebRTCSessionManager[Any, Any]):
+    def _model_name(self) -> str:
+        return "fake"
+
+
+def _managed_session_with_channel(
+    runtime: object,
+) -> tuple[ManagedWebRTCSession, _FakeControlChannel]:
+    channel = _FakeControlChannel()
+    managed_session = ManagedWebRTCSession(
+        runtime=runtime,
+        video_track=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        video_encoder=_FakeCloseable(),  # ty:ignore[invalid-argument-type]
+        peer_connection=_FakeCloseable(),
+        resampler=RealtimeEventResampler(fps=30, start_v=0.0),
+        control_channel=channel,
+    )
+    return managed_session, channel
+
+
+@pytest.mark.asyncio
+async def test_event_message_dispatches_to_runtime_and_acknowledges() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {"active_event_id": event_id}
+
+    runtime = _FakeRuntime()
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","event_id":"portal","state":"trigger"}',
+    )
+
+    assert runtime.calls == [("portal", "trigger")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": "portal",
+            "state": "trigger",
+            "active_event_id": "portal",
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_clear_event_message_preserves_ack_fields() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            self.calls.append((event_id, state))
+            return {
+                "type": "not_event_ack",
+                "event_id": "overwritten",
+                "state": "overwritten",
+                "active_event_id": None,
+            }
+
+    runtime = _FakeRuntime()
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"clear"}',
+    )
+
+    assert runtime.calls == [("", "clear")]
+    assert channel.messages == [
+        {
+            "type": "event_ack",
+            "event_id": None,
+            "state": "clear",
+            "active_event_id": None,
+        }
+    ]
+    assert managed_session.first_action_received.is_set()
+
+
+@pytest.mark.asyncio
+async def test_event_message_without_id_is_rejected_for_trigger() -> None:
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def trigger_event(
+            self, *, event_id: str, state: str
+        ) -> dict[str, object]:
+            del event_id, state
+            self.calls += 1
+            return {}
+
+    runtime = _FakeRuntime()
+    manager = _Manager(
+        runtime=runtime, runtime_config=object(), fps=30, identity="fake"
+    )
+    managed_session, channel = _managed_session_with_channel(runtime)
+
+    await manager._handle_datachannel_message(
+        managed_session=managed_session,
+        raw_message='{"type":"event","state":"trigger"}',
+    )
+
+    assert runtime.calls == 0
+    assert channel.messages == [
+        {
+            "type": "error",
+            "message": (
+                "Event payload must include non-empty 'event_id' "
+                "unless state clears the active event."
+            ),
+        }
+    ]
+    assert not managed_session.first_action_received.is_set()
 
 
 def test_packaged_webrtc_app_keeps_resource_materialized(tmp_path) -> None:
@@ -173,6 +280,32 @@ def test_packaged_webrtc_app_closes_resource_when_setup_fails(tmp_path) -> None:
     assert closed
 
 
+def test_shared_viewer_exposes_model_extension_slots() -> None:
+    web_dir = files("flashdreams.serving.webrtc").joinpath("web")
+    html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
+    javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
+
+    assert "/static/request_session.js?v=shared-webrtc-v4" in html
+    for slot in (
+        "modelStageSlot",
+        "modelStatusSlot",
+        "modelPanelSlot",
+        "modelControlSlot",
+    ):
+        assert f'id="{slot}"' in html
+    assert 'fetch("/api/ui/config")' in javascript
+    assert "config.model_stylesheet" in javascript
+    assert "stylesheetHrefs" in javascript
+    assert "await modelAdapter?.beforeConnect?.(modelContext)" in javascript
+    assert "sendCommand: sendModelCommand" in javascript
+    assert 'id="postprocessField"' in html
+    assert 'fetch("/api/postprocess/options")' in javascript
+    assert "@typedef {Object} WebRTCModelAdapter" in javascript
+    assert "adapter.capabilities?.postprocess === true" in javascript
+    assert "renderControls(modelControls)" in javascript
+    assert "/api/session/initial_scene" not in javascript
+
+
 @pytest.mark.asyncio
 async def test_packaged_webrtc_app_serves_common_routes(tmp_path) -> None:
     (tmp_path / "request_session.html").write_text(
@@ -196,6 +329,69 @@ async def test_packaged_webrtc_app_serves_common_routes(tmp_path) -> None:
         assert response.status == 200
         assert body == "<html>session</html>"
         assert manager.preload_calls == 1
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_packaged_webrtc_app_serves_model_adapter(tmp_path) -> None:
+    shared_dir = tmp_path / "shared"
+    model_dir = tmp_path / "model"
+    shared_dir.mkdir()
+    model_dir.mkdir()
+    (shared_dir / "request_session.html").write_text("<html>session</html>")
+    (model_dir / "adapter.js").write_text("export default {}")
+    app = create_packaged_webrtc_app(
+        web_resource=shared_dir,
+        model_web_resource=model_dir,
+        session_manager=_FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+        preload_name="Test",
+        as_file_fn=lambda resource: nullcontext(resource),
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        config_response = await client.get("/api/ui/config")
+        assert await config_response.json() == {
+            "adapter_module": "/model-static/adapter.js?v=model-ui-v2"
+        }
+        adapter_response = await client.get("/model-static/adapter.js")
+        assert adapter_response.status == 200
+        assert await adapter_response.text() == "export default {}"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_packaged_webrtc_app_serves_model_stylesheet(tmp_path) -> None:
+    shared_dir = tmp_path / "shared"
+    model_dir = tmp_path / "model"
+    shared_dir.mkdir()
+    model_dir.mkdir()
+    (shared_dir / "request_session.html").write_text("<html>session</html>")
+    (model_dir / "adapter.css").write_text(".stageVideo { object-fit: contain; }")
+    app = create_packaged_webrtc_app(
+        web_resource=shared_dir,
+        model_web_resource=model_dir,
+        session_manager=_FakeSessionManager(),
+        request_session_url="http://127.0.0.1:8080/request_session",
+        preload_name="Test",
+        as_file_fn=lambda resource: nullcontext(resource),
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        config_response = await client.get("/api/ui/config")
+        assert await config_response.json() == {
+            "adapter_module": None,
+            "model_stylesheet": "/model-static/adapter.css?v=model-ui-v2",
+        }
+        stylesheet_response = await client.get("/model-static/adapter.css")
+        assert stylesheet_response.status == 200
+        assert (
+            await stylesheet_response.text() == ".stageVideo { object-fit: contain; }"
+        )
     finally:
         await client.close()
 

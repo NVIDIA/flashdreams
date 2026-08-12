@@ -13,7 +13,12 @@ from omnidreams.interactive_drive.cuda_env import (
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
+from omnidreams.interactive_drive.physx_debug import select_presented_rgb
 from omnidreams.interactive_drive.types import PresentedFrame
+from omnidreams.interactive_drive.visual_flare import (
+    CollisionVisualFlare,
+    darken_rgb,
+)
 
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
@@ -31,6 +36,7 @@ class SlangPyPresenter:
         self._spy = spy
         self._raster = raster
         self._keyboard = keyboard
+        self._visual_flare = CollisionVisualFlare()
         self._cuda_interop_unavailable_reason: str | None = None
         self._window = spy.Window(
             width=raster.width,
@@ -77,7 +83,24 @@ class SlangPyPresenter:
     def process_events(self) -> None:
         self._window.process_events()
 
+    def trigger_visual_flare(self) -> None:
+        """Start the collision-feedback fade."""
+        self._visual_flare.trigger()
+
     def prepare_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        if view_mode == "physx":
+            if frame.physx_debug is None:
+                return
+            if self._cuda_rgb_interop is None:
+                _prefetch_to_numpy(
+                    select_presented_rgb(
+                        frame,
+                        view_mode,
+                        width=self._raster.width,
+                        height=self._raster.height,
+                    )
+                )
+            return
         if (
             view_mode == "model_rgb"
             and frame.model_rgb_host_uint8 is not None
@@ -89,18 +112,63 @@ class SlangPyPresenter:
             _prefetch_to_numpy(frame.rgb_host_uint8)
 
     def present_frame(self, frame: PresentedFrame, view_mode: str) -> None:
+        visual_flare = getattr(self, "_visual_flare", None)
+        flare_opacity = visual_flare.opacity() if visual_flare is not None else 0.0
+        if view_mode == "physx":
+            # Frames already generated before the user selected view 3 do not
+            # contain PhysX debug data. Leave the current surface untouched
+            # until the first PhysX-enabled chunk arrives; never flash HDMap.
+            if frame.physx_debug is None:
+                return
+            rgb = select_presented_rgb(
+                frame,
+                view_mode,
+                width=self._raster.width,
+                height=self._raster.height,
+            )
+            cuda_presented = (
+                self._present_cuda_rgb(
+                    rgb,
+                    status_message=frame.status_message,
+                    flare_opacity=flare_opacity,
+                )
+                if flare_opacity > 0.0
+                else self._present_cuda_rgb(rgb, status_message=frame.status_message)
+            )
+            if cuda_presented:
+                return
+            host_rgb = _with_status_overlay(rgb, frame.status_message)
+            if flare_opacity > 0.0:
+                self._present_array(host_rgb, flare_opacity=flare_opacity)
+            else:
+                self._present_array(host_rgb)
+            return
         if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            if self._present_cuda_rgb(
-                frame.model_rgb_host_uint8,
-                status_message=frame.status_message,
-            ):
+            cuda_presented = (
+                self._present_cuda_rgb(
+                    frame.model_rgb_host_uint8,
+                    status_message=frame.status_message,
+                    flare_opacity=flare_opacity,
+                )
+                if flare_opacity > 0.0
+                else self._present_cuda_rgb(
+                    frame.model_rgb_host_uint8,
+                    status_message=frame.status_message,
+                )
+            )
+            if cuda_presented:
                 return
             rgb = _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
-            self._present_array(rgb)
+            if flare_opacity > 0.0:
+                self._present_array(rgb, flare_opacity=flare_opacity)
+            else:
+                self._present_array(rgb)
             return
-        self._present_array(
-            _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
-        )
+        rgb = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
+        if flare_opacity > 0.0:
+            self._present_array(rgb, flare_opacity=flare_opacity)
+        else:
+            self._present_array(rgb)
 
     def _create_device(self):
         existing_device_handles = self._cuda_existing_device_handles()
@@ -192,7 +260,11 @@ class SlangPyPresenter:
         return interop
 
     def _present_cuda_rgb(
-        self, rgb_frame: object, *, status_message: str | None
+        self,
+        rgb_frame: object,
+        *,
+        status_message: str | None,
+        flare_opacity: float = 0.0,
     ) -> bool:
         if self._cuda_rgb_interop is None:
             return False
@@ -212,7 +284,12 @@ class SlangPyPresenter:
             return False
 
         submitted = self._submit_ready_cuda_rgb()
-        self._cuda_rgb_interop.enqueue_rgb_to_shared_rgba(cuda_rgb_frame)
+        if flare_opacity > 0.0:
+            self._cuda_rgb_interop.enqueue_rgb_to_shared_rgba(
+                cuda_rgb_frame, flare_opacity=flare_opacity
+            )
+        else:
+            self._cuda_rgb_interop.enqueue_rgb_to_shared_rgba(cuda_rgb_frame)
         if not submitted:
             submitted = self._submit_ready_cuda_rgb()
         return True
@@ -253,7 +330,9 @@ class SlangPyPresenter:
         del surface_texture
         return True
 
-    def _present_array(self, rgb_host_uint8: np.ndarray) -> None:
+    def _present_array(
+        self, rgb_host_uint8: np.ndarray, *, flare_opacity: float = 0.0
+    ) -> None:
         if not self._surface.config:
             return
         surface_texture = self._surface.acquire_next_image()
@@ -261,7 +340,7 @@ class SlangPyPresenter:
             time.sleep(0.001)
             return
 
-        upload = self._pack_surface_pixels(rgb_host_uint8)
+        upload = self._pack_surface_pixels(darken_rgb(rgb_host_uint8, flare_opacity))
         self._display_texture.copy_from_numpy(upload)
 
         command_encoder = self._device.create_command_encoder()
@@ -334,6 +413,8 @@ class SlangPyPresenter:
             self._keyboard.set_view_mode("model_rgb")
         elif is_press and self._matches_key(event.key, "key2"):
             self._keyboard.set_view_mode("rgb")
+        elif is_press and self._matches_key(event.key, "key3"):
+            self._keyboard.set_view_mode("physx")
         elif is_press and self._matches_key(event.key, "r"):
             self._keyboard.request_reset()
 
@@ -351,6 +432,7 @@ class SlangPyPresenter:
             "right": self._lookup_key_code("right", "arrow_right"),
             "key1": self._lookup_key_code("key1", "digit1", "num_1"),
             "key2": self._lookup_key_code("key2", "digit2", "num_2"),
+            "key3": self._lookup_key_code("key3", "digit3", "num_3"),
         }
 
     def _lookup_key_code(self, *names: str) -> object | None:
@@ -442,7 +524,9 @@ class _CudaRGBInterop:
             ready=_cuda_event_ready(source_event),
         )
 
-    def enqueue_rgb_to_shared_rgba(self, rgb_frame: "_CudaRGBFrame") -> bool:
+    def enqueue_rgb_to_shared_rgba(
+        self, rgb_frame: "_CudaRGBFrame", *, flare_opacity: float = 0.0
+    ) -> bool:
         shared_buffer = self._acquire_buffer()
         if shared_buffer is None:
             return False
@@ -456,6 +540,7 @@ class _CudaRGBInterop:
             if not rgb_tensor.is_contiguous():
                 rgb_tensor = rgb_tensor.contiguous()
             rgba_tensor[..., :3].copy_(rgb_tensor, non_blocking=True)
+            self._darken_rgba(rgba_tensor, flare_opacity)
             rgba_tensor[..., 3].fill_(255)
             rgb_tensor.record_stream(self._copy_stream.stream)
             rgba_tensor.record_stream(self._copy_stream.stream)
@@ -471,6 +556,7 @@ class _CudaRGBInterop:
         overlay_rgba: np.ndarray,
         camera_area: tuple[int, int, int, int],
         bg_rgb: tuple[int, int, int],
+        flare_opacity: float = 0.0,
     ) -> bool:
         shared_buffer = self._acquire_buffer()
         if shared_buffer is None:
@@ -525,6 +611,7 @@ class _CudaRGBInterop:
                 non_blocking=True,
             )
             self._alpha_composite_rgba(rgba_tensor, overlay_tensor)
+            self._darken_rgba(rgba_tensor, flare_opacity)
 
             rgb_tensor.record_stream(self._copy_stream.stream)
             resized.record_stream(self._copy_stream.stream)
@@ -604,6 +691,13 @@ class _CudaRGBInterop:
         ).round()
         base_rgba[..., :3].copy_(blended.to(self._torch.uint8), non_blocking=True)
         base_rgba[..., 3].fill_(255)
+
+    def _darken_rgba(self, rgba: Any, opacity: float) -> None:
+        opacity = min(1.0, max(0.0, float(opacity)))
+        if opacity <= 0.0:
+            return
+        darkened = (rgba[..., :3].to(self._torch.float32) * (1.0 - opacity)).round()
+        rgba[..., :3].copy_(darkened.to(self._torch.uint8), non_blocking=True)
 
 
 class _CudaRGBFrame:

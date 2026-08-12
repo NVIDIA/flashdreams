@@ -33,6 +33,7 @@ huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_h
 loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
+psutil                 BSD-3-Clause https://github.com/giampaolo/psutil
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
 torch                  BSD-3-Clause https://pytorch.org
 torchvision            BSD-3-Clause https://github.com/pytorch/vision
@@ -60,6 +61,11 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
+cmake                  BSD-3-Clause https://github.com/Kitware/CMake
+NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
+    ``ludus-renderer`` downloads the pinned PhysX source archive at first use,
+    verifies its SHA-256, and builds it into a platform-local cache. The source
+    and resulting native module are not redistributed in this repository.
 
 Files in
     integrations/omnidreams/omnidreams/conditioning/world_scenario/

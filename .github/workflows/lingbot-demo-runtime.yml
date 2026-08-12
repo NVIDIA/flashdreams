@@ -1,0 +1,331 @@
+name: LingBot Demo Runtime
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - ".github/workflows/lingbot-demo-runtime.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "flashdreams/pyproject.toml"
+      - "flashdreams/flashdreams/core/**"
+      - "flashdreams/flashdreams/infra/**"
+      - "flashdreams/flashdreams/runtime/**"
+      - "flashdreams/flashdreams/serving/**"
+      - "flashdreams/flashdreams/recipes/taehv/**"
+      - "flashdreams/flashdreams/recipes/wan/**"
+      - "flashdreams/tests/test_webrtc_*.py"
+      - "integrations/lingbot/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo-runtime:
+    name: null and MP4
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-2
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+      options: --gpus all
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
+      UV_LINK_MODE: copy
+      UV_PYTHON: "3.12"
+      MAX_JOBS: 8
+      HF_HOME: /tmp/huggingface
+      FLASHDREAMS_CACHE_DIR: /tmp/flashdreams-cache
+      # Streaming avoids the old duplicate merged safetensors cache. CI uses
+      # the generic reserve so the model-specific 200 GiB first-run budget does
+      # not reject runners that have enough room for the streamed shards.
+      FLASHDREAMS_MIN_CACHE_FREE_GB: "20"
+      ARTIFACT_DIR: artifacts/lingbot_demo_runtime
+      PRESET_ID: lingbot-world-v2-14b-causal-fast-taehv-window15-sink3
+      BLOCKS: "5"
+      FPS: "16"
+      WIDTH: "640"
+      HEIGHT: "352"
+      EXPECTED_WIDTH: "640"
+      EXPECTED_HEIGHT: "352"
+      MIN_DURATION_SECONDS: "3"
+      MAX_DURATION_SECONDS: "5"
+    steps:
+      - name: Detect GPU architecture
+        id: gpu-arch
+        run: |
+          nvidia-smi
+          compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+          arch=$(echo "${compute_cap}" | tr -d '.')
+          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+          echo "Detected GPU compute capability: ${compute_cap} -> sm_${arch}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            python3 python3-dev python3-venv \
+            ffmpeg \
+            gcc g++ ninja-build \
+            libnccl-dev \
+            curl git ca-certificates jq unzip
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "lingbot-demo-runtime-sm${{ steps.gpu-arch.outputs.arch }}"
+          prune-cache: false
+
+      - name: Install dependencies
+        env:
+          NVTE_CUDA_ARCHS: ${{ steps.gpu-arch.outputs.arch }}
+        run: |
+          uv venv --clear
+          uv sync --locked --package flashdreams-lingbot --no-dev
+
+      - name: Verify GPU availability
+        run: nvidia-smi
+
+      - name: Run LingBot demo modes
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          log_dir="${ARTIFACT_DIR}/logs"
+          output_dir="${ARTIFACT_DIR}/outputs"
+          summary="${ARTIFACT_DIR}/summary.md"
+          status_file="${ARTIFACT_DIR}/command-status.env"
+          mkdir -p "${log_dir}" "${output_dir}"
+          : > "${status_file}"
+
+          frun() {
+            uv run --no-sync --package flashdreams-lingbot flashdreams-run "$@"
+          }
+
+          run_demo() {
+            local name="$1"
+            shift
+            local log="${log_dir}/${name}.log"
+
+            {
+              printf '$'
+              printf ' %q' "$@"
+              printf '\n\n'
+              "$@"
+            } 2>&1 | tee "${log}"
+
+            local rc="${PIPESTATUS[0]}"
+            echo "${name}=${rc}" >> "${status_file}"
+            echo "${name} exit code: ${rc}" | tee -a "${summary}"
+            return 0
+          }
+
+          {
+            echo "# LingBot Demo Runtime CI"
+            echo
+            echo "| Mode | Expected blocks | Output |"
+            echo "| --- | ---: | --- |"
+            echo "| null | ${BLOCKS} | none |"
+            echo "| MP4 | ${BLOCKS} | lingbot-demo-replay.mp4 |"
+            echo
+            echo "## Command Status"
+          } > "${summary}"
+
+          run_demo null \
+            frun "${PRESET_ID}" null \
+              --device cuda:0 \
+              --scenario.example-idx 0 \
+              --scenario.total-blocks "${BLOCKS}" \
+              --scenario.pixel-height "${HEIGHT}" \
+              --scenario.pixel-width "${WIDTH}" \
+              --output.fps "${FPS}"
+
+          run_demo mp4 \
+            frun "${PRESET_ID}" mp4 \
+              --device cuda:0 \
+              --scenario.example-idx 0 \
+              --scenario.total-blocks "${BLOCKS}" \
+              --scenario.pixel-height "${HEIGHT}" \
+              --scenario.pixel-width "${WIDTH}" \
+              --output.fps "${FPS}" \
+              --output.path "${output_dir}/lingbot-demo-replay.mp4"
+
+      - name: Validate LingBot demo artifacts
+        run: |
+          set -euo pipefail
+
+          log_dir="${ARTIFACT_DIR}/logs"
+          output_dir="${ARTIFACT_DIR}/outputs"
+          probe_dir="${ARTIFACT_DIR}/ffprobe"
+          summary="${ARTIFACT_DIR}/summary.md"
+          status_file="${ARTIFACT_DIR}/command-status.env"
+          mkdir -p "${probe_dir}"
+
+          status_of() {
+            awk -F= -v name="$1" '$1 == name { print $2 }' "${status_file}"
+          }
+
+          assert_exit_zero() {
+            local name="$1"
+            local rc
+            rc="$(status_of "${name}")"
+            if [ "${rc}" != "0" ]; then
+              echo "${name} command failed with exit code ${rc}" >&2
+              exit 1
+            fi
+          }
+
+          assert_clean_log() {
+            local log="$1"
+            if grep -En "ERROR|Traceback|Exception|status=failed|Run failed|failed run" "${log}"; then
+              echo "failure marker found in ${log}" >&2
+              exit 1
+            fi
+          }
+
+          assert_log_contains() {
+            local log="$1"
+            local pattern="$2"
+            local label="$3"
+            if ! grep -Eq "${pattern}" "${log}"; then
+              echo "expected ${label} in ${log}" >&2
+              exit 1
+            fi
+          }
+
+          assert_log_not_contains() {
+            local log="$1"
+            local pattern="$2"
+            local label="$3"
+            if grep -Eq "${pattern}" "${log}"; then
+              echo "unexpected ${label} in ${log}" >&2
+              exit 1
+            fi
+          }
+
+          validate_mp4() {
+            local mode="$1"
+            local mp4="$2"
+            local metadata="${probe_dir}/${mode}.json"
+
+            if [ ! -s "${mp4}" ]; then
+              echo "expected non-empty MP4 at ${mp4}" >&2
+              exit 1
+            fi
+
+            ffprobe \
+              -v error \
+              -select_streams v:0 \
+              -show_entries stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,duration:format=duration \
+              -of json \
+              "${mp4}" > "${metadata}"
+
+            local stream_count width height duration
+            stream_count="$(jq '.streams | length' "${metadata}")"
+            width="$(jq -r '.streams[0].width // ""' "${metadata}")"
+            height="$(jq -r '.streams[0].height // ""' "${metadata}")"
+            duration="$(jq -r '.streams[0].duration // .format.duration // "0"' "${metadata}")"
+
+            if [ "${stream_count}" -lt 1 ]; then
+              echo "ffprobe found no video stream in ${mp4}" >&2
+              exit 1
+            fi
+
+            if [ "${width}" != "${EXPECTED_WIDTH}" ] || [ "${height}" != "${EXPECTED_HEIGHT}" ]; then
+              echo "unexpected ${mode} resolution ${width}x${height}; expected ${EXPECTED_WIDTH}x${EXPECTED_HEIGHT}" >&2
+              exit 1
+            fi
+
+            awk \
+              -v duration="${duration}" \
+              -v min_duration="${MIN_DURATION_SECONDS}" \
+              -v max_duration="${MAX_DURATION_SECONDS}" \
+              'BEGIN {
+                if ((duration + 0) < min_duration || (duration + 0) > max_duration) {
+                  exit 1
+                }
+              }' || {
+                echo "unexpected ${mode} duration ${duration}s; expected ${MIN_DURATION_SECONDS}-${MAX_DURATION_SECONDS}s" >&2
+                exit 1
+              }
+          }
+
+          null_log="${log_dir}/null.log"
+          mp4_log="${log_dir}/mp4.log"
+
+          assert_exit_zero null
+          assert_exit_zero mp4
+
+          assert_clean_log "${null_log}"
+          assert_clean_log "${mp4_log}"
+
+          assert_log_contains "${null_log}" "Streaming sharded safetensors checkpoint" "null streaming checkpoint load"
+          assert_log_contains "${null_log}" "Finished streaming .* safetensors shard" "null streamed checkpoint completion"
+          assert_log_contains "${null_log}" "AR 4 encode" "null final AR block"
+          assert_log_contains "${null_log}" "Lingbot runtime step 4 frames=" "null final replay step"
+          assert_log_not_contains "${null_log}" "Loading merged sharded checkpoint from cache|Saved merged sharded checkpoint" "merged safetensors cache usage"
+
+          assert_log_contains "${mp4_log}" "Streaming sharded safetensors checkpoint" "MP4 streaming checkpoint load"
+          assert_log_contains "${mp4_log}" "Finished streaming .* safetensors shard" "MP4 streamed checkpoint completion"
+          assert_log_contains "${mp4_log}" "AR 4 encode" "MP4 final AR block"
+          assert_log_contains "${mp4_log}" "Lingbot runtime step 4 frames=" "MP4 final replay step"
+          assert_log_not_contains "${mp4_log}" "Loading merged sharded checkpoint from cache|Saved merged sharded checkpoint" "merged safetensors cache usage"
+
+          validate_mp4 mp4 "${output_dir}/lingbot-demo-replay.mp4"
+
+          {
+            echo
+            echo "## Validation"
+            echo
+            echo "- Null and MP4 commands exited zero."
+            echo "- Logs contained expected streaming-checkpoint and final AR-step markers."
+            echo "- Logs did not contain merged-safetensors cache markers."
+            echo "- MP4 output was non-empty and passed ffprobe stream checks."
+          } >> "${summary}"
+
+      - name: Trim uv cache for upload
+        if: always()
+        run: |
+          cache_dir="${UV_CACHE_DIR:-/github/home/.cache/uv}"
+          echo "=== Cache size before trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+
+          rm -rf "${cache_dir}/wheels-v6"
+          rm -rf "${cache_dir}/archive-v0"
+
+          find "${cache_dir}/git-v0/checkouts" \
+            \( -name "build" -o -name "*.egg-info" -o -name "__pycache__" \) \
+            -type d -exec rm -rf {} + 2>/dev/null || true
+
+          rm -rf "${cache_dir}/sdists-v9/editable"
+
+          echo ""
+          echo "=== Cache size after trim ==="
+          du -sh "${cache_dir}" || true
+          du -sh "${cache_dir}"/*/ 2>/dev/null || true
+          echo ""
+          echo "=== Cached built wheels (sdists-v9) ==="
+          find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
+
+      - name: Upload demo runtime artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingbot-demo-runtime
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore

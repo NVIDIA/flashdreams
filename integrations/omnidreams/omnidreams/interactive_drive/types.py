@@ -185,6 +185,127 @@ class VehicleState:
     steer_rad: float
     pitch_rad: float = 0.0
     roll_rad: float = 0.0
+    velocity_x_mps: float | None = None
+    velocity_y_mps: float | None = None
+    yaw_rate_radps: float = 0.0
+    suspension_pitch_rad: float = 0.0
+    suspension_roll_rad: float = 0.0
+    suspension_pitch_rate_radps: float = 0.0
+    suspension_roll_rate_radps: float = 0.0
+    ragdoll_active: bool = False
+
+
+@dataclass(frozen=True)
+class DynamicActorTrajectory:
+    """Per-frame rigid-body track consumed by game engines and Ludus."""
+
+    entity_id: str
+    """Stable scene entity identifier."""
+
+    object_type: str
+    """Semantic actor category used for mass and rendering style."""
+
+    timestamps_us: npt.NDArray[np.int64]
+    """Frame timestamps shared with the containing ego trajectory."""
+
+    translations_world: FloatArray
+    """Actor centers in world coordinates with shape ``[frames, 3]``."""
+
+    orientations_xyzw: FloatArray
+    """World orientations as normalized quaternions with shape ``[frames, 4]``."""
+
+    dimensions_lwh: FloatArray
+    """Full box extents in metres."""
+
+    detached_from_track: bool = False
+    """Whether rigid-body physics, rather than the recorded track, owns the actor."""
+
+    is_simulated: bool = False
+    """Whether this chunk carries mutable PhysX samples for the actor."""
+
+    def to_game_engine_dict(self) -> dict[str, Any]:
+        """Return JSON-compatible identity, collider, and transform keyframes."""
+        keyframes = [
+            {
+                "timestamp_us": int(timestamp_us),
+                "transform": {
+                    "position_m": translation.tolist(),
+                    "orientation_xyzw": orientation.tolist(),
+                },
+            }
+            for timestamp_us, translation, orientation in zip(
+                self.timestamps_us,
+                self.translations_world,
+                self.orientations_xyzw,
+                strict=True,
+            )
+        ]
+        return {
+            "entity_id": self.entity_id,
+            "object_type": self.object_type,
+            "components": {
+                "box_collider": {
+                    "half_extents_m": (self.dimensions_lwh * 0.5).tolist()
+                },
+                "trajectory": {
+                    "detached_from_track": self.detached_from_track,
+                    "keyframes": keyframes,
+                },
+            },
+        }
+
+
+@dataclass(frozen=True)
+class PhysicsDebugFrame:
+    """Collider topology visible to PhysX for one simulated frame."""
+
+    ego_position_m: FloatArray
+    """World-space ego chassis center."""
+
+    ego_orientation_xyzw: FloatArray
+    """World-space ego chassis orientation."""
+
+    ego_dimensions_lwh: FloatArray
+    """Full ego collider dimensions in metres."""
+
+    actor_positions_m: FloatArray
+    """Active actor centers with shape ``[actors, 3]``."""
+
+    actor_orientations_xyzw: FloatArray
+    """Active actor orientations with shape ``[actors, 4]``."""
+
+    actor_dimensions_lwh: FloatArray
+    """Active actor collider dimensions with shape ``[actors, 3]``."""
+
+    barrier_segments_xy_m: FloatArray
+    """Active invisible-wall segments with shape ``[barriers, 2, 2]``."""
+
+    barrier_thicknesses_m: FloatArray
+    """Active invisible-wall thicknesses with shape ``[barriers]``."""
+
+    barrier_heights_m: FloatArray
+    """Active invisible-wall heights with shape ``[barriers]``."""
+
+    actor_ids: tuple[str, ...] = ()
+    """Stable actor identities corresponding to the actor arrays."""
+
+    barrier_ids: tuple[str, ...] = ()
+    """Stable wall identities corresponding to the barrier arrays."""
+
+
+@dataclass(frozen=True)
+class PhysXChunkTimings:
+    """Auditable timing split for all physics frames in one generated chunk."""
+
+    total_ms: float = 0.0
+    synchronize_ms: float = 0.0
+    actor_update_ms: float = 0.0
+    solver_ms: float = 0.0
+    readback_ms: float = 0.0
+    bridge_ms: float = 0.0
+    step_count: int = 0
+    max_visible_actors: int = 0
+    max_detached_actors: int = 0
 
 
 @dataclass(frozen=True)
@@ -192,6 +313,21 @@ class TrajectoryChunk:
     timestamps_us: npt.NDArray[np.int64]
     rig_poses_world: FloatArray
     boundary_state_after_chunk: VehicleState
+    dynamic_actors: tuple[DynamicActorTrajectory, ...] = ()
+    physics_debug_frames: tuple[PhysicsDebugFrame, ...] = ()
+    """Per-frame active collider snapshots for the optional debug view."""
+
+    actor_collision_detected: bool = False
+    """Whether the ego struck another scene actor anywhere in this chunk."""
+
+    actor_collision_frame_index: int | None = None
+    """First frame in this chunk whose physics step reported actor contact."""
+
+    physx_elapsed_s: float | None = None
+    """Wall time spent in PhysX synchronization and stepping for this chunk."""
+
+    physx_timings: PhysXChunkTimings | None = None
+    """Detailed synchronization, native update, solve, and readback timings."""
 
 
 @dataclass
@@ -206,6 +342,12 @@ class PresentedFrame:
     # :class:`BevConfig`). ``None`` when BEV is disabled or the world-model
     # first chunk replays the debug HDMap override.
     bev_host_uint8: Any | None = None
+    physx_debug: PhysicsDebugFrame | None = None
+    """Collider snapshot rendered lazily when view ``3`` is active."""
+
+    physx_rgb_host_uint8: Any | None = None
+    """Lazy Ludus CUDA debug raster, materialized only by host presenters."""
+
     status_message: str | None = None
 
 

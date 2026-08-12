@@ -14,6 +14,10 @@ class SimulationBackend(Protocol):
     @property
     def current_state(self) -> VehicleState: ...
 
+    def set_physx_debug_enabled(self, enabled: bool) -> None:
+        """Toggle collider snapshot capture for future pose chunks."""
+        ...
+
     def pose_chunk(
         self,
         command: DriverCommand,

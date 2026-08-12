@@ -41,7 +41,7 @@ ResizeInterpolation: TypeAlias = Literal[
 ]
 """OpenCV resize interpolation names accepted by runner image/video helpers."""
 
-VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "bcthw"]
+VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
 """Tensor layouts accepted by ``write_video_tensor``."""
 
 InputAssetValidator: TypeAlias = Callable[[Path], object]
@@ -295,6 +295,13 @@ def video_tensor_to_uint8(
         canvas = video
     elif layout == "tchw":
         canvas = video.permute(0, 2, 3, 1)
+    elif layout == "btchw":
+        if video.shape[0] != 1:
+            raise ValueError(
+                "layout='btchw' expects a single batch element; "
+                f"got {tuple(video.shape)}"
+            )
+        canvas = video[0].permute(0, 2, 3, 1)
     elif layout == "bcthw":
         if video.shape[0] != 1:
             raise ValueError(

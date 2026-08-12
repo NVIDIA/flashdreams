@@ -64,7 +64,10 @@ struct LudusCudaState
     int                     allocatedVertices;
     int                     allocatedTriangles;
 
-    // Atomic counter for geometry generation
+    // Geometry reservation state. Vertex storage is [count, capacity, overflow]
+    // and triangle storage is [count, capacity]. Keeping capacities next to the
+    // counters lets every producer validate its atomic reservation without
+    // growing every kernel launch signature.
     int*                    atomicVertexCount;
     int*                    atomicTriangleCount;
 
@@ -207,7 +210,8 @@ void ludusCudaRenderTimestamped(
     const TsPolylinePoolHeader* polylinePools, int numPolylinePools,
     const TsPolygonPoolHeader* polygonPools, int numPolygonPools,
     const TsCubePoolHeader* cubePools, int numCubePools,
-    int64_t queryTimestampUs, int maxExtrapolationUs,
+    int totalCubes, const int64_t* cubePoolCounts,
+    const int64_t* queryTimestampsUs, int maxExtrapolationUs,
     int maxVarraysPerTsPolyline, int maxVarraysPerTsPolygon,
     const CudaRenderParams& params,
     const FThetaCamera* cameras, const CameraPose* poses,

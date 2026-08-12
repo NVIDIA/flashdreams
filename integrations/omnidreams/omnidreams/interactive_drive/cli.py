@@ -14,6 +14,7 @@ from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.backends.raster import RasterRenderBackend
 from omnidreams.interactive_drive.backends.world_model import WorldModelRenderBackend
+from omnidreams.interactive_drive.cli_args import ExplicitArgTrackingArgumentParser
 from omnidreams.interactive_drive.config import (
     AppConfig,
     BevConfig,
@@ -22,7 +23,10 @@ from omnidreams.interactive_drive.config import (
 )
 from omnidreams.interactive_drive.log import configure_logging
 from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_to_temp
-from omnidreams.interactive_drive.world_model.manifest import load_world_model_manifest
+from omnidreams.interactive_drive.world_model.manifest import (
+    load_world_model_manifest,
+    resolve_world_model_manifest_path,
+)
 from omnidreams.scenes import local_scene_archive_path
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
@@ -53,28 +57,11 @@ def resolve_manifest_path(path: str | Path) -> Path:
     config directory, so ``--manifest example_world_model_perf.yaml`` works
     from a workspace root.
     """
-    raw_path = Path(path).expanduser()
-    if raw_path.is_absolute():
-        return raw_path
-
-    cwd_path = raw_path.resolve()
-    if cwd_path.exists():
-        return cwd_path
-
-    package_path = (_PACKAGE_ROOT / raw_path).resolve()
-    if package_path.exists():
-        return package_path
-
-    if len(raw_path.parts) == 1:
-        configs_path = (_CONFIGS_ROOT / raw_path).resolve()
-        if configs_path.exists():
-            return configs_path
-
-    return cwd_path
+    return resolve_world_model_manifest_path(path)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = ExplicitArgTrackingArgumentParser(
         description="Single-process flashdreams driving demo"
     )
     parser.add_argument(
@@ -179,13 +166,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="SlangPy device used for raster compute; presenter still uses Vulkan for swapchain",
     )
     parser.add_argument(
-        "--ludus-backend",
-        choices=("cuda", "vulkan"),
-        default="cuda",
-        help="HD-map renderer backend: 'cuda' (default, software rasterizer) or "
-        "'vulkan' (VK_EXT_mesh_shader). Independent of --compute-device.",
-    )
-    parser.add_argument(
         "--sync-gpu-timing",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -243,8 +223,8 @@ def build_parser() -> argparse.ArgumentParser:
             "opens http://HOST:PORT/ in a browser to view the demo and "
             "send keyboard input. Useful on compute-only hosts (e.g. "
             "GB300-only DGX Station) where no Vulkan-capable GPU exists; "
-            "for a richer browser viewer prefer the separate "
-            "``omnidreams.webrtc.server`` entry point. Implies --no-hud "
+            "for a richer browser viewer prefer the centralized "
+            "``webrtc`` launch mode. Implies --no-hud "
             "when launched via the demo wrapper."
         ),
     )
@@ -260,13 +240,30 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--game-mode",
+        action="store_true",
+        help=(
+            "Enable game-style actor and static-world collisions, along with "
+            "the vehicle speed limit and collision visual flare. By default, "
+            "collisions, the speed limit, and their visual effect are disabled."
+        ),
+    )
+    parser.add_argument(
+        "--disable-visual-flare",
+        action="store_true",
+        help=(
+            "Disable the strong full-screen dark fade that signals a collision "
+            "when --game-mode is enabled."
+        ),
+    )
+    parser.add_argument(
         "--bev",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
             "Render a synthetic top-down BEV map alongside the main camera and"
-            " publish it on /bev_stream. Mirrors AlpaSim's BEV camera (a"
-            " pinhole projection looking straight down). Disable to skip the"
+            " publish it on /bev_stream. The default is a straight-down,"
+            " orthographic-style view of the HD-map plane. Disable to skip the"
             " extra rasterizer dispatch when running without the GTC HUD."
         ),
     )
@@ -298,10 +295,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=BevConfig().tilt_deg,
         help=(
-            "Forward pitch of the BEV camera in degrees. ``0`` is pure"
-            " top-down; positive values tilt forward for a Google-Maps"
-            " navigation-mode look. Should stay below ``bev-fov-deg / 2``"
-            " so the bottom of the image doesn't cross the horizon."
+            "Advanced override for the BEV camera pitch in degrees. The"
+            " default ``0`` keeps the mini-map straight down; positive values"
+            " re-enable the older perspective navigation view and should stay"
+            " below ``bev-fov-deg / 2``."
         ),
     )
     parser.add_argument(
@@ -478,7 +475,6 @@ def prepare_config_and_backend(
         manifest_path=manifest_path,
         raster=RasterConfig(
             compute_device=args.compute_device,
-            ludus_backend=args.ludus_backend,
             sync_gpu_timing=args.sync_gpu_timing,
         ),
         world_model_profile=WorldModelProfileConfig(
@@ -487,8 +483,10 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
+        game_mode=bool(args.game_mode),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
+        visual_flare_enabled=False if args.disable_visual_flare else None,
         **_oob_kwargs(args),
     )
 

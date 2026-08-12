@@ -30,6 +30,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -130,6 +131,63 @@ def test_ludus_cuda_context_renders_frame(clipgt_scene_dir: Path) -> None:
     assert rgb.any(), (
         "Rendered frame is entirely black -- CUDA rasterizer may have failed"
     )
+
+
+@pytest.mark.manual
+def test_ludus_physx_debug_scene_renders_cuda_frame() -> None:
+    """Render the interactive-drive collider scene without host materialization."""
+    from ludus_renderer import TimestampedScene
+    from ludus_renderer.render_utils import create_camera
+    from ludus_renderer.torch import LudusCudaTimestampedContext
+    from ludus_renderer.torch.ops import CAMERA_TYPE_REGULAR
+    from omnidreams.interactive_drive.physx_debug import (
+        build_physx_debug_cube_pool,
+    )
+    from omnidreams.interactive_drive.types import PhysicsDebugFrame
+
+    device = torch.device("cuda")
+    width, height = 640, 360
+    timestamp = torch.zeros(1, dtype=torch.int64, device=device)
+    poses = torch.eye(4, dtype=torch.float32, device=device).unsqueeze(0)
+    snapshot = PhysicsDebugFrame(
+        ego_position_m=np.asarray([0.0, 0.0, 0.8], dtype=np.float32),
+        ego_orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+        ego_dimensions_lwh=np.asarray([4.8, 2.0, 1.6], dtype=np.float32),
+        actor_positions_m=np.asarray(
+            [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]],
+            dtype=np.float32,
+        ),
+        actor_orientations_xyzw=np.tile(
+            np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32), (3, 1)
+        ),
+        actor_dimensions_lwh=np.tile(
+            np.asarray([4.0, 2.0, 2.0], dtype=np.float32), (3, 1)
+        ),
+        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
+        barrier_thicknesses_m=np.empty((0,), dtype=np.float32),
+        barrier_heights_m=np.empty((0,), dtype=np.float32),
+    )
+    pool = build_physx_debug_cube_pool(
+        (snapshot,), timestamp.cpu().numpy(), device=device
+    )
+
+    ctx = LudusCudaTimestampedContext(device=device)
+    ctx.upload_cameras([create_camera(width, height, device)])
+    scene_id = ctx.upload_scene(
+        TimestampedScene(polyline_pools=[], polygon_pools=[], cube_pools=[pool])
+    )
+    images = ctx.render(
+        torch.tensor([scene_id], dtype=torch.int32, device=device),
+        torch.zeros(1, dtype=torch.int32, device=device),
+        timestamp.to(device=device, dtype=torch.int64),
+        torch.full((1,), CAMERA_TYPE_REGULAR, dtype=torch.int32, device=device),
+        poses,
+        resolution=(height, width),
+    )
+
+    assert images.is_cuda
+    assert images.shape == (1, height, width, 4)
+    assert images[..., :3].any()
 
 
 # ---------------------------------------------------------------------------

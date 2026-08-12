@@ -33,6 +33,7 @@ dependencies = [
     "pillow>=10.0",
     "setuptools>=69",
     "ninja>=1.13.0",
+    "cmake>=4.0",
     "nvidia-nvcomp-cu12>=4.0",
 ]
 
@@ -62,9 +63,8 @@ packages = [
 [tool.setuptools.package-data]
 "ludus_renderer" = [
     "_cpp/common/*.h",
-    "_cpp/common/*.cpp",
+    "_cpp/common/common.cpp",
     "_cpp/render/*.h",
-    "_cpp/render/*.cpp",
     "_cpp/render/*.cu",
     "_cpp/cudaraster/*.hpp",
     "_cpp/cudaraster/*.cpp",
@@ -86,9 +86,8 @@ packages = [
     "_cpp/loader/*.h",
     "_cpp/loader/*.cpp",
     "_cpp/loader/*.cu",
-    "shaders/*.glsl",
-    "shaders/*.sh",
-    "shaders/*.py",
+    "_cpp/physx/*.cpp",
+    "_cpp/physx/CMakeLists.txt",
 ]
 
 [tool.uv]

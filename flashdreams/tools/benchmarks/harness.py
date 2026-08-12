@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import signal
 import subprocess
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -28,6 +27,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 from tools.benchmarks.environment import collect_environment
 from tools.benchmarks.metrics import (
@@ -54,22 +55,8 @@ from tools.benchmarks.scenarios import (
 
 _SCHEMA_VERSION = "0.1.0"
 ProgressCallback = Callable[[str], None]
-_WINDOWS_TERMINATE_TIMEOUT_S = 10.0
-_WINDOWS_PROCESS_TREE_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-$rootPid = [int]$args[0]
-$seen = @{}
-function Stop-Tree([int]$processId) {
-    if ($seen.ContainsKey($processId)) {
-        return
-    }
-    $seen[$processId] = $true
-    Get-CimInstance Win32_Process -Filter "ParentProcessId=$processId" |
-        ForEach-Object { Stop-Tree ([int]$_.ProcessId) }
-    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-}
-Stop-Tree $rootPid
-"""
+_PROCESS_KILL_TIMEOUT_S = 10.0
+_PROCESS_WAIT_POLL_S = 0.1
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -498,7 +485,6 @@ def _run_process(
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            **_process_group_popen_kwargs(),
         )
         start = time.perf_counter()
         deadline = None if timeout_s is None else start + timeout_s
@@ -536,129 +522,43 @@ def _run_process(
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        _terminate_windows_process_tree(process)
-        return
-
-    _send_process_signal(process, signal.SIGTERM)
     try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        pass
+        root = psutil.Process(process.pid)
+        processes = [*reversed(root.children(recursive=True)), root]
+    except psutil.NoSuchProcess:
+        processes = []
 
-    if os.name == "posix":
-        if not _send_process_group_signal(process.pid, signal.SIGKILL):
-            if process.poll() is None:
-                process.kill()
-    elif process.poll() is None:
-        process.kill()
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        return
-
-
-def _process_group_popen_kwargs() -> dict[str, Any]:
-    if os.name == "posix":
-        return {"start_new_session": True}
-    if os.name == "nt":
-        return {
-            "creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        }
-    return {}
-
-
-def _terminate_windows_process_tree(process: subprocess.Popen[str]) -> None:
-    if _run_windows_taskkill(process.pid) and _wait_for_process_exit(
-        process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S
-    ):
-        return
-
-    if _run_windows_powershell_stop_process_tree(
-        process.pid
-    ) and _wait_for_process_exit(process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S):
-        return
-
-    if process.poll() is None:
-        process.kill()
-        _wait_for_process_exit(process, timeout_s=_WINDOWS_TERMINATE_TIMEOUT_S)
-    raise RuntimeError(
-        f"Failed to terminate Windows process tree rooted at PID {process.pid}. "
-        "The benchmark run was stopped to avoid starting later scenarios while "
-        "descendant workers may still be alive."
-    )
-
-
-def _wait_for_process_exit(process: subprocess.Popen[str], *, timeout_s: float) -> bool:
-    try:
-        process.wait(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        return False
-    return True
-
-
-def _run_windows_taskkill(pid: int) -> bool:
-    try:
-        result = subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=_WINDOWS_TERMINATE_TIMEOUT_S,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return result.returncode == 0
-
-
-def _run_windows_powershell_stop_process_tree(pid: int) -> bool:
-    for executable in ("powershell.exe", "pwsh"):
+    for item in processes:
         try:
-            result = subprocess.run(
-                [
-                    executable,
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    _WINDOWS_PROCESS_TREE_SCRIPT,
-                    str(pid),
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=_WINDOWS_TERMINATE_TIMEOUT_S,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if result.returncode == 0:
-            return True
-    return False
+            item.kill()
+        except psutil.NoSuchProcess:
+            pass
+
+    deadline = time.monotonic() + _PROCESS_KILL_TIMEOUT_S
+    alive = processes
+    while alive:
+        remaining_s = deadline - time.monotonic()
+        if remaining_s <= 0:
+            break
+        _, alive = psutil.wait_procs(
+            alive,
+            timeout=min(_PROCESS_WAIT_POLL_S, remaining_s),
+        )
+        alive = [item for item in alive if not _is_terminated_zombie(item)]
+    if alive:
+        pids = ", ".join(str(item.pid) for item in alive)
+        raise RuntimeError(
+            f"Failed to terminate process tree rooted at PID {process.pid}; "
+            f"processes still alive: {pids}."
+        )
+    process.wait(timeout=_PROCESS_KILL_TIMEOUT_S)
 
 
-def _send_process_signal(process: subprocess.Popen[str], sig: signal.Signals) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "posix":
-        if _send_process_group_signal(process.pid, sig):
-            return
+def _is_terminated_zombie(process: psutil.Process) -> bool:
     try:
-        process.send_signal(sig)
-    except ProcessLookupError:
-        return
-
-
-def _send_process_group_signal(pgid: int, sig: signal.Signals) -> bool:
-    try:
-        os.killpg(pgid, sig)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return False
-    return True
+        return process.status() == psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return True
 
 
 def _collect_scenario_metrics(

@@ -2680,3 +2680,74 @@ def test_mixed_scale_overlap_respects_depth_order(harness: CudaRasterHarness) ->
     far_only = harness.read()
     far_depth = int(far_only.depth[cy, cx])
     assert near_depth < far_depth
+
+
+def test_timestamped_context_batches_distinct_timestamps_exactly() -> None:
+    """A multi-frame call must match independent native submissions bit-for-bit."""
+    from ludus_renderer import (
+        CubePool,
+        FThetaCamera,
+        LudusCudaTimestampedContext,
+        TimestampedScene,
+    )
+
+    device = torch.device("cuda")
+    width, height = 160, 88
+    timestamps = torch.tensor([0, 33_333], dtype=torch.int64, device=device)
+    pool = CubePool(
+        timestamps_us=timestamps,
+        cube_ts_prefix_sum=torch.tensor([2], dtype=torch.int32, device=device),
+        track_timestamps_us=timestamps,
+        translations=torch.tensor(
+            [[8.0, -2.0, 0.0], [8.0, 2.0, 0.0]],
+            dtype=torch.float32,
+            device=device,
+        ),
+        quaternions=torch.tensor(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]],
+            dtype=torch.float32,
+            device=device,
+        ),
+        scales=torch.tensor([[4.0, 2.0, 2.0]], device=device),
+        colors=torch.ones((1, 6), dtype=torch.float32, device=device),
+    )
+    camera = FThetaCamera(
+        principal_point=torch.tensor([width / 2, height / 2], device=device),
+        image_size=torch.tensor([width, height], device=device),
+        fw_poly=torch.tensor([0.0, 125.0, 0.0, 0.0, 0.0, 0.0], device=device),
+        max_ray_angle=1.3,
+        depth_max=100.0,
+    )
+    context = LudusCudaTimestampedContext(device=device)
+    context.upload_cameras([camera])
+    scene_id = context.upload_scene(TimestampedScene([], [], [pool]))
+    context.set_max_tessellation_levels(cube=0)
+    context.set_msaa_samples(0)
+
+    scene_ids = torch.full((2,), scene_id, dtype=torch.int32, device=device)
+    camera_ids = torch.zeros(2, dtype=torch.int32, device=device)
+    camera_types = torch.zeros(2, dtype=torch.int32, device=device)
+    poses = torch.eye(4, device=device).repeat(2, 1, 1)
+    batched = context.render(
+        scene_ids,
+        camera_ids,
+        timestamps,
+        camera_types,
+        poses,
+        (height, width),
+    )
+    sequential = torch.cat(
+        [
+            context.render(
+                scene_ids[index : index + 1],
+                camera_ids[index : index + 1],
+                timestamps[index : index + 1],
+                camera_types[index : index + 1],
+                poses[index : index + 1],
+                (height, width),
+            )
+            for index in range(2)
+        ]
+    )
+
+    assert torch.equal(batched, sequential)

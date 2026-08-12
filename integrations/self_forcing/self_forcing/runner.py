@@ -26,16 +26,15 @@ from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner import Runner, RunnerConfig
 from flashdreams.infra.runner_io import (
-    ensure_output_dir,
     resolve_prompt_value,
     runner_artifact_path,
     write_runner_stats,
-    write_video_tensor,
 )
 from flashdreams.recipes.wan import (
     WanInferencePipeline,
     WanInferencePipelineCache,
 )
+from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 
 __all__ = [
     "SelfForcingT2VRunnerConfig",
@@ -126,40 +125,47 @@ class SelfForcingT2VRunner(Runner[SelfForcingT2VRunnerConfig, WanInferencePipeli
         cache = self._initialize_cache()
 
         # Generate the autoregressive chunks.
-        postprocess_stream = self.create_postprocess_stream(fps=config.fps)
-        stats_history: list[dict[str, object]] = []
+        output_stream = self.create_video_output_stream(fps=config.fps)
+        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
+        output_target = Mp4VideoOutputTarget(
+            output_path=video_path,
+            fps=config.fps,
+            output_layout=output_stream.output_layout,
+            enabled=self.is_rank_zero,
+        )
+        output_target.open()
         for i in range(config.total_blocks):
             video_chunk = self.pipeline.generate(autoregressive_index=i, cache=cache)
             stats = self.pipeline.finalize(autoregressive_index=i, cache=cache)
-            video_chunk = postprocess_stream.process(
-                video_chunk, autoregressive_index=i
-            )
-            if postprocess_stream.collect_output and stats is not None:
-                stats_history.append(
-                    {
-                        "autoregressive_index": i,
-                        **postprocess_stream.add_process_stats(stats),
-                    }
+            output_target.write(
+                output_stream.process(
+                    video_chunk,
+                    autoregressive_index=i,
+                    metrics=stats,
                 )
+            )
 
-        generated = postprocess_stream.finish()
-        if generated is None:
+        tail = output_stream.finish()
+        if tail is not None:
+            output_target.write(tail)
+        artifacts = output_target.close()
+        if not artifacts:
             return
-
-        # Write the video.
-        ensure_output_dir(config.output_dir)
-        video_path = runner_artifact_path(config.output_dir, config.runner_name, "mp4")
-        write_video_tensor(generated, video_path, fps=config.fps, layout="tchw")
+        video_artifact = artifacts[0]
+        video_path = Path(video_artifact.uri)
 
         logger.info(
-            f"[{config.runner_name}] wrote video {tuple(generated.shape)} "
+            f"[{config.runner_name}] wrote video {video_artifact.metadata['shape']} "
             f"-> {video_path.resolve()}"
         )
 
         # Write the perf stats.
+        stats_history = video_artifact.metadata["stats_history"]
         if stats_history:
             stats_path = write_runner_stats(
-                config.output_dir, config.runner_name, stats_history
+                config.output_dir,
+                config.runner_name,
+                list(stats_history),
             )
             logger.info(
                 f"[{config.runner_name}] wrote per-AR-step stats -> {stats_path.resolve()}"
