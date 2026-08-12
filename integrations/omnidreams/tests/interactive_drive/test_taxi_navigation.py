@@ -48,13 +48,13 @@ def test_shortest_route_uses_directed_connectors_and_road_distance() -> None:
     navigation = TaxiNavigationMap(
         (
             _lane((0.0, 0.0), (10.0, 0.0)),
-            _lane((10.0, 0.0), (20.0, 10.0), "LEFT_TURN"),
-            _lane((20.0, 10.0), (30.0, 10.0)),
+            _lane((10.0, 0.0), (20.0, 10.0)),
+            _lane((20.0, 10.0), (20.0, 20.0)),
         ),
         (intersection,),
     )
     destination = NavigationWaypoint(
-        np.asarray([30.0, 10.0, 0.0], dtype=np.float32),
+        np.asarray([20.0, 20.0, 0.0], dtype=np.float32),
         lane_index=2,
         distance_along_lane_m=10.0,
     )
@@ -67,6 +67,8 @@ def test_shortest_route_uses_directed_connectors_and_road_distance() -> None:
     assert len(route.turn_instructions) == 1
     assert route.turn_instructions[0].maneuver == "left"
     assert route.turn_instructions[0].anchor_xyz_m[2] == pytest.approx(3.0)
+    assert 8.0 <= route.turn_instructions[0].anchor_xyz_m[0] <= 22.0
+    assert -2.0 <= route.turn_instructions[0].anchor_xyz_m[1] <= 12.0
 
 
 @pytest.mark.parametrize(

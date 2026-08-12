@@ -291,11 +291,11 @@ of always choosing the nearest one. Dropoffs are restricted to destinations
 reachable through the scene's directed car-lane graph. Taxi mode starts a trip
 timer scaled by the shortest legal road distance, with a 2x deadline multiplier
 after pickup, and shows the active target, direction arrow, score, trip time,
-and global game time. While carrying a passenger, floating green signs mark
-every camera-visible intersection on the current shortest route with distinct
-left, right, straight, or U-turn arrows. Missing a turn recalculates the route;
-the persistent direction arrow remains the off-screen fallback. Each game
-starts with 60 seconds. A successful
+and global game time. Floating green arrows mark every camera-visible public
+road intersection on the shortest route to either a pickup or dropoff, with
+distinct left, right, straight, or U-turn shapes. Missing a turn recalculates
+the route; the persistent direction arrow remains the off-screen fallback.
+Each game starts with 60 seconds. A successful
 dropoff awards 500 points plus 100 points per whole trip second remaining and
 adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
 is non-empty, its top score is shown beside the player's live score.
@@ -454,7 +454,7 @@ matches the desktop modes' affordances:
   has produced its first chunk; numeric the moment chunks start
   arriving.
 - With `--taxi-game`, a **taxi HUD and BEV target pin** show the same active
-  pickup or dropoff, timer, direction arrow, routed intersection signs, and
+  pickup or dropoff, timer, direction arrow, routed intersection arrows, and
   score as the local HUD.
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the

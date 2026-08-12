@@ -1785,7 +1785,7 @@ class SlangPyHudPresenter:
         camera_area: tuple[int, int, int, int],
         frame: PresentedFrame | None,
     ) -> None:
-        """Draw every camera-visible routed intersection sign."""
+        """Draw every camera-visible routed intersection arrow."""
         if (
             frame is None
             or frame.application_state is None

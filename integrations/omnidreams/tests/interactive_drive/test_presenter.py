@@ -22,6 +22,9 @@ from omnidreams.interactive_drive.crazy_robotaxi.input import (
 from omnidreams.interactive_drive.crazy_robotaxi.navigation import (
     TaxiTurnInstruction,
 )
+from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
+    draw_floating_turn_sign,
+)
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
@@ -135,6 +138,22 @@ def test_native_hud_draws_visible_turn_signs() -> None:
 
     pixels = np.asarray(image)
     assert np.any(np.all(pixels[..., :3] == np.array([118, 185, 0]), axis=2))
+
+
+def test_turn_arrow_has_no_circular_backing() -> None:
+    image = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+
+    draw_floating_turn_sign(
+        ImageDraw.Draw(image),
+        (50, 50),
+        "straight",
+        size_px=60,
+        alpha=255,
+    )
+
+    pixels = np.asarray(image)
+    assert np.any(np.all(pixels[..., :3] == np.array([118, 185, 0]), axis=2))
+    assert pixels[80, 50, 3] == 0
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(
