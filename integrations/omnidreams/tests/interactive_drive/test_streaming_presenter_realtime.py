@@ -12,9 +12,6 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
 from omnidreams.interactive_drive.crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
-from omnidreams.interactive_drive.crazy_robotaxi.navigation import (
-    TaxiTurnInstruction,
-)
 from omnidreams.interactive_drive.crazy_robotaxi.streaming_presenter import (
     _INDEX_HTML,
     MJPEGStreamingPresenter,
@@ -101,45 +98,6 @@ def test_streaming_presenter_draws_visible_world_marker() -> None:
     marked = presenter._with_taxi_world_marker(frame.rgb_host_uint8, frame)
 
     assert np.count_nonzero(marked) > 0
-    assert np.any(np.all(marked == np.array([118, 185, 0]), axis=2))
-
-
-def test_streaming_presenter_draws_visible_turn_signs() -> None:
-    calibration = CameraCalibration(
-        clipgt_name="camera:test",
-        logical_name="camera_test",
-        width=100,
-        height=80,
-        cx=50.0,
-        cy=40.0,
-        polynomial=np.array([0.0, 0.01], dtype=np.float32),
-        is_backward_polynomial=True,
-        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
-    )
-    taxi = TaxiGameSnapshot(
-        phase="to_dropoff",
-        target_xyz_m=(20.0, 20.0, 0.0),
-        distance_m=20.0,
-        relative_bearing_rad=0.0,
-        target_radius_m=6.0,
-        remaining_time_s=20.0,
-        score=0,
-        turn_instructions=(TaxiTurnInstruction("u_turn", (10.0, 0.0, 3.0), 10.0),),
-    )
-    frame = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((80, 100, 3), dtype=np.uint8),
-        depth_host_f32=None,
-        rig_to_world=np.eye(4, dtype=np.float32),
-        application_state=taxi,
-    )
-    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
-    presenter._taxi_camera_calibration = calibration
-    presenter._taxi_camera_models = {(100, 80): FThetaCameraModel(calibration)}
-
-    marked = presenter._with_taxi_world_marker(frame.rgb_host_uint8, frame)
-
     assert np.any(np.all(marked == np.array([118, 185, 0]), axis=2))
 
 

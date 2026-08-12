@@ -108,7 +108,6 @@ class CrazyRobotaxiApplication:
         self._presenter_config = presenter_config
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
-        self._intersection_polygons_world: tuple[Any, ...] = ()
         self._ground_snapper: GroundSnapper | None = None
 
     def configure_presenter(self, presenter: Any) -> None:
@@ -122,7 +121,6 @@ class CrazyRobotaxiApplication:
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
-        self._intersection_polygons_world = scene_data.intersection_polygons_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
 
     def configure_scene_presenter(self, presenter: Any, scene: SceneBundle) -> None:
@@ -164,7 +162,6 @@ class CrazyRobotaxiApplication:
             scene_id=scene.scene_id,
             reference_route_world=self._reference_route_world,
             navigation_lanes=self._navigation_lanes,
-            intersection_polygons_world=self._intersection_polygons_world,
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,

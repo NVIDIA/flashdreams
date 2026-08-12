@@ -13,47 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Directed road routing and turn instructions for Crazy Robotaxi."""
+"""Directed road routing for Crazy Robotaxi."""
 
 from __future__ import annotations
 
 import heapq
 import math
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 
-TurnManeuver = Literal["left", "right", "straight", "u_turn"]
-
-_MANEUVER_BY_LANE_LABEL: dict[str, TurnManeuver] = {
-    "LEFT_TURN": "left",
-    "BRANCH_LEFT": "left",
-    "RIGHT_TURN": "right",
-    "BRANCH_RIGHT": "right",
-    "STRAIGHT_TURN": "straight",
-    "BRANCH_STRAIGHT": "straight",
-    "U_TURN": "u_turn",
-}
-
 _MIN_SEGMENT_LENGTH_M = 1.0e-4
-_FLOATING_SIGN_HEIGHT_M = 3.0
-_TURN_THRESHOLD_RAD = math.radians(35.0)
-_U_TURN_THRESHOLD_RAD = math.radians(145.0)
-_INTERSECTION_HEADING_SAMPLE_M = 8.0
-_ROUTE_SAMPLE_SPACING_M = 1.0
 
 
 @dataclass(frozen=True)
 class NavigationLane:
-    """Directed lane centerline and its mapped maneuver label."""
+    """Directed lane centerline."""
 
     centerline_world: npt.NDArray[np.float32]
     """Directed lane-center polyline in world coordinates."""
-
-    maneuver_label: str = "STRAIGHT"
-    """ClipGT lane-direction label associated with the centerline."""
 
 
 @dataclass(frozen=True)
@@ -88,28 +67,6 @@ class LanePosition:
 
 
 @dataclass(frozen=True)
-class TaxiTurnInstruction:
-    """Floating turn arrow anchored to one routed intersection."""
-
-    maneuver: TurnManeuver
-    """Direction displayed by the sign."""
-
-    anchor_xyz_m: tuple[float, float, float]
-    """Elevated world-space center of the floating arrow."""
-
-    route_distance_m: float
-    """Remaining routed distance from the current lane position."""
-
-    def as_dict(self) -> dict[str, object]:
-        """Return a JSON-serializable instruction."""
-        return {
-            "maneuver": self.maneuver,
-            "anchor_xyz_m": list(self.anchor_xyz_m),
-            "route_distance_m": self.route_distance_m,
-        }
-
-
-@dataclass(frozen=True)
 class RoutePlan:
     """Shortest legal lane path to one destination waypoint."""
 
@@ -119,17 +76,13 @@ class RoutePlan:
     distance_m: float
     """Total routed road distance to the destination."""
 
-    turn_instructions: tuple[TaxiTurnInstruction, ...]
-    """Remaining intersection instructions in travel order."""
-
 
 class TaxiNavigationMap:
-    """Directed lane graph and intersection geometry for one Taxi scene."""
+    """Directed lane graph for one Taxi scene."""
 
     def __init__(
         self,
         lanes: tuple[NavigationLane, ...],
-        intersection_polygons_world: tuple[npt.NDArray[np.float32], ...] = (),
         *,
         endpoint_snap_tolerance_m: float = 1.0,
     ) -> None:
@@ -137,7 +90,6 @@ class TaxiNavigationMap:
 
         Args:
             lanes: Directed car-lane centerlines.
-            intersection_polygons_world: World-space intersection footprints.
             endpoint_snap_tolerance_m: Maximum endpoint gap connected by the graph.
 
         Raises:
@@ -157,9 +109,7 @@ class TaxiNavigationMap:
             cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(
                 np.float32
             )
-            normalized_lanes.append(
-                NavigationLane(points, str(lane.maneuver_label).upper())
-            )
+            normalized_lanes.append(NavigationLane(points))
             cumulative_distances.append(cumulative)
         if not normalized_lanes:
             raise ValueError("Taxi navigation geometry has no usable travel distance.")
@@ -169,11 +119,6 @@ class TaxiNavigationMap:
         self._lane_lengths = np.asarray(
             [float(cumulative[-1]) for cumulative in cumulative_distances],
             dtype=np.float64,
-        )
-        self._intersection_polygons = tuple(
-            polygon
-            for raw_polygon in intersection_polygons_world
-            if (polygon := _normalize_polygon(raw_polygon)) is not None
         )
         self._adjacency = self._build_adjacency(endpoint_snap_tolerance_m)
         self._build_segment_index()
@@ -185,14 +130,14 @@ class TaxiNavigationMap:
         *,
         bidirectional: bool,
     ) -> TaxiNavigationMap:
-        """Build a navigation map from unlabeled route polylines.
+        """Build a navigation map from route polylines.
 
         Args:
             routes_world: Route polylines in world coordinates.
             bidirectional: Whether to add a reversed lane for every route.
 
         Returns:
-            Navigation map with straight maneuver labels.
+            Navigation map containing the supplied route directions.
         """
         lanes: list[NavigationLane] = []
         for route in routes_world:
@@ -351,7 +296,6 @@ class TaxiNavigationMap:
         return RoutePlan(
             lane_indices=lane_path,
             distance_m=max(0.0, float(distance_m)),
-            turn_instructions=self._turn_instructions(start, lane_path, destination),
         )
 
     def route_distances(
@@ -490,161 +434,6 @@ class TaxiNavigationMap:
             current = predecessor
         return ()
 
-    def _turn_instructions(
-        self,
-        start: LanePosition,
-        lane_path: tuple[int, ...],
-        destination: NavigationWaypoint,
-    ) -> tuple[TaxiTurnInstruction, ...]:
-        if self._intersection_polygons:
-            return self._polygon_turn_instructions(start, lane_path, destination)
-
-        # Unlabelled fallback routes have no mapped intersections. Preserve lane
-        # maneuver labels when a caller supplies them without polygon metadata.
-        instructions: list[TaxiTurnInstruction] = []
-        occupied_cells: set[tuple[int, int]] = set()
-        distance_to_lane_start = -start.distance_along_lane_m
-        for path_index, lane_index in enumerate(lane_path):
-            lane = self._lanes[lane_index]
-            maneuver = _MANEUVER_BY_LANE_LABEL.get(lane.maneuver_label)
-            midpoint_distance = self._lane_lengths[lane_index] * 0.5
-            route_distance = distance_to_lane_start + midpoint_distance
-            if maneuver is not None and route_distance >= 0.0:
-                midpoint = self.point_at(lane_index, midpoint_distance)
-                spatial_cell = (
-                    int(round(float(midpoint[0]) / 15.0)),
-                    int(round(float(midpoint[1]) / 15.0)),
-                )
-                if spatial_cell not in occupied_cells:
-                    occupied_cells.add(spatial_cell)
-                    instructions.append(
-                        TaxiTurnInstruction(
-                            maneuver=maneuver,
-                            anchor_xyz_m=(
-                                float(midpoint[0]),
-                                float(midpoint[1]),
-                                float(midpoint[2]) + _FLOATING_SIGN_HEIGHT_M,
-                            ),
-                            route_distance_m=float(route_distance),
-                        )
-                    )
-            if path_index + 1 < len(lane_path):
-                next_lane = lane_path[path_index + 1]
-                distance_to_lane_start += self._lane_lengths[lane_index]
-                distance_to_lane_start += self._edge_gap(lane_index, next_lane)
-        return tuple(instructions)
-
-    def _polygon_turn_instructions(
-        self,
-        start: LanePosition,
-        lane_path: tuple[int, ...],
-        destination: NavigationWaypoint,
-    ) -> tuple[TaxiTurnInstruction, ...]:
-        """Derive turns where the routed centerline crosses mapped intersections."""
-        if (
-            len(lane_path) == 1
-            and abs(destination.distance_along_lane_m - start.distance_along_lane_m)
-            <= _MIN_SEGMENT_LENGTH_M
-        ):
-            return ()
-        route_points = self._route_polyline(start, lane_path, destination)
-        segment_lengths = np.linalg.norm(np.diff(route_points[:, :2], axis=0), axis=1)
-        cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(
-            np.float32
-        )
-        route_length_m = float(cumulative[-1])
-        instructions: list[TaxiTurnInstruction] = []
-        for polygon in self._intersection_polygons:
-            interval = _polyline_polygon_interval(route_points, cumulative, polygon)
-            if interval is None:
-                continue
-            entry_distance_m, exit_distance_m = interval
-            if entry_distance_m <= 1.0 or exit_distance_m >= route_length_m - 1.0:
-                continue
-            before = _point_at_polyline(
-                route_points,
-                cumulative,
-                max(0.0, entry_distance_m - _INTERSECTION_HEADING_SAMPLE_M),
-            )
-            entry = _point_at_polyline(route_points, cumulative, entry_distance_m)
-            exit = _point_at_polyline(route_points, cumulative, exit_distance_m)
-            after = _point_at_polyline(
-                route_points,
-                cumulative,
-                min(
-                    route_length_m,
-                    exit_distance_m + _INTERSECTION_HEADING_SAMPLE_M,
-                ),
-            )
-            heading_delta = _heading_delta(before, entry, exit, after)
-            maneuver = _maneuver_from_heading_delta(heading_delta)
-            anchor_distance_m = 0.5 * (entry_distance_m + exit_distance_m)
-            anchor = _point_at_polyline(route_points, cumulative, anchor_distance_m)
-            instructions.append(
-                TaxiTurnInstruction(
-                    maneuver=maneuver,
-                    anchor_xyz_m=(
-                        float(anchor[0]),
-                        float(anchor[1]),
-                        float(anchor[2]) + _FLOATING_SIGN_HEIGHT_M,
-                    ),
-                    route_distance_m=anchor_distance_m,
-                )
-            )
-        instructions.sort(key=lambda instruction: instruction.route_distance_m)
-        return tuple(instructions)
-
-    def _route_polyline(
-        self,
-        start: LanePosition,
-        lane_path: tuple[int, ...],
-        destination: NavigationWaypoint,
-    ) -> npt.NDArray[np.float32]:
-        """Return the routed centerline clipped to the start and destination."""
-        pieces: list[npt.NDArray[np.float32]] = []
-        last_path_index = len(lane_path) - 1
-        for path_index, lane_index in enumerate(lane_path):
-            start_distance_m = start.distance_along_lane_m if path_index == 0 else 0.0
-            end_distance_m = (
-                destination.distance_along_lane_m
-                if path_index == last_path_index
-                else float(self._lane_lengths[lane_index])
-            )
-            pieces.append(
-                self._lane_slice(lane_index, start_distance_m, end_distance_m)
-            )
-        route_points = _normalize_polyline(np.concatenate(pieces))
-        assert route_points is not None
-        return _densify_polyline(route_points, _ROUTE_SAMPLE_SPACING_M)
-
-    def _lane_slice(
-        self,
-        lane_index: int,
-        start_distance_m: float,
-        end_distance_m: float,
-    ) -> npt.NDArray[np.float32]:
-        """Return one directed lane segment bounded by arc distances."""
-        cumulative = self._cumulative_distances[lane_index]
-        start_distance_m = float(np.clip(start_distance_m, 0.0, cumulative[-1]))
-        end_distance_m = float(np.clip(end_distance_m, 0.0, cumulative[-1]))
-        interior = self._lanes[lane_index].centerline_world[
-            (cumulative > start_distance_m) & (cumulative < end_distance_m)
-        ]
-        return np.concatenate(
-            (
-                self.point_at(lane_index, start_distance_m)[None, :],
-                interior,
-                self.point_at(lane_index, end_distance_m)[None, :],
-            ),
-            axis=0,
-        )
-
-    def _edge_gap(self, lane_index: int, successor: int) -> float:
-        for connected_lane, gap in self._adjacency[lane_index]:
-            if connected_lane == successor:
-                return gap
-        return 0.0
-
 
 def _normalize_polyline(
     points_world: npt.NDArray[np.float32],
@@ -662,129 +451,5 @@ def _normalize_polyline(
     return points
 
 
-def _normalize_polygon(
-    points_world: npt.NDArray[np.float32],
-) -> npt.NDArray[np.float32] | None:
-    points = np.asarray(points_world, dtype=np.float32)
-    if points.ndim != 2 or points.shape[1] != 3 or len(points) < 3:
-        return None
-    if not np.isfinite(points).all():
-        return None
-    return points
-
-
 def _normalize_angles(angles_rad: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return (angles_rad + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def _polyline_polygon_interval(
-    points_world: npt.NDArray[np.float32],
-    cumulative_distances_m: npt.NDArray[np.float32],
-    polygon_world: npt.NDArray[np.float32],
-) -> tuple[float, float] | None:
-    polygon_xy = polygon_world[:, :2]
-    points_xy = points_world[:, :2]
-    minimum = np.min(polygon_xy, axis=0)
-    maximum = np.max(polygon_xy, axis=0)
-    candidates = np.flatnonzero(
-        (points_xy[:, 0] >= minimum[0])
-        & (points_xy[:, 0] <= maximum[0])
-        & (points_xy[:, 1] >= minimum[1])
-        & (points_xy[:, 1] <= maximum[1])
-    )
-    if len(candidates) == 0:
-        return None
-    inside = candidates[_points_in_polygon(points_xy[candidates], polygon_xy)]
-    if len(inside) == 0:
-        return None
-    first = max(0, int(inside[0]) - 1)
-    last = min(len(points_world) - 1, int(inside[-1]) + 1)
-    return (
-        float(cumulative_distances_m[first]),
-        float(cumulative_distances_m[last]),
-    )
-
-
-def _points_in_polygon(
-    points_xy: npt.NDArray[np.float32],
-    polygon_xy: npt.NDArray[np.float32],
-) -> npt.NDArray[np.bool_]:
-    x_values = points_xy[:, 0]
-    y_values = points_xy[:, 1]
-    inside = np.zeros(len(points_xy), dtype=np.bool_)
-    previous = len(polygon_xy) - 1
-    for current in range(len(polygon_xy)):
-        x_current, y_current = polygon_xy[current]
-        x_previous, y_previous = polygon_xy[previous]
-        crosses_y = (y_current > y_values) != (y_previous > y_values)
-        denominator = float(y_previous - y_current)
-        if abs(denominator) > 1.0e-8:
-            x_crossing = (float(x_previous) - float(x_current)) * (
-                y_values - float(y_current)
-            ) / denominator + float(x_current)
-            inside ^= crosses_y & (x_values < x_crossing)
-        previous = current
-    return inside
-
-
-def _point_at_polyline(
-    points_world: npt.NDArray[np.float32],
-    cumulative_distances_m: npt.NDArray[np.float32],
-    distance_m: float,
-) -> npt.NDArray[np.float32]:
-    distance_m = float(np.clip(distance_m, 0.0, cumulative_distances_m[-1]))
-    right = int(np.searchsorted(cumulative_distances_m, distance_m, side="right"))
-    right = min(max(1, right), len(points_world) - 1)
-    left = right - 1
-    span = float(cumulative_distances_m[right] - cumulative_distances_m[left])
-    alpha = (
-        0.0
-        if span <= _MIN_SEGMENT_LENGTH_M
-        else (distance_m - float(cumulative_distances_m[left])) / span
-    )
-    return ((1.0 - alpha) * points_world[left] + alpha * points_world[right]).astype(
-        np.float32
-    )
-
-
-def _densify_polyline(
-    points_world: npt.NDArray[np.float32], spacing_m: float
-) -> npt.NDArray[np.float32]:
-    segment_lengths = np.linalg.norm(np.diff(points_world[:, :2], axis=0), axis=1)
-    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(np.float32)
-    total_distance_m = float(cumulative[-1])
-    sample_distances = np.arange(0.0, total_distance_m, spacing_m, dtype=np.float32)
-    sample_distances = np.append(sample_distances, np.float32(total_distance_m))
-    return np.stack(
-        [
-            _point_at_polyline(points_world, cumulative, float(distance_m))
-            for distance_m in sample_distances
-        ]
-    )
-
-
-def _heading_delta(
-    before_xyz: npt.NDArray[np.float32],
-    entry_xyz: npt.NDArray[np.float32],
-    exit_xyz: npt.NDArray[np.float32],
-    after_xyz: npt.NDArray[np.float32],
-) -> float:
-    incoming = entry_xyz[:2] - before_xyz[:2]
-    outgoing = after_xyz[:2] - exit_xyz[:2]
-    if (
-        float(np.linalg.norm(incoming)) <= _MIN_SEGMENT_LENGTH_M
-        or float(np.linalg.norm(outgoing)) <= _MIN_SEGMENT_LENGTH_M
-    ):
-        return 0.0
-    incoming_heading = math.atan2(float(incoming[1]), float(incoming[0]))
-    outgoing_heading = math.atan2(float(outgoing[1]), float(outgoing[0]))
-    return (outgoing_heading - incoming_heading + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def _maneuver_from_heading_delta(heading_delta_rad: float) -> TurnManeuver:
-    magnitude = abs(heading_delta_rad)
-    if magnitude >= _U_TURN_THRESHOLD_RAD:
-        return "u_turn"
-    if magnitude <= _TURN_THRESHOLD_RAD:
-        return "straight"
-    return "left" if heading_delta_rad > 0.0 else "right"

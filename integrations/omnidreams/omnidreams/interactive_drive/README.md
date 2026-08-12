@@ -460,7 +460,7 @@ matches the desktop modes' affordances:
   has produced its first chunk; numeric the moment chunks start
   arriving.
 - With `--taxi-game`, a **taxi HUD and BEV target pin** show the same active
-  pickup or dropoff, timer, direction arrow, routed intersection arrows, and
+  pickup or dropoff, timer, direction arrow, and
   score as the local HUD.
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the

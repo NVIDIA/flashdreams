@@ -45,10 +45,6 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     project_target_to_bev,
     project_taxi_markers_to_camera,
-    project_turn_signs_to_camera,
-)
-from omnidreams.interactive_drive.crazy_robotaxi.turn_overlay import (
-    draw_floating_turn_sign,
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.loading_overlay import render_loading_overlay
@@ -1106,24 +1102,11 @@ class MJPEGStreamingPresenter:
             image_width=image_width,
             image_height=image_height,
         )
-        turn_signs = project_turn_signs_to_camera(
-            snapshot,
-            frame.rig_to_world,
-            camera_model,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        if not markers and not turn_signs:
+        if not markers:
             return rgb_host_uint8
 
         image = Image.fromarray(rgb_host_uint8, mode="RGB")
         draw = ImageDraw.Draw(image)
-        for projection in turn_signs:
-            draw_floating_turn_sign(
-                draw,
-                (int(projection.center_uv[0]), int(projection.center_uv[1])),
-                projection.instruction.maneuver,
-            )
         color = (118, 185, 0) if snapshot.phase == "seeking_pickup" else (200, 150, 50)
         label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
         for marker in markers:

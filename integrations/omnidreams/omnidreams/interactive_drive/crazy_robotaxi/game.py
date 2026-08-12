@@ -28,7 +28,6 @@ from omnidreams.interactive_drive.crazy_robotaxi.navigation import (
     NavigationWaypoint,
     RoutePlan,
     TaxiNavigationMap,
-    TaxiTurnInstruction,
 )
 from omnidreams.interactive_drive.math3d import (
     extract_yaw_from_transform,
@@ -184,9 +183,6 @@ class TaxiGameSnapshot:
     pickup_targets_xyz_m: tuple[tuple[float, float, float], ...] = ()
     """All pickup positions available during the pickup phase."""
 
-    turn_instructions: tuple[TaxiTurnInstruction, ...] = ()
-    """Upcoming routed turn for an active dropoff."""
-
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation of the snapshot."""
         return {
@@ -208,9 +204,6 @@ class TaxiGameSnapshot:
             "pickup_targets_xyz_m": [
                 list(target) for target in self.pickup_targets_xyz_m
             ],
-            "turn_instructions": [
-                instruction.as_dict() for instruction in self.turn_instructions
-            ],
         }
 
 
@@ -226,20 +219,6 @@ class TaxiCameraMarkerProjection:
 
     ring_edges_uv: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     """Visible line segments forming the target's activation-radius ring."""
-
-
-@dataclass(frozen=True)
-class TaxiTurnSignProjection:
-    """Projected floating instruction arrow in camera image pixels."""
-
-    instruction: TaxiTurnInstruction
-    """Turn instruction represented by the sign."""
-
-    center_uv: tuple[float, float]
-    """Projected center of the floating arrow."""
-
-    depth_m: float
-    """Forward camera depth used for far-to-near drawing."""
 
 
 def _stable_seed(scene_id: str, seed: int) -> int:
@@ -411,53 +390,6 @@ def project_taxi_markers_to_camera(
     return tuple(projection for projection in projections if projection is not None)
 
 
-def project_turn_signs_to_camera(
-    snapshot: TaxiGameSnapshot,
-    rig_to_world: npt.NDArray[np.float32],
-    camera_model: FThetaCameraModel,
-    *,
-    image_width: int,
-    image_height: int,
-) -> tuple[TaxiTurnSignProjection, ...]:
-    """Project every visible routed turn arrow into a camera image.
-
-    Args:
-        snapshot: Frame-synchronized Taxi game state.
-        rig_to_world: Rig pose that produced the displayed frame.
-        camera_model: Camera projection model for the displayed image size.
-        image_width: Displayed source image width.
-        image_height: Displayed source image height.
-
-    Returns:
-        Visible arrows ordered from farthest to nearest.
-    """
-    if not snapshot.turn_instructions:
-        return ()
-    points = np.asarray(
-        [instruction.anchor_xyz_m for instruction in snapshot.turn_instructions],
-        dtype=np.float32,
-    )
-    uv, depth, forward = camera_model.project_world(points, rig_to_world)
-    inside = (
-        forward
-        & (uv[:, 0] >= 0.0)
-        & (uv[:, 0] < float(image_width))
-        & (uv[:, 1] >= 0.0)
-        & (uv[:, 1] < float(image_height))
-    )
-    projections = [
-        TaxiTurnSignProjection(
-            instruction=instruction,
-            center_uv=(float(uv[index, 0]), float(uv[index, 1])),
-            depth_m=float(depth[index]),
-        )
-        for index, instruction in enumerate(snapshot.turn_instructions)
-        if bool(inside[index])
-    ]
-    projections.sort(key=lambda projection: projection.depth_m, reverse=True)
-    return tuple(projections)
-
-
 class TaxiGameController:
     """Advance taxi fares over scene navigation routes."""
 
@@ -468,7 +400,6 @@ class TaxiGameController:
         reference_route_world: npt.NDArray[np.float32],
         navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         navigation_lanes: tuple[NavigationLane, ...] = (),
-        intersection_polygons_world: tuple[npt.NDArray[np.float32], ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
@@ -479,10 +410,7 @@ class TaxiGameController:
         self._rng = np.random.default_rng(rng_seed)
         offset = float(self._rng.uniform(0.0, config.waypoint_spacing_m))
         if navigation_lanes:
-            self._navigation = TaxiNavigationMap(
-                navigation_lanes,
-                intersection_polygons_world,
-            )
+            self._navigation = TaxiNavigationMap(navigation_lanes)
         else:
             routes_world = navigation_routes_world or (reference_route_world,)
             self._navigation = TaxiNavigationMap.from_polylines(
@@ -504,8 +432,6 @@ class TaxiGameController:
         self._awarded_global_time_s = 0.0
         self._pickup_index: int | None = None
         self._dropoff_index: int | None = None
-        self._route_plan: RoutePlan | None = None
-        self._route_source_lane_index: int | None = None
         self._high_score_store = high_score_store or HighScoreStore(
             config.high_scores_path
         )
@@ -513,11 +439,10 @@ class TaxiGameController:
         self._high_score = existing_scores[0].score if existing_scores else None
         self._leaderboard: tuple[HighScoreEntry, ...] = ()
         self._high_score_rank: int | None = None
-        self._target_index, self._route_plan = self._select_initial_pickup(
+        self._target_index, _initial_route = self._select_initial_pickup(
             initial_state,
             initial_camera,
         )
-        self._route_source_lane_index = self._route_plan.lane_indices[0]
         self._available_pickup_indices = self._pickup_indices(
             initial_state,
             excluded=frozenset(),
@@ -590,8 +515,6 @@ class TaxiGameController:
                 pickup_index = self._collected_pickup_index(x_m, y_m)
                 if pickup_index is not None:
                     self._start_fare(pickup_index, vehicle_state)
-                else:
-                    self._update_route(vehicle_state)
             else:
                 target = self._waypoints[self._target_index]
                 distance = math.hypot(
@@ -601,7 +524,6 @@ class TaxiGameController:
                 if distance <= self._config.dropoff_radius_m:
                     self._complete_fare(vehicle_state)
                 else:
-                    self._update_route(vehicle_state)
                     assert self._remaining_time_s is not None
                     self._remaining_time_s = max(
                         0.0, self._remaining_time_s - frame_interval_s
@@ -669,11 +591,6 @@ class TaxiGameController:
                     for index in self._available_pickup_indices
                 )
                 if self._phase == "seeking_pickup"
-                else ()
-            ),
-            turn_instructions=(
-                self._route_plan.turn_instructions[:1]
-                if self._phase == "to_dropoff" and self._route_plan is not None
                 else ()
             ),
         )
@@ -938,64 +855,19 @@ class TaxiGameController:
 
     def _start_fare(self, pickup_index: int, vehicle_state: VehicleState) -> None:
         self._pickup_index = pickup_index
-        self._dropoff_index, self._route_plan = self._select_dropoff(
+        self._dropoff_index, route_plan = self._select_dropoff(
             self._pickup_index, vehicle_state
         )
-        self._route_source_lane_index = self._route_plan.lane_indices[0]
         self._target_index = self._dropoff_index
         self._phase = "to_dropoff"
         self._available_pickup_indices = ()
-        raw_time = self._route_plan.distance_m / max(
-            self._config.target_speed_mps, 1e-6
-        )
+        raw_time = route_plan.distance_m / max(self._config.target_speed_mps, 1e-6)
         raw_time += self._config.grace_s
         clamped_time = float(
             np.clip(raw_time, self._config.min_time_s, self._config.max_time_s)
         )
         self._remaining_time_s = clamped_time * self._config.trip_time_multiplier
         self._set_event("pickup_complete", 0)
-
-    def _update_route(self, vehicle_state: VehicleState) -> None:
-        """Recompute instructions from nearby heading-compatible lanes."""
-        destination = self._waypoints[self._target_index]
-        matches = self._navigation.nearest_lane_positions(
-            vehicle_state.x_m,
-            vehicle_state.y_m,
-            vehicle_state.yaw_rad,
-        )
-        if self._route_plan is not None:
-            remaining_lanes = frozenset(self._route_plan.lane_indices)
-            matches = tuple(
-                sorted(
-                    matches,
-                    key=lambda match: (
-                        match.lane_index not in remaining_lanes,
-                        match.lateral_distance_m,
-                        match.heading_error_rad,
-                        match.lane_index,
-                    ),
-                )
-            )
-        nearby_matches = tuple(
-            match for match in matches if match.lateral_distance_m <= 12.0
-        )
-        if not nearby_matches:
-            self._route_plan = None
-            self._route_source_lane_index = None
-            return
-        if (
-            self._route_plan is not None
-            and nearby_matches[0].lane_index == self._route_source_lane_index
-        ):
-            return
-        for match in nearby_matches:
-            route = self._navigation.route(match, destination)
-            if route is not None:
-                self._route_plan = route
-                self._route_source_lane_index = match.lane_index
-                return
-        self._route_plan = None
-        self._route_source_lane_index = None
 
     def _complete_fare(self, vehicle_state: VehicleState) -> None:
         assert self._remaining_time_s is not None
@@ -1021,7 +893,7 @@ class TaxiGameController:
             for index in (self._pickup_index, self._dropoff_index)
             if index is not None
         )
-        self._target_index, self._route_plan = self._select_pickup(
+        self._target_index, _pickup_route = self._select_pickup(
             vehicle_state,
             excluded=excluded,
         )
@@ -1033,7 +905,6 @@ class TaxiGameController:
             self._available_pickup_indices += (self._target_index,)
         self._phase = "seeking_pickup"
         self._remaining_time_s = None
-        self._route_source_lane_index = self._route_plan.lane_indices[0]
 
     def _set_event(
         self,
@@ -1052,8 +923,6 @@ class TaxiGameController:
 
     def _end_game(self) -> None:
         self._global_remaining_time_s = 0.0
-        self._route_plan = None
-        self._route_source_lane_index = None
         self._leaderboard = self._high_score_store.read()
         self._high_score = (
             self._leaderboard[0].score if self._leaderboard else self._high_score
