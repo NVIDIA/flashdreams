@@ -48,15 +48,26 @@ class WorldModelRenderBackend(RenderBackend):
         offload_text_encoder: bool = False,
         postprocess: VideoPostprocessChainConfig | None = None,
     ) -> None:
+        import sys
+        print(">>> BACKEND __init__ CALLED <<<", flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        logger.info("[BACKEND] __init__ starting...")
+        logger.info("[BACKEND] Calling super().__init__...")
         super().__init__(chunk=chunk, raster=raster)
+        logger.info("[BACKEND] super().__init__ done")
         self._manifest = manifest
+        logger.info("[BACKEND] Creating rasterizer...")
         self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
+        logger.info("[BACKEND] Rasterizer created")
+        logger.info("[BACKEND] Creating FlashdreamsWorldModelSession...")
         self._session = FlashdreamsWorldModelSession(
             manifest,
             profile=profile,
             offload_text_encoder=offload_text_encoder,
             postprocess=postprocess,
         )
+        logger.info("[BACKEND] Session created - __init__ complete")
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
@@ -72,41 +83,68 @@ class WorldModelRenderBackend(RenderBackend):
         return True
 
     def warmup_model(self) -> None:
+        import sys as _sys
+        # Skip warmup on Windows (torch.compile hangs with CUDA graphs)
+        if _sys.platform == "win32":
+            logger.info("[WARMUP] Skipping warmup on Windows (torch.compile disabled)")
+            return
+
+        logger.info("[WARMUP] Starting validation checks...")
         if self._manifest.resolution_wh != self._raster.resolution_wh:
             raise ValueError(
                 "World-model manifest resolution does not match the renderer resolution: "
                 f"{self._manifest.resolution_wh} vs {self._raster.resolution_wh}"
             )
+        logger.info("[WARMUP] Resolution check passed")
         if self._manifest.fps != self._chunk.fps:
             raise ValueError(
                 f"World-model manifest fps {self._manifest.fps} does not match chunk fps {self._chunk.fps}"
             )
+        logger.info("[WARMUP] FPS check passed")
         if self._manifest.num_frames_per_block != self._chunk.chunk_frames:
             raise ValueError(
                 "World-model manifest num_frames_per_block does not match steady-state chunk size: "
                 f"{self._manifest.num_frames_per_block} vs {self._chunk.chunk_frames}"
             )
+        logger.info("[WARMUP] Frame block check passed")
         if self._chunk.initial_chunk_frames != 5:
             raise ValueError(
                 "The flashdreams world-model path is locked to a 5-frame first chunk."
             )
+        logger.info("[WARMUP] Initial chunk check passed - all validations OK")
+        logger.info("[WARMUP] === STARTING TORCH.COMPILE WARMUP ===")
+        import sys as _sys
+        print("[PRE-COMPILE] About to call run_timed_prewarm", flush=True)
+        _sys.stdout.flush()
+        _sys.stderr.flush()
+        logger.info("[COMPILE] Beginning kernel compilation (torch.compile + Triton)...")
+        print("[RUN-TIMED-PREWARM] Calling run_timed_prewarm...", flush=True)
+        _sys.stdout.flush()
+        _sys.stderr.flush()
         warmup_timing = run_timed_prewarm(
             self._session.warmup_model,
             label="world-model.session",
         )
+        print("[RUN-TIMED-PREWARM] run_timed_prewarm RETURNED", flush=True)
+        _sys.stdout.flush()
+        _sys.stderr.flush()
+        logger.info("[COMPILE] ✓ Kernel compilation complete")
         logger.info(
-            f"[world-model] model warmup session_ms={warmup_timing.elapsed_ms:.1f}",
+            f"[WARMUP] model warmup completed in {warmup_timing.elapsed_ms:.1f}ms",
         )
 
     def load_scene(self, scene: SceneBundle) -> None:
+        logger.info("[LOAD-SCENE] Starting load_scene...")
         self._scene = scene
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames = self._load_debug_condition_frames(
             self._manifest.debug_condition_frame_dir
         )
+        logger.info("[LOAD-SCENE] Loading rasterizer...")
         load_start = time.perf_counter()
         self._rasterizer.load_scene(scene)
         rasterizer_end = time.perf_counter()
+        logger.info("[LOAD-SCENE] Rasterizer done, preparing session...")
         # Per-scene conditioning prep. On the default path this is a no-op
         # (the prompt is re-embedded per rollout in the session); under
         # --offload-text-encoder it (re)builds the per-scene embeddings.
@@ -121,10 +159,13 @@ class WorldModelRenderBackend(RenderBackend):
             f"prepare_ms={(prepare_end - rasterizer_end) * 1000.0:.1f} "
             f"total_ms={(prepare_end - load_start) * 1000.0:.1f}",
         )
+        logger.info("[LOAD-SCENE] Complete")
 
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        logger.info("[RENDER-FIRST] render_first_chunk() called")
         scene = self._require_scene()
         chunk_start = time.perf_counter()
+        logger.info("[RENDER-FIRST] Rendering frames...")
         if self._debug_first_chunk_condition_frames is None:
             raster_chunk = self._rasterizer.render_chunk(
                 rig_poses_world=trajectory.rig_poses_world,
@@ -181,12 +222,14 @@ class WorldModelRenderBackend(RenderBackend):
             scene.initial_rgb, condition_frames, scene.prompt
         )
         model_end = time.perf_counter()
+        logger.info("[RENDER-FIRST] Merging frames...")
         merged_frames = self._merge_frames(
             display_frames,
             model_frames,
             annotate_first_transition=True,
         )
         merge_end = time.perf_counter()
+        logger.info("[RENDER-FIRST] First chunk complete")
         logger.info(
             "[world-model] first_chunk "
             f"frames={len(trajectory.timestamps_us)} "

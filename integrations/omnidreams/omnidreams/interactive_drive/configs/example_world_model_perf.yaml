@@ -41,7 +41,7 @@ seed_for_every_rollout:
 native_dit_acceleration: required
 # native_dit_verbose_build: true
 native_dit_backend: fp8_kvcache_cudnn            # fp8_kvcache_cudnn | bf16
-native_dit_attention_backend: cudnn # auto | cudnn | sparge | sage3 | sage3_fp8
+native_dit_attention_backend: sage3 # auto | cudnn | sparge | sage3 | sage3_fp8
 
 # Native LightVAE encoder. Set to "fp8" to use the native FP8 encoder path
 # from the native-perf recipe; set to "disabled" to use the PyTorch encoder.

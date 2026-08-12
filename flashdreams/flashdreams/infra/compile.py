@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
@@ -144,6 +145,8 @@ def compile_module(
         The compiled module, statically typed as the same ``M`` so attribute
         access on the wrapped module continues to type-check at call sites.
     """
+    if sys.platform == "win32":
+        return module
     _configure_inductor_cache()
     _patch_triton_bundle_collection()
     return cast(M, torch.compile(module, mode=mode))

@@ -365,3 +365,35 @@ class BlockKVCache:
         self._prev_chunk_idx = -1
         self._curr_chunk_idx = None
         self._n_cached = 0
+
+    def clone_kv(self) -> tuple[Tensor, Tensor]:
+        """Return clones of the full physical K/V buffers.
+
+        Contents only — bookkeeping is not captured. Pair with
+        :meth:`overwrite_kv_` to snapshot/restore alternate contents for a
+        cache whose buffer addresses must stay stable (e.g. under CUDA
+        graphs).
+        """
+        return self._k.clone(), self._v.clone()
+
+    def overwrite_kv_(self, k: Tensor, v: Tensor) -> None:
+        """Overwrite the full physical K/V buffers in place.
+
+        Writes through ``copy_`` so the buffers keep their storage
+        addresses — required under CUDA graphs, whose captured kernels bake
+        in the buffer pointers. Bookkeeping is untouched, so this is only
+        meaningful for caches whose logical content spans the whole buffer
+        (e.g. the static cross-attention text cache built by
+        ``from_tensor``).
+
+        Args:
+            k: Replacement keys; must match the buffer shape exactly.
+            v: Replacement values; must match the buffer shape exactly.
+        """
+        assert k.shape == self._k.shape and v.shape == self._v.shape, (
+            f"overwrite_kv_ shape mismatch: got k {tuple(k.shape)} / "
+            f"v {tuple(v.shape)}, cache holds k {tuple(self._k.shape)} / "
+            f"v {tuple(self._v.shape)}"
+        )
+        self._k.copy_(k)
+        self._v.copy_(v)

@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.types import (
     TrajectoryChunk,
 )
 
+from flashdreams.core.io.disk import DiskSpaceError
 from flashdreams.infra.acceleration.prewarm import run_timed_prewarm
 from flashdreams.serving.realtime.timing import (
     ChunkTimes,
@@ -333,8 +334,15 @@ class ChunkPipeline:
             self._model_ready.set()
             while True:
                 command = self._command_queue.get()
-                if not command(self._backend):
-                    return
+                try:
+                    if not command(self._backend):
+                        return
+                except DiskSpaceError as exc:
+                    logger.error(
+                        f"[chunk-pipeline] DISK SPACE ERROR: {exc}\n"
+                        "Free up space or set HF_HOME to another drive and retry."
+                    )
+                    continue
         except BaseException as exc:
             with self._worker_error_lock:
                 self._worker_error = exc

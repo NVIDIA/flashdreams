@@ -58,6 +58,48 @@ SPDX-License-Identifier: Apache-2.0
         </div>
       </section>
 
+      <section class="promptCard overlayPanel" aria-label="Scene Prompt">
+        <h2><span aria-hidden="true"></span>Scene Prompt</h2>
+        <textarea
+          id="promptInput"
+          class="promptInput"
+          rows="3"
+          placeholder="Describe the scene mid-drive, e.g. 'heavy snow at night, red sports car ahead'"
+        ></textarea>
+        <div class="promptButtons">
+          <button id="promptApplyButton" class="promptButton" type="button">Apply</button>
+          <button id="promptResetButton" class="promptButton promptButtonSecondary" type="button">
+            Reset to scene
+          </button>
+        </div>
+        <div class="promptButtons">
+          <button
+            id="spawnCarButton"
+            class="promptButton promptButtonSecondary"
+            type="button"
+            title="/spawn car 12"
+          >
+            Spawn car
+          </button>
+          <button
+            id="spawnConeButton"
+            class="promptButton promptButtonSecondary"
+            type="button"
+            title="/spawn cone 8"
+          >
+            Spawn cone
+          </button>
+          <button
+            id="clearActorsButton"
+            class="promptButton promptButtonSecondary"
+            type="button"
+            title="/clear-actors"
+          >
+            Clear
+          </button>
+        </div>
+      </section>
+
       <section class="logCard overlayPanel" aria-label="Client Logs">
         <h2><span aria-hidden="true"></span>Client Logs</h2>
         <div id="eventLog" class="logList" aria-live="polite"></div>

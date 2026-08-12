@@ -1,0 +1,127 @@
+﻿[   0.00s] [TEST] PyTorch version:
+[   1.44s]   torch 2.12.1+cu130
+[   1.45s]   CUDA available: True
+[   1.45s] [TEST] Loading omnidreams model...
+[   5.96s] [TEST] Creating OmnidreamsPipelineConfig...
+[   5.98s] [TEST] Deriving pipeline config...
+[   5.98s] [TEST] Disabling torch.compile on Windows...
+[   5.98s] [TEST] torch.compile disabled globally
+[   5.98s] [TEST] Building pipeline...
+python.exe : 2026-08-11 21:19:34.784 | INFO     | 
+flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - [DEBUG-DOWNLOAD-START] Downloading 
+checkpoint from Hugging Face: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth
+At line:1 char:375
++ ... am_public"; & "C:\workspace\world\flashdream_public\.venv\Scripts\pyt ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-08-11 21:1...ightvaew2_1.pth:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-08-11 21:19:34.784 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:497 - 
+[DEBUG-CACHE-CHECK] Checking if cached...
+2026-08-11 21:19:34.785 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:511 - 
+[DEBUG-HF-CACHE] Checking HF cache...
+2026-08-11 21:19:34.785 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:516 - 
+[DEBUG-HF-DOWNLOAD-START] Starting HF hub download...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits 
+and faster downloads.
+2026-08-11 21:19:35.690 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:524 - 
+[DEBUG-HF-DOWNLOAD-DONE] Download complete
+2026-08-11 21:19:35.690 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:533 - 
+Checkpoint downloaded to local HF cache: C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapsho
+ts\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lightvaew2_1.pth
+2026-08-11 21:19:35.690 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:707 - [DEBUG-LOAD-START] 
+Loading checkpoint from disk: C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapshots\02cbfd1a
+0a336bbd87da49fd8cc155ed11ff123e\lightvaew2_1.pth
+2026-08-11 21:19:35.690 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:749 - 
+[DEBUG-LOCAL-LOAD-START] Loading .pth checkpoint from C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoenc
+oders\snapshots\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lightvaew2_1.pth
+2026-08-11 21:19:35.690 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:757 - 
+[DEBUG-TORCH-LOAD] Calling torch.load()
+2026-08-11 21:19:35.708 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:759 - 
+[DEBUG-TORCH-LOAD-DONE] torch.load() complete
+2026-08-11 21:19:35.708 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:709 - [DEBUG-LOAD-DONE] 
+Checkpoint loaded into memory
+2026-08-11 21:19:35.708 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:710 - 
+[DEBUG-LOAD-RETURNING] Returning checkpoint to caller
+2026-08-11 21:19:35.717 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:491 - 
+[DEBUG-DOWNLOAD-START] Downloading checkpoint from Hugging Face: 
+https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth
+2026-08-11 21:19:35.717 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:497 - 
+[DEBUG-CACHE-CHECK] Checking if cached...
+2026-08-11 21:19:35.719 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:511 - 
+[DEBUG-HF-CACHE] Checking HF cache...
+2026-08-11 21:19:35.719 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:516 - 
+[DEBUG-HF-DOWNLOAD-START] Starting HF hub download...
+2026-08-11 21:19:36.094 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:524 - 
+[DEBUG-HF-DOWNLOAD-DONE] Download complete
+2026-08-11 21:19:36.094 | INFO     | flashdreams.core.checkpoint.load:_download_checkpoint_from_huggingface_url:533 - 
+Checkpoint downloaded to local HF cache: C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapsho
+ts\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lighttaew2_1.pth
+2026-08-11 21:19:36.094 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:707 - [DEBUG-LOAD-START] 
+Loading checkpoint from disk: C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoencoders\snapshots\02cbfd1a
+0a336bbd87da49fd8cc155ed11ff123e\lighttaew2_1.pth
+2026-08-11 21:19:36.094 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:749 - 
+[DEBUG-LOCAL-LOAD-START] Loading .pth checkpoint from C:\Users\kschmid\.cache\huggingface\hub\models--lightx2v--Autoenc
+oders\snapshots\02cbfd1a0a336bbd87da49fd8cc155ed11ff123e\lighttaew2_1.pth
+2026-08-11 21:19:36.094 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:757 - 
+[DEBUG-TORCH-LOAD] Calling torch.load()
+2026-08-11 21:19:36.109 | INFO     | flashdreams.core.checkpoint.load:_load_checkpoint_from_local:759 - 
+[DEBUG-TORCH-LOAD-DONE] torch.load() complete
+2026-08-11 21:19:36.109 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:709 - [DEBUG-LOAD-DONE] 
+Checkpoint loaded into memory
+2026-08-11 21:19:36.109 | INFO     | flashdreams.core.checkpoint.load:load_single_checkpoint:710 - 
+[DEBUG-LOAD-RETURNING] Returning checkpoint to caller
+[   7.34s] [TEST] ERROR: ImportError: cannot import name 'min_cut_rematerialization_partition' from 'functorch.compile' (unknown location)
+Traceback (most recent call last):
+  File "C:\workspace\world\flashdream_public\test_load_state_dict.py", line 42, in <module>
+    pipeline = pipeline_config.setup().to(device=torch.device('cuda:0'))
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\infra\config\base.py", line 47, in setup
+    return self._target(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\integrations/omnidreams\omnidreams\pipeline.py", line 146, in __init__
+    super().__init__(config)
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\infra\pipeline\base.py", line 143, in __init__
+    self.decoder = config.decoder.setup() if config.decoder is not None else None
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\infra\config\base.py", line 47, in setup
+    return self._target(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\recipes\taehv\__init__.py", line 126, in __init__
+    self.taehv = TAEHV(
+                 ^^^^^^
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\recipes\taehv\impl.py", line 340, in __init__
+    self.load_from_checkpoint(
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\recipes\taehv\impl.py", line 390, in 
+load_from_checkpoint
+    self.decoder = compile_module(self.decoder)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\flashdreams\flashdreams\infra\compile.py", line 149, in compile_module
+    return cast(M, torch.compile(module, mode=mode))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\__init__.py", line 2791, in compile
+    return torch._dynamo.optimize(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\eval_frame.py", line 1523, in 
+optimize
+    return _optimize(rebuild_ctx, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\eval_frame.py", line 1601, in 
+_optimize
+    backend = get_compiler_fn(backend)
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\eval_frame.py", line 1360, in 
+get_compiler_fn
+    from .repro.after_dynamo import wrap_backend_debug
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\repro\after_dynamo.py", line 33, in 
+<module>
+    from torch._dynamo.debug_utils import (
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\debug_utils.py", line 43, in 
+<module>
+    from torch._dynamo.testing import rand_strided
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\testing.py", line 33, in <module>
+    from torch._dynamo.backends.debugging import aot_eager
+  File "C:\workspace\world\flashdream_public\.venv\Lib\site-packages\torch\_dynamo\backends\debugging.py", line 34, in 
+<module>
+    from functorch.compile import min_cut_rematerialization_partition
+ImportError: cannot import name 'min_cut_rematerialization_partition' from 'functorch.compile' (unknown location)

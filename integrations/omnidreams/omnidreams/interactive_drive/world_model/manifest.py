@@ -201,13 +201,22 @@ class WorldModelManifest:
 
 
 def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
+    import sys as _sys
+    print("[MANIFEST] load_world_model_manifest START", flush=True)
+    _sys.stdout.flush()
     manifest_path = Path(path)
+    print(f"[MANIFEST] Reading manifest from {manifest_path}", flush=True)
+    _sys.stdout.flush()
     manifest_dir = manifest_path.resolve().parent
     raw_yaml = manifest_path.read_text(encoding="utf-8")
+    print("[MANIFEST] YAML text read", flush=True)
+    _sys.stdout.flush()
     # When ``OMNI_DREAMS_HF_ORG`` (or ``--hf-org``) overrides the default org,
     # rewrite the example yaml's ``nvidia/omni-dreams-*`` scene URLs to it so
     # callers don't maintain a parallel yaml. Non-scene HF URLs pass through.
     resolved_org = resolve_hf_org()
+    print(f"[MANIFEST] Org resolved: {resolved_org}", flush=True)
+    _sys.stdout.flush()
     if resolved_org != DEFAULT_HF_ORG:
         rewritten = rewrite_omni_dreams_urls(raw_yaml, org=resolved_org)
         if rewritten != raw_yaml:
@@ -216,7 +225,11 @@ def load_world_model_manifest(path: str | Path) -> WorldModelManifest:
                 f"{resolved_org}/omni-dreams-* per OMNI_DREAMS_HF_ORG",
             )
         raw_yaml = rewritten
+    print("[MANIFEST] About to yaml.safe_load", flush=True)
+    _sys.stdout.flush()
     data = yaml.safe_load(raw_yaml) or {}
+    print("[MANIFEST] yaml.safe_load complete", flush=True)
+    _sys.stdout.flush()
     resolution = _parse_resolution_wh(data.get("resolution_wh"))
     return WorldModelManifest(
         debug_condition_frame_dir=_resolve_manifest_path(

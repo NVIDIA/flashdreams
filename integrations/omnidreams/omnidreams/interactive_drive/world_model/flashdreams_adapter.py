@@ -147,6 +147,18 @@ def _build_pipeline_config(
     # Select the requested encoder startup policy without mutating the shared
     # ``OMNIDREAMS_CONFIGS`` instances.
     transformer_overrides = _transformer_overrides(manifest)
+
+    # Windows torch.compile hangs with CUDA graphs. Force disable on Windows.
+    # Native DIT extension compilation (nvcc + Ninja) also hangs on Windows.
+    import sys
+    if sys.platform == "win32":
+        logger.info("[config] Disabling torch.compile on Windows (CUDA graph deadlock)")
+        logger.info("[config] Disabling native DIT on Windows (nvcc compilation hang)")
+        transformer_overrides = {
+            **transformer_overrides,
+            "compile_network": False,
+            "native_dit_acceleration": "disabled",
+        }
     base_config_name = _base_config_name(config_name, manifest)
     base = OMNIDREAMS_CONFIGS[base_config_name]
     config = derive_config(
@@ -160,6 +172,15 @@ def _build_pipeline_config(
     )
     if not manifest.compile_decoder:
         config = derive_config(config, decoder=dict(use_compile=False))
+
+    # Disable CUDA graphs on Windows (causes deadlock in torch.compile with Triton)
+    import sys
+    if sys.platform == "win32":
+        config = derive_config(
+            config,
+            diffusion_model=dict(transformer=dict(use_cuda_graph=False))
+        )
+
     scheduler_uses_manifest_steps = False
 
     if not scheduler_uses_manifest_steps and hasattr(
@@ -492,6 +513,7 @@ class FlashdreamsWorldModelSession:
         pipeline_factory: PipelineFactory | None = None,
         postprocess: VideoPostprocessChainConfig | None = None,
     ) -> None:
+        logger.info("[SESSION] FlashdreamsWorldModelSession.__init__ starting")
         self.manifest = manifest
         self._profile_config = profile or WorldModelProfileConfig()
         self._offload_text_encoder = bool(offload_text_encoder)
@@ -504,6 +526,7 @@ class FlashdreamsWorldModelSession:
         self._postprocess = postprocess or VideoPostprocessChainConfig()
         self._postprocess_enabled = self._postprocess.is_enabled()
         self._postprocess_stream: VideoPostprocessStream | None = None
+        logger.info("[SESSION] FlashdreamsWorldModelSession.__init__ complete")
 
     @property
     def pipeline(self) -> Any:
@@ -533,11 +556,16 @@ class FlashdreamsWorldModelSession:
         embeddings are computed and the one-shot encoders freed before the
         AR pipeline is allocated.
         """
+        import sys as _sys
+        print("[FLASHDREAMS-WARMUP] session.warmup_model() CALLED", flush=True)
+        _sys.stdout.flush()
         if (
             self._pipeline_factory is None
             and self._offload_text_encoder
             and not self.manifest.synthetic_model
         ):
+            print("[FLASHDREAMS-WARMUP] Early return (offload path)", flush=True)
+            _sys.stdout.flush()
             return
 
         def build_and_validate_pipeline() -> None:

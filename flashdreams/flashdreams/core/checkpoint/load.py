@@ -488,7 +488,6 @@ def _download_checkpoint_from_huggingface_url(
 ) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
-    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
     settings: dict[str, object] = {
         "repo": repo_id,
         "filename": filename,
@@ -698,7 +697,8 @@ def load_single_checkpoint(
             checkpoint_path,
             checkpoint_min_free_gb=checkpoint_min_free_gb,
         )
-        return _load_checkpoint_from_local(local_path, ext, map_location)
+        result = _load_checkpoint_from_local(local_path, ext, map_location)
+        return result
 
     # For S3 paths, check local cache first
     local_cache_path = None
@@ -738,9 +738,16 @@ def _load_checkpoint_from_local(
     """Load checkpoint from local filesystem."""
     if ext == ".safetensors":
         with open(path, "rb") as f:
-            return load_safetensors(f.read())
+            result = load_safetensors(f.read())
+        return result
     else:
-        return torch.load(path, map_location=map_location, weights_only=False)
+        import time
+        logger.info(f"[CHECKPOINT-LOAD-START] torch.load({path}) map_location={map_location}")
+        start = time.perf_counter()
+        result = torch.load(path, map_location=map_location, weights_only=False)
+        elapsed = time.perf_counter() - start
+        logger.info(f"[CHECKPOINT-LOAD-DONE] torch.load completed in {elapsed:.1f}s, {len(result)} tensors")
+        return result
 
 
 def _load_checkpoint_from_s3(

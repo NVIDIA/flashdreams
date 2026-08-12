@@ -2147,7 +2147,7 @@ class SlangPyHudPresenter:
         draw.polygon(footprint, fill=NVIDIA_GREEN + (255,), outline=edge)
         # The first edge is the front bumper. Highlight it so vehicle heading
         # is unambiguous even when the footprint is only a few pixels wide.
-        draw.line((footprint[0], footprint[1]), fill=(220, 255, 170, 255), width=2)
+        draw.line((footprint[0], footprint[1]), fill=(0, 150, 255, 255), width=4)
 
     # -- Dropdowns ---------------------------------------------------
 

@@ -47,6 +47,12 @@ from omnidreams.interactive_drive.synthetic_scene import build_synthetic_scene_t
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
+from flashdreams.core.io.disk import (
+    cache_min_free_bytes,
+    default_huggingface_cache_dir,
+    ensure_free_disk,
+)
+
 # Private aliases for the evdev helpers (canonical defs in
 # ``input/wheel_profiles.py``, shared with the configuration tool).
 _scan_evdev_devices = scan_evdev_devices
@@ -699,6 +705,16 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
 
 def main() -> None:
     configure_logging()
+    try:
+        ensure_free_disk(
+            default_huggingface_cache_dir(),
+            required_bytes=cache_min_free_bytes(),
+            label="interactive-drive startup",
+            env_vars=("HF_HOME", "HF_HUB_CACHE", "FLASHDREAMS_MIN_CACHE_FREE_GB"),
+        )
+    except Exception as e:
+        raise SystemExit(f"Disk space preflight failed: {e}") from e
+
     args = build_parser().parse_args()
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
