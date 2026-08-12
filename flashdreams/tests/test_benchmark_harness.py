@@ -155,6 +155,61 @@ def test_stats_records_normalize_ms_to_seconds(tmp_path: Path) -> None:
     assert records[0].metrics["mem_peak_gib"] == pytest.approx(5.5)
 
 
+def test_runtime_benchmark_stats_records_group_samples_by_step(
+    tmp_path: Path,
+) -> None:
+    stats_path = tmp_path / "stats_demo.json"
+    stats_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifact_type": "flashdreams.runtime.demo.benchmark_stats",
+                "samples": [
+                    {
+                        "name": "model_step_s",
+                        "value": 0.10,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 0,
+                        "metadata": {"frame_count": 1},
+                    },
+                    {
+                        "name": "pixel_fps",
+                        "value": 24.0,
+                        "unit": "fps",
+                        "category": "throughput",
+                        "step_index": 0,
+                        "metadata": {"frame_count": 1},
+                    },
+                    {
+                        "name": "model_step_s",
+                        "value": 0.20,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 1,
+                        "metadata": {"frame_count": 1},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = records_from_stats_file(
+        stats_path, scenario_id="demo", source_root=tmp_path
+    )
+
+    assert len(records) == 2
+    assert records[0].record_type == "step"
+    assert records[0].record_index == 0
+    assert records[0].metrics["model_step_s"] == pytest.approx(0.10)
+    assert records[0].metrics["pixel_fps"] == pytest.approx(24.0)
+    assert records[0].metadata["parser"] == "runtime_metric_samples"
+    assert records[0].metadata["sample_count"] == 2
+    assert records[1].record_index == 1
+    assert records[1].metrics["model_step_s"] == pytest.approx(0.20)
+
+
 def test_malformed_stats_records_are_ignored(tmp_path: Path) -> None:
     stats_path = tmp_path / "stats_demo.json"
     stats_path.write_text("{", encoding="utf-8")
@@ -542,6 +597,51 @@ def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) 
     assert "Timing: median vs P90" not in detail_html
     assert ">ms<" in detail_html
     assert "80.00" in detail_html
+
+
+def test_run_benchmark_suite_prefers_runtime_stats_artifact_over_log_regex(
+    tmp_path: Path,
+) -> None:
+    script = (
+        "import json, sys; "
+        "from pathlib import Path; "
+        "out = Path(sys.argv[1]); "
+        "out.mkdir(parents=True, exist_ok=True); "
+        "payload = {"
+        "'schema_version': 1, "
+        "'artifact_type': 'flashdreams.runtime.demo.benchmark_stats', "
+        "'samples': ["
+        "{'name': 'model_step_s', 'value': 0.25, 'unit': 's', "
+        "'category': 'timing', 'step_index': 0, 'metadata': {}}, "
+        "{'name': 'pixel_fps', 'value': 24.0, 'unit': 'fps', "
+        "'category': 'throughput', 'step_index': 0, 'metadata': {}}"
+        "]}; "
+        "(out / 'stats_demo.json').write_text(json.dumps(payload)); "
+        "print('[perf][chunk summary] samples=1 warmup=0 window=1; "
+        "chunk_total_s 999.0ms/999.0ms med/p90')"
+    )
+    scenario = BenchmarkScenario(
+        id="runtime-stats-runner",
+        name="Runtime stats runner",
+        command=(sys.executable, "-c", script, "{output_dir}"),
+        output_dir_arg=None,
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+    )
+
+    scenario_manifest = manifest["scenarios"][0]
+    metric_summary = scenario_manifest["metric_summary"]
+    assert metric_summary["model_step_s"]["median"] == pytest.approx(0.25)
+    assert metric_summary["pixel_fps"]["median"] == pytest.approx(24.0)
+    assert "chunk_total_s_median_s" not in metric_summary
+    assert scenario_manifest["metric_summary_metadata"]["model_step_s"]["parsers"] == [
+        "runtime_metric_samples"
+    ]
 
 
 def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:

@@ -33,6 +33,7 @@ import psutil
 from tools.benchmarks.environment import collect_environment
 from tools.benchmarks.metrics import (
     MetricRecord,
+    is_runtime_benchmark_stats_record,
     lifecycle_record,
     record_from_quality_metrics,
     records_from_log,
@@ -575,6 +576,8 @@ def _collect_scenario_metrics(
                 stats_path, scenario_id=scenario.id, source_root=output_root
             )
         )
+    if any(is_runtime_benchmark_stats_record(record) for record in records):
+        return records
     records.extend(
         records_from_log(log_path, scenario_id=scenario.id, source_root=output_root)
     )

@@ -141,12 +141,18 @@ def test_benchmark_loop_can_continue_after_failed_scenario(
         ]
         assert session_results == run_metrics.sessions
         assert [result.status for result in session_results] == results
-        assert json.loads(
-            (tmp_path / "stats_failed.json").read_text(encoding="utf-8")
-        )["samples"] == []
-        assert json.loads(
-            (tmp_path / "stats_success.json").read_text(encoding="utf-8")
-        )["samples"][0]["step_index"] == 0
+        assert (
+            json.loads((tmp_path / "stats_failed.json").read_text(encoding="utf-8"))[
+                "samples"
+            ]
+            == []
+        )
+        assert (
+            json.loads((tmp_path / "stats_success.json").read_text(encoding="utf-8"))[
+                "samples"
+            ][0]["step_index"]
+            == 0
+        )
     finally:
         context.close()
         context.host.close()
@@ -175,9 +181,7 @@ def test_benchmark_run_mode_can_mark_setup_failure_skipped(
     assert result.reason == "assets unavailable"
     assert result.error is None
     assert mode.should_continue_after(result)
-    payload = json.loads(
-        (tmp_path / "stats_skipped.json").read_text(encoding="utf-8")
-    )
+    payload = json.loads((tmp_path / "stats_skipped.json").read_text(encoding="utf-8"))
     assert payload["steps"] == []
     assert payload["samples"] == []
 
@@ -271,9 +275,7 @@ class _BenchmarkAdapter:
             return ()
         return (
             WarmupSessionInputs(
-                initial_input=InferenceInput(
-                    global_conditioning={"phase": "warmup"}
-                ),
+                initial_input=InferenceInput(global_conditioning={"phase": "warmup"}),
                 step_inputs=tuple(
                     InferenceInput(step={"phase": "warmup", "step": step_index})
                     for step_index in range(self.warmup_steps)
@@ -287,9 +289,7 @@ class _BenchmarkAdapter:
         scenario: PreparedScenario,
     ) -> "_BenchmarkProvider":
         del spec, scenario
-        provider = (
-            self._providers.pop(0) if self._providers else _BenchmarkProvider()
-        )
+        provider = self._providers.pop(0) if self._providers else _BenchmarkProvider()
         self.created_providers.append(provider)
         return provider
 

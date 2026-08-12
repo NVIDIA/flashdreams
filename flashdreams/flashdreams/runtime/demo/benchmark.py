@@ -79,8 +79,7 @@ class BenchmarkRunMode:
             )
         if self.stats_dir is not None and self.stats_path_factory is not None:
             raise ValueError(
-                "BenchmarkRunMode.stats_dir cannot be combined with "
-                "stats_path_factory."
+                "BenchmarkRunMode.stats_dir cannot be combined with stats_path_factory."
             )
         if self.stats_path is not None:
             self.stats_path = Path(self.stats_path)

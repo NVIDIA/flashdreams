@@ -73,6 +73,8 @@ _KEY_OVERRIDES = {
     "cache_ms": "cache_seed_prune_s",
     "copy_ms": "gpu_to_cpu_copy_s",
 }
+_RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
+_RUNTIME_METRIC_SAMPLE_PARSER = "runtime_metric_samples"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -111,6 +113,12 @@ def records_from_stats_file(
     if isinstance(payload, list):
         return _records_from_rows(payload, scenario_id=scenario_id, source=source)
     if isinstance(payload, dict):
+        if payload.get("artifact_type") == _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE:
+            return _records_from_runtime_metric_samples(
+                payload,
+                scenario_id=scenario_id,
+                source=source,
+            )
         records: list[MetricRecord] = []
         chunks = payload.get("chunks")
         if isinstance(chunks, list):
@@ -181,6 +189,11 @@ def record_from_quality_metrics(
         metrics=metrics,
         metadata={"quality_id": quality_id},
     )
+
+
+def is_runtime_benchmark_stats_record(record: MetricRecord) -> bool:
+    """Return whether a record came from the shared runtime stats artifact."""
+    return record.metadata.get("parser") == _RUNTIME_METRIC_SAMPLE_PARSER
 
 
 def lifecycle_record(
@@ -313,6 +326,92 @@ def _records_from_rows(
         )
         fallback_index += 1
     return records
+
+
+def _records_from_runtime_metric_samples(
+    payload: Mapping[Any, object],
+    *,
+    scenario_id: str,
+    source: str,
+) -> list[MetricRecord]:
+    samples = payload.get("samples")
+    if not isinstance(samples, list):
+        return []
+
+    metrics_by_step: dict[int, dict[str, float | int]] = {}
+    sample_count_by_step: dict[int, int] = {}
+    summary_metrics: dict[str, float | int] = {}
+    summary_sample_count = 0
+    for sample in samples:
+        parsed = _runtime_metric_sample(sample)
+        if parsed is None:
+            continue
+        name, value, step_index = parsed
+        if step_index is None:
+            summary_metrics[name] = value
+            summary_sample_count += 1
+            continue
+        metrics_by_step.setdefault(step_index, {})[name] = value
+        sample_count_by_step[step_index] = sample_count_by_step.get(step_index, 0) + 1
+
+    records = [
+        MetricRecord(
+            scenario_id=scenario_id,
+            record_type="step",
+            record_index=step_index,
+            source=source,
+            metrics=metrics_by_step[step_index],
+            metadata=_runtime_metric_sample_metadata(sample_count_by_step[step_index]),
+        )
+        for step_index in sorted(metrics_by_step)
+    ]
+    if summary_metrics:
+        records.append(
+            MetricRecord(
+                scenario_id=scenario_id,
+                record_type="summary",
+                source=source,
+                metrics=summary_metrics,
+                metadata=_runtime_metric_sample_metadata(summary_sample_count),
+            )
+        )
+    return records
+
+
+def _runtime_metric_sample(
+    sample: object,
+) -> tuple[str, float | int, int | None] | None:
+    if not isinstance(sample, Mapping):
+        return None
+    name = sample.get("name")
+    value = sample.get("value")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if not _is_number(value) or not math.isfinite(float(value)):
+        return None
+    step_index = _runtime_metric_step_index(sample.get("step_index"))
+    if step_index is None and sample.get("step_index") is not None:
+        return None
+    return name, value, step_index
+
+
+def _runtime_metric_step_index(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value.is_integer():
+        step_index = int(value)
+        return step_index if step_index >= 0 else None
+    return None
+
+
+def _runtime_metric_sample_metadata(sample_count: int) -> dict[str, object]:
+    return {
+        "parser": _RUNTIME_METRIC_SAMPLE_PARSER,
+        "artifact_type": _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE,
+        "sample_count": sample_count,
+    }
 
 
 def _record_from_perf_summary_line(
