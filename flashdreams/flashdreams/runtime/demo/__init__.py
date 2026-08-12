@@ -3,6 +3,10 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
+from flashdreams.runtime.demo.adapters import (
+    ReplayWebRTCDemoAdapter,
+    StaticInputProvider,
+)
 from flashdreams.runtime.demo.drivers import (
     CLEANUP_TIMEOUT_S,
     BatchSessionDriver,
@@ -137,6 +141,7 @@ __all__ = [
     "PreparedStep",
     "ProviderCapabilities",
     "RealtimeInputSource",
+    "ReplayWebRTCDemoAdapter",
     "RealtimeClock",
     "RealtimeEventInputSource",
     "RealtimeEventResampler",
@@ -158,6 +163,7 @@ __all__ = [
     "SingleSessionAdmissionPolicy",
     "StepOutcome",
     "StepPipeline",
+    "StaticInputProvider",
     "UserInputWindow",
     "WarmupSessionInputs",
     "WebRTCAppResources",
