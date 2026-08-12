@@ -206,7 +206,7 @@ class InteractiveDriveApp:
         if cached is not None:
             self._scene, self._map_bounds, self._ground_snapper = cached
             if self._application is not None:
-                self._application.load_scene(self._scene)
+                self._application.load_scene(self._scene, self._map_bounds)
             self._pipeline.request_scene(self._scene)
             return True
 
@@ -260,7 +260,7 @@ class InteractiveDriveApp:
             # close/requested state for the outer loop to consume.
             return False
         if self._application is not None:
-            self._application.load_scene(self._scene)
+            self._application.load_scene(self._scene, self._map_bounds)
         self._pipeline.request_scene(self._scene)
         return True
 
