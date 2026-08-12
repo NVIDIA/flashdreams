@@ -230,7 +230,7 @@ def test_log_interactive_drive_records_session_and_e2e_metrics(tmp_path: Path) -
     assert records[2].metadata["samples"] == 150
 
 
-def test_shipped_one_minute_demo_scenarios_load() -> None:
+def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     scenarios = load_scenario_file(
         repo_root / "configs" / "one_minute_demo_benchmarks.json"
@@ -240,6 +240,32 @@ def test_shipped_one_minute_demo_scenarios_load() -> None:
         "lingbot-world-fast-taehv-one-minute",
         "omnidreams-sv-one-minute",
     }
+
+    lingbot = scenarios["lingbot-world-fast-taehv-one-minute"]
+    assert lingbot.output_dir_arg is None
+    assert lingbot.command[:5] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "flashdreams-run",
+    )
+    assert lingbot.command[5:7] == (
+        "lingbot-world-fast-taehv-window15-sink3",
+        "mp4",
+    )
+    assert _command_value(lingbot.command, "--scenario.example-data") == "true"
+    assert _command_value(lingbot.command, "--scenario.total-blocks") == "81"
+    assert _command_value(lingbot.command, "--output.path") == (
+        "{output_dir}/lingbot-world-fast-taehv-one-minute.mp4"
+    )
+    rendered = lingbot.rendered_command(
+        context=_render_context(tmp_path, scenario_id=lingbot.id)
+    )
+    assert "--output-dir" not in rendered
+    assert _command_value(rendered, "--output.path") == str(
+        tmp_path / lingbot.id / "lingbot-world-fast-taehv-one-minute.mp4"
+    )
 
 
 def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
@@ -277,13 +303,20 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     assert _command_value(demo.command, "--output.path") == (
         "{output_dir}/omnidreams-sv-demo-replay.mp4"
     )
+    rendered = demo.rendered_command(
+        context=_render_context(repo_root, scenario_id=demo.id)
+    )
+    assert "--output-dir" not in rendered
+    assert _command_value(rendered, "--output.path") == str(
+        repo_root / demo.id / "omnidreams-sv-demo-replay.mp4"
+    )
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
         demo.command
     )
     assert demo.quality_baseline_compare is False
 
 
-def test_shipped_deterministic_quality_scenarios_load() -> None:
+def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     scenarios = load_scenario_file(
         repo_root / "configs" / "deterministic_quality_benchmarks.json"
@@ -316,7 +349,32 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
     assert omnidreams.quality_baseline_compare is True
 
     lingbot = scenarios["lingbot-world-fast-taehv-quality-smoke"]
-    assert _command_value(lingbot.command, "--total-blocks") == "40"
+    assert lingbot.output_dir_arg is None
+    assert lingbot.command[:7] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+    )
+    lingbot_slug_index = lingbot.command.index(
+        "lingbot-world-fast-taehv-window15-sink3"
+    )
+    assert lingbot.command[lingbot_slug_index + 1] == "mp4"
+    assert _command_value(lingbot.command, "--scenario.total-blocks") == "40"
+    assert _command_value(lingbot.command, "--output.path") == (
+        "{output_dir}/lingbot-world-fast-taehv-quality-smoke.mp4"
+    )
+    assert "--pipeline.diffusion-model.seed" in lingbot.command
+    rendered_lingbot = lingbot.rendered_command(
+        context=_render_context(tmp_path, scenario_id=lingbot.id)
+    )
+    assert "--output-dir" not in rendered_lingbot
+    assert _command_value(rendered_lingbot, "--output.path") == str(
+        tmp_path / lingbot.id / "lingbot-world-fast-taehv-quality-smoke.mp4"
+    )
     assert lingbot.report_group is not None
     assert lingbot.report_group.id == "lingbot"
     assert lingbot.report_group.name == "LingBot"
@@ -324,7 +382,22 @@ def test_shipped_deterministic_quality_scenarios_load() -> None:
     assert lingbot.quality_baseline_compare is True
 
     lingbot_review = scenarios["lingbot-world-fast-taehv-one-minute-review"]
-    assert _command_value(lingbot_review.command, "--total-blocks") == "81"
+    assert lingbot_review.output_dir_arg is None
+    assert lingbot_review.command[:5] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/lingbot",
+        "flashdreams-run",
+    )
+    assert lingbot_review.command[5:7] == (
+        "lingbot-world-fast-taehv-window15-sink3",
+        "mp4",
+    )
+    assert _command_value(lingbot_review.command, "--scenario.total-blocks") == "81"
+    assert _command_value(lingbot_review.command, "--output.path") == (
+        "{output_dir}/lingbot-world-fast-taehv-one-minute-review.mp4"
+    )
     assert lingbot_review.quality_baseline_compare is False
 
     omnidreams_review = scenarios["omnidreams-sv-one-minute-review"]
@@ -1503,6 +1576,17 @@ def test_strict_run_sets_deterministic_env_and_forwards_args(
 
 def _command_value(command: tuple[str, ...], option: str) -> str:
     return command[command.index(option) + 1]
+
+
+def _render_context(root: Path, *, scenario_id: str) -> dict[str, str]:
+    output_dir = root / scenario_id
+    return {
+        "scenario_id": scenario_id,
+        "output_dir": str(output_dir),
+        "run_root": str(root),
+        "repo_root": str(root / "repo"),
+        "log_path": str(output_dir / "command.log"),
+    }
 
 
 def test_baseline_clip_compare_identical_clips_have_perfect_similarity(
