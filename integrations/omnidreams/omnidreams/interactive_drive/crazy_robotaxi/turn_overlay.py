@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""PIL-rendered floating turn signs for Crazy Robotaxi presenters."""
+"""PIL-rendered floating turn arrows for Crazy Robotaxi presenters."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from omnidreams.interactive_drive.crazy_robotaxi.navigation import TurnManeuver
 from PIL import ImageDraw
 
 _SIGN_GREEN = (118, 185, 0)
-_SIGN_DARK = (8, 8, 12)
 
 
 def draw_floating_turn_sign(
@@ -32,7 +31,7 @@ def draw_floating_turn_sign(
     size_px: int = 60,
     alpha: int | None = None,
 ) -> None:
-    """Draw one constant-size outlined turn sign.
+    """Draw one constant-size outlined turn arrow.
 
     Args:
         draw: PIL drawing context for the destination image.
@@ -43,16 +42,8 @@ def draw_floating_turn_sign(
     """
     cx, cy = center
     radius = max(12, int(size_px) // 2)
-    dark = _with_alpha(_SIGN_DARK, alpha)
     green = _with_alpha(_SIGN_GREEN, alpha)
     black = _with_alpha((0, 0, 0), alpha)
-    white = _with_alpha((235, 245, 225), alpha)
-    draw.ellipse(
-        (cx - radius, cy - radius, cx + radius, cy + radius),
-        fill=dark,
-        outline=white,
-        width=max(2, radius // 12),
-    )
 
     if maneuver == "straight":
         _draw_straight_arrow(draw, center, radius, green, black)
