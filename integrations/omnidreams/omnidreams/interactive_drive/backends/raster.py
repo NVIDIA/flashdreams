@@ -15,9 +15,15 @@ class RasterRenderBackend(RenderBackend):
         chunk: ChunkConfig,
         raster: RasterConfig,
         bev: BevConfig | None = None,
+        *,
+        synchronize_bev_with_rgb: bool = False,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
-        self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
+        self._rasterizer = LudusConditionRasterizer(
+            raster,
+            bev=bev,
+            synchronize_bev_with_rgb=synchronize_bev_with_rgb,
+        )
         self._scene: SceneBundle | None = None
 
     def warmup_model(self) -> None:

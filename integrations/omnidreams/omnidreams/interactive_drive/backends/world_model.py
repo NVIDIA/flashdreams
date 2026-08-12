@@ -47,10 +47,16 @@ class WorldModelRenderBackend(RenderBackend):
         bev: BevConfig | None = None,
         offload_text_encoder: bool = False,
         postprocess: VideoPostprocessChainConfig | None = None,
+        *,
+        synchronize_bev_with_rgb: bool = False,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
         self._manifest = manifest
-        self._rasterizer = LudusConditionRasterizer(raster, bev=bev)
+        self._rasterizer = LudusConditionRasterizer(
+            raster,
+            bev=bev,
+            synchronize_bev_with_rgb=synchronize_bev_with_rgb,
+        )
         self._session = FlashdreamsWorldModelSession(
             manifest,
             profile=profile,

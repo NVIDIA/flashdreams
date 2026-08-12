@@ -271,6 +271,49 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
 
 
+def test_synchronous_bev_renders_the_current_pose_batch() -> None:
+    rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
+    calls: list[tuple[np.ndarray, np.ndarray]] = []
+    expected_chunk = object()
+
+    class _Impl:
+        def render_chunk(
+            self,
+            poses: np.ndarray,
+            timestamps: np.ndarray,
+            _actors: tuple[object, ...],
+            _debug_frames: tuple[object, ...],
+        ) -> object:
+            calls.append((poses, timestamps))
+            return expected_chunk
+
+    class _CompletedCall:
+        def __init__(self, result: object) -> None:
+            self._result = result
+
+        def result(self) -> object:
+            return self._result
+
+    class _Executor:
+        def submit(self, function, *args, **kwargs) -> _CompletedCall:
+            return _CompletedCall(function(*args, **kwargs))
+
+    rasterizer._exec = _Executor()
+    rasterizer._impl = _Impl()
+    rasterizer._bev_enabled = True
+    rasterizer._synchronize_bev_with_rgb = True
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
+    poses[:, 0, 3] = [4.0, 8.0]
+    timestamps = np.asarray([10, 20], dtype=np.int64)
+
+    chunk = rasterizer.render_chunk(poses, timestamps)
+
+    assert chunk is expected_chunk
+    assert len(calls) == 1
+    assert calls[0][0] is poses
+    assert calls[0][1] is timestamps
+
+
 def test_lagged_bev_poll_does_not_wait_for_in_flight_render() -> None:
     rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
     pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
