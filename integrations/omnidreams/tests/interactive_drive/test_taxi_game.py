@@ -624,7 +624,7 @@ def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:
     assert behind is None
 
 
-def test_camera_marker_projection_includes_every_visible_pickup() -> None:
+def test_camera_marker_projection_keeps_only_three_closest_visible_pickups() -> None:
     camera_model = FThetaCameraModel(_camera_calibration())
     snapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
@@ -635,9 +635,11 @@ def test_camera_marker_projection_includes_every_visible_pickup() -> None:
         remaining_time_s=None,
         score=0,
         pickup_targets_xyz_m=(
-            (10.0, 0.0, 0.0),
+            (40.0, 0.0, 0.0),
             (20.0, 0.0, 0.0),
             (-10.0, 0.0, 0.0),
+            (30.0, 0.0, 0.0),
+            (10.0, 0.0, 0.0),
         ),
     )
 
@@ -648,5 +650,17 @@ def test_camera_marker_projection_includes_every_visible_pickup() -> None:
         image_width=100,
         image_height=80,
     )
+    advanced_markers = project_taxi_markers_to_camera(
+        snapshot,
+        rig_pose_from_vehicle_state(_state(15.0, 0.0)),
+        camera_model,
+        image_width=100,
+        image_height=80,
+    )
 
-    assert len(markers) == 2
+    assert [marker.distance_m for marker in markers] == pytest.approx(
+        [10.0, 20.0, 30.0]
+    )
+    assert [marker.distance_m for marker in advanced_markers] == pytest.approx(
+        [5.0, 15.0, 25.0]
+    )

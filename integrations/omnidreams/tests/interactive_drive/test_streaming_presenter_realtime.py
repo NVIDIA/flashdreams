@@ -131,14 +131,20 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 3.0, 0.0)
     future_vehicle = VehicleState(20.0, 5.0, 0.0, 1.0, 30.0, 0.4)
     taxi = TaxiGameSnapshot(
-        phase="to_dropoff",
+        phase="seeking_pickup",
         target_xyz_m=(10.0, 0.0, 0.0),
         distance_m=10.0,
         relative_bearing_rad=0.0,
         target_radius_m=6.0,
-        remaining_time_s=12.0,
+        remaining_time_s=None,
         score=100,
         high_score=500,
+        pickup_targets_xyz_m=(
+            (10.0, 0.0, 0.0),
+            (20.0, 0.0, 0.0),
+            (30.0, 0.0, 0.0),
+            (40.0, 0.0, 0.0),
+        ),
     )
     keyboard.update_runtime_state(future_vehicle, taxi)
     presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
@@ -157,12 +163,12 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
 
     assert snapshot["speed_mps"] == 3.0
     assert isinstance(snapshot["taxi"], dict)
-    assert snapshot["taxi"]["phase"] == "to_dropoff"
+    assert snapshot["taxi"]["phase"] == "seeking_pickup"
     assert snapshot["taxi"]["session_state"] == "playing"
     assert snapshot["taxi"]["high_score"] == 500
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
-    assert len(snapshot["taxi"]["bev_targets"]) == 1
-    assert snapshot["taxi"]["bev_targets"][0]["visible"] is True
+    assert len(snapshot["taxi"]["bev_targets"]) == 4
+    assert all(target["visible"] for target in snapshot["taxi"]["bev_targets"])
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
