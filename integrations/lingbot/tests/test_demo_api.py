@@ -143,6 +143,32 @@ def test_lingbot_direct_runner_launch_builds_mp4_spec(
     assert captured[0].output.path == tmp_path / "demo.mp4"
 
 
+def test_lingbot_direct_runner_launch_builds_null_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[DemoSpec] = []
+
+    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+        del adapter
+        captured.append(spec)
+        return "completed"
+
+    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+
+    result = demo_app_module.launch_from_runner(
+        config=RUNNER_LINGBOT_WORLD_FAST,
+        mode="null",
+        scenario={"example_idx": 2, "total_blocks": 3},
+        output={"fps": 12},
+    )
+
+    assert result == "completed"
+    assert captured[0].preset_id == RUNNER_LINGBOT_WORLD_FAST.runner_name
+    assert isinstance(captured[0].output, NullOutputSpec)
+    assert captured[0].scenario[FIELD_TOTAL_BLOCKS] == 3
+    assert captured[0].scenario[FIELD_FPS] == 12
+
+
 def test_lingbot_demo_adapter_declares_shared_demo_modes() -> None:
     adapter = LingbotDemoAdapter()
 

@@ -268,14 +268,13 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
         "run",
         "--project",
         "integrations/omnidreams",
-        "omnidreams-demo",
+        "flashdreams-run",
     )
-    assert demo.command[5] == "replay"
-    assert _command_value(demo.command, "--preset-id") == (
-        "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae"
-    )
-    assert _command_value(demo.command, "--total-blocks") == "226"
-    assert _command_value(demo.command, "--output") == (
+    assert demo.command[5:7] == ("omnidreams", "mp4")
+    assert "omnidreams-demo" not in demo.command
+    assert _command_value(demo.command, "--scenario.example-data") == "true"
+    assert _command_value(demo.command, "--scenario.total-blocks") == "226"
+    assert _command_value(demo.command, "--output.path") == (
         "{output_dir}/omnidreams-sv-demo-replay.mp4"
     )
     assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (

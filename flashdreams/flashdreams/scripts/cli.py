@@ -43,11 +43,12 @@ from __future__ import annotations
 import dataclasses
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any, cast
 
 import tyro
+import yaml
 
 from flashdreams.configs.runner_configs import _annotated_base_runner_union, all_runners
 from flashdreams.core.distributed import shutdown as shutdown_distributed
@@ -65,6 +66,13 @@ from flashdreams.serving.launch_manifest import (
 )
 
 _POSITIONAL_MODES = frozenset({"run", "mp4", "null", "webrtc", "local-window"})
+_LAUNCH_OVERRIDE_SECTIONS = frozenset({"scenario", "output"})
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _LaunchCliOverrides:
+    scenario: Mapping[str, object] = dataclasses.field(default_factory=dict)
+    output: Mapping[str, object] = dataclasses.field(default_factory=dict)
 
 
 def main(
@@ -77,6 +85,8 @@ def main(
     legacy_world_manifest: Path | None = None,
     prefer_sw_encoder: bool = False,
     launch_manifest: FlashDreamsLaunchManifest | None = None,
+    scenario_overrides: Mapping[str, object] | None = None,
+    output_overrides: Mapping[str, object] | None = None,
 ) -> None:
     """Print the resolved config and (by default) run the runner.
 
@@ -84,14 +94,22 @@ def main(
     same resolved config.
     """
     resolved_launch = None
+    scenario = _merge_launch_settings(
+        {} if launch_manifest is None else launch_manifest.scenario,
+        scenario_overrides,
+    )
+    output = _merge_launch_settings(
+        {} if launch_manifest is None else launch_manifest.output,
+        output_overrides,
+    )
     launch_options = LaunchOptions(
         host=host,
         port=port,
         prefer_sw_encoder=prefer_sw_encoder,
         legacy_world_manifest=legacy_world_manifest,
         launch_manifest=None if launch_manifest is None else launch_manifest.path,
-        scenario={} if launch_manifest is None else launch_manifest.scenario,
-        output={} if launch_manifest is None else launch_manifest.output,
+        scenario=scenario,
+        output=output,
     )
     if mode != "run":
         resolved_launch = resolve_launch(
@@ -109,8 +127,10 @@ def main(
         if launch_manifest is not None:
             print(f"Launch manifest: {launch_manifest.path}")
             print(f"Launch mode: {launch_manifest.mode}")
-            print(f"Scenario: {dict(launch_manifest.scenario)}")
-            print(f"Output settings: {dict(launch_manifest.output)}")
+        if launch_manifest is not None or scenario:
+            print(f"Scenario: {dict(scenario)}")
+        if launch_manifest is not None or output:
+            print(f"Output settings: {dict(output)}")
         if resolved_launch is not None:
             print(f"Selected launch: {resolved_launch.label}")
             print(f"Launch settings: {dict(resolved_launch.summary)}")
@@ -165,6 +185,7 @@ def entrypoint(argv: list[str] | None = None) -> None:
         launch_manifest,
         mode,
         legacy_world_manifest,
+        launch_overrides,
     ) = _prepare_cli_args(raw_args)
     selected_runner_name = next(
         (value for value in normalized_args if value in runners),
@@ -174,8 +195,14 @@ def entrypoint(argv: list[str] | None = None) -> None:
     if selected_runner_name is not None:
         help_options = LaunchOptions(
             legacy_world_manifest=legacy_world_manifest,
-            scenario={} if launch_manifest is None else launch_manifest.scenario,
-            output={} if launch_manifest is None else launch_manifest.output,
+            scenario=_merge_launch_settings(
+                {} if launch_manifest is None else launch_manifest.scenario,
+                launch_overrides.scenario,
+            ),
+            output=_merge_launch_settings(
+                {} if launch_manifest is None else launch_manifest.output,
+                launch_overrides.output,
+            ),
         )
         supported = available_launch_modes(
             runners[selected_runner_name],
@@ -183,7 +210,8 @@ def entrypoint(argv: list[str] | None = None) -> None:
         )
         help_suffix = (
             f" Selected mode: {mode}. Available modes: {', '.join(supported)}."
-            " Use --manifest PATH for scenario and output settings."
+            " Use --manifest PATH for scenario/output settings, or"
+            " --scenario.KEY VALUE and --output.KEY VALUE for simple overrides."
         )
         if mode == "webrtc":
             help_suffix += (
@@ -268,6 +296,8 @@ def entrypoint(argv: list[str] | None = None) -> None:
             legacy_world_manifest=legacy_world_manifest,
             prefer_sw_encoder=prefer_sw_encoder,
             launch_manifest=launch_manifest,
+            scenario_overrides=launch_overrides.scenario,
+            output_overrides=launch_overrides.output,
         )
     )
 
@@ -280,9 +310,11 @@ def _prepare_cli_args(
     FlashDreamsLaunchManifest | None,
     LaunchMode,
     Path | None,
+    _LaunchCliOverrides,
 ]:
     """Normalize positional launch modes and load an optional manifest."""
-    normalized, manifest_path = _pop_option(args, "--manifest")
+    normalized, launch_overrides = _pop_launch_overrides(args)
+    normalized, manifest_path = _pop_option(normalized, "--manifest")
     runners = dict(all_runners())
     runner_index = next(
         (index for index, value in enumerate(normalized) if value in runners),
@@ -291,7 +323,7 @@ def _prepare_cli_args(
     if runner_index is None:
         if manifest_path is not None:
             raise ValueError("--manifest requires an explicit runner slug.")
-        return normalized, runners, None, "run", None
+        return normalized, runners, None, "run", None, launch_overrides
 
     runner_name = normalized[runner_index]
     positional_mode: LaunchMode | None = None
@@ -335,7 +367,104 @@ def _prepare_cli_args(
         )
     mode = cast(LaunchMode, raw_mode)
     normalized = _hoist_global_options(normalized)
-    return normalized, runners, launch_manifest, mode, legacy_world_manifest
+    return (
+        normalized,
+        runners,
+        launch_manifest,
+        mode,
+        legacy_world_manifest,
+        launch_overrides,
+    )
+
+
+def _merge_launch_settings(
+    base: Mapping[str, object],
+    overrides: Mapping[str, object] | None,
+) -> dict[str, object]:
+    merged = dict(base)
+    if overrides:
+        merged.update(overrides)
+    return merged
+
+
+def _pop_launch_overrides(args: list[str]) -> tuple[list[str], _LaunchCliOverrides]:
+    remaining: list[str] = []
+    overrides: dict[str, dict[str, object]] = {"scenario": {}, "output": {}}
+    index = 0
+    while index < len(args):
+        parsed = _parse_launch_override_token(args[index])
+        if parsed is None:
+            remaining.append(args[index])
+            index += 1
+            continue
+        section, key, inline_value = parsed
+        if inline_value is None:
+            if index + 1 >= len(args) or args[index + 1].startswith("--"):
+                raise ValueError(
+                    f"--{section}.{key.replace('_', '-')} requires a value."
+                )
+            raw_value = args[index + 1]
+            index += 2
+        else:
+            raw_value = inline_value
+            index += 1
+        overrides[section][key] = _parse_launch_override_value(raw_value)
+    return remaining, _LaunchCliOverrides(
+        scenario=overrides["scenario"],
+        output=overrides["output"],
+    )
+
+
+def _parse_launch_override_token(
+    token: str,
+) -> tuple[str, str, str | None] | None:
+    for section in _LAUNCH_OVERRIDE_SECTIONS:
+        prefix = f"--{section}."
+        if not token.startswith(prefix):
+            continue
+        raw_key, separator, inline_value = token[len(prefix) :].partition("=")
+        if not raw_key:
+            raise ValueError(f"{prefix}<key> requires a non-empty key.")
+        key = raw_key.replace("-", "_")
+        return section, key, inline_value if separator else None
+    return None
+
+
+def _parse_launch_override_value(raw_value: str) -> object:
+    text = raw_value.strip()
+    lowered = text.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if lowered in {"null", "none", "~"}:
+        return None
+    if text.lstrip("+-").isdigit():
+        return int(text)
+    if any(marker in text for marker in (".", "e", "E")):
+        try:
+            return float(text)
+        except ValueError:
+            pass
+    if text.startswith("[") and text.endswith("]"):
+        return _parse_launch_override_list(text)
+    return raw_value
+
+
+def _parse_launch_override_list(raw_value: str) -> list[object]:
+    parsed = yaml.safe_load(raw_value)
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"Expected a list override value, got {type(parsed).__name__}."
+        )
+    return [_validate_launch_override_list_item(item) for item in parsed]
+
+
+def _validate_launch_override_list_item(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(
+        "Launch override list values must be strings, numbers, booleans, or null; "
+        f"got {type(value).__name__}."
+    )
 
 
 def _pop_option(args: list[str], name: str) -> tuple[list[str], str | None]:

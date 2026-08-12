@@ -57,7 +57,7 @@ class LingbotLaunchCapability:
         options: LaunchOptions,
     ) -> tuple[LaunchMode, ...]:
         del config, options
-        return ("mp4", "webrtc")
+        return ("mp4", "null", "webrtc")
 
     def resolve(
         self,
@@ -66,14 +66,18 @@ class LingbotLaunchCapability:
         mode: LaunchMode,
         options: LaunchOptions,
     ) -> ResolvedLaunch | None:
-        if mode == "mp4":
+        if mode in {"mp4", "null"}:
             _validate_fields("scenario", options.scenario, _REPLAY_SCENARIO_FIELDS)
             _validate_fields("output", options.output, {"path", "output", "fps"})
             output_path = options.output.get("path") or options.output.get("output")
             if output_path is None:
+                if mode == "null":
+                    return _resolved(config, mode, options)
                 raise ValueError(
                     "LingBot mp4 mode requires output.path in the manifest."
                 )
+            if mode == "null":
+                raise ValueError("LingBot null mode does not write output.path.")
             return _resolved(config, mode, options, output_path=output_path)
         if mode == "webrtc":
             _validate_fields("scenario", options.scenario, _WEBRTC_SCENARIO_FIELDS)
@@ -105,7 +109,7 @@ def _resolved(
         )
     return ResolvedLaunch(
         mode=mode,
-        label=f"LingBot {'MP4 replay' if mode == 'mp4' else 'WebRTC server'}",
+        label=f"LingBot {_launch_label(mode)}",
         summary=summary,
         launch=partial(
             _launch,
@@ -124,17 +128,25 @@ def _launch(
 ) -> object:
     from lingbot.demo.app import launch_from_runner
 
-    if mode not in {"mp4", "webrtc"}:
+    if mode not in {"mp4", "null", "webrtc"}:
         raise ValueError(f"Unsupported LingBot launch mode: {mode!r}.")
     return launch_from_runner(
         config=config,
-        mode=cast(Literal["mp4", "webrtc"], mode),
+        mode=cast(Literal["mp4", "null", "webrtc"], mode),
         scenario=dict(options.scenario),
         output=dict(options.output),
         host=options.host,
         port=options.port,
         prefer_sw_encoder=options.prefer_sw_encoder,
     )
+
+
+def _launch_label(mode: LaunchMode) -> str:
+    if mode == "mp4":
+        return "MP4 replay"
+    if mode == "null":
+        return "null replay"
+    return "WebRTC server"
 
 
 def _validate_fields(

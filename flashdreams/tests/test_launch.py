@@ -72,6 +72,49 @@ def test_lingbot_mp4_launch_validates_manifest_sections(tmp_path: Path) -> None:
     assert resolved.summary["output_path"] == tmp_path / "demo.mp4"
 
 
+def test_lingbot_null_launch_uses_shared_replay_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lingbot.demo import app
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        app, "launch_from_runner", lambda **kwargs: calls.append(kwargs)
+    )
+    config = _runner_config(runner_name="lingbot-world-fast")
+
+    assert available_launch_modes(config) == ("run", "mp4", "null", "webrtc")
+    resolved = resolve_launch(
+        config,
+        mode="null",
+        options=LaunchOptions(
+            scenario={"example_idx": 2, "total_blocks": 4},
+            output={"fps": 12},
+        ),
+    )
+
+    assert resolved.mode == "null"
+    assert resolved.summary == {
+        "runner": "lingbot-world-fast",
+        "mode": "null",
+        "device": "cuda:1",
+    }
+    resolved.launch()
+    assert calls[0]["config"] is config
+    assert calls[0]["mode"] == "null"
+    assert calls[0]["scenario"] == {"example_idx": 2, "total_blocks": 4}
+    assert calls[0]["output"] == {"fps": 12}
+
+
+def test_lingbot_null_launch_rejects_output_path() -> None:
+    with pytest.raises(ValueError, match="null mode does not write output.path"):
+        resolve_launch(
+            _runner_config(runner_name="lingbot-world-fast"),
+            mode="null",
+            options=LaunchOptions(output={"path": "unexpected.mp4"}),
+        )
+
+
 def test_lingbot_launch_rejects_unknown_integration_fields() -> None:
     with pytest.raises(ValueError, match="Unsupported LingBot scenario fields: typo"):
         resolve_launch(
@@ -226,6 +269,6 @@ def test_no_instantiate_reports_launch_without_setting_up_model(
     )
 
     output = capsys.readouterr().out
-    assert "Available modes: run, mp4, webrtc" in output
+    assert "Available modes: run, mp4, null, webrtc" in output
     assert "Selected launch: LingBot WebRTC server" in output
     assert "'host': '127.0.0.1'" in output

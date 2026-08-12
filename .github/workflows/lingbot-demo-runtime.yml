@@ -112,8 +112,8 @@ jobs:
           mkdir -p "${log_dir}" "${output_dir}"
           : > "${status_file}"
 
-          ldemo() {
-            uv run --no-sync --package flashdreams-lingbot lingbot-demo "$@"
+          frun() {
+            uv run --no-sync --package flashdreams-lingbot flashdreams-run "$@"
           }
 
           run_demo() {
@@ -146,26 +146,23 @@ jobs:
           } > "${summary}"
 
           run_demo null \
-            ldemo replay \
+            frun "${PRESET_ID}" null \
               --device cuda:0 \
-              --preset-id "${PRESET_ID}" \
-              --example-idx 0 \
-              --total-blocks "${BLOCKS}" \
-              --fps "${FPS}" \
-              --pixel-height "${HEIGHT}" \
-              --pixel-width "${WIDTH}" \
-              --output-mode null
+              --scenario.example-idx 0 \
+              --scenario.total-blocks "${BLOCKS}" \
+              --scenario.pixel-height "${HEIGHT}" \
+              --scenario.pixel-width "${WIDTH}" \
+              --output.fps "${FPS}"
 
           run_demo mp4 \
-            ldemo replay \
+            frun "${PRESET_ID}" mp4 \
               --device cuda:0 \
-              --preset-id "${PRESET_ID}" \
-              --example-idx 0 \
-              --total-blocks "${BLOCKS}" \
-              --fps "${FPS}" \
-              --pixel-height "${HEIGHT}" \
-              --pixel-width "${WIDTH}" \
-              --output "${output_dir}/lingbot-demo-replay.mp4"
+              --scenario.example-idx 0 \
+              --scenario.total-blocks "${BLOCKS}" \
+              --scenario.pixel-height "${HEIGHT}" \
+              --scenario.pixel-width "${WIDTH}" \
+              --output.fps "${FPS}" \
+              --output.path "${output_dir}/lingbot-demo-replay.mp4"
 
       - name: Validate LingBot demo artifacts
         run: |

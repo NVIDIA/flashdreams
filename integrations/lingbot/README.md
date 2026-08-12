@@ -100,7 +100,9 @@ uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
 
 ## Run (shared demo API)
 
-The current unified-demo-runtime path is exposed through `lingbot-demo`.
+The unified-demo-runtime path is exposed through `flashdreams-run`.
+The `lingbot-demo` entry point remains available as a temporary development
+shortcut, but CI and user-facing commands should exercise `flashdreams-run`.
 From the repository root on a CUDA machine:
 
 ```bash
@@ -112,44 +114,43 @@ uv sync --python 3.12 --package flashdreams-lingbot --no-dev
 Generate a short MP4 from the bundled example assets:
 
 ```bash
-uv run --python 3.12 --package flashdreams-lingbot lingbot-demo replay \
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 mp4 \
   --device cuda:0 \
-  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
-  --example-idx 0 \
-  --total-blocks 10 \
-  --fps 16 \
-  --pixel-height 352 \
-  --pixel-width 640 \
-  --output outputs/lingbot-demo-replay.mp4
+  --scenario.example-idx 0 \
+  --scenario.total-blocks 10 \
+  --scenario.pixel-height 352 \
+  --scenario.pixel-width 640 \
+  --output.fps 16 \
+  --output.path outputs/lingbot-demo-replay.mp4
 ```
 
 Run the same replay path without writing video:
 
 ```bash
-uv run --python 3.12 --package flashdreams-lingbot lingbot-demo replay \
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 null \
   --device cuda:0 \
-  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
-  --example-idx 0 \
-  --total-blocks 10 \
-  --fps 16 \
-  --pixel-height 352 \
-  --pixel-width 640 \
-  --output-mode null
+  --scenario.example-idx 0 \
+  --scenario.total-blocks 10 \
+  --scenario.pixel-height 352 \
+  --scenario.pixel-width 640 \
+  --output.fps 16
 ```
 
 Serve the shared WebRTC demo:
 
 ```bash
-uv run --python 3.12 --package flashdreams-lingbot lingbot-demo webrtc \
+uv run --python 3.12 --package flashdreams-lingbot flashdreams-run \
+  lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 webrtc \
   --host 0.0.0.0 \
   --port 8089 \
   --device cuda:0 \
-  --preset-id lingbot-world-v2-14b-causal-fast-taehv-window15-sink3 \
-  --warmup-chunks 8 \
-  --fps 16 \
-  --video-height 352 \
-  --video-width 640 \
-  --example-idx 0
+  --scenario.example-idx 0 \
+  --output.warmup-chunks 8 \
+  --output.fps 16 \
+  --output.video-height 352 \
+  --output.video-width 640
 ```
 
 Then open:

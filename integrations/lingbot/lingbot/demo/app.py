@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> None:
 def launch_from_runner(
     *,
     config: RunnerConfig,
-    mode: Literal["mp4", "webrtc"],
+    mode: Literal["mp4", "null", "webrtc"],
     scenario: dict[str, object],
     output: dict[str, object],
     host: str | None = None,
@@ -178,10 +178,12 @@ def launch_from_runner(
     """Launch a LingBot demo directly from a resolved runner configuration."""
     configure_logging()
     preset_id = str(getattr(config.pipeline, "name", config.runner_name))
-    if mode == "mp4":
+    if mode in {"mp4", "null"}:
         output_path = output.get("path") or output.get("output")
-        if output_path is None:
+        if mode == "mp4" and output_path is None:
             raise ValueError("LingBot mp4 mode requires output.path.")
+        if mode == "null" and output_path is not None:
+            raise ValueError("LingBot null mode does not write output.path.")
         args = argparse.Namespace(
             preset_id=preset_id,
             device=str(config.device),
@@ -213,8 +215,8 @@ def launch_from_runner(
                     "fps", scenario.get("fps", getattr(config, "fps", DEFAULT_FPS))
                 )
             ),
-            output_mode="mp4",
-            output=Path(cast(Any, output_path)),
+            output_mode=mode,
+            output=None if output_path is None else Path(cast(Any, output_path)),
         )
         spec = _replay_spec(args)
         return run_replay_demo(spec=spec, adapter=LingbotDemoAdapter())
