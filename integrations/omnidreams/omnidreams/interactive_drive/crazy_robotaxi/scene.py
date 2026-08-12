@@ -36,10 +36,7 @@ class CrazyRobotaxiSceneData:
     """Recorded ego route used when mapped lanes are unavailable."""
 
     navigation_lanes: tuple[NavigationLane, ...]
-    """Directed car-lane centerlines with mapped maneuver labels."""
-
-    intersection_polygons_world: tuple[np.ndarray, ...]
-    """World-space public-road intersection footprints used for turn arrows."""
+    """Directed car-lane centerlines used for target routing."""
 
     @property
     def navigation_routes_world(self) -> tuple[np.ndarray, ...]:
@@ -64,19 +61,9 @@ def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
                 rows = pq.read_table(handle).to_pylist()
             navigation_lanes = _build_navigation_lanes(rows)
 
-        intersection_member = "clipgt/intersection_area.parquet"
-        if intersection_member not in archive.namelist():
-            intersection_polygons_world = ()
-        else:
-            with archive.open(intersection_member) as handle:
-                intersection_rows = pq.read_table(handle).to_pylist()
-            intersection_polygons_world = _build_intersection_polygons(
-                intersection_rows
-            )
     return CrazyRobotaxiSceneData(
         reference_route_world=reference_route_world,
         navigation_lanes=navigation_lanes,
-        intersection_polygons_world=intersection_polygons_world,
     )
 
 
@@ -110,9 +97,8 @@ def _build_lane_centerlines(rows: list[dict[str, Any]]) -> tuple[np.ndarray, ...
 def _build_navigation_lanes(
     rows: list[dict[str, Any]],
 ) -> tuple[NavigationLane, ...]:
-    """Return directed car lanes with maneuver metadata from ClipGT records."""
+    """Return directed car-lane centerlines from ClipGT records."""
     centerlines: list[np.ndarray] = []
-    maneuver_labels: list[str] = []
     for row in rows:
         payload = row["lane"]
         vehicle_types = {
@@ -144,24 +130,4 @@ def _build_navigation_lanes(
         )
         if float(np.linalg.norm(centerline[-1, :2] - centerline[0, :2])) > 1.0e-4:
             centerlines.append(centerline.astype(np.float32))
-            maneuver_labels.append(str(payload.get("lane_direction") or "STRAIGHT"))
-    return tuple(
-        NavigationLane(centerline, maneuver_label)
-        for centerline, maneuver_label in zip(centerlines, maneuver_labels, strict=True)
-    )
-
-
-def _build_intersection_polygons(
-    rows: list[dict[str, Any]],
-) -> tuple[np.ndarray, ...]:
-    """Return valid public-road intersection polygons from ClipGT records."""
-    polygons: list[np.ndarray] = []
-    for row in rows:
-        payload = row["intersection_area"]
-        category = str(payload.get("category") or "").upper()
-        if "INTERNAL" in category or category == "CUL_DE_SAC":
-            continue
-        points = _points_from_records(payload.get("location", []))
-        if len(points) >= 3 and np.isfinite(points).all():
-            polygons.append(points)
-    return tuple(polygons)
+    return tuple(NavigationLane(centerline) for centerline in centerlines)
