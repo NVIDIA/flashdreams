@@ -527,7 +527,10 @@ def prepare_config_and_backend(
     backend: RenderBackend
     if config.backend == "raster":
         backend = RasterRenderBackend(
-            chunk=config.chunk, raster=config.raster, bev=config.bev
+            chunk=config.chunk,
+            raster=config.raster,
+            bev=config.bev,
+            synchronize_bev_with_rgb=bool(args.taxi_game),
         )
     else:
         if config.manifest_path is None:
@@ -556,6 +559,7 @@ def prepare_config_and_backend(
             bev=config.bev,
             offload_text_encoder=config.world_model_offload_text_encoder,
             postprocess=config.postprocess,
+            synchronize_bev_with_rgb=bool(args.taxi_game),
         )
     return config, backend
 
