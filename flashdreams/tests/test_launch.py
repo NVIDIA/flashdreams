@@ -12,6 +12,7 @@ import pytest
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
 from flashdreams.serving import launch as launch_module
+from flashdreams.serving.demo_launch import DemoLaunchArguments
 from flashdreams.serving.launch import (
     LaunchModeUnavailableError,
     LaunchOptions,
@@ -70,6 +71,26 @@ def test_lingbot_mp4_launch_validates_manifest_sections(tmp_path: Path) -> None:
 
     assert resolved.mode == "mp4"
     assert resolved.summary["output_path"] == tmp_path / "demo.mp4"
+
+
+def test_demo_launch_arguments_prefer_manifest_over_runner_and_defaults() -> None:
+    args = DemoLaunchArguments(
+        _runner_config(runner_name="demo"),
+        LaunchOptions(
+            host="127.0.0.1",
+            port=9000,
+            scenario={"fps": 30},
+            output={"fps": 24},
+        ),
+    )
+
+    assert args.scenario({"fps": 16, "total_blocks": 8}) == {
+        "fps": 30,
+        "total_blocks": 8,
+    }
+    assert args.host("0.0.0.0") == "127.0.0.1"
+    assert args.port(8080) == 9000
+    assert args.output("fps", 16) == 24
 
 
 def test_lingbot_launch_rejects_unknown_integration_fields() -> None:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import tyro
 
@@ -32,14 +32,8 @@ class T2VDemoRunnerConfig(RunnerConfig):
     backend: str = "causal-forcing"
     """Backend key: one of ``causal-forcing``, ``cosmos-predict2``, or ``self-forcing``."""
 
-    preset_id: str | None = None
-    prompt: str | None = None
-    total_blocks: int | None = None
-    pixel_height: int | None = None
-    pixel_width: int | None = None
-    fps: int | None = None
-    compile: bool | None = None
     output: Path = Path("outputs/t2v.mp4")
+    """Default MP4 path for the T2V replay demo."""
 
     def __post_init__(self) -> None:
         if self.backend not in backend_choices():

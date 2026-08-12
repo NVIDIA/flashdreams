@@ -66,6 +66,27 @@ class RunnerConfig(InstantiateConfig):
     launch_capability: Annotated[str | None, tyro.conf.Suppress] = None
     """Optional ``module:attribute`` implementing non-``run`` launch modes."""
 
+    preset_id: str | None = None
+    """Optional model preset selected by a launch-capable runner."""
+
+    prompt: str | Path | None = None
+    """Optional inline prompt or path to a prompt file."""
+
+    total_blocks: int | None = None
+    """Optional number of autoregressive blocks to generate."""
+
+    pixel_height: int | None = None
+    """Optional output video height in pixels."""
+
+    pixel_width: int | None = None
+    """Optional output video width in pixels."""
+
+    fps: int | None = None
+    """Optional output video frame rate."""
+
+    compile: bool | None = None
+    """Optional override for model compilation."""
+
     pipeline: StreamInferencePipelineConfig
     """Wrapped pipeline config; the runner instantiates and drives it."""
 
@@ -82,6 +103,9 @@ class RunnerConfig(InstantiateConfig):
 
     output_dir: Path = Path("outputs")
     """Directory the runner writes outputs into. Created on demand."""
+
+    output: Path = Path("outputs/output.mp4")
+    """Default MP4 path for launch-capable replay runners."""
 
     device: str = "cuda"
     """PyTorch device string passed to ``pipeline.to(device)``. Under

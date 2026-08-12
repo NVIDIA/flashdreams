@@ -12,7 +12,6 @@ from typing import Literal, cast
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
-    DemoSpec,
     Mp4OutputSpec,
     NullOutputSpec,
     WebRTCAppResources,
@@ -24,6 +23,7 @@ from flashdreams.runtime.demo.bootstrap import (
 )
 from flashdreams.runtime.demo.host import RuntimeHost
 from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.serving.demo_launch import DemoLaunchArguments
 from flashdreams.serving.launch import CallbackLaunchCapability, LaunchOptions
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.runtime import WebRTCSessionConfig
@@ -50,18 +50,18 @@ def launch_t2v(
 
     config = cast(T2VDemoRunnerConfig, config)
     configure_logging()
+    args = DemoLaunchArguments(config, options)
     adapter = make_adapter(config.backend)
     preset = resolve_backend(config.backend).resolve_runner(config.preset_id)
-    scenario = {
-        name: options.scenario.get(name, getattr(config, name) or default)
-        for name, default in (
-            (FIELD_PROMPT, preset.prompt),
-            (FIELD_TOTAL_BLOCKS, preset.total_blocks),
-            (FIELD_PIXEL_HEIGHT, preset.pixel_height),
-            (FIELD_PIXEL_WIDTH, preset.pixel_width),
-            (FIELD_FPS, preset.fps),
-        )
-    }
+    scenario = args.scenario(
+        {
+            FIELD_PROMPT: preset.prompt,
+            FIELD_TOTAL_BLOCKS: preset.total_blocks,
+            FIELD_PIXEL_HEIGHT: preset.pixel_height,
+            FIELD_PIXEL_WIDTH: preset.pixel_width,
+            FIELD_FPS: preset.fps,
+        }
+    )
     preset_id = config.preset_id or adapter.backend.default_preset_name
     if mode in {"mp4", "null"}:
         output = (
@@ -70,29 +70,22 @@ def launch_t2v(
             else Mp4OutputSpec(
                 path=Path(
                     str(
-                        options.output.get(
-                            "path", options.output.get("output", config.output)
-                        )
+                        options.output.get("path", args.output("output", config.output))
                     )
                 ),
-                fps=int(options.output.get("fps", scenario[FIELD_FPS])),
+                fps=int(args.output("fps", scenario[FIELD_FPS])),
                 output_layout="tchw",
             )
         )
         result = run_replay_demo(
-            spec=DemoSpec(
+            spec=args.spec(
                 model_id=adapter.model_id,
                 preset_id=preset_id,
                 input_mode="replay",
                 scenario=scenario,
                 output=output,
-                config=InferenceConfig(
-                    model_id=adapter.model_id,
-                    preset_id=preset_id,
-                    device=config.device,
-                    compile=config.compile,
-                    runtime_options={"backend": adapter.backend.key},
-                ),
+                compile=config.compile,
+                runtime_options={"backend": adapter.backend.key},
             ),
             adapter=adapter,
         )
@@ -104,33 +97,25 @@ def launch_t2v(
 
     context = initialize_cuda_distributed(default_device=config.device)
     output = WebRTCOutputSpec(
-        host=str(options.host or options.output.get("host", "0.0.0.0")),
-        port=int(options.port or options.output.get("port", 8080)),
-        fps=int(options.output.get("fps", scenario[FIELD_FPS])),
-        video_width=int(options.output.get("video_width", scenario[FIELD_PIXEL_WIDTH])),
-        video_height=int(
-            options.output.get("video_height", scenario[FIELD_PIXEL_HEIGHT])
-        ),
-        warmup_chunks=int(options.output.get("warmup_chunks", 0)),
-        warmup_timeout_s=float(options.output.get("warmup_timeout_s", 600.0)),
-        client_liveness_timeout_s=float(
-            options.output.get("client_liveness_timeout_s", 30.0)
-        ),
+        host=args.host("0.0.0.0"),
+        port=args.port(8080),
+        fps=int(args.output("fps", scenario[FIELD_FPS])),
+        video_width=int(args.output("video_width", scenario[FIELD_PIXEL_WIDTH])),
+        video_height=int(args.output("video_height", scenario[FIELD_PIXEL_HEIGHT])),
+        warmup_chunks=int(args.output("warmup_chunks", 0)),
+        warmup_timeout_s=float(args.output("warmup_timeout_s", 600.0)),
+        client_liveness_timeout_s=float(args.output("client_liveness_timeout_s", 30.0)),
         preload_name="FlashDreams T2V",
     )
-    spec = DemoSpec(
+    spec = args.spec(
         model_id=adapter.model_id,
         preset_id=preset_id,
         input_mode="webrtc",
         scenario=scenario,
         output=output,
-        config=InferenceConfig(
-            model_id=adapter.model_id,
-            preset_id=preset_id,
-            device=str(context.device),
-            compile=config.compile,
-            runtime_options={"backend": adapter.backend.key},
-        ),
+        compile=config.compile,
+        device=str(context.device),
+        runtime_options={"backend": adapter.backend.key},
     )
     prepared = adapter.prepare_scenario(spec)
     runtime = adapter.create_runtime(cast(InferenceConfig, spec.config))

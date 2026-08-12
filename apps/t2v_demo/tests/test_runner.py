@@ -30,6 +30,16 @@ def test_t2v_runner_slug_has_launch_capability() -> None:
     assert isinstance(RUNNER_T2V.setup(), LaunchOnlyRunner)
 
 
+def test_t2v_runner_inherits_shared_launch_fields() -> None:
+    config = T2VDemoRunnerConfig(runner_name="t2v", description="test")
+    assert config.prompt is None
+    assert config.total_blocks is None
+    assert config.pixel_height is None
+    assert config.pixel_width is None
+    assert config.fps is None
+    assert config.compile is None
+
+
 def test_runner_mp4_launch_uses_demo_entrypoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
