@@ -220,6 +220,9 @@ class TaxiCameraMarkerProjection:
     ring_edges_uv: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     """Visible line segments forming the target's activation-radius ring."""
 
+    distance_m: float
+    """Horizontal distance from the displayed camera pose to the target."""
+
 
 def _stable_seed(scene_id: str, seed: int) -> int:
     digest = hashlib.sha256(f"{scene_id}:{seed}".encode("utf-8")).digest()
@@ -360,6 +363,10 @@ def project_taxi_marker_to_camera(
         anchor_uv=(float(uv[0, 0]), float(uv[0, 1])),
         beacon_top_uv=((float(uv[1, 0]), float(uv[1, 1])) if bool(inside[1]) else None),
         ring_edges_uv=tuple(ring_edges),
+        distance_m=math.hypot(
+            float(target[0]) - float(rig_to_world[0, 3]),
+            float(target[1]) - float(rig_to_world[1, 3]),
+        ),
     )
 
 
@@ -371,13 +378,13 @@ def project_taxi_markers_to_camera(
     image_width: int,
     image_height: int,
 ) -> tuple[TaxiCameraMarkerProjection, ...]:
-    """Project every available pickup or the active dropoff into a camera image."""
+    """Project the nearest three visible pickups or the active dropoff."""
     targets = (
         snapshot.pickup_targets_xyz_m
         if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
         else (snapshot.target_xyz_m,)
     )
-    projections = (
+    projections = [
         project_taxi_marker_to_camera(
             replace(snapshot, target_xyz_m=target),
             rig_to_world,
@@ -386,8 +393,12 @@ def project_taxi_markers_to_camera(
             image_height=image_height,
         )
         for target in targets
-    )
-    return tuple(projection for projection in projections if projection is not None)
+    ]
+    visible = [projection for projection in projections if projection is not None]
+    if snapshot.phase == "seeking_pickup":
+        visible.sort(key=lambda projection: projection.distance_m)
+        del visible[3:]
+    return tuple(visible)
 
 
 class TaxiGameController:
