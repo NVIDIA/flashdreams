@@ -55,8 +55,14 @@ _DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
 _DISABLE_SAGE3_ENV = "OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
-_DEFAULT_CUDA_ARCH_LIST = "12.0a"
-_ARCH_SPECIFIC_CUDA_MAJORS = frozenset({10, 12})
+_PYTORCH_DEFAULT_CUDA_ARCH_LIST = "pytorch-default"
+# CUDA reports capability 12.0 without the "a" suffix, so mirror the
+# conservative device allowlist used by sage3_is_runtime_supported().
+_SM120A_DEVICE_NAME_MARKERS = (
+    "GeForce RTX 5090",
+    "RTX PRO 6000",
+    "RTX 6000",
+)
 
 _native_build_module: ModuleType | None = None
 _extension: dict[tuple[bool, str], ModuleType] = {}
@@ -367,8 +373,12 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _sage3_disabled() -> bool:
-    return os.environ.get(_DISABLE_SAGE3_ENV, "").strip().lower() in {"1", "true"}
+def _sage3_disabled(cuda_arch_list: str | None = None) -> bool:
+    if os.environ.get(_DISABLE_SAGE3_ENV, "").strip().lower() in {"1", "true"}:
+        return True
+    if cuda_arch_list is None:
+        cuda_arch_list = _effective_cuda_arch_list()
+    return cuda_arch_list != "12.0a"
 
 
 def _extension_sources() -> list[Path]:
@@ -439,8 +449,10 @@ def _extension_name(
     *,
     cuda_arch_list: str | None = None,
 ) -> str:
-    has_sage3 = int(not _sage3_disabled())
-    cuda_arch_list = cuda_arch_list or _effective_cuda_arch_list()
+    cuda_arch_list = _cuda_arch_identity(
+        _effective_cuda_arch_list() if cuda_arch_list is None else cuda_arch_list
+    )
+    has_sage3 = int(not _sage3_disabled(cuda_arch_list))
     digest = hashlib.sha256()
     digest.update(_source_fingerprint().encode("ascii"))
     digest.update(json.dumps(thirdparty_info, sort_keys=True).encode("utf-8"))
@@ -470,36 +482,32 @@ def _resolved_max_jobs(max_jobs: int | str | None) -> str | None:
     return str(min(os.cpu_count() or 1, _DEFAULT_MAX_JOBS_CAP))
 
 
-def _format_cuda_arch_list(capability: tuple[int, int]) -> str:
-    major, minor = capability
-    suffix = "a" if major in _ARCH_SPECIFIC_CUDA_MAJORS else ""
-    return f"{major}.{minor}{suffix}"
-
-
 def _detected_cuda_arch_list() -> str | None:
     try:
         import torch
 
         if not torch.cuda.is_available():
             return None
-        return _format_cuda_arch_list(torch.cuda.get_device_capability())
+        if torch.cuda.get_device_capability() != (12, 0):
+            return None
+        device_name = torch.cuda.get_device_name()
+        if not any(marker in device_name for marker in _SM120A_DEVICE_NAME_MARKERS):
+            return None
+        return "12.0a"
     except Exception:
         return None
 
 
-def _effective_cuda_arch_list() -> str:
+def _effective_cuda_arch_list() -> str | None:
     return (
         os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV)
         or os.environ.get(_NATIVE_CUDA_ARCH_LIST_ENV)
         or _detected_cuda_arch_list()
-        or _DEFAULT_CUDA_ARCH_LIST
     )
 
 
-def _resolved_cuda_arch_list() -> str | None:
-    if os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV):
-        return None
-    return _effective_cuda_arch_list()
+def _cuda_arch_identity(cuda_arch_list: str | None) -> str:
+    return cuda_arch_list or _PYTORCH_DEFAULT_CUDA_ARCH_LIST
 
 
 def _python_package_dir(package: str) -> Path | None:
@@ -531,14 +539,13 @@ def _scoped_torch_max_jobs(max_jobs: int | str | None) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def _scoped_cuda_arch_list(cuda_arch_list: str | None = None) -> Iterator[None]:
-    resolved = _resolved_cuda_arch_list() if cuda_arch_list is None else cuda_arch_list
-    if resolved is None:
+def _scoped_cuda_arch_list(cuda_arch_list: str | None) -> Iterator[None]:
+    if cuda_arch_list is None:
         yield
         return
 
     previous = os.environ.get(_PYTORCH_CUDA_ARCH_LIST_ENV)
-    os.environ[_PYTORCH_CUDA_ARCH_LIST_ENV] = resolved
+    os.environ[_PYTORCH_CUDA_ARCH_LIST_ENV] = cuda_arch_list
     try:
         yield
     finally:
@@ -566,9 +573,10 @@ def load_extension(
 
     global _extension, _extension_load_error
     with _state_lock:
-        sage3_disabled = _sage3_disabled()
         cuda_arch_list = _effective_cuda_arch_list()
-        extension_key = (sage3_disabled, cuda_arch_list)
+        cuda_arch_identity = _cuda_arch_identity(cuda_arch_list)
+        sage3_disabled = _sage3_disabled(cuda_arch_identity)
+        extension_key = (sage3_disabled, cuda_arch_identity)
         if (extension := _extension.get(extension_key)) is not None:
             return extension
         _extension_load_error = None
@@ -581,7 +589,7 @@ def load_extension(
             thirdparty_info = validate_thirdparty()
             extension_name = _extension_name(
                 thirdparty_info,
-                cuda_arch_list=cuda_arch_list,
+                cuda_arch_list=cuda_arch_identity,
             )
             has_sage3 = int(not sage3_disabled)
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
@@ -670,7 +678,7 @@ def load_extension(
                         "-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA="
                         f'\\"{thirdparty_info["SpargeAttn"]["commit"]}\\"',
                         "-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST="
-                        f'\\"{cuda_arch_list}\\"',
+                        f'\\"{cuda_arch_identity}\\"',
                     ],
                     extra_cuda_cflags=[
                         # Assume MSVC for Windows
