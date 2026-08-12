@@ -58,6 +58,28 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
     assert config.visual_flare_enabled is visual_flare_enabled
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected_synchronization"),
+    [([], False), (["--taxi-game"], True)],
+)
+def test_taxi_game_selects_frame_synchronous_bev(
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+    expected_synchronization: bool,
+) -> None:
+    backend_kwargs: dict[str, object] = {}
+
+    def build_backend(**kwargs: object) -> object:
+        backend_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(cli, "RasterRenderBackend", build_backend)
+
+    cli.prepare_config_and_backend(build_parser().parse_args(argv))
+
+    assert backend_kwargs["synchronize_bev_with_rgb"] is expected_synchronization
+
+
 def test_postprocess_preset_defaults_disabled() -> None:
     args = build_parser().parse_args([])
 

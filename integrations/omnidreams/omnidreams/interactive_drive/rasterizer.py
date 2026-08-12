@@ -594,7 +594,13 @@ class LudusConditionRasterizer:
     exactly like the underlying implementation.
     """
 
-    def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
+    def __init__(
+        self,
+        raster: RasterConfig,
+        bev: BevConfig | None = None,
+        *,
+        synchronize_bev_with_rgb: bool = False,
+    ) -> None:
         self._exec = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ludus-render"
         )
@@ -602,6 +608,7 @@ class LudusConditionRasterizer:
             _LudusConditionRasterizerImpl, raster, bev
         ).result()
         self._bev_enabled = bool(bev is not None and bev.enabled)
+        self._synchronize_bev_with_rgb = synchronize_bev_with_rgb
         self._pending_bev: (
             concurrent.futures.Future[_RenderedCameraFrames | None] | None
         ) = None
@@ -637,6 +644,14 @@ class LudusConditionRasterizer:
                 physics_debug_frames,
             ).result()
         if not self._bev_enabled:
+            return exec_.submit(
+                impl.render_chunk,
+                rig_poses_world,
+                timestamps_us,
+                dynamic_actors,
+                physics_debug_frames,
+            ).result()
+        if self._synchronize_bev_with_rgb:
             return exec_.submit(
                 impl.render_chunk,
                 rig_poses_world,
