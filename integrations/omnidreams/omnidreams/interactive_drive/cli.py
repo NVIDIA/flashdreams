@@ -336,6 +336,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--taxi-alignment-diagnostics",
+        type=Path,
+        default=None,
+        metavar="DIRECTORY",
+        help=(
+            "Capture frame-synchronized conditioning, generated RGB, BEV, "
+            "PhysX geometry, and pose telemetry under a timestamped directory. "
+            "Only applies with --taxi-game."
+        ),
+    )
+    parser.add_argument(
         "--oob-warn-proximity",
         type=float,
         default=None,
@@ -582,6 +593,7 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
             config=config,
             taxi_config=taxi_config_from_args(args),
             backend=backend,
+            alignment_diagnostics_root=args.taxi_alignment_diagnostics,
             trace_sink=trace_sink,
         )
     else:

@@ -74,9 +74,7 @@ class RolloutSpec:
     ]
     """Vehicle integration policy."""
 
-    physics_world_factory: Callable[
-        [SceneBundle, VehicleConfig], GamePhysicsWorld
-    ]
+    physics_world_factory: Callable[[SceneBundle, VehicleConfig], GamePhysicsWorld]
     """Physics-world factory for the active scene."""
 
     physics_step_fn: PhysicsStepFn
@@ -87,6 +85,12 @@ class RolloutSpec:
 
     ground_snapper: GroundSnapper | None
     """Application-selected ground policy for this rollout."""
+
+    capture_physics_debug: bool = False
+    """Whether every simulated frame carries a PhysX collider snapshot."""
+
+    include_initial_state_in_first_chunk: bool = False
+    """Whether frame zero is the rollout's unsimulated initial state."""
 
 
 class InteractiveDriveApplication(Protocol):
@@ -114,8 +118,6 @@ class InteractiveDriveApplication(Protocol):
         """Return the simulation policy for a new rollout."""
         ...
 
-    def create_runtime(
-        self, scene: SceneBundle, simulation: Any
-    ) -> RuntimeApplication:
+    def create_runtime(self, scene: SceneBundle, simulation: Any) -> RuntimeApplication:
         """Create application state for a new rollout."""
         ...

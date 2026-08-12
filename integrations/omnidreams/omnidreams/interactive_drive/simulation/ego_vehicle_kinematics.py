@@ -317,6 +317,7 @@ def sample_chunk_trajectory(
         [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
     ] = integrate_vehicle,
     physics_step_fn: PhysicsStepFn = step_physics_world,
+    include_start_state: bool = False,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -351,10 +352,25 @@ def sample_chunk_trajectory(
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
     for frame_idx in range(chunk_size):
-        state = integrate_fn(
-            state, command, chunk_config.frame_interval_s, vehicle_config
-        )
-        if physics_world is not None:
+        use_start_state = include_start_state and frame_idx == 0
+        if not use_start_state:
+            state = integrate_fn(
+                state, command, chunk_config.frame_interval_s, vehicle_config
+            )
+        if physics_world is not None and use_start_state:
+            frame_actor_samples = tuple(
+                (
+                    entity.entity_id,
+                    entity.transform.position_m.copy(),
+                    entity.transform.orientation_xyzw.copy(),
+                    entity.detached_from_track,
+                )
+                for entity in physics_world.entities
+            )
+            actor_samples.append(frame_actor_samples)
+            if capture_physics_debug:
+                physics_debug_frames.append(physics_world.debug_frame(state))
+        elif physics_world is not None:
             physx_started_at = time.perf_counter()
             state, frame_actor_samples = physics_step_fn(
                 physics_world,
@@ -494,6 +510,7 @@ class EgoVehicleKinematics:
             [SceneBundle, VehicleConfig], GamePhysicsWorld
         ] = GamePhysicsWorld,
         physics_step_fn: PhysicsStepFn = step_physics_world,
+        include_initial_state_in_first_chunk: bool = False,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
@@ -504,6 +521,9 @@ class EgoVehicleKinematics:
         self._oob_warning_zone_m = float(oob_warning_zone_m)
         self._integrate_fn = integrate_fn
         self._physics_step_fn = physics_step_fn
+        self._include_initial_state_in_next_chunk = bool(
+            include_initial_state_in_first_chunk
+        )
         self._physics_world = (
             physics_world_factory(scene, vehicle_config) if scene is not None else None
         )
@@ -578,7 +598,9 @@ class EgoVehicleKinematics:
             capture_physics_debug=self._capture_physics_debug,
             integrate_fn=self._integrate_fn,
             physics_step_fn=self._physics_step_fn,
+            include_start_state=self._include_initial_state_in_next_chunk,
         )
+        self._include_initial_state_in_next_chunk = False
         self._state = trajectory.boundary_state_after_chunk
         self._next_timestamp_us = int(
             trajectory.timestamps_us[-1] + chunk_config.frame_interval_us

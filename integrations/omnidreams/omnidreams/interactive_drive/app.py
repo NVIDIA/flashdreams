@@ -472,6 +472,8 @@ class InteractiveDriveApp:
                 physics_step_fn = step_physics_world
                 visual_flare_enabled = self._config.visual_flare_enabled
                 ground_snapper = self._ground_snapper
+                capture_physics_debug = False
+                include_initial_state_in_first_chunk = False
             else:
                 rollout_spec = self._application.rollout_spec(
                     self._scene,
@@ -485,6 +487,10 @@ class InteractiveDriveApp:
                 physics_step_fn = rollout_spec.physics_step_fn
                 visual_flare_enabled = rollout_spec.visual_flare_enabled
                 ground_snapper = rollout_spec.ground_snapper
+                capture_physics_debug = rollout_spec.capture_physics_debug
+                include_initial_state_in_first_chunk = (
+                    rollout_spec.include_initial_state_in_first_chunk
+                )
             simulation = EgoVehicleKinematics(
                 initial_state=state_from_initial_pose(
                     initial_rig_to_world=self._scene.initial_rig_to_world,
@@ -501,6 +507,9 @@ class InteractiveDriveApp:
                 integrate_fn=integrate_fn,
                 physics_world_factory=physics_world_factory,
                 physics_step_fn=physics_step_fn,
+                include_initial_state_in_first_chunk=(
+                    include_initial_state_in_first_chunk
+                ),
             )
             runtime_application = (
                 None
@@ -540,6 +549,7 @@ class InteractiveDriveApp:
                             self._config.stop_after_consumed_chunks
                         ),
                         visual_flare_enabled=visual_flare_enabled,
+                        capture_physics_debug=capture_physics_debug,
                     ),
                     loading_status=loading_status,
                     trace_context=self._trace_context,

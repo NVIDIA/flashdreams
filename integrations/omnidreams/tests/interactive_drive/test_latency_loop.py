@@ -355,6 +355,24 @@ def test_chunk_request_gates_physx_debug_capture_on_view_mode(
     assert simulation.physx_debug_requests == [expected]
 
 
+def test_chunk_request_can_force_physx_debug_capture_for_diagnostics() -> None:
+    simulation = _FakeSimulation()
+    loop_module.make_chunk_request(
+        state=loop_module.MainLoopState(),
+        simulation=simulation,
+        command=DriverCommand(),
+        input_sample_time=time.perf_counter(),
+        chunk_history=loop_module.ChunkHistory(4),
+        config=replace(
+            _loop_config(frame_interval_s=1.0 / 30.0),
+            capture_physics_debug=True,
+        ),
+        view_mode="model_rgb",
+    )
+
+    assert simulation.physx_debug_requests == [True]
+
+
 def _completed_fare_trajectory() -> TrajectoryChunk:
     states = (
         VehicleState(
