@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Interactive-drive latency tuning &#8212; FlashDreams v0.1.0</title>
+    <title>OmniDreams interactive latency tuning &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -340,7 +340,7 @@ SPDX-License-Identifier: Apache-2.0
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../models/omnidreams.html">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Interactive-drive latency tuning</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">OmniDreams interactive latency tuning</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../models/self_forcing.html">Self-Forcing</a></li>
@@ -401,7 +401,7 @@ SPDX-License-Identifier: Apache-2.0
     
     <li class="breadcrumb-item"><a href="../models/omnidreams.html" class="nav-link">NVIDIA OmniDreams</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Interactive-drive latency tuning</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">OmniDreams interactive latency tuning</span></li>
   </ul>
 </nav>
 </div>
@@ -418,9 +418,9 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="interactive-drive-latency-tuning">
-<h1>Interactive-drive latency tuning<a class="headerlink" href="#interactive-drive-latency-tuning" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> latency has two different components:</p>
+  <section id="omnidreams-interactive-latency-tuning">
+<h1>OmniDreams interactive latency tuning<a class="headerlink" href="#omnidreams-interactive-latency-tuning" title="Link to this heading">#</a></h1>
+<p>Interactive launch latency has two different components:</p>
 <ul class="simple">
 <li><p><strong>Model / chunk latency</strong> is the time spent preparing HDMap conditioning,
 running the OmniDreams DiT, decoding the generated chunk, and updating model
@@ -448,8 +448,9 @@ blocks, enables the performance recipe, and requires the native DiT path.</p></l
 </ul>
 <p>Run the perf manifest only on hosts that can build and load the native extension:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>example_world_model_perf.yaml
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-perf<span class="w"> </span>local-window<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_local_window.yaml
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code> is intentional. If the native extension is
@@ -528,10 +529,11 @@ to a calibrated LightVAE FP8 state.</p>
 <ul class="simple">
 <li><p>Local Vulkan window: lowest-overhead local presentation when the host has a
 graphics-capable GPU and display stack.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span> <span class="pre">[HOST:]PORT</span></code>: simple browser delivery from the same process.
+<li><p><code class="docutils literal notranslate"><span class="pre">output.stream_mjpeg</span></code> in a local-window manifest: simple browser delivery
+from the same process.
 Use it on compute-only hosts such as GB300 systems without a graphics queue,
 or when a laptop browser views a remote model host.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code>: richer browser frontend with WebRTC’s lower
+<li><p><code class="docutils literal notranslate"><span class="pre">webrtc</span></code> launch mode: richer browser frontend with WebRTC’s lower
 video-delivery latency and streaming gRPC service support. Prefer this for
 product-style remote viewing or multi-client integration.</p></li>
 </ul>
@@ -541,8 +543,9 @@ resolution, and native-acceleration knobs first.</p>
 </section>
 <section id="profiling-and-validated-reference">
 <h2>Profiling and validated reference<a class="headerlink" href="#profiling-and-validated-reference" title="Link to this heading">#</a></h2>
-<p>Use <code class="docutils literal notranslate"><span class="pre">--profile-world-model</span></code> to enable FlashDreams CUDA-event profiling for the
-world-model runtime. Use <code class="docutils literal notranslate"><span class="pre">--sync-gpu-timing</span></code> only when you need raster compute
+<p>Set <code class="docutils literal notranslate"><span class="pre">output.profile_world_model:</span> <span class="pre">true</span></code> to enable FlashDreams CUDA-event
+profiling for the world-model runtime. Set <code class="docutils literal notranslate"><span class="pre">output.sync_gpu_timing:</span> <span class="pre">true</span></code> only
+when you need raster compute
 timings; it synchronizes GPU work and is not a throughput setting.</p>
 <p>The validated published reference for interactive-drive latency is the
 single-view GB300 table from <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>, measured at

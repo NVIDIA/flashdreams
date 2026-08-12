@@ -75,7 +75,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Core" href="core.html" />
+    <link rel="next" title="Launch manifests" href="launch_manifests.html" />
     <link rel="prev" title="CLI and API Reference" href="index.html" />
   
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -342,12 +342,14 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 has-children"><a class="reference internal" href="../developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/local_benchmarks.html">Local Demo Benchmarks</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="infra.html">Infra</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html">Pipelines and runners</a></li>
@@ -434,17 +436,26 @@ SPDX-License-Identifier: Apache-2.0
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
 </pre></div>
 </div>
-<p>Run a single-GPU inference:</p>
+<p>Run a single-GPU inference (<code class="docutils literal notranslate"><span class="pre">run</span></code> is the default mode):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
+<p>Launch a WebRTC demo from a versioned manifest:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
+</pre></div>
+</div>
+<p>The common command shape is <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span> <span class="pre">&lt;runner&gt;</span> <span class="pre">[mode]</span></code>. A runner only
+advertises modes it implements; unsupported pairs fail before CUDA
+initialization. Shared modes are <code class="docutils literal notranslate"><span class="pre">run</span></code>, <code class="docutils literal notranslate"><span class="pre">mp4</span></code>, <code class="docutils literal notranslate"><span class="pre">null</span></code>, <code class="docutils literal notranslate"><span class="pre">webrtc</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">local-window</span></code>.</p>
 <p>Run a multi-GPU inference:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>Resolve config only (no model instantiation):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--no-instantiate<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--no-instantiate
 </pre></div>
 </div>
 </section>
@@ -465,7 +476,9 @@ before selecting this preset.</p>
 <h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><a class="reference internal" href="../quickstart/index.html"><span class="doc">Get Started</span></a></p></li>
+<li><p><a class="reference internal" href="launch_manifests.html"><span class="doc">Launch manifests</span></a></p></li>
 <li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a></p></li>
+<li><p><a class="reference internal" href="../developer_guides/runner_slugs.html"><span class="doc">Runner slugs and demo launch dispatch</span></a></p></li>
 <li><p><a class="reference internal" href="infra.html"><span class="doc">Infra</span></a></p></li>
 </ul>
 </section>
@@ -491,11 +504,11 @@ before selecting this preset.</p>
       </div>
     </a>
     <a class="right-next"
-       href="core.html"
+       href="launch_manifests.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Core</p>
+        <p class="prev-next-title">Launch manifests</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

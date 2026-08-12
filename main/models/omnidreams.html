@@ -75,7 +75,7 @@ SPDX-License-Identifier: Apache-2.0
     <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Interactive-drive latency tuning" href="../developer_guides/latency_tuning.html" />
+    <link rel="next" title="OmniDreams interactive latency tuning" href="../developer_guides/latency_tuning.html" />
     <link rel="prev" title="Models" href="index.html" />
   
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -340,7 +340,7 @@ SPDX-License-Identifier: Apache-2.0
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/latency_tuning.html">Interactive-drive latency tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/latency_tuning.html">OmniDreams interactive latency tuning</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
@@ -448,6 +448,12 @@ throughput.</p>
 uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams
 </pre></div>
 </div>
+<p>Generate the default MP4 demo from bundled example data:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>omnidreams<span class="w"> </span>mp4
+</pre></div>
+</div>
+<p>The command writes <code class="docutils literal notranslate"><span class="pre">outputs/omnidreams.mp4</span></code>. Use a launch manifest to
+override the scenario, rollout length, frame rate, or output path.</p>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
@@ -455,7 +461,7 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example_data_uuid<span class="w"> </span><span class="s2">&quot;239560dc-33d1-11ef-9720-00044bcbccac&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">20</span>
@@ -475,8 +481,11 @@ example:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf</span></code></p></td>
-<td><p>Single-view 2-step HDMap-conditioned I2V.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams</span></code></p></td>
+<td><p>Default single-view 2-step HDMap-conditioned I2V demo and runner.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-perf</span></code></p></td>
+<td><p>Opt-in compile and CUDA-graph tuning across all pipeline stages.</p></td>
 </tr>
 </tbody>
 </table>
@@ -484,7 +493,7 @@ example:</p>
 <p>For multi-GPU inference, use:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example_data_uuid<span class="w"> </span><span class="s2">&quot;239560dc-33d1-11ef-9720-00044bcbccac&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">20</span>
@@ -493,7 +502,7 @@ example:</p>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--help
 </pre></div>
 </div>
@@ -522,10 +531,9 @@ example:</p>
 </div></section>
 <section id="launch-the-interactive-demo">
 <h2>Launch the interactive demo<a class="headerlink" href="#launch-the-interactive-demo" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> runs the OmniDreams single-view pipeline in a
-single process and streams the camera view to your browser. The demo
-machine only needs a CUDA-capable GPU – no graphics-capable GPU,
-display server, or Vulkan support are required.</p>
+<p>OmniDreams exposes <code class="docutils literal notranslate"><span class="pre">webrtc</span></code> and <code class="docutils literal notranslate"><span class="pre">local-window</span></code> through the shared
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span> <span class="pre">&lt;runner&gt;</span> <span class="pre">&lt;mode&gt;</span></code> command. WebRTC only requires a
+CUDA-capable GPU; local-window additionally requires a display and Vulkan.</p>
 <p>The demo requires access to <a class="reference external" href="https://github.com/NVIDIA/flashdreams">NVIDIA/flashdreams</a>
 and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> with read access to
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes">nvidia/omni-dreams-scenes</a>
@@ -544,12 +552,14 @@ isn’t blocked on network I/O:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
 </pre></div>
 </div>
-<p>Run the demo and stream to your browser:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
+<p>Run the WebRTC demo:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml
 </pre></div>
 </div>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in any browser on the same
-network and pick a scene from the picker in the bottom-right.</p>
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> in any browser on the
+same network.</p>
 <p>Collision physics, the vehicle speed limit, and the collision visual effect are
 disabled by default. Add <code class="docutils literal notranslate"><span class="pre">--game-mode</span></code> to enable the speed limit and
 collisions with scene actors and static map geometry, along with the collision
@@ -574,10 +584,12 @@ the compiled kernels and CUDA graphs are cached and reused.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Add <code class="docutils literal notranslate"><span class="pre">--offload-text-encoder</span></code> to reduce peak VRAM usage by ~15 GB:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--stream-mjpeg<span class="w"> </span>:8080<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--offload-text-encoder
+<p>For local-window, set <code class="docutils literal notranslate"><span class="pre">output.offload_text_encoder:</span> <span class="pre">true</span></code> in a copy of
+<code class="docutils literal notranslate"><span class="pre">configs/launch_manifest/omnidreams_local_window.yaml</span></code> to reduce peak VRAM
+usage by ~15 GB, then launch it with the central command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-perf<span class="w"> </span>local-window<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>path/to/local-window.yaml
 </pre></div>
 </div>
 <p>The text and first-frame encoders are run once per scene and freed before the
@@ -587,10 +599,10 @@ reused across world-model resets.</p>
 resident, so the first load and scene/variant switches are slower. Prefer it
 when VRAM-constrained; otherwise leave it off for faster switching.</p>
 </div>
-<p>For execution using a consumer NVIDIA GPU that exposes a graphics stack,
-omit the <code class="docutils literal notranslate"><span class="pre">--stream-mjpeg</span></code> flag to open the demo in a local Vulkan window
-instead:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive
+<p>On a GPU with a graphics stack, launch the Vulkan window:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-perf<span class="w"> </span>local-window<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_local_window.yaml
 </pre></div>
 </div>
 <p>The local window’s HUD adds a weather-variant selector (clear, rain, snow)
@@ -617,7 +629,7 @@ or joystick is viable. We provide a configuration tool to calibrate these:</p>
 <p>The demo auto-loads your default profile on subsequent launches. When you
 have more than one profile, the configuration tool’s start screen lists them
 with <strong>Make default</strong> (plus Edit and Delete) buttons – re-run the tool to
-choose which profile <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> loads by default, tweak a profile
+choose which profile <code class="docutils literal notranslate"><span class="pre">local-window</span></code> loads by default, tweak a profile
 (steering sensitivity, deadzone, buttons, force feedback), or remove one.</p>
 <p><strong>Multiple devices.</strong> A profile can bind controls across several devices –
 for example a wheel base plus a separately-connected or different-brand pedal
@@ -673,37 +685,32 @@ Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
 <code class="docutils literal notranslate"><span class="pre">omnidreams_singleview</span></code> sources ship only in the git tree, not the wheel),
 <code class="docutils literal notranslate"><span class="pre">git</span></code>, and a CUDA toolchain (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching your PyTorch build. Then
 point the demo at the perf manifest:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>example_world_model_perf.yaml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-perf<span class="w"> </span>local-window<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_local_window.yaml
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code> makes the manifest fail loudly if the
 extension can’t build or load, rather than silently falling back to PyTorch.</p>
 </section>
 </section>
-<section id="alternative-webrtc-server">
-<h2>Alternative: WebRTC server<a class="headerlink" href="#alternative-webrtc-server" title="Link to this heading">#</a></h2>
+<section id="webrtc-server">
+<h2>WebRTC server<a class="headerlink" href="#webrtc-server" title="Link to this heading">#</a></h2>
 <p>For deployments that require a richer browser frontend with WebRTC’s
 lower video-delivery latency and a streaming gRPC service for
-multi-client setups, the standalone server at
-<code class="docutils literal notranslate"><span class="pre">omnidreams.webrtc.server</span></code> ships a polished HTML5 client on top of
-the same OmniDreams pipeline. The MJPEG path above is the
-recommended starting point for most users; consider WebRTC if you
-need bidirectional camera-control APIs or are already integrating
-the gRPC service into a larger product.</p>
+multi-client setups, the <code class="docutils literal notranslate"><span class="pre">webrtc</span></code> launch mode ships a polished HTML5 client
+on top of the same OmniDreams pipeline.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>-m<span class="w"> </span>omnidreams.webrtc.server<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pipeline_config_name<span class="w"> </span>omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--scene-uuid<span class="w"> </span><span class="s2">&quot;0d404ff7-2b66-498c-b047-1ed8cded60d4&quot;</span>
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml
 </pre></div>
 </div>
 <p>Sample scene UUIDs for the interactive server are available in the
 <a class="reference external" href="https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes">nvidia/omni-dreams-scenes Hugging Face dataset</a>.
 Each scene ships clear, rain, and snow weather variants as sibling
-archives; add <code class="docutils literal notranslate"><span class="pre">--scene-variant</span> <span class="pre">rain</span></code> (or <code class="docutils literal notranslate"><span class="pre">snow</span></code>) to serve a specific
-one (the default is the clear-weather scene).</p>
+archives; set <code class="docutils literal notranslate"><span class="pre">scenario.scene_variant</span></code> to <code class="docutils literal notranslate"><span class="pre">rain</span></code> or <code class="docutils literal notranslate"><span class="pre">snow</span></code> in the launch
+manifest to serve a specific one (the default is clear weather).</p>
 <p>The server may take a few minutes to warm up. Once ready, it prints
 <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code>.
 Here, <code class="docutils literal notranslate"><span class="pre">&lt;server-ip&gt;</span></code> is the server IP address you are connecting to
@@ -805,7 +812,7 @@ peer connection from completing. Disable the setting and reload:</p>
 <section id="further-reading">
 <h2>Further reading<a class="headerlink" href="#further-reading" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../developer_guides/latency_tuning.html"><span class="doc">Interactive-drive latency tuning</span></a> covers the supported
+<li><p><a class="reference internal" href="../developer_guides/latency_tuning.html"><span class="doc">OmniDreams interactive latency tuning</span></a> covers the supported
 <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> latency knobs: model and backend choice, resolution,
 chunk-size constraints, FP8 and native acceleration, transport, and the
 validated GB300 reference.</p></li>
@@ -852,7 +859,7 @@ validated GB300 reference.</p></li>
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Interactive-drive latency tuning</p>
+        <p class="prev-next-title">OmniDreams interactive latency tuning</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -883,7 +890,7 @@ validated GB300 reference.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#native-acceleration-perf-manifest">Native acceleration (perf manifest)</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-webrtc-server">Alternative: WebRTC server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#webrtc-server">WebRTC server</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#performance-table">Performance table</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#further-reading">Further reading</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>

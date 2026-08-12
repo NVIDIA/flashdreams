@@ -416,23 +416,27 @@ read access to <a class="reference external" href="https://huggingface.co/nvidia
 <section id="run-your-first-model">
 <h2>Run your first model<a class="headerlink" href="#run-your-first-model" title="Link to this heading">#</a></h2>
 <p>Launch the OmniDreams interactive driving demo. It runs the world model
-and streams the generated camera view to a browser:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span>--stream-mjpeg<span class="w"> </span>:8080
+and streams the generated camera view to a browser over WebRTC:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml
 </pre></div>
 </div>
-<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8080/</span></code> in a browser on the same network
+<p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> in a browser on the same network
 (use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> on the same machine). The first launch spends several
 minutes loading checkpoints and compiling kernels; later launches reuse
 the cached assets.</p>
-<p>On VRAM-constrained GPUs, add <code class="docutils literal notranslate"><span class="pre">--offload-text-encoder</span></code> to reduce peak
-VRAM usage by about 15 GB:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>interactive-drive<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--stream-mjpeg<span class="w"> </span>:8080<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--offload-text-encoder
+<p>Inspect the complete resolved runner, launch mode, scenario, and output without
+loading checkpoints:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--no-instantiate
 </pre></div>
 </div>
-<p>See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for the offload trade-offs, scripted
-generation, scene variants, WebRTC serving, and multi-GPU options.</p>
+<p>See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for scripted generation, scene variants,
+local-window serving, and multi-GPU options. See
+<a class="reference internal" href="../api/launch_manifests.html"><span class="doc">Launch manifests</span></a> for the shared manifest schema.</p>
 </section>
 <section id="where-to-next">
 <h2>Where to next<a class="headerlink" href="#where-to-next" title="Link to this heading">#</a></h2>
@@ -440,7 +444,7 @@ generation, scene variants, WebRTC serving, and multi-GPU options.</p>
 <li><p><a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a>: every shipped model with its CLI slug and the
 command to run it.</p></li>
 <li><p><a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>: drive a world model in real time with the
-<code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> demo.</p></li>
+<code class="docutils literal notranslate"><span class="pre">local-window</span></code> or <code class="docutils literal notranslate"><span class="pre">webrtc</span></code> launch mode.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a>: the generation
 loop end to end: KV cache, ring attention, CUDA-graph capture.</p></li>
 <li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a>: the configuration layer

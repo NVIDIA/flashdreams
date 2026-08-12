@@ -132,6 +132,27 @@ input stream is shorter than the requested duration. ``interactive-drive`` is
 left out of this shipped MP4 suite for now because its public CLI is a live
 presenter rather than a file-writing runner.
 
+Omnidreams Shared Demo Comparison
+---------------------------------
+
+``configs/omnidreams_demo_replay_benchmarks.json`` contains a one-minute manual
+comparison between the legacy Omnidreams single-view runner and the experimental
+shared demo replay path:
+
+.. code-block:: bash
+
+   uv run flashdreams-benchmark \
+     --scenario-file configs/omnidreams_demo_replay_benchmarks.json \
+     --scenario omnidreams-sv-runner-baseline \
+     --scenario omnidreams-sv-demo-replay \
+     --output-dir artifacts/benchmarks/omnidreams-demo-replay-compare
+
+Use the generated report's MP4 links for side-by-side manual review. The legacy
+runner writes the stacked HDMap/RGB canvas while the shared demo writes generated
+RGB output, so this comparison intentionally disables automatic baseline quality
+scoring until those output layouts are aligned. Both scenarios use ``226``
+blocks, matching the shipped Omnidreams one-minute baseline.
+
 Quality Hooks
 -------------
 

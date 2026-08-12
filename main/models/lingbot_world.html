@@ -340,7 +340,7 @@ SPDX-License-Identifier: Apache-2.0
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="omnidreams.html">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/latency_tuning.html">Interactive-drive latency tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/latency_tuning.html">OmniDreams interactive latency tuning</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
@@ -497,7 +497,7 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast</span></code></p></td>
 <td><p>LingBot-World V2 14B causal-fast on the shared LingBot pipeline
-(Wan VAE decoder, 4-step). See <a href="#id2"><span class="problematic" id="id3">`LingBot-World V2`_</span></a>.</p></td>
+(Wan VAE decoder, 4-step). See <a class="reference internal" href="#id1"><span class="std std-ref">LingBot-World V2</span></a>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lingbot-world-v2-14b-causal-fast-taehv-window15-sink3</span></code></p></td>
 <td><p>LingBot-World V2 14B causal-fast with the TAEHV decoder,
@@ -515,7 +515,7 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 </div>
 </section>
 <section id="id1">
-<h2>LingBot-World V2<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<span id="id2"></span><h2>LingBot-World V2<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
 <p>LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
 uses the same architecture, pipeline, and serving code as v1 — only the
 checkpoint config slug changes — so every command on this page works by
@@ -612,15 +612,14 @@ autoregressive chunk does end-to-end.</p>
 <h2>Launch the interactive server<a class="headerlink" href="#launch-the-interactive-server" title="Link to this heading">#</a></h2>
 <p>Spin up the interactive LingBot-World server via WebRTC:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>-m<span class="w"> </span>lingbot.webrtc.server<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--config_name<span class="w"> </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span>
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> selects which example to download
-(<code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">2</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span></code>); assets auto-download on first launch.
+<p><code class="docutils literal notranslate"><span class="pre">scenario.example_idx</span></code> in a launch manifest selects which example to
+download (<code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">2</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span></code>); assets auto-download on first launch.
 The HTTP port opens only after model load + warmup — a few minutes on
 first launch, much faster afterwards. When ready the server prints
 <code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> (use

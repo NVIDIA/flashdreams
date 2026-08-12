@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>FlashVSR &#8212; FlashDreams v0.1.0</title>
+    <title>Launch manifests &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -69,14 +69,14 @@ SPDX-License-Identifier: Apache-2.0
                 gtag('js', new Date());
                 gtag('config', 'G-Q44TKZ8777');
             </script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'models/flashvsr';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api/launch_manifests';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
     <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="HY-WorldPlay" href="hy_worldplay.html" />
-    <link rel="prev" title="Cosmos-Predict2.5" href="cosmos_predict2.html" />
+    <link rel="next" title="Core" href="core.html" />
+    <link rel="prev" title="CLI" href="cli.html" />
   
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -180,15 +180,15 @@ SPDX-License-Identifier: Apache-2.0
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="../documentation.html">
     Documentation
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
     Models
   </a>
 </li>
@@ -283,15 +283,15 @@ SPDX-License-Identifier: Apache-2.0
 </li>
 
 
-<li class="nav-item ">
+<li class="nav-item current active">
   <a class="nav-link nav-internal" href="../documentation.html">
     Documentation
   </a>
 </li>
 
 
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="index.html">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
     Models
   </a>
 </li>
@@ -339,20 +339,24 @@ SPDX-License-Identifier: Apache-2.0
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 has-children"><a class="reference internal" href="omnidreams.html">NVIDIA OmniDreams</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/latency_tuning.html">OmniDreams interactive latency tuning</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/local_benchmarks.html">Local Demo Benchmarks</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="self_forcing.html">Self-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="causal_forcing.html">Causal-Forcing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="causal_wan22.html">Causal Wan2.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cosmos_predict2.html">Cosmos-Predict2.5</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">FlashVSR</a></li>
-<li class="toctree-l1"><a class="reference internal" href="hy_worldplay.html">HY-WorldPlay</a></li>
-<li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">LingBot-World</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sana_wm_streaming.html">SANA-WM_streaming</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sana_wm_bidirectional.html">SANA-WM_bidirectional</a></li>
-<li class="toctree-l1"><a class="reference internal" href="wan21.html">Wan2.1</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cli.html">CLI</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Launch manifests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="infra.html">Infra</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="serving.html">Serving</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 </ul>
 </div>
 </nav></div>
@@ -396,9 +400,12 @@ SPDX-License-Identifier: Apache-2.0
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Models</a></li>
+    <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">FlashVSR</span></li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">CLI and API Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Launch manifests</span></li>
   </ul>
 </nav>
 </div>
@@ -415,144 +422,94 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="flashvsr">
-<h1>FlashVSR<a class="headerlink" href="#flashvsr" title="Link to this heading">#</a></h1>
-<div class="fd-cta-row docutils container">
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://zhuang2002.github.io/FlashVSR/"><span>Project page</span></a></p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://arxiv.org/abs/2510.12747"><span>arXiv paper</span></a></p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/OpenImagingLab/FlashVSR"><span>Official code</span></a></p>
-</div>
-<p>FlashVSR is a one-diffusion-step streaming diffusion framework for real-time video
-super-resolution (VSR). It combines a train-friendly three-stage distillation pipeline,
-locality-constrained sparse attention that bridges the train-test resolution
-gap, and a tiny conditional decoder for fast reconstruction.</p>
-<a class="reference internal image-reference" href="https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png"><img alt="FlashVSR teaser figure." src="https://github.com/OpenImagingLab/FlashVSR/raw/main/examples/WanVSR/assets/teaser.png" style="width: 100%;" />
-</a>
-<p class="model-footnote">
-  Teaser image source:
-  <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
-</p><section id="requirements">
-<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>Minimum VRAM</strong>: ~24 GB.</p></li>
-<li><p><strong>PyTorch</strong>: &gt;= 2.9.</p></li>
-</ul>
-</section>
-<section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr
+  <section id="launch-manifests">
+<h1>Launch manifests<a class="headerlink" href="#launch-manifests" title="Link to this heading">#</a></h1>
+<p>Every FlashDreams model launch starts with the same command shape:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>&lt;runner-slug&gt;<span class="w"> </span><span class="o">[</span>mode<span class="o">]</span><span class="w"> </span><span class="o">[</span>--manifest<span class="w"> </span>PATH<span class="o">]</span>
 </pre></div>
 </div>
-</section>
-<section id="running-the-method">
-<h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run FlashVSR, provide an input video path and launch one of the
-registered runner slugs. For example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
+<p><code class="docutils literal notranslate"><span class="pre">run</span></code> is the default mode. Integrations may additionally expose <code class="docutils literal notranslate"><span class="pre">mp4</span></code>,
+<code class="docutils literal notranslate"><span class="pre">null</span></code>, <code class="docutils literal notranslate"><span class="pre">webrtc</span></code>, or <code class="docutils literal notranslate"><span class="pre">local-window</span></code>. Inspect a resolved launch without
+loading checkpoints or initializing CUDA with <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code>.</p>
+<section id="schema">
+<h2>Schema<a class="headerlink" href="#schema" title="Link to this heading">#</a></h2>
+<p>Launch manifests are strict, versioned YAML documents:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">schema_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">runner</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">omnidreams</span>
+<span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webrtc</span>
+
+<span class="nt">runner_overrides</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">device</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cuda:0</span>
+
+<span class="nt">scenario</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">scene_uuid</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0d404ff7-2b66-498c-b047-1ed8cded60d4</span>
+<span class="w">  </span><span class="nt">scene_variant</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+
+<span class="nt">output</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
 </pre></div>
 </div>
-<p>For multi-GPU inference, run the dense full-attention preset under
-<code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-full-attn<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
-</pre></div>
-</div>
+<p><code class="docutils literal notranslate"><span class="pre">schema_version</span></code>, <code class="docutils literal notranslate"><span class="pre">runner</span></code>, and <code class="docutils literal notranslate"><span class="pre">mode</span></code> are required. The remaining
+sections are optional mappings:</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Multi-GPU is supported only by the dense <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code> preset.
-The <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-*</span></code> presets are single-GPU only because
-their Triton sparse-attention backend is not context-parallel aware.</p>
+<p>Quote the null-output mode as <code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">&quot;null&quot;</span></code> in YAML; an unquoted
+<code class="docutils literal notranslate"><span class="pre">null</span></code> is YAML’s null scalar rather than the FlashDreams mode name.</p>
 </div>
-<p>We provide the following variants:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 45.0%" />
-<col style="width: 55.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Method</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-2.0</span></code></p></td>
-<td><p>Streaming 2x video super-resolution with the stable sparse-attention preset.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-1.5</span></code></p></td>
-<td><p>Streaming 2x video super-resolution with the faster sparse-attention preset.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code></p></td>
-<td><p>Dense full-attention preset with multi-GPU context-parallel support.</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">runner_overrides</span></code></dt><dd><p>Recursive overrides for the registered runner configuration. The same
+runner fields remain available as explicit CLI flags.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">scenario</span></code></dt><dd><p>Inputs and controls such as prompts, example data, scenes, traces, and
+rollout length. The selected integration validates the accepted fields.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">output</span></code></dt><dd><p>Transport or artifact settings such as output path, frame rate, WebRTC
+bind address, warmup, and local-window presentation settings.</p>
+</dd>
+</dl>
+<p>Relative paths in keys named <code class="docutils literal notranslate"><span class="pre">path</span></code> or ending in <code class="docutils literal notranslate"><span class="pre">_path</span></code>, <code class="docutils literal notranslate"><span class="pre">_paths</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">_dir</span></code> resolve relative to the manifest file, which makes checked-in launch
+manifests reproducible from any working directory. Unknown top-level or
+integration-specific fields fail before CUDA initialization.</p>
+</section>
+<section id="precedence">
+<h2>Precedence<a class="headerlink" href="#precedence" title="Link to this heading">#</a></h2>
+<p>Settings resolve in this order, from lowest to highest precedence:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>registered runner preset
+  &lt; manifest runner_overrides
+  &lt; manifest scenario/output
+  &lt; explicit CLI runner flags and --host/--port
 </pre></div>
 </div>
-<p>A generated sample from the above commands:</p>
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <div class="model-video-overlay">
-    FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
-    low-resolution input (672x384) inset at bottom-left.
-    Input from the
-    <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
-  </div>
-</div></section>
-<section id="profiling-benchmark">
-<h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">#</a></h2>
-<p>Here is the profiling benchmark on per-chunk 2x upsampling time for FlashDreams FlashVSR
-compared to the <a class="reference external" href="https://github.com/OpenImagingLab/FlashVSR">official FlashVSR implementation</a>
-under matched settings.</p>
-<figure class="benchmark-figure-wrap">
-  <div
-    id="flashvsr-benchmark-chart"
-    class="benchmark-figure"
-    data-benchmark-md-url="../_static/performance/flashvsr/perf-0527.md"
-    data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-    data-chart-aria-label="FlashVSR benchmark chart"
-  ></div>
-  <figcaption>
-    <p class="model-footnote">
-      This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
-      For the official FlashVSR implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
-    </p>
-  </figcaption>
-</figure>
-<script src="../_static/js/benchmark_chart.js"></script></section>
-<section id="citation">
-<h2>Citation<a class="headerlink" href="#citation" title="Link to this heading">#</a></h2>
-<p>If you use FlashVSR, please cite the original work:</p>
-<div class="highlight-bibtex notranslate"><div class="highlight"><pre><span></span><span class="nc">@inproceedings</span><span class="p">{</span><span class="nl">zhuang2026flashvsr</span><span class="p">,</span>
-<span class="w">  </span><span class="na">title</span><span class="p">=</span><span class="s">{FlashVSR: Towards Real-time Diffusion-Based Streaming Video Super Resolution}</span><span class="p">,</span>
-<span class="w">  </span><span class="na">author</span><span class="p">=</span><span class="s">{Zhuang, Junhao and Guo, Shi and Cai, Xin and Li, Xiaohui and Liu, Yihao and Yuan, Chun and Xue, Tianfan}</span><span class="p">,</span>
-<span class="w">  </span><span class="na">booktitle</span><span class="p">=</span><span class="s">{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition}</span><span class="p">,</span>
-<span class="w">  </span><span class="na">pages</span><span class="p">=</span><span class="s">{43482--43493}</span><span class="p">,</span>
-<span class="w">  </span><span class="na">year</span><span class="p">=</span><span class="s">{2026}</span>
-<span class="p">}</span>
+<p>The runner and positional mode must agree with the manifest. For example, this
+fails instead of silently launching a different preset:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
 </pre></div>
 </div>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># WebRTC</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
+
+<span class="c1"># MP4 replay</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_mp4.yaml
+
+<span class="c1"># Resolve an OmniDreams launch without loading the model</span>
+uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--no-instantiate
+</pre></div>
+</div>
+<p>OmniDreams local-window also accepts the existing
+<code class="docutils literal notranslate"><span class="pre">example_world_model*.yaml</span></code> format directly as a compatibility input. New
+automation should use a versioned launch manifest whose
+<code class="docutils literal notranslate"><span class="pre">output.world_model_manifest_path</span></code> references that model-specific file.</p>
 </section>
 </section>
 
@@ -567,20 +524,20 @@ under matched settings.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="cosmos_predict2.html"
+       href="cli.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Cosmos-Predict2.5</p>
+        <p class="prev-next-title">CLI</p>
       </div>
     </a>
     <a class="right-next"
-       href="hy_worldplay.html"
+       href="core.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">HY-WorldPlay</p>
+        <p class="prev-next-title">Core</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -603,11 +560,9 @@ under matched settings.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-method">Running the method</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling-benchmark">Profiling benchmark</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#schema">Schema</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precedence">Precedence</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 </ul>
   </nav></div>
 
