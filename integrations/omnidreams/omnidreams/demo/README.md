@@ -21,6 +21,7 @@ export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 hash -r
 "$CUDA_HOME/bin/nvcc" --version
 
+mkdir -p outputs
 uv sync --python 3.12 --package flashdreams-omnidreams --no-dev
 ```
 
@@ -31,20 +32,29 @@ Run a short replay without writing video output:
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
   omnidreams null \
-  --manifest configs/launch_manifest/omnidreams_null.yaml
+  --device cuda:0 \
+  --scenario.example-data true \
+  --scenario.example-data-uuid 239560dc-33d1-11ef-9720-00044bcbccac \
+  --scenario.total-blocks 10
 ```
 
 ## Precomputed MP4 Replay
 
-Generate an MP4 from bundled single-view sample data and pre-rendered HDMaps
-with no manifest:
+Generate an MP4 from bundled single-view sample data and pre-rendered HDMaps:
 
 ```bash
-uv run flashdreams-run omnidreams mp4
+uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
+  omnidreams mp4 \
+  --device cuda:0 \
+  --scenario.example-data true \
+  --scenario.example-data-uuid 239560dc-33d1-11ef-9720-00044bcbccac \
+  --scenario.total-blocks 10 \
+  --output.fps 30 \
+  --output.path outputs/omnidreams-precomputed.mp4
 ```
 
-The default output is `outputs/omnidreams.mp4`. To override the sample,
-rollout length, frame rate, or output path, use the versioned manifest:
+The default output is `outputs/omnidreams.mp4` when `--output.path` is omitted.
+The versioned manifest form remains supported:
 
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
@@ -67,7 +77,14 @@ Generate an MP4 by rendering HDMap conditioning from a recorded keyboard trace:
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
   omnidreams mp4 \
-  --manifest path/to/omnidreams-ludus-mp4.yaml
+  --device cuda:0 \
+  --scenario.conditioning-mode ludus-scene-driving \
+  --scenario.keyboard-trace \
+  integrations/omnidreams/omnidreams/demo/traces/ludus_forward_sweep_60s.json \
+  --scenario.scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
+  --scenario.total-blocks 10 \
+  --output.fps 30 \
+  --output.path outputs/omnidreams-ludus.mp4
 ```
 
 The `omnidreams-perf` preset remains an
@@ -79,6 +96,24 @@ compile/cache behavior is reliable enough for the demo path.
 WebRTC uses the shared FlashDreams server, session manager, and runtime worker.
 The small model adapter in this package loads one scene, renders HDMap
 conditioning with Ludus, and runs OmniDreams from browser WASD controls:
+
+```bash
+uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
+  omnidreams webrtc \
+  --host 0.0.0.0 \
+  --port 8089 \
+  --device cuda:0 \
+  --scenario.scene-uuid 0d404ff7-2b66-498c-b047-1ed8cded60d4 \
+  --output.video-height 704 \
+  --output.video-width 1280
+```
+
+Then open:
+
+- [http://localhost:8089/request_session](http://localhost:8089/request_session)
+- [http://localhost:8089/healthz](http://localhost:8089/healthz)
+
+The manifest-based WebRTC form remains supported:
 
 ```bash
 uv run --python 3.12 --package flashdreams-omnidreams flashdreams-run \
