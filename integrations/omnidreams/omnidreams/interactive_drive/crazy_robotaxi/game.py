@@ -36,6 +36,7 @@ from omnidreams.interactive_drive.math3d import (
     rig_pose_from_state,
     rig_pose_from_vehicle_state,
 )
+from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -71,6 +72,9 @@ class TaxiGameConfig:
 
     pickup_grid_spacing_m: float = 60.0
     """Grid spacing used to distribute simultaneous pickup points across the map."""
+
+    waypoint_edge_margin_m: float = 50.0
+    """Minimum map-boundary clearance for pickup and dropoff targets."""
 
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
@@ -129,6 +133,8 @@ class TaxiGameConfig:
             raise ValueError("traffic_density must be greater than 0 and at most 1")
         if self.pickup_grid_spacing_m <= 0.0:
             raise ValueError("pickup_grid_spacing_m must be positive")
+        if self.waypoint_edge_margin_m < 0.0:
+            raise ValueError("waypoint_edge_margin_m must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -414,6 +420,7 @@ class TaxiGameController:
         initial_state: VehicleState,
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
+        map_bounds: MapBounds | None = None,
         high_score_store: HighScoreStore | None = None,
     ) -> None:
         self._config = config
@@ -431,6 +438,7 @@ class TaxiGameController:
         self._waypoints = self._navigation.sample_waypoints(
             config.waypoint_spacing_m, offset
         )
+        self._eligible_waypoint_indices = self._safe_waypoint_indices(map_bounds)
         self._pickup_point_indices = self._sample_pickup_point_indices()
         self._phase: TaxiPhase = "seeking_pickup"
         self._session_state: TaxiSessionState = "playing"
@@ -628,7 +636,8 @@ class TaxiGameController:
         """Choose one stable pickup point per world-space grid cell."""
         cell_size = self._config.pickup_grid_spacing_m
         candidates_by_cell: dict[tuple[int, int], list[int]] = {}
-        for index, waypoint in enumerate(self._waypoints):
+        for index in self._eligible_waypoint_indices:
+            waypoint = self._waypoints[index]
             point = waypoint.xyz_m
             cell = (
                 math.floor(float(point[0]) / cell_size),
@@ -658,7 +667,28 @@ class TaxiGameController:
         )
         if len(selected) >= 2:
             return selected
-        return tuple(range(min(2, len(self._waypoints))))
+        return self._eligible_waypoint_indices[:2]
+
+    def _safe_waypoint_indices(self, map_bounds: MapBounds | None) -> tuple[int, ...]:
+        """Return targets separated from the playable map boundary."""
+        if map_bounds is None or self._config.waypoint_edge_margin_m == 0.0:
+            return tuple(range(len(self._waypoints)))
+        margin = self._config.waypoint_edge_margin_m
+        eligible = tuple(
+            index
+            for index, waypoint in enumerate(self._waypoints)
+            if map_bounds.x_min + margin
+            <= float(waypoint.xyz_m[0])
+            <= map_bounds.x_max - margin
+            and map_bounds.y_min + margin
+            <= float(waypoint.xyz_m[1])
+            <= map_bounds.y_max - margin
+        )
+        if len(eligible) < 2:
+            raise ValueError(
+                "Taxi map-boundary margin leaves fewer than two eligible waypoints."
+            )
+        return eligible
 
     def _collected_pickup_index(self, x_m: float, y_m: float) -> int | None:
         """Return the closest available pickup inside its activation radius."""
@@ -680,7 +710,7 @@ class TaxiGameController:
         vehicle_state: VehicleState,
         *,
         excluded: frozenset[int],
-    ) -> tuple[int, RoutePlan]:
+    ) -> tuple[int, RoutePlan | None]:
         """Choose a reachable pickup and its shortest legal route."""
         if len(excluded) >= len(self._waypoints):
             excluded = frozenset()
@@ -714,13 +744,24 @@ class TaxiGameController:
             plan = self._navigation.route(source, self._waypoints[pickup_index])
             if plan is not None:
                 return pickup_index, plan
-        raise RuntimeError("Taxi vehicle has no reachable pickup destination.")
+        fallback = [
+            index
+            for index in self._pickup_point_indices
+            if index not in excluded and distances[index] > 1.0
+        ]
+        if not fallback:
+            fallback = [
+                index for index in self._pickup_point_indices if distances[index] > 1.0
+            ]
+        if not fallback:
+            fallback = list(self._pickup_point_indices)
+        return min(fallback, key=distances.__getitem__), None
 
     def _select_initial_pickup(
         self,
         initial_state: VehicleState,
         initial_camera: CameraCalibration | None,
-    ) -> tuple[int, RoutePlan]:
+    ) -> tuple[int, RoutePlan | None]:
         """Select the only pickup constrained by the player's initial view."""
         x_m = initial_state.x_m
         y_m = initial_state.y_m
@@ -835,7 +876,10 @@ class TaxiGameController:
             reachable = [
                 index
                 for index, distance in enumerate(route_distances)
-                if index != pickup_index and math.isfinite(distance) and distance > 1.0
+                if index in self._eligible_waypoint_indices
+                and index != pickup_index
+                and math.isfinite(distance)
+                and distance > 1.0
             ]
             if not reachable:
                 continue
