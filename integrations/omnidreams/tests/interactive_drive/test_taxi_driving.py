@@ -9,7 +9,10 @@ import pytest
 from omnidreams.interactive_drive import cli
 from omnidreams.interactive_drive.cli import build_parser
 from omnidreams.interactive_drive.config import VehicleConfig
-from omnidreams.interactive_drive.crazy_robotaxi.app import taxi_config_from_args
+from omnidreams.interactive_drive.crazy_robotaxi.app import (
+    CrazyRobotaxiApplication,
+    taxi_config_from_args,
+)
 from omnidreams.interactive_drive.crazy_robotaxi.driving import (
     TaxiVehicleConfig,
     integrate_taxi_vehicle,
@@ -57,6 +60,33 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
     assert taxi_config.enabled is True
     assert taxi_config.traffic_density == pytest.approx(0.25)
     assert taxi_config.vehicle.actor_collision_enabled is True
+
+
+def test_taxi_alignment_diagnostics_forces_physics_snapshots() -> None:
+    args = build_parser().parse_args(
+        ["--taxi-game", "--taxi-alignment-diagnostics", "diagnostics"]
+    )
+
+    taxi_config = taxi_config_from_args(args)
+
+    assert taxi_config.alignment_diagnostics_enabled is True
+
+
+def test_taxi_rollout_aligns_model_frame_zero_with_initial_pose() -> None:
+    config = TaxiGameConfig(enabled=True)
+    application = CrazyRobotaxiApplication(
+        config,
+        CrazyRobotaxiKeyboardState(),
+        presenter_config=None,
+    )
+
+    rollout = application.rollout_spec(
+        object(),  # type: ignore[arg-type]
+        default_vehicle=VehicleConfig(),
+        default_visual_flare_enabled=True,
+    )
+
+    assert rollout.include_initial_state_in_first_chunk is True
 
 
 def test_taxi_brake_enters_reverse_while_base_brake_does_not() -> None:

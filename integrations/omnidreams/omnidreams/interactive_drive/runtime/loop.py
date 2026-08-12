@@ -161,6 +161,8 @@ class LoopConfig:
     # so consuming chunks 0..N yields N traced chunks (1..N).
     stop_after_consumed_chunks: int | None = None
     visual_flare_enabled: bool = True
+    capture_physics_debug: bool = False
+    """Whether to capture PhysX geometry independently of the selected view."""
 
 
 # OOB overlay strings, module-level so the HUD can match on them for styling.
@@ -211,7 +213,7 @@ def make_chunk_request(
     chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
     set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
     if callable(set_physx_debug_enabled):
-        set_physx_debug_enabled(view_mode == "physx")
+        set_physx_debug_enabled(view_mode == "physx" or config.capture_physics_debug)
     trajectory = simulation.pose_chunk(
         command=command,
         chunk_size=chunk_size,

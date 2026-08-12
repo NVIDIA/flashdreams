@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -28,6 +29,9 @@ from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.crazy_robotaxi.driving import (
     integrate_taxi_vehicle,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.frame_alignment import (
+    CausalFrameAlignmentPresenter,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameConfig,
@@ -153,6 +157,8 @@ class CrazyRobotaxiApplication:
             physics_step_fn=step_taxi_physics_world,
             visual_flare_enabled=False,
             ground_snapper=self._ground_snapper,
+            capture_physics_debug=self._config.alignment_diagnostics_enabled,
+            include_initial_state_in_first_chunk=True,
         )
 
     def create_runtime(
@@ -183,10 +189,27 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
         backend: RenderBackend,
         presenter: Any | None = None,
         *,
+        alignment_diagnostics_root: Path | None = None,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
     ) -> None:
         keyboard = CrazyRobotaxiKeyboardState()
+        if alignment_diagnostics_root is not None:
+            from omnidreams.interactive_drive.crazy_robotaxi.alignment_diagnostics import (
+                AlignmentDiagnosticPresenter,
+            )
+
+            if presenter is None:
+                from omnidreams.interactive_drive.presenter import SlangPyPresenter
+
+                presenter = SlangPyPresenter(config.raster, keyboard)
+            presenter = AlignmentDiagnosticPresenter(
+                presenter,
+                alignment_diagnostics_root,
+            )
+            logger.info(
+                f"[crazy-robotaxi] alignment diagnostics -> {presenter.output_dir}"
+            )
         super().__init__(
             config=config,
             backend=backend,
@@ -196,6 +219,7 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             keyboard=keyboard,
             application=CrazyRobotaxiApplication(taxi_config, keyboard, config.bev),
         )
+        self._presenter = CausalFrameAlignmentPresenter(self._presenter)
 
 
 def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
@@ -210,6 +234,9 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
         traffic_density=float(args.traffic_density),
         seed=None if args.taxi_seed is None else int(args.taxi_seed),
         high_scores_path=high_scores_path,
+        alignment_diagnostics_enabled=(
+            getattr(args, "taxi_alignment_diagnostics", None) is not None
+        ),
     )
 
 

@@ -848,6 +848,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         presenter=presenter,
         close_presenter_on_exit=False,
     )
+    presenter = getattr(app, "presenter", presenter)
     presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
     presenter.set_postprocess_control(
         preset=config.postprocess.preset,
@@ -1030,6 +1031,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter=presenter,
         close_presenter_on_exit=False,
     )
+    presenter = getattr(app, "presenter", presenter)
     presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
 
     if args.preload_scenes:
@@ -1123,6 +1125,9 @@ def _build_application(
             taxi_config=taxi_config_from_args(args),
             backend=backend,
             presenter=presenter,
+            alignment_diagnostics_root=getattr(
+                args, "taxi_alignment_diagnostics", None
+            ),
             close_presenter_on_exit=close_presenter_on_exit,
         )
     return InteractiveDriveApp(

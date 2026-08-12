@@ -60,6 +60,56 @@ def test_pose_chunk_advances_state_to_chunk_boundary() -> None:
     assert simulation.current_state.speed_mps > 0.0
 
 
+def test_pose_chunk_can_align_first_frame_with_rollout_initial_state() -> None:
+    initial = _initial_state()
+    simulation = EgoVehicleKinematics(
+        initial_state=initial,
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        initial_timestamp_us=123,
+        include_initial_state_in_first_chunk=True,
+    )
+    command = DriverCommand(throttle=1.0)
+
+    first = simulation.pose_chunk(
+        command=command,
+        chunk_size=5,
+        frame_interval_s=1.0 / 30.0,
+        extrapolation_offset_s=0.0,
+    )
+    second = simulation.pose_chunk(
+        command=command,
+        chunk_size=2,
+        frame_interval_s=1.0 / 30.0,
+        extrapolation_offset_s=0.0,
+    )
+
+    assert first.timestamps_us[0] == 123
+    assert first.vehicle_states[0] == initial
+    assert first.vehicle_states[1].speed_mps > 0.0
+    assert (
+        second.vehicle_states[0].speed_mps > first.boundary_state_after_chunk.speed_mps
+    )
+
+
+def test_pose_chunk_default_still_simulates_before_first_frame() -> None:
+    simulation = EgoVehicleKinematics(
+        initial_state=_initial_state(),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        initial_timestamp_us=0,
+    )
+
+    chunk = simulation.pose_chunk(
+        command=DriverCommand(throttle=1.0),
+        chunk_size=1,
+        frame_interval_s=1.0 / 30.0,
+        extrapolation_offset_s=0.0,
+    )
+
+    assert chunk.vehicle_states[0].speed_mps > 0.0
+
+
 def test_pose_chunk_chains_across_calls() -> None:
     """Successive ``pose_chunk`` calls start from the previous boundary state.
 
