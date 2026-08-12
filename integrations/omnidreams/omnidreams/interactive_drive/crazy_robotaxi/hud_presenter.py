@@ -121,6 +121,34 @@ _DEFAULT_EGO_DIMENSIONS_LWH = (
 )
 
 
+def _bev_contain_geometry(
+    source_size: tuple[int, int],
+    target_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Fit a BEV source inside a target without cropping it.
+
+    Args:
+        source_size: Source width and height.
+        target_size: Target width and height.
+
+    Returns:
+        Scaled width, scaled height, horizontal offset, and vertical offset.
+    """
+    source_w, source_h = source_size
+    target_w, target_h = target_size
+    if min(source_w, source_h, target_w, target_h) <= 0:
+        return 0, 0, 0, 0
+    scale = min(target_w / float(source_w), target_h / float(source_h))
+    scaled_w = max(1, min(target_w, round(source_w * scale)))
+    scaled_h = max(1, min(target_h, round(source_h * scale)))
+    return (
+        scaled_w,
+        scaled_h,
+        (target_w - scaled_w) // 2,
+        (target_h - scaled_h) // 2,
+    )
+
+
 def _bev_ego_footprint_points(
     dimensions_lwh: object,
     viewport: tuple[int, int, int, int],
@@ -148,11 +176,12 @@ def _bev_ego_footprint_points(
     source_cx = float(bev.width) * 0.5
     source_cy = float(bev.height) * 0.5
 
-    # The BEV image is cover-fitted into the HUD panel; mirror the resize and
-    # centre-crop performed by ``_build_bev_panel_image``.
-    scale = max(target_w / float(bev.width), target_h / float(bev.height))
-    crop_x = (float(bev.width) * scale - target_w) * 0.5
-    crop_y = (float(bev.height) * scale - target_h) * 0.5
+    scaled_w, scaled_h, offset_x, offset_y = _bev_contain_geometry(
+        (bev.width, bev.height), (target_w, target_h)
+    )
+    if scaled_w <= 0 or scaled_h <= 0:
+        return None
+    scale = scaled_w / float(bev.width)
 
     def project(x_m: float, y_m: float) -> tuple[int, int]:
         # Rig forward is map-up and rig left is map-left. The BEV source is
@@ -161,8 +190,8 @@ def _bev_ego_footprint_points(
         source_x = source_cx - y_m / metres_per_source_pixel
         source_y = source_cy - x_m / metres_per_source_pixel
         return (
-            round(left + source_x * scale - crop_x),
-            round(top + source_y * scale - crop_y),
+            round(left + offset_x + source_x * scale),
+            round(top + offset_y + source_y * scale),
         )
 
     half_l, half_w = length_m * 0.5, width_m * 0.5
@@ -201,16 +230,13 @@ def _build_bev_panel_image(
     bev_rgb = _as_rgb_host_uint8(bev_source)
     bev = Image.fromarray(bev_rgb, mode="RGB")
     target_w, target_h = target_size
-    scale = max(target_w / bev.width, target_h / bev.height)
-    scaled_w = max(1, int(bev.width * scale))
-    scaled_h = max(1, int(bev.height * scale))
-    scaled = bev.resize((scaled_w, scaled_h), Image.Resampling.BILINEAR)
-    crop_left = (scaled_w - target_w) // 2
-    crop_top = (scaled_h - target_h) // 2
-    cropped = scaled.crop(
-        (crop_left, crop_top, crop_left + target_w, crop_top + target_h)
+    scaled_w, scaled_h, offset_x, offset_y = _bev_contain_geometry(
+        bev.size, target_size
     )
-    return key, apply_filter(cropped)
+    scaled = bev.resize((scaled_w, scaled_h), Image.Resampling.BILINEAR)
+    panel = Image.new("RGB", target_size, GMAPS_LAND_RGB)
+    panel.paste(apply_filter(scaled), (offset_x, offset_y))
+    return key, panel
 
 
 class _LRUCache(OrderedDict):
@@ -2480,8 +2506,20 @@ class SlangPyHudPresenter:
         if panel_image is not None:
             canvas.paste(panel_image, (inner[0], inner[1]))
 
+        bev = self._bev_config
+        if bev is None:
+            return
+        scaled_w, scaled_h, offset_x, offset_y = _bev_contain_geometry(
+            (bev.width, bev.height), (inner_w, inner_h)
+        )
+        content_rect = (
+            inner[0] + offset_x,
+            inner[1] + offset_y,
+            inner[0] + offset_x + scaled_w,
+            inner[1] + offset_y + scaled_h,
+        )
         marker_size = max(10, min(inner_w, inner_h) // 14)
-        self._draw_bev_taxi_target(draw, inner, inner_w, inner_h, marker_size)
+        self._draw_bev_taxi_target(draw, content_rect, marker_size)
 
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
         # Physics snapshots are captured only while the optional PhysX debug
@@ -2490,14 +2528,12 @@ class SlangPyHudPresenter:
         # snapshot supplies its dimensions.
         if ego_dimensions is None:
             ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
-        self._draw_bev_ego_footprint(draw, inner, ego_dimensions, self._bev_config)
+        self._draw_bev_ego_footprint(draw, content_rect, ego_dimensions, bev)
 
     def _draw_bev_taxi_target(
         self,
         draw: ImageDraw.ImageDraw,
-        inner: tuple[int, int, int, int],
-        inner_w: int,
-        inner_h: int,
+        content_rect: tuple[int, int, int, int],
         marker_size: int,
     ) -> None:
         frame = getattr(self, "_latest_presented_frame", None)
@@ -2508,11 +2544,11 @@ class SlangPyHudPresenter:
         bev_pose = frame.bev_rig_to_world
         if bev_pose is None or snapshot is None or bev is None or not bev.enabled:
             return
-        scale = max(inner_w / float(bev.width), inner_h / float(bev.height))
-        scaled_w = float(bev.width) * scale
-        scaled_h = float(bev.height) * scale
-        crop_left = (scaled_w - inner_w) / 2.0
-        crop_top = (scaled_h - inner_h) / 2.0
+        left, top, right, bottom = content_rect
+        content_w = right - left
+        content_h = bottom - top
+        if content_w <= 0 or content_h <= 0:
+            return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)
         targets = (
@@ -2524,10 +2560,8 @@ class SlangPyHudPresenter:
             u, v, visible = project_target_pose_to_bev(target, bev_pose, bev)
             if not visible:
                 continue
-            cx = int(inner[0] + u * scaled_w - crop_left)
-            cy = int(inner[1] + v * scaled_h - crop_top)
-            if not (inner[0] <= cx <= inner[2] and inner[1] <= cy <= inner[3]):
-                continue
+            cx = round(left + u * content_w)
+            cy = round(top + v * content_h)
             draw.ellipse(
                 (
                     cx - radius - 3,

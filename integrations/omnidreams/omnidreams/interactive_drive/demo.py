@@ -738,6 +738,8 @@ def _coerce_launch_path(key: str, value: object) -> object:
 def _run_namespace(args: argparse.Namespace) -> None:
     """Execute one already-resolved local-window namespace."""
     configure_logging()
+    args = build_parser().parse_args()
+    _validate_presenter_mode(args)
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a
@@ -761,6 +763,16 @@ def _run_namespace(args: argparse.Namespace) -> None:
         return
 
     _run_slangpy_hud(args)
+
+
+def _validate_presenter_mode(args: argparse.Namespace) -> None:
+    """Reject Taxi mode when no overlay-capable presenter was selected."""
+    if args.taxi_game and args.no_hud and args.stream_mjpeg is None:
+        raise SystemExit(
+            "--taxi-game cannot be combined with bare --no-hud mode because "
+            "that window has no Taxi or BEV overlays. Omit --no-hud for the "
+            "native Taxi HUD, or add --stream-mjpeg PORT for the browser HUD."
+        )
 
 
 def _run_slangpy_hud(args: argparse.Namespace) -> None:

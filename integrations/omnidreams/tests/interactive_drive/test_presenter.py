@@ -11,9 +11,15 @@ import numpy as np
 import pytest
 import torch
 from omnidreams.interactive_drive.config import BevConfig
-from omnidreams.interactive_drive.crazy_robotaxi.game import TaxiGameSnapshot
+from omnidreams.interactive_drive.crazy_robotaxi.game import (
+    TaxiGameSnapshot,
+    TaxiPhase,
+)
 from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
     SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
+    _build_bev_panel_image as _build_taxi_bev_panel_image,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
@@ -778,6 +784,85 @@ def test_hud_bev_panel_build_runs_outside_draw_path() -> None:
         assert panel.size == (4, 3)
     finally:
         presenter._bev_panel_exec.shutdown(wait=True, cancel_futures=True)
+
+
+def test_taxi_hud_bev_panel_preserves_the_complete_source_image() -> None:
+    source = np.full((10, 10, 3), 255, dtype=np.uint8)
+
+    _key, panel = _build_taxi_bev_panel_image(
+        (0, 0, 20, 10), source, (20, 10), lambda image: image
+    )
+
+    pixels = np.asarray(panel)
+    assert np.all(pixels[:, 5:15] == 255)
+    assert np.all(pixels[:, :5] != 255)
+    assert np.all(pixels[:, 15:] != 255)
+
+
+@pytest.mark.parametrize(
+    ("phase", "marker_color"),
+    [
+        ("seeking_pickup", (118, 185, 0, 255)),
+        ("to_dropoff", (200, 150, 50, 255)),
+    ],
+)
+def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
+    phase: TaxiPhase,
+    marker_color: tuple[int, int, int, int],
+) -> None:
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._bev_config = BevConfig(
+        width=64,
+        height=64,
+        height_m=15.0,
+        fov_deg=60.0,
+        tilt_deg=0.0,
+    )
+    snapshot = TaxiGameSnapshot(
+        phase=phase,
+        target_xyz_m=(5.0, 0.0, 0.0),
+        distance_m=5.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=6.0,
+        remaining_time_s=None,
+        score=0,
+        pickup_targets_xyz_m=((5.0, 0.0, 0.0),),
+    )
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        bev_rig_to_world=np.eye(4, dtype=np.float32),
+        application_state=snapshot,
+    )
+    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+    content_rect = (20, 10, 80, 70)
+
+    presenter._draw_bev_taxi_target(
+        ImageDraw.Draw(canvas), content_rect, marker_size=10
+    )
+
+    pixels = np.asarray(canvas)
+    marker_mask = np.all(pixels == marker_color, axis=-1)
+    assert np.any(marker_mask)
+
+    presenter._latest_presented_frame.application_state = TaxiGameSnapshot(
+        phase=phase,
+        target_xyz_m=(1000.0, 0.0, 0.0),
+        distance_m=1000.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=6.0,
+        remaining_time_s=None,
+        score=0,
+        pickup_targets_xyz_m=((1000.0, 0.0, 0.0),),
+    )
+    distant_canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+
+    presenter._draw_bev_taxi_target(
+        ImageDraw.Draw(distant_canvas), content_rect, marker_size=10
+    )
+
+    assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
 
 
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
