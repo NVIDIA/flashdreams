@@ -203,7 +203,8 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert snapshot["taxi"]["session_state"] == "playing"
     assert snapshot["taxi"]["high_score"] == 500
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
-    assert snapshot["taxi"]["bev_target"]["visible"] is True
+    assert len(snapshot["taxi"]["bev_targets"]) == 1
+    assert snapshot["taxi"]["bev_targets"][0]["visible"] is True
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
