@@ -192,3 +192,189 @@ def actors_to_cube_pool(
     return dynamic_state_to_ludus_cube_pool(
         {"actors": actor_dicts}, frame_timestamps_us, device
     )
+
+
+## Template-based spawning (cloned real perception tracks)
+
+
+@dataclass
+class TrackTemplate:
+    """A real scene-actor track extracted for cloning.
+
+    Synthesized preset boxes are ignored by the model (both the distilled
+    student and the 35-step teacher — mask-verified 2026-08-11), while a
+    bit-for-bit clone of a real perception track materializes. Templates
+    carry everything the model may key on: per-frame jitter, real
+    dimensions, orientation, z, and the source pool's colors and render
+    flags.
+    """
+
+    timestamps_us: torch.Tensor
+    """``[n]`` original per-sample timestamps."""
+
+    translations: torch.Tensor
+    """``[n, 3]`` world positions (with the source's per-frame jitter)."""
+
+    quaternions: torch.Tensor
+    """``[n, 4]`` world orientations."""
+
+    scale: torch.Tensor
+    """``[1, 3]`` bbox dimensions."""
+
+    colors: torch.Tensor
+    """``[1, 6]`` front/back face colors."""
+
+    prim_type_id: int
+    render_flags: int
+    source_fwd_m: float
+    source_lateral_m: float
+
+
+def _pool_track_slices(pool: CubePool) -> list[tuple[int, int]]:
+    """Per-track (start, end) ranges into a pool's concatenated arrays."""
+    prefix = pool.cube_ts_prefix_sum.cpu().numpy()
+    starts = np.concatenate([[0], prefix[:-1]])
+    return [(int(a), int(b)) for a, b in zip(starts, prefix)]
+
+
+def _ego_frame(ego_pose: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(origin_xy, forward_xy, left_xy) of the ego ground frame."""
+    ego_pose = np.asarray(ego_pose, dtype=np.float64)
+    forward = ego_pose[:3, 0].copy()
+    forward[2] = 0.0
+    forward /= np.linalg.norm(forward)
+    left = np.array([-forward[1], forward[0]])
+    return ego_pose[:2, 3], forward[:2], left
+
+
+def extract_parked_templates(
+    pools: list[CubePool],
+    *,
+    ego_pose: np.ndarray,
+    t0_us: int,
+    min_coverage_s: float = 5.5,
+    length_range: tuple[float, float] = (3.4, 5.6),
+    max_drift_m: float = 1.5,
+) -> list[TrackTemplate]:
+    """Extract parked car-sized tracks usable as spawn templates.
+
+    Tracks start at their first perception frame, so coverage is measured
+    from up to 1 s after ``t0_us``. Sorted nearest-to-ego first.
+    """
+    origin, forward, left = _ego_frame(ego_pose)
+    templates: list[tuple[float, TrackTemplate]] = []
+    for pool in pools:
+        scales = pool.scales.cpu().numpy()
+        for track_index, (a, b) in enumerate(_pool_track_slices(pool)):
+            ts = pool.track_timestamps_us[a:b].cpu().numpy()
+            if (
+                len(ts) < 8
+                or ts[0] > t0_us + 1_000_000
+                or ts[-1] < t0_us + int(min_coverage_s * 1e6)
+            ):
+                continue
+            length = float(scales[track_index].max())
+            if not length_range[0] <= length <= length_range[1]:
+                continue
+            tr = pool.translations[a:b].cpu().numpy()
+            if float(np.linalg.norm(tr[-1, :2] - tr[0, :2])) > max_drift_m:
+                continue
+            rel = tr[0, :2] - origin
+            template = TrackTemplate(
+                timestamps_us=pool.track_timestamps_us[a:b].clone(),
+                translations=pool.translations[a:b].clone(),
+                quaternions=pool.quaternions[a:b].clone(),
+                scale=pool.scales[track_index : track_index + 1].clone(),
+                colors=pool.colors[track_index : track_index + 1].clone(),
+                prim_type_id=pool.prim_type_id,
+                render_flags=pool.render_flags,
+                source_fwd_m=float(rel @ forward),
+                source_lateral_m=float(rel @ left),
+            )
+            templates.append((float(np.linalg.norm(rel)), template))
+    templates.sort(key=lambda item: item[0])
+    return [template for _, template in templates]
+
+
+def find_empty_gap(
+    pools: list[CubePool],
+    *,
+    ego_pose: np.ndarray,
+    lateral_m: float,
+    fwd_range: tuple[float, float] = (20.0, 65.0),
+    lane_halfwidth_m: float = 2.0,
+    clearance_m: float = 1.5,
+) -> tuple[float, float]:
+    """Center and width of the largest actor-free forward gap on a lateral line."""
+    origin, forward, left = _ego_frame(ego_pose)
+    occupied: list[tuple[float, float]] = []
+    for pool in pools:
+        scales = pool.scales.cpu().numpy()
+        for track_index, (a, b) in enumerate(_pool_track_slices(pool)):
+            rel = pool.translations[a].cpu().numpy()[:2] - origin
+            if abs(float(rel @ left) - lateral_m) > lane_halfwidth_m:
+                continue
+            half = float(scales[track_index].max()) / 2 + clearance_m
+            fwd = float(rel @ forward)
+            occupied.append((fwd - half, fwd + half))
+    occupied.sort()
+    lo_bound, hi_bound = fwd_range
+    best_center, best_width = (lo_bound + hi_bound) / 2, 0.0
+    cursor = lo_bound
+    spans = [s for s in occupied if s[1] > lo_bound and s[0] < hi_bound]
+    for lo, hi in spans + [(hi_bound, hi_bound)]:
+        width = min(lo, hi_bound) - cursor
+        if width > best_width:
+            best_width, best_center = width, cursor + width / 2
+        cursor = max(cursor, hi)
+    return best_center, best_width
+
+
+def clone_template_pool(
+    placements: list[tuple[TrackTemplate, float, float]],
+    *,
+    ego_pose: np.ndarray,
+) -> CubePool:
+    """Merged CubePool of templates rigidly moved to (fwd, lateral) targets.
+
+    Each template keeps its per-frame jitter, orientation, z, dimensions,
+    colors, and render flags; only its ground-plane position changes.
+    """
+    assert placements, "clone_template_pool needs at least one placement"
+    origin, forward, left = _ego_frame(ego_pose)
+    device = placements[0][0].translations.device
+    track_ts, translations, quaternions, scales, colors, lengths = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    for template, fwd_m, lateral_m in placements:
+        target = origin + forward * fwd_m + left * lateral_m
+        src0 = template.translations[0].cpu().numpy()[:2]
+        shift = target - src0
+        moved = template.translations.clone()
+        moved[:, 0] += float(shift[0])
+        moved[:, 1] += float(shift[1])
+        track_ts.append(template.timestamps_us)
+        translations.append(moved)
+        quaternions.append(template.quaternions)
+        scales.append(template.scale)
+        colors.append(template.colors)
+        lengths.append(template.timestamps_us.shape[0])
+    all_ts = torch.cat(track_ts)
+    return CubePool(
+        timestamps_us=torch.unique(all_ts).sort()[0],
+        cube_ts_prefix_sum=torch.cumsum(
+            torch.tensor(lengths, dtype=torch.int32, device=device), dim=0
+        ).to(torch.int32),
+        track_timestamps_us=all_ts,
+        translations=torch.cat(translations),
+        quaternions=torch.cat(quaternions),
+        scales=torch.cat(scales),
+        colors=torch.cat(colors),
+        prim_type_id=placements[0][0].prim_type_id,
+        render_flags=placements[0][0].render_flags,
+    )

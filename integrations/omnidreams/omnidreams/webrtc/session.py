@@ -47,7 +47,11 @@ from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc.actors import (
     ACTOR_PRESETS,
     SpawnedActor,
+    TrackTemplate,
     actors_to_cube_pool,
+    clone_template_pool,
+    extract_parked_templates,
+    find_empty_gap,
     spawn_actor_ahead,
 )
 
@@ -532,6 +536,8 @@ class OmnidreamsInferenceRuntime:
         self._initial_prompt: str | None = None
         self._active_prompt: str | None = None
         self._spawned_actors: list[SpawnedActor] = []
+        self._template_placements: list[tuple[TrackTemplate, float, float]] = []
+        self._templates_cache: list[TrackTemplate] | None = None
         self._last_ego_pose: np.ndarray | None = None
         self._camera_to_rig: torch.Tensor | None = None
         self._initial_ego_pose: np.ndarray | None = None
@@ -762,6 +768,72 @@ class OmnidreamsInferenceRuntime:
         )
         return {"prompt": prompt, "applied": "immediate"}
 
+    def _spawn_template_sync(
+        self, args: list[str], command: str
+    ) -> dict[str, str | None]:
+        """``/spawnt <fwd_m|auto> [lateral_m] [template_idx]``.
+
+        Clones a real parked-vehicle track from the scene (dimensions,
+        orientation, per-frame jitter, colors) and places it at the target.
+        ``auto`` picks the largest actor-free forward gap on the lateral
+        line. Placements are anchored to the session's initial ego pose.
+        """
+        if (
+            self._renderer is None
+            or self._initial_ego_pose is None
+            or self._scene_data is None
+        ):
+            raise OmnidreamsRuntimeError("Scene state is not initialized.")
+        pools = list(self._renderer._base_timestamped_scene.cube_pools or [])
+        if self._templates_cache is None:
+            self._templates_cache = extract_parked_templates(
+                pools,
+                ego_pose=self._initial_ego_pose,
+                t0_us=int(self._scene_data.ego_poses[0].timestamp),
+            )
+        templates = self._templates_cache
+        if not templates:
+            raise OmnidreamsRuntimeError("No parked-vehicle templates in this scene.")
+
+        try:
+            template_idx = int(args[2]) if len(args) > 2 else 0
+            template = templates[template_idx % len(templates)]
+            lateral_m = float(args[1]) if len(args) > 1 else template.source_lateral_m
+            if not args or args[0].lower() == "auto":
+                fwd_m, gap = find_empty_gap(
+                    pools, ego_pose=self._initial_ego_pose, lateral_m=lateral_m
+                )
+                if gap < float(template.scale.max()) + 2.0:
+                    raise OmnidreamsRuntimeError(
+                        f"No free gap on lateral {lateral_m:.1f} m "
+                        f"(largest {gap:.1f} m)."
+                    )
+            else:
+                fwd_m = float(args[0])
+        except (ValueError, IndexError) as exc:
+            raise OmnidreamsRuntimeError(
+                f"Bad arguments in {command!r}: {exc}. Use "
+                "/spawnt <fwd_m|auto> [lateral_m] [template_idx]"
+            ) from exc
+
+        self._template_placements.append((template, fwd_m, lateral_m))
+        logger.info(
+            "Template-spawned clone (template {} of {}) at fwd {:.1f} m, "
+            "lateral {:.1f} m; {} active.",
+            template_idx % len(templates),
+            len(templates),
+            fwd_m,
+            lateral_m,
+            len(self._template_placements),
+        )
+        return {
+            "prompt": None,
+            "applied": (
+                f"cloned template at {fwd_m:.1f}m fwd, {lateral_m:.1f}m lateral "
+                f"({len(self._template_placements)} active)"
+            ),
+        }
+
     def _handle_actor_command_sync(self, command: str) -> dict[str, str | None]:
         """``/spawn <preset> [dist] [speed] [lateral]`` and ``/clear-actors``.
 
@@ -774,9 +846,13 @@ class OmnidreamsInferenceRuntime:
         name = parts[0].lower() if parts else ""
 
         if name in {"clear-actors", "clear_actors", "despawn", "clear"}:
-            cleared = len(self._spawned_actors)
+            cleared = len(self._spawned_actors) + len(self._template_placements)
             self._spawned_actors.clear()
+            self._template_placements.clear()
             return {"prompt": None, "applied": f"cleared {cleared} actors"}
+
+        if name == "spawnt":
+            return self._spawn_template_sync(parts[1:], command)
 
         if name != "spawn":
             raise OmnidreamsRuntimeError(
@@ -1098,6 +1174,7 @@ class OmnidreamsInferenceRuntime:
             self._text_prompts = [TextPrompt(positive=self._initial_prompt)]
             self._active_prompt = self._initial_prompt
         self._spawned_actors = []
+        self._template_placements = []
         self._last_ego_pose = None
 
     def _close_sync(self) -> None:
@@ -1219,6 +1296,14 @@ class OmnidreamsInferenceRuntime:
         if self._spawned_actors:
             dynamic_actor_pool = actors_to_cube_pool(
                 self._spawned_actors, frame_timestamps_us, self._device
+            )
+        if self._template_placements:
+            # Cloned real tracks materialize where synthetic presets do not
+            # (2026-08-11 finding); template placements take precedence when
+            # both kinds are active.
+            assert self._initial_ego_pose is not None
+            dynamic_actor_pool = clone_template_pool(
+                self._template_placements, ego_pose=self._initial_ego_pose
             )
 
         camera_names = [self.config.camera_name]

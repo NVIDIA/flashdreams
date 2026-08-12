@@ -19,10 +19,15 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
+from ludus_renderer import CubePool
 from omnidreams.webrtc.actors import (
     ACTOR_PRESETS,
     RIG_HEIGHT_M,
     actors_to_cube_pool,
+    clone_template_pool,
+    extract_parked_templates,
+    find_empty_gap,
     spawn_actor_ahead,
 )
 from scipy.spatial.transform import Rotation
@@ -131,3 +136,108 @@ def test_pool_positions_track_constant_velocity():
     translations = pool.translations.cpu().numpy()
     np.testing.assert_allclose(translations[0][0], 10.0, atol=1e-4)
     np.testing.assert_allclose(translations[1][0], 13.0, atol=1e-4)
+
+
+def _scene_pool(tracks: list[dict]) -> CubePool:
+    """Synthetic CubePool from per-track specs (xy, n, t0_s, length, drift)."""
+    track_ts, translations, quaternions, scales, colors, lengths = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    for track in tracks:
+        n = track.get("n", 12)
+        t0 = track.get("t0_s", 0.0)
+        ts = torch.tensor(
+            [int((t0 + 0.5 * i) * 1e6) for i in range(n)], dtype=torch.int64
+        )
+        xy = np.asarray(track["xy"], dtype=np.float64)
+        drift = track.get("drift", 0.0)
+        pos = torch.tensor(
+            [[xy[0] + drift * i / max(n - 1, 1), xy[1], 0.7] for i in range(n)],
+            dtype=torch.float64,
+        )
+        # Deterministic sub-centimeter jitter, like real perception tracks.
+        pos[:, 0] += 0.01 * torch.sin(torch.arange(n, dtype=torch.float64))
+        length = track.get("length", 4.5)
+        track_ts.append(ts)
+        translations.append(pos)
+        quaternions.append(
+            torch.tensor([[0.0, 0.0, 0.2, 0.98]]).repeat(n, 1).to(torch.float64)
+        )
+        scales.append(torch.tensor([[length, 1.9, 1.5]], dtype=torch.float64))
+        colors.append(torch.rand(1, 6, dtype=torch.float64))
+        lengths.append(n)
+    all_ts = torch.cat(track_ts)
+    return CubePool(
+        timestamps_us=torch.unique(all_ts).sort()[0],
+        cube_ts_prefix_sum=torch.cumsum(
+            torch.tensor(lengths, dtype=torch.int32), dim=0
+        ).to(torch.int32),
+        track_timestamps_us=all_ts,
+        translations=torch.cat(translations),
+        quaternions=torch.cat(quaternions),
+        scales=torch.cat(scales),
+        colors=torch.cat(colors),
+    )
+
+
+def test_extract_templates_filters_and_sorts_by_distance():
+    pool = _scene_pool(
+        [
+            {"xy": (40.0, -7.0)},  # good, farther
+            {"xy": (15.0, -7.0)},  # good, nearest -> first
+            {"xy": (20.0, -7.0), "drift": 4.0},  # moving: rejected
+            {"xy": (25.0, -7.0), "n": 4},  # short coverage: rejected
+            {"xy": (30.0, -7.0), "length": 8.0},  # truck-sized: rejected
+            {"xy": (35.0, -7.0), "t0_s": 2.0},  # starts too late: rejected
+        ]
+    )
+    templates = extract_parked_templates([pool], ego_pose=_ego_pose(), t0_us=0)
+    assert [t.source_fwd_m for t in templates] == pytest.approx([15.0, 40.0], abs=0.05)
+    assert templates[0].source_lateral_m == pytest.approx(-7.0, abs=0.05)
+    assert templates[0].translations.shape == (12, 3)
+
+
+def test_find_empty_gap_targets_largest_free_span():
+    pool = _scene_pool([{"xy": (25.0, -7.0)}, {"xy": (40.0, -7.2)}])
+    center, width = find_empty_gap(
+        [pool], ego_pose=_ego_pose(), lateral_m=-7.0, fwd_range=(20.0, 65.0)
+    )
+    # Occupied: 25 and 40, each +-(4.5/2 + 1.5) -> largest gap is (43.75, 65).
+    assert center == pytest.approx((43.75 + 65.0) / 2, abs=0.05)
+    assert width == pytest.approx(65.0 - 43.75, abs=0.05)
+
+    # Actors on other lateral lines do not shrink the gap.
+    _, full_width = find_empty_gap(
+        [pool], ego_pose=_ego_pose(), lateral_m=7.0, fwd_range=(20.0, 65.0)
+    )
+    assert full_width == pytest.approx(45.0, abs=1e-6)
+
+
+def test_clone_template_pool_moves_rigidly_and_preserves_track():
+    ego = _ego_pose(x=3.0, y=-2.0, yaw_deg=90.0)  # forward +y, left -x
+    source = _scene_pool([{"xy": (10.0, 30.0)}])
+    (template,) = extract_parked_templates([source], ego_pose=ego, t0_us=0)
+
+    pool = clone_template_pool([(template, 30.0, -7.0)], ego_pose=ego)
+    first = pool.translations[0].cpu().numpy()
+    np.testing.assert_allclose(first[:2], [3.0 + 7.0, -2.0 + 30.0], atol=1e-6)
+    # Rigid shift: per-frame jitter, z, orientation, size, colors all survive.
+    np.testing.assert_allclose(
+        (pool.translations - pool.translations[0]).cpu().numpy(),
+        (template.translations - template.translations[0]).cpu().numpy(),
+        atol=1e-9,
+    )
+    assert torch.equal(pool.quaternions, template.quaternions)
+    assert torch.equal(pool.scales, template.scale)
+    assert torch.equal(pool.colors, template.colors)
+
+    two = clone_template_pool(
+        [(template, 30.0, -7.0), (template, 40.0, -7.0)], ego_pose=ego
+    )
+    assert two.cube_ts_prefix_sum.cpu().tolist() == [12, 24]
+    assert two.scales.shape[0] == 2

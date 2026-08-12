@@ -93,7 +93,12 @@ def main() -> None:
     t = 0.0
     for ar_idx in range(N_CHUNKS):
         if ar_idx == SPAWN_AT:
-            print(runtime._trigger_event_sync(event_id=SPAWN_CMD, state="trigger"))
+            for command in SPAWN_CMD.split(";"):
+                print(
+                    runtime._trigger_event_sync(
+                        event_id=command.strip(), state="trigger"
+                    )
+                )
             if EDIT_PROMPT:
                 print(
                     runtime._trigger_event_sync(event_id=EDIT_PROMPT, state="trigger")
