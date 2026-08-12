@@ -47,6 +47,7 @@ from omnidreams.interactive_drive.crazy_robotaxi.scene import (
     load_scene_data,
 )
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
+from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.types import (
     SceneBundle,
     TrajectoryChunk,
@@ -109,6 +110,7 @@ class CrazyRobotaxiApplication:
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
         self._ground_snapper: GroundSnapper | None = None
+        self._map_bounds: MapBounds | None = None
 
     def configure_presenter(self, presenter: Any) -> None:
         """Configure application presentation before scene loading."""
@@ -116,12 +118,13 @@ class CrazyRobotaxiApplication:
         if callable(configure):
             configure(self._presenter_config)
 
-    def load_scene(self, scene: SceneBundle) -> None:
+    def load_scene(self, scene: SceneBundle, map_bounds: MapBounds | None) -> None:
         """Accept scene data already loaded by Interactive Drive."""
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
         self._ground_snapper = _build_taxi_ground_snapper(scene)
+        self._map_bounds = map_bounds
 
     def configure_scene_presenter(self, presenter: Any, scene: SceneBundle) -> None:
         """Publish camera calibration to an application-aware presenter."""
@@ -165,6 +168,7 @@ class CrazyRobotaxiApplication:
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,
+            map_bounds=self._map_bounds,
         )
         return CrazyRobotaxiRuntime(controller, self._keyboard)
 

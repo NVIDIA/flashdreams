@@ -22,6 +22,7 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
 from omnidreams.interactive_drive.crazy_robotaxi.high_scores import HighScoreStore
 from omnidreams.interactive_drive.crazy_robotaxi.navigation import NavigationLane
 from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
+from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -261,6 +262,63 @@ def test_later_pickups_are_sampled_across_the_map() -> None:
     assert any(
         abs(pickup.relative_bearing_rad) > math.pi * 0.5 for pickup in later_pickups
     )
+
+
+def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
+    bounds = MapBounds(x_min=0.0, y_min=0.0, x_max=300.0, y_max=100.0)
+    controller = TaxiGameController(
+        scene_id="bounded-targets",
+        reference_route_world=np.asarray(
+            [[0.0, 50.0, 0.0], [300.0, 50.0, 0.0]], dtype=np.float32
+        ),
+        initial_state=_state(150.0, 50.0),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=10.0,
+            pickup_grid_spacing_m=20.0,
+            waypoint_edge_margin_m=40.0,
+        ),
+        map_bounds=bounds,
+    )
+
+    seeking = controller.snapshot(_state(150.0, 50.0))
+    assert seeking.pickup_targets_xyz_m
+    assert all(
+        40.0 <= target[0] <= 260.0 and 40.0 <= target[1] <= 60.0
+        for target in seeking.pickup_targets_xyz_m
+    )
+
+    pickup = seeking.target_xyz_m
+    controller.advance(_trajectory(pickup[:2]), 0.0)
+    dropoff = controller.snapshot(_state(*pickup[:2]))
+
+    assert dropoff.phase == "to_dropoff"
+    assert 40.0 <= dropoff.target_xyz_m[0] <= 260.0
+    assert 40.0 <= dropoff.target_xyz_m[1] <= 60.0
+
+
+def test_fare_completion_survives_no_directed_route_to_next_pickup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = _controller()
+    pickup = controller.snapshot(_state()).target_xyz_m
+    controller.advance(_trajectory(pickup[:2]), 0.0)
+    dropoff = controller.snapshot(_state(*pickup[:2])).target_xyz_m
+    monkeypatch.setattr(
+        controller._navigation,
+        "route_distances",
+        lambda _source, _waypoints: np.full(
+            len(controller._waypoints), np.inf, dtype=np.float64
+        ),
+    )
+
+    controller.advance(_trajectory(dropoff[:2]), 0.0)
+    seeking = controller.snapshot(_state(*dropoff[:2]))
+
+    assert seeking.phase == "seeking_pickup"
+    assert seeking.event == "fare_complete"
+    assert seeking.pickup_targets_xyz_m
 
 
 def test_every_published_pickup_can_start_a_fare() -> None:
