@@ -13,6 +13,7 @@ from omnidreams.interactive_drive.demo import (
     SceneOption,
     _materialize_synthetic_scene_for_picker,
     _resolve_scene_variant,
+    _validate_presenter_mode,
     build_parser,
 )
 
@@ -25,6 +26,21 @@ def test_auto_start_flag_and_deprecated_alias() -> None:
     # --autoload-scene is kept as a backward-compatible alias for --auto-start.
     assert parser.parse_args(["--autoload-scene"]).auto_start is True
     assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
+
+
+def test_bare_native_taxi_mode_is_rejected() -> None:
+    args = build_parser().parse_args(["--taxi-game", "--no-hud"])
+
+    with pytest.raises(SystemExit, match="has no Taxi or BEV overlays"):
+        _validate_presenter_mode(args)
+
+
+def test_browser_taxi_mode_may_imply_no_hud() -> None:
+    args = build_parser().parse_args(
+        ["--taxi-game", "--no-hud", "--stream-mjpeg", "8080"]
+    )
+
+    _validate_presenter_mode(args)
 
 
 def test_resolve_scene_variant_prefers_weather_archive_path_for_default(

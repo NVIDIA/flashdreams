@@ -350,6 +350,7 @@ class WorldModelRenderBackend(RenderBackend):
                     depth_native=raster_frame.depth_native,
                     model_rgb_host_uint8=model_rgb,
                     bev_host_uint8=raster_frame.bev_host_uint8,
+                    bev_rig_to_world=raster_frame.bev_rig_to_world,
                     physx_debug=raster_frame.physx_debug,
                     physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
                     status_message=(

@@ -286,7 +286,8 @@ Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
 road-valid pickups from the scene's car-lane centerlines (falling back to the
 recorded route when lane data is unavailable). Every valid pickup remains
 available, but the forward camera shows only the three nearest pickups that are
-currently inside its view; the BEV shows all pickups. The initial
+currently inside its view; the BEV draws every pickup that is inside its local
+map coverage and omits out-of-view targets. The initial
 direction-arrow target is constrained to project inside the starting camera
 view and preferably be no farther than 200 meters. Collecting any pickup
 randomly selects a reachable dropoff through the scene's directed car-lane
@@ -407,6 +408,10 @@ rest.
 This is the lighter-weight path that matches the older standalone
 `interactive-drive` script: a single Vulkan window for the omnidreams
 output, no HUD chrome, no scene selector.
+
+Because Taxi mode depends on its HUD and BEV overlays, ``--taxi-game`` cannot
+be combined with bare ``--no-hud`` mode. Omit ``--no-hud`` to use the native
+Taxi HUD, or add ``--stream-mjpeg PORT`` to use the browser HUD.
 
 ```bash
 uv run --package flashdreams-omnidreams interactive-drive --no-hud
