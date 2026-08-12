@@ -5,19 +5,19 @@
 export default {
   modelName: "Text-to-Video",
   async mount(context) {
-    const response = await fetch("/api/t2v/config")
+    const response = await fetch("/api/config")
     if (!response.ok) return
     const config = await response.json()
     const selected = config.backends?.find((backend) => backend.key === config.selected_backend)
     context.setModelName(selected?.label || config.selected_backend || "Text-to-Video")
   },
   promptGeneration: {
-    endpoint: "/api/t2v/prompt",
+    endpoint: "/api/prompt",
     label: "Describe the video",
     placeholder: "A cinematic drone shot over snowy mountains at sunrise",
     generateLabel: "Generate video",
-    downloadEndpoint: "/api/t2v/download",
-    playbackEndpoint: "/api/t2v/playback",
+    downloadEndpoint: "/api/download",
+    playbackEndpoint: "/api/playback",
     hideControls: true,
   },
 }

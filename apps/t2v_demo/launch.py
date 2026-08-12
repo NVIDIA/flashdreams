@@ -26,10 +26,11 @@ from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.demo_launch import DemoLaunchArguments
 from flashdreams.serving.launch import CallbackLaunchCapability, LaunchOptions
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
+from flashdreams.serving.webrtc.prompt_routes import configure_prompt_generation_routes
 from flashdreams.serving.webrtc.runtime import WebRTCSessionConfig
 
-from .app import T2VWebRTCSessionManager, _configure_app
-from .backends import resolve_backend
+from .app import T2VWebRTCSessionManager
+from .backends import backend_metadata, resolve_backend
 from .runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -138,8 +139,13 @@ def launch_t2v(
         session_manager=manager,
         app_resources=WebRTCAppResources(
             model_web_resource=files("t2v_demo").joinpath("web"),
-            configure_app=lambda app: _configure_app(
-                app, manager=manager, backend=config.backend
+            configure_app=lambda app: configure_prompt_generation_routes(
+                app,
+                manager=manager,
+                config={
+                    "backends": backend_metadata(),
+                    "selected_backend": config.backend,
+                },
             ),
             preload_name="FlashDreams T2V",
         ),

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from aiohttp import web
 
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
@@ -20,6 +21,7 @@ from flashdreams.serving.launch import (
     available_launch_modes,
     resolve_launch,
 )
+from flashdreams.serving.webrtc.prompt_routes import configure_prompt_generation_routes
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -91,6 +93,18 @@ def test_demo_launch_arguments_prefer_manifest_over_runner_and_defaults() -> Non
     assert args.host("0.0.0.0") == "127.0.0.1"
     assert args.port(8080) == 9000
     assert args.output("fps", 16) == 24
+
+
+def test_prompt_generation_routes_use_generic_api_paths() -> None:
+    app = web.Application()
+    configure_prompt_generation_routes(app, manager=SimpleNamespace())
+
+    assert {route.resource.canonical for route in app.router.routes()} == {
+        "/api/config",
+        "/api/prompt",
+        "/api/download",
+        "/api/playback",
+    }
 
 
 def test_lingbot_launch_rejects_unknown_integration_fields() -> None:
