@@ -3,7 +3,11 @@
 
 """Public demo application authoring API."""
 
-from flashdreams.demo.app import DemoApplication, run_replay_application
+from flashdreams.demo.app import (
+    DemoApplication,
+    create_demo_application,
+    run_replay_application,
+)
 from flashdreams.demo.application import (
     Application,
     ApplicationSession,
@@ -74,6 +78,7 @@ __all__ = [
     "WebRTCIOHandlerServer",
     "create_native_window_io_handler",
     "create_default_input_state_decoder_registry",
+    "create_demo_application",
     "create_replay_io_handler",
     "create_webrtc_io_handler",
     "input_state_from_window",

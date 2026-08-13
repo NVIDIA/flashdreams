@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from aiohttp import web
 
+from flashdreams.demo import Application, DemoAdapterApplication
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -195,6 +196,28 @@ def launch_t2v(
     )
 
 
+def create_app(config: "T2VDemoRunnerConfig | None" = None) -> Application:
+    """Create the default public T2V application without CLI parsing."""
+    from .runner import RUNNER_T2V
+
+    config = RUNNER_T2V if config is None else config
+    adapter = make_adapter(config.backend)
+    scenario = _scenario(config, {})
+    return DemoAdapterApplication(
+        adapter=adapter,
+        spec=_spec(
+            config,
+            adapter=adapter,
+            scenario=scenario,
+            input_mode="replay",
+            output=NullOutputSpec(),
+        ),
+    )
+
+
+createApp = create_app
+
+
 def _scenario(
     config: "T2VDemoRunnerConfig", overrides: dict[str, object]
 ) -> dict[str, object]:
@@ -342,4 +365,4 @@ def _configure_app(
     app.router.add_get("/api/t2v/playback", playback)
 
 
-__all__ = ["T2VWebRTCSessionManager", "launch_t2v"]
+__all__ = ["T2VWebRTCSessionManager", "createApp", "create_app", "launch_t2v"]

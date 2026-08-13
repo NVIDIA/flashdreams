@@ -15,6 +15,9 @@ dependencies = ["flashdreams[serving]"]
 [project.entry-points."flashdreams.runner_configs"]
 t2v = "t2v_demo.runner:RUNNER_T2V"
 
+[project.entry-points."flashdreams.applications"]
+t2v = "t2v_demo.app:create_app"
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 

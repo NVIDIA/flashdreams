@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Discover :class:`RunnerConfig` plugins (entry-point + env-var)."""
+"""Discover FlashDreams plugins registered via entry points."""
 
 from __future__ import annotations
 
@@ -21,13 +21,17 @@ import importlib
 import os
 import sys
 import traceback
+from collections.abc import Callable
 from functools import lru_cache
-from typing import cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from loguru import logger
 
 from flashdreams.infra.postprocess import VideoPostProcessorConfig
 from flashdreams.infra.runner import RunnerConfig
+
+if TYPE_CHECKING:
+    from flashdreams.demo.application import Application
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points  # type: ignore[import-not-found]
@@ -57,6 +61,28 @@ it is callable (and not already a :class:`RunnerConfig`) it is invoked
 with no arguments to obtain the config. The ``slug=`` prefix is purely
 for log readability -- the registry key always comes from
 ``cfg.runner_name``."""
+
+
+APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
+"""Setuptools entry-point group for public demo applications."""
+
+PluginT = TypeVar("PluginT")
+
+
+def load_plugins(group: str, expected_type: type[PluginT]) -> dict[str, PluginT]:
+    """Load entry-point plugins and keep only values of ``expected_type``.
+
+    Entry points may expose either a ready object or a zero-argument factory
+    returning one. Bad plugins are logged and skipped so a partial environment
+    does not break unrelated commands.
+    """
+    plugins: dict[str, PluginT] = {}
+    for name, origin, value in _load_entry_point_plugins(group, expected_type):
+        if name in plugins:
+            logger.warning(f"Skipping duplicate {group} plugin {origin}.")
+            continue
+        plugins[name] = value
+    return plugins
 
 
 def discover_runners() -> dict[str, RunnerConfig]:
@@ -105,58 +131,11 @@ def discover_runners() -> dict[str, RunnerConfig]:
         runners[cfg.runner_name] = cfg
         origins[cfg.runner_name] = origin
 
-    # Sort entry points by name so the "first one wins" rule above is
-    # reproducible -- importlib.metadata gives no ordering guarantee.
-    discovered = sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda ep: ep.name)
-    for ep in discovered:
-        origin = f"entry point {ep.name!r} -> {ep.value}"
-        module_name = ep.value.split(":", 1)[0]
-        top_level_module = module_name.split(".", 1)[0]
-        try:
-            value = ep.load()
-        except ModuleNotFoundError as exc:
-            # Common/expected on partial installs (e.g. `uv run --project ...`):
-            # metadata can still expose runner entry points for integrations not
-            # present in the active env. If the missing module is the entry point's
-            # own package namespace, silently skip this plugin at debug level.
-            missing_name = exc.name or ""
-            if (
-                missing_name == top_level_module
-                or missing_name == module_name
-                or missing_name.startswith(f"{top_level_module}.")
-            ):
-                logger.debug(
-                    f"Skipping unavailable flashdreams runner {origin}: "
-                    f"module {missing_name!r} is not installed in this environment."
-                )
-                continue
-            logger.debug(
-                f"Failed to load flashdreams runner {origin}:\n{traceback.format_exc()}"
-            )
-            continue
-        except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
-            logger.debug(
-                f"Failed to load flashdreams runner {origin}:\n{traceback.format_exc()}"
-            )
-            continue
-        if callable(value) and not isinstance(value, RunnerConfig):
-            # Allow factories that return a config (matches nerfstudio's
-            # env-var convention; equally useful at the entry point).
-            try:
-                value = value()
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    f"Calling runner {origin} as a factory raised:"
-                    f"\n{traceback.format_exc()}"
-                )
-                continue
-        if not isinstance(value, RunnerConfig):
-            logger.warning(
-                f"Skipping runner {origin}: expected a RunnerConfig, "
-                f"got {type(value).__name__}."
-            )
-            continue
-        _accept(cast(RunnerConfig, value), origin)
+    for _name, origin, cfg in _load_entry_point_plugins(
+        ENTRY_POINT_GROUP,
+        RunnerConfig,
+    ):
+        _accept(cfg, origin)
 
     raw = os.environ.get(ENV_VAR)
     if raw:
@@ -188,47 +167,102 @@ def discover_runners() -> dict[str, RunnerConfig]:
     return runners
 
 
+def discover_applications() -> dict[str, "Application"]:
+    """Discover public demo applications registered by installed packages."""
+    from flashdreams.demo.application import Application
+
+    return load_plugins(APPLICATION_ENTRY_POINT_GROUP, Application)
+
+
 def discover_postprocess_presets() -> dict[str, VideoPostProcessorConfig]:
     """Discover named post-processor presets from entry points.
 
     Returns:
         Mapping from preset slug to :class:`VideoPostProcessorConfig`.
     """
-    presets: dict[str, VideoPostProcessorConfig] = {}
-    discovered = sorted(
-        entry_points(group=POSTPROCESS_PRESET_GROUP), key=lambda ep: ep.name
-    )
+    return load_plugins(POSTPROCESS_PRESET_GROUP, VideoPostProcessorConfig)
+
+
+def _load_entry_point_plugin(
+    ep: Any,
+    *,
+    group: str,
+    origin: str,
+    expected_type: type[PluginT],
+) -> PluginT | None:
+    module_name = ep.value.split(":", 1)[0]
+    top_level_module = module_name.split(".", 1)[0]
+    try:
+        value = ep.load()
+    except ModuleNotFoundError as exc:
+        missing_name = exc.name or ""
+        if (
+            missing_name == top_level_module
+            or missing_name == module_name
+            or missing_name.startswith(f"{top_level_module}.")
+        ):
+            logger.debug(
+                f"Skipping unavailable {group} plugin {origin}: "
+                f"module {missing_name!r} is not installed in this environment."
+            )
+            return None
+        logger.debug(
+            f"Failed to load {group} plugin {origin}:\n{traceback.format_exc()}"
+        )
+        return None
+    except Exception:  # noqa: BLE001 - keep discovery alive on bad plugins
+        logger.debug(
+            f"Failed to load {group} plugin {origin}:\n{traceback.format_exc()}"
+        )
+        return None
+    if callable(value) and (
+        isinstance(value, type) or not isinstance(value, expected_type)
+    ):
+        value = _call_plugin_factory(value, group=group, origin=origin)
+        if value is None:
+            return None
+    if not isinstance(value, expected_type):
+        logger.warning(
+            f"Skipping {group} plugin {origin}: expected a "
+            f"{expected_type.__name__}, got {type(value).__name__}."
+        )
+        return None
+    return cast(PluginT, value)
+
+
+def _load_entry_point_plugins(
+    group: str,
+    expected_type: type[PluginT],
+) -> list[tuple[str, str, PluginT]]:
+    discovered = sorted(entry_points(group=group), key=lambda ep: ep.name)
+    plugins: list[tuple[str, str, PluginT]] = []
     for ep in discovered:
         origin = f"entry point {ep.name!r} -> {ep.value}"
-        try:
-            value = ep.load()
-        except Exception:  # noqa: BLE001 - keep CLI alive on bad plugins
-            logger.warning(
-                f"Failed to load postprocess preset {origin}:\n{traceback.format_exc()}"
-            )
-            continue
-        if callable(value) and not isinstance(value, VideoPostProcessorConfig):
-            try:
-                value = value()
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    f"Calling postprocess preset {origin} as a factory raised:"
-                    f"\n{traceback.format_exc()}"
-                )
-                continue
-        if not isinstance(value, VideoPostProcessorConfig):
-            logger.warning(
-                f"Skipping postprocess preset {origin}: expected a "
-                f"VideoPostProcessorConfig, got {type(value).__name__}."
-            )
-            continue
-        if ep.name in presets:
-            logger.warning(
-                f"Skipping duplicate postprocess preset {ep.name!r} from {origin}."
-            )
-            continue
-        presets[ep.name] = value
-    return presets
+        value = _load_entry_point_plugin(
+            ep,
+            group=group,
+            origin=origin,
+            expected_type=expected_type,
+        )
+        if value is not None:
+            plugins.append((ep.name, origin, value))
+    return plugins
+
+
+def _call_plugin_factory(
+    factory: Callable[[], object],
+    *,
+    group: str,
+    origin: str,
+) -> object | None:
+    try:
+        return factory()
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            f"Calling {group} plugin {origin} as a factory raised:"
+            f"\n{traceback.format_exc()}"
+        )
+        return None
 
 
 @lru_cache(maxsize=None)

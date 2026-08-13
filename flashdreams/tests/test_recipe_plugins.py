@@ -37,8 +37,8 @@ from flashdreams.configs.runner_configs import (
 )
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.runner import RunnerConfig
-from flashdreams.plugins import discover_runners
-from flashdreams.plugins.registry import ENV_VAR
+from flashdreams.plugins import discover_applications, discover_runners
+from flashdreams.plugins.registry import APPLICATION_ENTRY_POINT_GROUP, ENV_VAR
 from flashdreams.recipes.template.config import TEMPLATE_OFFLINE_RUNNER
 
 pytestmark = pytest.mark.ci_cpu
@@ -225,6 +225,40 @@ def test_entry_point_transitive_import_error_is_debug_skipped(
     runners = discover_runners()
     assert runners == {}
     assert any("broken-plugin" in msg for msg in debug_messages)
+
+
+def test_discover_applications_uses_shared_entry_point_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PluginApplication:
+        def init(self, launch_args: list[str]) -> None:
+            del launch_args
+
+        def create_session(self) -> object:
+            return object()
+
+        def close(self) -> None:
+            pass
+
+    class _FakeEntryPoint:
+        name = "test-application"
+        value = "flashdreams._test_application:create_app"
+
+        @staticmethod
+        def load() -> object:
+            return _PluginApplication
+
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.entry_points",
+        lambda *, group: [_FakeEntryPoint()]
+        if group == APPLICATION_ENTRY_POINT_GROUP
+        else [],
+    )
+
+    applications = discover_applications()
+
+    assert list(applications) == ["test-application"]
+    assert isinstance(applications["test-application"], _PluginApplication)
 
 
 def test_discover_runners_skips_runner_name_collision(

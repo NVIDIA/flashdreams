@@ -14,7 +14,7 @@ from typing import Any, Literal, cast
 from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
 from flashdreams.demo import CallbackIOHandlerServer, IOHandlerServer
-from flashdreams.demo.app import DemoApplication, run_replay_application
+from flashdreams.demo.app import create_demo_application, run_replay_application
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
@@ -125,41 +125,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-class OmnidreamsDemoApplication(DemoApplication):
-    """OmniDreams replay and WebRTC demo application."""
+def _webrtc_io_handler(
+    args: argparse.Namespace,
+    *,
+    context: Any,
+) -> IOHandlerServer:
+    def serve() -> object:
+        from .webrtc import serve_omnidreams_webrtc_demo
 
-    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        return parse_args(argv)
+        return serve_omnidreams_webrtc_demo(
+            spec=_webrtc_spec(args, device=str(context.device)),
+            world_rank=context.world_rank,
+        )
 
-    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
-        return _replay_spec(args)
-
-    def replay_adapter(self) -> OmnidreamsDemoAdapter:
-        return OmnidreamsDemoAdapter()
-
-    def webrtc_io_handler(
-        self,
-        args: argparse.Namespace,
-        *,
-        context: Any,
-    ) -> IOHandlerServer:
-        def serve() -> object:
-            from .webrtc import serve_omnidreams_webrtc_demo
-
-            return serve_omnidreams_webrtc_demo(
-                spec=_webrtc_spec(args, device=str(context.device)),
-                world_rank=context.world_rank,
-            )
-
-        return CallbackIOHandlerServer(serve)
-
-
-_APPLICATION = OmnidreamsDemoApplication()
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Run the OmniDreams demo application."""
-    _APPLICATION.main(argv)
+    return CallbackIOHandlerServer(serve)
 
 
 def launch_from_runner(
@@ -397,3 +376,16 @@ def _split_paths(value: str) -> tuple[Path, ...]:
 
 def _split_strings(value: str) -> tuple[str, ...]:
     return tuple(part for part in value.split(",") if part)
+
+
+_APPLICATION = create_demo_application(
+    parse_args=parse_args,
+    replay_spec=_replay_spec,
+    replay_adapter=OmnidreamsDemoAdapter,
+    webrtc_io_handler=_webrtc_io_handler,
+)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Run the OmniDreams demo application."""
+    _APPLICATION.main(argv)

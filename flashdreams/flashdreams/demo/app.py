@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -27,8 +27,21 @@ from .io import IOHandlerServer, create_replay_io_handler
 from .runner import Runner
 
 
-class DemoApplication(ABC):
+class DemoApplication:
     """Base command application shared by model replay and WebRTC demos."""
+
+    def __init__(
+        self,
+        *,
+        parse_args: Callable[[list[str] | None], argparse.Namespace] | None = None,
+        replay_spec: Callable[[argparse.Namespace], DemoSpec] | None = None,
+        replay_adapter: Callable[[], DemoAdapter] | None = None,
+        webrtc_io_handler: Callable[..., IOHandlerServer] | None = None,
+    ) -> None:
+        self._parse_args_fn = parse_args
+        self._replay_spec_fn = replay_spec
+        self._replay_adapter_fn = replay_adapter
+        self._webrtc_io_handler_fn = webrtc_io_handler
 
     def main(self, argv: list[str] | None = None) -> None:
         """Parse arguments, select an IO bundle, and run the selected mode."""
@@ -42,17 +55,28 @@ class DemoApplication(ABC):
             result = self._run_handler(args, selection)
         _raise_for_failed_result(result)
 
-    @abstractmethod
     def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
         """Parse this model's command-line arguments."""
+        parse_args = getattr(self, "_parse_args_fn", None)
+        if parse_args is None:
+            raise NotImplementedError("DemoApplication.parse_args is not configured.")
+        return parse_args(argv)
 
-    @abstractmethod
     def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
         """Build the model-specific replay specification."""
+        replay_spec = getattr(self, "_replay_spec_fn", None)
+        if replay_spec is None:
+            raise NotImplementedError("DemoApplication.replay_spec is not configured.")
+        return replay_spec(args)
 
-    @abstractmethod
     def replay_adapter(self) -> DemoAdapter:
         """Create the model-specific replay adapter."""
+        replay_adapter = getattr(self, "_replay_adapter_fn", None)
+        if replay_adapter is None:
+            raise NotImplementedError(
+                "DemoApplication.replay_adapter is not configured."
+            )
+        return replay_adapter()
 
     def application(self, args: argparse.Namespace) -> Application:
         """Create the application object consumed by the public runner."""
@@ -88,6 +112,9 @@ class DemoApplication(ABC):
         context: Any,
     ) -> IOHandlerServer:
         """Create the WebRTC server-shaped IO factory for this model."""
+        webrtc_io_handler = getattr(self, "_webrtc_io_handler_fn", None)
+        if webrtc_io_handler is not None:
+            return webrtc_io_handler(args, context=context)
         del args, context
         raise ValueError("This demo application does not support WebRTC.")
 
@@ -106,6 +133,22 @@ def run_replay_application(*, spec: DemoSpec, adapter: DemoAdapter) -> RunResult
     ).run()
 
 
+def create_demo_application(
+    *,
+    parse_args: Callable[[list[str] | None], argparse.Namespace],
+    replay_spec: Callable[[argparse.Namespace], DemoSpec],
+    replay_adapter: Callable[[], DemoAdapter],
+    webrtc_io_handler: Callable[..., IOHandlerServer] | None = None,
+) -> DemoApplication:
+    """Create a command app from functions instead of a pass-through subclass."""
+    return DemoApplication(
+        parse_args=parse_args,
+        replay_spec=replay_spec,
+        replay_adapter=replay_adapter,
+        webrtc_io_handler=webrtc_io_handler,
+    )
+
+
 def _raise_for_failed_result(result: RunResult) -> None:
     if result.status in {"completed", "skipped"}:
         return
@@ -116,4 +159,4 @@ def _raise_for_failed_result(result: RunResult) -> None:
     raise SystemExit(1)
 
 
-__all__ = ["DemoApplication", "run_replay_application"]
+__all__ = ["DemoApplication", "create_demo_application", "run_replay_application"]

@@ -33,6 +33,7 @@ from flashdreams.demo import (
     Runner,
     RuntimeOutputSinkFrameAdapter,
     WebRTCIOHandlerServer,
+    create_demo_application,
     create_native_window_io_handler,
     create_replay_io_handler,
     create_webrtc_io_handler,
@@ -91,6 +92,7 @@ def test_public_demo_contracts_are_importable() -> None:
     assert IOHandler.__name__ == "IOHandler"
     assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
+    assert create_demo_application.__name__ == "create_demo_application"
     assert create_replay_io_handler.__name__ == "create_replay_io_handler"
     assert create_native_window_io_handler.__name__ == (
         "create_native_window_io_handler"
@@ -740,6 +742,22 @@ def test_demo_application_replay_selects_factory_and_runner() -> None:
     assert runtime.closed
 
 
+def test_demo_application_can_be_built_from_callbacks() -> None:
+    adapter = _FakeDemoAdapter()
+    app = create_demo_application(
+        parse_args=_parse_replay_command,
+        replay_spec=_fake_replay_spec,
+        replay_adapter=lambda: adapter,
+    )
+
+    app.main(["replay"])
+
+    assert adapter.runtimes
+    runtime = adapter.runtimes[0]
+    assert runtime.session.closed
+    assert runtime.closed
+
+
 def test_demo_application_server_selection_does_not_build_replay_app() -> None:
     app = _ServerDemoApplication()
 
@@ -757,22 +775,30 @@ def _key_event(event_type: str, key: str, timestamp_s: float) -> UserInputEvent:
     )
 
 
+def _parse_replay_command(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("replay",))
+    return parser.parse_args(argv)
+
+
+def _fake_replay_spec(args: argparse.Namespace) -> DemoSpec:
+    assert args.command == "replay"
+    return DemoSpec(
+        model_id="fake-demo",
+        input_mode="replay",
+        output=NullOutputSpec(),
+    )
+
+
 class _ReplayDemoApplication(DemoApplication):
     def __init__(self) -> None:
         self.adapter = _FakeDemoAdapter()
 
     def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("command", choices=("replay",))
-        return parser.parse_args(argv)
+        return _parse_replay_command(argv)
 
     def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
-        assert args.command == "replay"
-        return DemoSpec(
-            model_id="fake-demo",
-            input_mode="replay",
-            output=NullOutputSpec(),
-        )
+        return _fake_replay_spec(args)
 
     def replay_adapter(self) -> "_FakeDemoAdapter":
         return self.adapter

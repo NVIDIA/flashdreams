@@ -13,8 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""External-runner plugin layer (``RunnerConfig`` discovery)."""
+"""Plugin discovery helpers for runners and public demo applications."""
 
-from flashdreams.plugins.registry import discover_runners
+from flashdreams.plugins.registry import (
+    discover_applications,
+    discover_runners,
+    load_plugins,
+)
 
-__all__ = ["discover_runners"]
+__all__ = ["discover_applications", "discover_runners", "load_plugins"]

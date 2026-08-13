@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from flashdreams.demo import CallbackIOHandlerServer, IOHandlerServer
-from flashdreams.demo.app import DemoApplication, run_replay_application
+from flashdreams.demo.app import create_demo_application, run_replay_application
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
@@ -127,49 +127,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-class LingbotDemoApplication(DemoApplication):
-    """Lingbot replay and WebRTC demo application."""
+def _webrtc_io_handler(
+    args: argparse.Namespace,
+    *,
+    context: Any,
+) -> IOHandlerServer:
+    def serve() -> object:
+        ensure_example_data_downloaded(
+            is_rank_zero=(context.world_rank == 0),
+            example_idx=args.example_idx,
+        )
+        from .webrtc import serve_lingbot_webrtc_demo
 
-    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        return parse_args(argv)
+        return serve_lingbot_webrtc_demo(
+            spec=_webrtc_spec(
+                args,
+                device=str(context.device),
+                context_parallel_size=context.world_size,
+            ),
+            world_rank=context.world_rank,
+        )
 
-    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
-        return _replay_spec(args)
-
-    def replay_adapter(self) -> LingbotDemoAdapter:
-        return LingbotDemoAdapter()
-
-    def webrtc_io_handler(
-        self,
-        args: argparse.Namespace,
-        *,
-        context: Any,
-    ) -> IOHandlerServer:
-        def serve() -> object:
-            ensure_example_data_downloaded(
-                is_rank_zero=(context.world_rank == 0),
-                example_idx=args.example_idx,
-            )
-            from .webrtc import serve_lingbot_webrtc_demo
-
-            return serve_lingbot_webrtc_demo(
-                spec=_webrtc_spec(
-                    args,
-                    device=str(context.device),
-                    context_parallel_size=context.world_size,
-                ),
-                world_rank=context.world_rank,
-            )
-
-        return CallbackIOHandlerServer(serve)
-
-
-_APPLICATION = LingbotDemoApplication()
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Run the Lingbot demo application."""
-    _APPLICATION.main(argv)
+    return CallbackIOHandlerServer(serve)
 
 
 def launch_from_runner(
@@ -392,3 +371,16 @@ def _webrtc_spec(
             },
         ),
     )
+
+
+_APPLICATION = create_demo_application(
+    parse_args=parse_args,
+    replay_spec=_replay_spec,
+    replay_adapter=LingbotDemoAdapter,
+    webrtc_io_handler=_webrtc_io_handler,
+)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Run the Lingbot demo application."""
+    _APPLICATION.main(argv)
