@@ -15,6 +15,7 @@ from flashdreams.demo.application import (
     IOutputSink,
     RuntimeOutputSinkFrameAdapter,
 )
+from flashdreams.demo.runner import Runner
 
 __all__ = [
     "Application",
@@ -27,4 +28,5 @@ __all__ = [
     "IOHandler",
     "InferenceSessionApplicationAdapter",
     "RuntimeOutputSinkFrameAdapter",
+    "Runner",
 ]
