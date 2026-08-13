@@ -29,6 +29,7 @@ from ._ops.primitives import (
     CubePool,
     TimestampedScene,
 )
+from .clipgt import _get_obstacle_color
 
 
 class ObjectTrajectory(Protocol):
@@ -196,12 +197,7 @@ def build_hdmap_object_pool(
     )
     colors_host = np.asarray(
         [
-            [1.0, 0.55, 0.15, 0.55, 0.18, 0.04]
-            if any(
-                token in actor.object_type.lower()
-                for token in ("truck", "bus", "trailer")
-            )
-            else [0.25, 0.75, 1.0, 0.08, 0.30, 0.55]
+            np.asarray(_get_obstacle_color(actor.object_type)).reshape(-1)
             for actor in actors
         ],
         dtype=np.float32,

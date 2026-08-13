@@ -25,7 +25,10 @@ from typing import Any
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.app import InteractiveDriveApp
-from omnidreams.interactive_drive.application import RolloutSpec
+from omnidreams.interactive_drive.application import (
+    ApplicationChunkUpdate,
+    RolloutSpec,
+)
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.crazy_robotaxi.driving import (
@@ -43,6 +46,9 @@ from omnidreams.interactive_drive.crazy_robotaxi.high_scores import (
 )
 from omnidreams.interactive_drive.crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
+)
+from omnidreams.interactive_drive.crazy_robotaxi.passengers import (
+    build_pickup_passenger_trajectories,
 )
 from omnidreams.interactive_drive.crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
@@ -91,9 +97,19 @@ class CrazyRobotaxiRuntime:
 
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
-    ) -> tuple[object | None, ...]:
-        """Advance the game and return state synchronized to every frame."""
-        return tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+    ) -> ApplicationChunkUpdate:
+        """Advance the game and add passengers synchronized to pickup state."""
+        snapshots = tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+        passengers = build_pickup_passenger_trajectories(
+            snapshots, trajectory.timestamps_us
+        )
+        return ApplicationChunkUpdate(
+            trajectory=replace(
+                trajectory,
+                dynamic_actors=(*trajectory.dynamic_actors, *passengers),
+            ),
+            frame_application_states=snapshots,
+        )
 
     def publish_boundary(self, state: VehicleState) -> None:
         """Publish the latest vehicle and game state to presenters."""

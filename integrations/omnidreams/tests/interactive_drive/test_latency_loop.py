@@ -15,6 +15,7 @@ from omnidreams.interactive_drive._pipeline_fakes import (
     make_trajectory,
     minimal_scene,
 )
+from omnidreams.interactive_drive.application import ApplicationChunkUpdate
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
@@ -290,8 +291,13 @@ class _TaxiRuntime:
 
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
-    ) -> tuple[object | None, ...]:
-        return tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+    ) -> ApplicationChunkUpdate:
+        return ApplicationChunkUpdate(
+            trajectory=trajectory,
+            frame_application_states=tuple(
+                self._controller.advance_frames(trajectory, frame_interval_s)
+            ),
+        )
 
     def publish_boundary(self, state: VehicleState) -> None:
         del state
