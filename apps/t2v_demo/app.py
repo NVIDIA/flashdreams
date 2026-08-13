@@ -127,7 +127,11 @@ def launch_t2v(
         )
 
     context = initialize_cuda_distributed(default_device=config.device)
-    adapter = make_adapter(defaults.backend, defaults.preset_id)
+    # The browser download and playback endpoints below read the session
+    # artifact this enables.
+    adapter = make_adapter(
+        defaults.backend, defaults.preset_id, write_download_artifact=True
+    )
     output = WebRTCOutputSpec(
         host=str(host or output_overrides.get("host", "0.0.0.0")),
         port=_int_value(

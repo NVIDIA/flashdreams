@@ -106,9 +106,17 @@ def model_from_backend(
     )
 
 
-def make_adapter(backend: str, preset_id: str | None = None) -> T2VDemoAdapter:
+def make_adapter(
+    backend: str,
+    preset_id: str | None = None,
+    *,
+    write_download_artifact: bool = False,
+) -> T2VDemoAdapter:
     """Build an adapter from a legacy CLI/UI backend key."""
-    return T2VDemoAdapter(model=model_from_backend(backend, preset_id))
+    return T2VDemoAdapter(
+        model=model_from_backend(backend, preset_id),
+        write_download_artifact=write_download_artifact,
+    )
 
 
 def _resolve_backend(value: str) -> T2VBackendBridge:

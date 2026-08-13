@@ -31,6 +31,7 @@ from flashdreams.runtime import (
     InputField,
     ModelAdapter,
     StepRequest,
+    StepRequirements,
 )
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.demo import (
@@ -57,6 +58,8 @@ FIELD_PIXEL_HEIGHT = "pixel_height"
 FIELD_PIXEL_WIDTH = "pixel_width"
 FIELD_FPS = "fps"
 
+_DOWNLOAD_ARTIFACT_DIR = Path("outputs/t2v-webrtc")
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class T2VModelConfig:
@@ -77,14 +80,21 @@ class T2VModelConfig:
             raise ValueError("T2VModelConfig.model_id must be non-empty.")
         if self.preset_id is not None and not self.preset_id.strip():
             raise ValueError("T2VModelConfig.preset_id must be non-empty when set.")
-        if not self.prompt.strip():
-            raise ValueError("T2VModelConfig.prompt must be non-empty.")
-        _validate_positive_int(self.total_blocks, name=FIELD_TOTAL_BLOCKS)
-        _validate_positive_int(self.pixel_height, name=FIELD_PIXEL_HEIGHT)
-        _validate_positive_int(self.pixel_width, name=FIELD_PIXEL_WIDTH)
-        _validate_positive_int(self.fps, name=FIELD_FPS)
+        # T2VScenario owns prompt and geometry validation so that model
+        # defaults and launch-time overrides are held to the same rules.
+        self.default_scenario()
         object.__setattr__(
             self, "runtime_options", freeze_mapping(self.runtime_options)
+        )
+
+    def default_scenario(self) -> T2VScenario:
+        """Return this model's scenario before any launch-time override."""
+        return T2VScenario(
+            prompt=self.prompt,
+            total_blocks=self.total_blocks,
+            pixel_height=self.pixel_height,
+            pixel_width=self.pixel_width,
+            fps=self.fps,
         )
 
 
@@ -114,6 +124,17 @@ class T2VRunDefaults:
             self, "runtime_options", freeze_mapping(self.runtime_options)
         )
 
+    def scenario_overrides(self) -> dict[str, object]:
+        """Return only the scenario fields this launch explicitly overrides."""
+        overrides = {
+            FIELD_PROMPT: self.prompt,
+            FIELD_TOTAL_BLOCKS: self.total_blocks,
+            FIELD_PIXEL_HEIGHT: self.pixel_height,
+            FIELD_PIXEL_WIDTH: self.pixel_width,
+            FIELD_FPS: self.fps,
+        }
+        return {name: value for name, value in overrides.items() if value is not None}
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class T2VScenario:
@@ -125,6 +146,42 @@ class T2VScenario:
     pixel_width: int
     fps: int
 
+    def __post_init__(self) -> None:
+        if not self.prompt.strip():
+            raise ValueError("A non-empty text-to-video prompt is required.")
+        _validate_positive_int(self.total_blocks, name=FIELD_TOTAL_BLOCKS)
+        _validate_positive_int(self.pixel_height, name=FIELD_PIXEL_HEIGHT)
+        _validate_positive_int(self.pixel_width, name=FIELD_PIXEL_WIDTH)
+        _validate_positive_int(self.fps, name=FIELD_FPS)
+
+    @classmethod
+    def from_mapping(
+        cls,
+        source: Mapping[str, object],
+        *,
+        defaults: T2VScenario | None = None,
+    ) -> T2VScenario:
+        """Build a scenario from runtime values, falling back to ``defaults``."""
+        merged: dict[str, object] = {} if defaults is None else defaults.to_mapping()
+        merged.update(source)
+        return cls(
+            prompt=str(merged[FIELD_PROMPT]).strip(),
+            total_blocks=_int_value(merged[FIELD_TOTAL_BLOCKS]),
+            pixel_height=_int_value(merged[FIELD_PIXEL_HEIGHT]),
+            pixel_width=_int_value(merged[FIELD_PIXEL_WIDTH]),
+            fps=_int_value(merged[FIELD_FPS]),
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        """Return the scenario as the runtime's global conditioning values."""
+        return {
+            FIELD_PROMPT: self.prompt,
+            FIELD_TOTAL_BLOCKS: self.total_blocks,
+            FIELD_PIXEL_HEIGHT: self.pixel_height,
+            FIELD_PIXEL_WIDTH: self.pixel_width,
+            FIELD_FPS: self.fps,
+        }
+
 
 class T2VDemoAdapter(ModelAdapter):
     """Model adapter shared by replay and WebRTC T2V launch paths."""
@@ -135,8 +192,11 @@ class T2VDemoAdapter(ModelAdapter):
     )
     canonical_input_schema = CanonicalInputSchema()
 
-    def __init__(self, *, model: T2VModelConfig) -> None:
+    def __init__(
+        self, *, model: T2VModelConfig, write_download_artifact: bool = False
+    ) -> None:
         self.model = model
+        self.write_download_artifact = write_download_artifact
 
     @property
     def model_id(self) -> str:
@@ -172,22 +232,21 @@ class T2VDemoAdapter(ModelAdapter):
                 )
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
-        scenario = _scenario_from_value(spec.scenario, self.model)
+        source = spec.scenario if isinstance(spec.scenario, Mapping) else {}
+        scenario = T2VScenario.from_mapping(
+            source, defaults=self.model.default_scenario()
+        )
         return PreparedScenario(
-            initial_inputs=InferenceInput(
-                global_conditioning={
-                    FIELD_PROMPT: scenario.prompt,
-                    FIELD_TOTAL_BLOCKS: scenario.total_blocks,
-                    FIELD_PIXEL_HEIGHT: scenario.pixel_height,
-                    FIELD_PIXEL_WIDTH: scenario.pixel_width,
-                    FIELD_FPS: scenario.fps,
-                }
-            )
+            initial_inputs=InferenceInput(global_conditioning=scenario.to_mapping())
         )
 
     def create_runtime(self, config: InferenceConfig) -> "T2VRuntime":
         self.validate_config(config)
-        return T2VRuntime(config=config, model=self.model)
+        return T2VRuntime(
+            config=config,
+            model=self.model,
+            write_download_artifact=self.write_download_artifact,
+        )
 
     def create_model_input_provider(
         self, spec: DemoSpec, scenario: PreparedScenario
@@ -213,7 +272,7 @@ class T2VInputProvider:
         return self._initial_inputs
 
     def prepare_step(
-        self, *, request: Any, user_window: UserInputWindow
+        self, *, request: StepRequirements, user_window: UserInputWindow
     ) -> PreparedStep:
         del request, user_window
         return PreparedStep(inference_input=InferenceInput())
@@ -229,9 +288,16 @@ class T2VInputProvider:
 class T2VRuntime:
     """One heavyweight selected pipeline, reusable across demo sessions."""
 
-    def __init__(self, *, config: InferenceConfig, model: T2VModelConfig) -> None:
+    def __init__(
+        self,
+        *,
+        config: InferenceConfig,
+        model: T2VModelConfig,
+        write_download_artifact: bool = False,
+    ) -> None:
         self.config = config
         self.model = model
+        self._write_download_artifact = write_download_artifact
         pipeline_config = model.pipeline
         if config.compile is not None:
             from flashdreams.infra.config import derive_config
@@ -262,7 +328,12 @@ class T2VRuntime:
 
     def start_session(self, inputs: InferenceInput) -> "T2VSession":
         return T2VSession(
-            pipeline=self.pipeline, scenario=_scenario_from_inputs(inputs), runtime=self
+            pipeline=self.pipeline,
+            scenario=T2VScenario.from_mapping(inputs.global_conditioning),
+            runtime=self,
+            artifact_dir=(
+                _DOWNLOAD_ARTIFACT_DIR if self._write_download_artifact else None
+            ),
         )
 
     def close(self) -> None:
@@ -277,25 +348,40 @@ class T2VSession(InferenceSession):
     """A cache-isolated T2V session that yields chunks as they are generated."""
 
     def __init__(
-        self, *, pipeline: Any, scenario: T2VScenario, runtime: T2VRuntime
+        self,
+        *,
+        pipeline: Any,
+        scenario: T2VScenario,
+        runtime: T2VRuntime,
+        artifact_dir: Path | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.scenario = scenario
         self._runtime = runtime
-        self._artifact_path = Path("outputs/t2v-webrtc") / f"{uuid4()}.mp4"
-        self._artifact_path.parent.mkdir(parents=True, exist_ok=True)
-        # Transitional support for the existing WebRTC download endpoint.
-        # Replay modes still deliver primary output through the shared OutputSink.
-        self._artifact_output = Mp4VideoOutputTarget(
-            output_path=self._artifact_path, fps=scenario.fps, output_layout="tchw"
-        )
-        self._artifact_output.open()
+        # Transitional second encode that backs the WebRTC download endpoint.
+        # Replay modes deliver primary output through the shared OutputSink and
+        # leave this disabled so they do not encode every chunk twice.
+        self._artifact_path: Path | None = None
+        self._artifact_output: Mp4VideoOutputTarget | None = None
+        if artifact_dir is not None:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            self._artifact_path = artifact_dir / f"{uuid4()}.mp4"
+            self._artifact_output = Mp4VideoOutputTarget(
+                output_path=self._artifact_path,
+                fps=scenario.fps,
+                output_layout="tchw",
+            )
+            self._artifact_output.open()
         self._step_index = 0
         self._closed = False
         self._output_stream = VideoOutputStream(
             postprocess_stream=None, output_layout="tchw"
         )
-        assert isinstance(pipeline.decoder, StreamingVideoDecoder)
+        if not isinstance(pipeline.decoder, StreamingVideoDecoder):
+            raise TypeError(
+                "T2V requires a StreamingVideoDecoder, got "
+                f"{type(pipeline.decoder).__name__}."
+            )
         ratio = pipeline.decoder.spatial_compression_ratio
         if scenario.pixel_height % ratio or scenario.pixel_width % ratio:
             raise ValueError(
@@ -310,21 +396,19 @@ class T2VSession(InferenceSession):
         )
 
     def session_info(self) -> SessionInfo:
-        return SessionInfo(
-            output_layout="tchw",
-            metadata={
-                FIELD_PROMPT: self.scenario.prompt,
-                FIELD_TOTAL_BLOCKS: self.scenario.total_blocks,
-                FIELD_PIXEL_HEIGHT: self.scenario.pixel_height,
-                FIELD_PIXEL_WIDTH: self.scenario.pixel_width,
-                FIELD_FPS: self.scenario.fps,
-            },
-        )
+        return SessionInfo(output_layout="tchw", metadata=self.scenario.to_mapping())
 
-    def next_step_request(self) -> StepRequest | None:
+    def next_step_requirements(self) -> StepRequirements | None:
         if self._closed or self._step_index >= self.scenario.total_blocks:
             return None
-        return StepRequest(step_index=self._step_index)
+        return StepRequirements(step_index=self._step_index)
+
+    def next_step_request(self) -> StepRequest | None:
+        """Legacy seam still consumed directly by the WebRTC session manager."""
+        requirements = self.next_step_requirements()
+        if requirements is None:
+            return None
+        return StepRequest(step_index=requirements.step_index)
 
     def step(self, inputs: InferenceInput) -> StepResult:
         del inputs
@@ -340,14 +424,12 @@ class T2VSession(InferenceSession):
             metrics=stats,
             metadata={FIELD_PROMPT: self.scenario.prompt},
         )
-        self._artifact_output.write(result)
+        if self._artifact_output is not None:
+            self._artifact_output.write(result)
         return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        if inputs is not None and _scenario_from_inputs(inputs) != self.scenario:
-            raise ValueError(
-                "Create a new T2V session to change the prompt or dimensions."
-            )
+        del inputs
         raise RuntimeError(
             "T2V sessions are finite; create a new session instead of reset()."
         )
@@ -356,8 +438,9 @@ class T2VSession(InferenceSession):
         if self._closed:
             return
         self._closed = True
-        artifacts = self._artifact_output.close()
-        if artifacts:
+        if self._artifact_output is None or self._artifact_path is None:
+            return
+        if self._artifact_output.close():
             self._runtime.record_artifact(self._artifact_path, self.scenario)
 
 
@@ -376,7 +459,12 @@ def create_t2v_application(
         input_mode=input_mode,
         output=output,
     )
-    return DemoAdapterApplication(adapter=T2VDemoAdapter(model=model), spec=spec)
+    return DemoAdapterApplication(
+        adapter=T2VDemoAdapter(
+            model=model, write_download_artifact=output.mode == "webrtc"
+        ),
+        spec=spec,
+    )
 
 
 def model_config_from_runner(
@@ -456,48 +544,9 @@ def t2v_scenario_mapping(
 ) -> dict[str, object]:
     """Return runtime scenario values after applying launch overrides."""
     defaults = defaults or T2VRunDefaults()
-    return {
-        FIELD_PROMPT: model.prompt if defaults.prompt is None else defaults.prompt,
-        FIELD_TOTAL_BLOCKS: (
-            model.total_blocks
-            if defaults.total_blocks is None
-            else defaults.total_blocks
-        ),
-        FIELD_PIXEL_HEIGHT: (
-            model.pixel_height
-            if defaults.pixel_height is None
-            else defaults.pixel_height
-        ),
-        FIELD_PIXEL_WIDTH: (
-            model.pixel_width if defaults.pixel_width is None else defaults.pixel_width
-        ),
-        FIELD_FPS: model.fps if defaults.fps is None else defaults.fps,
-    }
-
-
-def _scenario_from_value(value: Any, model: T2VModelConfig) -> T2VScenario:
-    source = value if isinstance(value, dict) else {}
-    prompt = str(source.get(FIELD_PROMPT, model.prompt)).strip()
-    if not prompt:
-        raise ValueError("A non-empty text-to-video prompt is required.")
-    return T2VScenario(
-        prompt=prompt,
-        total_blocks=_int_value(source.get(FIELD_TOTAL_BLOCKS, model.total_blocks)),
-        pixel_height=_int_value(source.get(FIELD_PIXEL_HEIGHT, model.pixel_height)),
-        pixel_width=_int_value(source.get(FIELD_PIXEL_WIDTH, model.pixel_width)),
-        fps=_int_value(source.get(FIELD_FPS, model.fps)),
-    )
-
-
-def _scenario_from_inputs(inputs: InferenceInput) -> T2VScenario:
-    source = inputs.global_conditioning
-    return T2VScenario(
-        prompt=str(source[FIELD_PROMPT]),
-        total_blocks=_int_value(source[FIELD_TOTAL_BLOCKS]),
-        pixel_height=_int_value(source[FIELD_PIXEL_HEIGHT]),
-        pixel_width=_int_value(source[FIELD_PIXEL_WIDTH]),
-        fps=_int_value(source[FIELD_FPS]),
-    )
+    return T2VScenario.from_mapping(
+        defaults.scenario_overrides(), defaults=model.default_scenario()
+    ).to_mapping()
 
 
 def _int_value(value: object) -> int:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +19,11 @@ from t2v.t2v import (
 )
 
 from flashdreams.demo import DemoAdapterApplication
-from flashdreams.runtime.demo import Mp4OutputSpec, NullOutputSpec
+from flashdreams.runtime.demo import (
+    Mp4OutputSpec,
+    NullOutputSpec,
+    WebRTCOutputSpec,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -95,6 +100,35 @@ def test_t2v_shell_builds_model_config_from_runner_config() -> None:
     assert model.prompt == "Runner prompt"
     assert model.total_blocks == 5
     assert model.runtime_options["owner"] == "integration"
+
+
+def test_t2v_shell_enables_download_artifact_only_for_webrtc() -> None:
+    replay_app = create_t2v_application(
+        model=_fake_model(),
+        output=Mp4OutputSpec(path="outputs/fake.mp4", fps=8, output_layout="tchw"),
+    )
+    webrtc_app = create_t2v_application(
+        model=_fake_model(), input_mode="webrtc", output=WebRTCOutputSpec()
+    )
+
+    assert isinstance(replay_app, DemoAdapterApplication)
+    assert isinstance(webrtc_app, DemoAdapterApplication)
+    replay_adapter = replay_app.adapter
+    webrtc_adapter = webrtc_app.adapter
+    assert isinstance(replay_adapter, T2VDemoAdapter)
+    assert isinstance(webrtc_adapter, T2VDemoAdapter)
+    assert replay_adapter.write_download_artifact is False
+    assert webrtc_adapter.write_download_artifact is True
+
+
+def test_t2v_shell_rejects_non_positive_scenario_override() -> None:
+    model = _fake_model()
+    adapter = T2VDemoAdapter(model=model)
+    spec = create_t2v_spec(model=model, input_mode="replay", output=NullOutputSpec())
+    spec = replace(spec, scenario={**dict(spec.scenario or {}), "total_blocks": 0})
+
+    with pytest.raises(ValueError, match="total_blocks"):
+        adapter.prepare_scenario(spec)
 
 
 def test_t2v_shell_has_no_legacy_backend_imports() -> None:

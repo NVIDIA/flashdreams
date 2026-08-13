@@ -92,7 +92,13 @@ class Runner:
         context = self._create_context(host)
         result: RunResult | None = None
         primary_error: BaseException | None = None
+        app_initialized = False
         try:
+            if not host.is_healthy:
+                result = RunResult.rejected(reason="busy")
+                context.run_metrics.record_session(result)
+                return result
+            app_initialized = True
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
             if isinstance(self.app, DemoAdapterApplication):
@@ -116,10 +122,17 @@ class Runner:
                     context=context,
                     host=host,
                     app=self.app,
+                    app_initialized=app_initialized,
                     owns_host=owns_host,
                     run_result=result,
                     primary_error=primary_error,
-                )
+                ),
+                preserve_primary=_has_primary_outcome(
+                    run_result=result,
+                    primary_error=primary_error,
+                ),
+                preserved_error=primary_error
+                or (None if result is None else result.error),
             )
 
     def _run_sync(self, *, run_mode: RunMode | None = None) -> RunResult:
@@ -129,7 +142,13 @@ class Runner:
         context = self._create_context(host)
         result: RunResult | None = None
         primary_error: BaseException | None = None
+        app_initialized = False
         try:
+            if not host.is_healthy:
+                result = RunResult.rejected(reason="busy")
+                context.run_metrics.record_session(result)
+                return result
+            app_initialized = True
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
             if isinstance(self.app, DemoAdapterApplication):
@@ -152,6 +171,7 @@ class Runner:
                 context=context,
                 host=host,
                 app=self.app,
+                app_initialized=app_initialized,
                 owns_host=owns_host,
                 run_result=result,
                 primary_error=primary_error,
@@ -367,19 +387,21 @@ def _close_runner_resources(
     context: RunContext,
     host: RuntimeHost,
     app: Application,
+    app_initialized: bool,
     owns_host: bool,
     run_result: RunResult | None,
     primary_error: BaseException | None,
 ) -> None:
     errors: list[Exception] = []
     _record_cleanup_error(errors, context.close)
-    _close_application(errors=errors, host=host, app=app)
+    if app_initialized:
+        _close_application(errors=errors, host=host, app=app)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
         _record_cleanup_notes(primary_error, errors)
         return
-    if run_result is not None and run_result.status == "failed":
+    if run_result is not None and run_result.status != "completed":
         _record_cleanup_notes(run_result.error, errors)
         return
     _raise_first_cleanup_error(errors)
@@ -390,6 +412,7 @@ async def _close_runner_resources_async(
     context: RunContext,
     host: RuntimeHost,
     app: Application,
+    app_initialized: bool,
     owns_host: bool,
     run_result: RunResult | None,
     primary_error: BaseException | None,
@@ -399,19 +422,25 @@ async def _close_runner_resources_async(
         await context.close_async()
     except Exception as exc:
         errors.append(exc)
-    await _close_application_async(errors=errors, host=host, app=app)
+    if app_initialized:
+        await _close_application_async(errors=errors, host=host, app=app)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
         _record_cleanup_notes(primary_error, errors)
         return
-    if run_result is not None and run_result.status == "failed":
+    if run_result is not None and run_result.status != "completed":
         _record_cleanup_notes(run_result.error, errors)
         return
     _raise_first_cleanup_error(errors)
 
 
-async def _await_runner_cleanup(cleanup: Coroutine[Any, Any, None]) -> None:
+async def _await_runner_cleanup(
+    cleanup: Coroutine[Any, Any, None],
+    *,
+    preserve_primary: bool = False,
+    preserved_error: BaseException | None = None,
+) -> None:
     cleanup_task = asyncio.create_task(cleanup)
     was_cancelled = False
     cleanup_error: BaseException | None = None
@@ -431,10 +460,16 @@ async def _await_runner_cleanup(cleanup: Coroutine[Any, Any, None]) -> None:
             break
 
     if was_cancelled:
+        if preserve_primary:
+            _record_cleanup_notes_for_preserved_outcome(preserved_error, cleanup_error)
+            return
         cancellation = asyncio.CancelledError("cancelled during runner cleanup")
         _record_cancelled_cleanup_note(cancellation, cleanup_error)
         raise cancellation from None
     if cleanup_error is not None:
+        if preserve_primary:
+            _record_cleanup_notes_for_preserved_outcome(preserved_error, cleanup_error)
+            return
         raise cleanup_error
 
 
@@ -467,7 +502,7 @@ def _close_application(
         host.call(close_app)
     except Exception as exc:
         if not invoked and host.is_closed:
-            _record_cleanup_error(errors, app.close)
+            errors.append(_closed_host_cleanup_error(exc))
             return
         errors.append(exc)
 
@@ -489,7 +524,7 @@ async def _close_application_async(
         await host.call_async(close_app)
     except Exception as exc:
         if not invoked and host.is_closed:
-            _record_cleanup_error(errors, app.close)
+            errors.append(_closed_host_cleanup_error(exc))
             return
         errors.append(exc)
 
@@ -504,7 +539,7 @@ def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
 
 def _record_cleanup_notes(
     primary: BaseException | None,
-    errors: Sequence[Exception],
+    errors: Sequence[BaseException],
 ) -> None:
     if primary is None:
         return
@@ -523,6 +558,34 @@ def _record_cancelled_cleanup_note(
     add_note = getattr(cancellation, "add_note", None)
     if callable(add_note):
         add_note(f"Cleanup failed: {cleanup_error!r}")
+
+
+def _record_cleanup_notes_for_preserved_outcome(
+    preserved_error: BaseException | None,
+    cleanup_error: BaseException | None,
+) -> None:
+    if cleanup_error is not None:
+        _record_cleanup_notes(preserved_error, (cleanup_error,))
+
+
+def _has_primary_outcome(
+    *,
+    run_result: RunResult | None,
+    primary_error: BaseException | None,
+) -> bool:
+    if primary_error is not None:
+        return True
+    return run_result is not None and run_result.status != "completed"
+
+
+def _closed_host_cleanup_error(exc: Exception) -> RuntimeError:
+    try:
+        raise RuntimeError(
+            "Application cleanup skipped because the RuntimeHost is closed; "
+            "app.close() must run on the model worker."
+        ) from exc
+    except RuntimeError as cleanup_error:
+        return cleanup_error
 
 
 def _application_adapter(app: Application) -> DemoAdapter | None:

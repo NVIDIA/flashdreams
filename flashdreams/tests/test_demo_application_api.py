@@ -358,7 +358,7 @@ def test_runner_closes_public_app_when_host_is_external() -> None:
     assert app.closed
 
 
-def test_runner_closes_public_app_when_external_host_is_closed() -> None:
+def test_runner_skips_direct_app_close_for_closed_host() -> None:
     app = _RunnerFakeApplication(total_steps=1)
     host = RuntimeHost(_ExternalApplicationRuntime(app))
     host.close()
@@ -373,7 +373,8 @@ def test_runner_closes_public_app_when_external_host_is_closed() -> None:
     assert result.status == "rejected"
     assert result.reason == "busy"
     assert result.error is None
-    assert app.closed
+    assert app.init_thread_id is None
+    assert not app.closed
 
 
 def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
@@ -485,9 +486,7 @@ async def test_runner_run_async_delegates_to_async_session_helper() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_run_async_closes_public_app_when_external_host_is_closed() -> (
-    None
-):
+async def test_runner_run_async_skips_direct_app_close_for_closed_host() -> None:
     app = _RunnerFakeApplication(total_steps=1)
     host = RuntimeHost(_ExternalApplicationRuntime(app))
     host.close()
@@ -503,7 +502,8 @@ async def test_runner_run_async_closes_public_app_when_external_host_is_closed()
     assert result.status == "rejected"
     assert result.reason == "busy"
     assert result.error is None
-    assert app.closed
+    assert app.init_thread_id is None
+    assert not app.closed
 
 
 @pytest.mark.asyncio
@@ -647,6 +647,39 @@ async def test_runner_run_async_finishes_cleanup_when_cancelled(
     assert app.closed
     assert len(created_hosts) == 1
     assert created_hosts[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_preserves_primary_error_after_cleanup_cancel() -> None:
+    close_started = threading.Event()
+    release_close = threading.Event()
+    app = _BlockingCloseRunnerFakeApplication(
+        total_steps=1,
+        close_started=close_started,
+        release_close=release_close,
+    )
+    app.fail_init = True
+    runner_task = asyncio.create_task(
+        Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+            model_id="fake-runner",
+        ).run_async()
+    )
+
+    try:
+        assert await asyncio.to_thread(close_started.wait, 2.0)
+        runner_task.cancel()
+        await asyncio.sleep(0)
+        assert not runner_task.done()
+    finally:
+        release_close.set()
+
+    with pytest.raises(RuntimeError, match="fake init failed"):
+        await asyncio.wait_for(runner_task, timeout=2.0)
+
+    assert app.closed
 
 
 def test_replay_io_factory_runs_through_public_runner() -> None:
