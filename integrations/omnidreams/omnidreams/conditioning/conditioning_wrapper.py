@@ -80,6 +80,9 @@ class GenerationOutput:
         None  # Generated video frames [B, V, T, 3, H, W] (None if skip_video_generation)
     )
     finalization_state: dict | None = None  # Finalization state from the video model
+    latent_frames: Tensor | None = (
+        None  # Pre-decode latent [B, V, T, Cl, Hl, Wl] (None if skip_video_generation)
+    )
 
 
 class OmnidreamsConditioningWrapper(nn.Module):
@@ -459,6 +462,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": 0},
+            latent_frames=(
+                pipeline_cache.clean_latent.detach()
+                if pipeline_cache.clean_latent is not None
+                else None
+            ),
         )
 
     def continue_generation(
@@ -547,6 +555,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": block_idx},
+            latent_frames=(
+                state.pipeline_cache.clean_latent.detach()
+                if state.pipeline_cache.clean_latent is not None
+                else None
+            ),
         )
 
     def cleanup(self, state: OmnidreamsConditioningState) -> None:

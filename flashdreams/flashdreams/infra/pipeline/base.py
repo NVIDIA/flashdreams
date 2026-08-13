@@ -101,6 +101,10 @@ class StreamInferencePipelineCache(
     """Diffusion-model state from the most recent ``generate``, consumed
     by ``finalize``."""
 
+    clean_latent: "torch.Tensor | None" = None
+    """Pre-decode latent from the most recent ``generate`` (before the VAE
+    decoder), exposed for consumers that stream latents instead of pixels."""
+
     autoregressive_index: int | None = None
     """AR step index of the most recent ``generate``."""
 
@@ -249,6 +253,7 @@ class StreamInferencePipeline(
             input=input,
         )
         cache.final_state = final_state
+        cache.clean_latent = clean_latent
 
         if events is not None:
             events.record("diffuse")

@@ -79,9 +79,7 @@ def test_header_sent_only_once_across_chunks() -> None:
 
     asyncio.run(run())
 
-    control_frames = [
-        raw for raw in ws.sent if framing.parse_header(raw).is_control
-    ]
+    control_frames = [raw for raw in ws.sent if framing.parse_header(raw).is_control]
     assert len(control_frames) == 1
 
 

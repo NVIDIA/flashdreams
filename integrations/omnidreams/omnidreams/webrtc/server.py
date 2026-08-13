@@ -314,7 +314,7 @@ def build_runtime_config(
         debug_serve_hdmaps=args.debug_serve_hdmaps,
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         encoder_backend="default" if args.prefer_sw_encoder else "auto",
-        enable_token_stream=args.enable_token_stream,
+        enable_token_stream=getattr(args, "enable_token_stream", False),
     )
 
 

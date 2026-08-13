@@ -87,7 +87,7 @@ export class TokenStreamSession {
     this._sessionHeader = header
     const codecId = header?.codec?.id
     this._log(
-      `token session header: codec=${codecId} latent_shape=${JSON.stringify(header?.latent_shape)} fps=${header?.fps}`,
+      `token session header: codec=${codecId} shape=${JSON.stringify(header?.latent_shape)} T=${header?.frames_per_chunk} fps=${header?.fps}`,
       { source: "client" }
     )
 
@@ -171,8 +171,13 @@ export class TokenStreamSession {
   }
 
   async _completeChunk(chunkId, latentFrames) {
+    const codecId = this._sessionHeader?.codec?.id
+    let decodedFloats = 0
+    for (const latent of latentFrames) {
+      decodedFloats += latent?.length ?? 0
+    }
     this._log(
-      `token chunk ${chunkId} assembled: ${latentFrames.length} frames`,
+      `token chunk ${chunkId}: ${latentFrames.length} frames, ${codecId} decoded floats=${decodedFloats} (VAE decode pending)`,
       { source: "client" }
     )
 

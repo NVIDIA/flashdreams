@@ -141,6 +141,7 @@ class _FakeOutput:
     condition_frames: torch.Tensor
     rgb_frames: torch.Tensor | None
     finalization_state: dict[str, int]
+    latent_frames: torch.Tensor | None = None
 
 
 class _FakeWrapper:

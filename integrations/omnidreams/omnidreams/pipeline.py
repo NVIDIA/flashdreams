@@ -423,6 +423,10 @@ class OmnidreamsPipeline(
         )
 
         output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)
+        if cache.clean_latent is not None:
+            cache.clean_latent = cat_outputs_cp(
+                cache.clean_latent, seq_dim=1, cp_group=self.V_group
+            )
         return output
 
     def get_num_frames(self, autoregressive_index: int) -> int:

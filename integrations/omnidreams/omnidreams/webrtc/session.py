@@ -1082,6 +1082,11 @@ class OmnidreamsInferenceRuntime:
             layout="bvtchw",
             stats=None,
             sync_device=self._device,
+            metadata=(
+                {"latent_chunk": output.latent_frames}
+                if (not serve_hdmaps and output.latent_frames is not None)
+                else None
+            ),
         )
         self.autoregressive_index += 1
         return result
