@@ -89,8 +89,9 @@ def test_inference_session_adapter_satisfies_application_session() -> None:
 
 
 def test_demo_adapter_application_satisfies_application() -> None:
+    adapter = _FakeDemoAdapter()
     demo = DemoAdapterApplication(
-        adapter=_FakeDemoAdapter(),
+        adapter=adapter,
         spec=DemoSpec(
             model_id="fake-demo",
             input_mode="replay",
@@ -108,6 +109,42 @@ def test_demo_adapter_application_satisfies_application() -> None:
         inference_input_schema=_FakeSession.inference_input_schema,
     )
     demo.close()
+    assert adapter.runtime.closed
+
+
+def test_demo_adapter_application_closes_all_created_runtimes() -> None:
+    adapter = _FakeDemoAdapter()
+    demo = DemoAdapterApplication(
+        adapter=adapter,
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+        ),
+    )
+
+    demo.init(())
+    demo.create_session()
+    demo.create_session()
+    demo.close()
+    demo.close()
+
+    assert len(adapter.runtimes) == 2
+    assert [runtime.closed for runtime in adapter.runtimes] == [True, True]
+
+
+def test_demo_adapter_application_rejects_unsupported_launch_args() -> None:
+    demo = DemoAdapterApplication(
+        adapter=_FakeDemoAdapter(),
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="does not support launch arguments"):
+        demo.init(("--device", "cuda:0"))
 
 
 def test_io_handler_protocol_keeps_input_conversion_outside_io() -> None:
@@ -161,6 +198,7 @@ def test_runner_run_drives_public_app_through_shared_runtime_path() -> None:
     assert app.session.init_thread_id != caller_thread_id
     assert app.session.step_thread_ids == (app.session.init_thread_id,) * 2
     assert app.session.closed
+    assert app.closed
     assert io_handler.opened_with == [SessionInfo(output_layout="thwc")]
     assert io_handler.requested_steps == [0, 1]
     assert io_handler.begin_generations == [0]
@@ -250,6 +288,7 @@ class _FakeDemoAdapter:
 
     def __init__(self) -> None:
         self.runtime = _FakeRuntime()
+        self.runtimes: list[_FakeRuntime] = []
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return ("replay",)
@@ -265,6 +304,8 @@ class _FakeDemoAdapter:
 
     def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         self.validate_config(config)
+        self.runtime = _FakeRuntime()
+        self.runtimes.append(self.runtime)
         return self.runtime
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
@@ -311,6 +352,7 @@ class _RunnerFakeApplication:
         self.launch_args: tuple[str, ...] = ()
         self.init_thread_id: int | None = None
         self.session: _RunnerFakeSession | None = None
+        self.closed = False
 
     def init(self, launch_args: Sequence[str]) -> None:
         self.launch_args = tuple(launch_args)
@@ -319,6 +361,9 @@ class _RunnerFakeApplication:
     def create_session(self) -> "_RunnerFakeSession":
         self.session = _RunnerFakeSession(total_steps=self.total_steps)
         return self.session
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _RunnerFakeSession:

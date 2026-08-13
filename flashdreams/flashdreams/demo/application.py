@@ -79,6 +79,10 @@ class Application(Protocol):
         """
         ...
 
+    def close(self) -> None:
+        """Release application-level resources after all sessions have closed."""
+        ...
+
 
 @runtime_checkable
 class IOHandler(Protocol):
@@ -190,10 +194,18 @@ class DemoAdapterApplication:
     adapter: DemoAdapter
     spec: DemoSpec
     _scenario: PreparedScenario | None = field(default=None, init=False, repr=False)
-    _runtime: InferenceRuntime | None = field(default=None, init=False, repr=False)
+    _runtimes: list[InferenceRuntime] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
 
     def init(self, launch_args: Sequence[str]) -> None:
-        del launch_args
+        if launch_args:
+            raise ValueError(
+                "DemoAdapterApplication does not support launch arguments; "
+                "configure the DemoSpec before constructing the application."
+            )
         config = _require_config(self.spec)
         self.adapter.validate_config(config)
         self._scenario = self.adapter.prepare_scenario(self.spec)
@@ -206,15 +218,23 @@ class DemoAdapterApplication:
         if scenario is None:
             raise RuntimeError("DemoAdapterApplication failed to prepare a scenario.")
         runtime = self.adapter.create_runtime(_require_config(self.spec))
-        self._runtime = runtime
+        self._runtimes.append(runtime)
         return InferenceSessionApplicationAdapter(
             runtime.start_session(scenario.initial_inputs)
         )
 
     def close(self) -> None:
-        if self._runtime is not None:
-            self._runtime.close()
-            self._runtime = None
+        errors: list[Exception] = []
+        while self._runtimes:
+            runtime = self._runtimes.pop()
+            try:
+                runtime.close()
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise RuntimeError(
+                f"DemoAdapterApplication.close failed for {len(errors)} runtime(s)."
+            ) from errors[0]
 
 
 @dataclass(slots=True)

@@ -177,9 +177,7 @@ class _ApplicationRuntime:
         return cast(InferenceSession, session)
 
     def close(self) -> None:
-        close = getattr(self.app, "close", None)
-        if callable(close):
-            close()
+        self.app.close()
 
 
 @dataclass(slots=True)
