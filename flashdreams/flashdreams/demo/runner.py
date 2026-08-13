@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -93,13 +93,17 @@ class Runner:
         result: RunResult | None = None
         primary_error: BaseException | None = None
         app_initialized = False
+        app_cleanup: _ApplicationCleanup | None = None
+        remove_app_close_hook: Callable[[], None] | None = None
         try:
             if not host.is_healthy:
                 result = RunResult.rejected(reason="busy")
                 context.run_metrics.record_session(result)
                 return result
+            app_cleanup = _ApplicationCleanup(self.app)
             app_initialized = True
             self.app.init(tuple(self.launch_args))
+            remove_app_close_hook = host.add_close_hook(app_cleanup.close)
             scenario = self._create_scenario()
             if isinstance(self.app, DemoAdapterApplication):
                 _configure_replay_io_handler(self.io_handler, scenario)
@@ -121,8 +125,9 @@ class Runner:
                 _close_runner_resources_async(
                     context=context,
                     host=host,
-                    app=self.app,
+                    app_cleanup=app_cleanup,
                     app_initialized=app_initialized,
+                    remove_app_close_hook=remove_app_close_hook,
                     owns_host=owns_host,
                     run_result=result,
                     primary_error=primary_error,
@@ -143,13 +148,17 @@ class Runner:
         result: RunResult | None = None
         primary_error: BaseException | None = None
         app_initialized = False
+        app_cleanup: _ApplicationCleanup | None = None
+        remove_app_close_hook: Callable[[], None] | None = None
         try:
             if not host.is_healthy:
                 result = RunResult.rejected(reason="busy")
                 context.run_metrics.record_session(result)
                 return result
+            app_cleanup = _ApplicationCleanup(self.app)
             app_initialized = True
             self.app.init(tuple(self.launch_args))
+            remove_app_close_hook = host.add_close_hook(app_cleanup.close)
             scenario = self._create_scenario()
             if isinstance(self.app, DemoAdapterApplication):
                 _configure_replay_io_handler(self.io_handler, scenario)
@@ -170,8 +179,9 @@ class Runner:
             _close_runner_resources(
                 context=context,
                 host=host,
-                app=self.app,
+                app_cleanup=app_cleanup,
                 app_initialized=app_initialized,
+                remove_app_close_hook=remove_app_close_hook,
                 owns_host=owns_host,
                 run_result=result,
                 primary_error=primary_error,
@@ -355,6 +365,18 @@ class _RunnerModelInputProvider:
         self.closed = True
 
 
+@dataclass(slots=True)
+class _ApplicationCleanup:
+    app: Application
+    closed: bool = False
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.app.close()
+        self.closed = True
+
+
 def _run_mode_is_async(run_mode: RunMode) -> bool:
     driver = run_mode.select_driver()
     return inspect.iscoroutinefunction(driver.run_one_session)
@@ -386,16 +408,19 @@ def _close_runner_resources(
     *,
     context: RunContext,
     host: RuntimeHost,
-    app: Application,
+    app_cleanup: _ApplicationCleanup | None,
     app_initialized: bool,
+    remove_app_close_hook: Callable[[], None] | None,
     owns_host: bool,
     run_result: RunResult | None,
     primary_error: BaseException | None,
 ) -> None:
     errors: list[Exception] = []
     _record_cleanup_error(errors, context.close)
-    if app_initialized:
-        _close_application(errors=errors, host=host, app=app)
+    if app_initialized and app_cleanup is not None:
+        _close_application(errors=errors, host=host, cleanup=app_cleanup)
+    if remove_app_close_hook is not None:
+        _record_cleanup_error(errors, remove_app_close_hook)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
@@ -411,8 +436,9 @@ async def _close_runner_resources_async(
     *,
     context: RunContext,
     host: RuntimeHost,
-    app: Application,
+    app_cleanup: _ApplicationCleanup | None,
     app_initialized: bool,
+    remove_app_close_hook: Callable[[], None] | None,
     owns_host: bool,
     run_result: RunResult | None,
     primary_error: BaseException | None,
@@ -422,8 +448,10 @@ async def _close_runner_resources_async(
         await context.close_async()
     except Exception as exc:
         errors.append(exc)
-    if app_initialized:
-        await _close_application_async(errors=errors, host=host, app=app)
+    if app_initialized and app_cleanup is not None:
+        await _close_application_async(errors=errors, host=host, cleanup=app_cleanup)
+    if remove_app_close_hook is not None:
+        _record_cleanup_error(errors, remove_app_close_hook)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
@@ -489,18 +517,22 @@ def _close_application(
     *,
     errors: list[Exception],
     host: RuntimeHost,
-    app: Application,
+    cleanup: _ApplicationCleanup,
 ) -> None:
+    if cleanup.closed:
+        return
     invoked = False
 
     def close_app() -> None:
         nonlocal invoked
         invoked = True
-        app.close()
+        cleanup.close()
 
     try:
         host.call(close_app)
     except Exception as exc:
+        if cleanup.closed:
+            return
         if not invoked and host.is_closed:
             errors.append(_closed_host_cleanup_error(exc))
             return
@@ -511,18 +543,22 @@ async def _close_application_async(
     *,
     errors: list[Exception],
     host: RuntimeHost,
-    app: Application,
+    cleanup: _ApplicationCleanup,
 ) -> None:
+    if cleanup.closed:
+        return
     invoked = False
 
     def close_app() -> None:
         nonlocal invoked
         invoked = True
-        app.close()
+        cleanup.close()
 
     try:
         await host.call_async(close_app)
     except Exception as exc:
+        if cleanup.closed:
+            return
         if not invoked and host.is_closed:
             errors.append(_closed_host_cleanup_error(exc))
             return

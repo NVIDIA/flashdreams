@@ -360,6 +360,27 @@ def test_runner_closes_public_app_when_host_is_external() -> None:
     assert app.closed
 
 
+def test_runner_external_host_close_hook_closes_public_app() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+    host = RuntimeHost(_ExternalApplicationRuntime(app))
+
+    result = Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        host=host,
+        run_mode=_AsyncRecordingRunMode(
+            _RecordingIOHandler(),
+            name="host-closes-after-init",
+            driver=_ClosingHostDriver(),
+        ),
+        model_id="fake-runner",
+    ).run()
+
+    assert result.status == "completed"
+    assert host.is_closed
+    assert app.closed
+
+
 def test_runner_skips_direct_app_close_for_closed_host() -> None:
     app = _RunnerFakeApplication(total_steps=1)
     host = RuntimeHost(_ExternalApplicationRuntime(app))
@@ -506,6 +527,28 @@ async def test_runner_run_async_skips_direct_app_close_for_closed_host() -> None
     assert result.error is None
     assert app.init_thread_id is None
     assert not app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_external_host_close_hook_closes_public_app() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+    host = RuntimeHost(_ExternalApplicationRuntime(app))
+
+    result = await Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        host=host,
+        run_mode=_AsyncRecordingRunMode(
+            _RecordingIOHandler(),
+            name="async-host-closes-after-init",
+            driver=_AsyncClosingHostDriver(),
+        ),
+        model_id="fake-runner",
+    ).run_async()
+
+    assert result.status == "completed"
+    assert host.is_closed
+    assert app.closed
 
 
 @pytest.mark.asyncio
@@ -1469,6 +1512,21 @@ class _FailedResultDriver:
         )
 
 
+class _ClosingHostDriver:
+    def run_one_session(
+        self,
+        *,
+        host: RuntimeHost,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        host.call(provider.close)
+        host.close()
+        return session_edges.close_result(status="completed")
+
+
 @dataclass(slots=True)
 class _AsyncRecordingRunMode:
     io_handler: _RecordingIOHandler
@@ -1566,6 +1624,21 @@ class _AsyncFailedResultDriver:
             reason="driver returned failed",
             error=None,
         )
+
+
+class _AsyncClosingHostDriver:
+    async def run_one_session(
+        self,
+        *,
+        host: RuntimeHost,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        await host.call_async(provider.close)
+        host.close()
+        return session_edges.close_result(status="completed")
 
 
 class _AsyncRunModeInputSource:

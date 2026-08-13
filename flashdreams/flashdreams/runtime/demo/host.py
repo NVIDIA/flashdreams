@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import TypeVar
 
 from flashdreams.runtime._utils import freeze_mapping
@@ -58,6 +59,8 @@ class RuntimeHost:
         self._worker_loop = worker_loop
         self._healthy = True
         self._closed = False
+        self._close_hooks: list[Callable[[], None]] = []
+        self._close_hooks_lock = Lock()
         self._unhealthy_reason: str | None = None
         self._unhealthy_error: Exception | None = None
 
@@ -140,6 +143,21 @@ class RuntimeHost:
         self._require_open()
         return await self._worker.call(func, *args, **kwargs)
 
+    def add_close_hook(self, hook: Callable[[], None]) -> Callable[[], None]:
+        """Run ``hook`` on the model worker before the hosted runtime closes."""
+        with self._close_hooks_lock:
+            self._require_open()
+            self._close_hooks.append(hook)
+
+        def remove_hook() -> None:
+            with self._close_hooks_lock:
+                try:
+                    self._close_hooks.remove(hook)
+                except ValueError:
+                    pass
+
+        return remove_hook
+
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
         """Start one inference session through the hosted runtime."""
         self._require_open()
@@ -159,9 +177,17 @@ class RuntimeHost:
         """Close runtime-owned state and stop the model-execution worker."""
         if self._closed:
             return
+        errors: list[Exception] = []
         try:
-            self._worker.call_blocking(self._runtime.close)
-            self._call_optional_runtime_hook("close_distributed")
+            for hook in self._take_close_hooks():
+                _record_close_error(errors, self._worker.call_blocking, hook)
+            _record_close_error(errors, self._worker.call_blocking, self._runtime.close)
+            close_distributed = getattr(self._runtime, "close_distributed", None)
+            if callable(close_distributed):
+                _record_close_error(
+                    errors, self._worker.call_blocking, close_distributed
+                )
+            _raise_first_close_error(errors)
         finally:
             self._closed = True
             self._worker.close_blocking()
@@ -174,6 +200,35 @@ class RuntimeHost:
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("runtime host is closed")
+
+    def _take_close_hooks(self) -> tuple[Callable[[], None], ...]:
+        with self._close_hooks_lock:
+            hooks = tuple(self._close_hooks)
+            self._close_hooks.clear()
+        return hooks
+
+
+def _record_close_error(
+    errors: list[Exception],
+    close: Callable[..., object],
+    /,
+    *args: object,
+) -> None:
+    try:
+        close(*args)
+    except Exception as exc:
+        errors.append(exc)
+
+
+def _raise_first_close_error(errors: Sequence[Exception]) -> None:
+    if not errors:
+        return
+    first = errors[0]
+    add_note = getattr(first, "add_note", None)
+    for extra in errors[1:]:
+        if callable(add_note):
+            add_note(f"Additional host close error: {extra!r}")
+    raise first
 
 
 __all__ = ["ModelWarmupPlan", "RuntimeHost", "WarmupSessionInputs"]
