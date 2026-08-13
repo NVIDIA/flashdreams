@@ -10,7 +10,8 @@ import tomli
 from t2v_demo import app
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
 
-from flashdreams.demo import Application
+from flashdreams.demo import Application, FileOutputSink, ReplayIOHandler
+from flashdreams.runtime.demo import RunResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -42,18 +43,26 @@ def test_t2v_create_app_exposes_public_application() -> None:
 
     assert app.createApp is app.create_app
     assert isinstance(public_app, Application)
+    assert isinstance(public_app, app.T2VApplication)
+    assert public_app.defaults.backend == "self-forcing"
+    assert public_app.defaults.prompt == "A waterfall"
+    assert public_app.defaults.total_blocks == 3
 
 
 def test_runner_mp4_launch_uses_demo_entrypoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured = []
+    captured: dict[str, object] = {}
 
-    def fake_replay_demo(*, spec: object, adapter: object) -> object:
-        captured.append((spec, adapter))
-        return type("Result", (), {"status": "completed"})()
+    class FakeRunner:
+        def __init__(self, *, io_handler: object, app: object) -> None:
+            captured["io_handler"] = io_handler
+            captured["app"] = app
 
-    monkeypatch.setattr(app, "run_replay_demo", fake_replay_demo)
+        def run(self) -> RunResult:
+            return RunResult(status="completed")
+
+    monkeypatch.setattr(app, "Runner", FakeRunner)
     config = T2VDemoRunnerConfig(
         runner_name="t2v",
         description="test",
@@ -68,9 +77,14 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
         output_overrides={"path": "outputs/test.mp4", "fps": 24},
     )
 
-    spec, _adapter = captured[0]
-    assert spec.input_mode == "replay"
-    assert spec.scenario["prompt"] == "A waterfall"
-    assert spec.scenario["total_blocks"] == 3
-    assert str(spec.output.path) == "outputs/test.mp4"
-    assert spec.output.fps == 24
+    public_app = captured["app"]
+    io_handler = captured["io_handler"]
+    assert isinstance(public_app, app.T2VApplication)
+    assert isinstance(io_handler, ReplayIOHandler)
+    assert public_app.defaults.prompt == "A waterfall"
+    assert public_app.defaults.total_blocks == 3
+    output_sink = io_handler.output_sink
+    assert isinstance(output_sink, FileOutputSink)
+    assert str(output_sink.output_path) == "outputs/test.mp4"
+    assert output_sink.fps == 24
+    assert output_sink.output_layout == "tchw"

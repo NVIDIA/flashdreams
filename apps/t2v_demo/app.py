@@ -8,14 +8,22 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from dataclasses import dataclass, replace
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from aiohttp import web
 
-from flashdreams.demo import Application, DemoAdapterApplication
+from flashdreams.demo import (
+    Application,
+    ApplicationSession,
+    FileOutputSink,
+    InferenceSessionApplicationAdapter,
+    Runner,
+    create_replay_io_handler,
+)
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
     DemoSpec,
@@ -29,7 +37,7 @@ from flashdreams.runtime.demo.bootstrap import (
     initialize_cuda_distributed,
 )
 from flashdreams.runtime.demo.host import RuntimeHost
-from flashdreams.runtime.demo.replay import run_replay_demo
+from flashdreams.runtime.demo.run_modes import RunResult
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
@@ -42,6 +50,7 @@ from .runtime import (
     FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
     T2VDemoAdapter,
+    T2VRuntime,
     make_adapter,
 )
 
@@ -57,6 +66,69 @@ class T2VWebRTCConfig(WebRTCRuntimeConfig):
     video_height: int
     warmup_chunks: int
     warmup_timeout_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class T2VApplicationDefaults:
+    """Author-facing defaults for one prompt-only text-to-video app."""
+
+    backend: str = "causal-forcing"
+    preset_id: str | None = None
+    prompt: str | None = None
+    total_blocks: int | None = None
+    pixel_height: int | None = None
+    pixel_width: int | None = None
+    fps: int | None = None
+    device: str = "cuda"
+    compile: bool | None = None
+
+
+@dataclass(slots=True)
+class T2VApplication:
+    """Small public app facade over the selected T2V runtime preset."""
+
+    defaults: T2VApplicationDefaults = field(default_factory=T2VApplicationDefaults)
+    _runtimes: list[T2VRuntime] = field(default_factory=list, init=False, repr=False)
+
+    def init(self, launch_args: Sequence[str]) -> None:
+        if launch_args:
+            raise ValueError(
+                "T2VApplication does not support launch arguments; pass defaults "
+                "when constructing the app."
+            )
+        resolve_backend(self.defaults.backend).resolve_runner(self.defaults.preset_id)
+
+    def create_session(self) -> ApplicationSession:
+        adapter = make_adapter(self.defaults.backend)
+        scenario = _scenario(self.defaults)
+        spec = _spec(
+            self.defaults,
+            adapter=adapter,
+            scenario=scenario,
+            input_mode="replay",
+            output=NullOutputSpec(),
+        )
+        if spec.config is None:
+            raise RuntimeError("T2V DemoSpec.config was not initialized.")
+        prepared = adapter.prepare_scenario(spec)
+        runtime = adapter.create_runtime(spec.config)
+        self._runtimes.append(runtime)
+        return InferenceSessionApplicationAdapter(
+            runtime.start_session(prepared.initial_inputs)
+        )
+
+    def close(self) -> None:
+        errors: list[Exception] = []
+        while self._runtimes:
+            runtime = self._runtimes.pop()
+            try:
+                runtime.close()
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise RuntimeError(
+                f"T2VApplication.close failed for {len(errors)} runtime(s)."
+            ) from errors[0]
 
 
 class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
@@ -94,8 +166,8 @@ def launch_t2v(
     configure_logging()
     scenario_overrides = scenario_overrides or {}
     output_overrides = output_overrides or {}
-    adapter = make_adapter(config.backend)
-    scenario = _scenario(config, scenario_overrides)
+    defaults = _defaults_from_config(config, scenario_overrides)
+    scenario = _scenario(defaults)
     if mode == "mp4" or mode == "null":
         output = _replay_output(
             mode=mode,
@@ -106,22 +178,13 @@ def launch_t2v(
                 output_overrides.get("fps", scenario[FIELD_FPS]), name="fps"
             ),
         )
-        result = run_replay_demo(
-            spec=_spec(
-                config,
-                adapter=adapter,
-                scenario=scenario,
-                input_mode="replay",
-                output=output,
-            ),
-            adapter=adapter,
+        return _run_replay_application(
+            app=T2VApplication(defaults=defaults),
+            output=output,
         )
-        if result.status != "completed":
-            reason = result.reason or str(result.error) or "T2V replay failed."
-            raise RuntimeError(reason)
-        return result
 
     context = initialize_cuda_distributed(default_device=config.device)
+    adapter = make_adapter(defaults.backend)
     output = WebRTCOutputSpec(
         host=str(host or output_overrides.get("host", "0.0.0.0")),
         port=_int_value(
@@ -151,12 +214,11 @@ def launch_t2v(
         preload_name="FlashDreams T2V",
     )
     spec = _spec(
-        config,
+        replace(defaults, device=str(context.device)),
         adapter=adapter,
         scenario=scenario,
         input_mode="webrtc",
         output=output,
-        device=str(context.device),
     )
     prepared = adapter.prepare_scenario(spec)
     inference_config = spec.config
@@ -201,36 +263,38 @@ def create_app(config: "T2VDemoRunnerConfig | None" = None) -> Application:
     from .runner import RUNNER_T2V
 
     config = RUNNER_T2V if config is None else config
-    adapter = make_adapter(config.backend)
-    scenario = _scenario(config, {})
-    return DemoAdapterApplication(
-        adapter=adapter,
-        spec=_spec(
-            config,
-            adapter=adapter,
-            scenario=scenario,
-            input_mode="replay",
-            output=NullOutputSpec(),
-        ),
-    )
+    return T2VApplication(defaults=_defaults_from_config(config, {}))
 
 
 createApp = create_app
 
 
-def _scenario(
-    config: "T2VDemoRunnerConfig", overrides: dict[str, object]
-) -> dict[str, object]:
-    runner = resolve_backend(config.backend).resolve_runner(config.preset_id)
+def _defaults_from_config(
+    config: "T2VDemoRunnerConfig",
+    overrides: dict[str, object],
+) -> T2VApplicationDefaults:
+    def value(name: str) -> object:
+        return getattr(config, name) if overrides.get(name) is None else overrides[name]
+
+    return T2VApplicationDefaults(
+        backend=config.backend,
+        preset_id=config.preset_id,
+        prompt=_optional_str(value(FIELD_PROMPT)),
+        total_blocks=_optional_int(value(FIELD_TOTAL_BLOCKS)),
+        pixel_height=_optional_int(value(FIELD_PIXEL_HEIGHT)),
+        pixel_width=_optional_int(value(FIELD_PIXEL_WIDTH)),
+        fps=_optional_int(value(FIELD_FPS)),
+        device=config.device,
+        compile=config.compile,
+    )
+
+
+def _scenario(defaults: T2VApplicationDefaults) -> dict[str, object]:
+    runner = resolve_backend(defaults.backend).resolve_runner(defaults.preset_id)
 
     def value(name: str, default: object) -> object:
-        overridden = overrides.get(name)
-        configured = getattr(config, name)
-        return (
-            default
-            if overridden is None and configured is None
-            else (configured if overridden is None else overridden)
-        )
+        configured = getattr(defaults, name)
+        return default if configured is None else configured
 
     return {
         FIELD_PROMPT: value(FIELD_PROMPT, runner.prompt),
@@ -242,25 +306,24 @@ def _scenario(
 
 
 def _spec(
-    config: "T2VDemoRunnerConfig",
+    defaults: T2VApplicationDefaults,
     *,
     adapter: T2VDemoAdapter,
     scenario: dict[str, object],
     input_mode: Literal["replay", "webrtc"],
     output: Mp4OutputSpec | NullOutputSpec | WebRTCOutputSpec,
-    device: str | None = None,
 ) -> DemoSpec:
     return DemoSpec(
         model_id=adapter.model_id,
-        preset_id=config.preset_id or adapter.backend.default_preset_name,
+        preset_id=defaults.preset_id or adapter.backend.default_preset_name,
         input_mode=input_mode,
         scenario=scenario,
         output=output,
         config=InferenceConfig(
             model_id=adapter.model_id,
-            preset_id=config.preset_id or adapter.backend.default_preset_name,
-            device=device or config.device,
-            compile=config.compile,
+            preset_id=defaults.preset_id or adapter.backend.default_preset_name,
+            device=defaults.device,
+            compile=defaults.compile,
             runtime_options={"backend": adapter.backend.key},
         ),
     )
@@ -296,6 +359,36 @@ def _float_value(value: object, *, name: str) -> float:
     if isinstance(value, str):
         return float(value)
     raise TypeError(f"{name} must be convertible to float, got {type(value).__name__}.")
+
+
+def _optional_int(value: object) -> int | None:
+    return None if value is None else _int_value(value, name="value")
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _run_replay_application(
+    *,
+    app: Application,
+    output: Mp4OutputSpec | NullOutputSpec,
+) -> RunResult:
+    output_sink = None
+    if isinstance(output, Mp4OutputSpec):
+        output_sink = FileOutputSink(
+            output_path=output.path,
+            fps=output.fps,
+            output_layout=output.output_layout,
+        )
+    result = Runner(
+        io_handler=create_replay_io_handler(output_sink=output_sink),
+        app=app,
+    ).run()
+    if result.status != "completed":
+        reason = result.reason or str(result.error) or "T2V replay failed."
+        raise RuntimeError(reason)
+    return result
 
 
 def _configure_app(
@@ -365,4 +458,11 @@ def _configure_app(
     app.router.add_get("/api/t2v/playback", playback)
 
 
-__all__ = ["T2VWebRTCSessionManager", "createApp", "create_app", "launch_t2v"]
+__all__ = [
+    "T2VApplication",
+    "T2VApplicationDefaults",
+    "T2VWebRTCSessionManager",
+    "createApp",
+    "create_app",
+    "launch_t2v",
+]
