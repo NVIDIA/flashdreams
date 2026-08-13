@@ -49,7 +49,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fps", type=int)
 
 
-def create_app(config: AppConfig) -> PipelineAppSpec:
+def create_app_spec(config: AppConfig) -> PipelineAppSpec:
     """Describe a T2V pipeline application without constructing its runtime."""
     options = config.options
     catalog = load_preset_catalog(_optional_path(options.get("preset_config")))
@@ -200,4 +200,4 @@ def _optional_string(value: object) -> str | None:
     return value.strip()
 
 
-__all__ = ["add_arguments", "create_app"]
+__all__ = ["add_arguments", "create_app_spec"]

@@ -10,8 +10,6 @@ from typing import Any
 
 import torch
 
-from flashdreams.infra.config import derive_config
-from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime import (
     InferenceInput,
     InferenceSession,
@@ -31,15 +29,8 @@ class PipelineAppRuntime:
         *,
         spec: PipelineAppSpec,
         device: str,
-        compile: bool | None = None,
-        cuda_graph: bool | None = None,
     ) -> None:
-        pipeline_config = _with_execution_options(
-            spec.pipeline_config,
-            compile=compile,
-            cuda_graph=cuda_graph,
-        )
-        self.pipeline = pipeline_config.setup().to(device).eval()
+        self.pipeline = spec.pipeline_config.setup().to(device).eval()
         self.metadata = spec.metadata
         self.initial_input = spec.initial_input
         self._spec = spec
@@ -156,25 +147,6 @@ class PipelineAppSession(InferenceSession):
         close = getattr(cache, "close", None)
         if callable(close):
             close()
-
-
-def _with_execution_options(
-    pipeline: StreamInferencePipelineConfig,
-    *,
-    compile: bool | None,
-    cuda_graph: bool | None,
-) -> StreamInferencePipelineConfig:
-    transformer: dict[str, object] = {}
-    if compile is not None:
-        transformer["compile_network"] = compile
-    if cuda_graph is not None:
-        transformer["use_cuda_graph"] = cuda_graph
-    if not transformer:
-        return pipeline
-    return derive_config(
-        pipeline,
-        diffusion_model={"transformer": transformer},
-    )
 
 
 def _metrics(value: object) -> Mapping[str, float | int]:

@@ -5,6 +5,6 @@
 
 from flashdreams.core.pipeline_presets import PipelineProvider
 
-from .provider import add_arguments, create_app
+from .provider import add_arguments, create_app_spec
 
-__all__ = ["PipelineProvider", "add_arguments", "create_app"]
+__all__ = ["PipelineProvider", "add_arguments", "create_app_spec"]

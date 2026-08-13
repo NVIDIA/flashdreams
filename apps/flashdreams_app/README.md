@@ -14,13 +14,15 @@ uv run flashdreams-app t2v-app webrtc --prompt "A waterfall"
 
 A compatible package must expose an importable module with:
 
-- `create_app(config: flashdreams_app.AppConfig)`, returning a
+- `create_app_spec(config: flashdreams_app.AppConfig)`, returning a
   `PipelineAppSpec` with a `StreamInferencePipelineConfig`, initial
   conditioning, presentation metadata, step count, and a `PipelineContract`
   cache initializer.
 - Optionally, `add_arguments(parser)` adds provider-specific flags.
 
-The host owns process/distributed initialization, pipeline setup, execution
-options, runtime/session lifecycle, `generate`/`finalize` stepping, MP4 writing,
-and WebRTC serving. Providers only select/configure a pipeline and describe how
-global conditioning initializes its cache.
+The host owns process/distributed initialization, pipeline setup,
+runtime/session lifecycle, `generate`/`finalize` stepping, MP4 writing, and
+WebRTC serving. Providers only select/configure a pipeline and describe how
+global conditioning initializes its cache. Pipeline-specific execution options,
+including compilation and CUDA graphs, remain encapsulated by the pipeline
+config and its `setup()` implementation.

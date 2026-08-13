@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import argparse
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 from typing import Any, cast
 
 import pytest
 import torch
 from flashdreams_app import (
-    PipelineAppRuntime,
     PipelineAppSpec,
     PipelineContract,
     RuntimeMetadata,
@@ -34,7 +33,7 @@ def test_host_drives_runtime_api_and_owns_file_output(
 
     class Pipeline:
         def __init__(self, config: object) -> None:
-            del config
+            assert config is pipeline_config
             calls.append("pipeline.init")
 
         def to(self, device: str) -> "Pipeline":
@@ -78,7 +77,7 @@ def test_host_drives_runtime_api_and_owns_file_output(
     provider = ModuleType("fake_app")
     setattr(
         provider,
-        "create_app",
+        "create_app_spec",
         lambda config: PipelineAppSpec(
             pipeline_config=pipeline_config,
             contract=PipelineContract(initialize_cache=initialize_cache),
@@ -132,6 +131,12 @@ def test_host_exposes_only_supported_output_modes() -> None:
         action for action in cli.build_parser()._actions if action.dest == "mode"
     )
     assert mode_action.choices == ("mp4", "webrtc")
+
+
+def test_host_does_not_expose_pipeline_execution_options() -> None:
+    destinations = {action.dest for action in cli.build_parser()._actions}
+    assert "compile" not in destinations
+    assert "cuda_graph" not in destinations
 
 
 def test_webrtc_path_owns_serving_options_and_runtime_close(
@@ -189,60 +194,3 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
     assert options.host == "127.0.0.1"
     assert options.port == 9000
     assert options.encoder_gop == 24
-
-
-def test_host_owns_execution_options() -> None:
-    destinations = {action.dest for action in cli.build_parser()._actions}
-    assert {"compile", "cuda_graph"} <= destinations
-
-
-def test_host_applies_execution_options_without_mutating_provider_spec() -> None:
-    configured_pipeline: StreamInferencePipelineConfig | None = None
-
-    class Pipeline:
-        def __init__(self, config: StreamInferencePipelineConfig) -> None:
-            nonlocal configured_pipeline
-            configured_pipeline = config
-
-        def to(self, device: str) -> "Pipeline":
-            assert device == "cpu"
-            return self
-
-        def eval(self) -> "Pipeline":
-            return self
-
-    transformer = SimpleNamespace(compile_network=False, use_cuda_graph=False)
-    pipeline_config = StreamInferencePipelineConfig(
-        _target=cast(Any, Pipeline),
-        name="fake",
-        diffusion_model=cast(Any, SimpleNamespace(transformer=transformer)),
-    )
-    spec = PipelineAppSpec(
-        pipeline_config=pipeline_config,
-        contract=PipelineContract(initialize_cache=lambda pipeline, inputs: object()),
-        metadata=RuntimeMetadata(
-            model_id="fake",
-            fps=24,
-            output_layout="tchw",
-            video_width=64,
-            video_height=64,
-        ),
-        initial_input=InferenceInput(),
-        total_steps=1,
-    )
-
-    runtime = PipelineAppRuntime(
-        spec=spec,
-        device="cpu",
-        compile=True,
-        cuda_graph=True,
-    )
-    try:
-        assert configured_pipeline is not None
-        configured_transformer = configured_pipeline.diffusion_model.transformer
-        assert getattr(configured_transformer, "compile_network") is True
-        assert getattr(configured_transformer, "use_cuda_graph") is True
-        assert transformer.compile_network is False
-        assert transformer.use_cuda_graph is False
-    finally:
-        runtime.close()

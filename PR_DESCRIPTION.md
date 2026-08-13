@@ -4,10 +4,10 @@ Add a model-neutral `flashdreams-app` entrypoint and a declarative `t2v-app`
 provider for running FlashDreams text-to-video pipelines as MP4 jobs or WebRTC
 services.
 
-The host owns process initialization, pipeline construction, execution options,
-the runtime/session lifecycle, autoregressive stepping, finalization, cleanup,
-and presentation. The T2V package only selects a pipeline preset and supplies
-the model-specific conditioning and cache-initialization contract.
+The host owns process initialization, pipeline construction, the
+runtime/session lifecycle, autoregressive stepping, finalization, cleanup, and
+presentation. The T2V package only selects a pipeline preset and supplies the
+model-specific conditioning and cache-initialization contract.
 
 ## Entrypoint examples
 
@@ -52,13 +52,14 @@ When `--preset-id` is omitted, `t2v-app` uses the catalog's
 
 - Add the `flashdreams-app` workspace package and console entrypoint.
 - Define a minimal provider boundary:
-  `create_app(AppConfig) -> PipelineAppSpec`.
+  `create_app_spec(AppConfig) -> PipelineAppSpec`.
 - Add the host-owned `PipelineAppRuntime` and `PipelineAppSession`.
 - Keep pipeline setup, `generate`/`finalize`, step tracking, cache release, and
   runtime closure in the host.
 - Add host-owned MP4 and WebRTC presentation paths without a runtime adapter.
 - Keep provider-specific CLI arguments optional through `add_arguments(parser)`.
-- Move `--compile` and `--cuda-graph` execution overrides to the host.
+- Keep pipeline-specific execution behavior encapsulated by the selected
+  pipeline config and its `setup()` implementation.
 
 ## T2V provider and presets
 

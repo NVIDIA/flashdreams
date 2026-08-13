@@ -36,12 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("mode", choices=("mp4", "webrtc"))
     parser.add_argument("--output", type=Path, help="MP4 path (required for mp4)")
     parser.add_argument("--device", default="cuda", help="Runtime device")
-    parser.add_argument(
-        "--compile", action=argparse.BooleanOptionalAction, default=None
-    )
-    parser.add_argument(
-        "--cuda-graph", action=argparse.BooleanOptionalAction, default=None
-    )
     parser.add_argument("--host", default="0.0.0.0", help="WebRTC bind address")
     parser.add_argument("--port", type=int, default=8080, help="WebRTC bind port")
     parser.add_argument("--warmup-chunks", type=int, default=0)
@@ -113,20 +107,20 @@ def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
     options["world_rank"] = environment.world_rank
     options["world_size"] = environment.world_size
 
-    factory = getattr(provider, "create_app", None)
+    factory = getattr(provider, "create_app_spec", None)
     if not callable(factory):
-        raise TypeError(f"Provider {args.provider!r} must define create_app(config).")
+        raise TypeError(
+            f"Provider {args.provider!r} must define create_app_spec(config)."
+        )
     spec = factory(AppConfig(options=options))
     if not isinstance(spec, PipelineAppSpec):
         raise TypeError(
-            f"Provider {args.provider!r} create_app() returned "
+            f"Provider {args.provider!r} create_app_spec() returned "
             f"{type(spec).__name__}, expected PipelineAppSpec."
         )
     runtime = PipelineAppRuntime(
         spec=spec,
         device=environment.device,
-        compile=args.compile,
-        cuda_graph=args.cuda_graph,
     )
     if args.mode == "webrtc":
         return _run_webrtc(runtime=runtime, args=args, environment=environment)

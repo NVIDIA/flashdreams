@@ -33,7 +33,7 @@ def test_t2v_provider_registers_model_options() -> None:
     assert not hasattr(args, "compile")
 
 
-def test_create_app_returns_data_without_constructing_pipeline(
+def test_create_app_spec_returns_data_without_constructing_pipeline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pipeline_constructed = False
@@ -78,7 +78,7 @@ def test_create_app_returns_data_without_constructing_pipeline(
     monkeypatch.setattr(provider, "load_preset_catalog", lambda _: catalog)
     monkeypatch.setattr(provider, "load_pipeline_provider", lambda _: Provider())
 
-    created = provider.create_app(
+    created = provider.create_app_spec(
         AppConfig(
             options={
                 "preset_config": None,
