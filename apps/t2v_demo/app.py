@@ -8,23 +8,21 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from aiohttp import web
-
-from flashdreams.demo import (
-    Application,
-    ApplicationSession,
-    FileOutputSink,
-    InferenceSessionApplicationAdapter,
-    Runner,
-    create_replay_io_handler,
+from t2v.t2v import (
+    T2VRunDefaults,
+    create_t2v_application,
+    create_t2v_spec,
+    run_t2v_replay_application,
+    t2v_scenario_mapping,
 )
-from flashdreams.runtime import InferenceConfig
+
+from flashdreams.demo import Application
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
@@ -37,12 +35,11 @@ from flashdreams.runtime.demo.bootstrap import (
     initialize_cuda_distributed,
 )
 from flashdreams.runtime.demo.host import RuntimeHost
-from flashdreams.runtime.demo.run_modes import RunResult
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
 
-from .backends import backend_metadata, resolve_backend
+from .backends import backend_metadata
 from .runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -50,8 +47,8 @@ from .runtime import (
     FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
     T2VDemoAdapter,
-    T2VRuntime,
     make_adapter,
+    model_from_backend,
 )
 
 if TYPE_CHECKING:
@@ -68,67 +65,12 @@ class T2VWebRTCConfig(WebRTCRuntimeConfig):
     warmup_timeout_s: float
 
 
-@dataclass(frozen=True, slots=True)
-class T2VApplicationDefaults:
-    """Author-facing defaults for one prompt-only text-to-video app."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class T2VApplicationDefaults(T2VRunDefaults):
+    """Legacy ``t2v`` command defaults plus temporary backend selection."""
 
     backend: str = "causal-forcing"
     preset_id: str | None = None
-    prompt: str | None = None
-    total_blocks: int | None = None
-    pixel_height: int | None = None
-    pixel_width: int | None = None
-    fps: int | None = None
-    device: str = "cuda"
-    compile: bool | None = None
-
-
-@dataclass(slots=True)
-class T2VApplication:
-    """Small public app facade over the selected T2V runtime preset."""
-
-    defaults: T2VApplicationDefaults = field(default_factory=T2VApplicationDefaults)
-    _runtimes: list[T2VRuntime] = field(default_factory=list, init=False, repr=False)
-
-    def init(self, launch_args: Sequence[str]) -> None:
-        if launch_args:
-            raise ValueError(
-                "T2VApplication does not support launch arguments; pass defaults "
-                "when constructing the app."
-            )
-        resolve_backend(self.defaults.backend).resolve_runner(self.defaults.preset_id)
-
-    def create_session(self) -> ApplicationSession:
-        adapter = make_adapter(self.defaults.backend)
-        scenario = _scenario(self.defaults)
-        spec = _spec(
-            self.defaults,
-            adapter=adapter,
-            scenario=scenario,
-            input_mode="replay",
-            output=NullOutputSpec(),
-        )
-        if spec.config is None:
-            raise RuntimeError("T2V DemoSpec.config was not initialized.")
-        prepared = adapter.prepare_scenario(spec)
-        runtime = adapter.create_runtime(spec.config)
-        self._runtimes.append(runtime)
-        return InferenceSessionApplicationAdapter(
-            runtime.start_session(prepared.initial_inputs)
-        )
-
-    def close(self) -> None:
-        errors: list[Exception] = []
-        while self._runtimes:
-            runtime = self._runtimes.pop()
-            try:
-                runtime.close()
-            except Exception as exc:
-                errors.append(exc)
-        if errors:
-            raise RuntimeError(
-                f"T2VApplication.close failed for {len(errors)} runtime(s)."
-            ) from errors[0]
 
 
 class T2VWebRTCSessionManager(BaseWebRTCSessionManager[Any, T2VWebRTCConfig]):
@@ -178,13 +120,14 @@ def launch_t2v(
                 output_overrides.get("fps", scenario[FIELD_FPS]), name="fps"
             ),
         )
-        return _run_replay_application(
-            app=T2VApplication(defaults=defaults),
+        return run_t2v_replay_application(
+            model=model_from_backend(defaults.backend, defaults.preset_id),
+            defaults=defaults,
             output=output,
         )
 
     context = initialize_cuda_distributed(default_device=config.device)
-    adapter = make_adapter(defaults.backend)
+    adapter = make_adapter(defaults.backend, defaults.preset_id)
     output = WebRTCOutputSpec(
         host=str(host or output_overrides.get("host", "0.0.0.0")),
         port=_int_value(
@@ -216,7 +159,6 @@ def launch_t2v(
     spec = _spec(
         replace(defaults, device=str(context.device)),
         adapter=adapter,
-        scenario=scenario,
         input_mode="webrtc",
         output=output,
     )
@@ -263,7 +205,11 @@ def create_app(config: "T2VDemoRunnerConfig | None" = None) -> Application:
     from .runner import RUNNER_T2V
 
     config = RUNNER_T2V if config is None else config
-    return T2VApplication(defaults=_defaults_from_config(config, {}))
+    defaults = _defaults_from_config(config, {})
+    return create_t2v_application(
+        model=model_from_backend(defaults.backend, defaults.preset_id),
+        defaults=defaults,
+    )
 
 
 createApp = create_app
@@ -290,42 +236,24 @@ def _defaults_from_config(
 
 
 def _scenario(defaults: T2VApplicationDefaults) -> dict[str, object]:
-    runner = resolve_backend(defaults.backend).resolve_runner(defaults.preset_id)
-
-    def value(name: str, default: object) -> object:
-        configured = getattr(defaults, name)
-        return default if configured is None else configured
-
-    return {
-        FIELD_PROMPT: value(FIELD_PROMPT, runner.prompt),
-        FIELD_TOTAL_BLOCKS: value(FIELD_TOTAL_BLOCKS, runner.total_blocks),
-        FIELD_PIXEL_HEIGHT: value(FIELD_PIXEL_HEIGHT, runner.pixel_height),
-        FIELD_PIXEL_WIDTH: value(FIELD_PIXEL_WIDTH, runner.pixel_width),
-        FIELD_FPS: value(FIELD_FPS, runner.fps),
-    }
+    return t2v_scenario_mapping(
+        model=model_from_backend(defaults.backend, defaults.preset_id),
+        defaults=defaults,
+    )
 
 
 def _spec(
     defaults: T2VApplicationDefaults,
     *,
     adapter: T2VDemoAdapter,
-    scenario: dict[str, object],
     input_mode: Literal["replay", "webrtc"],
     output: Mp4OutputSpec | NullOutputSpec | WebRTCOutputSpec,
 ) -> DemoSpec:
-    return DemoSpec(
-        model_id=adapter.model_id,
-        preset_id=defaults.preset_id or adapter.backend.default_preset_name,
+    return create_t2v_spec(
+        model=adapter.model,
+        defaults=defaults,
         input_mode=input_mode,
-        scenario=scenario,
         output=output,
-        config=InferenceConfig(
-            model_id=adapter.model_id,
-            preset_id=defaults.preset_id or adapter.backend.default_preset_name,
-            device=defaults.device,
-            compile=defaults.compile,
-            runtime_options={"backend": adapter.backend.key},
-        ),
     )
 
 
@@ -367,28 +295,6 @@ def _optional_int(value: object) -> int | None:
 
 def _optional_str(value: object) -> str | None:
     return None if value is None else str(value)
-
-
-def _run_replay_application(
-    *,
-    app: Application,
-    output: Mp4OutputSpec | NullOutputSpec,
-) -> RunResult:
-    output_sink = None
-    if isinstance(output, Mp4OutputSpec):
-        output_sink = FileOutputSink(
-            output_path=output.path,
-            fps=output.fps,
-            output_layout=output.output_layout,
-        )
-    result = Runner(
-        io_handler=create_replay_io_handler(output_sink=output_sink),
-        app=app,
-    ).run()
-    if result.status != "completed":
-        reason = result.reason or str(result.error) or "T2V replay failed."
-        raise RuntimeError(reason)
-    return result
 
 
 def _configure_app(
@@ -459,7 +365,6 @@ def _configure_app(
 
 
 __all__ = [
-    "T2VApplication",
     "T2VApplicationDefaults",
     "T2VWebRTCSessionManager",
     "createApp",

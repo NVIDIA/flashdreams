@@ -6,11 +6,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import t2v.t2v as t2v_shell
 import tomli
 from t2v_demo import app
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
+from t2v_demo.runtime import model_from_backend
 
-from flashdreams.demo import Application, FileOutputSink, ReplayIOHandler
+from flashdreams.demo import (
+    Application,
+    DemoAdapterApplication,
+    FileOutputSink,
+    ReplayIOHandler,
+)
 from flashdreams.runtime.demo import RunResult
 
 pytestmark = pytest.mark.ci_cpu
@@ -43,10 +50,23 @@ def test_t2v_create_app_exposes_public_application() -> None:
 
     assert app.createApp is app.create_app
     assert isinstance(public_app, Application)
-    assert isinstance(public_app, app.T2VApplication)
-    assert public_app.defaults.backend == "self-forcing"
-    assert public_app.defaults.prompt == "A waterfall"
-    assert public_app.defaults.total_blocks == 3
+    assert isinstance(public_app, DemoAdapterApplication)
+    spec = public_app.spec
+    assert spec.model_id == "flashdreams-t2v"
+    assert spec.config is not None
+    assert spec.config.runtime_options["backend"] == "self-forcing"
+    scenario = spec.scenario
+    assert isinstance(scenario, dict)
+    assert scenario["prompt"] == "A waterfall"
+    assert scenario["total_blocks"] == 3
+
+
+def test_t2v_backend_bridge_builds_neutral_model_config() -> None:
+    model = model_from_backend("self-forcing")
+
+    assert isinstance(model, t2v_shell.T2VModelConfig)
+    assert model.model_id == "flashdreams-t2v"
+    assert model.runtime_options["backend"] == "self-forcing"
 
 
 def test_runner_mp4_launch_uses_demo_entrypoint(
@@ -62,7 +82,7 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
         def run(self) -> RunResult:
             return RunResult(status="completed")
 
-    monkeypatch.setattr(app, "Runner", FakeRunner)
+    monkeypatch.setattr(t2v_shell, "Runner", FakeRunner)
     config = T2VDemoRunnerConfig(
         runner_name="t2v",
         description="test",
@@ -79,10 +99,12 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
 
     public_app = captured["app"]
     io_handler = captured["io_handler"]
-    assert isinstance(public_app, app.T2VApplication)
+    assert isinstance(public_app, DemoAdapterApplication)
     assert isinstance(io_handler, ReplayIOHandler)
-    assert public_app.defaults.prompt == "A waterfall"
-    assert public_app.defaults.total_blocks == 3
+    scenario = public_app.spec.scenario
+    assert isinstance(scenario, dict)
+    assert scenario["prompt"] == "A waterfall"
+    assert scenario["total_blocks"] == 3
     output_sink = io_handler.output_sink
     assert isinstance(output_sink, FileOutputSink)
     assert str(output_sink.output_path) == "outputs/test.mp4"
