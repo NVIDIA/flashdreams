@@ -13,7 +13,7 @@ import tyro
 
 from flashdreams.infra.runner import Runner, RunnerConfig
 
-from .backends import backend_choices, resolve_backend
+from .runtime import backend_choices, default_pipeline
 
 
 @dataclass(kw_only=True)
@@ -25,9 +25,7 @@ class T2VDemoRunnerConfig(RunnerConfig):
         "t2v_demo.launch:LAUNCH_CAPABILITY"
     )
     pipeline: Annotated[Any, tyro.conf.Suppress] = field(
-        default_factory=lambda: resolve_backend("causal-forcing")
-        .resolve_runner()
-        .pipeline
+        default_factory=default_pipeline
     )
     backend: str = "causal-forcing"
     """Backend key: one of ``causal-forcing``, ``cosmos-predict2``, or ``self-forcing``."""

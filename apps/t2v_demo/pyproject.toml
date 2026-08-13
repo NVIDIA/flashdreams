@@ -10,7 +10,13 @@ name = "flashdreams-t2v-demo"
 version = "0.1.0"
 description = "FlashDreams text-to-video runtime demo launcher"
 requires-python = ">=3.10"
-dependencies = ["flashdreams[serving]", "flashdreams-t2v"]
+dependencies = [
+    "flashdreams[serving]",
+    "flashdreams-causal-forcing",
+    "flashdreams-cosmos-predict2",
+    "flashdreams-self-forcing",
+    "flashdreams-t2v",
+]
 
 [project.entry-points."flashdreams.runner_configs"]
 t2v = "t2v_demo.runner:RUNNER_T2V"
@@ -20,6 +26,9 @@ t2v = "t2v_demo.app:create_app"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-causal-forcing = { workspace = true }
+flashdreams-cosmos-predict2 = { workspace = true }
+flashdreams-self-forcing = { workspace = true }
 flashdreams-t2v = { workspace = true }
 
 [tool.setuptools]

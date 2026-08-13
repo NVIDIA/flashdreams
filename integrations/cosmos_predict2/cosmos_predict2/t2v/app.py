@@ -3,21 +3,14 @@
 
 """Public T2V app entry for the default Cosmos Predict2 model."""
 
+from t2v import create_t2v_application, model_config_from_runner
+
+from cosmos_predict2.config import RUNNER_COSMOS2_T2V_2B_720P
 from flashdreams.demo import Application
-from t2v import T2VModelConfig, create_t2v_application
 
-from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
-from cosmos_predict2.runner import DEFAULT_PROMPT
-
-MODEL = T2VModelConfig(
+MODEL = model_config_from_runner(
     model_id="cosmos-predict2-t2v",
-    preset_id=PIPELINE_COSMOS2_T2V_2B_720P.name,
-    pipeline=PIPELINE_COSMOS2_T2V_2B_720P,
-    prompt=DEFAULT_PROMPT,
-    total_blocks=1,
-    pixel_height=720,
-    pixel_width=1280,
-    fps=16,
+    runner=RUNNER_COSMOS2_T2V_2B_720P,
 )
 
 

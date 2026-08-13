@@ -39,7 +39,6 @@ from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
 
-from .backends import backend_metadata
 from .runtime import (
     FIELD_FPS,
     FIELD_PIXEL_HEIGHT,
@@ -47,6 +46,7 @@ from .runtime import (
     FIELD_PROMPT,
     FIELD_TOTAL_BLOCKS,
     T2VDemoAdapter,
+    backend_metadata,
     make_adapter,
     model_from_backend,
 )

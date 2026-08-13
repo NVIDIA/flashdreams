@@ -10,7 +10,7 @@ import t2v.t2v as t2v_shell
 import tomli
 from t2v_demo import app
 from t2v_demo.runner import RUNNER_T2V, T2VDemoRunnerConfig
-from t2v_demo.runtime import model_from_backend
+from t2v_demo.runtime import backend_metadata, model_from_backend
 
 from flashdreams.demo import (
     Application,
@@ -37,6 +37,13 @@ def test_t2v_registers_application_entry_point() -> None:
     }
 
 
+def test_t2v_demo_no_longer_owns_backend_presets() -> None:
+    package_dir = Path(__file__).parents[1]
+
+    assert not (package_dir / "backends.py").exists()
+    assert not (package_dir / "presets.py").exists()
+
+
 def test_t2v_create_app_exposes_public_application() -> None:
     public_app = app.create_app(
         T2VDemoRunnerConfig(
@@ -52,9 +59,10 @@ def test_t2v_create_app_exposes_public_application() -> None:
     assert isinstance(public_app, Application)
     assert isinstance(public_app, DemoAdapterApplication)
     spec = public_app.spec
-    assert spec.model_id == "flashdreams-t2v"
+    assert spec.model_id == "self-forcing-t2v"
     assert spec.config is not None
     assert spec.config.runtime_options["backend"] == "self-forcing"
+    assert spec.config.runtime_options["application"] == "self-forcing-t2v"
     scenario = spec.scenario
     assert isinstance(scenario, dict)
     assert scenario["prompt"] == "A waterfall"
@@ -65,8 +73,29 @@ def test_t2v_backend_bridge_builds_neutral_model_config() -> None:
     model = model_from_backend("self-forcing")
 
     assert isinstance(model, t2v_shell.T2VModelConfig)
-    assert model.model_id == "flashdreams-t2v"
+    assert model.model_id == "self-forcing-t2v"
     assert model.runtime_options["backend"] == "self-forcing"
+
+
+def test_t2v_backend_bridge_supports_integration_owned_preset() -> None:
+    model = model_from_backend(
+        "self-forcing",
+        "self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope",
+    )
+
+    assert model.model_id == "self-forcing-t2v"
+    assert model.preset_id == "self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope"
+    assert model.total_blocks == 80
+
+
+def test_t2v_backend_metadata_is_derived_from_integrations() -> None:
+    metadata = {item["key"]: item for item in backend_metadata()}
+
+    assert metadata["self-forcing"]["default_preset"] == (
+        "self-forcing-wan2.1-t2v-1.3b"
+    )
+    assert "self-forcing-wan2.1-t2v-1.3b-taehv" in metadata["self-forcing"]["presets"]
+    assert metadata["cosmos-predict2"]["application"] == "cosmos-predict2-t2v"
 
 
 def test_runner_mp4_launch_uses_demo_entrypoint(

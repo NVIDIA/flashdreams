@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import pytest
 from t2v.t2v import (
@@ -12,6 +13,7 @@ from t2v.t2v import (
     T2VRunDefaults,
     create_t2v_application,
     create_t2v_spec,
+    model_config_from_runner,
     t2v_scenario_mapping,
 )
 
@@ -68,6 +70,31 @@ def test_t2v_shell_creates_demo_adapter_application() -> None:
     assert isinstance(public_app, DemoAdapterApplication)
     assert isinstance(public_app.adapter, T2VDemoAdapter)
     assert public_app.spec.output.mode == "mp4"
+
+
+def test_t2v_shell_builds_model_config_from_runner_config() -> None:
+    runner = SimpleNamespace(
+        runner_name="fake-runner",
+        pipeline=object(),
+        prompt="Runner prompt",
+        total_blocks=5,
+        pixel_height=48,
+        pixel_width=96,
+        fps=12,
+    )
+
+    model = model_config_from_runner(
+        model_id="fake-t2v",
+        runner=runner,
+        runtime_options={"owner": "integration"},
+    )
+
+    assert model.model_id == "fake-t2v"
+    assert model.preset_id == "fake-runner"
+    assert model.pipeline is runner.pipeline
+    assert model.prompt == "Runner prompt"
+    assert model.total_blocks == 5
+    assert model.runtime_options["owner"] == "integration"
 
 
 def test_t2v_shell_has_no_legacy_backend_imports() -> None:

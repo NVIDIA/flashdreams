@@ -32,7 +32,7 @@ from typing import cast
 import pytest
 import tomli as tomllib
 from causal_forcing import config as config_mod
-from causal_forcing.config import PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE, RUNNER_CONFIGS
+from causal_forcing.config import RUNNER_CONFIGS, RUNNER_WAN21_T2V_1PT3B_CHUNKWISE
 from causal_forcing.t2v.app import MODEL, create_app, createApp
 
 from flashdreams.demo import Application, DemoAdapterApplication
@@ -108,8 +108,8 @@ def test_t2v_app_uses_default_pipeline_config() -> None:
     assert isinstance(public_app, Application)
     assert isinstance(public_app, DemoAdapterApplication)
     assert MODEL.model_id == "causal-forcing-t2v"
-    assert MODEL.preset_id == PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE.name
-    assert MODEL.pipeline is PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE
+    assert MODEL.preset_id == RUNNER_WAN21_T2V_1PT3B_CHUNKWISE.runner_name
+    assert MODEL.pipeline is RUNNER_WAN21_T2V_1PT3B_CHUNKWISE.pipeline
     assert public_app.spec.model_id == MODEL.model_id
     assert public_app.spec.preset_id == MODEL.preset_id
 

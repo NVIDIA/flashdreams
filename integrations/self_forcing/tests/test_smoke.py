@@ -24,7 +24,7 @@ from typing import cast
 import pytest
 import tomli as tomllib
 from self_forcing import config as config_mod
-from self_forcing.config import PIPELINE_WAN21_T2V_1PT3B, RUNNER_CONFIGS
+from self_forcing.config import RUNNER_CONFIGS, RUNNER_WAN21_T2V_1PT3B
 from self_forcing.t2v.app import MODEL, create_app, createApp
 
 from flashdreams.demo import Application, DemoAdapterApplication
@@ -100,8 +100,8 @@ def test_t2v_app_uses_default_pipeline_config() -> None:
     assert isinstance(public_app, Application)
     assert isinstance(public_app, DemoAdapterApplication)
     assert MODEL.model_id == "self-forcing-t2v"
-    assert MODEL.preset_id == PIPELINE_WAN21_T2V_1PT3B.name
-    assert MODEL.pipeline is PIPELINE_WAN21_T2V_1PT3B
+    assert MODEL.preset_id == RUNNER_WAN21_T2V_1PT3B.runner_name
+    assert MODEL.pipeline is RUNNER_WAN21_T2V_1PT3B.pipeline
     assert public_app.spec.model_id == MODEL.model_id
     assert public_app.spec.preset_id == MODEL.preset_id
 

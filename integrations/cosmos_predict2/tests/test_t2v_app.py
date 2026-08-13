@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 import tomli as tomllib
-from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
-from cosmos_predict2.t2v.app import MODEL, createApp, create_app
+from cosmos_predict2.config import RUNNER_COSMOS2_T2V_2B_720P
+from cosmos_predict2.t2v.app import MODEL, create_app, createApp
 
 from flashdreams.demo import Application, DemoAdapterApplication
 
@@ -25,8 +25,8 @@ def test_t2v_app_uses_default_pipeline_config() -> None:
     assert isinstance(public_app, Application)
     assert isinstance(public_app, DemoAdapterApplication)
     assert MODEL.model_id == "cosmos-predict2-t2v"
-    assert MODEL.preset_id == PIPELINE_COSMOS2_T2V_2B_720P.name
-    assert MODEL.pipeline is PIPELINE_COSMOS2_T2V_2B_720P
+    assert MODEL.preset_id == RUNNER_COSMOS2_T2V_2B_720P.runner_name
+    assert MODEL.pipeline is RUNNER_COSMOS2_T2V_2B_720P.pipeline
     assert public_app.spec.model_id == MODEL.model_id
     assert public_app.spec.preset_id == MODEL.preset_id
 
@@ -38,6 +38,4 @@ def test_application_entry_point_matches_module_literal() -> None:
         meta = tomllib.load(fh)
 
     entries = meta["project"]["entry-points"][APPLICATION_ENTRY_POINT_GROUP]
-    assert entries == {
-        "cosmos-predict2-t2v": "cosmos_predict2.t2v.app:create_app"
-    }
+    assert entries == {"cosmos-predict2-t2v": "cosmos_predict2.t2v.app:create_app"}

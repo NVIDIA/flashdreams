@@ -379,6 +379,26 @@ def create_t2v_application(
     return DemoAdapterApplication(adapter=T2VDemoAdapter(model=model), spec=spec)
 
 
+def model_config_from_runner(
+    *,
+    model_id: str,
+    runner: Any,
+    runtime_options: Mapping[str, Any] | None = None,
+) -> T2VModelConfig:
+    """Create a T2V model config from an integration-owned runner config."""
+    return T2VModelConfig(
+        model_id=model_id,
+        preset_id=str(runner.runner_name),
+        pipeline=runner.pipeline,
+        prompt=str(getattr(runner, FIELD_PROMPT)),
+        total_blocks=_int_value(getattr(runner, FIELD_TOTAL_BLOCKS, 1)),
+        pixel_height=_int_value(getattr(runner, FIELD_PIXEL_HEIGHT)),
+        pixel_width=_int_value(getattr(runner, FIELD_PIXEL_WIDTH)),
+        fps=_int_value(getattr(runner, FIELD_FPS)),
+        runtime_options=runtime_options or {},
+    )
+
+
 def create_t2v_spec(
     *,
     model: T2VModelConfig,
@@ -522,6 +542,7 @@ __all__ = [
     "T2VSession",
     "create_t2v_application",
     "create_t2v_spec",
+    "model_config_from_runner",
     "run_t2v_replay_application",
     "t2v_scenario_mapping",
 ]

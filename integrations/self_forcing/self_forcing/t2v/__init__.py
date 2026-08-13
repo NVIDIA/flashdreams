@@ -3,6 +3,6 @@
 
 """Self-Forcing T2V public demo app."""
 
-from self_forcing.t2v.app import MODEL, createApp, create_app
+from self_forcing.t2v.app import MODEL, create_app, createApp
 
 __all__ = ["MODEL", "createApp", "create_app"]
