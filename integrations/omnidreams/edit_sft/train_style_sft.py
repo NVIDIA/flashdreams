@@ -451,6 +451,11 @@ def main() -> None:
         j0 = k - n_pre
 
         dm._rng = torch.Generator(device=device).manual_seed(int(rng.integers(2**31)))
+        # Build the original prompt's text KV at base weights: at deploy the
+        # LoRA window is closed until the swap, and a scale left at 1 from
+        # the previous episode would bake LoRA deltas into the pre-swap
+        # cache (reviewer-caught).
+        set_lora_scale(network, 0.0)
         cache = pipe.initialize_cache_from_embeddings(
             text_embeddings=prompt_emb[clip_key(uuid)],
             image_embeddings=assets["image_embeddings"][uuid],
