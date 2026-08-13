@@ -35,7 +35,13 @@ from flashdreams.runtime import (
     OutputArtifact,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
-from flashdreams.runtime.types import StepRequest, StepResult, TimeWindow
+from flashdreams.runtime.types import (
+    BATCH_INPUT_FRAME_START_METADATA_KEY,
+    StepRequest,
+    StepRequirements,
+    StepResult,
+    TimeWindow,
+)
 from lingbot.encoder.camctrl import CamCtrlInput
 from lingbot.example_data import (
     EXAMPLE_DATA_AVAILABLE_IDXS,
@@ -444,17 +450,27 @@ class LingbotReplaySession:
         if dist.is_initialized():
             dist.barrier()
 
+    def next_step_requirements(self) -> StepRequirements | None:
+        state = self._next_step_state()
+        if state is None:
+            return None
+        step_index, num_frames, _frame_end = state
+        return StepRequirements(
+            step_index=step_index,
+            input_frame_count=num_frames,
+            steady_output_frame_count=num_frames,
+            metadata={
+                BATCH_INPUT_FRAME_START_METADATA_KEY: self._frame_start,
+                "num_frames": num_frames,
+                "frame_start": self._frame_start,
+            },
+        )
+
     def next_step_request(self) -> StepRequest | None:
-        if self._closed:
+        state = self._next_step_state()
+        if state is None:
             return None
-        step_index = self._model_session.step_index
-        if step_index >= self.inputs.total_blocks:
-            return None
-        num_frames = self._model_session.next_num_frames()
-        frame_end = self._frame_start + num_frames
-        total_frames = self.inputs.total_camera_frames
-        if total_frames is not None and frame_end > total_frames:
-            return None
+        step_index, num_frames, frame_end = state
         fps = self.inputs.fps
         return StepRequest(
             step_index=step_index,
@@ -469,6 +485,19 @@ class LingbotReplaySession:
                 "frame_start": self._frame_start,
             },
         )
+
+    def _next_step_state(self) -> tuple[int, int, int] | None:
+        if self._closed:
+            return None
+        step_index = self._model_session.step_index
+        if step_index >= self.inputs.total_blocks:
+            return None
+        num_frames = self._model_session.next_num_frames()
+        frame_end = self._frame_start + num_frames
+        total_frames = self.inputs.total_camera_frames
+        if total_frames is not None and frame_end > total_frames:
+            return None
+        return step_index, num_frames, frame_end
 
     def step(self, inputs: InferenceInput) -> StepResult:
         if self._closed:

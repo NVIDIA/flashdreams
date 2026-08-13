@@ -3,6 +3,11 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
+from flashdreams.runtime.demo.benchmark import (
+    BenchmarkBatchInputSource,
+    BenchmarkRunMode,
+    run_benchmark_demo,
+)
 from flashdreams.runtime.demo.drivers import (
     CLEANUP_TIMEOUT_S,
     BatchSessionDriver,
@@ -19,11 +24,15 @@ from flashdreams.runtime.demo.host import (
     WarmupSessionInputs,
 )
 from flashdreams.runtime.demo.outputs import (
+    BenchmarkStatsOutputSink,
+    CompositeOutputSink,
+    CompositeOutputSinkError,
     Mp4OutputSink,
     NullOutputSink,
     OutputDecision,
     OutputSink,
     SessionInfo,
+    build_benchmark_output_sink,
     build_output_sink,
     build_output_target,
 )
@@ -54,14 +63,19 @@ from flashdreams.runtime.demo.run_modes import (
     warmup_run_context,
 )
 from flashdreams.runtime.demo.session_inputs import (
+    BATCH_INPUT_FPS_METADATA_KEY,
+    BATCH_INPUT_FRAME_START_METADATA_KEY,
     BatchInputSource,
     ControlDecision,
     InputSource,
     ModelInputProvider,
+    PreparedScenarioBatchInputSource,
     PreparedStep,
     ProviderCapabilities,
     RealtimeInputSource,
+    StepRequestWindowState,
     UserInputWindow,
+    all_user_inputs_window,
 )
 from flashdreams.runtime.demo.spec import (
     DemoAdapter,
@@ -98,6 +112,7 @@ from flashdreams.runtime.demo.validation import (
 
 __all__ = [
     "BatchInputSource",
+    "BenchmarkBatchInputSource",
     "BatchSessionDriver",
     "CLEANUP_TIMEOUT_S",
     "ControlDecision",
@@ -111,11 +126,17 @@ __all__ = [
     "ActivationResult",
     "ActivationSignal",
     "AlwaysActiveActivationPolicy",
+    "BATCH_INPUT_FPS_METADATA_KEY",
+    "BATCH_INPUT_FRAME_START_METADATA_KEY",
+    "BenchmarkStatsOutputSink",
+    "BenchmarkRunMode",
     "BenchmarkErrorPolicy",
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "CatchUpDecision",
     "CatchUpPolicy",
+    "CompositeOutputSink",
+    "CompositeOutputSinkError",
     "DeterministicClock",
     "MetricsSnapshot",
     "ModelWarmupAdapter",
@@ -133,6 +154,7 @@ __all__ = [
     "OutputSinkFactory",
     "OutputSpec",
     "OutputSink",
+    "PreparedScenarioBatchInputSource",
     "PreparedScenario",
     "PreparedStep",
     "ProviderCapabilities",
@@ -156,6 +178,7 @@ __all__ = [
     "SessionInfo",
     "SignalActivationPolicy",
     "SingleSessionAdmissionPolicy",
+    "StepRequestWindowState",
     "StepOutcome",
     "StepPipeline",
     "UserInputWindow",
@@ -163,6 +186,8 @@ __all__ = [
     "WebRTCAppResources",
     "WebRTCErrorPolicy",
     "WebRTCOutputSpec",
+    "all_user_inputs_window",
+    "build_benchmark_output_sink",
     "build_output_sink",
     "build_output_target",
     "build_model_warmup_plan",
@@ -170,6 +195,7 @@ __all__ = [
     "resolve_run_capabilities",
     "run_demo_session",
     "run_demo_session_async",
+    "run_benchmark_demo",
     "run_replay_demo",
     "shielded_session_cleanup",
     "uncancel_current_task",

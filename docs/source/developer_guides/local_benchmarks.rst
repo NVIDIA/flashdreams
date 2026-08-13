@@ -157,22 +157,24 @@ Quality Hooks
 -------------
 
 For local MP4 regression checks, first keep a known-good benchmark run. The
-recommended suite includes 30-second seeded clips for quality comparison and
-one-minute clips for performance metrics plus manual video review. The commands
-below intentionally list scenario ids instead of using ``--all``; ``--all``
-also includes built-in smoke scenarios that are not part of this LingBot and
-Omnidreams quality workflow.
+standard workflow runs four migrated demo MP4 scenarios each time:
 
-Standard Quality And Review Run
+* 10-second LingBot and Omnidreams clips for baseline/candidate quality
+  comparison.
+* One-minute LingBot and Omnidreams clips for runtime performance, manual
+  review, and PAI-Bench-Long scores.
+
+The commands below intentionally list scenario ids instead of using ``--all``;
+``--all`` also includes built-in smoke scenarios that are not part of this
+LingBot and Omnidreams quality workflow. The generated FPS in the report is
+computed from post-warmup generated frames divided by post-warmup runtime
+seconds. It is not display or MP4 playback FPS. The shipped migrated-demo
+scenarios exclude measured warmup blocks from the performance summary while
+keeping the generated MP4 duration unchanged: LingBot drops the first 6 blocks
+and Omnidreams drops the first 4 blocks.
+
+Standard Baseline And Candidate
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Use this four-scenario run for standard local LingBot and Omnidreams benchmark
-results: 30-second seeded clips for baseline quality metrics, one-minute clips
-for performance and manual review, and PAI-Bench-Long scores using the default
-PAI-Bench dimension set. PAI-Bench profiles are only attached to selected
-scenarios tagged ``one-minute`` or ``pai-bench``; in this standard suite the
-30-second seeded quality clips run baseline comparison only, while the
-one-minute review clips get PAI-Bench scores.
 
 PAI-Bench and its Python dependencies are not FlashDreams dependencies. Before
 running the PAI-Bench quality profile, create or select a separate evaluator
@@ -205,7 +207,7 @@ venv`` asks whether to replace it:
 
    "$PAI_BENCH_PYTHON" -c "import clip, cv2, omegaconf, pyiqa, torch; print('PAI-Bench environment OK')"
 
-First create the baseline:
+Create the full baseline:
 
 .. code-block:: bash
 
@@ -217,9 +219,9 @@ First create the baseline:
      --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
      --pai-bench-python "$PAI_BENCH_PYTHON" \
-     --output-dir artifacts/benchmarks/quality-and-review-baseline
+     --output-dir artifacts/benchmarks/standard-demo-baseline
 
-Then compare a later candidate run against that baseline:
+Then compare a later candidate against that baseline:
 
 .. code-block:: bash
 
@@ -231,13 +233,29 @@ Then compare a later candidate run against that baseline:
      --scenario omnidreams-sv-one-minute-review \
      --quality-profile pai-bench-long \
      --pai-bench-python "$PAI_BENCH_PYTHON" \
-     --quality-baseline-dir artifacts/benchmarks/quality-and-review-baseline \
-     --output-dir artifacts/benchmarks/quality-and-review-candidate
+     --quality-baseline-dir artifacts/benchmarks/standard-demo-baseline \
+     --output-dir artifacts/benchmarks/standard-demo-candidate
+
+The candidate run computes baseline quality metrics for the 10-second quality
+scenarios. The one-minute scenarios intentionally disable automatic baseline
+quality scoring because long generated clips drift more; they still report
+runtime performance, PAI-Bench-Long metrics, and baseline/candidate MP4 review
+links. The default PAI-Bench-Long aggregate excludes
+``subject_consistency`` because it can hit Torch Hub/GitHub validation rate
+limits in benchmark environments, and excludes ``overall_consistency`` because
+it is not useful for the migrated LingBot and Omnidreams one-minute clips.
 
 The two-scenario one-minute suite in
 ``configs/one_minute_demo_benchmarks.json`` remains useful for
-performance-only or manual-review runs, but it is not recommended as the
-baseline quality comparison workflow because long generated clips drift more.
+performance-only or manual-review runs without PAI-Bench:
+
+.. code-block:: bash
+
+   uv run flashdreams-benchmark \
+     --scenario-file configs/one_minute_demo_benchmarks.json \
+     --scenario lingbot-world-fast-taehv-one-minute \
+     --scenario omnidreams-sv-one-minute \
+     --output-dir artifacts/benchmarks/one-minute-demos
 
 The built-in comparison is non-gating in this local-developer version: it
 does not change the scenario pass/fail status. It compares the first MP4
@@ -282,12 +300,12 @@ Omnidreams one-minute scenarios use the same stable non-perf runner as the
 quality smoke scenario because broader VAE compile/autotune paths can be
 hardware sensitive on local developer systems.
 
-For a stronger same-seed quality signal, use the 30-second quality scenarios in
+For a stronger same-seed quality signal, use the 10-second quality scenarios in
 ``configs/deterministic_quality_benchmarks.json``. Its Omnidreams quality
 scenario mirrors the existing same-seed CI setup: non-perf runner, fixed
 example input, explicit seed, deterministic cuBLAS workspace, stable CUDA
 allocator behavior, ``torch.use_deterministic_algorithms(..., warn_only=True)``,
-and a roughly 30-second rollout. The LingBot quality scenario uses the same
+and a roughly 10-second rollout. The LingBot quality scenario uses the same
 local strict launcher and explicit seed, but it is currently a local signal
 rather than a CI-backed bitwise reproducibility guarantee.
 
@@ -297,11 +315,10 @@ The runner can still stop early if the selected conditioning stream is shorter
 than the requested block count.
 
 The CLI's default ``--quality-compare-region scenario-default`` uses each
-quality scenario's configured compare region. In this suite LingBot compares
-the full generated MP4, while Omnidreams compares the generated lower half of
-its HDMap/RGB stacked output. Pass ``--quality-compare-region full`` or
-``--quality-compare-region bottom-half`` only when you want to override those
-scenario defaults.
+quality scenario's configured compare region. In this suite both migrated
+LingBot and Omnidreams quality scenarios compare the full generated MP4. Pass
+``--quality-compare-region full`` or ``--quality-compare-region bottom-half``
+only when you want to override those scenario defaults.
 
 Detailed component values and per-sampled-frame measurements remain in the
 quality JSON under ``diagnostics`` for debugging, but they are not promoted as
@@ -415,15 +432,15 @@ The durable benchmark artifacts are the original scenario MP4s, logs,
 result JSON. Pass ``--pai-bench-keep-staged-videos`` only when debugging the
 external evaluator input staging.
 
-The default dimensions are the non-I2V PAI-Bench quality dimensions:
+The default PAI-Bench-Long dimensions are the stable benchmark dimensions:
 ``aesthetic_quality``, ``background_consistency``, ``imaging_quality``,
-``motion_smoothness``, ``overall_consistency``, and
-``subject_consistency``. Pass ``--pai-bench-dimension`` multiple times to run a
-smaller or custom dimension set for local triage only; doing so changes the
-reported PAI-Bench metric set, so those results should not be compared against
-standard runs. ``--pai-bench-segment-duration-s`` controls the local long-video
-segment size; it defaults to 10 seconds. Pass ``--no-pai-bench-fetch`` to
-avoid fetching an existing git checkout.
+and ``motion_smoothness``. The full-MP4 ``pai-bench-g`` profile still defaults
+to the public non-I2V dimension set. Pass ``--pai-bench-dimension`` multiple
+times to run a smaller or custom dimension set for local triage only; doing so
+changes the reported PAI-Bench metric set, so those results should not be
+compared against standard runs. ``--pai-bench-segment-duration-s`` controls the
+local long-video segment size; it defaults to 10 seconds. Pass
+``--no-pai-bench-fetch`` to avoid fetching an existing git checkout.
 
 Custom scenarios can opt into PAI-Bench profiles by including either
 ``one-minute`` or ``pai-bench`` in their ``tags`` list. This keeps PAI-Bench

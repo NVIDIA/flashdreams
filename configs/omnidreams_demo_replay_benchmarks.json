@@ -77,10 +77,13 @@
         "--scenario.total-blocks",
         "226",
         "--output.path",
-        "{output_dir}/omnidreams-sv-demo-replay.mp4"
+        "{output_dir}/omnidreams-sv-demo-replay.mp4",
+        "--output.stats-path",
+        "{output_dir}/stats_omnidreams_sv_demo_replay.json"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 4,
+      "requires_runtime_stats": true,
       "quality_baseline_compare": false,
       "timeout_s": 7200
     }

@@ -33,6 +33,7 @@ import psutil
 from tools.benchmarks.environment import collect_environment
 from tools.benchmarks.metrics import (
     MetricRecord,
+    is_runtime_benchmark_stats_record,
     lifecycle_record,
     record_from_quality_metrics,
     records_from_log,
@@ -79,6 +80,7 @@ class ScenarioRunResult:
         default_factory=dict
     )
     quality_results: tuple[Mapping[str, Any], ...] = ()
+    validation_errors: tuple[str, ...] = ()
 
     def to_manifest(self, *, output_root: Path) -> dict[str, Any]:
         return {
@@ -97,6 +99,7 @@ class ScenarioRunResult:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "wall_time_s": self.wall_time_s,
+            "validation_errors": list(self.validation_errors),
             "command": shlex.join(self.command),
             "argv": list(self.command),
             "output_dir": _relpath(self.output_dir, output_root),
@@ -241,6 +244,7 @@ def _metric_highlights(
     for metric_name in (
         "total_s",
         "total_wo_finalize_s",
+        "generated_fps",
         "quality_score",
         "quality_similarity_score",
         "pai_bench_g_score",
@@ -389,6 +393,20 @@ def run_scenario(
     wall_time_s = time.perf_counter() - start
     finished_at = _utc_now()
 
+    collected_metric_records = _collect_scenario_metrics(
+        scenario,
+        scenario_output_dir=scenario_output_dir,
+        output_root=output_root,
+        log_path=log_path,
+    )
+    validation_errors = _scenario_validation_errors(
+        scenario,
+        collected_metric_records,
+        dry_run=dry_run,
+    )
+    if validation_errors and status == "pass":
+        status = "fail"
+
     metric_records = [
         lifecycle_record(
             scenario_id=scenario.id,
@@ -399,14 +417,7 @@ def run_scenario(
             timed_out=timed_out,
         )
     ]
-    metric_records.extend(
-        _collect_scenario_metrics(
-            scenario,
-            scenario_output_dir=scenario_output_dir,
-            output_root=output_root,
-            log_path=log_path,
-        )
-    )
+    metric_records.extend(collected_metric_records)
     artifacts = _collect_artifacts(
         scenario, scenario_output_dir, output_root=output_root
     )
@@ -457,6 +468,7 @@ def run_scenario(
         metric_records=tuple(metric_records),
         metric_summary=metric_summary,
         quality_results=tuple(quality_results),
+        validation_errors=validation_errors,
     )
     _write_json(
         scenario_output_dir / "scenario_manifest.json",
@@ -575,10 +587,28 @@ def _collect_scenario_metrics(
                 stats_path, scenario_id=scenario.id, source_root=output_root
             )
         )
+    if any(is_runtime_benchmark_stats_record(record) for record in records):
+        return records
     records.extend(
         records_from_log(log_path, scenario_id=scenario.id, source_root=output_root)
     )
     return records
+
+
+def _scenario_validation_errors(
+    scenario: BenchmarkScenario,
+    records: Sequence[MetricRecord],
+    *,
+    dry_run: bool,
+) -> tuple[str, ...]:
+    if dry_run or not scenario.requires_runtime_stats:
+        return ()
+    if any(is_runtime_benchmark_stats_record(record) for record in records):
+        return ()
+    return (
+        "Scenario requires flashdreams.runtime.demo.benchmark_stats, but no "
+        "runtime stats artifact was found.",
+    )
 
 
 def _run_baseline_quality(

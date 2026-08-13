@@ -121,6 +121,46 @@ def test_omnidreams_direct_runner_launch_builds_null_spec(
     assert isinstance(captured[0].output, NullOutputSpec)
 
 
+def test_omnidreams_direct_runner_launch_uses_benchmark_when_stats_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[DemoSpec, Path | None, Path | None, bool]] = []
+
+    def fake_run_benchmark_demo(
+        *,
+        spec: DemoSpec,
+        adapter: object,
+        stats_path: Path | None,
+        stats_dir: Path | None,
+        capture_output: bool,
+    ) -> str:
+        del adapter
+        captured.append((spec, stats_path, stats_dir, capture_output))
+        return "completed"
+
+    monkeypatch.setattr(
+        demo_app_module,
+        "run_benchmark_demo",
+        fake_run_benchmark_demo,
+    )
+    stats_path = tmp_path / "stats_demo.json"
+    config = OMNIDREAMS_RUNNERS["omnidreams"]
+
+    result = demo_app_module.launch_from_runner(
+        config=config,
+        mode="mp4",
+        scenario={"example_data": True, "total_blocks": 2},
+        output={"path": tmp_path / "demo.mp4", "stats_path": stats_path},
+    )
+
+    assert result == "completed"
+    assert isinstance(captured[0][0].output, Mp4OutputSpec)
+    assert captured[0][1] == stats_path
+    assert captured[0][2] is None
+    assert captured[0][3] is True
+
+
 def test_omnidreams_replay_cli_builds_null_output_spec() -> None:
     args = parse_args(["replay", "--output-mode", "null"])
 

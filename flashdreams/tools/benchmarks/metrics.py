@@ -73,6 +73,8 @@ _KEY_OVERRIDES = {
     "cache_ms": "cache_seed_prune_s",
     "copy_ms": "gpu_to_cpu_copy_s",
 }
+_RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
+_RUNTIME_METRIC_SAMPLE_PARSER = "runtime_metric_samples"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -111,6 +113,12 @@ def records_from_stats_file(
     if isinstance(payload, list):
         return _records_from_rows(payload, scenario_id=scenario_id, source=source)
     if isinstance(payload, dict):
+        if payload.get("artifact_type") == _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE:
+            return _records_from_runtime_metric_samples(
+                payload,
+                scenario_id=scenario_id,
+                source=source,
+            )
         records: list[MetricRecord] = []
         chunks = payload.get("chunks")
         if isinstance(chunks, list):
@@ -183,6 +191,11 @@ def record_from_quality_metrics(
     )
 
 
+def is_runtime_benchmark_stats_record(record: MetricRecord) -> bool:
+    """Return whether a record came from the shared runtime stats artifact."""
+    return record.metadata.get("parser") == _RUNTIME_METRIC_SAMPLE_PARSER
+
+
 def lifecycle_record(
     *,
     scenario_id: str,
@@ -229,11 +242,15 @@ def summarize_records(
                 continue
             values_by_key.setdefault(key, []).append(float(value))
 
-    return {
+    summary = {
         key: _summary_stats(values)
         for key, values in sorted(values_by_key.items())
         if values
     }
+    generated_fps = _generated_fps_summary(retained)
+    if generated_fps is not None:
+        summary.setdefault("generated_fps", generated_fps)
+    return summary
 
 
 def write_metrics_ndjson(records: Iterable[MetricRecord], path: Path) -> Path:
@@ -313,6 +330,131 @@ def _records_from_rows(
         )
         fallback_index += 1
     return records
+
+
+def _records_from_runtime_metric_samples(
+    payload: Mapping[Any, object],
+    *,
+    scenario_id: str,
+    source: str,
+) -> list[MetricRecord]:
+    samples = payload.get("samples")
+    if not isinstance(samples, list):
+        return []
+
+    metrics_by_step: dict[int, dict[str, float | int]] = {}
+    sample_count_by_step: dict[int, int] = {}
+    frame_counts_by_step = _runtime_step_frame_counts(payload.get("steps"))
+    summary_metrics: dict[str, float | int] = {}
+    summary_sample_count = 0
+    for sample in samples:
+        parsed = _runtime_metric_sample(sample)
+        if parsed is None:
+            continue
+        name, value, step_index = parsed
+        if step_index is None:
+            summary_metrics[name] = value
+            summary_sample_count += 1
+            continue
+        metrics_by_step.setdefault(step_index, {})[name] = value
+        sample_count_by_step[step_index] = sample_count_by_step.get(step_index, 0) + 1
+
+    for step_index, frame_count in frame_counts_by_step.items():
+        metrics = metrics_by_step.setdefault(step_index, {})
+        metrics["generated_frame_count"] = frame_count
+        generated_fps = _generated_fps_for_step(metrics, frame_count=frame_count)
+        if generated_fps is not None:
+            metrics["generated_fps"] = generated_fps
+
+    records = [
+        MetricRecord(
+            scenario_id=scenario_id,
+            record_type="step",
+            record_index=step_index,
+            source=source,
+            metrics=metrics_by_step[step_index],
+            metadata=_runtime_metric_sample_metadata(
+                sample_count_by_step.get(step_index, 0)
+            ),
+        )
+        for step_index in sorted(metrics_by_step)
+    ]
+    if summary_metrics:
+        records.append(
+            MetricRecord(
+                scenario_id=scenario_id,
+                record_type="summary",
+                source=source,
+                metrics=summary_metrics,
+                metadata=_runtime_metric_sample_metadata(summary_sample_count),
+            )
+        )
+    return records
+
+
+def _runtime_step_frame_counts(steps: object) -> dict[int, int]:
+    if not isinstance(steps, list):
+        return {}
+    frame_counts: dict[int, int] = {}
+    for fallback_index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            continue
+        step_index = _runtime_metric_step_index(step.get("step_index"))
+        if step_index is None:
+            step_index = fallback_index
+        frame_count = _non_negative_int(step.get("frame_count"))
+        if frame_count is not None:
+            frame_counts[step_index] = frame_count
+    return frame_counts
+
+
+def _generated_fps_for_step(
+    metrics: Mapping[str, float | int],
+    *,
+    frame_count: int,
+) -> float | None:
+    duration_s = _positive_float(metrics.get("total_s"))
+    if duration_s is None:
+        duration_s = _positive_float(metrics.get("model_step_s"))
+    if duration_s is None:
+        return None
+    return float(frame_count) / duration_s
+
+
+def _runtime_metric_sample(
+    sample: object,
+) -> tuple[str, float | int, int | None] | None:
+    if not isinstance(sample, Mapping):
+        return None
+    name = sample.get("name")
+    value = sample.get("value")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if not _is_number(value) or not math.isfinite(float(value)):
+        return None
+    step_index = _runtime_metric_step_index(sample.get("step_index"))
+    if step_index is None and sample.get("step_index") is not None:
+        return None
+    return name, value, step_index
+
+
+def _runtime_metric_step_index(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value.is_integer():
+        step_index = int(value)
+        return step_index if step_index >= 0 else None
+    return None
+
+
+def _runtime_metric_sample_metadata(sample_count: int) -> dict[str, object]:
+    return {
+        "parser": _RUNTIME_METRIC_SAMPLE_PARSER,
+        "artifact_type": _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE,
+        "sample_count": sample_count,
+    }
 
 
 def _record_from_perf_summary_line(
@@ -468,6 +610,54 @@ def _summary_stats(values: list[float]) -> dict[str, float | int]:
         "median": statistics.median(sorted_values),
         "p90": _percentile_nearest_rank(sorted_values, 0.9),
     }
+
+
+def _generated_fps_summary(
+    records: Iterable[MetricRecord],
+) -> dict[str, float | int] | None:
+    fps_values: list[float] = []
+    for record in records:
+        if record.record_type != "step":
+            continue
+        frame_count = _non_negative_float(record.metrics.get("generated_frame_count"))
+        if frame_count is None:
+            continue
+        duration_s = _positive_float(record.metrics.get("total_s"))
+        if duration_s is None:
+            duration_s = _positive_float(record.metrics.get("model_step_s"))
+        if duration_s is None:
+            continue
+        fps_values.append(frame_count / duration_s)
+    if not fps_values:
+        return None
+    return _summary_stats(fps_values)
+
+
+def _non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value.is_integer():
+        int_value = int(value)
+        return int_value if int_value >= 0 else None
+    return None
+
+
+def _non_negative_float(value: object) -> float | None:
+    if not _is_number(value):
+        return None
+    float_value = float(value)
+    if not math.isfinite(float_value) or float_value < 0:
+        return None
+    return float_value
+
+
+def _positive_float(value: object) -> float | None:
+    float_value = _non_negative_float(value)
+    if float_value is None or float_value <= 0:
+        return None
+    return float_value
 
 
 def _percentile_nearest_rank(sorted_values: list[float], percentile: float) -> float:

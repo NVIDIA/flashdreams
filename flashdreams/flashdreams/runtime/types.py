@@ -15,6 +15,7 @@ from flashdreams.runtime.inputs import InferenceInputSchema, TimeWindow
 
 _STEP_REQUIREMENTS_INPUT_COUNT_METADATA_KEY = "input_frame_count"
 _STEP_REQUIREMENTS_STEADY_OUTPUT_COUNT_METADATA_KEY = "steady_output_frame_count"
+BATCH_INPUT_FRAME_START_METADATA_KEY = "batch_input_frame_start"
 _STEP_REQUIREMENTS_USER_INPUT_METADATA_KEYS = frozenset(
     {
         "input_window",
@@ -123,6 +124,7 @@ def step_requirements_from_request(
 
 
 __all__ = [
+    "BATCH_INPUT_FRAME_START_METADATA_KEY",
     "StepRequest",
     "StepRequirements",
     "StepResult",

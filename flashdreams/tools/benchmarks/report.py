@@ -61,6 +61,8 @@ _LABEL_OVERRIDES = {
     "mem_alloc_gib": "Allocated memory",
     "mem_peak_gib": "Peak memory",
     "mem_reserved_gib": "Reserved memory",
+    "generated_frame_count": "Generated frames",
+    "generated_fps": "Generated FPS",
     "pixel_fps": "Pixel throughput",
     "wall_present_fps": "Presented frame rate",
     "quality_score": "Quality score",
@@ -101,8 +103,9 @@ _CHART_ORDER = {
     "mem_peak_gib": 0,
     "mem_alloc_gib": 1,
     "mem_reserved_gib": 2,
-    "pixel_fps": 0,
-    "wall_present_fps": 1,
+    "generated_fps": 0,
+    "pixel_fps": 1,
+    "wall_present_fps": 2,
     "quality_score": 0,
     "quality_similarity_score": 1,
     "quality_visual_sanity_score": 2,
@@ -898,6 +901,10 @@ def _scenario_highlights(
             highlights.get("total_s_median"),
             fallback=_summary_stat(summary, "total_s", "median"),
         )
+        generated_fps = _numeric_or_none(
+            highlights.get("generated_fps_median"),
+            fallback=_summary_stat(summary, "generated_fps", "median"),
+        )
         quality_score = _numeric_or_none(
             highlights.get("quality_score_median"),
             fallback=_summary_stat(summary, "quality_score", "median"),
@@ -942,7 +949,20 @@ def _scenario_highlights(
             items.append(
                 (
                     "Steady median step",
-                    f"<strong>{_format_metric_with_unit(steady_total_s, display)}</strong>",
+                    "<strong>"
+                    f"{_format_metric_with_unit(steady_total_s, display)}"
+                    "</strong>",
+                )
+            )
+        if generated_fps is not None:
+            display = _metric_display("generated_fps")
+            items.append(
+                (
+                    "Generated FPS",
+                    "<strong>"
+                    f"{_format_metric_with_unit(generated_fps, display)}"
+                    "</strong><br>"
+                    '<span class="muted">post-warmup generated output</span>',
                 )
             )
         if quality_score is not None:
@@ -1516,6 +1536,7 @@ def _float_or_default(value: object, default: float) -> float:
 def _metric_hint(metric: str) -> str:
     hints = {
         "command_wall_s": "Full scenario process time: startup, model work, quality hooks, and file writing.",
+        "generated_fps": "Per-step generated frames divided by step runtime seconds after warmup; this is not display or playback FPS.",
         "quality_score": "Overall 0-1 summary; higher is better.",
         "quality_similarity_score": "0-1 closeness to the baseline MP4; higher is better.",
         "quality_visual_sanity_score": "No-reference check for blank, flat, striped, or unstable output; higher is better.",

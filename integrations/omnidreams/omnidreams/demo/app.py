@@ -22,6 +22,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.app import DemoApplication
+from flashdreams.runtime.demo.benchmark import run_benchmark_demo
 from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
@@ -215,6 +216,16 @@ def launch_from_runner(
             output=None if output_path is None else Path(cast(Any, output_path)),
         )
         spec = _replay_spec(args)
+        stats_path = _optional_path(output.get("stats_path"))
+        stats_dir = _optional_path(output.get("stats_dir"))
+        if stats_path is not None or stats_dir is not None:
+            return run_benchmark_demo(
+                spec=spec,
+                adapter=OmnidreamsDemoAdapter(),
+                stats_path=stats_path,
+                stats_dir=stats_dir,
+                capture_output=True,
+            )
         return run_replay_demo(spec=spec, adapter=OmnidreamsDemoAdapter())
     if mode != "webrtc":
         raise ValueError(f"Unsupported OmniDreams launch mode: {mode!r}.")
