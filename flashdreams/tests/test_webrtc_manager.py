@@ -13,13 +13,14 @@ import torch
 
 from flashdreams.runtime import (
     InferenceInput,
+    InferenceSession,
     StepRequest,
     StepRequirements,
     StepResult,
     UserInputEvent,
     UserInputs,
 )
-from flashdreams.runtime.demo import RunResult
+from flashdreams.runtime.demo import RunResult, RuntimeHost
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -290,6 +291,57 @@ def _managed_session(
         first_action_received=first_action,
     )
     return managed, video_track, peer, channel
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_owned_shared_host_when_session_close_fails() -> None:
+    class _ClosingRuntime:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def start_session(self, inputs: InferenceInput) -> InferenceSession:
+            del inputs
+            raise AssertionError("shutdown test must not start sessions")
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _FailingVideoTrack(_FakeVideoTrack):
+        async def close(self) -> None:
+            raise RuntimeError("active session close failed")
+
+    class _FailingSharedContext:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close_async(self) -> None:
+            self.closed = True
+            raise RuntimeError("context close failed")
+
+    runtime = _ClosingRuntime()
+    host = RuntimeHost(runtime)
+    manager = _make_manager(_BaseTestManager, runtime, shared_host=host)
+    context = _FailingSharedContext()
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.video_track = _FailingVideoTrack()  # ty:ignore[invalid-assignment]
+    manager._active_session = managed
+    manager._shared_context = cast(Any, context)
+    manager._runtime_ready = True
+    manager._warmup_complete = True
+
+    with pytest.raises(RuntimeError, match="active session close failed") as exc_info:
+        await manager.shutdown()
+
+    assert context.closed
+    assert host.is_closed
+    assert runtime.closed
+    assert manager._shared_context is None
+    assert manager._shared_host is None
+    assert manager._shared_runtime_adapter is None
+    assert not manager._runtime_ready
+    assert not manager._warmup_complete
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("context close failed" in note for note in notes)
 
 
 def test_record_user_event_rejects_full_queue(

@@ -658,6 +658,31 @@ class ManagedWebRTCSession:
         await self.peer_connection.close()
 
 
+async def _record_shutdown_cleanup_error(
+    errors: list[BaseException],
+    cleanup: Callable[..., Any],
+    /,
+    *args: Any,
+) -> None:
+    try:
+        result = cleanup(*args)
+        if inspect.isawaitable(result):
+            await result
+    except BaseException as exc:
+        errors.append(exc)
+
+
+def _raise_first_shutdown_cleanup_error(errors: list[BaseException]) -> None:
+    if not errors:
+        return
+    first = errors[0]
+    add_note = getattr(first, "add_note", None)
+    for extra in errors[1:]:
+        if callable(add_note):
+            add_note(f"Additional WebRTC shutdown cleanup error: {extra!r}")
+    raise first
+
+
 class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     """Owns one active WebRTC session and forwards actions into a model runtime."""
 
@@ -1641,25 +1666,35 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             raise
 
     async def shutdown(self) -> None:
-        await self.close_active_session()
+        errors: list[BaseException] = []
+        await _record_shutdown_cleanup_error(errors, self.close_active_session)
         if self._shared_context is not None:
-            await self._shared_context.close_async()
+            await _record_shutdown_cleanup_error(
+                errors,
+                self._shared_context.close_async,
+            )
         if self._shared_host is not None:
-            await asyncio.to_thread(self._shared_host.close)
+            await _record_shutdown_cleanup_error(
+                errors,
+                asyncio.to_thread,
+                self._shared_host.close,
+            )
         self._shared_context = None
         self._shared_host = None
         self._shared_runtime_adapter = None
         if self._shared_video_encoder is not None:
-            self._shared_video_encoder.close()
+            await _record_shutdown_cleanup_error(
+                errors,
+                self._shared_video_encoder.close,
+            )
             self._shared_video_encoder = None
         if not self._owns_shared_host:
             close = getattr(self._runtime, "close", None)
             if callable(close):
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+                await _record_shutdown_cleanup_error(errors, close)
         self._runtime_ready = False
         self._warmup_complete = False
+        _raise_first_shutdown_cleanup_error(errors)
 
     def wait_for_termination(self) -> None:
         wait = getattr(self._runtime, "wait_for_termination", None)
