@@ -133,8 +133,7 @@ class CrazyRobotaxiApplication:
         self._ground_snapper = _build_taxi_ground_snapper(scene)
         self._map_bounds = map_bounds
         logger.info(
-            "[crazy-robotaxi] play-area enclosure: exit_caps={} perimeter_segments={}",
-            len(scene_data.exit_cap_segments_world),
+            "[crazy-robotaxi] play-area enclosure: perimeter_segments={}",
             len(scene_data.perimeter_segments_world),
         )
 
