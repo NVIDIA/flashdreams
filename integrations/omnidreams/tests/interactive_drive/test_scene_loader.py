@@ -73,6 +73,17 @@ def _boundary_row(*points: dict[str, float]) -> dict[str, Any]:
     return {"road_boundary": {"location": list(points)}}
 
 
+def _assert_segments_form_closed_rings(segments: np.ndarray) -> None:
+    discontinuities = np.flatnonzero(
+        np.linalg.norm(segments[:-1, 1] - segments[1:, 0], axis=1) > 1.0e-4
+    )
+    ring_starts = (0, *(int(index) + 1 for index in discontinuities))
+    ring_stops = (*(int(index) + 1 for index in discontinuities), len(segments))
+    for start, stop in zip(ring_starts, ring_stops, strict=True):
+        ring = segments[start:stop]
+        np.testing.assert_allclose(ring[:, 1], np.roll(ring[:, 0], -1, axis=0))
+
+
 def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
     rows = [
         {
@@ -109,7 +120,7 @@ def test_lane_network_perimeter_is_closed_beyond_lane_rails() -> None:
     )
 
     assert len(perimeter) >= 4
-    np.testing.assert_allclose(perimeter[:, 1], np.roll(perimeter[:, 0], -1, axis=0))
+    _assert_segments_form_closed_rings(perimeter)
     assert float(perimeter[:, :, 0].min()) < 0.0
     assert float(perimeter[:, :, 0].max()) > 30.0
     assert float(perimeter[:, :, 1].min()) < -2.0
@@ -135,6 +146,35 @@ def test_lane_network_perimeter_wraps_connected_branches_without_internal_caps()
 
     assert ring.is_valid
     assert ring.covers(Point(15.0, 10.0))
+
+
+def test_lane_network_perimeter_encloses_inner_block_edge() -> None:
+    lanes = [
+        _lane_row(start_x_m=0.0, end_x_m=30.0, center_y_m=0.0, map_end="NONE"),
+        _lane_row(start_x_m=0.0, end_x_m=30.0, center_y_m=30.0, map_end="NONE"),
+        _lane_row_from_rails(
+            (_point(-2.0, 0.0), _point(-2.0, 30.0)),
+            (_point(2.0, 0.0), _point(2.0, 30.0)),
+        ),
+        _lane_row_from_rails(
+            (_point(28.0, 0.0), _point(28.0, 30.0)),
+            (_point(32.0, 0.0), _point(32.0, 30.0)),
+        ),
+    ]
+
+    perimeter = _build_lane_network_perimeter(
+        lanes,
+        np.asarray([0.0, 0.0], dtype=np.float32),
+    )
+    inner_segments = perimeter[
+        np.all(
+            (perimeter[:, :, :2] >= 4.0) & (perimeter[:, :, :2] <= 26.0), axis=(1, 2)
+        )
+    ]
+
+    _assert_segments_form_closed_rings(perimeter)
+    assert len(inner_segments) >= 4
+    _assert_segments_form_closed_rings(inner_segments)
 
 
 def test_lane_network_perimeter_excludes_disconnected_parking_area() -> None:
@@ -218,10 +258,7 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert len(scene_data.navigation_routes_world) > 100
     assert len(scene_data.navigation_lanes) > 100
     assert len(scene_data.perimeter_segments_world) > 100
-    np.testing.assert_allclose(
-        scene_data.perimeter_segments_world[:, 1],
-        np.roll(scene_data.perimeter_segments_world[:, 0], -1, axis=0),
-    )
+    _assert_segments_form_closed_rings(scene_data.perimeter_segments_world)
     navigation_points = np.concatenate(scene_data.navigation_routes_world, axis=0)
     assert np.ptp(navigation_points[:, 0]) > 200.0
     assert np.ptp(navigation_points[:, 1]) > 200.0
