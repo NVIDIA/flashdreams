@@ -25,8 +25,10 @@ with the same pixels for long. This probe clones a real MOVING car track
 repeats its recorded motion offset in space.
 
 Env knobs: ``SHIFT_FWD_M`` (default 25), ``MTEMPLATE_IDX`` (default 0 =
-nearest at window start), ``MIN_DRIFT_M`` (default 15), ``HDMAP_ONLY``,
-``N_CHUNKS``, ``OUT_DIR``.
+nearest at window start), ``MIN_DRIFT_M`` (default 15), ``GUIDE_SCALE``
+(default 0 = off; >0 adds the box-axis guidance combine over the clone,
+same recipe as ``probe_spawn_guidance``), ``HDMAP_ONLY``, ``N_CHUNKS``,
+``OUT_DIR``.
 
 Run from the repo root (venv bin on PATH for the Ludus ninja build)::
 
@@ -82,6 +84,7 @@ N_CHUNKS = int(os.environ.get("N_CHUNKS", "26"))
 SHIFT_FWD_M = float(os.environ.get("SHIFT_FWD_M", "25"))
 MTEMPLATE_IDX = int(os.environ.get("MTEMPLATE_IDX", "0"))
 MIN_DRIFT_M = float(os.environ.get("MIN_DRIFT_M", "15"))
+GUIDE_SCALE = float(os.environ.get("GUIDE_SCALE", "0"))
 HDMAP_ONLY = os.environ.get("HDMAP_ONLY", "0") == "1"
 OUT_DIR = Path(
     os.environ.get("OUT_DIR", "integrations/omnidreams/scripts/outputs/mclone")
@@ -170,6 +173,48 @@ def main() -> None:
     # session builds a pool, patched builder returns the clone.
     runtime._spawned_actors = [object()]  # type: ignore[list-item]
     webrtc_session.actors_to_cube_pool = lambda actors, ts, device: clone
+
+    if GUIDE_SCALE > 0 and not HDMAP_ONLY:
+        wrapper = runtime._wrapper
+        assert wrapper is not None
+        pipe = wrapper.pipeline
+        transformer = pipe.diffusion_model.transformer
+        encoder = pipe.encoder
+        assert encoder is not None
+        shadow_encoder_cache = encoder.initialize_autoregressive_cache()
+        state: dict = {"alt_input": None, "ar_idx": 0}
+        orig_render = wrapper._render_condition_frames
+
+        def dual_render(renderer, camera_names, poses, timestamps, pool=None):
+            frames_box = orig_render(renderer, camera_names, poses, timestamps, pool)
+            frames_nobox = orig_render(renderer, camera_names, poses, timestamps, None)
+            with torch.no_grad():
+                model_in = wrapper._to_model_range(
+                    wrapper._normalize_condition_input(frames_nobox)
+                )
+                encoded = encoder(
+                    input=model_in,
+                    autoregressive_index=state["ar_idx"],
+                    cache=shadow_encoder_cache,
+                )
+                state["alt_input"] = transformer.patchify_and_maybe_split_cp(encoded)
+            state["ar_idx"] += 1
+            return frames_box
+
+        wrapper._render_condition_frames = dual_render
+        orig_pf = transformer.predict_flow
+
+        def guided_pf(noisy_latent, timestep, cache, input=None):
+            if transformer._finalizing_kv_cache or state["alt_input"] is None:
+                return orig_pf(noisy_latent, timestep, cache, input=input)
+            flow_box = orig_pf(noisy_latent, timestep, cache, input=input)
+            flow_nobox = orig_pf(
+                noisy_latent, timestep, cache, input=state["alt_input"]
+            )
+            return flow_nobox + GUIDE_SCALE * (flow_box - flow_nobox)
+
+        transformer.predict_flow = guided_pf
+        print(f"box-axis guidance active at s={GUIDE_SCALE}", flush=True)
 
     chunks: list[torch.Tensor] = []
     t = 0.0
