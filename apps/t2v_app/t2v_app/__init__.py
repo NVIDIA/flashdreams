@@ -3,8 +3,6 @@
 
 """Text-to-video pipeline application for ``flashdreams-app``."""
 
-from flashdreams.core.pipeline_presets import PipelineProvider
-
 from .provider import add_arguments, create_app_spec
 
-__all__ = ["PipelineProvider", "add_arguments", "create_app_spec"]
+__all__ = ["add_arguments", "create_app_spec"]

@@ -20,9 +20,10 @@ from flashdreams_app import (
 
 from flashdreams.core.pipeline_presets import load_pipeline_provider
 from flashdreams.infra.decoder import StreamingVideoDecoder
+from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime import InferenceInput
 
-from .presets import RuntimePresetOptions, load_preset_catalog
+from .presets import PipelinePreset, RuntimePresetOptions, load_preset_catalog
 
 FIELD_PROMPT = "prompt"
 FIELD_TOTAL_BLOCKS = "total_blocks"
@@ -52,24 +53,48 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def create_app_spec(config: AppConfig) -> PipelineAppSpec:
     """Describe a T2V pipeline application without constructing its runtime."""
     options = config.options
+    preset_id, preset = _resolve_preset(options)
+    scenario = _scenario(options, preset.runtime)
+    pipeline_config = _create_pipeline_config(preset_id, preset)
+    return _build_app_spec(pipeline_config, scenario, preset.runtime)
+
+
+def _resolve_preset(
+    options: Mapping[str, object],
+) -> tuple[str, PipelinePreset[RuntimePresetOptions]]:
+    """Resolve the configured pipeline preset."""
     catalog = load_preset_catalog(_optional_path(options.get("preset_config")))
-    preset_id, preset = catalog.resolve(_optional_string(options.get("preset_id")))
-    provider = load_pipeline_provider(preset.provider)
-    pipeline_config = require_pipeline_config(
-        provider.create_pipeline_config(
+    return catalog.resolve(_optional_string(options.get("preset_id")))
+
+
+def _create_pipeline_config(
+    preset_id: str,
+    preset: PipelinePreset[RuntimePresetOptions],
+) -> StreamInferencePipelineConfig:
+    """Create the pipeline config selected by a resolved preset."""
+    pipeline_provider = load_pipeline_provider(preset.provider)
+    return require_pipeline_config(
+        pipeline_provider.create_pipeline_config(
             preset_id=preset_id,
             options=preset.pipeline,
         ),
         expected_name=preset_id,
     )
-    scenario = _scenario(options, preset.runtime)
+
+
+def _build_app_spec(
+    pipeline_config: StreamInferencePipelineConfig,
+    scenario: Mapping[str, object],
+    runtime_options: RuntimePresetOptions,
+) -> PipelineAppSpec:
+    """Build the host-facing application spec from resolved T2V data."""
     return PipelineAppSpec(
         pipeline_config=pipeline_config,
         contract=PipelineContract(initialize_cache=_initialize_cache),
         metadata=RuntimeMetadata(
             model_id="t2v-app",
             fps=_required_int(scenario[FIELD_FPS], name=FIELD_FPS),
-            output_layout=preset.runtime.output_layout,
+            output_layout=runtime_options.output_layout,
             video_width=_required_int(
                 scenario[FIELD_PIXEL_WIDTH], name=FIELD_PIXEL_WIDTH
             ),
