@@ -15,6 +15,9 @@ MESSAGE_TYPE_ERROR = "error"
 MESSAGE_TYPE_EVENT = "event"
 MESSAGE_TYPE_EVENT_ACK = "event_ack"
 MESSAGE_TYPE_HEARTBEAT = "heartbeat"
+# Client -> server ack over the token-stream WebSocket:
+# {"type": "token_frame_ack", "chunk_id": <int>}.
+MESSAGE_TYPE_TOKEN_FRAME_ACK = "token_frame_ack"
 
 
 def make_error_payload(message: str) -> dict[str, str]:

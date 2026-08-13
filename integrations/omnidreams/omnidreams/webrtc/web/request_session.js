@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { detectWebGPU } from "./token_stream/webgpu.js"
+import { TokenStreamSession } from "./token_stream/session.js"
+
 const connectButton = document.getElementById("connectButton")
 const statusText = document.getElementById("statusText")
 const flowText = document.getElementById("flowText")
@@ -15,6 +18,7 @@ const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
+const streamModeSelect = document.getElementById("streamModeSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -42,6 +46,7 @@ let connected = false
 let disconnecting = false
 let heldKeySequence = 0
 let postprocessControlAvailable = false
+let tokenStreamSession = null
 
 const metrics = {
   fps: null,
@@ -124,6 +129,7 @@ function setVideoVisible(visible) {
 
 function setPostprocessDisabled(disabled) {
   postprocessSelect.disabled = disabled || !postprocessControlAvailable
+  streamModeSelect.disabled = disabled
 }
 
 async function loadPostprocessOptions() {
@@ -685,12 +691,52 @@ function stopHeartbeat() {
   }
 }
 
+function stopTokenStream() {
+  if (tokenStreamSession) {
+    tokenStreamSession.stop()
+    tokenStreamSession = null
+  }
+}
+
+// When the user selects token mode and WebGPU is available, open the dedicated
+// token-stream WebSocket and drive a TokenStreamSession. The pixel path (the
+// WebRTC video element) is left untouched; token mode simply adds a parallel
+// consumer that activates only after the peer connection is up.
+async function maybeStartTokenStream(webgpu) {
+  if (streamModeSelect.value !== "token") {
+    return
+  }
+  if (!webgpu) {
+    logEvent("token mode requested but WebGPU is unavailable; using pixel path", {
+      source: "client",
+    })
+    return
+  }
+  if (tokenStreamSession) {
+    return
+  }
+
+  const tokenUrl = new URL("/api/token-stream", location.href)
+  tokenUrl.protocol = location.protocol === "https:" ? "wss:" : "ws:"
+
+  tokenStreamSession = new TokenStreamSession({
+    url: tokenUrl.href,
+    device: webgpu.device,
+    canvas: idleCanvas,
+    controlChannel,
+    log: logEvent,
+  })
+  tokenStreamSession.start()
+  logEvent("token stream started", { source: "client" })
+}
+
 function disconnectSession({ notify = true } = {}) {
   if (disconnecting) {
     return
   }
   disconnecting = true
   releaseAllKeys()
+  stopTokenStream()
   stopHeartbeat()
   stopStatsPolling()
   connected = false
@@ -724,6 +770,14 @@ async function connectSession() {
   logEvent("connecting to server...", { source: "client" })
   disconnecting = false
 
+  // Probe WebGPU up front so token mode can decide whether to activate. A null
+  // result means the pixel path is used regardless of the selected mode.
+  let webgpu = null
+  if (streamModeSelect.value === "token") {
+    webgpu = await detectWebGPU()
+    logEvent(`webgpu ${webgpu ? "available" : "unavailable"}`, { source: "client" })
+  }
+
   try {
     await configureSessionInput()
     const pc = new RTCPeerConnection()
@@ -746,6 +800,7 @@ async function connectSession() {
       }
       setFlow("channel closed")
       logEvent("control data channel closed", { source: "client" })
+      stopTokenStream()
       stopHeartbeat()
       stopStatsPolling()
       if (!disconnecting && pc.connectionState !== "closed") {
@@ -785,6 +840,7 @@ async function connectSession() {
         connected = false
         connectButton.disabled = false
         setPostprocessDisabled(false)
+        stopTokenStream()
         stopHeartbeat()
         stopStatsPolling()
         setStatus(state === "failed" ? "Error" : "Idle", state === "failed" ? "error" : "idle")
@@ -827,7 +883,9 @@ async function connectSession() {
     await pc.setRemoteDescription(answer)
     logEvent("remote answer applied", { source: "client" })
     setFlow("answer applied")
+    await maybeStartTokenStream(webgpu)
   } catch (error) {
+    stopTokenStream()
     stopHeartbeat()
     stopStatsPolling()
     if (peerConnection) {

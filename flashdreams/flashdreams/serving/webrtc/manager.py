@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Generic, TypeVar
 
+from aiohttp import WSMsgType
 from aiortc import (
     RTCConfiguration,
     RTCPeerConnection,
@@ -24,6 +25,7 @@ from aiortc import (
 from loguru import logger
 
 from flashdreams.serving.realtime.input import KeyboardResampler
+from flashdreams.serving.token_stream import TokenFrameEmitter, TokenStreamConfig
 from flashdreams.serving.webrtc.encoders import (
     DefaultRTCEncoder,
     VideoEncoder,
@@ -34,6 +36,7 @@ from flashdreams.serving.webrtc.messages import (
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
+    MESSAGE_TYPE_TOKEN_FRAME_ACK,
     make_chunk_done_payload,
     make_error_payload,
     make_event_ack_payload,
@@ -112,6 +115,10 @@ class ManagedWebRTCSession:
     last_client_message_at: float = 0.0
     liveness_task: asyncio.Task[Any] | None = None
     closed: bool = False
+    # Optional token-stream emitter bound while a token-stream WebSocket is
+    # attached. The WebSocket route owns the socket, so ``close()`` does not
+    # need to tear this down explicitly.
+    token_emitter: "TokenFrameEmitter | None" = None
 
     async def close(self) -> None:
         if self.closed:
@@ -160,12 +167,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         runtime_config: _RuntimeConfigT,
         fps: int,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        token_stream_config: TokenStreamConfig | None = None,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
         self.runtime_config = runtime_config
         self.fps = fps
         self.client_liveness_timeout_s = client_liveness_timeout_s
+        self._token_stream_config = token_stream_config or TokenStreamConfig()
         self._runtime = runtime
         self._runtime_ready = False
         self._warmup_complete = False
@@ -409,6 +418,37 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
 
     def is_runtime_ready(self) -> bool:
         return self._runtime_ready
+
+    async def attach_token_stream_ws(self, ws) -> None:
+        """Bind a token-stream WebSocket to the active session and stream latents to it."""
+        if not self._token_stream_config.enabled:
+            await ws.close()  # feature not enabled on this server
+            return
+        session = self._active_session
+        if session is None or session.closed:
+            await ws.close()
+            return
+        codec = self._token_stream_config.codec.setup()
+        emitter = TokenFrameEmitter(
+            ws,
+            codec=codec,
+            fps=self.fps,
+            flow_window_size=self._token_stream_config.flow_window_size,
+        )
+        session.token_emitter = emitter
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    if data.get("type") == MESSAGE_TYPE_TOKEN_FRAME_ACK:
+                        chunk_id = data.get("chunk_id")
+                        if isinstance(chunk_id, int):
+                            emitter.handle_ack(chunk_id)
+        finally:
+            session.token_emitter = None
 
     async def preload_runtime(self) -> None:
         async with self._preload_lock:
@@ -806,12 +846,23 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         return
                     continue
                 t_after_gen = loop.time()
-                delivery = await video_encoder.deliver_chunk(
-                    result.video_chunk,
-                    video_track,
-                    force_keyframe=False,
-                )
-                enqueued = delivery.num_frames
+                if managed_session.token_emitter is not None:
+                    latent = result.metadata.get("latent_chunk")
+                    if latent is not None:
+                        enqueued = await managed_session.token_emitter.emit_chunk(
+                            latent, chunk_index=result.chunk_index
+                        )
+                    else:
+                        # Token stream is attached but the runtime does not surface
+                        # the pre-decode latent yet; nothing to send this chunk.
+                        enqueued = 0
+                else:
+                    delivery = await video_encoder.deliver_chunk(
+                        result.video_chunk,
+                        video_track,
+                        force_keyframe=False,
+                    )
+                    enqueued = delivery.num_frames
                 t_after_enqueue = loop.time()
 
                 gen_ms = (t_after_gen - t_before_gen) * 1e3

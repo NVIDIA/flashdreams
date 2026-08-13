@@ -54,6 +54,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessStream,
 )
 from flashdreams.plugins.registry import resolve_postprocess_preset
+from flashdreams.serving.token_stream import TokenStreamConfig
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -451,6 +452,7 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
+    enable_token_stream: bool = False
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
@@ -1119,6 +1121,9 @@ class OmnidreamsWebRTCSessionManager(
             runtime_config=runtime_config,
             fps=runtime_config.fps,
             client_liveness_timeout_s=client_liveness_timeout_s,
+            token_stream_config=TokenStreamConfig(
+                enabled=runtime_config.enable_token_stream
+            ),
         )
         self._pending_session_input: OmnidreamsSessionInput | None = None
 

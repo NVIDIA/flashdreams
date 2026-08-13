@@ -31,6 +31,13 @@ SPDX-License-Identifier: Apache-2.0
           <strong id="statusText">Idle</strong>
         </div>
         <button id="connectButton" class="connectButton" type="button">Connect Session</button>
+        <label id="streamModeField" class="postprocessField" for="streamModeSelect">
+          <span>Stream mode</span>
+          <select id="streamModeSelect">
+            <option value="pixel" selected>Video (pixels)</option>
+            <option value="token">Tokens (WebGPU)</option>
+          </select>
+        </label>
         <label id="postprocessField" class="postprocessField" for="postprocessSelect" hidden>
           <span>Post-process</span>
           <select id="postprocessSelect">

@@ -1,0 +1,34 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// Registry mapping wire codec ids to their client-side decoder instances. The
+// session header names one codec by id; the client looks it up here before
+// decoding any token frame.
+
+import { RawFloat16Decoder } from "./raw_f16.js"
+
+/**
+ * Codec id -> decoder instance. Keys must match the server-side
+ * ``TokenCodec.codec_id`` values exactly.
+ */
+export const TOKEN_CODEC_REGISTRY = new Map([
+  ["raw_f16", new RawFloat16Decoder()],
+])
+
+/**
+ * Look up the decoder for a codec id.
+ *
+ * @param {string} codecId codec id from the session header
+ * @returns {object} decoder instance with configure()/decode()
+ * @throws {Error} when the codec id is not registered
+ */
+export function getDecoder(codecId) {
+  const decoder = TOKEN_CODEC_REGISTRY.get(codecId)
+  if (!decoder) {
+    const known = Array.from(TOKEN_CODEC_REGISTRY.keys()).join(", ")
+    throw new Error(
+      `unknown token codec "${codecId}"; registered codecs: ${known || "none"}`
+    )
+  }
+  return decoder
+}
