@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
@@ -130,7 +130,9 @@ def run_replay_application(*, spec: DemoSpec, adapter: DemoAdapter) -> RunResult
     return run_application_replay(app=DemoAdapterApplication(adapter=adapter, spec=spec))
 
 
-def run_application_replay(*, app: Application) -> RunResult:
+def run_application_replay(
+    *, app: Application, launch_args: Sequence[str] = ()
+) -> RunResult:
     """Run a finite public application through the replay IO factory and runner."""
     output_sink = None
     if isinstance(app, DemoAdapterApplication):
@@ -138,6 +140,7 @@ def run_application_replay(*, app: Application) -> RunResult:
     return Runner(
         io_handler=create_replay_io_handler(output_sink=output_sink),
         app=app,
+        launch_args=tuple(launch_args),
     ).run()
 
 

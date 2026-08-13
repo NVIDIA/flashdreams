@@ -43,7 +43,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -53,7 +53,14 @@ import yaml
 from flashdreams.configs.runner_configs import _annotated_base_runner_union, all_runners
 from flashdreams.core.distributed import shutdown as shutdown_distributed
 from flashdreams.core.io.disk import disk_space_error_from_exception
+from flashdreams.demo import (
+    Application,
+    DemoAdapterApplication,
+    run_application_replay,
+)
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.plugins import discover_applications
+from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, NullOutputSpec
 from flashdreams.serving.launch import (
     LaunchMode,
     LaunchOptions,
@@ -199,6 +206,20 @@ def entrypoint(argv: list[str] | None = None) -> None:
     """
     tyro.extras.set_accent_color("bright_yellow")
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    runners = dict(all_runners())
+    target_name = _first_positional_arg(raw_args)
+    if target_name is not None and target_name not in runners:
+        applications = discover_applications()
+        application_name = _selected_application_name(target_name, applications)
+        if application_name is not None:
+            _run_with_disk_error_handling(
+                lambda: _entrypoint_application(
+                    raw_args,
+                    application_name=application_name,
+                    application=applications[application_name],
+                )
+            )
+            return
     (
         normalized_args,
         runners,
@@ -320,6 +341,278 @@ def entrypoint(argv: list[str] | None = None) -> None:
             output_overrides=launch_overrides.output,
         )
     )
+
+
+def _first_positional_arg(args: Sequence[str]) -> str | None:
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item in {"--no-instantiate", "--prefer-sw-encoder", "--help", "-h"}:
+            index += 1
+            continue
+        if item in {"--host", "--port", "--manifest"}:
+            index += 2
+            continue
+        if any(item.startswith(option + "=") for option in ("--host", "--port")):
+            index += 1
+            continue
+        parsed_override = _parse_launch_override_token(item)
+        if parsed_override is not None:
+            _section, _key, inline_value = parsed_override
+            index += 1 if inline_value is not None else 2
+            continue
+        if item.startswith("-"):
+            index += 1
+            continue
+        return item
+    return None
+
+
+def _selected_application_name(
+    target_name: str,
+    applications: Mapping[str, Application],
+) -> str | None:
+    if target_name in applications:
+        return target_name
+    return None
+
+
+def _entrypoint_application(
+    raw_args: list[str],
+    *,
+    application_name: str,
+    application: Application,
+) -> None:
+    if "--help" in raw_args or "-h" in raw_args:
+        _print_application_help(application_name, application)
+        raise SystemExit(0)
+    mode, launch_args, no_instantiate, launch_overrides = (
+        _prepare_application_cli_args(raw_args, application_name=application_name)
+    )
+    if mode not in {"mp4", "null"}:
+        raise ValueError(
+            f"Application {application_name!r} currently supports direct finite "
+            "launch modes 'mp4' and 'null'. Use a compatibility runner for "
+            f"{mode!r}."
+        )
+    scenario = dict(launch_overrides.scenario)
+    output = dict(launch_overrides.output)
+    configured = _configure_application_replay(
+        application=application,
+        application_name=application_name,
+        mode=mode,
+        scenario_overrides=scenario,
+        output_overrides=output,
+    )
+    if _is_rank_zero():
+        print(f"Resolved application: {application_name!r}")
+        print(f"Launch mode: {mode}")
+        if scenario:
+            print(f"Scenario: {scenario}")
+        if output:
+            print(f"Output settings: {output}")
+    if no_instantiate:
+        return
+    _handle_launch_result(
+        run_application_replay(app=configured, launch_args=launch_args)
+    )
+
+
+def _prepare_application_cli_args(
+    args: list[str],
+    *,
+    application_name: str,
+) -> tuple[LaunchMode, tuple[str, ...], bool, _LaunchCliOverrides]:
+    normalized, launch_overrides = _pop_launch_overrides(args)
+    normalized, manifest_path = _pop_option(normalized, "--manifest")
+    if manifest_path is not None:
+        raise ValueError(
+            "--manifest is not supported for direct application launches yet; "
+            "use --scenario.KEY and --output.KEY overrides."
+        )
+    normalized = _hoist_global_options(normalized)
+    no_instantiate = False
+    remaining: list[str] = []
+    index = 0
+    while index < len(normalized):
+        item = normalized[index]
+        if item == "--no-instantiate":
+            no_instantiate = True
+            index += 1
+            continue
+        if item == "--prefer-sw-encoder":
+            raise ValueError(
+                "--prefer-sw-encoder is only supported by WebRTC runner launches."
+            )
+        if item in {"--host", "--port"}:
+            raise ValueError(f"{item} is only supported by WebRTC runner launches.")
+        if any(item.startswith(option + "=") for option in ("--host", "--port")):
+            raise ValueError(
+                f"{item.split('=', 1)[0]} is only supported by WebRTC runner launches."
+            )
+        remaining.append(item)
+        index += 1
+
+    try:
+        app_index = remaining.index(application_name)
+    except ValueError as exc:
+        raise ValueError(
+            f"Application slug {application_name!r} was not present in argv."
+        ) from exc
+    del remaining[app_index]
+    raw_mode: LaunchMode = "run"
+    if app_index < len(remaining) and remaining[app_index] in _POSITIONAL_MODES:
+        raw_mode = cast(LaunchMode, remaining.pop(app_index))
+    return raw_mode, tuple(remaining), no_instantiate, launch_overrides
+
+
+def _configure_application_replay(
+    *,
+    application: Application,
+    application_name: str,
+    mode: LaunchMode,
+    scenario_overrides: Mapping[str, object],
+    output_overrides: Mapping[str, object],
+) -> Application:
+    if not isinstance(application, DemoAdapterApplication):
+        if scenario_overrides or output_overrides or mode != "null":
+            raise ValueError(
+                "Direct application launch with scenario/output overrides requires "
+                "a DemoAdapterApplication."
+            )
+        return application
+
+    scenario = _application_scenario(application.spec, scenario_overrides)
+    output = _application_output_spec(
+        application_name=application_name,
+        mode=mode,
+        spec=application.spec,
+        scenario=scenario,
+        output_overrides=output_overrides,
+    )
+    return DemoAdapterApplication(
+        adapter=application.adapter,
+        spec=dataclasses.replace(
+            application.spec,
+            input_mode="replay",
+            scenario=scenario,
+            output=output,
+        ),
+    )
+
+
+def _application_scenario(
+    spec: DemoSpec,
+    overrides: Mapping[str, object],
+) -> object:
+    if not overrides:
+        return spec.scenario
+    if spec.scenario is None:
+        return dict(overrides)
+    if not isinstance(spec.scenario, Mapping):
+        raise ValueError(
+            "Scenario overrides require the application DemoSpec.scenario to be "
+            f"a mapping, got {type(spec.scenario).__name__}."
+        )
+    return {**dict(spec.scenario), **dict(overrides)}
+
+
+def _application_output_spec(
+    *,
+    application_name: str,
+    mode: LaunchMode,
+    spec: DemoSpec,
+    scenario: object,
+    output_overrides: Mapping[str, object],
+) -> Mp4OutputSpec | NullOutputSpec:
+    if mode == "null":
+        _reject_unknown_output_keys(output_overrides, allowed={"store_results"})
+        return NullOutputSpec(
+            store_results=bool(output_overrides.get("store_results", False))
+        )
+    if mode != "mp4":
+        raise ValueError(
+            f"Direct application launch mode {mode!r} is not implemented."
+        )
+    _reject_unknown_output_keys(
+        output_overrides,
+        allowed={"fps", "layout", "move_to_cpu", "output", "output_layout", "path"},
+    )
+    current_output = spec.output
+    path = output_overrides.get("path", output_overrides.get("output"))
+    if path is None and isinstance(current_output, Mp4OutputSpec):
+        path = current_output.path
+    if path is None:
+        path = Path("outputs") / f"{application_name}.mp4"
+    fps = output_overrides.get("fps")
+    if fps is None and isinstance(current_output, Mp4OutputSpec):
+        fps = current_output.fps
+    if fps is None:
+        fps = _scenario_field(scenario, "fps")
+    if fps is None:
+        fps = spec.metadata.get("fps")
+    if fps is None:
+        raise ValueError(
+            "Direct application MP4 launch requires --output.fps or an fps "
+            "value in the application scenario or metadata."
+        )
+    output_layout = output_overrides.get(
+        "output_layout",
+        output_overrides.get("layout"),
+    )
+    if output_layout is None and isinstance(current_output, Mp4OutputSpec):
+        output_layout = current_output.output_layout
+    if output_layout is None:
+        output_layout = spec.metadata.get("output_layout", "bvtchw")
+    move_to_cpu = output_overrides.get("move_to_cpu")
+    if move_to_cpu is None and isinstance(current_output, Mp4OutputSpec):
+        move_to_cpu = current_output.move_to_cpu
+    return Mp4OutputSpec(
+        path=Path(str(path)),
+        fps=_positive_number(fps, name="fps"),
+        output_layout=cast(Any, str(output_layout)),
+        move_to_cpu=bool(True if move_to_cpu is None else move_to_cpu),
+    )
+
+
+def _scenario_field(scenario: object, name: str) -> object | None:
+    if isinstance(scenario, Mapping):
+        return scenario.get(name)
+    return None
+
+
+def _positive_number(value: object, *, name: str) -> int | float:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be numeric, not bool.")
+    if isinstance(value, int | float):
+        number = value
+    elif isinstance(value, str):
+        number = float(value) if "." in value else int(value)
+    else:
+        raise TypeError(f"{name} must be numeric, got {type(value).__name__}.")
+    if float(number) <= 0:
+        raise ValueError(f"{name} must be > 0.")
+    return number
+
+
+def _reject_unknown_output_keys(
+    output_overrides: Mapping[str, object],
+    *,
+    allowed: set[str],
+) -> None:
+    unknown = sorted(set(output_overrides) - allowed)
+    if unknown:
+        raise ValueError(f"Unsupported application output fields: {', '.join(unknown)}")
+
+
+def _print_application_help(application_name: str, application: Application) -> None:
+    modes = ("null",)
+    if isinstance(application, DemoAdapterApplication):
+        supported = set(application.adapter.supported_output_modes())
+        modes = tuple(mode for mode in ("mp4", "null") if mode in supported)
+    print(f"Usage: flashdreams-run {application_name} <mode> [options]")
+    print(f"Available direct application modes: {', '.join(modes)}")
+    print("Use --scenario.KEY VALUE and --output.KEY VALUE for finite-mode settings.")
 
 
 def _prepare_cli_args(

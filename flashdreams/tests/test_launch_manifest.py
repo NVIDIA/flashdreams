@@ -9,7 +9,23 @@ from typing import Any, cast
 
 import pytest
 
+from flashdreams.demo import DemoAdapterApplication
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime import (
+    CanonicalInputSchema,
+    IdentityInputMapping,
+    InferenceConfig,
+    InferenceInput,
+    InferenceInputSchema,
+    InputMapping,
+)
+from flashdreams.runtime.demo import (
+    DemoSpec,
+    Mp4OutputSpec,
+    NullOutputSpec,
+    PreparedScenario,
+    RunResult,
+)
 from flashdreams.scripts import cli
 from flashdreams.serving.launch import ResolvedLaunch, resolve_launch
 from flashdreams.serving.launch_manifest import load_launch_manifest
@@ -25,6 +41,20 @@ def _config(name: str = "demo-runner") -> RunnerConfig:
             launch_capability=None,
             device="cuda:0",
             pipeline=SimpleNamespace(diffusion_model=SimpleNamespace(seed=1)),
+        ),
+    )
+
+
+def _application() -> DemoAdapterApplication:
+    return DemoAdapterApplication(
+        adapter=_CliApplicationAdapter(),
+        spec=DemoSpec(
+            model_id="test-app",
+            input_mode="replay",
+            scenario={"prompt": "default", "fps": 16},
+            output=NullOutputSpec(),
+            config=InferenceConfig(model_id="test-app"),
+            metadata={"output_layout": "tchw"},
         ),
     )
 
@@ -55,6 +85,67 @@ output:
     assert manifest.scenario["image_path"] == tmp_path / "assets/frame.png"
     assert manifest.output["path"] == tmp_path / "results/demo.mp4"
     assert manifest.apply_runner_overrides(_config()).device == "cuda:3"
+
+
+def test_entrypoint_launches_application_slug_mp4_directly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[DemoAdapterApplication, tuple[str, ...]]] = []
+
+    def fake_run_application_replay(
+        *, app: object, launch_args: tuple[str, ...] = ()
+    ) -> RunResult:
+        assert isinstance(app, DemoAdapterApplication)
+        captured.append((app, launch_args))
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(cli, "all_runners", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "discover_applications",
+        lambda: {"test-app": _application()},
+    )
+    monkeypatch.setattr(cli, "run_application_replay", fake_run_application_replay)
+
+    cli.entrypoint(
+        [
+            "test-app",
+            "mp4",
+            "--scenario.prompt",
+            "A waterfall",
+            "--scenario.fps",
+            "12",
+            "--output.path",
+            str(tmp_path / "test.mp4"),
+        ]
+    )
+
+    configured, launch_args = captured[0]
+    assert launch_args == ()
+    assert configured.spec.scenario == {
+        "prompt": "A waterfall",
+        "fps": 12,
+    }
+    output = configured.spec.output
+    assert isinstance(output, Mp4OutputSpec)
+    assert output.path == tmp_path / "test.mp4"
+    assert output.fps == 12
+    assert output.output_layout == "tchw"
+
+
+def test_entrypoint_application_null_rejects_output_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "all_runners", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "discover_applications",
+        lambda: {"test-app": _application()},
+    )
+
+    with pytest.raises(ValueError, match="Unsupported application output fields: path"):
+        cli.entrypoint(["test-app", "null", "--output.path", "unexpected.mp4"])
 
 
 def test_launch_manifest_does_not_guess_configs_directory(
@@ -441,3 +532,29 @@ def test_documented_launch_manifests_resolve(filename: str) -> None:
             ),
         )
         assert resolved.mode == manifest.mode
+
+
+class _CliApplicationAdapter:
+    model_id = "test-app"
+    inference_input_schema = InferenceInputSchema()
+    canonical_input_schema = CanonicalInputSchema()
+
+    def supported_input_modes(self) -> tuple[str, ...]:
+        return ("replay",)
+
+    def supported_output_modes(self) -> tuple[str, ...]:
+        return ("mp4", "null")
+
+    def default_input_mapping(self) -> InputMapping:
+        return IdentityInputMapping()
+
+    def validate_config(self, config: InferenceConfig) -> None:
+        assert config.model_id == self.model_id
+
+    def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
+        del spec
+        return PreparedScenario(initial_inputs=InferenceInput())
+
+    def create_runtime(self, config: InferenceConfig) -> object:
+        del config
+        raise AssertionError("direct app CLI test should not instantiate the runtime")

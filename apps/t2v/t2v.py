@@ -507,6 +507,7 @@ def create_t2v_spec(
                 **defaults.runtime_options,
             },
         ),
+        metadata={"output_layout": "tchw"},
     )
 
 
