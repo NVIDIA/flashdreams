@@ -20,6 +20,7 @@ from lingbot.runtime import (
 )
 
 from flashdreams.runtime import InferenceConfig, InferenceInput
+from flashdreams.runtime.types import StepRequirements
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -161,6 +162,27 @@ def test_step_forwards_its_camera_inputs_to_the_model(
     assert pipeline.generate_calls[0]["intrinsics"][0, 0] == 1.0
     assert pipeline.generate_calls[1]["intrinsics"][0, 0] == 2.0
     assert pipeline.generate_calls[0]["world_scale"] == 2.5
+    runtime.close()
+
+
+def test_session_exposes_shared_step_requirements_without_user_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pipeline = _FakePipeline()
+    runtime, session = _session(tmp_path, monkeypatch, pipeline)
+
+    requirements = session.next_step_requirements()
+    legacy_request = session.next_step_request()
+
+    assert isinstance(requirements, StepRequirements)
+    assert requirements.step_index == 0
+    assert requirements.input_frame_count == 2
+    assert requirements.steady_output_frame_count == 2
+    assert requirements.metadata["num_frames"] == 2
+    assert requirements.metadata["frame_start"] == 0
+    assert legacy_request is not None
+    assert legacy_request.user_input_window is not None
     runtime.close()
 
 
