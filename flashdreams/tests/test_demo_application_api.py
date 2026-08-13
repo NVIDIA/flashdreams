@@ -405,28 +405,31 @@ def test_runner_does_not_init_public_app_when_host_starts_closed() -> None:
     assert not app.closed
 
 
-def test_runner_closes_public_app_when_external_host_disappears() -> None:
+def test_runner_raises_when_external_host_disappears_before_cleanup() -> None:
     app = _RunnerFakeApplication(total_steps=1)
     host = _ExternallyClosedWithoutHooksRuntimeHost(_ExternalApplicationRuntime(app))
 
     try:
-        result = Runner(
-            io_handler=_RecordingIOHandler(),
-            app=app,
-            host=host,
-            run_mode=_AsyncRecordingRunMode(
-                _RecordingIOHandler(),
-                name="external-host-disappears",
-                driver=_CloseHostWithoutHooksDriver(),
-            ),
-            model_id="fake-runner",
-        ).run()
+        with pytest.raises(
+            RuntimeError,
+            match="Application cleanup could not be dispatched",
+        ):
+            Runner(
+                io_handler=_RecordingIOHandler(),
+                app=app,
+                host=host,
+                run_mode=_AsyncRecordingRunMode(
+                    _RecordingIOHandler(),
+                    name="external-host-disappears",
+                    driver=_CloseHostWithoutHooksDriver(),
+                ),
+                model_id="fake-runner",
+            ).run()
     finally:
         host.close()
 
-    assert result.status == "completed"
     assert host.is_closed
-    assert app.closed
+    assert not app.closed
 
 
 def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
@@ -561,30 +564,33 @@ async def test_runner_run_async_does_not_init_public_app_when_host_starts_closed
 
 
 @pytest.mark.asyncio
-async def test_runner_run_async_closes_public_app_when_external_host_disappears() -> (
+async def test_runner_run_async_raises_when_external_host_disappears_before_cleanup() -> (
     None
 ):
     app = _RunnerFakeApplication(total_steps=1)
     host = _ExternallyClosedWithoutHooksRuntimeHost(_ExternalApplicationRuntime(app))
 
     try:
-        result = await Runner(
-            io_handler=_RecordingIOHandler(),
-            app=app,
-            host=host,
-            run_mode=_AsyncRecordingRunMode(
-                _RecordingIOHandler(),
-                name="async-external-host-disappears",
-                driver=_AsyncCloseHostWithoutHooksDriver(),
-            ),
-            model_id="fake-runner",
-        ).run_async()
+        with pytest.raises(
+            RuntimeError,
+            match="Application cleanup could not be dispatched",
+        ):
+            await Runner(
+                io_handler=_RecordingIOHandler(),
+                app=app,
+                host=host,
+                run_mode=_AsyncRecordingRunMode(
+                    _RecordingIOHandler(),
+                    name="async-external-host-disappears",
+                    driver=_AsyncCloseHostWithoutHooksDriver(),
+                ),
+                model_id="fake-runner",
+            ).run_async()
     finally:
         host.close()
 
-    assert result.status == "completed"
     assert host.is_closed
-    assert app.closed
+    assert not app.closed
 
 
 @pytest.mark.asyncio
