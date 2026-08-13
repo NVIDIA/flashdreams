@@ -89,11 +89,13 @@ class Runner:
         host, owns_host = self._selected_host()
         spec = self._create_spec(run_mode)
         context = self._create_context(host)
+        result: RunResult | None = None
+        primary_error: Exception | None = None
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
             adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
-            return await run_demo_session_async(
+            result = await run_demo_session_async(
                 context=context,
                 spec=spec,
                 scenario=scenario,
@@ -101,12 +103,18 @@ class Runner:
                 run_mode=run_mode,
                 pipeline=self.pipeline or StepPipeline(),
             )
+            return result
+        except Exception as exc:
+            primary_error = exc
+            raise
         finally:
             await _close_runner_resources_async(
                 context=context,
                 host=host,
                 app=self.app,
                 owns_host=owns_host,
+                run_result=result,
+                primary_error=primary_error,
             )
 
     def _run_sync(self, *, run_mode: RunMode | None = None) -> RunResult:
@@ -114,11 +122,13 @@ class Runner:
         host, owns_host = self._selected_host()
         spec = self._create_spec(selected_run_mode)
         context = self._create_context(host)
+        result: RunResult | None = None
+        primary_error: Exception | None = None
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
             adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
-            return run_demo_session(
+            result = run_demo_session(
                 context=context,
                 spec=spec,
                 scenario=scenario,
@@ -126,12 +136,18 @@ class Runner:
                 run_mode=selected_run_mode,
                 pipeline=self.pipeline or StepPipeline(),
             )
+            return result
+        except Exception as exc:
+            primary_error = exc
+            raise
         finally:
             _close_runner_resources(
                 context=context,
                 host=host,
                 app=self.app,
                 owns_host=owns_host,
+                run_result=result,
+                primary_error=primary_error,
             )
 
     def _selected_run_mode(self) -> RunMode:
@@ -334,12 +350,20 @@ def _close_runner_resources(
     host: RuntimeHost,
     app: Application,
     owns_host: bool,
+    run_result: RunResult | None,
+    primary_error: Exception | None,
 ) -> None:
     errors: list[Exception] = []
     _record_cleanup_error(errors, context.close)
     _record_cleanup_error(errors, host.call, app.close)
     if owns_host:
         _record_cleanup_error(errors, host.close)
+    if primary_error is not None:
+        _record_cleanup_notes(primary_error, errors)
+        return
+    if run_result is not None and run_result.status == "failed":
+        _record_cleanup_notes(run_result.error, errors)
+        return
     _raise_first_cleanup_error(errors)
 
 
@@ -349,6 +373,8 @@ async def _close_runner_resources_async(
     host: RuntimeHost,
     app: Application,
     owns_host: bool,
+    run_result: RunResult | None,
+    primary_error: Exception | None,
 ) -> None:
     errors: list[Exception] = []
     try:
@@ -361,6 +387,12 @@ async def _close_runner_resources_async(
         errors.append(exc)
     if owns_host:
         _record_cleanup_error(errors, host.close)
+    if primary_error is not None:
+        _record_cleanup_notes(primary_error, errors)
+        return
+    if run_result is not None and run_result.status == "failed":
+        _record_cleanup_notes(run_result.error, errors)
+        return
     _raise_first_cleanup_error(errors)
 
 
@@ -380,11 +412,20 @@ def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
     if not errors:
         return
     first = errors[0]
-    add_note = getattr(first, "add_note", None)
-    for extra in errors[1:]:
+    _record_cleanup_notes(first, errors[1:])
+    raise first
+
+
+def _record_cleanup_notes(
+    primary: Exception | None,
+    errors: Sequence[Exception],
+) -> None:
+    if primary is None:
+        return
+    add_note = getattr(primary, "add_note", None)
+    for extra in errors:
         if callable(add_note):
             add_note(f"Additional cleanup error: {extra!r}")
-    raise first
 
 
 def _application_adapter(app: Application) -> DemoAdapter | None:

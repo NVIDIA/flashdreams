@@ -257,6 +257,38 @@ def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
     assert app.closed
 
 
+def test_runner_preserves_primary_error_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1, fail_init=True)
+
+    with pytest.raises(RuntimeError, match="fake init failed") as exc_info:
+        Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            model_id="fake-runner",
+        ).run()
+
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("run metrics close failed" in note for note in notes)
+    assert app.closed
+
+
+def test_runner_preserves_failed_result_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1, fail_step=0)
+
+    result = Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        metrics=_FailingCloseMetricsRecorder(),
+        model_id="fake-runner",
+    ).run()
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert str(result.error) == "fake step failed"
+    assert app.closed
+
+
 @pytest.mark.asyncio
 async def test_runner_run_async_delegates_to_async_session_helper() -> None:
     app = _RunnerFakeApplication(total_steps=1)
@@ -290,6 +322,42 @@ async def test_runner_run_async_closes_public_app_when_context_cleanup_fails() -
             model_id="fake-runner",
         ).run_async()
 
+    assert app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_preserves_primary_error_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1, fail_init=True)
+
+    with pytest.raises(RuntimeError, match="fake init failed") as exc_info:
+        await Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+            model_id="fake-runner",
+        ).run_async()
+
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("run metrics close failed" in note for note in notes)
+    assert app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_preserves_failed_result_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1, fail_step=0)
+
+    result = await Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        metrics=_FailingCloseMetricsRecorder(),
+        run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+        model_id="fake-runner",
+    ).run_async()
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert str(result.error) == "fake step failed"
     assert app.closed
 
 
@@ -611,8 +679,16 @@ class _RecordingFrameOutputSink:
 class _RunnerFakeApplication:
     model_id = "runner-fake"
 
-    def __init__(self, *, total_steps: int) -> None:
+    def __init__(
+        self,
+        *,
+        total_steps: int,
+        fail_init: bool = False,
+        fail_step: int | None = None,
+    ) -> None:
         self.total_steps = total_steps
+        self.fail_init = fail_init
+        self.fail_step = fail_step
         self.launch_args: tuple[str, ...] = ()
         self.init_thread_id: int | None = None
         self.session: _RunnerFakeSession | None = None
@@ -621,9 +697,14 @@ class _RunnerFakeApplication:
     def init(self, launch_args: Sequence[str]) -> None:
         self.launch_args = tuple(launch_args)
         self.init_thread_id = threading.get_ident()
+        if self.fail_init:
+            raise RuntimeError("fake init failed")
 
     def create_session(self) -> "_RunnerFakeSession":
-        self.session = _RunnerFakeSession(total_steps=self.total_steps)
+        self.session = _RunnerFakeSession(
+            total_steps=self.total_steps,
+            fail_step=self.fail_step,
+        )
         return self.session
 
     def close(self) -> None:
@@ -674,8 +755,9 @@ class _ExternalInferenceSession:
 
 
 class _RunnerFakeSession:
-    def __init__(self, *, total_steps: int) -> None:
+    def __init__(self, *, total_steps: int, fail_step: int | None) -> None:
         self.total_steps = total_steps
+        self.fail_step = fail_step
         self.step_index = 0
         self.init_thread_id: int | None = None
         self.step_thread_ids: tuple[int, ...] = ()
@@ -695,6 +777,8 @@ class _RunnerFakeSession:
     def step(self, model_input: InferenceInput) -> StepResult:
         assert model_input.step["step_index"] == self.step_index
         assert isinstance(model_input.step["user_window"], UserInputWindow)
+        if self.fail_step == self.step_index:
+            raise RuntimeError("fake step failed")
         self.step_thread_ids = (*self.step_thread_ids, threading.get_ident())
         result = StepResult(
             step_index=self.step_index,
