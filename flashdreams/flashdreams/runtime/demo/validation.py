@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from flashdreams.runtime.inputs import UserInputCapability, UserInputSchema
 
+from .contracts import DemoAdapter, DemoSpec
 from .run_modes import RunMode, RunModeCapabilities, SessionEdges
 from .session_inputs import (
     BatchInputSource,
@@ -17,7 +18,6 @@ from .session_inputs import (
     ProviderCapabilities,
     RealtimeInputSource,
 )
-from .spec import DemoAdapter, DemoSpec
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

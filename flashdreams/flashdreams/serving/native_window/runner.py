@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run a shared demo in a local native window."""
+"""Coordinate a native-window presentation and model session."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class _State:
     error: Exception | None = None
 
 
-def run_native_window_demo(
+def run_native_window_presentation(
     *,
     spec: DemoSpec,
     adapter: DemoAdapter,
@@ -72,15 +72,14 @@ def run_native_window_demo(
     key_bindings: Mapping[str, Sequence[str]] | None = None,
     clock_fn: Callable[[], float] = time.monotonic,
 ) -> RunResult:
-    """Run one realtime session while presenting generated RGB frames."""
+    """Run one realtime model session in a native window."""
     output = spec.output
     if not isinstance(output, NativeWindowOutputSpec):
         raise TypeError("Local-window output requires NativeWindowOutputSpec.")
-    if spec.config is None:
+    config = spec.config
+    if config is None:
         raise RuntimeError("DemoSpec.config was not initialized.")
     _require_single_process()
-    if spec.input_mode not in adapter.supported_input_modes():
-        raise ValueError(f"Adapter does not support {spec.input_mode!r} input.")
 
     scenario = adapter.prepare_scenario(spec)
     queue = NativeFrameQueue(max_chunks=output.max_queued_chunks)
@@ -104,10 +103,10 @@ def run_native_window_demo(
     )
 
     def worker() -> None:
-        model_worker = ModelExecutionWorker()
+        model_worker = ModelExecutionWorker(device=config.device)
         host: RuntimeHost | None = None
         try:
-            runtime = model_worker.call_blocking(adapter.create_runtime, spec.config)
+            runtime = model_worker.call_blocking(adapter.create_runtime, config)
             host = RuntimeHost(runtime, worker=model_worker)
             state.host = host
             state.result = asyncio.run(
@@ -238,6 +237,11 @@ async def _run_session(
     if state.cancel_requested.is_set():
         transport.close()
     try:
+        if state.cancel_requested.is_set():
+            return RunResult(
+                status="cancelled",
+                reason="window closed before preload",
+            )
         await asyncio.to_thread(host.preload)
         return await run_demo_session_async(
             context=context,
@@ -333,5 +337,5 @@ def _close_host_bounded(
 
 __all__ = [
     "NativePresenter",
-    "run_native_window_demo",
+    "run_native_window_presentation",
 ]

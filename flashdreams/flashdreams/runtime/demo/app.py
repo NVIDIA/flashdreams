@@ -18,8 +18,8 @@ from flashdreams.runtime.demo.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
 )
+from flashdreams.runtime.demo.contracts import DemoAdapter, DemoSpec
 from flashdreams.runtime.demo.replay import run_replay_demo
-from flashdreams.runtime.demo.spec import DemoAdapter, DemoSpec
 
 
 class DemoApplication(ABC):

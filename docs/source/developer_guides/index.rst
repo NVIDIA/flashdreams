@@ -62,6 +62,12 @@ Developer Guides
       How native input, bounded frame delivery, SlangPy presentation, and
       graceful shutdown compose with the shared realtime demo runtime.
 
+   .. grid-item-card:: Application packages
+      :link: applications
+      :link-type: doc
+
+      How packages register applications and polymorphic IO handlers.
+
 Where these guides fit
 ----------------------
 
@@ -80,6 +86,7 @@ generated clip, see :doc:`/quickstart/index`.
    new_integration
    local_benchmarks
    local_window
+   applications
 
 ..
    Temporarily commented out for internal development:

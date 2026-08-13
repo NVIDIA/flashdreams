@@ -11,6 +11,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 from flashdreams.runtime import (
     StepResult,
     UserInputCapability,
@@ -38,7 +39,7 @@ from flashdreams.runtime.demo import (
     SessionInfo,
     SingleSessionAdmissionPolicy,
 )
-from flashdreams.runtime.demo.spec import DemoAdapter, DemoSpec
+from flashdreams.runtime.demo.contracts import DemoAdapter, DemoSpec
 
 
 class NativeFrameQueue:
@@ -66,7 +67,7 @@ class NativeFrameQueue:
     def begin_generation(self) -> None:
         with self._lock:
             if self._closed:
-                raise RuntimeError("Cannot begin generation on a closed queue.")
+                return
             self._chunks.clear()
             self._producer_finished = False
 
@@ -84,6 +85,8 @@ class NativeFrameQueue:
                 record_cuda_event=True,
             )
         )
+        for frame in frames:
+            prefetch_to_numpy(frame)
         with self._lock:
             if self._closed:
                 return True, False, 0

@@ -28,7 +28,7 @@ from .run_modes import (
     SessionReservation,
 )
 from .session_inputs import BatchInputSource, ModelInputProvider
-from .spec import DemoAdapter, DemoSpec, PreparedScenario
+from .contracts import DemoAdapter, DemoSpec, PreparedScenario
 from .timing import ActivationPolicy, RealtimeClock
 from .validation import resolve_run_capabilities, validate_resolved_run
 
@@ -351,7 +351,7 @@ def run_demo_session(
     session_edges: SessionEdges | None = None
     driver_started = False
     try:
-        create_provider = getattr(adapter, "create_model_input_provider")
+        create_provider = adapter.create_model_input_provider
         provider = context.host.call(create_provider, spec, scenario)
         run_mode.validate_session(
             spec=spec,
@@ -459,7 +459,7 @@ async def run_demo_session_async(
     session_edges: SessionEdges | None = None
     try:
         try:
-            create_provider = getattr(adapter, "create_model_input_provider")
+            create_provider = adapter.create_model_input_provider
             provider = await context.host.call_async(create_provider, spec, scenario)
             run_mode.validate_session(
                 spec=spec,

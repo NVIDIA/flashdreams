@@ -27,7 +27,7 @@ native presentation without a model checkpoint:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-triangle-model \
+   uv run --package flashdreams-triangle-model --extra demo \
      flashdreams-run triangle-model
 
 The application generates a moving triangle for six seconds. Frames are queued
@@ -59,8 +59,7 @@ and a fake presenter. Run the real display smoke test on a Linux Vulkan host:
 Current scope
 -------------
 
-The generic presenter defaults to batch 0, view 0; manifests may set
-``output.batch_index`` and ``output.view_index`` explicitly. Frames currently
-use a host NumPy upload. This path does not replace OmniDreams' specialized
-local application, which owns physics, scene switching, HUD/BEV composition,
-wheel input, and CUDA/Vulkan interop. Those features remain integration-owned.
+The generic presenter displays batch 0, view 0. Frames currently use a host
+NumPy upload. This path does not replace OmniDreams' specialized local
+application, which owns physics, scene switching, HUD/BEV composition, wheel
+input, and CUDA/Vulkan interop. Those features remain integration-owned.

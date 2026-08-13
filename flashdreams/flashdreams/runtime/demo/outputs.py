@@ -21,7 +21,7 @@ from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputT
 from flashdreams.runtime.types import StepResult
 from flashdreams.runtime.video_output import Mp4VideoOutputTarget, VideoWriter
 
-from .spec import Mp4OutputSpec, NullOutputSpec, OutputSpec, WebRTCOutputSpec
+from .contracts import Mp4OutputSpec, NullOutputSpec, OutputSpec, WebRTCOutputSpec
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

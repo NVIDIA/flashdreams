@@ -12,7 +12,7 @@ from typing import Any
 
 from aiohttp import web
 
-from flashdreams.runtime.demo.spec import WebRTCAppResources, WebRTCOutputSpec
+from flashdreams.runtime.demo.contracts import WebRTCAppResources, WebRTCOutputSpec
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from flashdreams.serving.webrtc.server import (

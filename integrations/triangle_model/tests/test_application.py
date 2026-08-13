@@ -6,14 +6,21 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from flashdreams.runtime import StepRequirements, UserInputEvent, UserInputs
+from flashdreams.runtime import (
+    ApplicationRunner,
+    FlashDreamsApplication,
+    UserInputEvent,
+    UserInputs,
+)
 from flashdreams.runtime.demo import (
     DemoSpec,
-    FlashDreamsApplication,
     NativeWindowOutputSpec,
-    UserInputWindow,
 )
-from flashdreams.serving.native_window import run_native_window_demo
+from flashdreams.serving.application_launcher import (
+    application_entry_points,
+    run_application_from_argv,
+)
+from flashdreams.serving.io_handlers import NativeWindowIOHandler
 from triangle_model import TriangleModel, create_app
 
 pytestmark = pytest.mark.ci_cpu
@@ -55,41 +62,52 @@ def test_create_app_returns_flashdreams_application() -> None:
     assert isinstance(application, FlashDreamsApplication)
     assert application.application_name == "triangle-model"
     assert application.video_width == 16
-    assert application.default_mode == "local-window"
+    assert application.default_io_handler == "local-window"
+
+
+def test_installed_application_entry_point_runs() -> None:
+    application_entry_points.cache_clear()
+
+    assert "triangle-model" in application_entry_points()
+    assert run_application_from_argv(
+        [
+            "triangle-model",
+            "null",
+            "--width",
+            "8",
+            "--height",
+            "8",
+            "--total-frames",
+            "1",
+        ]
+    )
 
 
 def test_keyboard_input_changes_model_output() -> None:
     application = _application(frames=1)
-    spec = _spec(application)
-    scenario = application.prepare_scenario(spec)
-    provider = application.create_model_input_provider(spec, scenario)
-    prepared = provider.prepare_step(
-        request=StepRequirements(step_index=0),
-        user_window=UserInputWindow(
-            start_s=0.0,
-            end_s=1.0,
-            inputs=UserInputs(
-                events=(
-                    UserInputEvent(
-                        timestamp_s=0.5,
-                        event_type="key_down",
-                        payload={"key": "g"},
-                    ),
-                )
-            ),
+    application.initialize(application.config)
+    session = application.create_session(application.scenario)
+    event = session.next_event()
+    assert event is not None
+
+    result = session.generate(
+        event,
+        UserInputs(
+            events=(
+                UserInputEvent(
+                    timestamp_s=0.5,
+                    event_type="key_down",
+                    payload={"key": "g"},
+                ),
+            )
         ),
     )
-    assert prepared.inference_input is not None
-    runtime = application.create_runtime(application.config)
-    session = runtime.start_session(scenario.initial_inputs)
-
-    result = session.step(prepared.inference_input)
 
     pixels = result.video_chunk[0].permute(1, 2, 0)
     colors = pixels[pixels.ne(0).any(dim=-1)].unique(dim=0)
     assert colors.tolist() == [[64, 255, 128]]
     session.close()
-    runtime.close()
+    application.close()
 
 
 class _Presenter:
@@ -122,11 +140,11 @@ def test_application_runs_end_to_end_with_native_input() -> None:
         presenter._on_key = cast(Any, kwargs["on_key"])
         return presenter
 
-    result = run_native_window_demo(
-        spec=_spec(application),
-        adapter=application,
-        presenter_factory=presenter_factory,
-    )
+    application.native_presenter_factory = presenter_factory
+    result = ApplicationRunner(
+        application=application,
+        io_handler=NativeWindowIOHandler(),
+    ).run()
 
     assert result.status == "completed"
     frame = cast(Any, presenter.frames[0]).to_numpy()

@@ -86,7 +86,7 @@ class SlangPyNativePresenter:
         self._rgba = np.empty((height, width, 4), dtype=np.uint8)
         self._keys = _build_key_map(
             spy,
-            key_bindings or DEFAULT_NATIVE_KEY_BINDINGS,
+            DEFAULT_NATIVE_KEY_BINDINGS if key_bindings is None else key_bindings,
         )
         self._escape = getattr(spy.KeyCode, "escape", None)
         self._window.on_keyboard_event = self._on_keyboard

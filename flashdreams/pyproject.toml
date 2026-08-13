@@ -78,6 +78,12 @@ flashdreams-benchmark = "tools.benchmarks.cli:main"
 "rtx-super-resolution-ultra" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION_ULTRA"
 "rtx-deblur-ultra" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_DEBLUR_ULTRA"
 
+[project.entry-points."flashdreams.io_handlers"]
+mp4 = "flashdreams.serving.io_handlers:Mp4IOHandler"
+null = "flashdreams.serving.io_handlers:NullIOHandler"
+webrtc = "flashdreams.serving.io_handlers:WebRTCIOHandler"
+local-window = "flashdreams.serving.io_handlers:NativeWindowIOHandler"
+
 [project.urls]
 Homepage = "https://github.com/NVIDIA/flashdreams"
 Repository = "https://github.com/NVIDIA/flashdreams"

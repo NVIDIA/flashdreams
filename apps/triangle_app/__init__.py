@@ -5,22 +5,16 @@
 
 from .application import (
     DEFAULT_TRIANGLE_COLOR,
-    TRIANGLE_INPUT_MODES,
-    TRIANGLE_INPUT_SCHEMA,
-    TRIANGLE_OUTPUT_MODES,
     TriangleApp,
+    TriangleInferenceRequest,
     TriangleInputProvider,
-    TriangleOutputMode,
     TriangleScenario,
 )
 
 __all__ = [
     "DEFAULT_TRIANGLE_COLOR",
-    "TRIANGLE_INPUT_MODES",
-    "TRIANGLE_INPUT_SCHEMA",
-    "TRIANGLE_OUTPUT_MODES",
     "TriangleApp",
+    "TriangleInferenceRequest",
     "TriangleInputProvider",
-    "TriangleOutputMode",
     "TriangleScenario",
 ]

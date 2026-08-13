@@ -184,10 +184,29 @@ def entrypoint(argv: list[str] | None = None) -> None:
     """
     tyro.extras.set_accent_color("bright_yellow")
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    from flashdreams.serving.application_launcher import run_application_from_argv
+    from flashdreams.serving.application_launcher import (
+        application_entry_points,
+        run_application_from_argv,
+    )
+    from flashdreams.serving.io_handlers import io_handler_entry_points
 
-    if run_application_from_argv(raw_args):
-        return
+    applications = application_entry_points()
+    io_handlers = io_handler_entry_points()
+    if raw_args and raw_args[0] in applications:
+        if raw_args[0] in all_runners():
+            raise ValueError(
+                f"Command {raw_args[0]!r} is registered as both an application "
+                "and a runner."
+            )
+        handled = False
+
+        def run_application() -> None:
+            nonlocal handled
+            handled = run_application_from_argv(raw_args)
+
+        _run_with_disk_error_handling(run_application)
+        if handled:
+            return
     (
         normalized_args,
         runners,
@@ -275,7 +294,19 @@ def entrypoint(argv: list[str] | None = None) -> None:
         "FlashdreamsRunArgs",
         cli_fields,
     )
-    args_cls.__doc__ = (__doc__ or "") + help_suffix
+    application_help = (
+        "\n\nRegistered applications: " + ", ".join(sorted(applications))
+        if applications
+        else ""
+    )
+    io_handler_help = (
+        "\nRegistered IO handlers: " + ", ".join(sorted(io_handlers))
+        if io_handlers
+        else ""
+    )
+    args_cls.__doc__ = (
+        (__doc__ or "") + help_suffix + application_help + io_handler_help
+    )
 
     # Silence ``--help`` / parse-error banners on non-rank-0 ranks so
     # they print exactly once even though every rank parses argv. Every
@@ -461,9 +492,7 @@ def _parse_launch_override_value(raw_value: str) -> object:
 def _parse_launch_override_list(raw_value: str) -> list[object]:
     parsed = yaml.safe_load(raw_value)
     if not isinstance(parsed, list):
-        raise ValueError(
-            f"Expected a list override value, got {type(parsed).__name__}."
-        )
+        raise TypeError(f"Expected a list override value, got {type(parsed).__name__}.")
     return [_validate_launch_override_list_item(item) for item in parsed]
 
 

@@ -3,9 +3,17 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
-from flashdreams.runtime.demo.application import (
-    ApplicationMode,
-    FlashDreamsApplication,
+from flashdreams.runtime.demo.contracts import (
+    DemoAdapter,
+    DemoSpec,
+    ModelWarmupAdapter,
+    Mp4OutputSpec,
+    NativeWindowOutputSpec,
+    NullOutputSpec,
+    OutputSpec,
+    PreparedScenario,
+    WebRTCAppResources,
+    WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.drivers import (
     CLEANUP_TIMEOUT_S,
@@ -67,18 +75,6 @@ from flashdreams.runtime.demo.session_inputs import (
     RealtimeInputSource,
     UserInputWindow,
 )
-from flashdreams.runtime.demo.spec import (
-    DemoAdapter,
-    DemoSpec,
-    ModelWarmupAdapter,
-    Mp4OutputSpec,
-    NativeWindowOutputSpec,
-    NullOutputSpec,
-    OutputSpec,
-    PreparedScenario,
-    WebRTCAppResources,
-    WebRTCOutputSpec,
-)
 from flashdreams.runtime.demo.timing import (
     REALTIME_SKIPPED_INPUTS_METADATA_KEY,
     REALTIME_SKIPPED_WINDOW_METADATA_KEY,
@@ -111,7 +107,6 @@ __all__ = [
     "ActivationResult",
     "ActivationSignal",
     "AlwaysActiveActivationPolicy",
-    "ApplicationMode",
     "AsyncSessionDriver",
     "BatchInputSource",
     "BatchSessionDriver",
@@ -125,7 +120,6 @@ __all__ = [
     "DeterministicClock",
     "DriverInvariantError",
     "ErrorAction",
-    "FlashDreamsApplication",
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "MetricsSnapshot",

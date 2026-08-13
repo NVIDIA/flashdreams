@@ -34,6 +34,13 @@ from flashdreams.runtime.types import (
     step_requirements_from_request,
 )
 
+from .contracts import (
+    DemoAdapter,
+    DemoSpec,
+    OutputSpec,
+    PreparedScenario,
+    WebRTCOutputSpec,
+)
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
 from .outputs import OutputDecision, OutputSink, build_output_sink, build_output_target
@@ -47,13 +54,11 @@ from .run_modes import (
     SessionEdges,
     SingleSessionAdmissionPolicy,
 )
-from .session_inputs import PreparedStep, ProviderCapabilities, UserInputWindow
-from .spec import (
-    DemoAdapter,
-    DemoSpec,
-    OutputSpec,
-    PreparedScenario,
-    WebRTCOutputSpec,
+from .session_inputs import (
+    ModelInputProvider,
+    PreparedStep,
+    ProviderCapabilities,
+    UserInputWindow,
 )
 
 OutputTargetFactory = Callable[[OutputSpec], OutputTarget]
@@ -71,23 +76,13 @@ def run_replay_demo(
     runner: InferenceSessionRunner | None = None,
 ) -> RunResult:
     """Run one prepared replay scenario through the shared batch demo path."""
-    _require_supported_mode(
-        mode=spec.input_mode,
-        supported=adapter.supported_input_modes(),
-        label="input_mode",
-    )
     if spec.input_mode != "replay":
         raise ValueError(
             "run_replay_demo requires input_mode='replay', "
             f"got input_mode={spec.input_mode!r}."
         )
-    _require_supported_mode(
-        mode=spec.output.mode,
-        supported=adapter.supported_output_modes(),
-        label="output.mode",
-    )
     if isinstance(spec.output, WebRTCOutputSpec):
-        raise ValueError("run_replay_demo does not support WebRTC output.")
+        raise TypeError("run_replay_demo does not support WebRTC output.")
 
     prepared = adapter.prepare_scenario(spec)
     mapping = _scenario_mapping(prepared=prepared, adapter=adapter)
@@ -351,12 +346,6 @@ class _ReplayProviderAdapter:
     def default_input_mapping(self) -> InputMapping | None:
         return self._adapter.default_input_mapping()
 
-    def supported_input_modes(self) -> tuple[str, ...]:
-        return self._adapter.supported_input_modes()
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        return self._adapter.supported_output_modes()
-
     def validate_config(self, config: InferenceConfig) -> None:
         self._adapter.validate_config(config)
 
@@ -370,7 +359,7 @@ class _ReplayProviderAdapter:
         self,
         spec: DemoSpec,
         scenario: "PreparedScenario",
-    ) -> object:
+    ) -> ModelInputProvider:
         create_provider = getattr(self._adapter, "create_model_input_provider", None)
         if callable(create_provider):
             return create_provider(spec, scenario)
@@ -636,20 +625,6 @@ def _default_inference_session_runner() -> InferenceSessionRunner:
     from flashdreams.runtime.runner import run_inference_session
 
     return run_inference_session
-
-
-def _require_supported_mode(
-    *,
-    mode: str,
-    supported: tuple[str, ...],
-    label: str,
-) -> None:
-    if mode in supported:
-        return
-    supported_text = ", ".join(repr(each) for each in supported) or "<none>"
-    raise ValueError(
-        f"Unsupported demo {label}={mode!r}; supported modes: {supported_text}."
-    )
 
 
 __all__ = [

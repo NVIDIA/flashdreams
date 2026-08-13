@@ -7,74 +7,28 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import cast
 
 import torch
-from flashdreams.runtime import InferenceConfig, InferenceInput, StepRequest, StepResult
-from triangle_app import DEFAULT_TRIANGLE_COLOR, TriangleApp, TriangleScenario
+from flashdreams.runtime import InferenceConfig
+from triangle_app import (
+    TriangleApp,
+    TriangleInferenceRequest,
+    TriangleScenario,
+)
 
 
 class TriangleModel(TriangleApp):
     model_id = "triangle-model"
 
-    def create_runtime(self, config: InferenceConfig) -> TriangleRuntime:
-        self.validate_config(config)
-        return TriangleRuntime()
+    def load_checkpoint(self, config: InferenceConfig) -> None:
+        del config
 
-
-class TriangleRuntime:
-    def start_session(self, inputs: InferenceInput) -> TriangleSession:
-        return TriangleSession(
-            TriangleScenario(
-                width=int(inputs.global_conditioning["width"]),
-                height=int(inputs.global_conditioning["height"]),
-                fps=int(inputs.global_conditioning["fps"]),
-                total_frames=int(inputs.global_conditioning["total_frames"]),
-            )
+    def run_inference(self, request: TriangleInferenceRequest) -> torch.Tensor:
+        return _triangle_frame(
+            request.scenario,
+            request.step_index,
+            color=request.color,
         )
-
-    def close(self) -> None:
-        return None
-
-
-class TriangleSession:
-    def __init__(self, scenario: TriangleScenario) -> None:
-        self._scenario = scenario
-        self._step_index = 0
-        self._closed = False
-
-    def next_step_request(self) -> StepRequest | None:
-        if self._closed or self._step_index >= self._scenario.total_frames:
-            return None
-        return StepRequest(
-            step_index=self._step_index,
-            metadata={"input_frame_count": 1},
-        )
-
-    def step(self, inputs: InferenceInput) -> StepResult:
-        if self._closed:
-            raise RuntimeError("Cannot step a closed triangle session.")
-        if self._step_index >= self._scenario.total_frames:
-            raise RuntimeError("Triangle session is complete.")
-        index = self._step_index
-        self._step_index += 1
-        return StepResult.from_video_chunk(
-            step_index=index,
-            video_chunk=_triangle_frame(
-                self._scenario,
-                index,
-                color=_color(inputs.step.get("color", DEFAULT_TRIANGLE_COLOR)),
-            ).unsqueeze(0),
-            layout="tchw",
-        )
-
-    def reset(self, inputs: InferenceInput | None = None) -> None:
-        del inputs
-        self._step_index = 0
-        self._closed = False
-
-    def close(self) -> None:
-        self._closed = True
 
 
 def create_app(args: Sequence[str]) -> TriangleModel:
@@ -114,19 +68,6 @@ def _triangle_frame(
     frame = torch.zeros((scenario.height, scenario.width, 3), dtype=torch.uint8)
     frame[mask] = torch.tensor(color, dtype=torch.uint8)
     return frame.permute(2, 0, 1).contiguous()
-
-
-def _color(value: object) -> tuple[int, int, int]:
-    if (
-        not isinstance(value, tuple)
-        or len(value) != 3
-        or any(type(channel) is not int for channel in value)
-    ):
-        raise TypeError("Triangle color must contain three integer channels.")
-    color = cast(tuple[int, int, int], value)
-    if any(channel < 0 or channel > 255 for channel in color):
-        raise ValueError("Triangle color channels must be in [0, 255].")
-    return color
 
 
 __all__ = ["TriangleModel", "create_app"]

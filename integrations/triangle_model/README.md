@@ -1,7 +1,8 @@
 # Triangle model
 
-The integration implements `TriangleModel(TriangleApp)`, its runtime/session,
-and the package application factory:
+The integration implements the checkpoint and inference hooks on
+`TriangleModel(TriangleApp)`. `TriangleApp` supplies the runtime/session
+template, and the integration supplies the package application factory:
 
 ```python
 def create_app(args):
@@ -11,9 +12,9 @@ def create_app(args):
 Run it directly through FlashDreams:
 
 ```bash
-uv run --package flashdreams-triangle-model \
+uv run --package flashdreams-triangle-model --extra demo \
   flashdreams-run triangle-model
 ```
 
-Modes are `local-window`, `webrtc`, `mp4`, and `null`. Press `R`, `G`, or `B`
-to select a color; Space cycles colors.
+Built-in IO handlers are `local-window`, `webrtc`, `mp4`, and `null`. Press
+`R`, `G`, or `B` to select a color; Space cycles colors.

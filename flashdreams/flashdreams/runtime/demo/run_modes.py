@@ -23,10 +23,10 @@ from .host import ModelWarmupPlan, WarmupSessionInputs
 from .outputs import OutputSink
 
 if TYPE_CHECKING:
+    from .contracts import DemoAdapter, DemoSpec, PreparedScenario
     from .host import RuntimeHost
     from .pipeline import StepPipeline
     from .session_inputs import InputSource, ModelInputProvider
-    from .spec import DemoAdapter, DemoSpec, PreparedScenario
     from .timing import ActivationPolicy, DeterministicClock, RealtimeClock
 
 SessionStatus = Literal[

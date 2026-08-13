@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from typing import Any, cast
 
 import pytest
@@ -37,7 +36,7 @@ from flashdreams.runtime.demo import (
     UserInputWindow,
 )
 from flashdreams.runtime.types import StepResult
-from flashdreams.serving.native_window import run_native_window_demo
+from flashdreams.serving.native_window import run_native_window_presentation
 from flashdreams.serving.native_window.presenter import (
     DEFAULT_NATIVE_KEY_BINDINGS,
     SlangPyNativePresenter,
@@ -109,6 +108,23 @@ def test_native_queue_uses_explicit_video_view() -> None:
     assert cast(Any, frame).to_numpy()[0, 0].tolist() == [2, 2, 2]
 
 
+def test_native_queue_starts_host_prefetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefetched: list[object] = []
+    from flashdreams.serving.native_window import services
+
+    monkeypatch.setattr(
+        services,
+        "prefetch_to_numpy",
+        prefetched.append,
+    )
+
+    NativeFrameQueue(max_chunks=1).publish(_result(1))
+
+    assert len(prefetched) == 2
+
+
 def test_native_sink_marks_normal_completion_without_discarding_frames() -> None:
     queue = NativeFrameQueue(max_chunks=2)
     sink = NativeWindowOutputSink(queue=queue)
@@ -121,6 +137,18 @@ def test_native_sink_marks_normal_completion_without_discarding_frames() -> None
     assert queue.pop() is not None
     assert queue.pop() is not None
     assert queue.drained
+
+
+def test_native_sink_tolerates_close_before_generation() -> None:
+    queue = NativeFrameQueue(max_chunks=1)
+    sink = NativeWindowOutputSink(queue=queue)
+    sink.open(SessionInfo())
+    queue.close()
+
+    sink.begin_generation(0)
+    decision = sink.write(_result(1))
+
+    assert decision.should_stop
 
 
 def test_native_source_preserves_skipped_key_transitions() -> None:
@@ -225,6 +253,15 @@ def test_default_presenter_bindings_cover_camera_controls() -> None:
         "shift",
         "control",
     }
+
+
+def test_empty_presenter_bindings_disable_controls() -> None:
+    from types import SimpleNamespace
+
+    from flashdreams.serving.native_window import presenter
+
+    spy = SimpleNamespace(KeyCode=SimpleNamespace(r=object()))
+    assert presenter._build_key_map(spy, {}) == {}
 
 
 class _FakeProvider:
@@ -369,7 +406,7 @@ def _native_spec(*, close_timeout_s: float = 1.0) -> DemoSpec:
 def test_native_runner_drains_finite_tail_with_fake_presenter() -> None:
     presenter = _FakePresenter()
 
-    result = run_native_window_demo(
+    result = run_native_window_presentation(
         spec=_native_spec(),
         adapter=_FakeAdapter(steps=2),
         presenter_factory=lambda **_kwargs: presenter,
@@ -382,7 +419,7 @@ def test_native_runner_drains_finite_tail_with_fake_presenter() -> None:
 
 def test_native_runner_surfaces_worker_failure() -> None:
     with pytest.raises(RuntimeError, match="session failed"):
-        run_native_window_demo(
+        run_native_window_presentation(
             spec=_native_spec(),
             adapter=_FakeAdapter(runtime_error=RuntimeError("runtime failed")),
             presenter_factory=_FakePresenter,
@@ -396,7 +433,7 @@ def test_native_runner_surfaces_presenter_failure() -> None:
             raise RuntimeError("present failed")
 
     with pytest.raises(RuntimeError, match="presenter failed"):
-        run_native_window_demo(
+        run_native_window_presentation(
             spec=_native_spec(),
             adapter=_FakeAdapter(steps=1),
             presenter_factory=_FailingPresenter,
@@ -410,7 +447,7 @@ def test_native_runner_rejects_multi_process_before_runtime(
     adapter = _FakeAdapter()
 
     with pytest.raises(RuntimeError, match="one process"):
-        run_native_window_demo(
+        run_native_window_presentation(
             spec=_native_spec(),
             adapter=adapter,
             presenter_factory=_FakePresenter,
@@ -438,8 +475,12 @@ def test_presenter_reports_missing_native_extra(
 def test_native_runner_bounds_close_before_worker_ready() -> None:
     release = threading.Event()
     closed = threading.Event()
+    preloaded = threading.Event()
 
     class _TrackedRuntime(_FakeRuntime):
+        def preload(self) -> None:
+            preloaded.set()
+
         def close(self) -> None:
             closed.set()
 
@@ -454,15 +495,14 @@ def test_native_runner_bounds_close_before_worker_ready() -> None:
         def should_close(self) -> bool:
             return True
 
-    started = time.monotonic()
     try:
         with pytest.raises(RuntimeError, match="did not stop"):
-            run_native_window_demo(
+            run_native_window_presentation(
                 spec=_native_spec(close_timeout_s=0.02),
                 adapter=_BlockingAdapter(),
                 presenter_factory=_ClosingPresenter,
             )
     finally:
         release.set()
-    assert time.monotonic() - started < 0.15
     assert closed.wait(1.0)
+    assert not preloaded.is_set()

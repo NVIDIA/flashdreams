@@ -3,6 +3,6 @@
 
 """Shared local-window presentation."""
 
-from .demo import run_native_window_demo
+from .runner import run_native_window_presentation
 
-__all__ = ["run_native_window_demo"]
+__all__ = ["run_native_window_presentation"]

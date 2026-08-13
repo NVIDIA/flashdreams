@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental shared demo API data shapes."""
+"""Contracts shared by applications, IO handlers, and session drivers."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypeAlias
+from typing import Any, Literal, Protocol
 
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.runtime._utils import freeze_mapping
@@ -19,6 +19,7 @@ from flashdreams.runtime.interfaces import ModelAdapter
 from flashdreams.runtime.mapping import InputMapping
 
 from .host import WarmupSessionInputs
+from .session_inputs import ModelInputProvider
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -114,14 +115,16 @@ class NativeWindowOutputSpec:
             raise ValueError("NativeWindowOutputSpec indices must be >= 0.")
 
 
-OutputSpec: TypeAlias = (
-    NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec | NativeWindowOutputSpec
-)
+class OutputSpec(Protocol):
+    """IO-handler-owned output description."""
+
+    @property
+    def mode(self) -> str: ...
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class WebRTCAppResources:
-    """Model-owned resources attached to the shared WebRTC application."""
+    """Application resources attached to the shared WebRTC server."""
 
     model_web_resource: Any | None = None
     configure_app: Callable[[Any], None] | None = None
@@ -130,7 +133,7 @@ class WebRTCAppResources:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class DemoSpec:
-    """User-facing shared demo run description."""
+    """One prepared application execution passed to shared session drivers."""
 
     __hash__ = None
 
@@ -172,7 +175,7 @@ class DemoSpec:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class PreparedScenario:
-    """Runtime-ready scenario prepared by a model demo adapter."""
+    """Runtime-ready scenario prepared by an application."""
 
     __hash__ = None
 
@@ -188,23 +191,23 @@ class PreparedScenario:
 
 
 class DemoAdapter(ModelAdapter, Protocol):
-    """Transport-neutral model adapter consumed by demo runners."""
-
-    def supported_input_modes(self) -> tuple[str, ...]:
-        """Return demo input modes this adapter can prepare."""
-        ...
-
-    def supported_output_modes(self) -> tuple[str, ...]:
-        """Return demo output modes this adapter can run."""
-        ...
+    """Transport-neutral application adapter consumed by session drivers."""
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
         """Validate and materialize scenario inputs before runtime creation."""
         ...
 
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> ModelInputProvider:
+        """Create the model-facing provider for one prepared scenario."""
+        ...
+
 
 class ModelWarmupAdapter(Protocol):
-    """Optional adapter hook for model-affine runtime warmup inputs."""
+    """Optional application hook for model-affine runtime warmup inputs."""
 
     def create_model_warmup_sessions(
         self,

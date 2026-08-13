@@ -7,6 +7,8 @@ This package defines the small v0 boundary above ``flashdreams.infra``. It is
 intentionally additive while integrations migrate onto it.
 """
 
+from flashdreams.runtime.application import ApplicationSession, FlashDreamsApplication
+from flashdreams.runtime.application_runner import ApplicationRunner
 from flashdreams.runtime.canonical import (
     DEFAULT_DRIVING_BINDINGS,
     DRIVER_COMMAND,
@@ -38,6 +40,7 @@ from flashdreams.runtime.interfaces import (
     InferenceSession,
     ModelAdapter,
 )
+from flashdreams.runtime.io_handler import IOHandler
 from flashdreams.runtime.keyboard import (
     DEFAULT_SUPPORTED_KEYS,
     DRIVING_SUPPORTED_KEYS,
@@ -94,12 +97,16 @@ __all__ = [
     "DRIVING_SUPPORTED_KEYS",
     "DRIVER_COMMAND",
     "ExecutionBackend",
+    "ApplicationSession",
+    "FlashDreamsApplication",
+    "ApplicationRunner",
     "IdentityInputMapping",
     "InferenceConfig",
     "InferenceInput",
     "InferenceInputSchema",
     "InferenceRuntime",
     "InferenceSession",
+    "IOHandler",
     "InMemoryMetricsRecorder",
     "INPUT_PHASES",
     "InputCanonicalizer",

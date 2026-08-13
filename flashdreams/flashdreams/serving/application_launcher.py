@@ -7,120 +7,80 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import cache
-from importlib.metadata import entry_points
-from pathlib import Path
-from typing import cast
+from importlib.metadata import EntryPoint, entry_points
 
-from flashdreams.runtime.demo import DemoSpec
-from flashdreams.runtime.demo.application import (
-    ApplicationMode,
-    FlashDreamsApplication,
+from flashdreams.runtime.application import FlashDreamsApplication
+from flashdreams.runtime.application_runner import ApplicationRunner
+
+from .io_handlers import (
+    io_handler_entry_points,
+    load_io_handler,
 )
 
-from .io_factory import IOOptions, io_factories
-
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
+
+
 ApplicationFactory = Callable[[Sequence[str]], FlashDreamsApplication]
 
 
 @cache
-def application_factories() -> dict[str, ApplicationFactory]:
-    factories: dict[str, ApplicationFactory] = {}
+def application_entry_points() -> dict[str, EntryPoint]:
+    applications: dict[str, EntryPoint] = {}
     for entry_point in entry_points(group=APPLICATION_ENTRY_POINT_GROUP):
-        factory = entry_point.load()
-        if not callable(factory):
-            raise TypeError(
-                f"Application entry point {entry_point.name!r} is not callable."
-            )
-        if entry_point.name in factories:
+        if entry_point.name in applications:
             raise ValueError(f"Duplicate application {entry_point.name!r}.")
-        factories[entry_point.name] = factory
-    return factories
+        applications[entry_point.name] = entry_point
+    return applications
 
 
 def run_application_from_argv(argv: Sequence[str]) -> bool:
     if not argv:
         return False
-    factory = application_factories().get(argv[0])
-    if factory is None:
+    entry_point = application_entry_points().get(argv[0])
+    if entry_point is None:
         return False
-    mode, output_path, host, port, app_args = _parse_invocation(argv[1:])
-    application = factory(app_args)
+    factory = entry_point.load()
+    if not callable(factory):
+        raise TypeError(f"Application entry point {argv[0]!r} is not callable.")
+    remaining = list(argv[1:])
+    no_instantiate = _pop_flag(remaining, "--no-instantiate")
+    io_handler_name = _pop_io_handler_name(remaining)
+    if io_handler_name is not None:
+        io_handler, app_args = load_io_handler(io_handler_name, remaining)
+        application = factory(app_args)
+    else:
+        application = factory(remaining)
     if not isinstance(application, FlashDreamsApplication):
         raise TypeError(f"Application factory {argv[0]!r} returned an invalid object.")
-    selected_mode = mode or application.default_mode
-    _run_application(
-        application,
-        mode=selected_mode,
-        output_path=output_path,
-        host=host,
-        port=port,
-    )
+    if io_handler_name is None:
+        io_handler_name = application.default_io_handler
+        io_handler, unused = load_io_handler(io_handler_name, ())
+        if unused:
+            raise RuntimeError("Default IO handler left unexpected arguments.")
+    if no_instantiate:
+        print(f"Resolved application: {application.application_name!r}")
+        print(f"Selected IO handler: {io_handler_name}")
+        return True
+    ApplicationRunner(application=application, io_handler=io_handler).run()
     return True
 
 
-def _run_application(
-    application: FlashDreamsApplication,
-    *,
-    mode: ApplicationMode,
-    output_path: Path | None,
-    host: str | None,
-    port: int | None,
-) -> object:
-    if mode not in application.supported_output_modes():
-        raise ValueError(f"Application does not support output mode {mode!r}.")
-    factory = io_factories()[mode]
-    if factory.input_mode not in application.supported_input_modes():
-        raise ValueError(
-            f"Application does not support input mode {factory.input_mode!r}."
-        )
-    output = factory.create_output(
-        application,
-        IOOptions(output_path=output_path, host=host, port=port),
-    )
-    spec = DemoSpec(
-        model_id=application.model_id,
-        input_mode=factory.input_mode,
-        output=output,
-        scenario=application.scenario,
-        config=application.config,
-    )
-    return factory.run(application, spec)
-
-
-def _parse_invocation(
-    args: Sequence[str],
-) -> tuple[ApplicationMode | None, Path | None, str | None, int | None, list[str]]:
-    remaining = list(args)
-    mode: ApplicationMode | None = None
-    if remaining and remaining[0] in {"mp4", "null", "webrtc", "local-window"}:
-        mode = cast(ApplicationMode, remaining.pop(0))
-    output = _pop_option(remaining, "--output")
-    host = _pop_option(remaining, "--host")
-    port = _pop_option(remaining, "--port")
-    return (
-        mode,
-        None if output is None else Path(output),
-        host,
-        None if port is None else int(port),
-        remaining,
-    )
-
-
-def _pop_option(args: list[str], name: str) -> str | None:
-    if name not in args:
+def _pop_io_handler_name(args: list[str]) -> str | None:
+    if not args or args[0] not in io_handler_entry_points():
         return None
-    index = args.index(name)
-    if index + 1 >= len(args):
-        raise ValueError(f"{name} requires a value.")
-    value = args[index + 1]
-    del args[index : index + 2]
-    return value
+    return args.pop(0)
+
+
+def _pop_flag(args: list[str], name: str) -> bool:
+    if name not in args:
+        return False
+    args.remove(name)
+    return True
 
 
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
     "ApplicationFactory",
-    "application_factories",
+    "application_entry_points",
     "run_application_from_argv",
 ]
