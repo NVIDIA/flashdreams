@@ -102,9 +102,12 @@ class Runner:
                 pipeline=self.pipeline or StepPipeline(),
             )
         finally:
-            await context.close_async()
-            if owns_host:
-                host.close()
+            await _close_runner_resources_async(
+                context=context,
+                host=host,
+                app=self.app,
+                owns_host=owns_host,
+            )
 
     def _run_sync(self, *, run_mode: RunMode | None = None) -> RunResult:
         selected_run_mode = run_mode or self._selected_run_mode()
@@ -124,9 +127,12 @@ class Runner:
                 pipeline=self.pipeline or StepPipeline(),
             )
         finally:
-            context.close()
-            if owns_host:
-                host.close()
+            _close_runner_resources(
+                context=context,
+                host=host,
+                app=self.app,
+                owns_host=owns_host,
+            )
 
     def _selected_run_mode(self) -> RunMode:
         if self.run_mode is not None:
@@ -192,7 +198,7 @@ class _ApplicationRuntime:
         return cast(InferenceSession, session)
 
     def close(self) -> None:
-        self.app.close()
+        return None
 
 
 @dataclass(slots=True)
@@ -320,6 +326,63 @@ def _application_model_id(app: Application) -> str:
 
 def _runner_scenario() -> PreparedScenario:
     return PreparedScenario(initial_inputs=InferenceInput())
+
+
+def _close_runner_resources(
+    *,
+    context: RunContext,
+    host: RuntimeHost,
+    app: Application,
+    owns_host: bool,
+) -> None:
+    errors: list[Exception] = []
+    _record_cleanup_error(errors, context.close)
+    _record_cleanup_error(errors, host.call, app.close)
+    if owns_host:
+        _record_cleanup_error(errors, host.close)
+    _raise_first_cleanup_error(errors)
+
+
+async def _close_runner_resources_async(
+    *,
+    context: RunContext,
+    host: RuntimeHost,
+    app: Application,
+    owns_host: bool,
+) -> None:
+    errors: list[Exception] = []
+    try:
+        await context.close_async()
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        await host.call_async(app.close)
+    except Exception as exc:
+        errors.append(exc)
+    if owns_host:
+        _record_cleanup_error(errors, host.close)
+    _raise_first_cleanup_error(errors)
+
+
+def _record_cleanup_error(
+    errors: list[Exception],
+    cleanup: Any,
+    /,
+    *args: Any,
+) -> None:
+    try:
+        cleanup(*args)
+    except Exception as exc:
+        errors.append(exc)
+
+
+def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
+    if not errors:
+        return
+    first = errors[0]
+    for extra in errors[1:]:
+        first.add_note(f"Additional cleanup error: {extra!r}")
+    raise first
 
 
 def _application_adapter(app: Application) -> DemoAdapter | None:

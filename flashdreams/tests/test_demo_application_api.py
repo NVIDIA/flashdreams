@@ -58,6 +58,7 @@ from flashdreams.runtime.demo import (
     RunContext,
     RunModeCapabilities,
     RunResult,
+    RuntimeHost,
     SessionEdges,
     SessionInfo,
     SingleSessionAdmissionPolicy,
@@ -224,6 +225,38 @@ def test_runner_run_drives_public_app_through_shared_runtime_path() -> None:
     assert io_handler.closed
 
 
+def test_runner_closes_public_app_when_host_is_external() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+    host = RuntimeHost(_ExternalApplicationRuntime(app))
+
+    try:
+        result = Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            host=host,
+            model_id="fake-runner",
+        ).run()
+    finally:
+        host.close()
+
+    assert result.status == "completed"
+    assert app.closed
+
+
+def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+
+    with pytest.raises(RuntimeError, match="run metrics close failed"):
+        Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            model_id="fake-runner",
+        ).run()
+
+    assert app.closed
+
+
 @pytest.mark.asyncio
 async def test_runner_run_async_delegates_to_async_session_helper() -> None:
     app = _RunnerFakeApplication(total_steps=1)
@@ -242,6 +275,22 @@ async def test_runner_run_async_delegates_to_async_session_helper() -> None:
     assert result.metrics.counters["steps"] == 1
     assert run_mode.driver.called
     assert io_handler.emitted_steps == [0]
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_closes_public_app_when_context_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+
+    with pytest.raises(RuntimeError, match="run metrics close failed"):
+        await Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+            model_id="fake-runner",
+        ).run_async()
+
+    assert app.closed
 
 
 def test_replay_io_factory_runs_through_public_runner() -> None:
@@ -579,6 +628,26 @@ class _RunnerFakeApplication:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _ExternalApplicationRuntime:
+    def __init__(self, app: _RunnerFakeApplication) -> None:
+        self._app = app
+        self.closed = False
+
+    def start_session(self, inputs: InferenceInput) -> InferenceSession:
+        del inputs
+        session = self._app.create_session()
+        session.init()
+        return session
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FailingCloseMetricsRecorder(InMemorySessionMetricsRecorder):
+    def close(self) -> Any:
+        raise RuntimeError("run metrics close failed")
 
 
 class _RunnerFakeSession:
