@@ -30,7 +30,6 @@ members = [
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-t2v",
-    "flashdreams-t2v-demo",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1435,27 +1434,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
-
-[[package]]
-name = "flashdreams-t2v-demo"
-version = "0.1.0"
-source = { editable = "apps/t2v_demo" }
-dependencies = [
-    { name = "flashdreams", extra = ["serving"] },
-    { name = "flashdreams-causal-forcing" },
-    { name = "flashdreams-cosmos-predict2" },
-    { name = "flashdreams-self-forcing" },
-    { name = "flashdreams-t2v" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
-    { name = "flashdreams-causal-forcing", editable = "integrations/causal_forcing" },
-    { name = "flashdreams-cosmos-predict2", editable = "integrations/cosmos_predict2" },
-    { name = "flashdreams-self-forcing", editable = "integrations/self_forcing" },
-    { name = "flashdreams-t2v", editable = "apps/t2v" },
-]
 
 [[package]]
 name = "flashdreams-wan21"

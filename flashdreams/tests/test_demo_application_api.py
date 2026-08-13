@@ -9,10 +9,12 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import flashdreams.demo.app as demo_app
 import flashdreams.demo.runner as demo_runner
 from flashdreams.demo import (
     Application,
@@ -78,6 +80,7 @@ from flashdreams.runtime.demo import (
     SingleSessionAdmissionPolicy,
     StepPipeline,
     UserInputWindow,
+    WebRTCOutputSpec,
 )
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepRequirements
@@ -874,6 +877,40 @@ def test_run_application_replay_uses_demo_adapter_spec() -> None:
     runtime = adapter.runtimes[0]
     assert runtime.session.closed
     assert runtime.closed
+
+
+def test_run_application_webrtc_closes_runtime_when_server_startup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _FakeDemoAdapter()
+    app = DemoAdapterApplication(
+        adapter=adapter,
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="webrtc",
+            output=WebRTCOutputSpec(),
+            config=InferenceConfig(model_id="fake-demo", device="cuda:7"),
+        ),
+    )
+
+    monkeypatch.setattr(
+        demo_app,
+        "initialize_cuda_distributed",
+        lambda **_: SimpleNamespace(device="cuda:0", world_rank=0),
+    )
+
+    import flashdreams.serving.webrtc.demo as webrtc_demo
+
+    def fail_to_serve(**_: object) -> object:
+        raise RuntimeError("server startup failed")
+
+    monkeypatch.setattr(webrtc_demo, "serve_webrtc_demo", fail_to_serve)
+
+    with pytest.raises(RuntimeError, match="server startup failed"):
+        run_application_webrtc(app=app)
+
+    assert len(adapter.runtimes) == 1
+    assert adapter.runtimes[0].closed
 
 
 def test_demo_application_can_be_built_from_callbacks() -> None:

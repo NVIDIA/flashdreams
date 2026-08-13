@@ -136,7 +136,6 @@ def test_t2v_shell_has_no_legacy_backend_imports() -> None:
 
     source = inspect.getsource(t2v_shell)
 
-    assert "t2v_demo" not in source
     assert "causal_forcing" not in source
     assert "self_forcing" not in source
     assert "cosmos_predict2" not in source

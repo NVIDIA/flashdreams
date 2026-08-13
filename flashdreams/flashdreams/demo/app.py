@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -193,29 +194,42 @@ def run_application_webrtc(
     adapter = app.adapter
     scenario = adapter.prepare_scenario(spec)
     runtime = adapter.create_runtime(web_config)
-    manager = _create_application_webrtc_manager(
-        runtime=runtime,
-        output=output,
-        spec=spec,
-        scenario=scenario,
-        adapter=adapter,
-    )
-    app_resources = _create_application_webrtc_resources(
-        adapter=adapter,
-        manager=manager,
-        output=output,
-        spec=spec,
-    )
+    manager: Any | None = None
+    try:
+        manager = _create_application_webrtc_manager(
+            runtime=runtime,
+            output=output,
+            spec=spec,
+            scenario=scenario,
+            adapter=adapter,
+        )
+        app_resources = _create_application_webrtc_resources(
+            adapter=adapter,
+            manager=manager,
+            output=output,
+            spec=spec,
+        )
 
-    from flashdreams.serving.webrtc.demo import serve_webrtc_demo
+        from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 
-    return serve_webrtc_demo(
-        output=output,
-        model_id=spec.model_id,
-        session_manager=manager,
-        app_resources=app_resources,
-        world_rank=context.world_rank,
-    )
+        return serve_webrtc_demo(
+            output=output,
+            model_id=spec.model_id,
+            session_manager=manager,
+            app_resources=app_resources,
+            world_rank=context.world_rank,
+        )
+    except BaseException as exc:
+        # Once the runtime exists, aiohttp shutdown is not guaranteed to run
+        # until the server fully starts. Clean up through the same manager/host
+        # ownership path that normal WebRTC shutdown uses, while preserving the
+        # startup failure as the primary exception.
+        _cleanup_application_webrtc_startup_failure(
+            manager=manager,
+            runtime=runtime,
+            primary_error=exc,
+        )
+        raise
 
 
 def create_demo_application(
@@ -268,6 +282,23 @@ def _create_application_webrtc_manager(
             spec.metadata.get("webrtc_keep_connection_after_completed", False)
         ),
     )
+
+
+def _cleanup_application_webrtc_startup_failure(
+    *,
+    manager: Any | None,
+    runtime: Any,
+    primary_error: BaseException,
+) -> None:
+    try:
+        if manager is None:
+            runtime.close()
+            return
+        asyncio.run(manager.shutdown())
+    except BaseException as cleanup_error:
+        add_note = getattr(primary_error, "add_note", None)
+        if callable(add_note):
+            add_note(f"Additional WebRTC startup cleanup error: {cleanup_error!r}")
 
 
 def _create_application_webrtc_resources(
