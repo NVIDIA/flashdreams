@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.demo.outputs import (
     OutputDecision,
     OutputSink,
@@ -22,7 +23,6 @@ from flashdreams.runtime.demo.outputs import (
 )
 from flashdreams.runtime.demo.session_inputs import UserInputWindow
 from flashdreams.runtime.demo.spec import DemoAdapter, DemoSpec, PreparedScenario
-from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.output import OutputArtifact

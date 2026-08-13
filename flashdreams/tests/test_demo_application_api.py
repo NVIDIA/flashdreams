@@ -13,8 +13,8 @@ from flashdreams.demo import (
     ApplicationSession,
     DemoAdapterApplication,
     FrameOutputSink,
-    IOHandler,
     InferenceSessionApplicationAdapter,
+    IOHandler,
     RuntimeOutputSinkFrameAdapter,
 )
 from flashdreams.runtime import (

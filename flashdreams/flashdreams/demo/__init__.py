@@ -10,9 +10,9 @@ from flashdreams.demo.application import (
     FrameOutputSink,
     IApplication,
     IApplicationSession,
-    IOutputSink,
-    IOHandler,
     InferenceSessionApplicationAdapter,
+    IOHandler,
+    IOutputSink,
     RuntimeOutputSinkFrameAdapter,
 )
 
