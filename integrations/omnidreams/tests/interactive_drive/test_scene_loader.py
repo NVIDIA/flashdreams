@@ -16,6 +16,7 @@ from omnidreams.interactive_drive.crazy_robotaxi.scene import (
     _build_fallback_perimeter,
     _build_lane_centerlines,
     _build_lane_network_perimeter,
+    _build_navigation_lanes,
     load_scene_data,
 )
 from omnidreams.interactive_drive.scene_loader import (
@@ -213,6 +214,45 @@ def test_fallback_perimeter_is_closed_outside_navigation_extent() -> None:
     assert float(perimeter[:, :, 0].max()) > 10.0
     assert float(perimeter[:, :, 1].min()) < 3.0
     assert float(perimeter[:, :, 1].max()) > 7.0
+
+
+def test_navigation_lanes_keep_only_road_edges_as_stopping_surfaces() -> None:
+    rows = [
+        {
+            "lane": {
+                "left_rail": [_point(0.0, 2.0), _point(10.0, 2.0)],
+                "right_rail": [_point(0.0, -2.0), _point(10.0, -2.0)],
+                "left_edge_styles": ["LONG_DASHED_SINGLE", "LONG_DASHED_SINGLE"],
+                "right_edge_styles": ["TALL_CURB", "TALL_CURB"],
+                "left_edge_colors": ["WHITE", "WHITE"],
+                "right_edge_colors": ["UNKNOWN", "UNKNOWN"],
+                "vehicle_types": ["CAR"],
+            }
+        },
+        {
+            "lane": {
+                "left_rail": [_point(0.0, 6.0), _point(10.0, 6.0)],
+                "right_rail": [_point(0.0, 2.0), _point(10.0, 2.0)],
+                "left_edge_styles": ["LONG_DASHED_SINGLE", "LONG_DASHED_SINGLE"],
+                "right_edge_styles": ["TALL_CURB", "VIRTUAL"],
+                "left_edge_colors": ["WHITE", "WHITE"],
+                "right_edge_colors": ["UNKNOWN", "UNKNOWN"],
+                "vehicle_types": ["CAR"],
+            }
+        },
+    ]
+
+    lanes = _build_navigation_lanes(rows)
+
+    assert len(lanes) == 2
+    assert lanes[0].allows_taxi_stops
+    assert lanes[0].road_edge_world is not None
+    np.testing.assert_allclose(
+        lanes[0].road_edge_world,
+        np.array([[0.0, -2.0, 0.0], [10.0, -2.0, 0.0]], dtype=np.float32),
+    )
+    assert not lanes[1].allows_taxi_stops
+    assert lanes[1].road_edge_world is None
 
 
 def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:

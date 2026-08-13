@@ -182,7 +182,7 @@ def test_initial_pickup_can_be_distant_but_must_project_inside_camera() -> None:
     pickup = controller.snapshot(_state())
 
     assert any(
-        target[0] >= 80.0 and target[1] == pytest.approx(0.0)
+        target[0] >= 80.0 and abs(target[1]) <= 1.0
         for target in pickup.pickup_targets_xyz_m
     )
 
@@ -218,7 +218,7 @@ def test_initial_pickup_can_exceed_200_when_that_is_the_closest_visible_choice()
 
     pickup = controller.snapshot(_state())
 
-    assert pickup.distance_m == pytest.approx(210.0)
+    assert pickup.distance_m == pytest.approx(math.hypot(210.0, 1.0))
 
 
 def test_available_pickups_are_sampled_across_the_map() -> None:
@@ -249,6 +249,42 @@ def test_available_pickups_are_sampled_across_the_map() -> None:
     assert any(target[0] > 0.0 for target in selected_xy)
     assert any(target[1] < 0.0 for target in selected_xy)
     assert any(target[1] > 0.0 for target in selected_xy)
+
+
+def test_pickup_markers_and_passengers_use_separate_roadside_positions() -> None:
+    lane = NavigationLane(
+        centerline_world=np.asarray(
+            [[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]], dtype=np.float32
+        ),
+        road_edge_world=np.asarray(
+            [[0.0, -2.0, 0.0], [200.0, -2.0, 0.0]], dtype=np.float32
+        ),
+    )
+    controller = TaxiGameController(
+        scene_id="roadside-pickups",
+        reference_route_world=lane.centerline_world,
+        navigation_lanes=(lane,),
+        initial_state=_state(),
+        config=TaxiGameConfig(
+            enabled=True,
+            seed=17,
+            waypoint_spacing_m=20.0,
+            pickup_grid_spacing_m=20.0,
+            pickup_min_distance_m=0.0,
+        ),
+    )
+
+    snapshot = controller.snapshot(_state())
+
+    assert len(snapshot.pickup_targets_xyz_m) == len(snapshot.pickup_passengers_xyz_m)
+    assert snapshot.pickup_targets_xyz_m
+    assert all(
+        target[1] == pytest.approx(-1.0) for target in snapshot.pickup_targets_xyz_m
+    )
+    assert all(
+        passenger[1] == pytest.approx(-2.75)
+        for passenger in snapshot.pickup_passengers_xyz_m
+    )
 
 
 def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
@@ -428,7 +464,7 @@ def test_dropoffs_stay_within_reachable_road_component() -> None:
     )
 
     assert dropoff.phase == "to_dropoff"
-    assert dropoff.target_xyz_m[1] == pickup.target_xyz_m[1]
+    assert abs(dropoff.target_xyz_m[1]) <= 1.0
 
 
 def test_dropoff_is_at_least_two_hundred_route_meters_when_available() -> None:

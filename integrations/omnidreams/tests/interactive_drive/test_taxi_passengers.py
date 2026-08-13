@@ -47,6 +47,7 @@ pytestmark = pytest.mark.ci_cpu
 def _snapshot(
     *pickup_targets_xyz_m: tuple[float, float, float],
     session_state: TaxiSessionState = "playing",
+    pickup_passengers_xyz_m: tuple[tuple[float, float, float], ...] = (),
 ) -> TaxiGameSnapshot:
     phase = "seeking_pickup" if pickup_targets_xyz_m else "to_dropoff"
     target_xyz_m = pickup_targets_xyz_m[0] if pickup_targets_xyz_m else (0.0, 0.0, 0.0)
@@ -60,6 +61,7 @@ def _snapshot(
         score=0,
         session_state=session_state,
         pickup_targets_xyz_m=pickup_targets_xyz_m,
+        pickup_passengers_xyz_m=pickup_passengers_xyz_m,
     )
 
 
@@ -158,6 +160,27 @@ def test_runtime_retains_existing_actors_before_adding_passengers() -> None:
     assert update.frame_application_states == snapshots
     assert update.trajectory.dynamic_actors[0] is existing_actor
     assert update.trajectory.dynamic_actors[1].object_type == "Pedestrian"
+
+
+def test_passenger_uses_roadside_position_instead_of_marker_center() -> None:
+    marker = (1.0, 2.0, 0.0)
+    roadside_passenger = (1.0, 4.0, 0.25)
+
+    actors = build_pickup_passenger_trajectories(
+        (
+            _snapshot(
+                marker,
+                pickup_passengers_xyz_m=(roadside_passenger,),
+            ),
+        ),
+        np.array([100], dtype=np.int64),
+    )
+
+    assert len(actors) == 1
+    np.testing.assert_allclose(
+        actors[0].translations_world[0],
+        [roadside_passenger[0], roadside_passenger[1], 1.15],
+    )
 
 
 def test_pickup_removes_passenger_on_completion_frame_and_adds_next_fare() -> None:

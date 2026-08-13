@@ -192,6 +192,9 @@ class TaxiGameSnapshot:
     pickup_targets_xyz_m: tuple[tuple[float, float, float], ...] = ()
     """All pickup positions available during the pickup phase."""
 
+    pickup_passengers_xyz_m: tuple[tuple[float, float, float], ...] = ()
+    """Waiting-passenger ground positions aligned with the pickup targets."""
+
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation of the snapshot."""
         return {
@@ -212,6 +215,9 @@ class TaxiGameSnapshot:
             "awarded_global_time_s": self.awarded_global_time_s,
             "pickup_targets_xyz_m": [
                 list(target) for target in self.pickup_targets_xyz_m
+            ],
+            "pickup_passengers_xyz_m": [
+                list(target) for target in self.pickup_passengers_xyz_m
             ],
         }
 
@@ -481,6 +487,21 @@ def project_taxi_markers_to_camera(
     return tuple(visible)
 
 
+def _xyz_tuple(point: npt.NDArray[np.float32]) -> tuple[float, float, float]:
+    return float(point[0]), float(point[1]), float(point[2])
+
+
+def _passenger_xyz_tuple(
+    waypoint: NavigationWaypoint,
+) -> tuple[float, float, float]:
+    point = (
+        waypoint.passenger_xyz_m
+        if waypoint.passenger_xyz_m is not None
+        else waypoint.xyz_m
+    )
+    return _xyz_tuple(point)
+
+
 class TaxiGameController:
     """Advance taxi fares over scene navigation routes."""
 
@@ -694,7 +715,15 @@ class TaxiGameController:
             ),
             pickup_targets_xyz_m=(
                 tuple(
-                    tuple(float(value) for value in self._waypoints[index].xyz_m)
+                    _xyz_tuple(self._waypoints[index].xyz_m)
+                    for index in self._available_pickup_indices
+                )
+                if self._phase == "seeking_pickup"
+                else ()
+            ),
+            pickup_passengers_xyz_m=(
+                tuple(
+                    _passenger_xyz_tuple(self._waypoints[index])
                     for index in self._available_pickup_indices
                 )
                 if self._phase == "seeking_pickup"

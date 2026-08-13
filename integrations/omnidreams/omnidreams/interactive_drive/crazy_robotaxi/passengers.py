@@ -90,7 +90,9 @@ def build_pickup_passenger_trajectories(
     completed_tracks: list[tuple[int, int, tuple[float, float, float]]] = []
     for frame_index, snapshot in enumerate(snapshots):
         visible_targets = (
-            snapshot.pickup_targets_xyz_m if snapshot.session_state == "playing" else ()
+            (snapshot.pickup_passengers_xyz_m or snapshot.pickup_targets_xyz_m)
+            if snapshot.session_state == "playing"
+            else ()
         )
         visible_by_key = {
             _target_key(target_xyz_m): target_xyz_m for target_xyz_m in visible_targets
