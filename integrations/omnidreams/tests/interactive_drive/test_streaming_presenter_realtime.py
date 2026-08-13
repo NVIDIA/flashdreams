@@ -20,6 +20,7 @@ from omnidreams.interactive_drive.crazy_robotaxi.streaming_presenter import (
     _wait_for_bus_frame,
 )
 from omnidreams.interactive_drive.input.keyboard import KeyboardState
+from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
 from omnidreams.interactive_drive.streaming_presenter import (
     MJPEGStreamingPresenter as BaseMJPEGStreamingPresenter,
 )
@@ -38,6 +39,7 @@ def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
     assert "'/taxi/name'" in _INDEX_HTML
     assert 'id="score-rows"' in _INDEX_HTML
     assert 'id="new-game"' in _INDEX_HTML
+    assert 'id="taxi-boundaries"' in _INDEX_HTML
 
 
 def test_streaming_presenter_materializes_lazy_rgba_frames() -> None:
@@ -151,12 +153,16 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     presenter._keyboard = keyboard
     presenter._taxi_enabled = True
     presenter._bev_config = BevConfig(tilt_deg=0.0)
+    presenter._taxi_enclosure_segments_world = np.asarray(
+        [[[10.0, -100.0, 0.0], [10.0, 100.0, 0.0]]], dtype=np.float32
+    )
     presenter._latest_presented_frame = PresentedFrame(
         timestamp_us=0,
         rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
         depth_host_f32=None,
         vehicle_state=vehicle,
         application_state=taxi,
+        bev_rig_to_world=rig_pose_from_vehicle_state(vehicle),
     )
 
     snapshot = presenter._state_snapshot()
@@ -169,6 +175,11 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
     assert len(snapshot["taxi"]["bev_targets"]) == 4
     assert all(target["visible"] for target in snapshot["taxi"]["bev_targets"])
+    assert len(snapshot["taxi"]["bev_enclosure_segments"]) == 1
+    assert all(
+        0.0 <= coordinate <= 1.0
+        for coordinate in snapshot["taxi"]["bev_enclosure_segments"][0].values()
+    )
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:

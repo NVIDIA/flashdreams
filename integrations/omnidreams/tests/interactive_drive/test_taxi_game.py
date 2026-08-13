@@ -14,6 +14,7 @@ from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
     TaxiGameSnapshot,
+    project_segment_pose_to_bev,
     project_target_to_bev,
     project_taxi_marker_to_camera,
     project_taxi_markers_to_camera,
@@ -731,6 +732,19 @@ def test_bev_projection_places_forward_and_left_targets() -> None:
     assert forward_v < 0.5
     assert left_visible is True
     assert left_u < 0.5
+
+
+def test_bev_segment_projection_clips_crossing_line_to_viewport() -> None:
+    bev = BevConfig(width=100, height=100, height_m=75.0, fov_deg=60.0, tilt_deg=0.0)
+    pose = rig_pose_from_vehicle_state(_state())
+    segment = np.asarray([[10.0, -100.0, 0.0], [10.0, 100.0, 0.0]], dtype=np.float32)
+
+    projected = project_segment_pose_to_bev(segment, pose, bev)
+
+    assert projected is not None
+    assert projected[0][0] == pytest.approx(1.0)
+    assert projected[1][0] == pytest.approx(0.0)
+    assert all(0.0 <= coordinate <= 1.0 for point in projected for coordinate in point)
 
 
 def test_camera_marker_is_visible_only_when_world_anchor_is_in_view() -> None:

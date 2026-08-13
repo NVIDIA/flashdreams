@@ -43,6 +43,7 @@ from omnidreams.interactive_drive.camera import FThetaCameraModel
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
+    project_segment_pose_to_bev,
     project_target_to_bev,
     project_taxi_markers_to_camera,
 )
@@ -250,6 +251,9 @@ _INDEX_HTML = """<!doctype html>
     overflow: hidden; background: #222; pointer-events: none;
   }
   .taxi-map img { display: block; width: 100%; height: auto; }
+  .taxi-boundaries, #taxi-pins { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .taxi-boundaries { overflow: hidden; }
+  .taxi-boundaries line { stroke: rgb(235, 50, 50); stroke-width: 1.8; vector-effect: non-scaling-stroke; }
   .taxi-pin {
     position: absolute; width: 18px; height: 18px; border-radius: 50%;
     border: 3px solid white; background: #76b900;
@@ -433,6 +437,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <div class="taxi-map hidden" id="taxi-map">
   <img id="taxi-bev" src="/bev_stream">
+  <svg class="taxi-boundaries" id="taxi-boundaries" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
   <div id="taxi-pins"></div>
 </div>
 <div class="game-over hidden" id="game-over">
@@ -533,6 +538,7 @@ const taxiArrowEl = document.getElementById('taxi-arrow');
 const taxiStatusEl = document.getElementById('taxi-status');
 const taxiEventEl = document.getElementById('taxi-event');
 const taxiMapEl = document.getElementById('taxi-map');
+const taxiBoundariesEl = document.getElementById('taxi-boundaries');
 const taxiPinsEl = document.getElementById('taxi-pins');
 const gameOverEl = document.getElementById('game-over');
 const gameOverTitleEl = document.getElementById('game-over-title');
@@ -616,6 +622,15 @@ function paintTaxi(taxi) {
   const markers = taxi.bev_targets || [];
   const showMap = taxi.bev_enabled;
   taxiMapEl.classList.toggle('hidden', !showMap);
+  taxiBoundariesEl.replaceChildren();
+  (taxi.bev_enclosure_segments || []).forEach(segment => {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', `${segment.u0 * 100}`);
+    line.setAttribute('y1', `${segment.v0 * 100}`);
+    line.setAttribute('x2', `${segment.u1 * 100}`);
+    line.setAttribute('y2', `${segment.v1 * 100}`);
+    taxiBoundariesEl.appendChild(line);
+  });
   taxiPinsEl.replaceChildren();
   markers.filter(marker => marker.visible).forEach(marker => {
     const pin = document.createElement('div');
@@ -806,6 +821,7 @@ class MJPEGStreamingPresenter:
         self._bev_config: BevConfig | None = None
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
+        self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._jpeg_quality = int(jpeg_quality)
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
@@ -990,6 +1006,13 @@ class MJPEGStreamingPresenter:
         """Configure camera projection for world-anchored taxi markers."""
         self._taxi_camera_calibration = calibration
         self._taxi_camera_models.clear()
+
+    def configure_taxi_enclosure(self, segments_world: np.ndarray) -> None:
+        """Configure static Taxi-only closure lines drawn over the browser BEV."""
+        segments = np.asarray(segments_world, dtype=np.float32)
+        if segments.ndim != 3 or segments.shape[1:] != (2, 3):
+            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
+        self._taxi_enclosure_segments_world = segments.copy()
 
     def process_events(self) -> None:
         # Update the integrator at simulation cadence regardless of how often
@@ -1285,6 +1308,32 @@ class MJPEGStreamingPresenter:
                 taxi_payload["bev_targets"] = bev_targets
             else:
                 taxi_payload["bev_targets"] = []
+            bev_enclosure_segments = []
+            if (
+                frame is not None
+                and frame.bev_rig_to_world is not None
+                and self._bev_config is not None
+            ):
+                for segment in getattr(
+                    self,
+                    "_taxi_enclosure_segments_world",
+                    np.empty((0, 2, 3), dtype=np.float32),
+                ):
+                    projected = project_segment_pose_to_bev(
+                        segment, frame.bev_rig_to_world, self._bev_config
+                    )
+                    if projected is None:
+                        continue
+                    start, end = projected
+                    bev_enclosure_segments.append(
+                        {
+                            "u0": start[0],
+                            "v0": start[1],
+                            "u1": end[0],
+                            "v1": end[1],
+                        }
+                    )
+            taxi_payload["bev_enclosure_segments"] = bev_enclosure_segments
             result["taxi"] = taxi_payload
         return result
 
