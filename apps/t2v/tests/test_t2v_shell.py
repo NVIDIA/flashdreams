@@ -6,9 +6,6 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
-from flashdreams.demo import DemoAdapterApplication
-from flashdreams.runtime.demo import Mp4OutputSpec, NullOutputSpec
 from t2v.t2v import (
     T2VDemoAdapter,
     T2VModelConfig,
@@ -17,6 +14,9 @@ from t2v.t2v import (
     create_t2v_spec,
     t2v_scenario_mapping,
 )
+
+from flashdreams.demo import DemoAdapterApplication
+from flashdreams.runtime.demo import Mp4OutputSpec, NullOutputSpec
 
 pytestmark = pytest.mark.ci_cpu
 

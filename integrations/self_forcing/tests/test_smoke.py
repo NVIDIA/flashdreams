@@ -24,13 +24,16 @@ from typing import cast
 import pytest
 import tomli as tomllib
 from self_forcing import config as config_mod
-from self_forcing.config import RUNNER_CONFIGS
+from self_forcing.config import PIPELINE_WAN21_T2V_1PT3B, RUNNER_CONFIGS
+from self_forcing.t2v.app import MODEL, create_app, createApp
 
+from flashdreams.demo import Application, DemoAdapterApplication
 from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
 ENTRY_POINT_GROUP = "flashdreams.runner_configs"
+APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
 
 
 def test_runners_dict_is_non_empty() -> None:
@@ -87,6 +90,30 @@ def test_entry_points_match_module_literals() -> None:
             f"entry point {slug!r} -> {attr} resolves to "
             f"runner_name={cfg.runner_name!r}"
         )
+
+
+def test_t2v_app_uses_default_pipeline_config() -> None:
+    """The public app entry must remain owned by this integration package."""
+    public_app = create_app()
+
+    assert createApp is create_app
+    assert isinstance(public_app, Application)
+    assert isinstance(public_app, DemoAdapterApplication)
+    assert MODEL.model_id == "self-forcing-t2v"
+    assert MODEL.preset_id == PIPELINE_WAN21_T2V_1PT3B.name
+    assert MODEL.pipeline is PIPELINE_WAN21_T2V_1PT3B
+    assert public_app.spec.model_id == MODEL.model_id
+    assert public_app.spec.preset_id == MODEL.preset_id
+
+
+def test_application_entry_point_matches_module_literal() -> None:
+    """The integration owns its public T2V application entry point."""
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as fh:
+        meta = tomllib.load(fh)
+
+    entries = meta["project"]["entry-points"][APPLICATION_ENTRY_POINT_GROUP]
+    assert entries == {"self-forcing-t2v": "self_forcing.t2v.app:create_app"}
 
 
 @pytest.mark.skipif(

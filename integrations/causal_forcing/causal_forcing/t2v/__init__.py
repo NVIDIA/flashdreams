@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Causal-Forcing T2V public demo app."""
+
+from causal_forcing.t2v.app import MODEL, createApp, create_app
+
+__all__ = ["MODEL", "createApp", "create_app"]

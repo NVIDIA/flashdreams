@@ -1114,6 +1114,7 @@ version = "0.1.0"
 source = { editable = "integrations/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
 ]
@@ -1126,6 +1127,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1138,6 +1140,7 @@ version = "0.1.0"
 source = { editable = "integrations/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
 ]
 
@@ -1149,6 +1152,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
@@ -1403,6 +1407,7 @@ version = "0.1.0"
 source = { editable = "integrations/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
 ]
 
@@ -1414,6 +1419,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]

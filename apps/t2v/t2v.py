@@ -154,8 +154,7 @@ class T2VDemoAdapter(ModelAdapter):
     def validate_config(self, config: InferenceConfig) -> None:
         if config.model_id != self.model.model_id:
             raise ValueError(
-                f"Expected model_id={self.model.model_id!r}, "
-                f"got {config.model_id!r}."
+                f"Expected model_id={self.model.model_id!r}, got {config.model_id!r}."
             )
         if (
             self.model.preset_id is not None
@@ -490,7 +489,9 @@ def _int_value(value: object) -> int:
         return int(value)
     if isinstance(value, str):
         return int(value)
-    raise TypeError(f"Expected an integer-compatible value, got {type(value).__name__}.")
+    raise TypeError(
+        f"Expected an integer-compatible value, got {type(value).__name__}."
+    )
 
 
 def _validate_positive_int(value: int, *, name: str) -> None:
