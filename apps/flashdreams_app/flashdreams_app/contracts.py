@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -94,6 +95,19 @@ class PipelineAppSpec:
             "result_metadata",
             MappingProxyType(dict(self.result_metadata)),
         )
+
+
+@runtime_checkable
+class AppProvider(Protocol):
+    """Provider module contract consumed by the application host."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Register provider-specific arguments on the host parser."""
+        ...
+
+    def create_app_spec(self, config: AppConfig) -> PipelineAppSpec:
+        """Create a declarative application specification."""
+        ...
 
 
 def require_pipeline_config(

@@ -10,7 +10,6 @@ import importlib
 from contextlib import ExitStack
 from importlib import metadata
 from pathlib import Path
-from types import ModuleType
 from typing import Sequence
 
 import torch
@@ -21,7 +20,7 @@ from flashdreams.runtime.demo.bootstrap import (
 )
 from flashdreams.runtime.output import OutputArtifact
 
-from .contracts import AppConfig, AppRuntime, PipelineAppSpec
+from .contracts import AppConfig, AppProvider, AppRuntime, PipelineAppSpec
 from .outputs import FileOutput
 from .runtime import PipelineAppRuntime
 from .webrtc import WebRTCOptions, serve_webrtc
@@ -49,8 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def load_provider(distribution_name: str) -> ModuleType:
-    """Load an installed provider after verifying its distribution is present."""
+def load_provider(distribution_name: str) -> AppProvider:
+    """Load an installed provider that satisfies the host contract."""
     try:
         distribution = metadata.distribution(distribution_name)
     except metadata.PackageNotFoundError as exc:
@@ -65,12 +64,24 @@ def load_provider(distribution_name: str) -> ModuleType:
         if distribution.metadata["Name"] in distributions
     ]
     candidates.append(distribution_name.replace("-", "_"))
+    incompatible: list[str] = []
     for candidate in dict.fromkeys(candidates):
         try:
-            return importlib.import_module(candidate)
+            module = importlib.import_module(candidate)
         except ModuleNotFoundError as exc:
             if exc.name != candidate:
                 raise
+            continue
+        if isinstance(module, AppProvider):
+            return module
+        incompatible.append(candidate)
+    if incompatible:
+        names = ", ".join(repr(name) for name in incompatible)
+        raise TypeError(
+            f"Provider distribution {distribution_name!r} exposes module(s) "
+            f"{names}, but none satisfy AppProvider. Providers must define "
+            "add_arguments(parser) and create_app_spec(config)."
+        )
     raise ValueError(
         f"Provider {distribution_name!r} does not expose an importable Python module."
     )
@@ -94,9 +105,7 @@ def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
         parser.parse_args(argv)
         return ()
     provider = load_provider(provider_args.provider)
-    add_arguments = getattr(provider, "add_arguments", None)
-    if callable(add_arguments):
-        add_arguments(parser)
+    provider.add_arguments(parser)
     args = parser.parse_args(argv)
     if args.mode == "mp4" and args.output is None:
         parser.error("--output is required for mp4 mode")
@@ -107,12 +116,7 @@ def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
     options["world_rank"] = environment.world_rank
     options["world_size"] = environment.world_size
 
-    factory = getattr(provider, "create_app_spec", None)
-    if not callable(factory):
-        raise TypeError(
-            f"Provider {args.provider!r} must define create_app_spec(config)."
-        )
-    spec = factory(AppConfig(options=options))
+    spec = provider.create_app_spec(AppConfig(options=options))
     if not isinstance(spec, PipelineAppSpec):
         raise TypeError(
             f"Provider {args.provider!r} create_app_spec() returned "

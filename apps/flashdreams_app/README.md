@@ -14,11 +14,15 @@ uv run flashdreams-app t2v-app webrtc --prompt "A waterfall"
 
 A compatible package must expose an importable module with:
 
+- `add_arguments(parser)`, which registers provider-specific flags. Providers
+  without custom flags implement this as a no-op.
 - `create_app_spec(config: flashdreams_app.AppConfig)`, returning a
   `PipelineAppSpec` with a `StreamInferencePipelineConfig`, initial
   conditioning, presentation metadata, step count, and a `PipelineContract`
   cache initializer.
-- Optionally, `add_arguments(parser)` adds provider-specific flags.
+
+The module structurally conforms to `flashdreams_app.AppProvider`; the host
+validates this contract when it loads the installed provider.
 
 The host owns process/distributed initialization, pipeline setup,
 runtime/session lifecycle, `generate`/`finalize` stepping, MP4 writing, and

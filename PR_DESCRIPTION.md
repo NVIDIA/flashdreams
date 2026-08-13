@@ -53,11 +53,14 @@ When `--preset-id` is omitted, `t2v-app` uses the catalog's
 - Add the `flashdreams-app` workspace package and console entrypoint.
 - Define a minimal provider boundary:
   `create_app_spec(AppConfig) -> PipelineAppSpec`.
+- Require provider modules to conform to `AppProvider` with `add_arguments()`
+  and `create_app_spec()`.
 - Add the host-owned `PipelineAppRuntime` and `PipelineAppSession`.
 - Keep pipeline setup, `generate`/`finalize`, step tracking, cache release, and
   runtime closure in the host.
 - Add host-owned MP4 and WebRTC presentation paths without a runtime adapter.
-- Keep provider-specific CLI arguments optional through `add_arguments(parser)`.
+- Let providers register custom CLI arguments through `add_arguments(parser)`;
+  providers without custom arguments use a no-op implementation.
 - Keep pipeline-specific execution behavior encapsulated by the selected
   pipeline config and its `setup()` implementation.
 

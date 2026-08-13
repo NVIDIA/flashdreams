@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
 import torch
 from flashdreams_app import (
+    AppProvider,
     PipelineAppSpec,
     PipelineContract,
     RuntimeMetadata,
@@ -75,6 +76,12 @@ def test_host_drives_runtime_api_and_owns_file_output(
         return Cache()
 
     provider = ModuleType("fake_app")
+
+    def add_arguments(parser: argparse.ArgumentParser) -> None:
+        del parser
+        calls.append("provider.add_arguments")
+
+    setattr(provider, "add_arguments", add_arguments)
     setattr(
         provider,
         "create_app_spec",
@@ -111,6 +118,7 @@ def test_host_drives_runtime_api_and_owns_file_output(
     monkeypatch.setattr(cli, "FileOutput", Output)
     cli.run(["fake-app", "mp4", "--device", "cpu", "--output", "result.mp4"])
     assert calls == [
+        "provider.add_arguments",
         "pipeline.init",
         "pipeline.to",
         "pipeline.eval",
@@ -124,6 +132,33 @@ def test_host_drives_runtime_api_and_owns_file_output(
         "cache.close",
         "pipeline.close",
     ]
+
+
+def test_app_provider_protocol_requires_both_methods() -> None:
+    provider = ModuleType("provider")
+    setattr(provider, "add_arguments", lambda parser: None)
+    setattr(provider, "create_app_spec", lambda config: None)
+    assert isinstance(provider, AppProvider)
+
+    delattr(provider, "add_arguments")
+    assert not isinstance(provider, AppProvider)
+
+
+def test_load_provider_rejects_module_outside_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = ModuleType("invalid_provider")
+    distribution = SimpleNamespace(metadata={"Name": "invalid-app"})
+    monkeypatch.setattr(cli.metadata, "distribution", lambda name: distribution)
+    monkeypatch.setattr(
+        cli.metadata,
+        "packages_distributions",
+        lambda: {"invalid_provider": ["invalid-app"]},
+    )
+    monkeypatch.setattr(cli.importlib, "import_module", lambda name: module)
+
+    with pytest.raises(TypeError, match="none satisfy AppProvider"):
+        cli.load_provider("invalid-app")
 
 
 def test_host_exposes_only_supported_output_modes() -> None:

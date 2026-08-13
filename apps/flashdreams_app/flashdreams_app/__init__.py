@@ -5,6 +5,7 @@
 
 from .contracts import (
     AppConfig,
+    AppProvider,
     AppRuntime,
     PipelineAppSpec,
     PipelineContract,
@@ -15,6 +16,7 @@ from .runtime import PipelineAppRuntime
 
 __all__ = [
     "AppConfig",
+    "AppProvider",
     "AppRuntime",
     "PipelineAppRuntime",
     "PipelineAppSpec",

@@ -9,7 +9,8 @@ import argparse
 from typing import Any, cast
 
 import pytest
-from flashdreams_app import AppConfig, PipelineAppSpec
+import t2v_app
+from flashdreams_app import AppConfig, AppProvider, PipelineAppSpec
 from t2v_app import provider
 from t2v_app.presets import (
     PipelinePreset,
@@ -20,6 +21,10 @@ from t2v_app.presets import (
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_provider_module_conforms_to_host_contract() -> None:
+    assert isinstance(t2v_app, AppProvider)
 
 
 def test_t2v_provider_registers_model_options() -> None:
