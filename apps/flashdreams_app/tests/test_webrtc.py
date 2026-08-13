@@ -63,25 +63,24 @@ def test_host_constructs_webrtc_presentation(
         options=webrtc.WebRTCOptions(
             host="127.0.0.1",
             port=8080,
-            warmup_chunks=0,
-            warmup_timeout_s=30.0,
-            client_liveness_timeout_s=30.0,
-            device="cpu",
-            encoder_backend="default",
-            encoder_bitrate_bps=1_000_000,
-            encoder_gop=16,
         ),
+        device="cpu",
         world_rank=0,
     )
 
     assert result == "served"
     assert captured["model_id"] == "fake-app"
     assert captured["world_rank"] == 0
+    output = captured["output"]
+    assert isinstance(output, webrtc.WebRTCOutputSpec)
+    assert output.warmup_chunks == 0
+    assert output.client_liveness_timeout_s == 30.0
     session_manager = captured["session_manager"]
     assert isinstance(session_manager, webrtc.BaseWebRTCSessionManager)
     assert session_manager._shared_adapter is None
     assert session_manager._shared_host is not None
     assert session_manager._shared_host.runtime is runtime
+    assert session_manager.runtime_config is output
     assert session_manager._shared_scenario is not None
     assert session_manager._shared_scenario.initial_inputs is runtime.initial_input
     assert callable(session_manager._shared_model_input_provider_factory)

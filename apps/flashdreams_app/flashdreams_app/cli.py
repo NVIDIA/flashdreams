@@ -37,14 +37,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cuda", help="Runtime device")
     parser.add_argument("--host", default="0.0.0.0", help="WebRTC bind address")
     parser.add_argument("--port", type=int, default=8080, help="WebRTC bind port")
-    parser.add_argument("--warmup-chunks", type=int, default=0)
-    parser.add_argument("--warmup-timeout-s", type=float, default=600.0)
-    parser.add_argument("--client-liveness-timeout-s", type=float, default=30.0)
-    parser.add_argument(
-        "--encoder-backend", choices=("auto", "default", "nvenc"), default="auto"
-    )
-    parser.add_argument("--encoder-bitrate-bps", type=int, default=6_000_000)
-    parser.add_argument("--encoder-gop", type=int)
     return parser
 
 
@@ -159,14 +151,8 @@ def _run_webrtc(
             options=WebRTCOptions(
                 host=args.host,
                 port=args.port,
-                warmup_chunks=args.warmup_chunks,
-                warmup_timeout_s=args.warmup_timeout_s,
-                client_liveness_timeout_s=args.client_liveness_timeout_s,
-                device=environment.device,
-                encoder_backend=args.encoder_backend,
-                encoder_bitrate_bps=args.encoder_bitrate_bps,
-                encoder_gop=args.encoder_gop or int(runtime.metadata.fps),
             ),
+            device=environment.device,
             world_rank=environment.world_rank,
         )
     finally:
@@ -239,5 +225,7 @@ def _initialize_environment(device: str) -> _Environment:
 def main() -> None:
     """Console-script entry point."""
     artifacts = run()
+    # File modes return persistent artifacts whose URI is the output location;
+    # live modes such as WebRTC return no artifacts.
     for artifact in artifacts:
         print(artifact.uri)

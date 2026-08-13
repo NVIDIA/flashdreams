@@ -26,31 +26,17 @@ from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from .contracts import AppRuntime
 
 
+# TODO: Move this contract into shared FlashDreams and expand it when the
+# serving API needs caller-configurable transport and encoder tuning.
 @dataclass(frozen=True, slots=True)
 class WebRTCOptions:
-    """Presentation settings owned by ``flashdreams-app``."""
+    """Minimal WebRTC bind settings for the application prototype."""
 
     host: str
+    """Server bind address."""
+
     port: int
-    warmup_chunks: int
-    warmup_timeout_s: float
-    client_liveness_timeout_s: float
-    device: str
-    encoder_backend: str
-    encoder_bitrate_bps: int
-    encoder_gop: int
-
-
-@dataclass(frozen=True, slots=True)
-class _WebRTCRuntimeConfig:
-    video_width: int
-    video_height: int
-    warmup_chunks: int
-    warmup_timeout_s: float
-    device: str
-    encoder_backend: str
-    encoder_bitrate_bps: int
-    encoder_gop: int
+    """Server bind port."""
 
 
 class _InputProvider:
@@ -79,7 +65,7 @@ class _InputProvider:
 
 
 def serve_webrtc(
-    *, runtime: AppRuntime, options: WebRTCOptions, world_rank: int
+    *, runtime: AppRuntime, options: WebRTCOptions, device: str, world_rank: int
 ) -> object:
     """Serve an application runtime through the shared WebRTC stack."""
     metadata = runtime.metadata
@@ -89,16 +75,13 @@ def serve_webrtc(
         fps=int(metadata.fps),
         video_width=metadata.video_width,
         video_height=metadata.video_height,
-        warmup_chunks=options.warmup_chunks,
-        warmup_timeout_s=options.warmup_timeout_s,
-        client_liveness_timeout_s=options.client_liveness_timeout_s,
         preload_name=metadata.model_id,
     )
     spec = DemoSpec(
         model_id=metadata.model_id,
         input_mode="webrtc",
         output=output,
-        config=InferenceConfig(model_id=metadata.model_id, device=options.device),
+        config=InferenceConfig(model_id=metadata.model_id, device=device),
     )
     scenario = PreparedScenario(initial_inputs=runtime.initial_input)
 
@@ -111,23 +94,14 @@ def serve_webrtc(
 
     manager = BaseWebRTCSessionManager(
         runtime=runtime,
-        runtime_config=_WebRTCRuntimeConfig(
-            video_width=metadata.video_width,
-            video_height=metadata.video_height,
-            warmup_chunks=options.warmup_chunks,
-            warmup_timeout_s=options.warmup_timeout_s,
-            device=options.device,
-            encoder_backend=options.encoder_backend,
-            encoder_bitrate_bps=options.encoder_bitrate_bps,
-            encoder_gop=options.encoder_gop,
-        ),
+        runtime_config=output,
         fps=int(metadata.fps),
         identity=metadata.model_id,
         shared_host=RuntimeHost(runtime),
         shared_spec=spec,
         shared_scenario=scenario,
         shared_model_input_provider_factory=create_model_input_provider,
-        client_liveness_timeout_s=options.client_liveness_timeout_s,
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
     )
     return serve_webrtc_demo(
         output=output,

@@ -174,6 +174,19 @@ def test_host_does_not_expose_pipeline_execution_options() -> None:
     assert "cuda_graph" not in destinations
 
 
+def test_host_exposes_only_minimal_webrtc_options() -> None:
+    destinations = {action.dest for action in cli.build_parser()._actions}
+    assert {"host", "port"} <= destinations
+    assert {
+        "warmup_chunks",
+        "warmup_timeout_s",
+        "client_liveness_timeout_s",
+        "encoder_backend",
+        "encoder_bitrate_bps",
+        "encoder_gop",
+    }.isdisjoint(destinations)
+
+
 def test_webrtc_path_owns_serving_options_and_runtime_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,12 +224,6 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
         args=argparse.Namespace(
             host="127.0.0.1",
             port=9000,
-            warmup_chunks=2,
-            warmup_timeout_s=30.0,
-            client_liveness_timeout_s=10.0,
-            encoder_backend="default",
-            encoder_bitrate_bps=1_000_000,
-            encoder_gop=None,
         ),
         environment=cli._Environment(device="cpu", world_rank=0, world_size=1),
     )
@@ -228,4 +235,4 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
     assert isinstance(options, cli.WebRTCOptions)
     assert options.host == "127.0.0.1"
     assert options.port == 9000
-    assert options.encoder_gop == 24
+    assert captured["device"] == "cpu"
