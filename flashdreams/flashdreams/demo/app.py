@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -17,6 +18,7 @@ import torch.distributed as dist
 
 from flashdreams.core.distributed import init as distributed_init
 from flashdreams.runtime.demo.bootstrap import (
+    cleanup_cuda_distributed,
     configure_logging,
     initialize_cuda_distributed,
 )
@@ -228,6 +230,7 @@ def run_application_webrtc(
             manager=manager,
             runtime=runtime,
             primary_error=exc,
+            world_rank=context.world_rank,
         )
         raise
 
@@ -289,16 +292,62 @@ def _cleanup_application_webrtc_startup_failure(
     manager: Any | None,
     runtime: Any,
     primary_error: BaseException,
+    world_rank: int,
 ) -> None:
-    try:
-        if manager is None:
-            runtime.close()
-            return
-        asyncio.run(manager.shutdown())
-    except BaseException as cleanup_error:
-        add_note = getattr(primary_error, "add_note", None)
+    errors: list[BaseException] = []
+    if manager is None:
+        _record_application_webrtc_startup_cleanup_error(errors, runtime.close)
+    else:
+        _record_application_webrtc_startup_cleanup_error(
+            errors,
+            _send_application_webrtc_exit_signal,
+            manager,
+        )
+        _record_application_webrtc_startup_cleanup_error(
+            errors,
+            _shutdown_application_webrtc_manager,
+            manager,
+        )
+    _record_application_webrtc_startup_cleanup_error(
+        errors,
+        cleanup_cuda_distributed,
+        world_rank=world_rank,
+        synchronize_distributed=False,
+        torch_module=torch,
+        dist_module=dist,
+    )
+    add_note = getattr(primary_error, "add_note", None)
+    for cleanup_error in errors:
         if callable(add_note):
             add_note(f"Additional WebRTC startup cleanup error: {cleanup_error!r}")
+
+
+def _record_application_webrtc_startup_cleanup_error(
+    errors: list[BaseException],
+    cleanup: Callable[..., Any],
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    try:
+        cleanup(*args, **kwargs)
+    except BaseException as cleanup_error:
+        errors.append(cleanup_error)
+
+
+def _send_application_webrtc_exit_signal(manager: Any) -> None:
+    send_exit_signal = getattr(manager, "send_exit_signal", None)
+    if callable(send_exit_signal):
+        send_exit_signal()
+
+
+def _shutdown_application_webrtc_manager(manager: Any) -> None:
+    shutdown = getattr(manager, "shutdown", None)
+    if not callable(shutdown):
+        return
+    result = shutdown()
+    if inspect.isawaitable(result):
+        asyncio.run(result)
 
 
 def _create_application_webrtc_resources(

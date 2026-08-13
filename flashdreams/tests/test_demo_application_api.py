@@ -957,6 +957,12 @@ def test_run_application_webrtc_closes_runtime_when_server_startup_fails(
         "initialize_cuda_distributed",
         lambda **_: SimpleNamespace(device="cuda:0", world_rank=0),
     )
+    cleanup_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        demo_app,
+        "cleanup_cuda_distributed",
+        lambda **kwargs: cleanup_calls.append(kwargs),
+    )
 
     import flashdreams.serving.webrtc.demo as webrtc_demo
 
@@ -970,6 +976,12 @@ def test_run_application_webrtc_closes_runtime_when_server_startup_fails(
 
     assert len(adapter.runtimes) == 1
     assert adapter.runtimes[0].closed
+    assert len(cleanup_calls) == 1
+    cleanup_call = cleanup_calls[0]
+    assert cleanup_call["world_rank"] == 0
+    assert cleanup_call["synchronize_distributed"] is False
+    assert cleanup_call["torch_module"] is demo_app.torch
+    assert cleanup_call["dist_module"] is demo_app.dist
 
 
 def test_demo_application_can_be_built_from_callbacks() -> None:
