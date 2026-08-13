@@ -21,7 +21,7 @@ from flashdreams.runtime.demo.bootstrap import (
 )
 from flashdreams.runtime.output import OutputArtifact
 
-from .contracts import AppConfig, PipelineAppSpec
+from .contracts import AppConfig, AppRuntime, PipelineAppSpec
 from .outputs import FileOutput
 from .runtime import PipelineAppRuntime
 from .webrtc import WebRTCOptions, serve_webrtc
@@ -83,7 +83,14 @@ def load_provider(distribution_name: str) -> ModuleType:
 
 
 def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
-    """Run one provider session and return artifacts produced by the host."""
+    """Dispatch one provider session to its selected presentation path.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads the process arguments.
+
+    Returns:
+        Artifacts produced by the selected path. WebRTC returns an empty tuple.
+    """
     probe = argparse.ArgumentParser(add_help=False)
     probe.add_argument("provider", nargs="?")
     probe.add_argument("mode", nargs="?")
@@ -122,30 +129,74 @@ def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
         cuda_graph=args.cuda_graph,
     )
     if args.mode == "webrtc":
-        try:
-            serve_webrtc(
-                runtime=runtime,
-                options=WebRTCOptions(
-                    host=args.host,
-                    port=args.port,
-                    warmup_chunks=args.warmup_chunks,
-                    warmup_timeout_s=args.warmup_timeout_s,
-                    client_liveness_timeout_s=args.client_liveness_timeout_s,
-                    device=environment.device,
-                    encoder_backend=args.encoder_backend,
-                    encoder_bitrate_bps=args.encoder_bitrate_bps,
-                    encoder_gop=args.encoder_gop or int(runtime.metadata.fps),
-                ),
-                world_rank=environment.world_rank,
-            )
-        finally:
-            runtime.close()
-        return ()
+        return _run_webrtc(runtime=runtime, args=args, environment=environment)
+    if args.mode == "mp4":
+        return _run_mp4(
+            runtime=runtime,
+            output_path=args.output,
+            environment=environment,
+        )
+    raise AssertionError(f"Unsupported presentation mode: {args.mode!r}.")
+
+
+def _run_webrtc(
+    *,
+    runtime: AppRuntime,
+    args: argparse.Namespace,
+    environment: "_Environment",
+) -> tuple[OutputArtifact, ...]:
+    """Run the WebRTC serving path and close its runtime.
+
+    Args:
+        runtime: Initialized application runtime.
+        args: Parsed host and WebRTC arguments.
+        environment: Initialized process and distributed environment.
+
+    Returns:
+        An empty tuple because WebRTC does not create file artifacts.
+    """
+    try:
+        serve_webrtc(
+            runtime=runtime,
+            options=WebRTCOptions(
+                host=args.host,
+                port=args.port,
+                warmup_chunks=args.warmup_chunks,
+                warmup_timeout_s=args.warmup_timeout_s,
+                client_liveness_timeout_s=args.client_liveness_timeout_s,
+                device=environment.device,
+                encoder_backend=args.encoder_backend,
+                encoder_bitrate_bps=args.encoder_bitrate_bps,
+                encoder_gop=args.encoder_gop or int(runtime.metadata.fps),
+            ),
+            world_rank=environment.world_rank,
+        )
+    finally:
+        runtime.close()
+    return ()
+
+
+def _run_mp4(
+    *,
+    runtime: AppRuntime,
+    output_path: Path,
+    environment: "_Environment",
+) -> tuple[OutputArtifact, ...]:
+    """Run the finite MP4 generation path and close all owned resources.
+
+    Args:
+        runtime: Initialized application runtime.
+        output_path: Destination for the generated MP4.
+        environment: Initialized process and distributed environment.
+
+    Returns:
+        Artifacts emitted by the file output target.
+    """
 
     with ExitStack() as resources:
         resources.callback(runtime.close)
         output = FileOutput(
-            path=args.output,
+            path=output_path,
             fps=runtime.metadata.fps,
             output_layout=runtime.metadata.output_layout,
             enabled=environment.world_rank == 0,

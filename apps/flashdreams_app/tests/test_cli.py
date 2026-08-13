@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
@@ -131,6 +132,63 @@ def test_host_exposes_only_supported_output_modes() -> None:
         action for action in cli.build_parser()._actions if action.dest == "mode"
     )
     assert mode_action.choices == ("mp4", "webrtc")
+
+
+def test_webrtc_path_owns_serving_options_and_runtime_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    captured: dict[str, object] = {}
+
+    class Runtime:
+        metadata = RuntimeMetadata(
+            model_id="fake",
+            fps=24,
+            output_layout="tchw",
+            video_width=64,
+            video_height=64,
+        )
+        initial_input = InferenceInput()
+
+        def prepare_step_input(self, request: object) -> InferenceInput:
+            del request
+            return InferenceInput()
+
+        def start_session(self, inputs: InferenceInput) -> Any:
+            del inputs
+            raise AssertionError("The WebRTC path must not start an MP4 session.")
+
+        def close(self) -> None:
+            calls.append("runtime.close")
+
+    def serve(**kwargs: object) -> None:
+        calls.append("serve_webrtc")
+        captured.update(kwargs)
+
+    monkeypatch.setattr(cli, "serve_webrtc", serve)
+    result = cli._run_webrtc(
+        runtime=Runtime(),
+        args=argparse.Namespace(
+            host="127.0.0.1",
+            port=9000,
+            warmup_chunks=2,
+            warmup_timeout_s=30.0,
+            client_liveness_timeout_s=10.0,
+            encoder_backend="default",
+            encoder_bitrate_bps=1_000_000,
+            encoder_gop=None,
+        ),
+        environment=cli._Environment(device="cpu", world_rank=0, world_size=1),
+    )
+
+    assert result == ()
+    assert calls == ["serve_webrtc", "runtime.close"]
+    assert captured["world_rank"] == 0
+    options = captured["options"]
+    assert isinstance(options, cli.WebRTCOptions)
+    assert options.host == "127.0.0.1"
+    assert options.port == 9000
+    assert options.encoder_gop == 24
 
 
 def test_host_owns_execution_options() -> None:
