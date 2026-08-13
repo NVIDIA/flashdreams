@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -16,6 +16,7 @@ from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.demo.drivers import (
     run_demo_session,
     run_demo_session_async,
+    uncancel_current_task,
 )
 from flashdreams.runtime.demo.host import ModelWarmupPlan, RuntimeHost
 from flashdreams.runtime.demo.pipeline import StepPipeline
@@ -108,13 +109,15 @@ class Runner:
             primary_error = exc
             raise
         finally:
-            await _close_runner_resources_async(
-                context=context,
-                host=host,
-                app=self.app,
-                owns_host=owns_host,
-                run_result=result,
-                primary_error=primary_error,
+            await _await_runner_cleanup(
+                _close_runner_resources_async(
+                    context=context,
+                    host=host,
+                    app=self.app,
+                    owns_host=owns_host,
+                    run_result=result,
+                    primary_error=primary_error,
+                )
             )
 
     def _run_sync(self, *, run_mode: RunMode | None = None) -> RunResult:
@@ -393,6 +396,33 @@ async def _close_runner_resources_async(
     _raise_first_cleanup_error(errors)
 
 
+async def _await_runner_cleanup(cleanup: Coroutine[Any, Any, None]) -> None:
+    cleanup_task = asyncio.create_task(cleanup)
+    was_cancelled = False
+    cleanup_error: BaseException | None = None
+
+    while True:
+        try:
+            await asyncio.shield(cleanup_task)
+            break
+        except asyncio.CancelledError as exc:
+            if cleanup_task.done():
+                cleanup_error = exc
+                break
+            was_cancelled = True
+            uncancel_current_task()
+        except Exception as exc:
+            cleanup_error = exc
+            break
+
+    if was_cancelled:
+        cancellation = asyncio.CancelledError("cancelled during runner cleanup")
+        _record_cancelled_cleanup_note(cancellation, cleanup_error)
+        raise cancellation from None
+    if cleanup_error is not None:
+        raise cleanup_error
+
+
 def _record_cleanup_error(
     errors: list[Exception],
     cleanup: Any,
@@ -467,6 +497,17 @@ def _record_cleanup_notes(
     for extra in errors:
         if callable(add_note):
             add_note(f"Additional cleanup error: {extra!r}")
+
+
+def _record_cancelled_cleanup_note(
+    cancellation: asyncio.CancelledError,
+    cleanup_error: BaseException | None,
+) -> None:
+    if cleanup_error is None:
+        return
+    add_note = getattr(cancellation, "add_note", None)
+    if callable(add_note):
+        add_note(f"Cleanup failed: {cleanup_error!r}")
 
 
 def _application_adapter(app: Application) -> DemoAdapter | None:

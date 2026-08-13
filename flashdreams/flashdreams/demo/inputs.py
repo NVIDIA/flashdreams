@@ -15,8 +15,8 @@ from flashdreams.runtime.inputs import UserInputEvent, UserInputs
 from flashdreams.runtime.keyboard import (
     DEFAULT_SUPPORTED_KEYS,
     DRIVING_SUPPORTED_KEYS,
-    KeyboardState,
     WSAD_SUPPORTED_KEYS,
+    KeyboardState,
     normalize_key,
 )
 
@@ -220,9 +220,7 @@ def _snapshot_pressed_keys(snapshot: Mapping[str, Any]) -> frozenset[str]:
         return frozenset({normalize_key(value)})
     if isinstance(value, Sequence):
         return frozenset(
-            normalize_key(key)
-            for key in value
-            if isinstance(key, str) and key.strip()
+            normalize_key(key) for key in value if isinstance(key, str) and key.strip()
         )
     return frozenset()
 

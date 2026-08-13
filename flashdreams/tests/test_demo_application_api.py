@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from typing import Any
 
 import pytest
 
+import flashdreams.demo.runner as demo_runner
 from flashdreams.demo import (
     Application,
     ApplicationSession,
@@ -514,6 +516,50 @@ async def test_runner_run_async_preserves_failed_result_when_cleanup_fails() -> 
     assert result.error is not None
     assert str(result.error) == "fake step failed"
     assert app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_finishes_cleanup_when_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close_started = threading.Event()
+    release_close = threading.Event()
+    created_hosts: list[RuntimeHost] = []
+
+    class _ObservedRuntimeHost(RuntimeHost):
+        def __init__(self, runtime: InferenceRuntime) -> None:
+            super().__init__(runtime)
+            created_hosts.append(self)
+
+    monkeypatch.setattr(demo_runner, "RuntimeHost", _ObservedRuntimeHost)
+    app = _BlockingCloseRunnerFakeApplication(
+        total_steps=1,
+        close_started=close_started,
+        release_close=release_close,
+    )
+    runner_task = asyncio.create_task(
+        Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+            model_id="fake-runner",
+        ).run_async()
+    )
+
+    try:
+        assert await asyncio.to_thread(close_started.wait, 2.0)
+        runner_task.cancel()
+        await asyncio.sleep(0)
+        assert not runner_task.done()
+    finally:
+        release_close.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(runner_task, timeout=2.0)
+
+    assert app.closed
+    assert len(created_hosts) == 1
+    assert created_hosts[0].is_closed
 
 
 def test_replay_io_factory_runs_through_public_runner() -> None:
@@ -1044,6 +1090,25 @@ class _RunnerFakeApplication:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _BlockingCloseRunnerFakeApplication(_RunnerFakeApplication):
+    def __init__(
+        self,
+        *,
+        total_steps: int,
+        close_started: threading.Event,
+        release_close: threading.Event,
+    ) -> None:
+        super().__init__(total_steps=total_steps)
+        self._close_started = close_started
+        self._release_close = release_close
+
+    def close(self) -> None:
+        self._close_started.set()
+        if not self._release_close.wait(2.0):
+            raise RuntimeError("fake close was not released")
+        super().close()
 
 
 class _ExternalApplicationRuntime:
