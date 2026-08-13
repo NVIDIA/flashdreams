@@ -30,6 +30,7 @@ from flashdreams.runtime import (
     OutputArtifact,
     OutputTarget,
     StepRequest,
+    StepRequirements,
     StepResult,
     TimeWindow,
     UserInputs,
@@ -44,7 +45,10 @@ from flashdreams.runtime.demo import (
     OutputSink,
     OutputSpec,
     PreparedScenario,
+    PreparedStep,
+    ProviderCapabilities,
     RunResult,
+    UserInputWindow,
     WebRTCAppResources,
     WebRTCOutputSpec,
     build_output_sink,
@@ -438,10 +442,6 @@ class _ReplayOnlyDemoApplication(DemoApplication):
     def replay_adapter(self) -> "_FakeDemoAdapter":
         return self._adapter
 
-    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
-        del args, context
-        raise AssertionError("webrtc should not run")
-
 
 class _FakeDemoAdapter:
     model_id = "fake-demo"
@@ -507,6 +507,54 @@ class _FakeDemoAdapter:
         if not self._scenario_valid:
             raise ValueError("invalid scenario")
         return self.prepared_scenario
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> "_FakeModelInputProvider":
+        assert spec.model_id == self.model_id
+        return _FakeModelInputProvider(
+            scenario=scenario,
+            inference_input_schema=self.inference_input_schema,
+        )
+
+
+class _FakeModelInputProvider:
+    def __init__(
+        self,
+        *,
+        scenario: PreparedScenario,
+        inference_input_schema: InferenceInputSchema,
+    ) -> None:
+        self._scenario = scenario
+        self.capabilities = ProviderCapabilities(
+            supports_recorded_input=True,
+            deterministic_given_inputs=True,
+            user_input_schema=scenario.source_schema,
+            inference_input_schema=inference_input_schema,
+        )
+        self.closed = False
+
+    def prepare_initial_input(self) -> InferenceInput:
+        return self._scenario.initial_inputs
+
+    def prepare_step(
+        self,
+        *,
+        request: StepRequirements,
+        user_window: UserInputWindow,
+    ) -> PreparedStep:
+        del user_window
+        return PreparedStep(
+            inference_input=InferenceInput(step={"chunk_index": request.step_index})
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _FakeRuntime:

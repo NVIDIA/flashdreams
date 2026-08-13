@@ -223,6 +223,23 @@ class DemoAdapterApplication:
             runtime.start_session(scenario.initial_inputs)
         )
 
+    def start_session(self, inputs: InferenceInput) -> ApplicationSession:
+        """Create a runtime session from runner-provided initial model inputs."""
+        scenario = self._scenario
+        if scenario is None:
+            self.init(())
+            scenario = self._scenario
+        if scenario is None:
+            raise RuntimeError("DemoAdapterApplication failed to prepare a scenario.")
+        runtime = self.adapter.create_runtime(_require_config(self.spec))
+        self._runtimes.append(runtime)
+        return InferenceSessionApplicationAdapter(runtime.start_session(inputs))
+
+    @property
+    def prepared_scenario(self) -> PreparedScenario | None:
+        """Return the scenario materialized by ``init(...)``, if any."""
+        return self._scenario
+
     def close(self) -> None:
         errors: list[Exception] = []
         while self._runtimes:

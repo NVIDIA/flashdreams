@@ -3,6 +3,7 @@
 
 """Public demo application authoring API."""
 
+from flashdreams.demo.app import DemoApplication, run_replay_application
 from flashdreams.demo.application import (
     Application,
     ApplicationSession,
@@ -16,6 +17,7 @@ from flashdreams.demo.application import (
     RuntimeOutputSinkFrameAdapter,
 )
 from flashdreams.demo.io import (
+    CallbackIOHandlerServer,
     IOHandlerServer,
     NativeWindowIOHandler,
     ReplayIOHandler,
@@ -29,7 +31,9 @@ from flashdreams.demo.runner import Runner
 __all__ = [
     "Application",
     "ApplicationSession",
+    "CallbackIOHandlerServer",
     "DemoAdapterApplication",
+    "DemoApplication",
     "FrameOutputSink",
     "IApplication",
     "IApplicationSession",
@@ -45,4 +49,5 @@ __all__ = [
     "create_native_window_io_handler",
     "create_replay_io_handler",
     "create_webrtc_io_handler",
+    "run_replay_application",
 ]

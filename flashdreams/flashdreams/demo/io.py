@@ -37,6 +37,7 @@ from flashdreams.runtime.types import StepRequirements, StepResult
 from .application import FrameOutputSink, IOHandler
 
 RunSessionCallback = Callable[[IOHandler], RunResult]
+ServeCallback = Callable[[], object]
 
 
 @runtime_checkable
@@ -174,6 +175,17 @@ class WebRTCIOHandlerServer:
             if result.status not in {"completed", "skipped"}:
                 return result
         return result
+
+
+@dataclass(slots=True)
+class CallbackIOHandlerServer:
+    """Server adapter for existing transports during IO-factory adoption."""
+
+    callback: ServeCallback
+
+    def serve(self, run_session: RunSessionCallback) -> RunResult:
+        del run_session
+        return _coerce_run_result(self.callback())
 
 
 @dataclass(slots=True)
@@ -357,7 +369,14 @@ def _result_timestamp_s(result: StepResult) -> float:
     return result.output_window.start_s
 
 
+def _coerce_run_result(value: object) -> RunResult:
+    if isinstance(value, RunResult):
+        return value
+    return RunResult(status="completed")
+
+
 __all__ = [
+    "CallbackIOHandlerServer",
     "IOHandlerBatchInputSource",
     "IOHandlerOutputSink",
     "IOHandlerRunMode",
@@ -365,6 +384,7 @@ __all__ = [
     "NativeWindowIOHandler",
     "ReplayIOHandler",
     "RunSessionCallback",
+    "ServeCallback",
     "WebRTCIOHandlerServer",
     "create_native_window_io_handler",
     "create_replay_io_handler",

@@ -101,12 +101,16 @@ def test_omnidreams_direct_runner_launch_builds_null_spec(
 ) -> None:
     captured: list[DemoSpec] = []
 
-    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+    def fake_run_replay_application(*, spec: DemoSpec, adapter: object) -> str:
         del adapter
         captured.append(spec)
         return "completed"
 
-    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+    monkeypatch.setattr(
+        demo_app_module,
+        "run_replay_application",
+        fake_run_replay_application,
+    )
     config = OMNIDREAMS_RUNNERS["omnidreams"]
 
     result = demo_app_module.launch_from_runner(

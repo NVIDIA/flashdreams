@@ -13,6 +13,8 @@ from typing import Any, Literal, cast
 
 from omnidreams.runner import DEFAULT_EXAMPLE_DATA_UUID_1V
 
+from flashdreams.demo import CallbackIOHandlerServer, IOHandlerServer
+from flashdreams.demo.app import DemoApplication, run_replay_application
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import (
@@ -21,9 +23,7 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     WebRTCOutputSpec,
 )
-from flashdreams.runtime.demo.app import DemoApplication
 from flashdreams.runtime.demo.benchmark import run_benchmark_demo
-from flashdreams.runtime.demo.replay import run_replay_demo
 from flashdreams.serving.webrtc.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
@@ -137,13 +137,21 @@ class OmnidreamsDemoApplication(DemoApplication):
     def replay_adapter(self) -> OmnidreamsDemoAdapter:
         return OmnidreamsDemoAdapter()
 
-    def serve_webrtc(self, args: argparse.Namespace, *, context: Any) -> None:
-        from .webrtc import serve_omnidreams_webrtc_demo
+    def webrtc_io_handler(
+        self,
+        args: argparse.Namespace,
+        *,
+        context: Any,
+    ) -> IOHandlerServer:
+        def serve() -> object:
+            from .webrtc import serve_omnidreams_webrtc_demo
 
-        serve_omnidreams_webrtc_demo(
-            spec=_webrtc_spec(args, device=str(context.device)),
-            world_rank=context.world_rank,
-        )
+            return serve_omnidreams_webrtc_demo(
+                spec=_webrtc_spec(args, device=str(context.device)),
+                world_rank=context.world_rank,
+            )
+
+        return CallbackIOHandlerServer(serve)
 
 
 _APPLICATION = OmnidreamsDemoApplication()
@@ -226,7 +234,7 @@ def launch_from_runner(
                 stats_dir=stats_dir,
                 capture_output=True,
             )
-        return run_replay_demo(spec=spec, adapter=OmnidreamsDemoAdapter())
+        return run_replay_application(spec=spec, adapter=OmnidreamsDemoAdapter())
     if mode != "webrtc":
         raise ValueError(f"Unsupported OmniDreams launch mode: {mode!r}.")
 

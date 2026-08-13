@@ -32,7 +32,12 @@ from flashdreams.runtime.demo.session_inputs import (
     ProviderCapabilities,
     UserInputWindow,
 )
-from flashdreams.runtime.demo.spec import DemoSpec, NullOutputSpec, PreparedScenario
+from flashdreams.runtime.demo.spec import (
+    DemoAdapter,
+    DemoSpec,
+    NullOutputSpec,
+    PreparedScenario,
+)
 from flashdreams.runtime.inputs import (
     InferenceInput,
     InferenceInputSchema,
@@ -41,7 +46,12 @@ from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.mapping import InputMapping
 from flashdreams.runtime.types import StepRequirements
 
-from .application import Application, ApplicationSession, IOHandler
+from .application import (
+    Application,
+    ApplicationSession,
+    DemoAdapterApplication,
+    IOHandler,
+)
 from .io import IOHandlerRunMode
 
 
@@ -77,12 +87,12 @@ class Runner:
             return self._run_sync(run_mode=run_mode)
 
         host, owns_host = self._selected_host()
-        context = self._create_context(host)
         spec = self._create_spec(run_mode)
-        scenario = _runner_scenario()
-        adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
+        context = self._create_context(host)
         try:
             self.app.init(tuple(self.launch_args))
+            scenario = self._create_scenario()
+            adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
             return await run_demo_session_async(
                 context=context,
                 spec=spec,
@@ -99,12 +109,12 @@ class Runner:
     def _run_sync(self, *, run_mode: RunMode | None = None) -> RunResult:
         selected_run_mode = run_mode or self._selected_run_mode()
         host, owns_host = self._selected_host()
-        context = self._create_context(host)
         spec = self._create_spec(selected_run_mode)
-        scenario = _runner_scenario()
-        adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
+        context = self._create_context(host)
         try:
             self.app.init(tuple(self.launch_args))
+            scenario = self._create_scenario()
+            adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
             return run_demo_session(
                 context=context,
                 spec=spec,
@@ -142,6 +152,8 @@ class Runner:
         )
 
     def _create_spec(self, run_mode: RunMode) -> DemoSpec:
+        if isinstance(self.app, DemoAdapterApplication):
+            return self.app.spec
         model_id = self.model_id or _application_model_id(self.app)
         return DemoSpec(
             model_id=model_id,
@@ -150,14 +162,27 @@ class Runner:
             config=InferenceConfig(model_id=model_id),
         )
 
+    def _create_scenario(self) -> PreparedScenario:
+        if isinstance(self.app, DemoAdapterApplication):
+            scenario = self.app.prepared_scenario
+            if scenario is None:
+                raise RuntimeError(
+                    "DemoAdapterApplication did not prepare a scenario during init."
+                )
+            return scenario
+        return _runner_scenario()
+
 
 @dataclass(slots=True)
 class _ApplicationRuntime:
     app: Application
 
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
-        del inputs
-        session = self.app.create_session()
+        start_session = getattr(self.app, "start_session", None)
+        if callable(start_session):
+            session = start_session(inputs)
+        else:
+            session = self.app.create_session()
         if not isinstance(session, ApplicationSession):
             raise TypeError(
                 "Application.create_session() must return ApplicationSession, "
@@ -182,16 +207,31 @@ class _RunnerDemoAdapter:
 
     @property
     def inference_input_schema(self) -> InferenceInputSchema:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            return adapter.inference_input_schema
         return InferenceInputSchema()
 
     @property
     def canonical_input_schema(self) -> CanonicalInputSchema:
+        adapter = _application_adapter(self.app)
+        if adapter is not None and adapter.canonical_input_schema is not None:
+            return adapter.canonical_input_schema
         return CanonicalInputSchema()
 
     def default_input_mapping(self) -> InputMapping | None:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            default_input_mapping = getattr(adapter, "default_input_mapping", None)
+            if callable(default_input_mapping):
+                return default_input_mapping()
         return None
 
     def validate_config(self, config: InferenceConfig) -> None:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            adapter.validate_config(config)
+            return
         if config.model_id != self.spec.model_id:
             raise ValueError(f"Unsupported model_id={config.model_id!r}.")
 
@@ -200,9 +240,15 @@ class _RunnerDemoAdapter:
         return cast(InferenceRuntime, _ApplicationRuntime(self.app))
 
     def supported_input_modes(self) -> tuple[str, ...]:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            return adapter.supported_input_modes()
         return (self.spec.input_mode,)
 
     def supported_output_modes(self) -> tuple[str, ...]:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            return adapter.supported_output_modes()
         return (self.spec.output.mode,)
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
@@ -214,7 +260,12 @@ class _RunnerDemoAdapter:
         self,
         spec: DemoSpec,
         scenario: Any,
-    ) -> "_RunnerModelInputProvider":
+    ) -> object:
+        adapter = _application_adapter(self.app)
+        if adapter is not None:
+            create_provider = getattr(adapter, "create_model_input_provider", None)
+            if callable(create_provider):
+                return create_provider(spec, scenario)
         del spec, scenario
         return _RunnerModelInputProvider()
 
@@ -269,6 +320,12 @@ def _application_model_id(app: Application) -> str:
 
 def _runner_scenario() -> PreparedScenario:
     return PreparedScenario(initial_inputs=InferenceInput())
+
+
+def _application_adapter(app: Application) -> DemoAdapter | None:
+    if isinstance(app, DemoAdapterApplication):
+        return app.adapter
+    return None
 
 
 __all__ = ["Runner"]

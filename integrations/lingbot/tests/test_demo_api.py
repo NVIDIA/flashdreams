@@ -124,12 +124,16 @@ def test_lingbot_direct_runner_launch_builds_mp4_spec(
 ) -> None:
     captured: list[DemoSpec] = []
 
-    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+    def fake_run_replay_application(*, spec: DemoSpec, adapter: object) -> str:
         del adapter
         captured.append(spec)
         return "completed"
 
-    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+    monkeypatch.setattr(
+        demo_app_module,
+        "run_replay_application",
+        fake_run_replay_application,
+    )
 
     result = demo_app_module.launch_from_runner(
         config=RUNNER_LINGBOT_WORLD_FAST,
@@ -188,12 +192,16 @@ def test_lingbot_direct_runner_launch_builds_null_spec(
 ) -> None:
     captured: list[DemoSpec] = []
 
-    def fake_run_replay_demo(*, spec: DemoSpec, adapter: object) -> str:
+    def fake_run_replay_application(*, spec: DemoSpec, adapter: object) -> str:
         del adapter
         captured.append(spec)
         return "completed"
 
-    monkeypatch.setattr(demo_app_module, "run_replay_demo", fake_run_replay_demo)
+    monkeypatch.setattr(
+        demo_app_module,
+        "run_replay_application",
+        fake_run_replay_application,
+    )
 
     result = demo_app_module.launch_from_runner(
         config=RUNNER_LINGBOT_WORLD_FAST,

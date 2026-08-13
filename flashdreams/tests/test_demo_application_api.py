@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -13,7 +14,9 @@ import pytest
 from flashdreams.demo import (
     Application,
     ApplicationSession,
+    CallbackIOHandlerServer,
     DemoAdapterApplication,
+    DemoApplication,
     FrameOutputSink,
     InferenceSessionApplicationAdapter,
     IOHandler,
@@ -50,6 +53,8 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     OutputDecision,
     PreparedScenario,
+    PreparedStep,
+    ProviderCapabilities,
     RunContext,
     RunModeCapabilities,
     RunResult,
@@ -68,6 +73,7 @@ pytestmark = pytest.mark.ci_cpu
 def test_public_demo_contracts_are_importable() -> None:
     assert Application.__name__ == "Application"
     assert ApplicationSession.__name__ == "ApplicationSession"
+    assert DemoApplication.__name__ == "DemoApplication"
     assert IOHandler.__name__ == "IOHandler"
     assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
@@ -302,6 +308,78 @@ def test_webrtc_io_factory_returns_server_not_ready_handler() -> None:
     assert not isinstance(server, IOHandler)
 
 
+def test_demo_application_replay_selects_factory_and_runner() -> None:
+    app = _ReplayDemoApplication()
+
+    app.main(["replay"])
+
+    assert app.adapter.runtimes
+    runtime = app.adapter.runtimes[0]
+    assert runtime.session.closed
+    assert runtime.closed
+
+
+def test_demo_application_server_selection_does_not_build_replay_app() -> None:
+    app = _ServerDemoApplication()
+
+    app.main(["webrtc"])
+
+    assert app.server_called
+    assert not app.replay_adapter_called
+
+
+class _ReplayDemoApplication(DemoApplication):
+    def __init__(self) -> None:
+        self.adapter = _FakeDemoAdapter()
+
+    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("command", choices=("replay",))
+        return parser.parse_args(argv)
+
+    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
+        assert args.command == "replay"
+        return DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+        )
+
+    def replay_adapter(self) -> "_FakeDemoAdapter":
+        return self.adapter
+
+
+class _ServerDemoApplication(DemoApplication):
+    def __init__(self) -> None:
+        self.server_called = False
+        self.replay_adapter_called = False
+
+    def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("command", choices=("webrtc",))
+        return parser.parse_args(argv)
+
+    def replay_spec(self, args: argparse.Namespace) -> DemoSpec:
+        del args
+        raise AssertionError("server selection should not build a replay spec")
+
+    def replay_adapter(self) -> "_FakeDemoAdapter":
+        self.replay_adapter_called = True
+        return _FakeDemoAdapter()
+
+    def create_io_handler(
+        self,
+        args: argparse.Namespace,
+    ) -> IOHandler | IOHandlerServer:
+        assert args.command == "webrtc"
+
+        def serve() -> RunResult:
+            self.server_called = True
+            return RunResult(status="completed")
+
+        return CallbackIOHandlerServer(serve)
+
+
 class _FakeSession:
     inference_input_schema = InferenceInputSchema(
         step_fields=(InputField(name="chunk_index"),)
@@ -311,6 +389,7 @@ class _FakeSession:
         self.initialized = False
         self.closed = False
         self.reset_called = False
+        self.step_index = 0
 
     def init(self) -> None:
         self.initialized = True
@@ -319,19 +398,23 @@ class _FakeSession:
         return SessionInfo(output_layout="thwc")
 
     def next_step_request(self) -> StepRequest | None:
+        if self.step_index >= 1:
+            return None
         return StepRequest(
-            step_index=0,
+            step_index=self.step_index,
             inference_input_schema=self.inference_input_schema,
         )
 
     def step(self, inputs: InferenceInput) -> StepResult:
         self.inference_input_schema.require_step(inputs)
-        return StepResult(
-            step_index=0,
+        result = StepResult(
+            step_index=self.step_index,
             output="chunk",
             frame_count=1,
             output_window=TimeWindow(start_s=0.0, end_s=1.0),
         )
+        self.step_index += 1
+        return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         del inputs
@@ -391,6 +474,54 @@ class _FakeDemoAdapter:
             user_inputs=UserInputs(),
             source_schema=UserInputSchema(),
         )
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> "_FakeModelInputProvider":
+        assert spec.model_id == self.model_id
+        return _FakeModelInputProvider(
+            scenario=scenario,
+            inference_input_schema=self.inference_input_schema,
+        )
+
+
+class _FakeModelInputProvider:
+    def __init__(
+        self,
+        *,
+        scenario: PreparedScenario,
+        inference_input_schema: InferenceInputSchema,
+    ) -> None:
+        self._scenario = scenario
+        self.capabilities = ProviderCapabilities(
+            supports_recorded_input=True,
+            deterministic_given_inputs=True,
+            user_input_schema=scenario.source_schema,
+            inference_input_schema=inference_input_schema,
+        )
+        self.closed = False
+
+    def prepare_initial_input(self) -> InferenceInput:
+        return self._scenario.initial_inputs
+
+    def prepare_step(
+        self,
+        *,
+        request: StepRequirements,
+        user_window: UserInputWindow,
+    ) -> PreparedStep:
+        del user_window
+        return PreparedStep(
+            inference_input=InferenceInput(step={"chunk_index": request.step_index})
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _FakeIOHandler:
