@@ -91,7 +91,7 @@ class Runner:
         spec = self._create_spec(run_mode)
         context = self._create_context(host)
         result: RunResult | None = None
-        primary_error: Exception | None = None
+        primary_error: BaseException | None = None
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
@@ -105,7 +105,7 @@ class Runner:
                 pipeline=self.pipeline or StepPipeline(),
             )
             return result
-        except Exception as exc:
+        except BaseException as exc:
             primary_error = exc
             raise
         finally:
@@ -126,7 +126,7 @@ class Runner:
         spec = self._create_spec(selected_run_mode)
         context = self._create_context(host)
         result: RunResult | None = None
-        primary_error: Exception | None = None
+        primary_error: BaseException | None = None
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
@@ -140,7 +140,7 @@ class Runner:
                 pipeline=self.pipeline or StepPipeline(),
             )
             return result
-        except Exception as exc:
+        except BaseException as exc:
             primary_error = exc
             raise
         finally:
@@ -354,7 +354,7 @@ def _close_runner_resources(
     app: Application,
     owns_host: bool,
     run_result: RunResult | None,
-    primary_error: Exception | None,
+    primary_error: BaseException | None,
 ) -> None:
     errors: list[Exception] = []
     _record_cleanup_error(errors, context.close)
@@ -377,7 +377,7 @@ async def _close_runner_resources_async(
     app: Application,
     owns_host: bool,
     run_result: RunResult | None,
-    primary_error: Exception | None,
+    primary_error: BaseException | None,
 ) -> None:
     errors: list[Exception] = []
     try:
@@ -488,7 +488,7 @@ def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
 
 
 def _record_cleanup_notes(
-    primary: Exception | None,
+    primary: BaseException | None,
     errors: Sequence[Exception],
 ) -> None:
     if primary is None:

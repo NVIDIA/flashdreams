@@ -391,6 +391,27 @@ def test_runner_preserves_primary_error_when_cleanup_fails() -> None:
     assert app.closed
 
 
+def test_runner_preserves_base_exception_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(
+        total_steps=1,
+        init_error=_RunnerPrimaryBaseException("fake base failed"),
+    )
+
+    with pytest.raises(
+        _RunnerPrimaryBaseException, match="fake base failed"
+    ) as exc_info:
+        Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            model_id="fake-runner",
+        ).run()
+
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("run metrics close failed" in note for note in notes)
+    assert app.closed
+
+
 def test_runner_preserves_failed_result_when_cleanup_fails() -> None:
     app = _RunnerFakeApplication(total_steps=1, fail_step=0)
 
@@ -494,6 +515,29 @@ async def test_runner_run_async_preserves_primary_error_when_cleanup_fails() -> 
     app = _RunnerFakeApplication(total_steps=1, fail_init=True)
 
     with pytest.raises(RuntimeError, match="fake init failed") as exc_info:
+        await Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            metrics=_FailingCloseMetricsRecorder(),
+            run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+            model_id="fake-runner",
+        ).run_async()
+
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("run metrics close failed" in note for note in notes)
+    assert app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_preserves_base_exception_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(
+        total_steps=1,
+        init_error=_RunnerPrimaryBaseException("fake base failed"),
+    )
+
+    with pytest.raises(
+        _RunnerPrimaryBaseException, match="fake base failed"
+    ) as exc_info:
         await Runner(
             io_handler=_RecordingIOHandler(),
             app=app,
@@ -1108,10 +1152,12 @@ class _RunnerFakeApplication:
         total_steps: int,
         fail_init: bool = False,
         fail_step: int | None = None,
+        init_error: BaseException | None = None,
     ) -> None:
         self.total_steps = total_steps
         self.fail_init = fail_init
         self.fail_step = fail_step
+        self.init_error = init_error
         self.launch_args: tuple[str, ...] = ()
         self.init_thread_id: int | None = None
         self.session: _RunnerFakeSession | None = None
@@ -1120,6 +1166,8 @@ class _RunnerFakeApplication:
     def init(self, launch_args: Sequence[str]) -> None:
         self.launch_args = tuple(launch_args)
         self.init_thread_id = threading.get_ident()
+        if self.init_error is not None:
+            raise self.init_error
         if self.fail_init:
             raise RuntimeError("fake init failed")
 
@@ -1132,6 +1180,10 @@ class _RunnerFakeApplication:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _RunnerPrimaryBaseException(BaseException):
+    pass
 
 
 class _BlockingCloseRunnerFakeApplication(_RunnerFakeApplication):
