@@ -78,3 +78,63 @@ def test_lane_matching_prefers_vehicle_heading_on_overlapping_lanes() -> None:
 
     assert forward[0].lane_index == 0
     assert reverse[0].lane_index == 1
+
+
+def test_roadside_waypoint_overlaps_edge_with_passenger_beyond_road() -> None:
+    navigation = TaxiNavigationMap(
+        (
+            NavigationLane(
+                centerline_world=np.asarray(
+                    [[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=np.float32
+                ),
+                road_edge_world=np.asarray(
+                    [[0.0, -2.0, 0.0], [20.0, -2.0, 0.0]], dtype=np.float32
+                ),
+            ),
+        )
+    )
+
+    waypoint = navigation.sample_waypoints(spacing_m=10.0, offset_m=0.0)[0]
+
+    np.testing.assert_allclose(waypoint.xyz_m, [0.0, -1.0, 0.0])
+    assert waypoint.passenger_xyz_m is not None
+    np.testing.assert_allclose(waypoint.passenger_xyz_m, [0.0, -2.75, 0.0])
+    assert -2.0 < float(waypoint.xyz_m[1]) < 0.0
+
+
+def test_waypoint_sampling_excludes_road_lanes_without_stopping_edges() -> None:
+    navigation = TaxiNavigationMap(
+        (
+            NavigationLane(
+                centerline_world=np.asarray(
+                    [[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=np.float32
+                ),
+                allows_taxi_stops=False,
+            ),
+            NavigationLane(
+                centerline_world=np.asarray(
+                    [[0.0, 10.0, 0.0], [20.0, 10.0, 0.0]], dtype=np.float32
+                ),
+                road_edge_world=np.asarray(
+                    [[0.0, 12.0, 0.0], [20.0, 12.0, 0.0]], dtype=np.float32
+                ),
+            ),
+        )
+    )
+
+    waypoints = navigation.sample_waypoints(spacing_m=10.0, offset_m=0.0)
+
+    assert {waypoint.lane_index for waypoint in waypoints} == {1}
+
+
+def test_recorded_route_fallback_infers_a_right_hand_road_edge() -> None:
+    navigation = TaxiNavigationMap.from_polylines(
+        (np.asarray([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=np.float32),),
+        bidirectional=False,
+    )
+
+    waypoint = navigation.sample_waypoints(spacing_m=10.0, offset_m=0.0)[0]
+
+    np.testing.assert_allclose(waypoint.xyz_m, [0.0, -1.0, 0.0])
+    assert waypoint.passenger_xyz_m is not None
+    np.testing.assert_allclose(waypoint.passenger_xyz_m, [0.0, -2.75, 0.0])

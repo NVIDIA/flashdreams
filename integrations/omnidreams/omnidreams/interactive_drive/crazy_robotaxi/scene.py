@@ -31,6 +31,12 @@ from shapely.geometry import Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+_PHYSICAL_ROAD_EDGE_STYLES = frozenset({"TALL_CURB", "ROAD_BOUNDARY", "WALL", "FENCE"})
+"""ClipGT edge styles that unambiguously bound drivable pavement."""
+
+_PAINTED_ROAD_EDGE_STYLES = frozenset({"SOLID_SINGLE", "SOLID_GROUP"})
+"""Solid white edge styles usable when a physical curb is unavailable."""
+
 
 @dataclass(frozen=True)
 class CrazyRobotaxiSceneData:
@@ -89,7 +95,12 @@ def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
         else:
             with archive.open(lane_member) as handle:
                 lane_rows = pq.read_table(handle).to_pylist()
-            navigation_lanes = _build_navigation_lanes(lane_rows)
+            mapped_lanes = _build_navigation_lanes(lane_rows)
+            navigation_lanes = (
+                mapped_lanes
+                if any(lane.allows_taxi_stops for lane in mapped_lanes)
+                else ()
+            )
         boundary_member = "clipgt/road_boundary.parquet"
         if boundary_member in archive.namelist():
             with archive.open(boundary_member) as handle:
@@ -301,8 +312,8 @@ def _build_lane_centerlines(rows: list[dict[str, Any]]) -> tuple[np.ndarray, ...
 def _build_navigation_lanes(
     rows: list[dict[str, Any]],
 ) -> tuple[NavigationLane, ...]:
-    """Return directed car-lane centerlines from ClipGT records."""
-    centerlines: list[np.ndarray] = []
+    """Return directed car lanes and their mapped roadside stopping edges."""
+    lanes: list[NavigationLane] = []
     for row in rows:
         payload = row["lane"]
         if not _car_lane(payload):
@@ -313,10 +324,52 @@ def _build_navigation_lanes(
         left_rail, right_rail = rails
         sample_count = max(2, len(left_rail), len(right_rail))
         fractions = np.linspace(0.0, 1.0, sample_count, dtype=np.float32)
-        centerline = 0.5 * (
-            _sample_polyline_fractions(left_rail, fractions)
-            + _sample_polyline_fractions(right_rail, fractions)
-        )
+        left_rail = _sample_polyline_fractions(left_rail, fractions)
+        right_rail = _sample_polyline_fractions(right_rail, fractions)
+        centerline = 0.5 * (left_rail + right_rail)
         if float(np.linalg.norm(centerline[-1, :2] - centerline[0, :2])) > 1.0e-4:
-            centerlines.append(centerline.astype(np.float32))
-    return tuple(NavigationLane(centerline) for centerline in centerlines)
+            road_edge = _roadside_edge(payload, left_rail, right_rail)
+            lanes.append(
+                NavigationLane(
+                    centerline.astype(np.float32),
+                    road_edge,
+                    allows_taxi_stops=road_edge is not None,
+                )
+            )
+
+    return tuple(lanes)
+
+
+def _roadside_edge(
+    payload: dict[str, Any],
+    left_rail: np.ndarray,
+    right_rail: np.ndarray,
+) -> np.ndarray | None:
+    left_score = _road_edge_score(
+        payload.get("left_edge_styles", []),
+        payload.get("left_edge_colors", []),
+    )
+    right_score = _road_edge_score(
+        payload.get("right_edge_styles", []),
+        payload.get("right_edge_colors", []),
+    )
+    if left_score == right_score == 0:
+        return None
+    return right_rail if right_score >= left_score else left_rail
+
+
+def _road_edge_score(styles: list[str] | None, colors: list[str] | None) -> int:
+    point_scores = []
+    for style, color in zip(styles or (), colors or (), strict=True):
+        normalized_style = str(style).upper()
+        normalized_color = str(color).upper()
+        if normalized_style in _PHYSICAL_ROAD_EDGE_STYLES:
+            point_scores.append(2)
+        elif (
+            normalized_style in _PAINTED_ROAD_EDGE_STYLES
+            and normalized_color == "WHITE"
+        ):
+            point_scores.append(1)
+        else:
+            point_scores.append(0)
+    return min(point_scores, default=0)
