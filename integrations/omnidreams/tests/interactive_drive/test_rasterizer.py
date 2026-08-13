@@ -12,6 +12,8 @@ import pytest
 import torch
 from ludus_renderer._ops import context as context_module
 from ludus_renderer._ops.context import LudusCudaTimestampedContext
+from ludus_renderer.dynamic_scene import build_hdmap_object_pool
+from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.rasterizer import (
     LudusConditionRasterizer,
@@ -21,6 +23,32 @@ from omnidreams.interactive_drive.rasterizer import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_dynamic_object_pool_uses_canonical_semantic_colors() -> None:
+    actors = [
+        SimpleNamespace(
+            entity_id=object_type.lower(),
+            object_type=object_type,
+            timestamps_us=np.array([1], dtype=np.int64),
+            translations_world=np.zeros((1, 3), dtype=np.float32),
+            orientations_xyzw=np.array([[0.0, 0.0, 0.0, 1.0]], dtype=np.float32),
+            dimensions_lwh=np.ones(3, dtype=np.float32),
+            is_simulated=True,
+        )
+        for object_type in ("Car", "Truck", "Pedestrian", "Cyclist", "Others")
+    ]
+
+    pool = build_hdmap_object_pool(actors, device=torch.device("cpu"))
+
+    expected = np.array(
+        [
+            [*BBOX_V3_COLORS[object_type][0], *BBOX_V3_COLORS[object_type][1]]
+            for object_type in ("Car", "Truck", "Pedestrian", "Cyclist", "Others")
+        ],
+        dtype=np.float32,
+    )
+    np.testing.assert_allclose(pool.colors.numpy(), expected)
 
 
 class _Event:

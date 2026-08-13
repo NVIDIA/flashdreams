@@ -553,13 +553,16 @@ def run_main_loop(
                     ),
                 )
             if runtime_application is not None:
-                frame_application_states = runtime_application.advance_frames(
+                application_update = runtime_application.advance_frames(
                     chunk_request.trajectory,
                     frame_interval_s=config.frame_interval_s,
                 )
                 chunk_request = replace(
                     chunk_request,
-                    frame_application_states=frame_application_states,
+                    trajectory=application_update.trajectory,
+                    frame_application_states=(
+                        application_update.frame_application_states
+                    ),
                 )
             pipeline.request_pose_chunk(chunk_request)
             # The pose chunk just advanced authoritative state, so refresh the
