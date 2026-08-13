@@ -36,6 +36,7 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.types import (
+    BATCH_INPUT_FRAME_START_METADATA_KEY,
     StepRequest,
     StepRequirements,
     StepResult,
@@ -459,6 +460,7 @@ class LingbotReplaySession:
             input_frame_count=num_frames,
             steady_output_frame_count=num_frames,
             metadata={
+                BATCH_INPUT_FRAME_START_METADATA_KEY: self._frame_start,
                 "num_frames": num_frames,
                 "frame_start": self._frame_start,
             },

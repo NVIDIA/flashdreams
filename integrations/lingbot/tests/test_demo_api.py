@@ -60,6 +60,7 @@ from flashdreams.runtime import (
     UserInputs,
 )
 from flashdreams.runtime.demo import (
+    BATCH_INPUT_FPS_METADATA_KEY,
     DemoSpec,
     Mp4OutputSpec,
     NullOutputSpec,
@@ -294,6 +295,7 @@ def test_lingbot_replay_adapter_accepts_null_output(tmp_path: Path) -> None:
     assert prepared.initial_inputs.global_conditioning[FIELD_TOTAL_BLOCKS] == 1
     assert prepared.mapping is None
     assert prepared.canonicalizer.converters == ()
+    assert prepared.metadata[BATCH_INPUT_FPS_METADATA_KEY] == 16
     assert PROVIDER_INPUTS_METADATA_KEY in prepared.metadata
 
 

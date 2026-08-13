@@ -20,7 +20,10 @@ from lingbot.runtime import (
 )
 
 from flashdreams.runtime import InferenceConfig, InferenceInput
-from flashdreams.runtime.types import StepRequirements
+from flashdreams.runtime.types import (
+    BATCH_INPUT_FRAME_START_METADATA_KEY,
+    StepRequirements,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -179,6 +182,7 @@ def test_session_exposes_shared_step_requirements_without_user_window(
     assert requirements.step_index == 0
     assert requirements.input_frame_count == 2
     assert requirements.steady_output_frame_count == 2
+    assert requirements.metadata[BATCH_INPUT_FRAME_START_METADATA_KEY] == 0
     assert requirements.metadata["num_frames"] == 2
     assert requirements.metadata["frame_start"] == 0
     assert legacy_request is not None

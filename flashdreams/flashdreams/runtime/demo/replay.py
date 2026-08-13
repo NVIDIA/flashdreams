@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 
 from flashdreams.runtime.canonical import InputCanonicalizer
@@ -16,7 +15,6 @@ from flashdreams.runtime.inputs import (
     InferenceInput,
     InferenceInputSchema,
     TimeWindow,
-    UserInputs,
     UserInputSchema,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
@@ -47,7 +45,13 @@ from .run_modes import (
     SessionEdges,
     SingleSessionAdmissionPolicy,
 )
-from .session_inputs import PreparedStep, ProviderCapabilities, UserInputWindow
+from .session_inputs import (
+    PreparedScenarioBatchInputSource,
+    PreparedStep,
+    ProviderCapabilities,
+    StepRequestWindowState,
+    UserInputWindow,
+)
 from .spec import (
     DemoAdapter,
     DemoSpec,
@@ -213,7 +217,7 @@ def _run_replay_demo_with_run_mode(
             source_schema=prepared.source_schema,
             canonicalizer=prepared.canonicalizer,
         )
-    request_state = _ReplayStepRequestState()
+    request_state = StepRequestWindowState()
     runtime = _ReplayRuntimeAdapter(
         runtime=adapter.create_runtime(config),
         request_state=request_state,
@@ -259,7 +263,7 @@ class _ReplayRunMode:
     def __init__(
         self,
         *,
-        request_state: "_ReplayStepRequestState",
+        request_state: StepRequestWindowState,
         output_sink_factory: OutputSinkFactory,
         run_metrics: MetricsRecorder,
     ) -> None:
@@ -330,7 +334,7 @@ class _ReplayProviderAdapter:
         *,
         adapter: DemoAdapter,
         mapping: InputMapping | None,
-        request_state: "_ReplayStepRequestState",
+        request_state: StepRequestWindowState,
     ) -> None:
         self._adapter = adapter
         self._mapping = mapping
@@ -392,7 +396,7 @@ class _ReplayRuntimeAdapter:
         self,
         *,
         runtime: InferenceRuntime,
-        request_state: "_ReplayStepRequestState",
+        request_state: StepRequestWindowState,
     ) -> None:
         self._runtime = runtime
         self._request_state = request_state
@@ -412,7 +416,7 @@ class _ReplaySessionAdapter:
         self,
         *,
         session: InferenceSession,
-        request_state: "_ReplayStepRequestState",
+        request_state: StepRequestWindowState,
     ) -> None:
         self._session = session
         self._request_state = request_state
@@ -447,68 +451,7 @@ class _ReplaySessionAdapter:
         self._session.close()
 
 
-class _ReplayStepRequestState:
-    def __init__(self) -> None:
-        self._request: StepRequest | None = None
-
-    def store(self, request: StepRequest) -> None:
-        self._request = request
-
-    def request_for_window(self, step_index: int) -> StepRequest | None:
-        request = self._request
-        if request is None:
-            return None
-        if request.step_index != step_index:
-            raise RuntimeError(
-                "Replay input source request mismatch: "
-                f"expected step {request.step_index}, got {step_index}."
-            )
-        return request
-
-    def consume_for_step(self, request: StepRequirements) -> StepRequest:
-        legacy_request = self.request_for_window(request.step_index)
-        if legacy_request is not None:
-            self._request = None
-            return legacy_request
-        return StepRequest(
-            step_index=request.step_index,
-            inference_input_schema=request.inference_input_schema,
-            metadata=request.metadata,
-        )
-
-    def clear(self) -> None:
-        self._request = None
-
-
-class _ReplayBatchInputSource:
-    is_finite = True
-    is_deterministic = True
-
-    def __init__(
-        self,
-        *,
-        scenario: "PreparedScenario",
-        request_state: _ReplayStepRequestState,
-    ) -> None:
-        self.user_input_schema = scenario.source_schema
-        self._user_inputs = scenario.user_inputs
-        self._request_state = request_state
-
-    def is_finished(self) -> bool:
-        return False
-
-    def next_window(self, request: StepRequirements) -> UserInputWindow:
-        legacy_request = self._request_state.request_for_window(request.step_index)
-        window = (
-            legacy_request.user_input_window if legacy_request is not None else None
-        )
-        if window is None:
-            window = _all_user_inputs_window(self._user_inputs)
-        return UserInputWindow(
-            start_s=window.start_s,
-            end_s=window.end_s,
-            inputs=self._user_inputs.window(window),
-        )
+_ReplayBatchInputSource = PreparedScenarioBatchInputSource
 
 
 class _ReplayMappingModelInputProvider:
@@ -518,7 +461,7 @@ class _ReplayMappingModelInputProvider:
         adapter: DemoAdapter,
         scenario: "PreparedScenario",
         mapping: InputMapping,
-        request_state: _ReplayStepRequestState,
+        request_state: StepRequestWindowState,
     ) -> None:
         self.capabilities = ProviderCapabilities(
             supports_recorded_input=True,
@@ -617,18 +560,6 @@ def _require_replay_mapping(mapping: InputMapping | None) -> InputMapping:
     raise ValueError(
         "Compatibility replay runners require an input mapping; the prepared "
         "scenario and adapter did not provide one."
-    )
-
-
-def _all_user_inputs_window(user_inputs: UserInputs) -> TimeWindow:
-    if not user_inputs.events:
-        return TimeWindow(start_s=0.0, end_s=3600.0)
-    return TimeWindow(
-        start_s=0.0,
-        end_s=max(
-            3600.0,
-            math.nextafter(user_inputs.events[-1].timestamp_s, math.inf),
-        ),
     )
 
 

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
+    CompositeOutputSinkError,
     DemoSpec,
     Mp4OutputSink,
     Mp4OutputSpec,
@@ -423,6 +424,98 @@ def test_benchmark_output_sink_composes_with_mp4_output(tmp_path: Path) -> None:
             "layout": "thwc",
         }
     ]
+
+
+def test_composite_output_sink_closes_siblings_after_close_failure(
+    tmp_path: Path,
+) -> None:
+    failing_sink = _RecordingOutputSink(
+        close_error=RuntimeError("video encode failed")
+    )
+    stats_path = tmp_path / "stats.json"
+    stats_sink = BenchmarkStatsOutputSink(output_path=stats_path)
+    sink = CompositeOutputSink((failing_sink, stats_sink))
+    sink.open(SessionInfo())
+
+    sink.write(
+        StepResult(step_index=0, frame_count=1, metrics={"model_step_s": 0.25})
+    )
+    with pytest.raises(CompositeOutputSinkError, match="close failed") as exc_info:
+        sink.close()
+
+    assert len(exc_info.value.errors) == 1
+    assert failing_sink.close_count == 1
+    assert stats_path.exists()
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    assert payload["steps"][0]["step_index"] == 0
+    assert tuple(sink.close()) == (
+        OutputArtifact(
+            kind="application/json",
+            uri=str(stats_path),
+            metadata={
+                "artifact_type": "benchmark_stats",
+                "schema_version": 1,
+                "step_count": 1,
+                "sample_count": 1,
+            },
+        ),
+    )
+
+
+def test_composite_output_sink_closes_opened_sinks_after_open_failure() -> None:
+    first_sink = _RecordingOutputSink()
+    failing_sink = _RecordingOutputSink(open_error=RuntimeError("open failed"))
+    last_sink = _RecordingOutputSink()
+    sink = CompositeOutputSink((first_sink, failing_sink, last_sink))
+
+    with pytest.raises(CompositeOutputSinkError, match="open failed") as exc_info:
+        sink.open(SessionInfo())
+
+    assert len(exc_info.value.errors) == 1
+    assert first_sink.open_count == 1
+    assert first_sink.close_count == 1
+    assert failing_sink.open_count == 1
+    assert failing_sink.close_count == 0
+    assert last_sink.open_count == 1
+    assert last_sink.close_count == 1
+
+
+class _RecordingOutputSink:
+    produces_artifacts = False
+
+    def __init__(
+        self,
+        *,
+        open_error: Exception | None = None,
+        close_error: Exception | None = None,
+        artifacts: Sequence[OutputArtifact] = (),
+    ) -> None:
+        self.open_error = open_error
+        self.close_error = close_error
+        self.artifacts = tuple(artifacts)
+        self.open_count = 0
+        self.write_count = 0
+        self.close_count = 0
+
+    def open(self, session_info: SessionInfo) -> None:
+        del session_info
+        self.open_count += 1
+        if self.open_error is not None:
+            raise self.open_error
+
+    def begin_generation(self, generation: int) -> None:
+        del generation
+
+    def write(self, result: StepResult) -> OutputDecision:
+        del result
+        self.write_count += 1
+        return OutputDecision()
+
+    def close(self) -> Sequence[OutputArtifact]:
+        self.close_count += 1
+        if self.close_error is not None:
+            raise self.close_error
+        return self.artifacts
 
 
 def _object_graph_contains(

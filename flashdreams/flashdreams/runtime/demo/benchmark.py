@@ -5,20 +5,26 @@
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from flashdreams.runtime.config import InferenceConfig
-from flashdreams.runtime.inputs import TimeWindow, UserInputs
+from flashdreams.runtime.inputs import InferenceInput
+from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.metrics import MetricsRecorder
+from flashdreams.runtime.types import (
+    StepRequest,
+    StepRequirements,
+    StepResult,
+    step_requirements_from_request,
+)
 from flashdreams.runtime.video_output import VideoWriter
 
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
-from .outputs import build_benchmark_output_sink
+from .outputs import SessionInfo, build_benchmark_output_sink
 from .pipeline import StepPipeline
 from .run_modes import (
     AdmissionPolicy,
@@ -34,7 +40,7 @@ from .run_modes import (
     build_model_warmup_plan,
     warmup_run_context,
 )
-from .session_inputs import UserInputWindow
+from .session_inputs import PreparedScenarioBatchInputSource, StepRequestWindowState
 from .spec import (
     DemoAdapter,
     DemoSpec,
@@ -61,6 +67,7 @@ class BenchmarkRunMode:
     run_metrics: SessionMetricsRecorder | None = None
     session_metrics_factory: SessionMetricsFactory = InMemorySessionMetricsRecorder
     admission: AdmissionPolicy | None = None
+    request_state: StepRequestWindowState | None = None
     name: str = "benchmark"
     capabilities: RunModeCapabilities = field(
         default_factory=lambda: RunModeCapabilities(
@@ -142,8 +149,12 @@ class BenchmarkRunMode:
     ) -> SessionEdges:
         del provider, adapter
         output = spec.output if self.capture_output else None
+        request_state = self.request_state or StepRequestWindowState()
         return SessionEdges(
-            input_source=BenchmarkBatchInputSource(scenario=scenario),
+            input_source=BenchmarkBatchInputSource(
+                scenario=scenario,
+                request_state=request_state,
+            ),
             output_sink=build_benchmark_output_sink(
                 output,
                 stats_path=self.stats_path_for(spec=spec, scenario=scenario),
@@ -174,27 +185,8 @@ class BenchmarkRunMode:
         return self.error_policy.handle(result.error).continue_next_scenario
 
 
-class BenchmarkBatchInputSource:
-    """Finite deterministic input source for one prepared benchmark scenario."""
-
-    is_finite = True
-    is_deterministic = True
-
-    def __init__(self, *, scenario: PreparedScenario) -> None:
-        self.user_input_schema = scenario.source_schema
-        self._user_inputs = scenario.user_inputs
-
-    def is_finished(self) -> bool:
-        return False
-
-    def next_window(self, request: object) -> UserInputWindow:
-        del request
-        window = _all_user_inputs_window(self._user_inputs)
-        return UserInputWindow(
-            start_s=window.start_s,
-            end_s=window.end_s,
-            inputs=self._user_inputs.window(window),
-        )
+class BenchmarkBatchInputSource(PreparedScenarioBatchInputSource):
+    """Compatibility name for the shared prepared-scenario batch source."""
 
 
 def run_benchmark_demo(
@@ -209,16 +201,21 @@ def run_benchmark_demo(
     pipeline: StepPipeline | None = None,
 ) -> RunResult:
     """Run one benchmarked demo session through ``BenchmarkRunMode``."""
+    request_state = StepRequestWindowState()
     mode = BenchmarkRunMode(
         stats_path=stats_path,
         stats_dir=stats_dir,
         capture_output=capture_output,
         run_metrics=metrics,
         mp4_writer=mp4_writer,
+        request_state=request_state,
     )
     mode.validate_run(spec=spec, adapter=adapter)
     scenario = adapter.prepare_scenario(spec)
-    runtime = adapter.create_runtime(_require_config(spec))
+    runtime = _BenchmarkRuntimeAdapter(
+        runtime=adapter.create_runtime(_require_config(spec)),
+        request_state=request_state,
+    )
     host = RuntimeHost(runtime)
     try:
         model_warmup_plan = build_model_warmup_plan(
@@ -255,16 +252,76 @@ def run_benchmark_demo(
         host.close()
 
 
-def _all_user_inputs_window(user_inputs: UserInputs) -> TimeWindow:
-    if not user_inputs.events:
-        return TimeWindow(start_s=0.0, end_s=3600.0)
-    return TimeWindow(
-        start_s=0.0,
-        end_s=max(
-            3600.0,
-            math.nextafter(user_inputs.events[-1].timestamp_s, math.inf),
-        ),
-    )
+class _BenchmarkRuntimeAdapter:
+    def __init__(
+        self,
+        *,
+        runtime: InferenceRuntime,
+        request_state: StepRequestWindowState,
+    ) -> None:
+        self._runtime = runtime
+        self._request_state = request_state
+
+    def start_session(self, inputs: InferenceInput) -> InferenceSession:
+        return _BenchmarkSessionAdapter(
+            session=self._runtime.start_session(inputs),
+            request_state=self._request_state,
+        )
+
+    def close(self) -> None:
+        self._runtime.close()
+
+
+class _BenchmarkSessionAdapter:
+    def __init__(
+        self,
+        *,
+        session: InferenceSession,
+        request_state: StepRequestWindowState,
+    ) -> None:
+        self._session = session
+        self._request_state = request_state
+
+    def session_info(self) -> SessionInfo:
+        session_info = getattr(self._session, "session_info", None)
+        if not callable(session_info):
+            return SessionInfo()
+        value = session_info()
+        if not isinstance(value, SessionInfo):
+            raise TypeError(
+                "session.session_info() must return SessionInfo, "
+                f"got {type(value).__name__}."
+            )
+        return value
+
+    def next_step_requirements(self) -> StepRequirements | None:
+        next_requirements = getattr(self._session, "next_step_requirements", None)
+        if callable(next_requirements):
+            value = next_requirements()
+            self._request_state.clear()
+            return value
+
+        request = self._session.next_step_request()
+        if request is None:
+            self._request_state.clear()
+            return None
+        self._request_state.store(request)
+        return step_requirements_from_request(
+            request,
+            allow_user_input_window=True,
+        )
+
+    def next_step_request(self) -> StepRequest | None:
+        return self._session.next_step_request()
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        return self._session.step(inputs)
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        self._session.reset(inputs)
+
+    def close(self) -> None:
+        self._session.close()
 
 
 def _stats_slug(*, spec: DemoSpec, scenario: PreparedScenario) -> str:

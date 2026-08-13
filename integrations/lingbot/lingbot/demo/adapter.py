@@ -14,6 +14,7 @@ from flashdreams.runtime import (
     UserInputSchema,
 )
 from flashdreams.runtime.demo import (
+    BATCH_INPUT_FPS_METADATA_KEY,
     DemoSpec,
     Mp4OutputSpec,
     NullOutputSpec,
@@ -106,6 +107,7 @@ class LingbotDemoAdapter(LingbotModelAdapter):
                 include_text_events=live_camera and bool(text_event_prompts),
             ),
             metadata={
+                BATCH_INPUT_FPS_METADATA_KEY: replay_inputs.fps,
                 "model_id": self.model_id,
                 "preset_id": self.preset_id(spec.config),
                 PROVIDER_INPUTS_METADATA_KEY: provider_inputs,

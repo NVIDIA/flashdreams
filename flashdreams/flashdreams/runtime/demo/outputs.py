@@ -89,6 +89,21 @@ class OutputSink(Protocol):
         ...
 
 
+class CompositeOutputSinkError(RuntimeError):
+    """Raised when one or more child sinks fail during composite lifecycle."""
+
+    def __init__(self, operation: str, errors: Sequence[BaseException]) -> None:
+        self.operation = operation
+        self.errors = tuple(errors)
+        details = "; ".join(
+            f"{type(error).__name__}: {error}" for error in self.errors
+        )
+        super().__init__(
+            f"CompositeOutputSink.{operation} failed for {len(self.errors)} "
+            f"sink(s): {details}"
+        )
+
+
 @dataclass(slots=True)
 class NullOutputSink:
     """Output sink for headless runs and fake-model vertical-slice tests."""
@@ -333,8 +348,27 @@ class CompositeOutputSink:
         self.produces_artifacts = any(sink.produces_artifacts for sink in sinks)
 
     def open(self, session_info: SessionInfo) -> None:
+        opened_sinks: list[OutputSink] = []
+        errors: list[BaseException] = []
         for sink in self.sinks:
-            sink.open(session_info)
+            try:
+                sink.open(session_info)
+            except Exception as exc:
+                errors.append(exc)
+            else:
+                opened_sinks.append(sink)
+
+        if errors:
+            for sink in reversed(opened_sinks):
+                try:
+                    sink.close()
+                except Exception as exc:
+                    errors.append(exc)
+            self._artifacts = None
+            self._opened = False
+            self._closed = True
+            raise CompositeOutputSinkError("open", errors)
+
         self._artifacts = None
         self._opened = True
         self._closed = False
@@ -355,13 +389,17 @@ class CompositeOutputSink:
             return self._artifacts
 
         artifacts: list[OutputArtifact] = []
-        try:
-            for sink in self.sinks:
+        errors: list[BaseException] = []
+        for sink in self.sinks:
+            try:
                 artifacts.extend(sink.close())
-        finally:
-            self._opened = False
-            self._closed = True
+            except Exception as exc:
+                errors.append(exc)
+        self._opened = False
+        self._closed = True
         self._artifacts = tuple(artifacts)
+        if errors:
+            raise CompositeOutputSinkError("close", errors)
         return self._artifacts
 
 
@@ -586,6 +624,7 @@ def build_output_target(
 
 __all__ = [
     "BenchmarkStatsOutputSink",
+    "CompositeOutputSinkError",
     "CompositeOutputSink",
     "Mp4OutputSink",
     "NullOutputSink",

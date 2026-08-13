@@ -23,6 +23,9 @@ from flashdreams.runtime import (
     UserInputSchema,
 )
 from flashdreams.runtime.demo import (
+    BATCH_INPUT_FPS_METADATA_KEY,
+    BATCH_INPUT_FRAME_START_METADATA_KEY,
+    BenchmarkStatsOutputSink,
     BenchmarkRunMode,
     DemoSpec,
     ErrorAction,
@@ -40,6 +43,7 @@ from flashdreams.runtime.demo import (
     WarmupSessionInputs,
     run_benchmark_demo,
     run_demo_session,
+    run_replay_demo,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -186,6 +190,63 @@ def test_benchmark_run_mode_can_mark_setup_failure_skipped(
     assert payload["samples"] == []
 
 
+def test_benchmark_and_replay_use_same_timed_input_windows(
+    tmp_path: Path,
+) -> None:
+    scenario = PreparedScenario(
+        initial_inputs=InferenceInput(),
+        metadata={
+            BATCH_INPUT_FPS_METADATA_KEY: 2,
+            "scenario_id": "windowed",
+        },
+    )
+    spec = _spec("windowed")
+    replay_stats = tmp_path / "replay_stats.json"
+    benchmark_stats = tmp_path / "benchmark_stats.json"
+
+    replay_result = run_replay_demo(
+        spec=spec,
+        adapter=_BenchmarkAdapter(
+            runtime=_BenchmarkRuntime(
+                sessions=(
+                    _WindowedBenchmarkSession(
+                        num_steps=2,
+                        name="replay",
+                        record_input_window=True,
+                    ),
+                )
+            ),
+            prepared_scenario=scenario,
+        ),
+        output_sink_factory=lambda output: BenchmarkStatsOutputSink(
+            output_path=replay_stats
+        ),
+    )
+    benchmark_result = run_benchmark_demo(
+        spec=spec,
+        adapter=_BenchmarkAdapter(
+            runtime=_BenchmarkRuntime(
+                sessions=(
+                    _WindowedBenchmarkSession(
+                        num_steps=2,
+                        name="benchmark",
+                        record_input_window=True,
+                    ),
+                )
+            ),
+            prepared_scenario=scenario,
+        ),
+        stats_path=benchmark_stats,
+        capture_output=False,
+    )
+
+    assert replay_result.status == "completed"
+    assert benchmark_result.status == "completed"
+    replay_windows = _step_metadata_windows(replay_stats)
+    benchmark_windows = _step_metadata_windows(benchmark_stats)
+    assert replay_windows == benchmark_windows == [(0.0, 0.5), (0.5, 1.0)]
+
+
 def _run_one_benchmark_session(
     *,
     mode: BenchmarkRunMode,
@@ -236,11 +297,13 @@ class _BenchmarkAdapter:
         runtime: "_BenchmarkRuntime",
         warmup_steps: int = 0,
         providers: Sequence["_BenchmarkProvider"] = (),
+        prepared_scenario: PreparedScenario | None = None,
     ) -> None:
         self.runtime = runtime
         self.warmup_steps = warmup_steps
         self._providers = list(providers)
         self.created_providers: list[_BenchmarkProvider] = []
+        self.prepared_scenario = prepared_scenario
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return ("replay",)
@@ -260,6 +323,8 @@ class _BenchmarkAdapter:
         return self.runtime
 
     def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
+        if self.prepared_scenario is not None:
+            return self.prepared_scenario
         return PreparedScenario(
             initial_inputs=InferenceInput(),
             metadata={"scenario_id": str(spec.scenario)},
@@ -356,10 +421,12 @@ class _BenchmarkSession:
         num_steps: int,
         name: str,
         fail_step: int | None = None,
+        record_input_window: bool = False,
     ) -> None:
         self.num_steps = num_steps
         self.name = name
         self.fail_step = fail_step
+        self.record_input_window = record_input_window
         self.next_request_index = 0
         self.step_inputs: list[InferenceInput] = []
         self.close_count = 0
@@ -382,11 +449,15 @@ class _BenchmarkSession:
         if self.fail_step == step_index:
             raise RuntimeError(f"{self.name} step failed")
         self.step_inputs.append(inputs)
+        metadata = {}
+        if self.record_input_window:
+            metadata["input_window"] = inputs.step["window"]
         return StepResult(
             step_index=step_index,
             output=f"{self.name}-{step_index}",
             frame_count=1,
             metrics={"model_step_s": 0.01 * (step_index + 1)},
+            metadata=metadata,
         )
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
@@ -404,3 +475,25 @@ class _SkipSetupPolicy:
     def handle(self, exc: Exception) -> ErrorAction:
         del exc
         return ErrorAction(result_status="failed", continue_next_scenario=True)
+
+
+class _WindowedBenchmarkSession(_BenchmarkSession):
+    def next_step_requirements(self) -> StepRequirements | None:
+        if self.next_request_index >= self.num_steps:
+            return None
+        step_index = self.next_request_index
+        self.next_request_index += 1
+        return StepRequirements(
+            step_index=step_index,
+            input_frame_count=1,
+            metadata={BATCH_INPUT_FRAME_START_METADATA_KEY: step_index},
+        )
+
+
+def _step_metadata_windows(path: Path) -> list[tuple[float, float]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        tuple(step["metadata"]["input_window"])
+        for step in payload["steps"]
+        if "input_window" in step["metadata"]
+    ]
