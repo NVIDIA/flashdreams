@@ -28,7 +28,7 @@ native presentation without a model checkpoint:
 .. code-block:: bash
 
    uv run --package flashdreams-triangle-model \
-     flashdreams-run triangle-model
+     flashdreams-run triangle-app --model triangle-model
 
 The application generates a moving triangle for six seconds. Frames are queued
 in bounded whole chunks, stale chunks are dropped to limit latency, and normal

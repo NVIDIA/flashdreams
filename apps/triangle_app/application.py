@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import cache
+from importlib.metadata import entry_points
 from typing import Literal, TypeAlias
 
 from flashdreams.runtime import (
@@ -54,6 +56,7 @@ TRIANGLE_INPUT_SCHEMA = InferenceInputSchema(
     ),
     step_fields=(InputField(name="color", input_modality="triangle/rgb"),),
 )
+TRIANGLE_MODEL_ENTRY_POINT_GROUP = "flashdreams.triangle_models"
 
 _KEYBOARD_SCHEMA = UserInputSchema(
     capabilities=(
@@ -191,13 +194,40 @@ class TriangleInputProvider:
         return None
 
 
+@cache
+def triangle_models() -> dict[str, TriangleApp]:
+    models: dict[str, TriangleApp] = {}
+    for entry_point in entry_points(group=TRIANGLE_MODEL_ENTRY_POINT_GROUP):
+        value = entry_point.load()
+        model = value() if callable(value) else value
+        if not isinstance(model, TriangleApp):
+            raise TypeError(f"Triangle model {entry_point.name!r} is invalid.")
+        if entry_point.name in models:
+            raise ValueError(f"Duplicate triangle model {entry_point.name!r}.")
+        models[entry_point.name] = model
+    return models
+
+
+def resolve_triangle_model(name: str) -> TriangleApp:
+    try:
+        return triangle_models()[name]
+    except KeyError as exc:
+        available = ", ".join(triangle_models()) or "<none installed>"
+        raise ValueError(
+            f"Unknown triangle model {name!r}; available: {available}."
+        ) from exc
+
+
 __all__ = [
     "DEFAULT_TRIANGLE_COLOR",
     "TRIANGLE_INPUT_MODES",
     "TRIANGLE_INPUT_SCHEMA",
+    "TRIANGLE_MODEL_ENTRY_POINT_GROUP",
     "TRIANGLE_OUTPUT_MODES",
     "TriangleApp",
     "TriangleInputProvider",
     "TriangleOutputMode",
     "TriangleScenario",
+    "resolve_triangle_model",
+    "triangle_models",
 ]

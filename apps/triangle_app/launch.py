@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Launch modes for the concrete triangle model application."""
+"""Launch modes for the triangle application."""
 
 from __future__ import annotations
 
@@ -27,12 +27,13 @@ from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 from triangle_app import (
     TRIANGLE_OUTPUT_MODES,
+    TriangleApp,
     TriangleOutputMode,
     TriangleScenario,
+    resolve_triangle_model,
 )
 
-from .adapter import MODEL_ID, TriangleModel
-from .runner import TriangleModelRunnerConfig
+from .runner import TriangleAppRunnerConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,7 @@ class TriangleWebRTCConfig:
     warmup_timeout_s: float = 30.0
 
 
-class TriangleModelLaunchCapability:
+class TriangleAppLaunchCapability:
     def supported_modes(
         self,
         config: RunnerConfig,
@@ -66,14 +67,15 @@ class TriangleModelLaunchCapability:
         _validate_options(typed_mode, options)
         return ResolvedLaunch(
             mode=typed_mode,
-            label=f"Triangle model {typed_mode}",
+            label=f"Triangle app {typed_mode}",
             summary={
-                "model": typed_config.runner_name,
+                "application": typed_config.runner_name,
+                "model": typed_config.model,
                 "mode": typed_mode,
                 "frames": typed_config.total_frames,
             },
             launch=partial(
-                launch_triangle_model,
+                launch_triangle_app,
                 typed_config,
                 mode=typed_mode,
                 options=options,
@@ -81,15 +83,15 @@ class TriangleModelLaunchCapability:
         )
 
 
-def launch_triangle_model(
-    config: TriangleModelRunnerConfig,
+def launch_triangle_app(
+    config: TriangleAppRunnerConfig,
     *,
     mode: TriangleOutputMode = "local-window",
     options: LaunchOptions | None = None,
 ) -> object:
     options = options or LaunchOptions()
-    spec = _spec(config, mode=mode, options=options)
-    adapter = TriangleModel()
+    adapter = resolve_triangle_model(config.model)
+    spec = _spec(config, adapter=adapter, mode=mode, options=options)
     if mode == "mp4" or mode == "null":
         result = run_replay_demo(spec=spec, adapter=adapter)
         if result.status != "completed":
@@ -102,8 +104,9 @@ def launch_triangle_model(
 
 
 def _spec(
-    config: TriangleModelRunnerConfig,
+    config: TriangleAppRunnerConfig,
     *,
+    adapter: TriangleApp,
     mode: TriangleOutputMode,
     options: LaunchOptions,
 ) -> DemoSpec:
@@ -114,16 +117,16 @@ def _spec(
         total_frames=config.total_frames,
     )
     return DemoSpec(
-        model_id=MODEL_ID,
+        model_id=adapter.model_id,
         input_mode="replay" if mode in {"mp4", "null"} else "keyboard-driving",
         output=_output(config, mode=mode, options=options),
         scenario=scenario,
-        config=InferenceConfig(model_id=MODEL_ID, device=config.device),
+        config=InferenceConfig(model_id=adapter.model_id, device=config.device),
     )
 
 
 def _output(
-    config: TriangleModelRunnerConfig,
+    config: TriangleAppRunnerConfig,
     *,
     mode: TriangleOutputMode,
     options: LaunchOptions,
@@ -151,7 +154,7 @@ def _output(
     )
 
 
-def _serve_webrtc(*, spec: DemoSpec, adapter: TriangleModel) -> object:
+def _serve_webrtc(*, spec: DemoSpec, adapter: TriangleApp) -> object:
     output = spec.output
     if not isinstance(output, WebRTCOutputSpec):
         raise TypeError("WebRTC launch requires WebRTCOutputSpec.")
@@ -167,7 +170,7 @@ def _serve_webrtc(*, spec: DemoSpec, adapter: TriangleModel) -> object:
             video_height=output.video_height,
         ),
         fps=output.fps,
-        identity=MODEL_ID,
+        identity=adapter.model_id,
         client_liveness_timeout_s=output.client_liveness_timeout_s,
         supported_control_keys=frozenset({"r", "g", "b", "space"}),
         shared_host=host,
@@ -177,7 +180,7 @@ def _serve_webrtc(*, spec: DemoSpec, adapter: TriangleModel) -> object:
     )
     return serve_webrtc_demo(
         output=output,
-        model_id=MODEL_ID,
+        model_id=adapter.model_id,
         session_manager=manager,
         app_resources=WebRTCAppResources(preload_name="Triangle Model"),
         world_rank=0,
@@ -195,9 +198,9 @@ def _validate_options(mode: TriangleOutputMode, options: LaunchOptions) -> None:
         raise ValueError(f"Unsupported output fields: {', '.join(unknown)}.")
 
 
-def _config(config: RunnerConfig) -> TriangleModelRunnerConfig:
-    if not isinstance(config, TriangleModelRunnerConfig):
-        raise TypeError("Triangle model launch requires its runner config.")
+def _config(config: RunnerConfig) -> TriangleAppRunnerConfig:
+    if not isinstance(config, TriangleAppRunnerConfig):
+        raise TypeError("Triangle app launch requires its runner config.")
     return config
 
 
@@ -209,10 +212,10 @@ def _mode(mode: LaunchMode) -> TriangleOutputMode | None:
             return None
 
 
-LAUNCH_CAPABILITY = TriangleModelLaunchCapability()
+LAUNCH_CAPABILITY = TriangleAppLaunchCapability()
 
 __all__ = [
     "LAUNCH_CAPABILITY",
-    "TriangleModelLaunchCapability",
-    "launch_triangle_model",
+    "TriangleAppLaunchCapability",
+    "launch_triangle_app",
 ]

@@ -13,7 +13,7 @@ Run the concrete package:
 
 ```bash
 uv run --package flashdreams-triangle-model \
-  flashdreams-run triangle-model
+  flashdreams-run triangle-app --model triangle-model
 ```
 
 Available modes are `local-window`, `webrtc`, `mp4`, and `null`. Press `R`,

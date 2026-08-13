@@ -23,13 +23,13 @@ from flashdreams.runtime.demo import (
 )
 from flashdreams.serving.launch import LaunchOptions
 from flashdreams.serving.native_window import run_native_window_demo
-from triangle_app import TriangleScenario
-from triangle_model import MODEL_ID, TriangleModel, launch
-from triangle_model.launch import LAUNCH_CAPABILITY
-from triangle_model.runner import (
-    RUNNER_TRIANGLE_MODEL,
-    TriangleModelRunnerConfig,
+from triangle_app import TriangleScenario, launch
+from triangle_app.launch import LAUNCH_CAPABILITY
+from triangle_app.runner import (
+    RUNNER_TRIANGLE_APP,
+    TriangleAppRunnerConfig,
 )
+from triangle_model import MODEL_ID, TriangleModel
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -54,13 +54,14 @@ def _spec(*, frames: int = 3) -> DemoSpec:
     )
 
 
-def test_triangle_model_registers_all_output_modes() -> None:
-    config = TriangleModelRunnerConfig(
-        runner_name="triangle-model",
+def test_triangle_app_registers_all_output_modes() -> None:
+    config = TriangleAppRunnerConfig(
+        runner_name="triangle-app",
         description="test",
         device="cpu",
+        model="triangle-model",
     )
-    assert RUNNER_TRIANGLE_MODEL.runner_name == "triangle-model"
+    assert RUNNER_TRIANGLE_APP.runner_name == "triangle-app"
     assert LAUNCH_CAPABILITY.supported_modes(config, LaunchOptions()) == (
         "mp4",
         "null",
@@ -73,7 +74,7 @@ def test_triangle_model_registers_all_output_modes() -> None:
     ("mode", "output_type"),
     (("mp4", Mp4OutputSpec), ("null", NullOutputSpec)),
 )
-def test_triangle_model_uses_shared_replay_outputs(
+def test_triangle_app_uses_shared_replay_outputs(
     mode: Literal["mp4", "null"],
     output_type: type[object],
     monkeypatch: pytest.MonkeyPatch,
@@ -86,11 +87,12 @@ def test_triangle_model_uses_shared_replay_outputs(
         lambda *, spec, adapter: captured.append(spec) or completed,
     )
 
-    result = launch.launch_triangle_model(
-        TriangleModelRunnerConfig(
-            runner_name="triangle-model",
+    result = launch.launch_triangle_app(
+        TriangleAppRunnerConfig(
+            runner_name="triangle-app",
             description="test",
             device="cpu",
+            model="triangle-model",
         ),
         mode=mode,
     )
@@ -100,7 +102,7 @@ def test_triangle_model_uses_shared_replay_outputs(
     assert captured[0].input_mode == "replay"
 
 
-def test_triangle_model_builds_webrtc_session(
+def test_triangle_app_builds_webrtc_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager_args: dict[str, Any] = {}
@@ -116,11 +118,12 @@ def test_triangle_model_builds_webrtc_session(
         lambda **_kwargs: "served",
     )
 
-    result = launch.launch_triangle_model(
-        TriangleModelRunnerConfig(
-            runner_name="triangle-model",
+    result = launch.launch_triangle_app(
+        TriangleAppRunnerConfig(
+            runner_name="triangle-app",
             description="test",
             device="cpu",
+            model="triangle-model",
         ),
         mode="webrtc",
     )
