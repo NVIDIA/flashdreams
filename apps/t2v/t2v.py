@@ -5,8 +5,12 @@
 
 from __future__ import annotations
 
+import io
+import json
+import zipfile
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -36,6 +40,8 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     OutputSpec,
     PreparedScenario,
+    WebRTCAppResources,
+    WebRTCOutputSpec,
 )
 from flashdreams.runtime.demo.outputs import SessionInfo
 from flashdreams.runtime.demo.session_inputs import (
@@ -249,6 +255,32 @@ class T2VDemoAdapter(ModelAdapter):
         """Supply fixed prompt conditioning to every shared-demo step."""
         del spec
         return T2VInputProvider(initial_inputs=scenario.initial_inputs)
+
+    def configure_for_output(self, output: OutputSpec) -> "T2VDemoAdapter":
+        """Return an adapter configured for output-specific T2V behavior."""
+        return T2VDemoAdapter(
+            model=self.model,
+            write_download_artifact=output.mode == "webrtc",
+        )
+
+    def create_webrtc_app_resources(
+        self,
+        *,
+        manager: Any,
+        output: WebRTCOutputSpec,
+        spec: DemoSpec,
+    ) -> WebRTCAppResources:
+        """Return T2V browser resources for the shared WebRTC server."""
+        del output, spec
+        return WebRTCAppResources(
+            model_web_resource=files("t2v").joinpath("web"),
+            configure_app=lambda app: _configure_t2v_webrtc_app(
+                app,
+                manager=manager,
+                model=self.model,
+            ),
+            preload_name="FlashDreams T2V",
+        )
 
 
 class T2VInputProvider:
@@ -507,7 +539,12 @@ def create_t2v_spec(
                 **defaults.runtime_options,
             },
         ),
-        metadata={"output_layout": "tchw"},
+        metadata={
+            "output_layout": "tchw",
+            "webrtc_keep_connection_after_completed": True,
+            "webrtc_preload_name": "FlashDreams T2V",
+            "webrtc_supported_control_keys": ("g",),
+        },
     )
 
 
@@ -546,6 +583,107 @@ def _validate_optional_positive_int(value: int | None, *, name: str) -> None:
     if value is None:
         return
     _validate_positive_int(value, name=name)
+
+
+def _configure_t2v_webrtc_app(
+    app: Any,
+    *,
+    manager: Any,
+    model: T2VModelConfig,
+) -> None:
+    from aiohttp import web
+
+    selected_backend = str(model.runtime_options.get("backend", model.model_id))
+    selected_label = str(model.runtime_options.get("application", model.model_id))
+
+    async def app_config(_: web.Request) -> web.StreamResponse:
+        return web.json_response(
+            {
+                "backends": [{"key": selected_backend, "label": selected_label}],
+                "selected_backend": selected_backend,
+            }
+        )
+
+    async def update_prompt(request: web.Request) -> web.StreamResponse:
+        payload = await request.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("prompt"), str):
+            raise web.HTTPBadRequest(reason="Expected a JSON prompt.")
+        duration_s = payload.get("duration_s")
+        if not isinstance(duration_s, int | float):
+            raise web.HTTPBadRequest(reason="Expected numeric duration_s.")
+        try:
+            _update_t2v_webrtc_prompt(
+                manager=manager,
+                prompt=payload["prompt"],
+                duration_s=float(duration_s),
+            )
+        except (RuntimeError, ValueError) as exc:
+            raise web.HTTPBadRequest(reason=str(exc)) from exc
+        return web.json_response({"status": "ok"})
+
+    async def download(_: web.Request) -> web.StreamResponse:
+        artifact = manager.runtime.latest_artifact
+        if artifact is None:
+            raise web.HTTPNotFound(reason="No completed generation is available yet.")
+        video_path, scenario = artifact
+        if not video_path.is_file():
+            raise web.HTTPNotFound(reason="Generated MP4 is no longer available.")
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(video_path, "video.mp4")
+            archive.writestr(
+                "prompt.json",
+                json.dumps(
+                    {
+                        "prompt": scenario.prompt,
+                        "total_blocks": scenario.total_blocks,
+                        "fps": scenario.fps,
+                        "width": scenario.pixel_width,
+                        "height": scenario.pixel_height,
+                    },
+                    indent=2,
+                ),
+            )
+        return web.Response(
+            body=buffer.getvalue(),
+            headers={
+                "Content-Disposition": "attachment; filename=flashdreams-generation.zip"
+            },
+            content_type="application/zip",
+        )
+
+    async def playback(_: web.Request) -> web.StreamResponse:
+        artifact = manager.runtime.latest_artifact
+        if artifact is None or not artifact[0].is_file():
+            raise web.HTTPNotFound(reason="No completed MP4 is available yet.")
+        return web.FileResponse(artifact[0])
+
+    app.router.add_get("/api/t2v/config", app_config)
+    app.router.add_post("/api/t2v/prompt", update_prompt)
+    app.router.add_get("/api/t2v/download", download)
+    app.router.add_get("/api/t2v/playback", playback)
+
+
+def _update_t2v_webrtc_prompt(
+    *,
+    manager: Any,
+    prompt: str,
+    duration_s: float,
+) -> None:
+    if not prompt.strip():
+        raise ValueError("Prompt must be non-empty.")
+    if not 0 < duration_s <= 60:
+        raise ValueError("Duration must be greater than 0 and at most 60 seconds.")
+    spec = manager.shared_spec
+    if spec is None:
+        raise RuntimeError("T2V WebRTC shared session is not initialized.")
+    scenario = dict(spec.scenario or {})
+    scenario[FIELD_PROMPT] = prompt.strip()
+    scenario[FIELD_TOTAL_BLOCKS] = manager.runtime.blocks_for_duration(
+        duration_s,
+        fps=_int_value(scenario[FIELD_FPS]),
+    )
+    manager.update_shared_spec(replace(spec, scenario=scenario))
 
 
 __all__ = [

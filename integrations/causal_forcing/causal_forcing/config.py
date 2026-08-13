@@ -17,14 +17,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 from torch import Tensor
 
-from causal_forcing.runner import (
-    CausalForcingI2VRunnerConfig,
-    CausalForcingT2VRunnerConfig,
-)
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -37,9 +35,48 @@ from flashdreams.recipes.wan import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
+from flashdreams.runtime.video_runner import (
+    ImageConditionedVideoRunnerConfig,
+    StreamingVideoRunnerConfig,
+)
 
 CHECKPOINT_PATH_CHUNKWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/chunkwise/causal_forcing.pt"
 CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/framewise/causal_forcing.pt"
+
+DEFAULT_T2V_PROMPT = (
+    "A cinematic closeup and detailed portrait of a reindeer standing in a "
+    "snowy forest at sunset. The lighting is gorgeous and soft, with a golden "
+    "backlight creating a warm and dreamy effect. Soft bokeh and lens flares "
+    "add a magical touch, enhancing the cinematic quality of the image. The "
+    "reindeer has a gentle expression, its fur glistening in the fading light. "
+    "The background features a serene snowy landscape with tall trees "
+    "silhouetted against the orange and pink hues of the setting sun. The "
+    "color grade is rich and magical, capturing the essence of a winter "
+    "wonderland at twilight. A close-up shot from a slightly elevated angle."
+)
+
+DEFAULT_I2V_IMAGE_URL = "https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png"
+
+
+@dataclass(kw_only=True)
+class CausalForcingT2VRunnerConfig(StreamingVideoRunnerConfig):
+    """Runner config for the Causal-Forcing T2V variants."""
+
+    prompt: str | Path = DEFAULT_T2V_PROMPT
+    total_blocks: int = 60
+    pixel_height: int = 480
+    pixel_width: int = 832
+    fps: int = 16
+
+
+@dataclass(kw_only=True)
+class CausalForcingI2VRunnerConfig(
+    ImageConditionedVideoRunnerConfig, CausalForcingT2VRunnerConfig
+):
+    """Runner config for the Causal-Forcing I2V variants."""
+
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    image_cache_subdir = "causal_forcing"
 
 
 def state_dict_transform(state_dict: dict[str, Any]) -> dict[str, Tensor]:

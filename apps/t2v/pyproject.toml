@@ -10,7 +10,7 @@ name = "flashdreams-t2v"
 version = "0.1.0"
 description = "Shared model-neutral text-to-video demo application shell"
 requires-python = ">=3.10"
-dependencies = ["flashdreams"]
+dependencies = ["flashdreams[serving]"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
@@ -18,3 +18,6 @@ flashdreams = { workspace = true }
 [tool.setuptools]
 packages = ["t2v"]
 package-dir = { t2v = "." }
+
+[tool.setuptools.package-data]
+t2v = ["web/*.js", "web/*.css"]

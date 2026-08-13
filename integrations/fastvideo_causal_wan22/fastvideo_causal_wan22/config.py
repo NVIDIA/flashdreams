@@ -17,9 +17,38 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 import torch
 
-from fastvideo_causal_wan22.runner import FastvideoCausalWan22T2VRunnerConfig
+from flashdreams.runtime.video_runner import StreamingVideoRunnerConfig
+
+DEFAULT_T2V_PROMPT = (
+    "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
+    "neon lights and animated city signs casting vibrant reflections. She "
+    "wears a sleek black leather jacket paired with a flowing red dress and "
+    "black boots, her black purse slung over her shoulder. Sunglasses perched "
+    "on her nose and a bold red lipstick add to her confident, casual "
+    "demeanor. The street is damp and reflective, creating a mirror-like "
+    "effect that enhances the colorful lights and shadows. Pedestrians move "
+    "about, adding to the lively atmosphere. The scene is captured in a "
+    "dynamic medium shot with the woman walking slightly to one side, "
+    "highlighting her graceful strides."
+)
+
+
+@dataclass(kw_only=True)
+class FastvideoCausalWan22T2VRunnerConfig(StreamingVideoRunnerConfig):
+    """Runner config for the FastVideo CausalWan 2.2 T2V variants."""
+
+    prompt: str | Path = DEFAULT_T2V_PROMPT
+    total_blocks: int = 60
+    pixel_height: int = 480
+    pixel_width: int = 832
+    fps: int = 16
+
+
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig

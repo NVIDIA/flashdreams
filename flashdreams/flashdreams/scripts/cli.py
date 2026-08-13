@@ -57,10 +57,17 @@ from flashdreams.demo import (
     Application,
     DemoAdapterApplication,
     run_application_replay,
+    run_application_webrtc,
 )
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.plugins import discover_applications
-from flashdreams.runtime.demo import DemoSpec, Mp4OutputSpec, NullOutputSpec
+from flashdreams.runtime.demo import (
+    DemoAdapter,
+    DemoSpec,
+    Mp4OutputSpec,
+    NullOutputSpec,
+    WebRTCOutputSpec,
+)
 from flashdreams.serving.launch import (
     LaunchMode,
     LaunchOptions,
@@ -386,18 +393,18 @@ def _entrypoint_application(
     if "--help" in raw_args or "-h" in raw_args:
         _print_application_help(application_name, application)
         raise SystemExit(0)
-    mode, launch_args, no_instantiate, launch_overrides = (
-        _prepare_application_cli_args(raw_args, application_name=application_name)
+    mode, launch_args, no_instantiate, launch_overrides = _prepare_application_cli_args(
+        raw_args, application_name=application_name
     )
-    if mode not in {"mp4", "null"}:
+    if mode not in {"mp4", "null", "webrtc"}:
         raise ValueError(
-            f"Application {application_name!r} currently supports direct finite "
-            "launch modes 'mp4' and 'null'. Use a compatibility runner for "
+            f"Application {application_name!r} currently supports direct launch "
+            "modes 'mp4', 'null', and 'webrtc'. Use a compatibility runner for "
             f"{mode!r}."
         )
     scenario = dict(launch_overrides.scenario)
     output = dict(launch_overrides.output)
-    configured = _configure_application_replay(
+    configured = _configure_application_launch(
         application=application,
         application_name=application_name,
         mode=mode,
@@ -413,9 +420,14 @@ def _entrypoint_application(
             print(f"Output settings: {output}")
     if no_instantiate:
         return
-    _handle_launch_result(
-        run_application_replay(app=configured, launch_args=launch_args)
-    )
+    if mode == "webrtc":
+        _handle_launch_result(
+            run_application_webrtc(app=configured, launch_args=launch_args)
+        )
+    else:
+        _handle_launch_result(
+            run_application_replay(app=configured, launch_args=launch_args)
+        )
 
 
 def _prepare_application_cli_args(
@@ -430,6 +442,18 @@ def _prepare_application_cli_args(
             "--manifest is not supported for direct application launches yet; "
             "use --scenario.KEY and --output.KEY overrides."
         )
+    normalized, host = _pop_option(normalized, "--host")
+    normalized, port = _pop_option(normalized, "--port")
+    if host is not None or port is not None:
+        output_overrides = dict(launch_overrides.output)
+        if host is not None:
+            output_overrides["host"] = host
+        if port is not None:
+            output_overrides["port"] = port
+        launch_overrides = dataclasses.replace(
+            launch_overrides,
+            output=output_overrides,
+        )
     normalized = _hoist_global_options(normalized)
     no_instantiate = False
     remaining: list[str] = []
@@ -443,12 +467,6 @@ def _prepare_application_cli_args(
         if item == "--prefer-sw-encoder":
             raise ValueError(
                 "--prefer-sw-encoder is only supported by WebRTC runner launches."
-            )
-        if item in {"--host", "--port"}:
-            raise ValueError(f"{item} is only supported by WebRTC runner launches.")
-        if any(item.startswith(option + "=") for option in ("--host", "--port")):
-            raise ValueError(
-                f"{item.split('=', 1)[0]} is only supported by WebRTC runner launches."
             )
         remaining.append(item)
         index += 1
@@ -466,7 +484,7 @@ def _prepare_application_cli_args(
     return raw_mode, tuple(remaining), no_instantiate, launch_overrides
 
 
-def _configure_application_replay(
+def _configure_application_launch(
     *,
     application: Application,
     application_name: str,
@@ -490,15 +508,26 @@ def _configure_application_replay(
         scenario=scenario,
         output_overrides=output_overrides,
     )
+    adapter = _application_adapter_for_output(application.adapter, output)
     return DemoAdapterApplication(
-        adapter=application.adapter,
+        adapter=adapter,
         spec=dataclasses.replace(
             application.spec,
-            input_mode="replay",
+            input_mode="webrtc" if mode == "webrtc" else "replay",
             scenario=scenario,
             output=output,
         ),
     )
+
+
+def _application_adapter_for_output(
+    adapter: DemoAdapter,
+    output: object,
+) -> DemoAdapter:
+    configure_for_output = getattr(adapter, "configure_for_output", None)
+    if not callable(configure_for_output):
+        return adapter
+    return cast(DemoAdapter, configure_for_output(output))
 
 
 def _application_scenario(
@@ -524,16 +553,20 @@ def _application_output_spec(
     spec: DemoSpec,
     scenario: object,
     output_overrides: Mapping[str, object],
-) -> Mp4OutputSpec | NullOutputSpec:
+) -> Mp4OutputSpec | NullOutputSpec | WebRTCOutputSpec:
     if mode == "null":
         _reject_unknown_output_keys(output_overrides, allowed={"store_results"})
         return NullOutputSpec(
             store_results=bool(output_overrides.get("store_results", False))
         )
-    if mode != "mp4":
-        raise ValueError(
-            f"Direct application launch mode {mode!r} is not implemented."
+    if mode == "webrtc":
+        return _application_webrtc_output_spec(
+            spec=spec,
+            scenario=scenario,
+            output_overrides=output_overrides,
         )
+    if mode != "mp4":
+        raise ValueError(f"Direct application launch mode {mode!r} is not implemented.")
     _reject_unknown_output_keys(
         output_overrides,
         allowed={"fps", "layout", "move_to_cpu", "output", "output_layout", "path"},
@@ -575,6 +608,150 @@ def _application_output_spec(
     )
 
 
+def _application_webrtc_output_spec(
+    *,
+    spec: DemoSpec,
+    scenario: object,
+    output_overrides: Mapping[str, object],
+) -> WebRTCOutputSpec:
+    _reject_unknown_output_keys(
+        output_overrides,
+        allowed={
+            "client_liveness_timeout_s",
+            "fps",
+            "host",
+            "port",
+            "preload_name",
+            "request_session_path",
+            "video_height",
+            "video_width",
+            "warmup_chunks",
+            "warmup_timeout_s",
+            "web_dir",
+        },
+    )
+    current_output = spec.output
+    return WebRTCOutputSpec(
+        host=str(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "host",
+                default="127.0.0.1",
+            )
+        ),
+        port=_positive_int(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "port",
+                default=8080,
+            ),
+            name="port",
+        ),
+        fps=_positive_int(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "fps",
+                default=(
+                    _scenario_field(scenario, "fps") or spec.metadata.get("fps") or 30
+                ),
+            ),
+            name="fps",
+        ),
+        video_width=_positive_int(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "video_width",
+                default=(
+                    _scenario_field(scenario, "pixel_width")
+                    or spec.metadata.get("video_width")
+                    or 1280
+                ),
+            ),
+            name="video_width",
+        ),
+        video_height=_positive_int(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "video_height",
+                default=(
+                    _scenario_field(scenario, "pixel_height")
+                    or spec.metadata.get("video_height")
+                    or 720
+                ),
+            ),
+            name="video_height",
+        ),
+        warmup_chunks=_non_negative_int(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "warmup_chunks",
+                default=0,
+            ),
+            name="warmup_chunks",
+        ),
+        warmup_timeout_s=float(
+            _positive_number(
+                _webrtc_output_value(
+                    output_overrides,
+                    current_output,
+                    "warmup_timeout_s",
+                    default=30.0,
+                ),
+                name="warmup_timeout_s",
+            )
+        ),
+        client_liveness_timeout_s=float(
+            _positive_number(
+                _webrtc_output_value(
+                    output_overrides,
+                    current_output,
+                    "client_liveness_timeout_s",
+                    default=30.0,
+                ),
+                name="client_liveness_timeout_s",
+            )
+        ),
+        web_dir=_optional_path(
+            _webrtc_output_value(output_overrides, current_output, "web_dir")
+        ),
+        request_session_path=str(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "request_session_path",
+                default="/request_session",
+            )
+        ),
+        preload_name=_optional_str(
+            _webrtc_output_value(
+                output_overrides,
+                current_output,
+                "preload_name",
+            )
+        ),
+    )
+
+
+def _webrtc_output_value(
+    output_overrides: Mapping[str, object],
+    current_output: object,
+    name: str,
+    *,
+    default: object | None = None,
+) -> object | None:
+    if name in output_overrides:
+        return output_overrides[name]
+    if isinstance(current_output, WebRTCOutputSpec):
+        return getattr(current_output, name)
+    return default
+
+
 def _scenario_field(scenario: object, name: str) -> object | None:
     if isinstance(scenario, Mapping):
         return scenario.get(name)
@@ -595,6 +772,39 @@ def _positive_number(value: object, *, name: str) -> int | float:
     return number
 
 
+def _positive_int(value: object, *, name: str) -> int:
+    number = _positive_number(value, name=name)
+    return int(number)
+
+
+def _non_negative_int(value: object, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, not bool.")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float):
+        number = int(value)
+    elif isinstance(value, str):
+        number = int(value)
+    else:
+        raise TypeError(f"{name} must be an integer, got {type(value).__name__}.")
+    if number < 0:
+        raise ValueError(f"{name} must be >= 0.")
+    return number
+
+
+def _optional_path(value: object | None) -> Path | None:
+    if value is None:
+        return None
+    return Path(str(value))
+
+
+def _optional_str(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
 def _reject_unknown_output_keys(
     output_overrides: Mapping[str, object],
     *,
@@ -609,10 +819,10 @@ def _print_application_help(application_name: str, application: Application) -> 
     modes = ("null",)
     if isinstance(application, DemoAdapterApplication):
         supported = set(application.adapter.supported_output_modes())
-        modes = tuple(mode for mode in ("mp4", "null") if mode in supported)
+        modes = tuple(mode for mode in ("mp4", "null", "webrtc") if mode in supported)
     print(f"Usage: flashdreams-run {application_name} <mode> [options]")
     print(f"Available direct application modes: {', '.join(modes)}")
-    print("Use --scenario.KEY VALUE and --output.KEY VALUE for finite-mode settings.")
+    print("Use --scenario.KEY VALUE and --output.KEY VALUE for mode settings.")
 
 
 def _prepare_cli_args(

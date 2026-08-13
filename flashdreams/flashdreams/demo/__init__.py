@@ -7,6 +7,7 @@ from flashdreams.demo.app import (
     DemoApplication,
     create_demo_application,
     run_application_replay,
+    run_application_webrtc,
     run_replay_application,
 )
 from flashdreams.demo.application import (
@@ -84,5 +85,6 @@ __all__ = [
     "create_webrtc_io_handler",
     "input_state_from_window",
     "run_application_replay",
+    "run_application_webrtc",
     "run_replay_application",
 ]

@@ -728,6 +728,19 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Model runtime driven by this transport manager."""
         return self._runtime
 
+    @property
+    def shared_spec(self) -> DemoSpec | None:
+        """Current shared spec used to create new WebRTC sessions."""
+        return self._shared_spec
+
+    def update_shared_spec(self, spec: DemoSpec) -> None:
+        """Replace the shared spec and rebuild the prepared scenario."""
+        adapter = self._shared_adapter
+        if adapter is None:
+            raise RuntimeError("This WebRTC manager has no shared demo adapter.")
+        self._shared_spec = spec
+        self._shared_scenario = adapter.prepare_scenario(spec)
+
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""
         if self.has_active_session():

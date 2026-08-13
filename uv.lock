@@ -1430,11 +1430,11 @@ name = "flashdreams-t2v"
 version = "0.1.0"
 source = { editable = "apps/t2v" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-t2v-demo"

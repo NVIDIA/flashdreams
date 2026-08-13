@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 import torch
@@ -18,13 +19,27 @@ from flashdreams.runtime.demo.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
 )
+from flashdreams.runtime.demo.host import RuntimeHost
 from flashdreams.runtime.demo.outputs import build_output_sink
 from flashdreams.runtime.demo.run_modes import RunResult
-from flashdreams.runtime.demo.spec import DemoAdapter, DemoSpec
+from flashdreams.runtime.demo.spec import (
+    DemoAdapter,
+    DemoSpec,
+    WebRTCAppResources,
+    WebRTCOutputSpec,
+)
 
 from .application import Application, DemoAdapterApplication, IOHandler
 from .io import IOHandlerServer, create_replay_io_handler
 from .runner import Runner
+
+
+@dataclass(frozen=True, slots=True)
+class _PublicWebRTCConfig:
+    video_width: int
+    video_height: int
+    warmup_chunks: int
+    warmup_timeout_s: float
 
 
 class DemoApplication:
@@ -127,7 +142,9 @@ class DemoApplication:
 
 def run_replay_application(*, spec: DemoSpec, adapter: DemoAdapter) -> RunResult:
     """Run a finite demo spec through the public replay IO factory and runner."""
-    return run_application_replay(app=DemoAdapterApplication(adapter=adapter, spec=spec))
+    return run_application_replay(
+        app=DemoAdapterApplication(adapter=adapter, spec=spec)
+    )
 
 
 def run_application_replay(
@@ -142,6 +159,63 @@ def run_application_replay(
         app=app,
         launch_args=tuple(launch_args),
     ).run()
+
+
+def run_application_webrtc(
+    *, app: Application, launch_args: Sequence[str] = ()
+) -> object:
+    """Serve a public ``DemoAdapterApplication`` through shared WebRTC serving."""
+    del launch_args
+    if not isinstance(app, DemoAdapterApplication):
+        raise ValueError(
+            "Direct WebRTC application launch requires DemoAdapterApplication."
+        )
+    output = app.spec.output
+    if not isinstance(output, WebRTCOutputSpec):
+        raise ValueError("Direct WebRTC application launch requires WebRTCOutputSpec.")
+    configure_logging()
+    config = app.spec.config
+    if config is None:
+        raise ValueError("Direct WebRTC application launch requires DemoSpec.config.")
+    context = initialize_cuda_distributed(
+        default_device=config.device or "cuda",
+        distributed_init_fn=distributed_init,
+        configure_logging_fn=configure_logging,
+        torch_module=torch,
+        dist_module=dist,
+    )
+    web_config = replace(config, device=str(context.device))
+    spec = replace(
+        app.spec,
+        input_mode="webrtc",
+        config=web_config,
+    )
+    adapter = app.adapter
+    scenario = adapter.prepare_scenario(spec)
+    runtime = adapter.create_runtime(web_config)
+    manager = _create_application_webrtc_manager(
+        runtime=runtime,
+        output=output,
+        spec=spec,
+        scenario=scenario,
+        adapter=adapter,
+    )
+    app_resources = _create_application_webrtc_resources(
+        adapter=adapter,
+        manager=manager,
+        output=output,
+        spec=spec,
+    )
+
+    from flashdreams.serving.webrtc.demo import serve_webrtc_demo
+
+    return serve_webrtc_demo(
+        output=output,
+        model_id=spec.model_id,
+        session_manager=manager,
+        app_resources=app_resources,
+        world_rank=context.world_rank,
+    )
 
 
 def create_demo_application(
@@ -160,6 +234,81 @@ def create_demo_application(
     )
 
 
+def _create_application_webrtc_manager(
+    *,
+    runtime: Any,
+    output: WebRTCOutputSpec,
+    spec: DemoSpec,
+    scenario: Any,
+    adapter: DemoAdapter,
+) -> Any:
+    from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+
+    return BaseWebRTCSessionManager(
+        runtime=runtime,
+        runtime_config=_PublicWebRTCConfig(
+            video_width=output.video_width,
+            video_height=output.video_height,
+            warmup_chunks=output.warmup_chunks,
+            warmup_timeout_s=output.warmup_timeout_s,
+        ),
+        fps=output.fps,
+        identity=str(getattr(adapter, "model_id", spec.model_id)),
+        warmup_label=output.preload_name
+        or _metadata_str(spec, "webrtc_preload_name", default="WebRTC"),
+        supported_control_keys=_metadata_string_set(
+            spec, "webrtc_supported_control_keys"
+        ),
+        client_liveness_timeout_s=output.client_liveness_timeout_s,
+        shared_host=RuntimeHost(runtime),
+        shared_adapter=adapter,
+        shared_spec=spec,
+        shared_scenario=scenario,
+        keep_connection_after_completed=bool(
+            spec.metadata.get("webrtc_keep_connection_after_completed", False)
+        ),
+    )
+
+
+def _create_application_webrtc_resources(
+    *,
+    adapter: DemoAdapter,
+    manager: Any,
+    output: WebRTCOutputSpec,
+    spec: DemoSpec,
+) -> WebRTCAppResources:
+    factory = getattr(adapter, "create_webrtc_app_resources", None)
+    if callable(factory):
+        resources = factory(manager=manager, output=output, spec=spec)
+        if not isinstance(resources, WebRTCAppResources):
+            raise TypeError(
+                "Demo adapter create_webrtc_app_resources(...) must return "
+                f"WebRTCAppResources, got {type(resources).__name__}."
+            )
+        return resources
+    resources = spec.metadata.get("webrtc_app_resources")
+    if isinstance(resources, WebRTCAppResources):
+        return resources
+    return WebRTCAppResources(preload_name=output.preload_name or spec.model_id)
+
+
+def _metadata_str(spec: DemoSpec, name: str, *, default: str) -> str:
+    value = spec.metadata.get(name, default)
+    return str(value)
+
+
+def _metadata_string_set(spec: DemoSpec, name: str) -> frozenset[str] | None:
+    value = spec.metadata.get(name)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return frozenset({value})
+    try:
+        return frozenset(str(item) for item in value)
+    except TypeError as exc:
+        raise TypeError(f"DemoSpec.metadata[{name!r}] must be iterable.") from exc
+
+
 def _raise_for_failed_result(result: RunResult) -> None:
     if result.status in {"completed", "skipped"}:
         return
@@ -173,6 +322,7 @@ def _raise_for_failed_result(result: RunResult) -> None:
 __all__ = [
     "DemoApplication",
     "create_demo_application",
+    "run_application_webrtc",
     "run_application_replay",
     "run_replay_application",
 ]

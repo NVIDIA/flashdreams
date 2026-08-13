@@ -17,7 +17,52 @@
 
 from __future__ import annotations
 
-from cosmos_predict2.runner import Cosmos2I2VRunnerConfig, Cosmos2T2VRunnerConfig
+from dataclasses import dataclass
+from pathlib import Path
+
+from flashdreams.runtime.video_runner import (
+    ImageConditionedVideoRunnerConfig,
+    VideoRunnerConfig,
+)
+
+DEFAULT_PROMPT = (
+    "A high-definition video captures the precision of robotic welding in an industrial setting. "
+    "The first frame showcases a robotic arm, equipped with a welding torch, positioned over a "
+    "large metal structure. The welding process is in full swing, with bright sparks and intense "
+    "light illuminating the scene, creating a vivid display of blue and white hues. A significant "
+    "amount of smoke billows around the welding area, partially obscuring the view but emphasizing "
+    "the heat and activity. The background reveals parts of the workshop environment, including a "
+    "ventilation system and various pieces of machinery, indicating a busy and functional industrial "
+    "workspace. As the video progresses, the robotic arm maintains its steady position, continuing "
+    "the welding process and moving to its left. The welding torch consistently emits sparks and light, "
+    "and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath "
+    "the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, "
+    "with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of "
+    "the welding operation."
+)
+"""Default demo prompt used when no ``--prompt`` is supplied."""
+
+DEFAULT_I2V_IMAGE_URL = "https://media.githubusercontent.com/media/nvidia-cosmos/cosmos-predict2.5/refs/heads/main/assets/base/robot_welding.jpg"
+
+
+@dataclass(kw_only=True)
+class Cosmos2T2VRunnerConfig(VideoRunnerConfig):
+    """Runner config for the Cosmos-Predict2 T2V variant."""
+
+    prompt: str | Path = DEFAULT_PROMPT
+    pixel_height: int = 720
+    pixel_width: int = 1280
+    fps: int = 16
+
+
+@dataclass(kw_only=True)
+class Cosmos2I2VRunnerConfig(ImageConditionedVideoRunnerConfig, Cosmos2T2VRunnerConfig):
+    """Runner config for the Cosmos-Predict2 I2V variant."""
+
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    image_cache_subdir = "cosmos_predict2"
+
+
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCSchedulerConfig,

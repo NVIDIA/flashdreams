@@ -39,6 +39,7 @@ from flashdreams.demo import (
     create_webrtc_io_handler,
     input_state_from_window,
     run_application_replay,
+    run_application_webrtc,
 )
 from flashdreams.runtime import (
     CanonicalInputSchema,
@@ -95,6 +96,7 @@ def test_public_demo_contracts_are_importable() -> None:
     assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
     assert run_application_replay.__name__ == "run_application_replay"
+    assert run_application_webrtc.__name__ == "run_application_webrtc"
     assert create_demo_application.__name__ == "create_demo_application"
     assert create_replay_io_handler.__name__ == "create_replay_io_handler"
     assert create_native_window_io_handler.__name__ == (

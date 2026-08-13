@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 from torch import Tensor
@@ -32,7 +34,32 @@ from flashdreams.recipes.wan import (
     WanInferencePipelineConfig,
     WanVAEDecoderConfig,
 )
-from self_forcing.runner import SelfForcingT2VRunnerConfig
+from flashdreams.runtime.video_runner import StreamingVideoRunnerConfig
+
+DEFAULT_T2V_PROMPT = (
+    "A stylish woman strolls down a bustling Tokyo street, the warm glow of "
+    "neon lights and animated city signs casting vibrant reflections. She "
+    "wears a sleek black leather jacket paired with a flowing red dress and "
+    "black boots, her black purse slung over her shoulder. Sunglasses perched "
+    "on her nose and a bold red lipstick add to her confident, casual "
+    "demeanor. The street is damp and reflective, creating a mirror-like "
+    "effect that enhances the colorful lights and shadows. Pedestrians move "
+    "about, adding to the lively atmosphere. The scene is captured in a "
+    "dynamic medium shot with the woman walking slightly to one side, "
+    "highlighting her graceful strides."
+)
+
+
+@dataclass(kw_only=True)
+class SelfForcingT2VRunnerConfig(StreamingVideoRunnerConfig):
+    """Runner config for the Self-Forcing T2V variants."""
+
+    prompt: str | Path = DEFAULT_T2V_PROMPT
+    total_blocks: int = 60
+    pixel_height: int = 480
+    pixel_width: int = 832
+    fps: int = 16
+
 
 CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt"
 

@@ -17,6 +17,7 @@ from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
+    InferenceRuntime,
     InputMapping,
 )
 from flashdreams.runtime.demo import (
@@ -25,6 +26,7 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     PreparedScenario,
     RunResult,
+    WebRTCOutputSpec,
 )
 from flashdreams.scripts import cli
 from flashdreams.serving.launch import ResolvedLaunch, resolve_launch
@@ -146,6 +148,49 @@ def test_entrypoint_application_null_rejects_output_path(
 
     with pytest.raises(ValueError, match="Unsupported application output fields: path"):
         cli.entrypoint(["test-app", "null", "--output.path", "unexpected.mp4"])
+
+
+def test_entrypoint_launches_application_slug_webrtc_directly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[DemoAdapterApplication, tuple[str, ...]]] = []
+
+    def fake_run_application_webrtc(
+        *, app: object, launch_args: tuple[str, ...] = ()
+    ) -> RunResult:
+        assert isinstance(app, DemoAdapterApplication)
+        captured.append((app, launch_args))
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(cli, "all_runners", lambda: {})
+    monkeypatch.setattr(
+        cli,
+        "discover_applications",
+        lambda: {"test-app": _application()},
+    )
+    monkeypatch.setattr(cli, "run_application_webrtc", fake_run_application_webrtc)
+
+    cli.entrypoint(
+        [
+            "test-app",
+            "webrtc",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8089",
+            "--scenario.fps",
+            "12",
+        ]
+    )
+
+    configured, launch_args = captured[0]
+    assert launch_args == ()
+    assert configured.spec.input_mode == "webrtc"
+    output = configured.spec.output
+    assert isinstance(output, WebRTCOutputSpec)
+    assert output.host == "0.0.0.0"
+    assert output.port == 8089
+    assert output.fps == 12
 
 
 def test_launch_manifest_does_not_guess_configs_directory(
@@ -540,10 +585,10 @@ class _CliApplicationAdapter:
     canonical_input_schema = CanonicalInputSchema()
 
     def supported_input_modes(self) -> tuple[str, ...]:
-        return ("replay",)
+        return ("replay", "webrtc")
 
     def supported_output_modes(self) -> tuple[str, ...]:
-        return ("mp4", "null")
+        return ("mp4", "null", "webrtc")
 
     def default_input_mapping(self) -> InputMapping:
         return IdentityInputMapping()
@@ -555,6 +600,6 @@ class _CliApplicationAdapter:
         del spec
         return PreparedScenario(initial_inputs=InferenceInput())
 
-    def create_runtime(self, config: InferenceConfig) -> object:
+    def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
         del config
         raise AssertionError("direct app CLI test should not instantiate the runtime")

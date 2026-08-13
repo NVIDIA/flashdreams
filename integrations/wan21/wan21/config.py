@@ -17,6 +17,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCSchedulerConfig,
@@ -32,7 +35,46 @@ from flashdreams.recipes.wan import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
-from wan21.runner import Wan21I2VRunnerConfig, Wan21T2VRunnerConfig
+from flashdreams.runtime.video_runner import (
+    ImageConditionedVideoRunnerConfig,
+    VideoRunnerConfig,
+)
+
+DEFAULT_PROMPT = (
+    "Summer beach vacation style, a white cat wearing sunglasses sits on "
+    "a surfboard. The fluffy-furred feline gazes directly at the camera "
+    "with a relaxed expression. Blurred beach scenery forms the background "
+    "featuring crystal-clear waters, distant green hills, and a blue sky "
+    "dotted with white clouds. The cat assumes a naturally relaxed posture, "
+    "as if savoring the sea breeze and warm sunlight. A close-up shot "
+    "highlights the feline's intricate details and the refreshing "
+    "atmosphere of the seaside."
+)
+
+DEFAULT_I2V_IMAGE_URL = (
+    "https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG"
+)
+
+
+@dataclass(kw_only=True)
+class Wan21T2VRunnerConfig(VideoRunnerConfig):
+    """Runner config for the Wan 2.1 T2V variant."""
+
+    prompt: str | Path = DEFAULT_PROMPT
+    pixel_height: int = 480
+    pixel_width: int = 832
+    fps: int = 16
+
+
+@dataclass(kw_only=True)
+class Wan21I2VRunnerConfig(ImageConditionedVideoRunnerConfig, Wan21T2VRunnerConfig):
+    """Runner config for the Wan 2.1 I2V variant."""
+
+    image_path: str | Path = DEFAULT_I2V_IMAGE_URL
+    image_cache_subdir = "wan21"
+    pixel_height: int = 832
+    pixel_width: int = 480
+
 
 CHECKPOINT_PATH_T2V_1PT3B = (
     "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/"
