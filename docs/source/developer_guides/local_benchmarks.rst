@@ -168,7 +168,10 @@ The commands below intentionally list scenario ids instead of using ``--all``;
 ``--all`` also includes built-in smoke scenarios that are not part of this
 LingBot and Omnidreams quality workflow. The generated FPS in the report is
 computed from post-warmup generated frames divided by post-warmup runtime
-seconds. It is not display or MP4 playback FPS.
+seconds. It is not display or MP4 playback FPS. The shipped migrated-demo
+scenarios exclude measured warmup blocks from the performance summary while
+keeping the generated MP4 duration unchanged: LingBot drops the first 6 blocks
+and Omnidreams drops the first 4 blocks.
 
 Standard Baseline And Candidate
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -386,6 +386,7 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
     assert _command_value(lingbot.command, "--output.stats-path") == (
         "{output_dir}/stats_lingbot_world_fast_taehv_one_minute.json"
     )
+    assert lingbot.warmup_steps == 6
     assert lingbot.requires_runtime_stats is True
     rendered = lingbot.rendered_command(
         context=_render_context(tmp_path, scenario_id=lingbot.id)
@@ -419,6 +420,7 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
         "{output_dir}/stats_omnidreams_sv_one_minute.json"
     )
     assert "--pipeline.diffusion-model.seed" in omnidreams.command
+    assert omnidreams.warmup_steps == 4
     assert omnidreams.requires_runtime_stats is True
 
 
@@ -439,6 +441,7 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     assert _command_value(baseline.command, "--total-blocks") == "226"
     assert "omnidreams" in baseline.command
     assert "omnidreams-perf" not in baseline.command
+    assert baseline.warmup_steps == 1
     assert baseline.quality_baseline_compare is False
 
     demo = scenarios["omnidreams-sv-demo-replay"]
@@ -460,6 +463,7 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     assert _command_value(demo.command, "--output.stats-path") == (
         "{output_dir}/stats_omnidreams_sv_demo_replay.json"
     )
+    assert demo.warmup_steps == 4
     assert demo.requires_runtime_stats is True
     rendered = demo.rendered_command(
         context=_render_context(repo_root, scenario_id=demo.id)
@@ -510,6 +514,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "{output_dir}/stats_omnidreams_sv_ci_quality_smoke.json"
     )
     assert omnidreams.output_dir_arg is None
+    assert omnidreams.warmup_steps == 4
     assert omnidreams.requires_runtime_stats is True
     assert omnidreams.quality_compare_region == "full"
     assert omnidreams.quality_baseline_compare is True
@@ -547,6 +552,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert lingbot.report_group is not None
     assert lingbot.report_group.id == "lingbot"
     assert lingbot.report_group.name == "LingBot"
+    assert lingbot.warmup_steps == 6
     assert lingbot.requires_runtime_stats is True
     assert lingbot.quality_compare_region == "full"
     assert lingbot.quality_baseline_compare is True
@@ -571,6 +577,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert _command_value(lingbot_review.command, "--output.stats-path") == (
         "{output_dir}/stats_lingbot_world_fast_taehv_one_minute_review.json"
     )
+    assert lingbot_review.warmup_steps == 6
     assert lingbot_review.requires_runtime_stats is True
     assert lingbot_review.quality_baseline_compare is False
 
@@ -586,6 +593,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "{output_dir}/stats_omnidreams_sv_one_minute_review.json"
     )
     assert omnidreams_review.output_dir_arg is None
+    assert omnidreams_review.warmup_steps == 4
     assert omnidreams_review.requires_runtime_stats is True
     assert omnidreams_review.quality_baseline_compare is False
 

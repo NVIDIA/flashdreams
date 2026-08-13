@@ -55,7 +55,7 @@
         "1"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 6,
       "requires_runtime_stats": true,
       "quality_compare_region": "full",
       "timeout_s": 7200
@@ -108,7 +108,7 @@
         "1"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 4,
       "requires_runtime_stats": true,
       "quality_compare_region": "full",
       "timeout_s": 7200
@@ -157,7 +157,7 @@
         "{output_dir}/stats_lingbot_world_fast_taehv_one_minute_review.json"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 6,
       "requires_runtime_stats": true,
       "quality_baseline_compare": false,
       "timeout_s": 21600
@@ -209,7 +209,7 @@
         "1"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 4,
       "requires_runtime_stats": true,
       "quality_baseline_compare": false,
       "timeout_s": 21600

@@ -44,7 +44,7 @@
         "{output_dir}/stats_lingbot_world_fast_taehv_one_minute.json"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 6,
       "requires_runtime_stats": true,
       "timeout_s": 21600
     },
@@ -93,7 +93,7 @@
         "1"
       ],
       "output_dir_arg": null,
-      "warmup_steps": 1,
+      "warmup_steps": 4,
       "requires_runtime_stats": true,
       "timeout_s": 21600
     }
