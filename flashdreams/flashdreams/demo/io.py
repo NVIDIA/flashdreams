@@ -12,6 +12,7 @@ from typing import Any, Protocol, runtime_checkable
 from flashdreams.runtime.demo.drivers import BatchSessionDriver
 from flashdreams.runtime.demo.host import ModelWarmupPlan, RuntimeHost
 from flashdreams.runtime.demo.outputs import (
+    CompositeOutputSinkError,
     NullOutputSink,
     OutputDecision,
     OutputSink,
@@ -101,9 +102,18 @@ class ReplayIOHandler:
 
     def open(self, session_info: SessionInfo) -> None:
         self._opened_session_info = session_info
-        open_output = getattr(self._output_sink, "open", None)
-        if callable(open_output):
-            open_output(session_info)
+        opened: list[object] = []
+        errors: list[BaseException] = []
+        for tail in _output_tails(self._output_sink, self.metric_output_sink):
+            try:
+                if _open_optional_output(tail, session_info):
+                    opened.append(tail)
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            for tail in reversed(opened):
+                _close_optional_output(tail, artifacts=[], errors=errors)
+            raise CompositeOutputSinkError("open", errors)
 
     def next_window(self, requirements: StepRequirements) -> UserInputWindow:
         window = self._input_source.next_window(requirements)
@@ -121,9 +131,10 @@ class ReplayIOHandler:
 
     def begin_generation(self, generation: int) -> None:
         self._generation = generation
-        begin_generation = getattr(self._output_sink, "begin_generation", None)
-        if callable(begin_generation):
-            begin_generation(generation)
+        for tail in _output_tails(self._output_sink, self.metric_output_sink):
+            begin_generation = getattr(tail, "begin_generation", None)
+            if callable(begin_generation):
+                begin_generation(generation)
 
     def emit_chunk(self, result: StepResult) -> OutputDecision:
         write = getattr(self._output_sink, "write", None)
@@ -139,7 +150,10 @@ class ReplayIOHandler:
             handle_output = getattr(self._output_sink, "handle_output")
             handle_output(timestamp_s, result)
             decision = OutputDecision()
-        if self.metric_output_sink is not None:
+        if (
+            self.metric_output_sink is not None
+            and self.metric_output_sink is not self._output_sink
+        ):
             self.metric_output_sink.handle_output(_result_timestamp_s(result), result)
         if decision.should_stop:
             self._should_exit = True
@@ -151,13 +165,13 @@ class ReplayIOHandler:
     def close(self) -> Sequence[OutputArtifact]:
         self._closed = True
         self._should_exit = True
-        close = getattr(self._output_sink, "close", None)
-        if callable(close):
-            artifacts = close()
-            if artifacts is None:
-                return ()
-            return tuple(artifacts)
-        return ()
+        artifacts: list[OutputArtifact] = []
+        errors: list[BaseException] = []
+        for tail in _output_tails(self._output_sink, self.metric_output_sink):
+            _close_optional_output(tail, artifacts=artifacts, errors=errors)
+        if errors:
+            raise CompositeOutputSinkError("close", errors)
+        return tuple(artifacts)
 
 
 @dataclass(slots=True)
@@ -327,6 +341,46 @@ class IOHandlerOutputSink:
 
     def close(self) -> Sequence[OutputArtifact]:
         return self.io_handler.close()
+
+
+def _output_tails(*tails: object | None) -> tuple[object, ...]:
+    distinct: list[object] = []
+    seen: set[int] = set()
+    for tail in tails:
+        if tail is None:
+            continue
+        tail_id = id(tail)
+        if tail_id in seen:
+            continue
+        seen.add(tail_id)
+        distinct.append(tail)
+    return tuple(distinct)
+
+
+def _open_optional_output(tail: object, session_info: SessionInfo) -> bool:
+    open_output = getattr(tail, "open", None)
+    if callable(open_output):
+        open_output(session_info)
+        return True
+    return False
+
+
+def _close_optional_output(
+    tail: object,
+    *,
+    artifacts: list[OutputArtifact],
+    errors: list[BaseException],
+) -> None:
+    close = getattr(tail, "close", None)
+    if not callable(close):
+        return
+    try:
+        closed_artifacts = close()
+    except Exception as exc:
+        errors.append(exc)
+        return
+    if closed_artifacts is not None:
+        artifacts.extend(closed_artifacts)
 
 
 def create_replay_io_handler(

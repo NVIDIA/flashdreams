@@ -25,8 +25,11 @@ from flashdreams.runtime.demo.host import (
 )
 from flashdreams.runtime.demo.outputs import (
     BenchmarkStatsOutputSink,
+    ComparisonOutputMismatchError,
+    ComparisonOutputSink,
     CompositeOutputSink,
     CompositeOutputSinkError,
+    FileOutputSink,
     Mp4OutputSink,
     NullOutputSink,
     OutputDecision,
@@ -133,6 +136,8 @@ __all__ = [
     "BenchmarkStatsOutputSink",
     "BenchmarkRunMode",
     "BenchmarkErrorPolicy",
+    "ComparisonOutputMismatchError",
+    "ComparisonOutputSink",
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "CatchUpDecision",
@@ -140,6 +145,7 @@ __all__ = [
     "CompositeOutputSink",
     "CompositeOutputSinkError",
     "DeterministicClock",
+    "FileOutputSink",
     "MetricsSnapshot",
     "ModelWarmupAdapter",
     "ModelWarmupPlan",

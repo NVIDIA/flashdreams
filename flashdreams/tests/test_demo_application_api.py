@@ -8,6 +8,7 @@ import asyncio
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,9 +17,12 @@ import flashdreams.demo.runner as demo_runner
 from flashdreams.demo import (
     Application,
     ApplicationSession,
+    BenchmarkStatsOutputSink,
     CallbackIOHandlerServer,
+    ComparisonOutputSink,
     DemoAdapterApplication,
     DemoApplication,
+    FileOutputSink,
     FrameOutputSink,
     InferenceSessionApplicationAdapter,
     InputName,
@@ -80,7 +84,10 @@ pytestmark = pytest.mark.ci_cpu
 def test_public_demo_contracts_are_importable() -> None:
     assert Application.__name__ == "Application"
     assert ApplicationSession.__name__ == "ApplicationSession"
+    assert BenchmarkStatsOutputSink.__name__ == "BenchmarkStatsOutputSink"
     assert DemoApplication.__name__ == "DemoApplication"
+    assert ComparisonOutputSink.__name__ == "ComparisonOutputSink"
+    assert FileOutputSink.__name__ == "Mp4OutputSink"
     assert IOHandler.__name__ == "IOHandler"
     assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
@@ -597,6 +604,25 @@ def test_replay_io_factory_should_exit_tracks_output_stop() -> None:
     assert io_handler.should_exit()
 
 
+def test_replay_io_factory_can_gate_ci_output_correctness() -> None:
+    expected = StepResult(
+        step_index=0,
+        output="runner-chunk-0",
+        frame_count=1,
+        output_window=TimeWindow(start_s=0.0, end_s=1.0),
+    )
+    comparison_tail = ComparisonOutputSink((expected,))
+    io_handler = create_replay_io_handler(output_sink=comparison_tail)
+
+    result = Runner(
+        io_handler=io_handler,
+        app=_RunnerFakeApplication(total_steps=1),
+        model_id="fake-replay-factory",
+    ).run()
+
+    assert result.status == "completed"
+
+
 def test_replay_io_factory_forwards_to_metric_tail() -> None:
     metric_tail = _RecordingFrameOutputSink()
     io_handler = create_replay_io_handler(metric_output_sink=metric_tail)
@@ -609,6 +635,22 @@ def test_replay_io_factory_forwards_to_metric_tail() -> None:
 
     assert result.status == "completed"
     assert metric_tail.records == [(0.0, 0)]
+
+
+def test_replay_io_factory_closes_benchmark_metric_tail(tmp_path: Path) -> None:
+    stats_path = tmp_path / "replay-stats.json"
+    metric_tail = BenchmarkStatsOutputSink(output_path=stats_path)
+    io_handler = create_replay_io_handler(metric_output_sink=metric_tail)
+
+    result = Runner(
+        io_handler=io_handler,
+        app=_RunnerFakeApplication(total_steps=1),
+        model_id="fake-replay-factory",
+    ).run()
+
+    assert result.status == "completed"
+    assert tuple(artifact.uri for artifact in result.artifacts) == (str(stats_path),)
+    assert stats_path.exists()
 
 
 def test_native_window_factory_exposes_io_handler_shape() -> None:

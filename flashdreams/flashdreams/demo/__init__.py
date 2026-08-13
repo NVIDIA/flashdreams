@@ -37,13 +37,23 @@ from flashdreams.demo.io import (
     create_webrtc_io_handler,
 )
 from flashdreams.demo.runner import Runner
+from flashdreams.runtime.demo.outputs import (
+    BenchmarkStatsOutputSink,
+    ComparisonOutputMismatchError,
+    ComparisonOutputSink,
+    FileOutputSink,
+)
 
 __all__ = [
     "Application",
     "ApplicationSession",
+    "BenchmarkStatsOutputSink",
     "CallbackIOHandlerServer",
+    "ComparisonOutputMismatchError",
+    "ComparisonOutputSink",
     "DemoAdapterApplication",
     "DemoApplication",
+    "FileOutputSink",
     "FrameOutputSink",
     "IApplication",
     "IApplicationSession",

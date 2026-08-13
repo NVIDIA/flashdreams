@@ -15,9 +15,12 @@ import torch
 from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
+    ComparisonOutputMismatchError,
+    ComparisonOutputSink,
     CompositeOutputSink,
     CompositeOutputSinkError,
     DemoSpec,
+    FileOutputSink,
     Mp4OutputSink,
     Mp4OutputSpec,
     NullOutputSink,
@@ -104,6 +107,57 @@ def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
             "shape": (3, 4, 10, 3),
             "path": tmp_path / "out.mp4",
             "fps": 24,
+            "layout": "thwc",
+        }
+    ]
+
+
+def test_file_output_sink_exposes_narrow_frame_tail(tmp_path: Path) -> None:
+    writer_calls: list[dict[str, Any]] = []
+
+    def fake_writer(
+        video: torch.Tensor,
+        path: Path,
+        *,
+        fps: int | float,
+        layout: str,
+        install_hint: str,
+    ) -> Path:
+        del install_hint
+        writer_calls.append(
+            {
+                "shape": tuple(video.shape),
+                "path": path,
+                "fps": fps,
+                "layout": layout,
+            }
+        )
+        return path
+
+    sink = FileOutputSink(
+        output_path=tmp_path / "tail.mp4",
+        fps=8,
+        writer=fake_writer,
+        move_to_cpu=False,
+    )
+    sink.open(SessionInfo(output_layout="bvtchw"))
+
+    sink.handle_output(
+        4.0,
+        StepResult.from_video_chunk(
+            step_index=0,
+            video_chunk=torch.zeros((1, 1, 1, 3, 2, 2)),
+            layout="bvtchw",
+        ),
+    )
+    artifacts = tuple(sink.close())
+
+    assert artifacts[0].uri == str(tmp_path / "tail.mp4")
+    assert writer_calls == [
+        {
+            "shape": (1, 2, 2, 3),
+            "path": tmp_path / "tail.mp4",
+            "fps": 8,
             "layout": "thwc",
         }
     ]
@@ -298,6 +352,74 @@ def test_benchmark_stats_output_sink_writes_runtime_metric_samples(
             "value": 30.0,
         },
     ]
+
+
+def test_benchmark_stats_output_sink_exposes_narrow_frame_tail(tmp_path: Path) -> None:
+    sink = BenchmarkStatsOutputSink(output_path=tmp_path / "tail-stats.json")
+    sink.open(SessionInfo())
+
+    sink.handle_output(
+        0.0,
+        StepResult(step_index=0, frame_count=2, metrics={"model_step_s": 0.1}),
+    )
+    artifacts = tuple(sink.close())
+
+    assert artifacts[0].uri == str(tmp_path / "tail-stats.json")
+    payload = json.loads((tmp_path / "tail-stats.json").read_text(encoding="utf-8"))
+    assert payload["steps"] == [
+        {
+            "frame_count": 2,
+            "metadata": {},
+            "metrics": {"model_step_s": 0.1},
+            "sample_count": 1,
+            "step_index": 0,
+        }
+    ]
+
+
+def test_comparison_output_sink_accepts_matching_results() -> None:
+    result = StepResult.from_video_chunk(
+        step_index=0,
+        video_chunk=torch.zeros((1, 1, 1, 3, 2, 2)),
+        layout="bvtchw",
+        output_window=TimeWindow(start_s=0.0, end_s=1.0),
+        metrics={"model_step_s": 0.1},
+    )
+    sink = ComparisonOutputSink((result,))
+    sink.open(SessionInfo(output_layout="bvtchw"))
+
+    decision = sink.write(result)
+    artifacts = tuple(sink.close())
+
+    assert decision == OutputDecision()
+    assert artifacts == ()
+
+
+def test_comparison_output_sink_detects_output_regression() -> None:
+    expected = StepResult.from_video_chunk(
+        step_index=0,
+        video_chunk=torch.zeros((1, 1, 1, 3, 2, 2)),
+        layout="bvtchw",
+    )
+    actual = StepResult.from_video_chunk(
+        step_index=0,
+        video_chunk=torch.ones((1, 1, 1, 3, 2, 2)),
+        layout="bvtchw",
+    )
+    sink = ComparisonOutputSink((expected,))
+    sink.open(SessionInfo(output_layout="bvtchw"))
+
+    with pytest.raises(ComparisonOutputMismatchError, match="output tensor values"):
+        sink.write(actual)
+
+
+def test_comparison_output_sink_detects_missing_result_on_close() -> None:
+    expected = StepResult(step_index=0, frame_count=1)
+    sink = ComparisonOutputSink((expected,), compare_output=False)
+    sink.open(SessionInfo())
+
+    with pytest.raises(ComparisonOutputMismatchError, match="Missing 1 expected"):
+        sink.close()
 
 
 def test_benchmark_output_sink_supports_stats_only(tmp_path: Path) -> None:

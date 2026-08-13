@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+import torch
+
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
@@ -102,6 +104,10 @@ class CompositeOutputSinkError(RuntimeError):
         )
 
 
+class ComparisonOutputMismatchError(AssertionError):
+    """Raised when generated output differs from an expected CI baseline."""
+
+
 @dataclass(slots=True)
 class NullOutputSink:
     """Output sink for headless runs and fake-model vertical-slice tests."""
@@ -134,6 +140,10 @@ class NullOutputSink:
         if self.store_results:
             self.results.append(_result_record(result))
         return OutputDecision()
+
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        del timestamp_s
+        self.write(chunk)
 
     def close(self) -> Sequence[OutputArtifact]:
         self.closed = True
@@ -201,6 +211,10 @@ class Mp4OutputSink:
         self._collector.add(result)
         return OutputDecision()
 
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        del timestamp_s
+        self.write(chunk)
+
     def close(self) -> Sequence[OutputArtifact]:
         if self._artifacts is not None:
             return self._artifacts
@@ -242,6 +256,9 @@ class Mp4OutputSink:
             ),
         )
         return self._artifacts
+
+
+FileOutputSink = Mp4OutputSink
 
 
 @dataclass(slots=True)
@@ -289,6 +306,10 @@ class BenchmarkStatsOutputSink:
         self._samples.extend(samples)
         return OutputDecision()
 
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        del timestamp_s
+        self.write(chunk)
+
     def close(self) -> Sequence[OutputArtifact]:
         if self._artifacts is not None:
             return self._artifacts
@@ -322,6 +343,84 @@ class BenchmarkStatsOutputSink:
             ),
         )
         return self._artifacts
+
+
+@dataclass(slots=True)
+class ComparisonOutputSink:
+    """Compare generated outputs against an expected deterministic sequence."""
+
+    expected_results: Sequence[StepResult]
+    compare_output: bool = True
+    compare_output_window: bool = True
+    compare_metrics: bool = False
+    compare_metadata: bool = False
+    rtol: float = 0.0
+    atol: float = 0.0
+    produces_artifacts: bool = False
+    _opened: bool = field(default=False, init=False, repr=False)
+    _closed: bool = field(default=True, init=False, repr=False)
+    _position: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.expected_results = tuple(self.expected_results)
+        if self.rtol < 0:
+            raise ValueError("ComparisonOutputSink.rtol must be >= 0.")
+        if self.atol < 0:
+            raise ValueError("ComparisonOutputSink.atol must be >= 0.")
+
+    def open(self, session_info: SessionInfo) -> None:
+        del session_info
+        self._position = 0
+        self._opened = True
+        self._closed = False
+
+    def begin_generation(self, generation: int) -> None:
+        if generation < 0:
+            raise ValueError("generation must be >= 0.")
+
+    def write(self, result: StepResult) -> OutputDecision:
+        if not self._opened or self._closed:
+            raise RuntimeError("Cannot write to a closed output sink.")
+        if self._position >= len(self.expected_results):
+            raise ComparisonOutputMismatchError(
+                "Unexpected output at position "
+                f"{self._position}: step_index={result.step_index}."
+            )
+
+        expected = self.expected_results[self._position]
+        mismatches = _compare_step_result(
+            expected=expected,
+            actual=result,
+            compare_output=self.compare_output,
+            compare_output_window=self.compare_output_window,
+            compare_metrics=self.compare_metrics,
+            compare_metadata=self.compare_metadata,
+            rtol=self.rtol,
+            atol=self.atol,
+        )
+        if mismatches:
+            details = "; ".join(mismatches)
+            raise ComparisonOutputMismatchError(
+                f"Output mismatch at position {self._position}: {details}"
+            )
+
+        self._position += 1
+        return OutputDecision()
+
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        del timestamp_s
+        self.write(chunk)
+
+    def close(self) -> Sequence[OutputArtifact]:
+        self._opened = False
+        self._closed = True
+        if self._position != len(self.expected_results):
+            missing = len(self.expected_results) - self._position
+            raise ComparisonOutputMismatchError(
+                f"Missing {missing} expected output(s); "
+                f"received {self._position} of {len(self.expected_results)}."
+            )
+        return ()
 
 
 @dataclass(slots=True)
@@ -382,6 +481,10 @@ class CompositeOutputSink:
             raise RuntimeError("Cannot write to a closed output sink.")
         return _combine_output_decisions(sink.write(result) for sink in self.sinks)
 
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        del timestamp_s
+        self.write(chunk)
+
     def close(self) -> Sequence[OutputArtifact]:
         if self._artifacts is not None:
             return self._artifacts
@@ -439,6 +542,101 @@ def build_benchmark_output_sink(
             stats_sink,
         )
     )
+
+
+def _compare_step_result(
+    *,
+    expected: StepResult,
+    actual: StepResult,
+    compare_output: bool,
+    compare_output_window: bool,
+    compare_metrics: bool,
+    compare_metadata: bool,
+    rtol: float,
+    atol: float,
+) -> tuple[str, ...]:
+    mismatches: list[str] = []
+    _compare_field(mismatches, "step_index", expected.step_index, actual.step_index)
+    _compare_field(mismatches, "frame_count", expected.frame_count, actual.frame_count)
+    _compare_field(mismatches, "layout", expected.layout, actual.layout)
+    if compare_output_window:
+        _compare_field(
+            mismatches,
+            "output_window",
+            expected.output_window,
+            actual.output_window,
+        )
+    if compare_metrics:
+        _compare_field(mismatches, "metrics", expected.metrics, actual.metrics)
+    if compare_metadata:
+        _compare_field(mismatches, "metadata", expected.metadata, actual.metadata)
+    if compare_output:
+        _compare_output(
+            mismatches,
+            expected.output,
+            actual.output,
+            rtol=rtol,
+            atol=atol,
+        )
+    return tuple(mismatches)
+
+
+def _compare_field(
+    mismatches: list[str],
+    name: str,
+    expected: object,
+    actual: object,
+) -> None:
+    if actual != expected:
+        mismatches.append(f"{name} expected {expected!r}, got {actual!r}")
+
+
+def _compare_output(
+    mismatches: list[str],
+    expected: object,
+    actual: object,
+    *,
+    rtol: float,
+    atol: float,
+) -> None:
+    if isinstance(expected, torch.Tensor) or isinstance(actual, torch.Tensor):
+        if not isinstance(expected, torch.Tensor) or not isinstance(
+            actual, torch.Tensor
+        ):
+            mismatches.append(
+                "output tensor type expected "
+                f"{type(expected).__name__}, got {type(actual).__name__}"
+            )
+            return
+        if tuple(actual.shape) != tuple(expected.shape):
+            mismatches.append(
+                f"output shape expected {tuple(expected.shape)}, "
+                f"got {tuple(actual.shape)}"
+            )
+            return
+        if actual.dtype != expected.dtype:
+            mismatches.append(
+                f"output dtype expected {expected.dtype}, got {actual.dtype}"
+            )
+            return
+        actual_cpu = actual.detach().cpu()
+        expected_cpu = expected.detach().cpu()
+        if actual_cpu.is_floating_point() or expected_cpu.is_floating_point():
+            matches = torch.allclose(
+                actual_cpu,
+                expected_cpu,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+            )
+        else:
+            matches = torch.equal(actual_cpu, expected_cpu)
+        if not matches:
+            mismatches.append("output tensor values differ")
+        return
+
+    if actual != expected:
+        mismatches.append(f"output expected {expected!r}, got {actual!r}")
 
 
 def _result_record(result: StepResult) -> Mapping[str, object]:
@@ -622,8 +820,11 @@ def build_output_target(
 
 __all__ = [
     "BenchmarkStatsOutputSink",
+    "ComparisonOutputMismatchError",
+    "ComparisonOutputSink",
     "CompositeOutputSinkError",
     "CompositeOutputSink",
+    "FileOutputSink",
     "Mp4OutputSink",
     "NullOutputSink",
     "OutputDecision",
