@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,17 +15,33 @@ from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.scene import (
     _build_fallback_perimeter,
     _build_lane_centerlines,
-    _build_lane_exit_caps,
+    _build_lane_network_perimeter,
     load_scene_data,
 )
 from omnidreams.interactive_drive.scene_loader import (
     _discover_prompts,
     load_scene_bundle,
 )
+from shapely.geometry import Point, Polygon
 
 
 def _point(x_m: float, y_m: float, z_m: float = 0.0) -> dict[str, float]:
     return {"x": x_m, "y": y_m, "z": z_m}
+
+
+def _lane_row_from_rails(
+    left_rail: tuple[dict[str, float], ...],
+    right_rail: tuple[dict[str, float], ...],
+    *,
+    vehicle_types: tuple[str, ...] = ("CAR",),
+) -> dict[str, Any]:
+    return {
+        "lane": {
+            "left_rail": list(left_rail),
+            "right_rail": list(right_rail),
+            "vehicle_types": list(vehicle_types),
+        }
+    }
 
 
 def _lane_row(
@@ -33,7 +50,8 @@ def _lane_row(
     end_x_m: float,
     center_y_m: float,
     map_end: str,
-) -> dict[str, object]:
+    use_types: tuple[str, ...] = (),
+) -> dict[str, Any]:
     return {
         "lane": {
             "left_rail": [
@@ -46,8 +64,13 @@ def _lane_row(
             ],
             "vehicle_types": ["CAR"],
             "map_end": map_end,
+            "use_types": list(use_types),
         }
     }
+
+
+def _boundary_row(*points: dict[str, float]) -> dict[str, Any]:
+    return {"road_boundary": {"location": list(points)}}
 
 
 def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
@@ -77,27 +100,68 @@ def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
     )
 
 
-def test_lane_map_end_caps_only_the_labelled_terminal_side() -> None:
-    rows = [
-        _lane_row(start_x_m=0.0, end_x_m=10.0, center_y_m=0.0, map_end="FRONT"),
-        _lane_row(start_x_m=20.0, end_x_m=30.0, center_y_m=0.0, map_end="BACK"),
-        _lane_row(start_x_m=40.0, end_x_m=50.0, center_y_m=0.0, map_end="NONE"),
+def test_lane_network_perimeter_is_closed_beyond_lane_rails() -> None:
+    lanes = [_lane_row(start_x_m=0.0, end_x_m=30.0, center_y_m=0.0, map_end="NONE")]
+
+    perimeter = _build_lane_network_perimeter(
+        lanes,
+        np.asarray([5.0, 0.0], dtype=np.float32),
+    )
+
+    assert len(perimeter) >= 4
+    np.testing.assert_allclose(perimeter[:, 1], np.roll(perimeter[:, 0], -1, axis=0))
+    assert float(perimeter[:, :, 0].min()) < 0.0
+    assert float(perimeter[:, :, 0].max()) > 30.0
+    assert float(perimeter[:, :, 1].min()) < -2.0
+    assert float(perimeter[:, :, 1].max()) > 2.0
+
+
+def test_lane_network_perimeter_wraps_connected_branches_without_internal_caps() -> (
+    None
+):
+    lanes = [
+        _lane_row(start_x_m=0.0, end_x_m=30.0, center_y_m=0.0, map_end="NONE"),
+        _lane_row_from_rails(
+            (_point(13.0, 0.0), _point(13.0, 20.0)),
+            (_point(17.0, 0.0), _point(17.0, 20.0)),
+        ),
     ]
 
-    caps = _build_lane_exit_caps(rows)  # type: ignore[arg-type]
+    perimeter = _build_lane_network_perimeter(
+        lanes,
+        np.asarray([5.0, 0.0], dtype=np.float32),
+    )
+    ring = Polygon(perimeter[:, 0, :2])
 
-    assert caps.shape == (2, 2, 3)
-    np.testing.assert_allclose(caps[0, :, 0], [10.0, 10.0])
-    np.testing.assert_allclose(caps[1, :, 0], [20.0, 20.0])
-    np.testing.assert_allclose(np.sort(caps[:, :, 1], axis=1), [[-2.0, 2.0]] * 2)
+    assert ring.is_valid
+    assert ring.covers(Point(15.0, 10.0))
+
+
+def test_lane_network_perimeter_excludes_disconnected_parking_area() -> None:
+    lanes = [
+        _lane_row(start_x_m=0.0, end_x_m=30.0, center_y_m=0.0, map_end="NONE"),
+        _lane_row(
+            start_x_m=100.0,
+            end_x_m=120.0,
+            center_y_m=100.0,
+            map_end="NONE",
+            use_types=("SERVICE_ROAD",),
+        ),
+    ]
+
+    perimeter = _build_lane_network_perimeter(
+        lanes,
+        np.asarray([5.0, 0.0], dtype=np.float32),
+    )
+
+    assert float(perimeter[:, :, 0].max()) < 100.0
+    assert float(perimeter[:, :, 1].max()) < 100.0
 
 
 def test_fallback_perimeter_is_closed_outside_navigation_extent() -> None:
     rows = [_lane_row(start_x_m=0.0, end_x_m=10.0, center_y_m=5.0, map_end="NONE")]
 
-    boundary_rows = [
-        {"road_boundary": {"location": [_point(-50.0, 0.0), _point(-40.0, 0.0)]}}
-    ]
+    boundary_rows = [_boundary_row(_point(-50.0, 0.0), _point(-40.0, 0.0))]
 
     perimeter = _build_fallback_perimeter(  # type: ignore[arg-type]
         rows, boundary_rows
@@ -153,8 +217,11 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert len(scene_data.reference_route_world) >= 2
     assert len(scene_data.navigation_routes_world) > 100
     assert len(scene_data.navigation_lanes) > 100
-    assert len(scene_data.exit_cap_segments_world) > 0
-    assert scene_data.perimeter_segments_world.shape == (4, 2, 3)
+    assert len(scene_data.perimeter_segments_world) > 100
+    np.testing.assert_allclose(
+        scene_data.perimeter_segments_world[:, 1],
+        np.roll(scene_data.perimeter_segments_world[:, 0], -1, axis=0),
+    )
     navigation_points = np.concatenate(scene_data.navigation_routes_world, axis=0)
     assert np.ptp(navigation_points[:, 0]) > 200.0
     assert np.ptp(navigation_points[:, 1]) > 200.0
