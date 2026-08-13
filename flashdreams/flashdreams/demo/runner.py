@@ -53,7 +53,7 @@ from .application import (
     DemoAdapterApplication,
     IOHandler,
 )
-from .io import IOHandlerRunMode
+from .io import IOHandlerRunMode, ReplayIOHandler
 
 
 @dataclass(slots=True)
@@ -95,6 +95,8 @@ class Runner:
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
+            if isinstance(self.app, DemoAdapterApplication):
+                _configure_replay_io_handler(self.io_handler, scenario)
             adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
             result = await run_demo_session_async(
                 context=context,
@@ -130,6 +132,8 @@ class Runner:
         try:
             self.app.init(tuple(self.launch_args))
             scenario = self._create_scenario()
+            if isinstance(self.app, DemoAdapterApplication):
+                _configure_replay_io_handler(self.io_handler, scenario)
             adapter = _RunnerDemoAdapter(app=self.app, spec=spec, scenario=scenario)
             result = run_demo_session(
                 context=context,
@@ -345,6 +349,17 @@ def _application_model_id(app: Application) -> str:
 
 def _runner_scenario() -> PreparedScenario:
     return PreparedScenario(initial_inputs=InferenceInput())
+
+
+def _configure_replay_io_handler(
+    io_handler: IOHandler,
+    scenario: PreparedScenario,
+) -> None:
+    if isinstance(io_handler, ReplayIOHandler):
+        io_handler.configure_replay_inputs(
+            replay_log=scenario.user_inputs,
+            user_input_schema=scenario.source_schema,
+        )
 
 
 def _close_runner_resources(

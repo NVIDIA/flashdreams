@@ -88,6 +88,18 @@ class ReplayIOHandler:
         self._input_source = _ReplayIOInputSource(self.replay_log or UserInputs())
         self._output_sink = self.output_sink or NullOutputSink()
 
+    def configure_replay_inputs(
+        self,
+        *,
+        replay_log: UserInputs,
+        user_input_schema: UserInputSchema,
+    ) -> None:
+        """Bind adapter-prepared replay inputs before runtime validation."""
+        self.user_input_schema = user_input_schema
+        if self.replay_log is None:
+            self.replay_log = replay_log
+            self._input_source = _ReplayIOInputSource(replay_log)
+
     @property
     def run_mode(self) -> "IOHandlerRunMode":
         """Return the runtime run mode backing this IO handler."""

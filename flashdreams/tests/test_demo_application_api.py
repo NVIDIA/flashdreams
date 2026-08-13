@@ -52,6 +52,7 @@ from flashdreams.runtime import (
     StepRequest,
     StepResult,
     TimeWindow,
+    UserInputCapability,
     UserInputEvent,
     UserInputs,
     UserInputSchema,
@@ -256,6 +257,39 @@ def test_provider_can_pull_keyboard_state_through_replay_io_handler() -> None:
     assert adapter.runtime.session.step_inputs == [
         {"effective_keys": frozenset({"w"}), "pressed_keys": frozenset({"w"})}
     ]
+
+
+def test_runner_uses_prepared_source_schema_for_replay_io_validation() -> None:
+    schema = UserInputSchema(
+        capabilities=(
+            UserInputCapability(
+                event_type="keydown",
+                input_modality="keyboard",
+                payload_fields=frozenset({"key"}),
+            ),
+            UserInputCapability(
+                event_type="keyup",
+                input_modality="keyboard",
+                payload_fields=frozenset({"key"}),
+            ),
+        )
+    )
+    io_handler = create_replay_io_handler()
+    adapter = _FakeDemoAdapter(source_schema=schema)
+    app = DemoAdapterApplication(
+        adapter=adapter,
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+            config=InferenceConfig(model_id="fake-demo"),
+        ),
+    )
+
+    result = Runner(io_handler=io_handler, app=app).run()
+
+    assert result.status == "completed"
+    assert io_handler.user_input_schema == schema
 
 
 def test_runtime_output_sink_frame_adapter_satisfies_frame_output_sink() -> None:
@@ -1035,9 +1069,16 @@ class _FakeDemoAdapter:
     )
     canonical_input_schema = CanonicalInputSchema()
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        source_schema: UserInputSchema | None = None,
+        user_inputs: UserInputs | None = None,
+    ) -> None:
         self.runtime = _FakeRuntime()
         self.runtimes: list[_FakeRuntime] = []
+        self.source_schema = source_schema or UserInputSchema()
+        self.user_inputs = user_inputs or UserInputs()
 
     def supported_input_modes(self) -> tuple[str, ...]:
         return ("replay",)
@@ -1061,8 +1102,8 @@ class _FakeDemoAdapter:
         assert spec.model_id == self.model_id
         return PreparedScenario(
             initial_inputs=InferenceInput(global_conditioning={"prompt": "demo"}),
-            user_inputs=UserInputs(),
-            source_schema=UserInputSchema(),
+            user_inputs=self.user_inputs,
+            source_schema=self.source_schema,
         )
 
     def create_model_input_provider(
