@@ -429,17 +429,13 @@ def test_benchmark_output_sink_composes_with_mp4_output(tmp_path: Path) -> None:
 def test_composite_output_sink_closes_siblings_after_close_failure(
     tmp_path: Path,
 ) -> None:
-    failing_sink = _RecordingOutputSink(
-        close_error=RuntimeError("video encode failed")
-    )
+    failing_sink = _RecordingOutputSink(close_error=RuntimeError("video encode failed"))
     stats_path = tmp_path / "stats.json"
     stats_sink = BenchmarkStatsOutputSink(output_path=stats_path)
     sink = CompositeOutputSink((failing_sink, stats_sink))
     sink.open(SessionInfo())
 
-    sink.write(
-        StepResult(step_index=0, frame_count=1, metrics={"model_step_s": 0.25})
-    )
+    sink.write(StepResult(step_index=0, frame_count=1, metrics={"model_step_s": 0.25}))
     with pytest.raises(CompositeOutputSinkError, match="close failed") as exc_info:
         sink.close()
 

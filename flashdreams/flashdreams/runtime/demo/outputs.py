@@ -95,9 +95,7 @@ class CompositeOutputSinkError(RuntimeError):
     def __init__(self, operation: str, errors: Sequence[BaseException]) -> None:
         self.operation = operation
         self.errors = tuple(errors)
-        details = "; ".join(
-            f"{type(error).__name__}: {error}" for error in self.errors
-        )
+        details = "; ".join(f"{type(error).__name__}: {error}" for error in self.errors)
         super().__init__(
             f"CompositeOutputSink.{operation} failed for {len(self.errors)} "
             f"sink(s): {details}"

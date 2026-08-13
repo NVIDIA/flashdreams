@@ -25,8 +25,8 @@ from flashdreams.runtime import (
 from flashdreams.runtime.demo import (
     BATCH_INPUT_FPS_METADATA_KEY,
     BATCH_INPUT_FRAME_START_METADATA_KEY,
-    BenchmarkStatsOutputSink,
     BenchmarkRunMode,
+    BenchmarkStatsOutputSink,
     DemoSpec,
     ErrorAction,
     InMemorySessionMetricsRecorder,
