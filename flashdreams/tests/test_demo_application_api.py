@@ -19,8 +19,10 @@ from flashdreams.demo import (
     DemoApplication,
     FrameOutputSink,
     InferenceSessionApplicationAdapter,
+    InputName,
     IOHandler,
     IOHandlerServer,
+    KeyboardInputState,
     ReplayIOHandler,
     Runner,
     RuntimeOutputSinkFrameAdapter,
@@ -28,6 +30,7 @@ from flashdreams.demo import (
     create_native_window_io_handler,
     create_replay_io_handler,
     create_webrtc_io_handler,
+    input_state_from_window,
 )
 from flashdreams.runtime import (
     CanonicalInputSchema,
@@ -42,6 +45,7 @@ from flashdreams.runtime import (
     StepRequest,
     StepResult,
     TimeWindow,
+    UserInputEvent,
     UserInputs,
     UserInputSchema,
 )
@@ -175,6 +179,72 @@ def test_io_handler_protocol_keeps_input_conversion_outside_io() -> None:
     assert window.start_s == 3.0
     assert window.end_s == 4.0
     assert handler.get_user_input_state("keyboard", "key_w") is False
+
+
+def test_replay_io_handler_pulls_keyboard_state_from_current_window() -> None:
+    inputs = UserInputs(
+        events=(
+            _key_event("key_down", "w", 0.1),
+            _key_event("keydown", "ArrowLeft", 0.2),
+            _key_event("key_up", "w", 0.8),
+        )
+    )
+    handler = create_replay_io_handler(replay_log=inputs)
+
+    assert handler.get_user_input_state("keyboard", InputName.KEYBOARD) is None
+    window = handler.next_window(StepRequirements(step_index=0, input_frame_count=1))
+    pulled = handler.get_user_input_state("keyboard", InputName.KEYBOARD)
+    direct = input_state_from_window(
+        window,
+        modality="keyboard",
+        name=InputName.KEYBOARD,
+    )
+
+    assert pulled == direct
+    assert isinstance(pulled, KeyboardInputState)
+    assert pulled.pressed_keys == frozenset({"a"})
+    assert pulled.effective_keys == frozenset({"a"})
+    assert handler.get_user_input_state("keyboard", "key_a") is True
+    assert handler.get_user_input_state("keyboard", "key_w") is False
+
+
+def test_replay_io_handler_pulls_snapshot_backed_named_state() -> None:
+    handler = create_replay_io_handler(
+        replay_log=UserInputs(
+            snapshot={
+                "mouse": {"mouse_position": (10, 20)},
+                "hand_position": (3, 4, 5),
+            }
+        )
+    )
+
+    handler.next_window(StepRequirements(step_index=0))
+
+    assert handler.get_user_input_state("mouse", InputName.MOUSE_POSITION) == (10, 20)
+    assert handler.get_user_input_state("hand", InputName.HAND_POSITION) == (3, 4, 5)
+    assert handler.get_user_input_state("unknown", "unknown_state") is None
+
+
+def test_provider_can_pull_keyboard_state_through_replay_io_handler() -> None:
+    inputs = UserInputs(events=(_key_event("key_down", "w", 0.1),))
+    io_handler = create_replay_io_handler(replay_log=inputs)
+    adapter = _PullStateDemoAdapter(io_handler)
+    app = DemoAdapterApplication(
+        adapter=adapter,
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+            config=InferenceConfig(model_id="fake-demo"),
+        ),
+    )
+
+    result = Runner(io_handler=io_handler, app=app).run()
+
+    assert result.status == "completed"
+    assert adapter.runtime.session.step_inputs == [
+        {"effective_keys": frozenset({"w"}), "pressed_keys": frozenset({"w"})}
+    ]
 
 
 def test_runtime_output_sink_frame_adapter_satisfies_frame_output_sink() -> None:
@@ -547,6 +617,14 @@ def test_demo_application_server_selection_does_not_build_replay_app() -> None:
     assert not app.replay_adapter_called
 
 
+def _key_event(event_type: str, key: str, timestamp_s: float) -> UserInputEvent:
+    return UserInputEvent(
+        timestamp_s=timestamp_s,
+        event_type=event_type,
+        payload={"key": key},
+    )
+
+
 class _ReplayDemoApplication(DemoApplication):
     def __init__(self) -> None:
         self.adapter = _FakeDemoAdapter()
@@ -651,6 +729,141 @@ class _FakeRuntime:
     def start_session(self, inputs: InferenceInput) -> InferenceSession:
         assert inputs.global_conditioning["prompt"] == "demo"
         return self.session
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _PullStateDemoAdapter:
+    model_id = "fake-demo"
+    inference_input_schema = InferenceInputSchema(
+        global_conditioning_fields=(InputField(name="prompt"),),
+    )
+    canonical_input_schema = CanonicalInputSchema()
+
+    def __init__(self, io_handler: IOHandler) -> None:
+        self.io_handler = io_handler
+        self.runtime = _PullStateRuntime()
+        self.runtimes: list[_PullStateRuntime] = []
+
+    def supported_input_modes(self) -> tuple[str, ...]:
+        return ("replay",)
+
+    def supported_output_modes(self) -> tuple[str, ...]:
+        return ("null",)
+
+    def default_input_mapping(self) -> InputMapping:
+        return IdentityInputMapping()
+
+    def validate_config(self, config: InferenceConfig) -> None:
+        assert config.model_id == self.model_id
+
+    def create_runtime(self, config: InferenceConfig) -> InferenceRuntime:
+        self.validate_config(config)
+        self.runtime = _PullStateRuntime()
+        self.runtimes.append(self.runtime)
+        return self.runtime
+
+    def prepare_scenario(self, spec: DemoSpec) -> PreparedScenario:
+        assert spec.model_id == self.model_id
+        return PreparedScenario(
+            initial_inputs=InferenceInput(global_conditioning={"prompt": "demo"}),
+            user_inputs=UserInputs(),
+            source_schema=UserInputSchema(),
+        )
+
+    def create_model_input_provider(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> "_PullStateModelInputProvider":
+        del scenario
+        assert spec.model_id == self.model_id
+        return _PullStateModelInputProvider(self.io_handler)
+
+
+class _PullStateModelInputProvider:
+    capabilities = ProviderCapabilities(
+        supports_recorded_input=True,
+        deterministic_given_inputs=True,
+    )
+
+    def __init__(self, io_handler: IOHandler) -> None:
+        self.io_handler = io_handler
+        self.closed = False
+
+    def prepare_initial_input(self) -> InferenceInput:
+        return InferenceInput(global_conditioning={"prompt": "demo"})
+
+    def prepare_step(
+        self,
+        *,
+        request: StepRequirements,
+        user_window: UserInputWindow,
+    ) -> PreparedStep:
+        del request, user_window
+        state = self.io_handler.get_user_input_state("keyboard", InputName.KEYBOARD)
+        if not isinstance(state, KeyboardInputState):
+            raise RuntimeError("expected keyboard state")
+        return PreparedStep(
+            inference_input=InferenceInput(
+                step={
+                    "effective_keys": state.effective_keys,
+                    "pressed_keys": state.pressed_keys,
+                }
+            )
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _PullStateRuntime:
+    def __init__(self) -> None:
+        self.session = _PullStateSession()
+        self.closed = False
+
+    def start_session(self, inputs: InferenceInput) -> "_PullStateSession":
+        assert inputs.global_conditioning["prompt"] == "demo"
+        return self.session
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _PullStateSession:
+    def __init__(self) -> None:
+        self.step_inputs: list[dict[str, frozenset[str]]] = []
+        self.closed = False
+
+    def session_info(self) -> SessionInfo:
+        return SessionInfo(output_layout="pull-state")
+
+    def next_step_requirements(self) -> StepRequirements | None:
+        if self.step_inputs:
+            return None
+        return StepRequirements(step_index=0)
+
+    def next_step_request(self) -> StepRequest | None:
+        if self.step_inputs:
+            return None
+        return StepRequest(step_index=0)
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        self.step_inputs.append(
+            {
+                "effective_keys": inputs.step["effective_keys"],
+                "pressed_keys": inputs.step["pressed_keys"],
+            }
+        )
+        return StepResult(step_index=0, output="pull-state", frame_count=1)
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+        self.step_inputs.clear()
 
     def close(self) -> None:
         self.closed = True

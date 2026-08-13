@@ -35,6 +35,11 @@ from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepRequirements, StepResult
 
 from .application import FrameOutputSink, IOHandler
+from .inputs import (
+    InputName,
+    InputStateDecoderRegistry,
+    create_default_input_state_decoder_registry,
+)
 
 RunSessionCallback = Callable[[IOHandler], RunResult]
 ServeCallback = Callable[[], object]
@@ -59,8 +64,16 @@ class ReplayIOHandler:
     is_finite: bool = True
     is_deterministic: bool = True
     user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
+    input_state_decoders: InputStateDecoderRegistry = field(
+        default_factory=create_default_input_state_decoder_registry
+    )
     _input_source: "_ReplayIOInputSource" = field(init=False, repr=False)
     _output_sink: OutputSink | FrameOutputSink = field(init=False, repr=False)
+    _current_window: UserInputWindow | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _opened_session_info: SessionInfo | None = field(
         default=None,
         init=False,
@@ -93,11 +106,18 @@ class ReplayIOHandler:
             open_output(session_info)
 
     def next_window(self, requirements: StepRequirements) -> UserInputWindow:
-        return self._input_source.next_window(requirements)
+        window = self._input_source.next_window(requirements)
+        self._current_window = window
+        return window
 
-    def get_user_input_state(self, modality: str, name: str) -> Any:
-        del modality, name
-        return None
+    def get_user_input_state(self, modality: str, name: InputName | str) -> Any:
+        if self._current_window is None:
+            return None
+        return self.input_state_decoders.state_from_window(
+            modality=modality,
+            name=name,
+            window=self._current_window,
+        )
 
     def begin_generation(self, generation: int) -> None:
         self._generation = generation

@@ -33,6 +33,8 @@ from flashdreams.runtime.types import (
     step_requirements_from_request,
 )
 
+from .inputs import InputName
+
 
 @runtime_checkable
 class ApplicationSession(Protocol):
@@ -100,7 +102,7 @@ class IOHandler(Protocol):
         """
         ...
 
-    def get_user_input_state(self, modality: str, name: str) -> Any:
+    def get_user_input_state(self, modality: str, name: InputName | str) -> Any:
         """Return the current named input state for interactive applications."""
         ...
 
