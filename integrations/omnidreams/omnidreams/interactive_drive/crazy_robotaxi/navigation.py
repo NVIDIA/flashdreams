@@ -26,6 +26,15 @@ import numpy.typing as npt
 
 _MIN_SEGMENT_LENGTH_M = 1.0e-4
 
+_ROAD_MARKER_EDGE_INSET_M = 1.0
+"""Maximum distance from a mapped road edge to a Taxi marker center."""
+
+_PASSENGER_EDGE_OFFSET_M = 0.75
+"""Distance a waiting passenger stands beyond a mapped road edge."""
+
+_INFERRED_LANE_HALF_WIDTH_M = 2.0
+"""Half-width used when a legacy scene provides only a recorded route."""
+
 
 @dataclass(frozen=True)
 class NavigationLane:
@@ -33,6 +42,12 @@ class NavigationLane:
 
     centerline_world: npt.NDArray[np.float32]
     """Directed lane-center polyline in world coordinates."""
+
+    road_edge_world: npt.NDArray[np.float32] | None = None
+    """Curb or outer road-edge polyline suitable for a roadside stop."""
+
+    allows_taxi_stops: bool = True
+    """Whether pickup and dropoff candidates may be sampled from this lane."""
 
 
 @dataclass(frozen=True)
@@ -47,6 +62,9 @@ class NavigationWaypoint:
 
     distance_along_lane_m: float
     """Arc distance from the source lane's directed start."""
+
+    passenger_xyz_m: npt.NDArray[np.float32] | None = None
+    """Waiting-passenger ground point, or ``None`` to use ``xyz_m``."""
 
 
 @dataclass(frozen=True)
@@ -101,6 +119,7 @@ class TaxiNavigationMap:
 
         normalized_lanes: list[NavigationLane] = []
         cumulative_distances: list[npt.NDArray[np.float32]] = []
+        road_edge_cumulative_distances: list[npt.NDArray[np.float32] | None] = []
         for lane in lanes:
             points = _normalize_polyline(lane.centerline_world)
             if points is None:
@@ -109,13 +128,24 @@ class TaxiNavigationMap:
             cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(
                 np.float32
             )
-            normalized_lanes.append(NavigationLane(points))
+            road_edge = (
+                None
+                if lane.road_edge_world is None
+                else _normalize_polyline(lane.road_edge_world)
+            )
+            normalized_lanes.append(
+                NavigationLane(points, road_edge, lane.allows_taxi_stops)
+            )
             cumulative_distances.append(cumulative)
+            road_edge_cumulative_distances.append(
+                None if road_edge is None else _cumulative_distances(road_edge)
+            )
         if not normalized_lanes:
             raise ValueError("Taxi navigation geometry has no usable travel distance.")
 
         self._lanes = tuple(normalized_lanes)
         self._cumulative_distances = tuple(cumulative_distances)
+        self._road_edge_cumulative_distances = tuple(road_edge_cumulative_distances)
         self._lane_lengths = np.asarray(
             [float(cumulative[-1]) for cumulative in cumulative_distances],
             dtype=np.float64,
@@ -142,9 +172,20 @@ class TaxiNavigationMap:
         lanes: list[NavigationLane] = []
         for route in routes_world:
             route_array = np.asarray(route, dtype=np.float32)
-            lanes.append(NavigationLane(route_array))
+            lanes.append(
+                NavigationLane(
+                    route_array,
+                    _infer_right_road_edge(route_array),
+                )
+            )
             if bidirectional:
-                lanes.append(NavigationLane(route_array[::-1].copy()))
+                reversed_route = route_array[::-1].copy()
+                lanes.append(
+                    NavigationLane(
+                        reversed_route,
+                        _infer_right_road_edge(reversed_route),
+                    )
+                )
         return cls(tuple(lanes))
 
     @property
@@ -173,13 +214,17 @@ class TaxiNavigationMap:
         sampled: list[NavigationWaypoint] = []
         occupied_cells: set[tuple[int, int]] = set()
         for lane_index, lane_length in enumerate(self._lane_lengths):
+            if not self._lanes[lane_index].allows_taxi_stops:
+                continue
             sample_distances = np.arange(
                 offset_m, float(lane_length) + 1.0e-6, spacing_m
             )
             if len(sample_distances) < 2:
                 sample_distances = np.asarray([0.0, lane_length], dtype=np.float32)
             for distance_m in sample_distances:
-                point = self.point_at(lane_index, float(distance_m))
+                point, passenger_point = self._taxi_stop_points_at(
+                    lane_index, float(distance_m)
+                )
                 cell = (
                     int(round(float(point[0]) * 2.0)),
                     int(round(float(point[1]) * 2.0)),
@@ -187,7 +232,14 @@ class TaxiNavigationMap:
                 if cell in occupied_cells:
                     continue
                 occupied_cells.add(cell)
-                sampled.append(NavigationWaypoint(point, lane_index, float(distance_m)))
+                sampled.append(
+                    NavigationWaypoint(
+                        point,
+                        lane_index,
+                        float(distance_m),
+                        passenger_point,
+                    )
+                )
         if len(sampled) < 2:
             raise ValueError("Taxi mode requires at least two distinct road waypoints.")
         return tuple(sampled)
@@ -199,12 +251,41 @@ class TaxiNavigationMap:
         lane = self._lanes[lane_index].centerline_world
         cumulative = self._cumulative_distances[lane_index]
         distance_m = float(np.clip(distance_along_lane_m, 0.0, float(cumulative[-1])))
-        right = int(np.searchsorted(cumulative, distance_m, side="right"))
-        right = min(max(1, right), len(lane) - 1)
-        left = right - 1
-        span = float(cumulative[right] - cumulative[left])
-        alpha = 0.0 if span <= 1.0e-6 else (distance_m - cumulative[left]) / span
-        return ((1.0 - alpha) * lane[left] + alpha * lane[right]).astype(np.float32)
+        return _point_at_distance(lane, cumulative, distance_m)
+
+    def _taxi_stop_points_at(
+        self, lane_index: int, distance_along_lane_m: float
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        center = self.point_at(lane_index, distance_along_lane_m)
+        lane = self._lanes[lane_index]
+        edge_cumulative = self._road_edge_cumulative_distances[lane_index]
+        if lane.road_edge_world is None or edge_cumulative is None:
+            return center, center.copy()
+
+        lane_fraction = float(
+            np.clip(
+                distance_along_lane_m / self._lane_lengths[lane_index],
+                0.0,
+                1.0,
+            )
+        )
+        edge = _point_at_distance(
+            lane.road_edge_world,
+            edge_cumulative,
+            lane_fraction * float(edge_cumulative[-1]),
+        )
+        inward_xy = center[:2] - edge[:2]
+        half_width_m = float(np.linalg.norm(inward_xy))
+        if half_width_m <= _MIN_SEGMENT_LENGTH_M:
+            return center, center.copy()
+
+        inward_unit_xy = inward_xy / half_width_m
+        marker_inset_m = min(_ROAD_MARKER_EDGE_INSET_M, 0.5 * half_width_m)
+        marker = edge.copy()
+        marker[:2] += marker_inset_m * inward_unit_xy
+        passenger = edge.copy()
+        passenger[:2] -= _PASSENGER_EDGE_OFFSET_M * inward_unit_xy
+        return marker.astype(np.float32), passenger.astype(np.float32)
 
     def nearest_lane_positions(
         self,
@@ -433,6 +514,50 @@ class TaxiNavigationMap:
                 return tuple(reversed(reversed_path))
             current = predecessor
         return ()
+
+
+def _point_at_distance(
+    points: npt.NDArray[np.float32],
+    cumulative: npt.NDArray[np.float32],
+    distance_m: float,
+) -> npt.NDArray[np.float32]:
+    distance_m = float(np.clip(distance_m, 0.0, float(cumulative[-1])))
+    right = int(np.searchsorted(cumulative, distance_m, side="right"))
+    right = min(max(1, right), len(points) - 1)
+    left = right - 1
+    span = float(cumulative[right] - cumulative[left])
+    alpha = 0.0 if span <= 1.0e-6 else (distance_m - cumulative[left]) / span
+    return ((1.0 - alpha) * points[left] + alpha * points[right]).astype(np.float32)
+
+
+def _cumulative_distances(
+    points: npt.NDArray[np.float32],
+) -> npt.NDArray[np.float32]:
+    segment_lengths = np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
+    return np.concatenate(([0.0], np.cumsum(segment_lengths))).astype(np.float32)
+
+
+def _infer_right_road_edge(
+    centerline_world: npt.NDArray[np.float32],
+) -> npt.NDArray[np.float32] | None:
+    centerline = _normalize_polyline(centerline_world)
+    if centerline is None:
+        return None
+    tangent_xy = np.empty((len(centerline), 2), dtype=np.float32)
+    tangent_xy[0] = centerline[1, :2] - centerline[0, :2]
+    tangent_xy[-1] = centerline[-1, :2] - centerline[-2, :2]
+    if len(centerline) > 2:
+        tangent_xy[1:-1] = centerline[2:, :2] - centerline[:-2, :2]
+    tangent_lengths = np.linalg.norm(tangent_xy, axis=1)
+    if np.any(tangent_lengths <= _MIN_SEGMENT_LENGTH_M):
+        return None
+    right_normal_xy = (
+        np.stack((tangent_xy[:, 1], -tangent_xy[:, 0]), axis=1)
+        / tangent_lengths[:, None]
+    )
+    road_edge = centerline.copy()
+    road_edge[:, :2] += _INFERRED_LANE_HALF_WIDTH_M * right_normal_xy
+    return road_edge.astype(np.float32)
 
 
 def _normalize_polyline(
