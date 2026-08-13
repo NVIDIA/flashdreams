@@ -20,11 +20,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from flashdreams_app import require_pipeline_config
+from t2v_app import provider as app_provider
 from t2v_app.presets import load_preset_catalog
 
 from flashdreams.core.checkpoint.remap import unwrap_generator_state_dict
-from flashdreams.core.pipeline_presets import load_pipeline_provider
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashdreams.recipes.wan import Wan21TransformerConfig
 
@@ -35,14 +34,7 @@ def test_packaged_yaml_constructs_default_pipeline_config() -> None:
     catalog = load_preset_catalog()
     preset_id, preset = catalog.resolve(None)
 
-    provider = load_pipeline_provider(preset.provider)
-    config = require_pipeline_config(
-        provider.create_pipeline_config(
-            preset_id=preset_id,
-            options=preset.pipeline,
-        ),
-        expected_name=preset_id,
-    )
+    config = app_provider._create_pipeline_config(preset_id, preset)
 
     assert preset_id == "causal-forcing-wan2.1-t2v-1.3b-chunkwise"
     assert config.name == preset_id
@@ -79,6 +71,31 @@ presets:
 
     with pytest.raises(ValueError, match="output_layout"):
         load_preset_catalog(catalog_path)
+
+
+def test_catalog_allows_total_blocks_to_be_omitted(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "presets.yaml"
+    catalog_path.write_text(
+        """
+schema_version: 1
+default_preset_id: test
+presets:
+  test:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: test
+      pixel_height: 64
+      pixel_width: 64
+      fps: 16
+      output_layout: tchw
+    pipeline: {}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    _, preset = load_preset_catalog(catalog_path).resolve(None)
+
+    assert preset.runtime.total_blocks is None
 
 
 def test_catalog_reports_yaml_presets_for_unknown_id() -> None:

@@ -17,6 +17,11 @@ dependencies = ["flashdreams", "flashdreams-app"]
 flashdreams = { workspace = true }
 flashdreams-app = { workspace = true }
 
+[tool.pyright]
+extraPaths = ["../../flashdreams", "../flashdreams_app"]
+venvPath = "../.."
+venv = ".venv"
+
 [tool.setuptools.packages.find]
 where = ["."]
 

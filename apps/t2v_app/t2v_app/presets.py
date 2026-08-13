@@ -31,14 +31,14 @@ from flashdreams.core.pipeline_presets import (
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
 
-_RUNTIME_FIELDS = {
+_REQUIRED_RUNTIME_FIELDS = {
     "prompt",
-    "total_blocks",
     "pixel_height",
     "pixel_width",
     "fps",
     "output_layout",
 }
+_OPTIONAL_RUNTIME_FIELDS = {"total_blocks"}
 _VIDEO_LAYOUTS = {"tchw", "btchw", "bcthw", "bvtchw"}
 
 
@@ -48,9 +48,6 @@ class RuntimePresetOptions:
 
     prompt: str
     """Default text prompt."""
-
-    total_blocks: int
-    """Number of autoregressive chunks in one finite session."""
 
     pixel_height: int
     """Output video height in pixels."""
@@ -63,6 +60,9 @@ class RuntimePresetOptions:
 
     output_layout: VideoTensorLayout
     """Decoded tensor layout exposed to the host."""
+
+    total_blocks: int | None = None
+    """Default finite-session length; ``None`` requires an MP4 CLI override."""
 
 
 def load_preset_catalog(
@@ -92,7 +92,12 @@ def load_preset_catalog(
 
 def _load_runtime_options(value: object, *, path: str) -> RuntimePresetOptions:
     runtime = _mapping(value, path=path)
-    _require_exact_fields(runtime, expected=_RUNTIME_FIELDS, path=path)
+    _require_fields(
+        runtime,
+        required=_REQUIRED_RUNTIME_FIELDS,
+        optional=_OPTIONAL_RUNTIME_FIELDS,
+        path=path,
+    )
     layout = _nonempty_string(runtime["output_layout"], path=f"{path}.output_layout")
     if layout not in _VIDEO_LAYOUTS:
         allowed = ", ".join(sorted(_VIDEO_LAYOUTS))
@@ -101,15 +106,17 @@ def _load_runtime_options(value: object, *, path: str) -> RuntimePresetOptions:
         )
     return RuntimePresetOptions(
         prompt=_nonempty_string(runtime["prompt"], path=f"{path}.prompt"),
-        total_blocks=_positive_int(
-            runtime["total_blocks"], path=f"{path}.total_blocks"
-        ),
         pixel_height=_positive_int(
             runtime["pixel_height"], path=f"{path}.pixel_height"
         ),
         pixel_width=_positive_int(runtime["pixel_width"], path=f"{path}.pixel_width"),
         fps=_positive_int(runtime["fps"], path=f"{path}.fps"),
         output_layout=cast(VideoTensorLayout, layout),
+        total_blocks=(
+            None
+            if runtime.get("total_blocks") is None
+            else _positive_int(runtime["total_blocks"], path=f"{path}.total_blocks")
+        ),
     )
 
 
@@ -122,12 +129,16 @@ def _mapping(value: object, *, path: str) -> Mapping[str, object]:
     return cast(dict[str, object], mapping)
 
 
-def _require_exact_fields(
-    value: Mapping[str, object], *, expected: set[str], path: str
+def _require_fields(
+    value: Mapping[str, object],
+    *,
+    required: set[str],
+    optional: set[str],
+    path: str,
 ) -> None:
     fields = {str(key) for key in value}
-    missing = expected - fields
-    unknown = fields - expected
+    missing = required - fields
+    unknown = fields - required - optional
     if missing or unknown:
         details: list[str] = []
         if missing:

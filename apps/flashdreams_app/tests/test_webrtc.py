@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import pytest
-from flashdreams_app import RuntimeMetadata, webrtc
+from flashdreams_app import AppConfig, webrtc
 
 from flashdreams.runtime import InferenceInput, StepRequest, StepResult
 
@@ -26,19 +26,6 @@ class _Session:
 
 
 class _Runtime:
-    metadata = RuntimeMetadata(
-        model_id="fake-app",
-        fps=16,
-        output_layout="tchw",
-        video_width=96,
-        video_height=64,
-    )
-    initial_input = InferenceInput()
-
-    def prepare_step_input(self, request: object) -> InferenceInput:
-        del request
-        return InferenceInput()
-
     def start_session(self, inputs: InferenceInput) -> _Session:
         del inputs
         return _Session()
@@ -58,8 +45,17 @@ def test_host_constructs_webrtc_presentation(
 
     monkeypatch.setattr(webrtc, "serve_webrtc_demo", fake_serve)
     runtime = _Runtime()
+    initial_input = InferenceInput()
     result = webrtc.serve_webrtc(
         runtime=runtime,
+        config=AppConfig(
+            model_id="fake-app",
+            fps=16,
+            output_layout="tchw",
+            video_width=96,
+            video_height=64,
+        ),
+        initial_input=initial_input,
         options=webrtc.WebRTCOptions(
             host="127.0.0.1",
             port=8080,
@@ -82,5 +78,5 @@ def test_host_constructs_webrtc_presentation(
     assert session_manager._shared_host.runtime is runtime
     assert session_manager.runtime_config is output
     assert session_manager._shared_scenario is not None
-    assert session_manager._shared_scenario.initial_inputs is runtime.initial_input
+    assert session_manager._shared_scenario.initial_inputs is initial_input
     assert callable(session_manager._shared_model_input_provider_factory)

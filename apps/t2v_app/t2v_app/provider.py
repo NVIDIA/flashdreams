@@ -6,16 +6,17 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from flashdreams_app import (
     AppConfig,
+    AppRequest,
+    AppSpec,
+    Mp4RunSpec,
     PipelineAppSpec,
-    PipelineContract,
-    RuntimeMetadata,
-    require_pipeline_config,
+    WebRTCRunSpec,
 )
 
 from flashdreams.core.pipeline_presets import load_pipeline_provider
@@ -32,8 +33,19 @@ FIELD_PIXEL_WIDTH = "pixel_width"
 FIELD_FPS = "fps"
 
 
-def add_arguments(parser: argparse.ArgumentParser) -> None:
-    """Register T2V conditioning and rollout options on the host parser."""
+def parse_options(
+    parser: argparse.ArgumentParser,
+    argv: Sequence[str],
+) -> Mapping[str, Any]:
+    """Parse T2V options with the selected mode's host parser.
+
+    Args:
+        parser: Parser preconfigured with host-owned presentation options.
+        argv: Arguments remaining after the provider and mode.
+
+    Returns:
+        Parsed presentation and T2V options keyed by destination.
+    """
     parser.add_argument(
         "--preset-config",
         type=Path,
@@ -48,15 +60,30 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--height", type=int, dest=FIELD_PIXEL_HEIGHT)
     parser.add_argument("--width", type=int, dest=FIELD_PIXEL_WIDTH)
     parser.add_argument("--fps", type=int)
+    return vars(parser.parse_args(argv))
 
 
-def create_app_spec(config: AppConfig) -> PipelineAppSpec:
-    """Describe a T2V pipeline application without constructing its runtime."""
-    options = config.options
+def create_app_spec(request: AppRequest) -> AppSpec:
+    """Describe a T2V pipeline application without constructing its runtime.
+
+    Args:
+        request: Parsed host and T2V command-line values.
+
+    Returns:
+        Pipeline selection, initial conditioning, and presentation data.
+    """
+    options = request.options
     preset_id, preset = _resolve_preset(options)
     scenario = _scenario(options, preset.runtime)
     pipeline_config = _create_pipeline_config(preset_id, preset)
-    return _build_app_spec(pipeline_config, scenario, preset.runtime)
+    return AppSpec(
+        config=_build_app_config(scenario, preset.runtime),
+        pipeline=PipelineAppSpec(
+            pipeline_config=pipeline_config,
+            initialize_cache=_initialize_cache,
+        ),
+        run=_build_run_spec(request.mode, options, scenario, preset.runtime),
+    )
 
 
 def _resolve_preset(
@@ -73,41 +100,69 @@ def _create_pipeline_config(
 ) -> StreamInferencePipelineConfig:
     """Create the pipeline config selected by a resolved preset."""
     pipeline_provider = load_pipeline_provider(preset.provider)
-    return require_pipeline_config(
-        pipeline_provider.create_pipeline_config(
-            preset_id=preset_id,
-            options=preset.pipeline,
-        ),
-        expected_name=preset_id,
+    pipeline_config = pipeline_provider.create_pipeline_config(
+        preset_id=preset_id,
+        options=preset.pipeline,
     )
+    if not isinstance(pipeline_config, StreamInferencePipelineConfig):
+        raise TypeError(
+            f"Pipeline provider returned {type(pipeline_config).__name__}, "
+            "expected StreamInferencePipelineConfig."
+        )
+    if pipeline_config.name != preset_id:
+        raise ValueError(
+            f"Preset {preset_id!r} constructed pipeline "
+            f"{pipeline_config.name!r}; the preset key and pipeline name must match."
+        )
+    return pipeline_config
 
 
-def _build_app_spec(
-    pipeline_config: StreamInferencePipelineConfig,
+def _build_app_config(
     scenario: Mapping[str, object],
     runtime_options: RuntimePresetOptions,
-) -> PipelineAppSpec:
-    """Build the host-facing application spec from resolved T2V data."""
-    return PipelineAppSpec(
-        pipeline_config=pipeline_config,
-        contract=PipelineContract(initialize_cache=_initialize_cache),
-        metadata=RuntimeMetadata(
-            model_id="t2v-app",
-            fps=_required_int(scenario[FIELD_FPS], name=FIELD_FPS),
-            output_layout=runtime_options.output_layout,
-            video_width=_required_int(
-                scenario[FIELD_PIXEL_WIDTH], name=FIELD_PIXEL_WIDTH
-            ),
-            video_height=_required_int(
-                scenario[FIELD_PIXEL_HEIGHT], name=FIELD_PIXEL_HEIGHT
-            ),
+) -> AppConfig:
+    """Build presentation configuration from the resolved T2V scenario."""
+    return AppConfig(
+        model_id="t2v-app",
+        fps=_required_int(scenario[FIELD_FPS], name=FIELD_FPS),
+        output_layout=runtime_options.output_layout,
+        video_width=_required_int(scenario[FIELD_PIXEL_WIDTH], name=FIELD_PIXEL_WIDTH),
+        video_height=_required_int(
+            scenario[FIELD_PIXEL_HEIGHT], name=FIELD_PIXEL_HEIGHT
         ),
-        initial_input=InferenceInput(global_conditioning=scenario),
-        total_steps=_required_int(
-            scenario[FIELD_TOTAL_BLOCKS], name=FIELD_TOTAL_BLOCKS
-        ),
-        result_metadata={FIELD_PROMPT: scenario[FIELD_PROMPT]},
     )
+
+
+def _build_run_spec(
+    mode: str,
+    options: Mapping[str, object],
+    scenario: Mapping[str, object],
+    defaults: RuntimePresetOptions,
+) -> Mp4RunSpec | WebRTCRunSpec:
+    """Build the selected presentation mode's session data."""
+    initial_input = InferenceInput(
+        global_conditioning={
+            FIELD_PROMPT: scenario[FIELD_PROMPT],
+            FIELD_PIXEL_HEIGHT: scenario[FIELD_PIXEL_HEIGHT],
+            FIELD_PIXEL_WIDTH: scenario[FIELD_PIXEL_WIDTH],
+        }
+    )
+    if mode == "webrtc":
+        return WebRTCRunSpec(initial_input=initial_input)
+    if mode == "mp4":
+        total_steps = options.get(FIELD_TOTAL_BLOCKS)
+        if total_steps is None:
+            total_steps = defaults.total_blocks
+        if total_steps is None:
+            raise ValueError(
+                "MP4 mode requires --total-blocks or runtime.total_blocks in "
+                "the selected preset."
+            )
+        return Mp4RunSpec(
+            initial_input=initial_input,
+            total_steps=_required_int(total_steps, name=FIELD_TOTAL_BLOCKS),
+        )
+    raise ValueError(f"Unsupported presentation mode: {mode!r}.")
 
 
 def _initialize_cache(pipeline: Any, inputs: InferenceInput) -> object:
@@ -140,9 +195,6 @@ def _scenario(
     prompt = _resolve_prompt(defaults.prompt if prompt_value is None else prompt_value)
     scenario = {
         FIELD_PROMPT: prompt,
-        FIELD_TOTAL_BLOCKS: _option_or_default(
-            options, FIELD_TOTAL_BLOCKS, defaults.total_blocks
-        ),
         FIELD_PIXEL_HEIGHT: _option_or_default(
             options, FIELD_PIXEL_HEIGHT, defaults.pixel_height
         ),
@@ -152,7 +204,6 @@ def _scenario(
         FIELD_FPS: _option_or_default(options, FIELD_FPS, defaults.fps),
     }
     for name in (
-        FIELD_TOTAL_BLOCKS,
         FIELD_PIXEL_HEIGHT,
         FIELD_PIXEL_WIDTH,
         FIELD_FPS,
@@ -166,10 +217,8 @@ def _scenario_from_inputs(inputs: InferenceInput) -> Mapping[str, object]:
     source = inputs.global_conditioning
     required = (
         FIELD_PROMPT,
-        FIELD_TOTAL_BLOCKS,
         FIELD_PIXEL_HEIGHT,
         FIELD_PIXEL_WIDTH,
-        FIELD_FPS,
     )
     missing = tuple(name for name in required if name not in source)
     if missing:
@@ -177,10 +226,8 @@ def _scenario_from_inputs(inputs: InferenceInput) -> Mapping[str, object]:
     scenario = dict(source)
     scenario[FIELD_PROMPT] = _resolve_prompt(scenario[FIELD_PROMPT])
     for name in (
-        FIELD_TOTAL_BLOCKS,
         FIELD_PIXEL_HEIGHT,
         FIELD_PIXEL_WIDTH,
-        FIELD_FPS,
     ):
         if _required_int(scenario[name], name=name) <= 0:
             raise ValueError(f"{name} must be > 0.")
@@ -225,4 +272,4 @@ def _optional_string(value: object) -> str | None:
     return value.strip()
 
 
-__all__ = ["add_arguments", "create_app_spec"]
+__all__ = ["create_app_spec", "parse_options"]

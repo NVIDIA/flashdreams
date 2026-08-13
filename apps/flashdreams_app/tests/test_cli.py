@@ -4,16 +4,21 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping, Sequence
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
+import flashdreams_app
 import pytest
 import torch
 from flashdreams_app import (
+    AppConfig,
     AppProvider,
+    AppRequest,
+    AppSpec,
+    Mp4RunSpec,
     PipelineAppSpec,
-    PipelineContract,
-    RuntimeMetadata,
+    WebRTCRunSpec,
     cli,
 )
 
@@ -21,6 +26,20 @@ from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime import InferenceInput, StepResult
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_public_package_surface_contains_only_provider_contracts() -> None:
+    assert flashdreams_app.__all__ == [
+        "AppConfig",
+        "AppProvider",
+        "AppRequest",
+        "AppSpec",
+        "Mp4RunSpec",
+        "PipelineAppSpec",
+        "WebRTCRunSpec",
+    ]
+    assert "initial_input" not in PipelineAppSpec.__dataclass_fields__
+    assert "total_steps" not in PipelineAppSpec.__dataclass_fields__
 
 
 def test_host_drives_runtime_api_and_owns_file_output(
@@ -77,28 +96,37 @@ def test_host_drives_runtime_api_and_owns_file_output(
 
     provider = ModuleType("fake_app")
 
-    def add_arguments(parser: argparse.ArgumentParser) -> None:
-        del parser
-        calls.append("provider.add_arguments")
+    def parse_options(
+        parser: argparse.ArgumentParser, argv: Sequence[str]
+    ) -> Mapping[str, object]:
+        calls.append("provider.parse_options")
+        parser.add_argument("--model-option", required=True)
+        return vars(parser.parse_args(argv))
 
-    setattr(provider, "add_arguments", add_arguments)
-    setattr(
-        provider,
-        "create_app_spec",
-        lambda config: PipelineAppSpec(
-            pipeline_config=pipeline_config,
-            contract=PipelineContract(initialize_cache=initialize_cache),
-            metadata=RuntimeMetadata(
+    def create_app_spec(request: AppRequest) -> AppSpec:
+        assert request.mode == "mp4"
+        assert request.options["model_option"] == "enabled"
+        calls.append("provider.create_app_spec")
+        return AppSpec(
+            config=AppConfig(
                 model_id="fake",
                 fps=24,
                 output_layout="tchw",
                 video_width=64,
                 video_height=64,
             ),
-            initial_input=InferenceInput(global_conditioning={"prompt": "test"}),
-            total_steps=1,
-        ),
-    )
+            pipeline=PipelineAppSpec(
+                pipeline_config=pipeline_config,
+                initialize_cache=initialize_cache,
+            ),
+            run=Mp4RunSpec(
+                initial_input=InferenceInput(global_conditioning={"prompt": "test"}),
+                total_steps=1,
+            ),
+        )
+
+    setattr(provider, "parse_options", parse_options)
+    setattr(provider, "create_app_spec", create_app_spec)
     monkeypatch.setattr(cli, "load_provider", lambda _: provider)
 
     class Output:
@@ -116,9 +144,21 @@ def test_host_drives_runtime_api_and_owns_file_output(
             return ()
 
     monkeypatch.setattr(cli, "FileOutput", Output)
-    cli.run(["fake-app", "mp4", "--device", "cpu", "--output", "result.mp4"])
+    cli.run(
+        [
+            "fake-app",
+            "mp4",
+            "--device",
+            "cpu",
+            "--output",
+            "result.mp4",
+            "--model-option",
+            "enabled",
+        ]
+    )
     assert calls == [
-        "provider.add_arguments",
+        "provider.parse_options",
+        "provider.create_app_spec",
         "pipeline.init",
         "pipeline.to",
         "pipeline.eval",
@@ -134,13 +174,101 @@ def test_host_drives_runtime_api_and_owns_file_output(
     ]
 
 
+def test_run_delegates_options_and_dispatches_webrtc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ModuleType("fake_app")
+    pipeline_config = StreamInferencePipelineConfig(
+        _target=cast(Any, object),
+        name="fake",
+        diffusion_model=cast(Any, None),
+    )
+    initial_input = InferenceInput(global_conditioning={"prompt": "test"})
+
+    def parse_options(
+        parser: argparse.ArgumentParser, argv: Sequence[str]
+    ) -> Mapping[str, object]:
+        assert tuple(argv) == (
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9000",
+            "--prompt",
+            "test",
+        )
+        parser.add_argument("--prompt", required=True)
+        return vars(parser.parse_args(argv))
+
+    def create_app_spec(request: AppRequest) -> AppSpec:
+        assert request.mode == "webrtc"
+        assert request.options["prompt"] == "test"
+        return AppSpec(
+            config=AppConfig(
+                model_id="fake",
+                fps=24,
+                output_layout="tchw",
+                video_width=64,
+                video_height=64,
+            ),
+            pipeline=PipelineAppSpec(
+                pipeline_config=pipeline_config,
+                initialize_cache=lambda pipeline, inputs: object(),
+            ),
+            run=WebRTCRunSpec(initial_input=initial_input),
+        )
+
+    setattr(provider, "parse_options", parse_options)
+    setattr(provider, "create_app_spec", create_app_spec)
+    monkeypatch.setattr(cli, "load_provider", lambda _: provider)
+    environment = cli._Environment(device="cpu", world_rank=0, world_size=1)
+    monkeypatch.setattr(cli, "_initialize_environment", lambda device: environment)
+    runtime = object()
+    monkeypatch.setattr(cli, "PipelineAppRuntime", lambda **kwargs: runtime)
+
+    captured: dict[str, object] = {}
+
+    def run_webrtc(**kwargs: object) -> tuple[object, ...]:
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setattr(cli, "_run_webrtc", run_webrtc)
+    monkeypatch.setattr(
+        cli,
+        "_run_mp4",
+        lambda **kwargs: pytest.fail("WebRTC mode must not launch the MP4 path."),
+    )
+
+    assert (
+        cli.run(
+            [
+                "fake-app",
+                "webrtc",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "9000",
+                "--prompt",
+                "test",
+            ]
+        )
+        == ()
+    )
+    assert captured["runtime"] is runtime
+    assert captured["run_spec"] == WebRTCRunSpec(initial_input=initial_input)
+    assert captured["environment"] is environment
+    args = captured["args"]
+    assert isinstance(args, argparse.Namespace)
+    assert args.host == "127.0.0.1"
+    assert args.port == 9000
+
+
 def test_app_provider_protocol_requires_both_methods() -> None:
     provider = ModuleType("provider")
-    setattr(provider, "add_arguments", lambda parser: None)
+    setattr(provider, "parse_options", lambda parser, argv: {})
     setattr(provider, "create_app_spec", lambda config: None)
     assert isinstance(provider, AppProvider)
 
-    delattr(provider, "add_arguments")
+    delattr(provider, "parse_options")
     assert not isinstance(provider, AppProvider)
 
 
@@ -162,21 +290,30 @@ def test_load_provider_rejects_module_outside_contract(
 
 
 def test_host_exposes_only_supported_output_modes() -> None:
-    mode_action = next(
-        action for action in cli.build_parser()._actions if action.dest == "mode"
-    )
-    assert mode_action.choices == ("mp4", "webrtc")
+    route = cli._parse_provider_and_mode(["fake-app", "webrtc", "--prompt", "x"])
+    assert route.provider == "fake-app"
+    assert route.mode == "webrtc"
+    assert route.remaining_argv == ("--prompt", "x")
+
+    with pytest.raises(SystemExit):
+        cli._parse_provider_and_mode(["fake-app", "unsupported"])
 
 
 def test_host_does_not_expose_pipeline_execution_options() -> None:
-    destinations = {action.dest for action in cli.build_parser()._actions}
-    assert "compile" not in destinations
-    assert "cuda_graph" not in destinations
+    for mode in ("mp4", "webrtc"):
+        destinations = {
+            action.dest for action in cli.build_parser("fake-app", mode)._actions
+        }
+        assert "compile" not in destinations
+        assert "cuda_graph" not in destinations
 
 
 def test_host_exposes_only_minimal_webrtc_options() -> None:
-    destinations = {action.dest for action in cli.build_parser()._actions}
+    destinations = {
+        action.dest for action in cli.build_parser("fake-app", "webrtc")._actions
+    }
     assert {"host", "port"} <= destinations
+    assert "output" not in destinations
     assert {
         "warmup_chunks",
         "warmup_timeout_s",
@@ -187,6 +324,14 @@ def test_host_exposes_only_minimal_webrtc_options() -> None:
     }.isdisjoint(destinations)
 
 
+def test_mp4_parser_exposes_only_file_presentation_options() -> None:
+    destinations = {
+        action.dest for action in cli.build_parser("fake-app", "mp4")._actions
+    }
+    assert {"device", "output"} <= destinations
+    assert {"host", "port"}.isdisjoint(destinations)
+
+
 def test_webrtc_path_owns_serving_options_and_runtime_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -194,19 +339,6 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
     captured: dict[str, object] = {}
 
     class Runtime:
-        metadata = RuntimeMetadata(
-            model_id="fake",
-            fps=24,
-            output_layout="tchw",
-            video_width=64,
-            video_height=64,
-        )
-        initial_input = InferenceInput()
-
-        def prepare_step_input(self, request: object) -> InferenceInput:
-            del request
-            return InferenceInput()
-
         def start_session(self, inputs: InferenceInput) -> Any:
             del inputs
             raise AssertionError("The WebRTC path must not start an MP4 session.")
@@ -221,6 +353,14 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
     monkeypatch.setattr(cli, "serve_webrtc", serve)
     result = cli._run_webrtc(
         runtime=Runtime(),
+        config=AppConfig(
+            model_id="fake",
+            fps=24,
+            output_layout="tchw",
+            video_width=64,
+            video_height=64,
+        ),
+        run_spec=WebRTCRunSpec(initial_input=InferenceInput()),
         args=argparse.Namespace(
             host="127.0.0.1",
             port=9000,
@@ -236,3 +376,4 @@ def test_webrtc_path_owns_serving_options_and_runtime_close(
     assert options.host == "127.0.0.1"
     assert options.port == 9000
     assert captured["device"] == "cpu"
+    assert isinstance(captured["initial_input"], InferenceInput)

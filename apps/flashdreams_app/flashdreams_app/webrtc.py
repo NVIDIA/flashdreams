@@ -6,9 +6,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from flashdreams.runtime import InferenceConfig, InferenceInput
+from flashdreams.runtime import InferenceConfig, InferenceInput, InferenceRuntime
 from flashdreams.runtime.demo import (
     DemoSpec,
     PreparedScenario,
@@ -23,7 +22,7 @@ from flashdreams.runtime.types import StepRequirements
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
 
-from .contracts import AppRuntime
+from .contracts import AppConfig
 
 
 # TODO: Move this contract into shared FlashDreams and expand it when the
@@ -45,17 +44,17 @@ class _InputProvider:
         deterministic_given_inputs=True,
     )
 
-    def __init__(self, runtime: AppRuntime) -> None:
-        self._runtime = runtime
+    def __init__(self, initial_input: InferenceInput) -> None:
+        self._initial_input = initial_input
 
     def prepare_initial_input(self) -> InferenceInput:
-        return self._runtime.initial_input
+        return self._initial_input
 
     def prepare_step(
         self, *, request: StepRequirements, user_window: UserInputWindow
     ) -> PreparedStep:
-        del user_window
-        return PreparedStep(inference_input=self._runtime.prepare_step_input(request))
+        del request, user_window
+        return PreparedStep(inference_input=InferenceInput())
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         del inputs
@@ -65,38 +64,55 @@ class _InputProvider:
 
 
 def serve_webrtc(
-    *, runtime: AppRuntime, options: WebRTCOptions, device: str, world_rank: int
+    *,
+    runtime: InferenceRuntime,
+    config: AppConfig,
+    initial_input: InferenceInput,
+    options: WebRTCOptions,
+    device: str,
+    world_rank: int,
 ) -> object:
-    """Serve an application runtime through the shared WebRTC stack."""
-    metadata = runtime.metadata
+    """Serve an application runtime through the shared WebRTC stack.
+
+    Args:
+        runtime: Initialized application runtime.
+        config: Model identity and video presentation configuration.
+        initial_input: Global conditioning used to start live sessions.
+        options: WebRTC bind settings.
+        device: Device used by the runtime.
+        world_rank: Distributed rank responsible for presentation.
+
+    Returns:
+        Serving backend result.
+    """
     output = WebRTCOutputSpec(
         host=options.host,
         port=options.port,
-        fps=int(metadata.fps),
-        video_width=metadata.video_width,
-        video_height=metadata.video_height,
-        preload_name=metadata.model_id,
+        fps=int(config.fps),
+        video_width=config.video_width,
+        video_height=config.video_height,
+        preload_name=config.model_id,
     )
     spec = DemoSpec(
-        model_id=metadata.model_id,
+        model_id=config.model_id,
         input_mode="webrtc",
         output=output,
-        config=InferenceConfig(model_id=metadata.model_id, device=device),
+        config=InferenceConfig(model_id=config.model_id, device=device),
     )
-    scenario = PreparedScenario(initial_inputs=runtime.initial_input)
+    scenario = PreparedScenario(initial_inputs=initial_input)
 
     def create_model_input_provider(
         spec: DemoSpec,
         scenario: PreparedScenario,
     ) -> _InputProvider:
         del spec, scenario
-        return _InputProvider(runtime)
+        return _InputProvider(initial_input)
 
     manager = BaseWebRTCSessionManager(
         runtime=runtime,
         runtime_config=output,
-        fps=int(metadata.fps),
-        identity=metadata.model_id,
+        fps=int(config.fps),
+        identity=config.model_id,
         shared_host=RuntimeHost(runtime),
         shared_spec=spec,
         shared_scenario=scenario,
@@ -105,8 +121,8 @@ def serve_webrtc(
     )
     return serve_webrtc_demo(
         output=output,
-        model_id=metadata.model_id,
+        model_id=config.model_id,
         session_manager=manager,
-        app_resources=WebRTCAppResources(preload_name=metadata.model_id),
+        app_resources=WebRTCAppResources(preload_name=config.model_id),
         world_rank=world_rank,
     )

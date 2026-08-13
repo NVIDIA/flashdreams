@@ -1,9 +1,10 @@
 # T2V App Provider
 
 `t2v-app` is a model provider for the generic `flashdreams-app` host. It
-returns a declarative `PipelineAppSpec`; it does not implement a runtime or
-session and does not own setup, stepping, finalization, cleanup, MP4 writing,
-or WebRTC.
+returns a declarative `AppSpec` containing a mode-independent
+`PipelineAppSpec`, presentation `AppConfig`, and mode-specific run data; it
+does not implement a runtime or session and does not own setup, stepping,
+finalization, cleanup, MP4 writing, or WebRTC.
 
 The provider loads a YAML preset catalog through
 `flashdreams.core.pipeline_presets` and asks the selected pipeline provider to
@@ -29,8 +30,10 @@ uv run flashdreams-app t2v-app mp4 \
   --output outputs/waterfall.mp4
 ```
 
-Every YAML preset must specify `provider`, all six runtime/presentation fields,
-and the provider-owned `pipeline` options. FlashDreams'
+Every YAML preset must specify `provider`, the common runtime/presentation
+fields, and the provider-owned `pipeline` options. `total_blocks` is optional;
+MP4 mode requires either that preset default or `--total-blocks`, while WebRTC
+does not use a finite step count. FlashDreams'
 `ObjectGraphPipelineProvider` supports these declarative nodes:
 
 - `_target: module:attribute` imports and calls a config class with the other
@@ -45,6 +48,11 @@ and reference it from `provider`. Preset YAML is trusted configuration because
 provider and object-graph references import Python objects.
 
 At the provider boundary, T2V contributes only its preset selection,
-conditioning values, presentation metadata, and a cache initializer that maps
-the prompt and pixel dimensions to the selected pipeline. `flashdreams-app`
-constructs and drives the resulting pipeline.
+conditioning values, presentation configuration, and a cache initializer that
+maps the prompt and pixel dimensions to the selected pipeline. Session
+conditioning and finite MP4 length live in mode-specific run specs;
+`flashdreams-app` constructs and drives the resulting pipeline.
+
+See the [`flashdreams-app` provider contract](../flashdreams_app/README.md#provider-contract)
+for the required entry points, pipeline and run-spec fields, and a minimal
+provider implementation.

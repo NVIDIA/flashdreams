@@ -3,6 +3,6 @@
 
 """Text-to-video pipeline application for ``flashdreams-app``."""
 
-from .provider import add_arguments, create_app_spec
+from .provider import create_app_spec, parse_options
 
-__all__ = ["add_arguments", "create_app_spec"]
+__all__ = ["create_app_spec", "parse_options"]

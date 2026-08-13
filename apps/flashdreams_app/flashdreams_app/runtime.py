@@ -14,11 +14,10 @@ from flashdreams.runtime import (
     InferenceInput,
     InferenceSession,
     StepRequest,
-    StepRequirements,
     StepResult,
 )
 
-from .contracts import PipelineAppSpec, RuntimeMetadata
+from .contracts import AppConfig, PipelineAppSpec
 
 
 class PipelineAppRuntime:
@@ -28,34 +27,28 @@ class PipelineAppRuntime:
         self,
         *,
         spec: PipelineAppSpec,
+        config: AppConfig,
         device: str,
     ) -> None:
         self.pipeline = spec.pipeline_config.setup().to(device).eval()
-        self.metadata = spec.metadata
-        self.initial_input = spec.initial_input
+        self._config = config
         self._spec = spec
         self._closed = False
 
-    def prepare_step_input(
-        self, request: StepRequest | StepRequirements
-    ) -> InferenceInput:
-        """Return an empty step payload for prompt-conditioned pipelines."""
-        del request
-        return InferenceInput()
-
     def start_session(self, inputs: InferenceInput) -> "PipelineAppSession":
-        """Create a finite session with cache state isolated from other sessions."""
+        """Create an open-ended session with isolated pipeline cache state."""
         if self._closed:
             raise RuntimeError("Pipeline application runtime is closed.")
         return PipelineAppSession(
             pipeline=self.pipeline,
             inputs=inputs,
             spec=self._spec,
+            config=self._config,
         )
 
     def peek_input_fps(self) -> float:
         """Return the host clock rate used for realtime presentation."""
-        return float(self.metadata.fps)
+        return float(self._config.fps)
 
     def peek_steady_output_num_frames(self) -> int:
         """Return the steady-state output chunk size for presentation queues."""
@@ -74,7 +67,7 @@ class PipelineAppRuntime:
 
 
 class PipelineAppSession(InferenceSession):
-    """Host-owned finite autoregressive session for a pipeline app spec."""
+    """Host-owned autoregressive session for a pipeline application."""
 
     def __init__(
         self,
@@ -82,18 +75,17 @@ class PipelineAppSession(InferenceSession):
         pipeline: Any,
         inputs: InferenceInput,
         spec: PipelineAppSpec,
+        config: AppConfig,
     ) -> None:
         self._pipeline = pipeline
-        self._cache: object | None = spec.contract.initialize_cache(pipeline, inputs)
-        self._metadata = spec.metadata
-        self._result_metadata = spec.result_metadata
-        self._total_steps = spec.total_steps
+        self._cache: object | None = spec.initialize_cache(pipeline, inputs)
+        self._config = config
         self._step_index = 0
         self._closed = False
 
     def next_step_request(self) -> StepRequest | None:
-        """Return the next finite rollout request, or ``None`` when complete."""
-        if self._closed or self._step_index >= self._total_steps:
+        """Return the next rollout request, or ``None`` after session closure."""
+        if self._closed:
             return None
         return StepRequest(step_index=self._step_index)
 
@@ -102,8 +94,6 @@ class PipelineAppSession(InferenceSession):
         del inputs
         if self._closed:
             raise RuntimeError("Pipeline application session is closed.")
-        if self._step_index >= self._total_steps:
-            raise RuntimeError("Pipeline application session is complete.")
         if self._cache is None:
             raise RuntimeError("Pipeline application session has no active cache.")
 
@@ -127,13 +117,12 @@ class PipelineAppSession(InferenceSession):
         return StepResult.from_video_chunk(
             step_index=index,
             video_chunk=video.detach(),
-            layout=self._metadata.output_layout,
+            layout=self._config.output_layout,
             metrics=metrics,
-            metadata=self._result_metadata,
         )
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Reject reset because finite sessions use isolated cache state."""
+        """Reject reset because sessions use isolated cache state."""
         del inputs
         raise RuntimeError("Create a new session instead of resetting this one.")
 

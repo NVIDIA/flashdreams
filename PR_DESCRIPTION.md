@@ -7,7 +7,36 @@ services.
 The host owns process initialization, pipeline construction, the
 runtime/session lifecycle, autoregressive stepping, finalization, cleanup, and
 presentation. The T2V package only selects a pipeline preset and supplies the
-model-specific conditioning and cache-initialization contract.
+model-specific conditioning and cache-initialization callback.
+
+## High-level design
+
+```text
+uv run flashdreams-app t2v-app {mp4 | webrtc}
+                  |
+                  v
++----------------------+     request spec      +----------------------+
+| flashdreams_app      | --------------------> | t2v_app              |
+| generic host         | <-------------------- | declarative provider |
++----------+-----------+        AppSpec        +----------+-----------+
+           |                                             |
+           | constructs and drives                       | reads
+           v                                             v
++----------------------+                      +------------------------+
+| FlashDreams runtime  |                      | pipeline_presets.yaml  |
+| API (black box)      |                      | + PipelineProvider     |
++----------+-----------+                      +------------------------+
+           |
+           | video chunks
+           v
+      +----+----+
+      |         |
+      v         v
++----------+ +----------+
+| MP4 file | | WebRTC   |
+| artifact | | stream   |
++----------+ +----------+
+```
 
 ## Entrypoint examples
 
@@ -52,23 +81,28 @@ When `--preset-id` is omitted, `t2v-app` uses the catalog's
 
 - Add the `flashdreams-app` workspace package and console entrypoint.
 - Define a minimal provider boundary:
-  `create_app_spec(AppConfig) -> PipelineAppSpec`.
-- Require provider modules to conform to `AppProvider` with `add_arguments()`
-  and `create_app_spec()`.
+  `create_app_spec(AppRequest) -> AppSpec`.
+- Keep the provider surface data-first: a mode-independent pipeline spec plus
+  an `AppConfig` for presentation and mode-specific MP4 or WebRTC run data.
+- Require provider modules to conform to `AppProvider` with
+  `parse_options(parser, argv)` and `create_app_spec(request)`.
 - Add the host-owned `PipelineAppRuntime` and `PipelineAppSession`.
 - Keep pipeline setup, `generate`/`finalize`, step tracking, cache release, and
   runtime closure in the host.
 - Add host-owned MP4 and WebRTC presentation paths without a runtime adapter.
-- Let providers register custom CLI arguments through `add_arguments(parser)`;
-  providers without custom arguments use a no-op implementation.
+- Type both presentation paths directly against the shared `InferenceRuntime`
+  contract.
+- Parse only the provider and presentation mode in the host, then let the
+  provider extend the mode-specific parser and parse all remaining arguments
+  through `parse_options(parser, argv)`.
 - Keep pipeline-specific execution behavior encapsulated by the selected
   pipeline config and its `setup()` implementation.
 
 ## T2V provider and presets
 
 - Add the `t2v-app` workspace package.
-- Describe T2V through a `PipelineAppSpec` rather than implementing another
-  runtime or session.
+- Describe T2V through an `AppSpec` rather than implementing another runtime
+  or session.
 - Add packaged YAML presets for causal-forcing and self-forcing WAN pipelines.
 - Resolve pipeline providers directly from the YAML catalog without depending
   on the runner registry.

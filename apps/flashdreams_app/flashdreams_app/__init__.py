@@ -1,26 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Host runtime and public provider contract for FlashDreams applications."""
+"""Public contract for FlashDreams application providers."""
 
 from .contracts import (
     AppConfig,
     AppProvider,
-    AppRuntime,
+    AppRequest,
+    AppSpec,
+    Mp4RunSpec,
     PipelineAppSpec,
-    PipelineContract,
-    RuntimeMetadata,
-    require_pipeline_config,
+    WebRTCRunSpec,
 )
-from .runtime import PipelineAppRuntime
 
 __all__ = [
     "AppConfig",
     "AppProvider",
-    "AppRuntime",
-    "PipelineAppRuntime",
+    "AppRequest",
+    "AppSpec",
+    "Mp4RunSpec",
     "PipelineAppSpec",
-    "PipelineContract",
-    "RuntimeMetadata",
-    "require_pipeline_config",
+    "WebRTCRunSpec",
 ]

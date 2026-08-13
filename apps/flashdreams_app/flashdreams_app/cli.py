@@ -8,35 +8,66 @@ from __future__ import annotations
 import argparse
 import importlib
 from contextlib import ExitStack
+from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from typing import Sequence
 
 import torch
 
+from flashdreams.runtime import InferenceInput, InferenceRuntime
 from flashdreams.runtime.demo.bootstrap import (
     configure_logging,
     initialize_cuda_distributed,
 )
 from flashdreams.runtime.output import OutputArtifact
 
-from .contracts import AppConfig, AppProvider, AppRuntime, PipelineAppSpec
+from .contracts import (
+    AppConfig,
+    AppProvider,
+    AppRequest,
+    AppSpec,
+    Mp4RunSpec,
+    WebRTCRunSpec,
+)
 from .outputs import FileOutput
 from .runtime import PipelineAppRuntime
 from .webrtc import WebRTCOptions, serve_webrtc
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the host parser without importing a provider package."""
-    parser = argparse.ArgumentParser(prog="flashdreams-app")
-    parser.add_argument(
-        "provider", help="Installed provider distribution, e.g. t2v-app"
-    )
-    parser.add_argument("mode", choices=("mp4", "webrtc"))
-    parser.add_argument("--output", type=Path, help="MP4 path (required for mp4)")
+@dataclass(frozen=True, slots=True)
+class _ProviderAndMode:
+    """Top-level route parsed before loading an application provider."""
+
+    provider: str
+    """Installed provider distribution name."""
+
+    mode: str
+    """Selected presentation mode."""
+
+    remaining_argv: tuple[str, ...]
+    """Arguments delegated to the provider parser."""
+
+
+def build_parser(provider: str, mode: str) -> argparse.ArgumentParser:
+    """Build the selected mode's host-owned options parser.
+
+    Args:
+        provider: Provider name displayed in command usage.
+        mode: Selected presentation mode.
+
+    Returns:
+        Parser ready for the provider to extend and invoke.
+    """
+    parser = argparse.ArgumentParser(prog=f"flashdreams-app {provider} {mode}")
     parser.add_argument("--device", default="cuda", help="Runtime device")
-    parser.add_argument("--host", default="0.0.0.0", help="WebRTC bind address")
-    parser.add_argument("--port", type=int, default=8080, help="WebRTC bind port")
+    if mode == "mp4":
+        parser.add_argument("--output", type=Path, required=True, help="MP4 path")
+    elif mode == "webrtc":
+        parser.add_argument("--host", default="0.0.0.0", help="WebRTC bind address")
+        parser.add_argument("--port", type=int, default=8080, help="WebRTC bind port")
+    else:
+        raise ValueError(f"Unsupported application mode: {mode!r}.")
     return parser
 
 
@@ -72,7 +103,7 @@ def load_provider(distribution_name: str) -> AppProvider:
         raise TypeError(
             f"Provider distribution {distribution_name!r} exposes module(s) "
             f"{names}, but none satisfy AppProvider. Providers must define "
-            "add_arguments(parser) and create_app_spec(config)."
+            "parse_options(parser, argv) and create_app_spec(request)."
         )
     raise ValueError(
         f"Provider {distribution_name!r} does not expose an importable Python module."
@@ -88,50 +119,102 @@ def run(argv: Sequence[str] | None = None) -> tuple[OutputArtifact, ...]:
     Returns:
         Artifacts produced by the selected path. WebRTC returns an empty tuple.
     """
-    probe = argparse.ArgumentParser(add_help=False)
-    probe.add_argument("provider", nargs="?")
-    probe.add_argument("mode", nargs="?")
-    provider_args, _ = probe.parse_known_args(argv)
-    parser = build_parser()
-    if provider_args.provider is None:
-        parser.parse_args(argv)
-        return ()
-    provider = load_provider(provider_args.provider)
-    provider.add_arguments(parser)
-    args = parser.parse_args(argv)
-    if args.mode == "mp4" and args.output is None:
-        parser.error("--output is required for mp4 mode")
-
+    route = _parse_provider_and_mode(argv)
+    provider = load_provider(route.provider)
+    options = provider.parse_options(
+        build_parser(route.provider, route.mode),
+        route.remaining_argv,
+    )
+    app_spec = _require_app_spec(
+        provider.create_app_spec(AppRequest(mode=route.mode, options=options)),
+        provider_name=route.provider,
+        mode=route.mode,
+    )
+    args = argparse.Namespace(**options)
     environment = _initialize_environment(args.device)
-    options = vars(args).copy()
-    options["device"] = environment.device
-    options["world_rank"] = environment.world_rank
-    options["world_size"] = environment.world_size
-
-    spec = provider.create_app_spec(AppConfig(options=options))
-    if not isinstance(spec, PipelineAppSpec):
-        raise TypeError(
-            f"Provider {args.provider!r} create_app_spec() returned "
-            f"{type(spec).__name__}, expected PipelineAppSpec."
-        )
-    runtime = PipelineAppRuntime(
-        spec=spec,
+    runtime: InferenceRuntime = PipelineAppRuntime(
+        spec=app_spec.pipeline,
+        config=app_spec.config,
         device=environment.device,
     )
-    if args.mode == "webrtc":
-        return _run_webrtc(runtime=runtime, args=args, environment=environment)
-    if args.mode == "mp4":
+    return _launch_mode(
+        mode=route.mode,
+        runtime=runtime,
+        app_spec=app_spec,
+        args=args,
+        environment=environment,
+    )
+
+
+def _parse_provider_and_mode(
+    argv: Sequence[str] | None,
+) -> _ProviderAndMode:
+    """Parse the provider and mode while preserving all remaining arguments."""
+    parser = argparse.ArgumentParser(prog="flashdreams-app", add_help=False)
+    parser.add_argument("provider", help="Installed provider distribution")
+    parser.add_argument("mode", choices=("mp4", "webrtc"))
+    args, remaining_argv = parser.parse_known_args(argv)
+    return _ProviderAndMode(
+        provider=args.provider,
+        mode=args.mode,
+        remaining_argv=tuple(remaining_argv),
+    )
+
+
+def _require_app_spec(
+    value: object,
+    *,
+    provider_name: str,
+    mode: str,
+) -> AppSpec:
+    """Validate a provider result before constructing its runtime."""
+    if not isinstance(value, AppSpec):
+        raise TypeError(
+            f"Provider {provider_name!r} create_app_spec() returned "
+            f"{type(value).__name__}, expected AppSpec."
+        )
+    if mode == "webrtc" and not isinstance(value.run, WebRTCRunSpec):
+        raise TypeError("WebRTC mode requires WebRTCRunSpec from the provider.")
+    if mode == "mp4" and not isinstance(value.run, Mp4RunSpec):
+        raise TypeError("MP4 mode requires Mp4RunSpec from the provider.")
+    return value
+
+
+def _launch_mode(
+    *,
+    mode: str,
+    runtime: InferenceRuntime,
+    app_spec: AppSpec,
+    args: argparse.Namespace,
+    environment: "_Environment",
+) -> tuple[OutputArtifact, ...]:
+    """Launch the host-owned presentation path selected by the user."""
+    if mode == "webrtc":
+        assert isinstance(app_spec.run, WebRTCRunSpec)
+        return _run_webrtc(
+            runtime=runtime,
+            config=app_spec.config,
+            run_spec=app_spec.run,
+            args=args,
+            environment=environment,
+        )
+    if mode == "mp4":
+        assert isinstance(app_spec.run, Mp4RunSpec)
         return _run_mp4(
             runtime=runtime,
+            config=app_spec.config,
+            run_spec=app_spec.run,
             output_path=args.output,
             environment=environment,
         )
-    raise AssertionError(f"Unsupported presentation mode: {args.mode!r}.")
+    raise AssertionError(f"Unsupported presentation mode: {mode!r}.")
 
 
 def _run_webrtc(
     *,
-    runtime: AppRuntime,
+    runtime: InferenceRuntime,
+    config: AppConfig,
+    run_spec: WebRTCRunSpec,
     args: argparse.Namespace,
     environment: "_Environment",
 ) -> tuple[OutputArtifact, ...]:
@@ -139,6 +222,8 @@ def _run_webrtc(
 
     Args:
         runtime: Initialized application runtime.
+        config: Model identity and video presentation configuration.
+        run_spec: Initial conditioning for live sessions.
         args: Parsed host and WebRTC arguments.
         environment: Initialized process and distributed environment.
 
@@ -148,6 +233,8 @@ def _run_webrtc(
     try:
         serve_webrtc(
             runtime=runtime,
+            config=config,
+            initial_input=run_spec.initial_input,
             options=WebRTCOptions(
                 host=args.host,
                 port=args.port,
@@ -162,7 +249,9 @@ def _run_webrtc(
 
 def _run_mp4(
     *,
-    runtime: AppRuntime,
+    runtime: InferenceRuntime,
+    config: AppConfig,
+    run_spec: Mp4RunSpec,
     output_path: Path,
     environment: "_Environment",
 ) -> tuple[OutputArtifact, ...]:
@@ -170,6 +259,8 @@ def _run_mp4(
 
     Args:
         runtime: Initialized application runtime.
+        config: Model identity and video presentation configuration.
+        run_spec: Initial conditioning and finite generation length.
         output_path: Destination for the generated MP4.
         environment: Initialized process and distributed environment.
 
@@ -181,8 +272,8 @@ def _run_mp4(
         resources.callback(runtime.close)
         output = FileOutput(
             path=output_path,
-            fps=runtime.metadata.fps,
-            output_layout=runtime.metadata.output_layout,
+            fps=config.fps,
+            output_layout=config.output_layout,
             enabled=environment.world_rank == 0,
         )
         output_closed = False
@@ -193,10 +284,15 @@ def _run_mp4(
 
         resources.callback(close_output)
         output.open()
-        session = runtime.start_session(runtime.initial_input)
+        session = runtime.start_session(run_spec.initial_input)
         resources.callback(session.close)
-        while (request := session.next_step_request()) is not None:
-            output.write(session.step(runtime.prepare_step_input(request)))
+        for _ in range(run_spec.total_steps):
+            request = session.next_step_request()
+            if request is None:
+                raise RuntimeError(
+                    "Runtime session ended before the requested MP4 step count."
+                )
+            output.write(session.step(InferenceInput()))
         artifacts = tuple(output.close())
         output_closed = True
         return artifacts

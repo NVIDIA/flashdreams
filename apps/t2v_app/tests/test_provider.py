@@ -10,7 +10,14 @@ from typing import Any, cast
 
 import pytest
 import t2v_app
-from flashdreams_app import AppConfig, AppProvider, PipelineAppSpec
+from flashdreams_app import (
+    AppProvider,
+    AppRequest,
+    AppSpec,
+    Mp4RunSpec,
+    PipelineAppSpec,
+    WebRTCRunSpec,
+)
 from t2v_app import provider
 from t2v_app.presets import (
     PipelinePreset,
@@ -27,15 +34,14 @@ def test_provider_module_conforms_to_host_contract() -> None:
     assert isinstance(t2v_app, AppProvider)
 
 
-def test_t2v_provider_registers_model_options() -> None:
+def test_t2v_provider_parses_model_options() -> None:
     parser = argparse.ArgumentParser()
-    provider.add_arguments(parser)
-    args = parser.parse_args(["--prompt", "A waterfall"])
-    assert args.prompt == "A waterfall"
-    assert args.preset_id is None
-    assert args.preset_config is None
-    assert not hasattr(args, "backend")
-    assert not hasattr(args, "compile")
+    options = provider.parse_options(parser, ["--prompt", "A waterfall"])
+    assert options["prompt"] == "A waterfall"
+    assert options["preset_id"] is None
+    assert options["preset_config"] is None
+    assert "backend" not in options
+    assert "compile" not in options
 
 
 def test_create_app_spec_returns_data_without_constructing_pipeline(
@@ -84,7 +90,8 @@ def test_create_app_spec_returns_data_without_constructing_pipeline(
     monkeypatch.setattr(provider, "load_pipeline_provider", lambda _: Provider())
 
     created = provider.create_app_spec(
-        AppConfig(
+        AppRequest(
+            mode="mp4",
             options={
                 "preset_config": None,
                 "preset_id": None,
@@ -93,14 +100,42 @@ def test_create_app_spec_returns_data_without_constructing_pipeline(
                 "pixel_height": None,
                 "pixel_width": None,
                 "fps": None,
-            }
+            },
         )
     )
 
-    assert isinstance(created, PipelineAppSpec)
-    assert created.pipeline_config is pipeline_config
-    assert created.initial_input.global_conditioning["prompt"] == "A waterfall"
-    assert created.metadata.video_width == 96
-    assert created.metadata.fps == 12
-    assert created.total_steps == 2
+    assert isinstance(created, AppSpec)
+    assert isinstance(created.pipeline, PipelineAppSpec)
+    assert created.pipeline.pipeline_config is pipeline_config
+    assert created.config.video_width == 96
+    assert created.config.fps == 12
+    assert isinstance(created.run, Mp4RunSpec)
+    assert created.run.initial_input.global_conditioning["prompt"] == "A waterfall"
+    assert created.run.total_steps == 2
     assert not pipeline_constructed
+
+
+def test_webrtc_run_spec_does_not_require_total_steps() -> None:
+    defaults = RuntimePresetOptions(
+        prompt="default prompt",
+        pixel_height=64,
+        pixel_width=96,
+        fps=12,
+        output_layout="tchw",
+    )
+    scenario = {
+        provider.FIELD_PROMPT: "A waterfall",
+        provider.FIELD_PIXEL_HEIGHT: 64,
+        provider.FIELD_PIXEL_WIDTH: 96,
+        provider.FIELD_FPS: 12,
+    }
+
+    run_spec = provider._build_run_spec(
+        "webrtc",
+        {"total_blocks": None},
+        scenario,
+        defaults,
+    )
+
+    assert isinstance(run_spec, WebRTCRunSpec)
+    assert run_spec.initial_input.global_conditioning["prompt"] == "A waterfall"
