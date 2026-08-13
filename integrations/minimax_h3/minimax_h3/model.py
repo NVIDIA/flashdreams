@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import torch
+from loguru import logger
 from torch import Tensor, nn
 
 from flashdreams.infra.diffusion.model import DiffusionModel, DiffusionModelConfig
@@ -133,9 +134,10 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
         for index, (video_timestep, audio_timestep) in enumerate(
             zip(video_timesteps, audio_timesteps, strict=True)
         ):
-            print(
-                f"MiniMax H3 denoise step {index + 1}/{len(video_timesteps)}",
-                flush=True,
+            logger.info(
+                "MiniMax H3 denoise step {}/{}",
+                index + 1,
+                len(video_timesteps),
             )
             cache.timestep, cache.timestep_indices = self._row_timesteps(
                 state, video_timestep, audio_timestep

@@ -169,8 +169,10 @@ class MiniMaxH3Runner(Runner[MiniMaxH3RunnerConfig, MiniMaxH3Pipeline]):
         self.pipeline.mark_complete(cache)
         video_artifact = artifacts[0]
         logger.info(
-            f"[{config.runner_name}] wrote {tuple(frames.shape)} video to "
-            f"{Path(video_artifact.uri).resolve()}"
+            "[{}] wrote {} video to {}",
+            config.runner_name,
+            tuple(frames.shape),
+            Path(video_artifact.uri).resolve(),
         )
         stats_history = video_artifact.metadata["stats_history"]
         if stats_history:
@@ -179,7 +181,9 @@ class MiniMaxH3Runner(Runner[MiniMaxH3RunnerConfig, MiniMaxH3Pipeline]):
                 config.runner_name,
                 list(stats_history),
             )
-            logger.info(f"[{config.runner_name}] wrote stats to {stats_path.resolve()}")
+            logger.info(
+                "[{}] wrote stats to {}", config.runner_name, stats_path.resolve()
+            )
 
 
 class MiniMaxH3T2VARunner(MiniMaxH3Runner):

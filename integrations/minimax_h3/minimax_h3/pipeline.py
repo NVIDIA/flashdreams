@@ -29,6 +29,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import torch
+from loguru import logger
 from torch import nn
 
 from flashdreams.infra.pipeline import (
@@ -491,7 +492,7 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
             cache.lora_scale,
             cache.lora_weight_name,
         )
-        print(f"Loaded LoRA {converted} at scale {cache.lora_scale:g}", flush=True)
+        logger.info("Loaded LoRA {} at scale {:g}", converted, cache.lora_scale)
 
     def _generate_low_ram(self, cache: MiniMaxH3PipelineCache) -> torch.Tensor:
         if cache.conditioning_checkpoint.is_file() and not cache.restart:
