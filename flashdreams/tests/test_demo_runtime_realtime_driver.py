@@ -104,6 +104,8 @@ async def test_realtime_driver_transport_close_before_first_step_is_not_activate
     assert result.status == "not_activated"
     assert result.reason == "transport closed before first step"
     assert session.step_inputs == []
+    assert edges.exit_state.source == "transport_closed"
+    assert edges.should_exit()
 
 
 @pytest.mark.asyncio
@@ -441,6 +443,8 @@ async def test_realtime_driver_applies_backpressure_through_clock() -> None:
     assert clock.backpressure == [0.25]
     assert metrics.catch_up_count == 2
     assert len(output.results) == 2
+    assert edges.exit_state.source == "output_stop"
+    assert edges.should_exit()
 
 
 @pytest.mark.asyncio

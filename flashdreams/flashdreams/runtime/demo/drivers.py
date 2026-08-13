@@ -83,7 +83,7 @@ class BatchSessionDriver:
                 if session is None:
                     raise DriverInvariantError("setup_ok was set without a session.")
                 try:
-                    if session_edges.input_source.is_finished():
+                    if session_edges.should_exit():
                         break
                     request = _next_step_requirements(host=host, session=session)
                     if request is None:
@@ -103,9 +103,9 @@ class BatchSessionDriver:
                         if not outcome.control.provider_already_reset:
                             host.call(provider.reset, outcome.control.reset_input)
                         continue
-                    if outcome.control.close_session:
-                        break
-                    if outcome.output.should_stop:
+                    session_edges.observe_control(outcome.control)
+                    session_edges.observe_output(outcome.output)
+                    if session_edges.should_exit(poll_edges=False):
                         break
                 except DriverInvariantError:
                     raise
@@ -195,9 +195,9 @@ class RealtimeSessionDriver:
             if not activation_result.activated:
                 final_status = "not_activated"
                 final_reason = activation_result.reason
-            elif not session_edges.transport.is_active():
+            elif session_edges.should_exit():
                 final_status = "not_activated"
-                final_reason = "transport closed before first step"
+                final_reason = _not_activated_exit_reason(session_edges)
             else:
                 try:
                     initial_input = await host.call_async(
@@ -224,10 +224,10 @@ class RealtimeSessionDriver:
             while setup_ok:
                 if session is None:
                     raise DriverInvariantError("setup_ok was set without a session.")
-                if not session_edges.transport.is_active():
+                if session_edges.should_exit():
                     if not first_step_started:
                         final_status = "not_activated"
-                        final_reason = "transport closed before first step"
+                        final_reason = _not_activated_exit_reason(session_edges)
                     break
                 try:
                     request = await _next_step_requirements_async(
@@ -241,12 +241,9 @@ class RealtimeSessionDriver:
                         clock=clock,
                     )
                     session_edges.metrics.record_catch_up(window_result.catch_up)
-                    if (
-                        not session_edges.transport.is_active()
-                        and not first_step_started
-                    ):
+                    if session_edges.should_exit() and not first_step_started:
                         final_status = "not_activated"
-                        final_reason = "transport closed before first step"
+                        final_reason = _not_activated_exit_reason(session_edges)
                         break
                     outcome = await host.call_async(
                         pipeline.execute_step,
@@ -271,9 +268,9 @@ class RealtimeSessionDriver:
                         generation += 1
                         session_edges.output_sink.begin_generation(generation)
                         continue
-                    if outcome.control.close_session:
-                        break
-                    if outcome.output.should_stop:
+                    session_edges.observe_control(outcome.control)
+                    session_edges.observe_output(outcome.output)
+                    if session_edges.should_exit(poll_edges=False):
                         break
                     if outcome.output.backpressure_s > 0:
                         await clock.apply_backpressure(outcome.output.backpressure_s)
@@ -327,6 +324,12 @@ class RealtimeSessionDriver:
 
 def _mark_host_cleanup_failed(host: RuntimeHost, exc: Exception | None = None) -> None:
     host.mark_unhealthy(_MODEL_CLEANUP_FAILED_REASON, exc)
+
+
+def _not_activated_exit_reason(session_edges: SessionEdges) -> str:
+    if session_edges.exit_state.source == "transport_closed":
+        return "transport closed before first step"
+    return session_edges.exit_state.reason or "session stopped before first step"
 
 
 def run_demo_session(

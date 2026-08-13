@@ -20,7 +20,8 @@ from flashdreams.runtime.metrics import (
 from flashdreams.runtime.output import OutputArtifact
 
 from .host import ModelWarmupPlan, WarmupSessionInputs
-from .outputs import OutputSink
+from .outputs import OutputDecision, OutputSink
+from .session_inputs import ControlDecision
 
 if TYPE_CHECKING:
     from .host import RuntimeHost
@@ -45,6 +46,22 @@ DriverStatus = Literal[
     "cancelled",
     "not_activated",
 ]
+
+SessionExitSource = Literal[
+    "control_close",
+    "input_finished",
+    "output_stop",
+    "transport_closed",
+]
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionExitState:
+    """Unified normal-stop state for a session loop."""
+
+    should_exit: bool = False
+    source: SessionExitSource | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -328,11 +345,72 @@ class SessionEdges:
     clock: "RealtimeClock | DeterministicClock | None" = None
     activation: "ActivationPolicy | None" = None
     _closed_result: RunResult | None = field(default=None, init=False, repr=False)
+    _exit_state: SessionExitState = field(
+        default_factory=SessionExitState,
+        init=False,
+        repr=False,
+    )
 
     @property
     def is_closed(self) -> bool:
         """Return whether ``close_result(...)`` has already finalized this session."""
         return self._closed_result is not None
+
+    @property
+    def exit_state(self) -> SessionExitState:
+        """Return the currently observed normal-stop state."""
+        return self._exit_state
+
+    def should_exit(self, *, poll_edges: bool = True) -> bool:
+        """Return whether the driver should stop requesting model steps."""
+        if self._exit_state.should_exit:
+            return True
+        if self.is_closed:
+            return True
+        if not poll_edges:
+            return False
+        if self.input_source.is_finished():
+            self.request_exit(
+                source="input_finished",
+                reason="input source finished",
+            )
+            return True
+        if not self.transport.is_active():
+            reason = getattr(self.transport, "close_reason", None)
+            self.request_exit(
+                source="transport_closed",
+                reason=reason if isinstance(reason, str) else "transport closed",
+            )
+            return True
+        return False
+
+    def request_exit(
+        self,
+        *,
+        source: SessionExitSource,
+        reason: str | None = None,
+    ) -> None:
+        """Record a normal-stop request without replacing the first source."""
+        if self._exit_state.should_exit:
+            return
+        self._exit_state = SessionExitState(
+            should_exit=True,
+            source=source,
+            reason=reason,
+        )
+
+    def observe_control(self, control: ControlDecision) -> None:
+        """Record provider-authored close decisions in the shared stop state."""
+        if control.close_session:
+            self.request_exit(
+                source="control_close",
+                reason=control.reason or "control requested session close",
+            )
+
+    def observe_output(self, decision: OutputDecision) -> None:
+        """Record output-authored stop decisions in the shared stop state."""
+        if decision.should_stop:
+            self.request_exit(source="output_stop", reason="output requested stop")
 
     def record_cleanup_error(self, exc: Exception) -> None:
         """Record a cleanup error without letting metrics failures block teardown."""
@@ -524,6 +602,8 @@ __all__ = [
     "RunSummary",
     "SessionEdges",
     "SessionDriver",
+    "SessionExitSource",
+    "SessionExitState",
     "SessionMetricsRecorder",
     "SessionReservation",
     "SessionStatus",

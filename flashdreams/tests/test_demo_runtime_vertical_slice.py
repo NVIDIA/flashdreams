@@ -191,6 +191,59 @@ def test_batch_driver_slices_windows_from_step_requirements() -> None:
     ]
 
 
+def test_batch_driver_stops_on_input_finished_through_session_edges() -> None:
+    session = _FakeVideoSession(num_steps=5)
+    runtime = _FakeVideoRuntime(session=session)
+    host = _RecordingRuntimeHost(runtime)
+    input_source = _FakeBatchInputSource(num_windows=1)
+    output = _RecordingOutputSink()
+    edges = SessionEdges(
+        input_source=input_source,
+        output_sink=output,
+        cleanup_tasks=set(),
+        metrics=InMemorySessionMetricsRecorder(),
+    )
+
+    result = BatchSessionDriver().run_one_session(
+        host=host,
+        provider=_FakeVideoModelInputProvider(),
+        session_edges=edges,
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+    assert edges.exit_state.source == "input_finished"
+    assert edges.should_exit()
+
+
+def test_batch_driver_stops_on_output_decision_through_session_edges() -> None:
+    session = _FakeVideoSession(num_steps=5)
+    runtime = _FakeVideoRuntime(session=session)
+    host = _RecordingRuntimeHost(runtime)
+    output = _RecordingOutputSink(decision=OutputDecision(should_stop=True))
+    edges = SessionEdges(
+        input_source=_FakeBatchInputSource(num_windows=5),
+        output_sink=output,
+        cleanup_tasks=set(),
+        metrics=InMemorySessionMetricsRecorder(),
+    )
+
+    result = BatchSessionDriver().run_one_session(
+        host=host,
+        provider=_FakeVideoModelInputProvider(),
+        session_edges=edges,
+        pipeline=StepPipeline(),
+    )
+
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+    assert edges.exit_state.source == "output_stop"
+    assert edges.should_exit()
+
+
 def test_run_demo_session_builds_edges_and_records_session_once() -> None:
     session = _FakeVideoSession(num_steps=1)
     runtime = _FakeVideoRuntime(session=session)

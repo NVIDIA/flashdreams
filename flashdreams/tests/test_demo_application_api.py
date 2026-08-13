@@ -379,6 +379,23 @@ def test_replay_io_factory_runs_through_public_runner() -> None:
     assert output_sink.output_count == 2
 
 
+def test_replay_io_factory_should_exit_tracks_output_stop() -> None:
+    output_sink = _StoppingOutputSink()
+    io_handler = create_replay_io_handler(output_sink=output_sink)
+
+    result = Runner(
+        io_handler=io_handler,
+        app=_RunnerFakeApplication(total_steps=5),
+        model_id="fake-replay-factory",
+    ).run()
+
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 1
+    assert output_sink.results == [0]
+    assert io_handler.should_exit()
+
+
 def test_replay_io_factory_forwards_to_metric_tail() -> None:
     metric_tail = _RecordingFrameOutputSink()
     io_handler = create_replay_io_handler(metric_output_sink=metric_tail)
@@ -674,6 +691,26 @@ class _RecordingFrameOutputSink:
 
     def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
         self.records.append((timestamp_s, chunk.step_index))
+
+
+class _StoppingOutputSink:
+    produces_artifacts = False
+
+    def __init__(self) -> None:
+        self.results: list[int] = []
+
+    def open(self, session_info: SessionInfo) -> None:
+        del session_info
+
+    def begin_generation(self, generation: int) -> None:
+        del generation
+
+    def write(self, result: StepResult) -> OutputDecision:
+        self.results.append(result.step_index)
+        return OutputDecision(should_stop=True)
+
+    def close(self) -> Sequence[OutputArtifact]:
+        return ()
 
 
 class _RunnerFakeApplication:

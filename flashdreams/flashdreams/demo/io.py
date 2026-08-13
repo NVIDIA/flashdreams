@@ -67,6 +67,7 @@ class ReplayIOHandler:
         repr=False,
     )
     _generation: int | None = field(default=None, init=False, repr=False)
+    _should_exit: bool = field(default=False, init=False, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -120,13 +121,16 @@ class ReplayIOHandler:
             decision = OutputDecision()
         if self.metric_output_sink is not None:
             self.metric_output_sink.handle_output(_result_timestamp_s(result), result)
+        if decision.should_stop:
+            self._should_exit = True
         return decision
 
     def should_exit(self) -> bool:
-        return self._closed
+        return self._should_exit or self._closed
 
     def close(self) -> Sequence[OutputArtifact]:
         self._closed = True
+        self._should_exit = True
         close = getattr(self._output_sink, "close", None)
         if callable(close):
             artifacts = close()
