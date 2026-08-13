@@ -13,11 +13,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regex-based renaming of checkpoint state-dict keys."""
+"""Checkpoint state-dict unwrapping and key remapping."""
+
+from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any, cast
 
 from torch import Tensor
+
+
+def unwrap_generator_state_dict(state_dict: dict[str, Any]) -> dict[str, Tensor]:
+    """Unwrap a generator checkpoint and strip root training prefixes.
+
+    ``generator_ema`` takes precedence over ``generator`` when both containers
+    are present. A flat state dict passes through without envelope unwrapping.
+
+    Args:
+        state_dict: Flat state dict or training checkpoint envelope.
+
+    Returns:
+        Flat state dict without one ``model.`` or ``net.`` prefix followed by
+        an optional ``_fsdp_wrapped_module.`` prefix.
+    """
+    if "generator_ema" in state_dict:
+        source = state_dict["generator_ema"]
+    elif "generator" in state_dict:
+        source = state_dict["generator"]
+    else:
+        source = state_dict
+    source = cast(Mapping[str, Tensor], source)
+
+    transformed: dict[str, Tensor] = {}
+    for key, value in source.items():
+        if key.startswith("model."):
+            key = key[len("model.") :]
+        elif key.startswith("net."):
+            key = key[len("net.") :]
+        if key.startswith("_fsdp_wrapped_module."):
+            key = key[len("_fsdp_wrapped_module.") :]
+        transformed[key] = value
+    return transformed
 
 
 def remap_checkpoint_keys(

@@ -38,6 +38,7 @@ from flashdreams.runtime.demo import (
     NullOutputSpec,
     OutputDecision,
     PreparedScenario,
+    PreparedStep,
     ProviderCapabilities,
     RunContext,
     RunModeCapabilities,
@@ -163,6 +164,51 @@ async def test_fake_webrtc_offer_reserves_before_prepare_or_negotiation() -> Non
     assert mode.admission.reservations[0].release_count == 1
     assert adapter.providers[0].close_count == 1
     assert mode.created_edges[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_async_session_uses_explicit_model_input_provider_factory() -> None:
+    spec = DemoSpec(
+        model_id="fake-demo",
+        input_mode="keyboard-driving",
+        output=WebRTCOutputSpec(port=8081),
+    )
+    adapter = _FakeAdapter()
+    provider = _FakeProvider()
+    mode = _FakeRunMode(name="webrtc", driver=_ClosingAsyncDriver())
+    context = mode.create_run_context(
+        spec=spec,
+        adapter=adapter,
+        host=RuntimeHost(_UnusedRuntime()),
+        model_warmup_plan=ModelWarmupPlan(),
+    )
+    scenario = adapter.prepare_scenario(spec)
+    factory_calls: list[tuple[DemoSpec, PreparedScenario]] = []
+
+    def create_provider(
+        factory_spec: DemoSpec,
+        factory_scenario: PreparedScenario,
+    ) -> _FakeProvider:
+        factory_calls.append((factory_spec, factory_scenario))
+        return provider
+
+    try:
+        result = await run_demo_session_async(
+            context=context,
+            spec=spec,
+            scenario=scenario,
+            adapter=adapter,
+            run_mode=mode,
+            pipeline=StepPipeline(),
+            model_input_provider_factory=create_provider,
+        )
+    finally:
+        context.host.close()
+
+    assert result.status == "completed"
+    assert factory_calls == [(spec, scenario)]
+    assert adapter.providers == []
+    assert provider.close_count == 1
 
 
 @pytest.mark.asyncio
@@ -498,6 +544,21 @@ class _FakeProvider:
 
     def __init__(self) -> None:
         self.close_count = 0
+
+    def prepare_initial_input(self) -> InferenceInput:
+        return InferenceInput()
+
+    def prepare_step(
+        self,
+        *,
+        request: StepRequirements,
+        user_window: UserInputWindow,
+    ) -> PreparedStep:
+        del request, user_window
+        return PreparedStep(inference_input=InferenceInput())
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
 
     def close(self) -> None:
         self.close_count += 1

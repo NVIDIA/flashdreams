@@ -45,6 +45,8 @@ no-build-isolation-package = ["transformer-engine-torch"]
 extraPaths = [
     "flashdreams",
     "apps",
+    "apps/flashdreams_app",
+    "apps/t2v_app",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
     "integrations/causal_forcing",
@@ -70,6 +72,8 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
+    "apps/flashdreams_app",
+    "apps/t2v_app",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
     "integrations/causal_forcing",

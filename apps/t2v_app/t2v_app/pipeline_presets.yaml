@@ -1,0 +1,459 @@
+schema_version: 1
+default_preset_id: causal-forcing-wan2.1-t2v-1.3b-chunkwise
+
+presets:
+  causal-forcing-wan2.1-t2v-1.3b-chunkwise:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A cinematic waterfall cascading through a lush forest at sunset.
+      total_blocks: 60
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: causal-forcing-wan2.1-t2v-1.3b-chunkwise
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: true
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/chunkwise/causal_forcing.pt
+          checkpoint_min_free_gb: null
+          state_dict_transform:
+            _ref: flashdreams.core.checkpoint.remap:unwrap_generator_state_dict
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 3
+          guidance_scale: 1.0
+          window_size_t: 21
+          sink_size_t: 0
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: true
+          use_cuda_graph: true
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler.fm:FlowMatchSchedulerConfig
+          num_inference_steps: 4
+          denoising_timesteps: [1000, 750, 500, 250]
+          warp_denoising_step: true
+          shift: 5.0
+          sigma_max: 1.0
+          sigma_min: 0.0
+          extra_one_step: true
+          num_train_timesteps: 1000
+          enable_tqdm: false
+
+  causal-forcing-wan2.1-t2v-1.3b-framewise:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A cinematic waterfall cascading through a lush forest at sunset.
+      total_blocks: 60
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: causal-forcing-wan2.1-t2v-1.3b-framewise
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: true
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/framewise/causal_forcing.pt
+          checkpoint_min_free_gb: null
+          state_dict_transform:
+            _ref: flashdreams.core.checkpoint.remap:unwrap_generator_state_dict
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 1
+          guidance_scale: 1.0
+          window_size_t: 21
+          sink_size_t: 0
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: true
+          use_cuda_graph: true
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler.fm:FlowMatchSchedulerConfig
+          num_inference_steps: 4
+          denoising_timesteps: [1000, 750, 500, 250]
+          warp_denoising_step: true
+          shift: 5.0
+          sigma_max: 1.0
+          sigma_min: 0.0
+          extra_one_step: true
+          num_train_timesteps: 1000
+          enable_tqdm: false
+
+  self-forcing-wan2.1-t2v-1.3b:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A woman walks through a neon-lit city street at night.
+      total_blocks: 60
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: self-forcing-wan2.1-t2v-1.3b
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: true
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt
+          checkpoint_min_free_gb: null
+          state_dict_transform:
+            _ref: flashdreams.core.checkpoint.remap:unwrap_generator_state_dict
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 3
+          guidance_scale: 1.0
+          window_size_t: 21
+          sink_size_t: 0
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: true
+          use_cuda_graph: true
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler.fm:FlowMatchSchedulerConfig
+          num_inference_steps: 4
+          denoising_timesteps: [1000, 750, 500, 250]
+          warp_denoising_step: true
+          shift: 8.0
+          sigma_max: 1.0
+          sigma_min: 0.0
+          extra_one_step: true
+          num_train_timesteps: 1000
+          enable_tqdm: false
+
+  self-forcing-wan2.1-t2v-1.3b-taehv:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A woman walks through a neon-lit city street at night.
+      total_blocks: 60
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: self-forcing-wan2.1-t2v-1.3b-taehv
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.taehv:TeahvVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth
+        state_dict_transform:
+          _ref: flashdreams.recipes.taehv:lighttae_state_dict_transform
+        use_cuda_graph: true
+        use_compile: true
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: true
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt
+          checkpoint_min_free_gb: null
+          state_dict_transform:
+            _ref: flashdreams.core.checkpoint.remap:unwrap_generator_state_dict
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 3
+          guidance_scale: 1.0
+          window_size_t: 21
+          sink_size_t: 0
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: true
+          use_cuda_graph: true
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler.fm:FlowMatchSchedulerConfig
+          num_inference_steps: 4
+          denoising_timesteps: [1000, 750, 500, 250]
+          warp_denoising_step: true
+          shift: 8.0
+          sigma_max: 1.0
+          sigma_min: 0.0
+          extra_one_step: true
+          num_train_timesteps: 1000
+          enable_tqdm: false
+
+  self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A woman walks through a neon-lit city street at night.
+      total_blocks: 80
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 0
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: false
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt
+          checkpoint_min_free_gb: null
+          state_dict_transform:
+            _ref: flashdreams.core.checkpoint.remap:unwrap_generator_state_dict
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 3
+          guidance_scale: 1.0
+          window_size_t: 7
+          sink_size_t: 5
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: false
+          use_cuda_graph: false
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler.fm:FlowMatchSchedulerConfig
+          num_inference_steps: 4
+          denoising_timesteps: [1000, 750, 500, 250]
+          warp_denoising_step: true
+          shift: 8.0
+          sigma_max: 1.0
+          sigma_min: 0.0
+          extra_one_step: true
+          num_train_timesteps: 1000
+          enable_tqdm: false
+
+  wan21-t2v-1.3b-480p:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A white cat wearing sunglasses sits on a surfboard at the beach.
+      total_blocks: 1
+      pixel_height: 480
+      pixel_width: 832
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.wan:WanInferencePipelineConfig
+      name: wan21-t2v-1.3b-480p
+      enable_sync_and_profile: true
+      encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.umt5:UMT5TextEncoderConfig
+        model_id_or_local_path: Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+      image_encoder: null
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.wan:Wan21TransformerConfig
+          network:
+            _target: flashdreams.recipes.wan:WanDiTNetwork1pt3BConfig
+            patch_embedding_type: conv3d
+            apply_rope_before_kvcache: true
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/diffusion_pytorch_model.safetensors
+          checkpoint_min_free_gb: null
+          state_dict_transform: null
+          stream_checkpoint: false
+          init_device: null
+          batch_shape:
+            _tuple: []
+          len_t: 21
+          guidance_scale: 6.0
+          window_size_t: 21
+          sink_size_t: 0
+          h_extrapolation_ratio: 1.0
+          w_extrapolation_ratio: 1.0
+          compile_network: true
+          use_cuda_graph: true
+          cuda_graph_warmup_iters: 2
+          stamp_image_latent: false
+          concat_image_mask_to_latent: false
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler:FlowMatchUniPCSchedulerConfig
+          num_inference_steps: 50
+          shift: 8.0
+          num_train_timesteps: 1000
+          solver_order: 2
+          use_kerras_sigma: false
+          enable_tqdm: true
+
+  cosmos2-t2v-2b-720p:
+    provider: flashdreams.core.pipeline_presets:ObjectGraphPipelineProvider
+    runtime:
+      prompt: A robotic arm performs precision welding in an industrial workshop.
+      total_blocks: 1
+      pixel_height: 720
+      pixel_width: 1280
+      fps: 16
+      output_layout: tchw
+    pipeline:
+      _target: flashdreams.recipes.cosmos.pipeline:CosmosInferencePipelineConfig
+      name: cosmos2-t2v-2b-720p
+      enable_sync_and_profile: true
+      encoder: null
+      image_encoder: null
+      text_encoder:
+        _target: flashdreams.infra.encoder.text.cosmos_reason1:CosmosReason1TextEncoderConfig
+        model_name: nvidia/Cosmos-Reason1-7B
+        revision: 3210bec0495fdc7a8d3dbb8d58da5711eab4b423
+        max_length: 512
+        embedding_concat_strategy: full_concat
+        n_layers_per_group: 5
+      decoder:
+        _target: flashdreams.recipes.wan:WanVAEDecoderConfig
+        checkpoint_path: https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.1_VAE.pth
+        use_cuda_graph: true
+        use_compile: false
+      diffusion_model:
+        _target: flashdreams.infra.diffusion.model:DiffusionModelConfig
+        seed: 42
+        context_noise: 0
+        noise_in_unpatchified_shape: false
+        transformer:
+          _target: flashdreams.recipes.cosmos.transformer:CosmosTransformerConfig
+          network:
+            _target: flashdreams.recipes.cosmos.transformer.impl.network:CosmosDiTNetworkConfig
+            cp_method: ring
+          checkpoint_path: https://huggingface.co/nvidia/Cosmos-Predict2.5-2B/blob/main/base/post-trained/81edfebe-bd6a-4039-8c1d-737df1a790bf_ema_bf16.pt
+          state_dict_transform:
+            _ref: flashdreams.recipes.cosmos.transformer.impl.network:state_dict_transform
+          batch_shape:
+            _tuple: []
+          len_t: 24
+          h_extrapolation_ratio: 3.0
+          w_extrapolation_ratio: 3.0
+          window_size_t: 24
+          sink_size_t: 0
+          compile_network: true
+          use_cuda_graph: false
+          cuda_graph_warmup_iters: 2
+          skip_finalize_kv_cache: false
+          guidance_scale: 8.0
+          conditional_frame_timestep: null
+        scheduler:
+          _target: flashdreams.infra.diffusion.scheduler:FlowMatchUniPCSchedulerConfig
+          num_inference_steps: 35
+          shift: 5.0
+          num_train_timesteps: 1000
+          solver_order: 2
+          use_kerras_sigma: true
+          enable_tqdm: true
