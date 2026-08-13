@@ -355,7 +355,7 @@ def _close_runner_resources(
 ) -> None:
     errors: list[Exception] = []
     _record_cleanup_error(errors, context.close)
-    _record_cleanup_error(errors, host.call, app.close)
+    _close_application(errors=errors, host=host, app=app)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
@@ -381,10 +381,7 @@ async def _close_runner_resources_async(
         await context.close_async()
     except Exception as exc:
         errors.append(exc)
-    try:
-        await host.call_async(app.close)
-    except Exception as exc:
-        errors.append(exc)
+    await _close_application_async(errors=errors, host=host, app=app)
     if owns_host:
         _record_cleanup_error(errors, host.close)
     if primary_error is not None:
@@ -405,6 +402,50 @@ def _record_cleanup_error(
     try:
         cleanup(*args)
     except Exception as exc:
+        errors.append(exc)
+
+
+def _close_application(
+    *,
+    errors: list[Exception],
+    host: RuntimeHost,
+    app: Application,
+) -> None:
+    invoked = False
+
+    def close_app() -> None:
+        nonlocal invoked
+        invoked = True
+        app.close()
+
+    try:
+        host.call(close_app)
+    except Exception as exc:
+        if not invoked and host.is_closed:
+            _record_cleanup_error(errors, app.close)
+            return
+        errors.append(exc)
+
+
+async def _close_application_async(
+    *,
+    errors: list[Exception],
+    host: RuntimeHost,
+    app: Application,
+) -> None:
+    invoked = False
+
+    def close_app() -> None:
+        nonlocal invoked
+        invoked = True
+        app.close()
+
+    try:
+        await host.call_async(close_app)
+    except Exception as exc:
+        if not invoked and host.is_closed:
+            _record_cleanup_error(errors, app.close)
+            return
         errors.append(exc)
 
 

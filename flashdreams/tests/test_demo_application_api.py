@@ -243,6 +243,24 @@ def test_runner_closes_public_app_when_host_is_external() -> None:
     assert app.closed
 
 
+def test_runner_closes_public_app_when_external_host_is_closed() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+    host = RuntimeHost(_ExternalApplicationRuntime(app))
+    host.close()
+
+    result = Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        host=host,
+        model_id="fake-runner",
+    ).run()
+
+    assert result.status == "rejected"
+    assert result.reason == "busy"
+    assert result.error is None
+    assert app.closed
+
+
 def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
     app = _RunnerFakeApplication(total_steps=1)
 
@@ -254,6 +272,27 @@ def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
             model_id="fake-runner",
         ).run()
 
+    assert app.closed
+
+
+def test_runner_preserves_failed_result_without_error_when_cleanup_fails() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+
+    result = Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        metrics=_FailingCloseMetricsRecorder(),
+        run_mode=_AsyncRecordingRunMode(
+            _RecordingIOHandler(),
+            name="failed-result",
+            driver=_FailedResultDriver(),
+        ),
+        model_id="fake-runner",
+    ).run()
+
+    assert result.status == "failed"
+    assert result.reason == "driver returned failed"
+    assert result.error is None
     assert app.closed
 
 
@@ -310,6 +349,28 @@ async def test_runner_run_async_delegates_to_async_session_helper() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runner_run_async_closes_public_app_when_external_host_is_closed() -> (
+    None
+):
+    app = _RunnerFakeApplication(total_steps=1)
+    host = RuntimeHost(_ExternalApplicationRuntime(app))
+    host.close()
+
+    result = await Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        host=host,
+        run_mode=_AsyncRecordingRunMode(_RecordingIOHandler()),
+        model_id="fake-runner",
+    ).run_async()
+
+    assert result.status == "rejected"
+    assert result.reason == "busy"
+    assert result.error is None
+    assert app.closed
+
+
+@pytest.mark.asyncio
 async def test_runner_run_async_closes_public_app_when_context_cleanup_fails() -> None:
     app = _RunnerFakeApplication(total_steps=1)
 
@@ -322,6 +383,30 @@ async def test_runner_run_async_closes_public_app_when_context_cleanup_fails() -
             model_id="fake-runner",
         ).run_async()
 
+    assert app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_preserves_failed_result_without_error_when_cleanup_fails() -> (
+    None
+):
+    app = _RunnerFakeApplication(total_steps=1)
+
+    result = await Runner(
+        io_handler=_RecordingIOHandler(),
+        app=app,
+        metrics=_FailingCloseMetricsRecorder(),
+        run_mode=_AsyncRecordingRunMode(
+            _RecordingIOHandler(),
+            name="async-failed-result",
+            driver=_AsyncFailedResultDriver(),
+        ),
+        model_id="fake-runner",
+    ).run_async()
+
+    assert result.status == "failed"
+    assert result.reason == "driver returned failed"
+    assert result.error is None
     assert app.closed
 
 
@@ -872,6 +957,24 @@ class _RecordingIOHandler:
         return ()
 
 
+class _FailedResultDriver:
+    def run_one_session(
+        self,
+        *,
+        host: Any,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        host.call(provider.close)
+        return session_edges.close_result(
+            status="failed",
+            reason="driver returned failed",
+            error=None,
+        )
+
+
 @dataclass(slots=True)
 class _AsyncRecordingRunMode:
     io_handler: _RecordingIOHandler
@@ -879,7 +982,7 @@ class _AsyncRecordingRunMode:
     capabilities: RunModeCapabilities = field(
         default_factory=lambda: RunModeCapabilities(supports_artifacts=True)
     )
-    driver: "_AsyncBatchDriver" = field(default_factory=lambda: _AsyncBatchDriver())
+    driver: Any = field(default_factory=lambda: _AsyncBatchDriver())
 
     def validate_run(self, *, spec: DemoSpec, adapter: Any) -> None:
         del spec, adapter
@@ -928,7 +1031,7 @@ class _AsyncRecordingRunMode:
             cleanup_tasks=context.cleanup_tasks,
         )
 
-    def select_driver(self) -> "_AsyncBatchDriver":
+    def select_driver(self) -> Any:
         return self.driver
 
 
@@ -950,6 +1053,24 @@ class _AsyncBatchDriver:
             provider=provider,
             session_edges=session_edges,
             pipeline=pipeline,
+        )
+
+
+class _AsyncFailedResultDriver:
+    async def run_one_session(
+        self,
+        *,
+        host: Any,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        await host.call_async(provider.close)
+        return session_edges.close_result(
+            status="failed",
+            reason="driver returned failed",
+            error=None,
         )
 
 

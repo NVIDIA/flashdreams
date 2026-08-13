@@ -82,6 +82,11 @@ class RuntimeHost:
         return self._healthy and not self._closed
 
     @property
+    def is_closed(self) -> bool:
+        """Return whether the host has stopped accepting dispatched work."""
+        return self._closed
+
+    @property
     def unhealthy_reason(self) -> str | None:
         """Return the first latched unhealthy reason, if any."""
         return self._unhealthy_reason
