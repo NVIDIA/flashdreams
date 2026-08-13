@@ -85,7 +85,38 @@ class WebRTCOutputSpec:
             object.__setattr__(self, "web_dir", Path(self.web_dir))
 
 
-OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
+@dataclass(frozen=True, kw_only=True, slots=True)
+class NativeWindowOutputSpec:
+    """Shared local native-window presentation output."""
+
+    mode: Literal["local-window"] = "local-window"
+    fps: int = 30
+    video_width: int = 1280
+    video_height: int = 720
+    title: str = "FlashDreams"
+    max_queued_chunks: int = 2
+    close_timeout_s: float = 10.0
+    batch_index: int = 0
+    view_index: int = 0
+
+    def __post_init__(self) -> None:
+        if self.fps <= 0:
+            raise ValueError("NativeWindowOutputSpec.fps must be > 0.")
+        if self.video_width <= 0 or self.video_height <= 0:
+            raise ValueError("NativeWindowOutputSpec dimensions must be > 0.")
+        if not self.title.strip():
+            raise ValueError("NativeWindowOutputSpec.title must be non-empty.")
+        if self.max_queued_chunks <= 0:
+            raise ValueError("NativeWindowOutputSpec.max_queued_chunks must be > 0.")
+        if self.close_timeout_s <= 0:
+            raise ValueError("NativeWindowOutputSpec.close_timeout_s must be > 0.")
+        if self.batch_index < 0 or self.view_index < 0:
+            raise ValueError("NativeWindowOutputSpec indices must be >= 0.")
+
+
+OutputSpec: TypeAlias = (
+    NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec | NativeWindowOutputSpec
+)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -189,9 +220,10 @@ __all__ = [
     "DemoSpec",
     "ModelWarmupAdapter",
     "Mp4OutputSpec",
+    "NativeWindowOutputSpec",
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
-    "WebRTCOutputSpec",
     "WebRTCAppResources",
+    "WebRTCOutputSpec",
 ]

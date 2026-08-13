@@ -55,6 +55,7 @@ extraPaths = [
     "integrations/lingbot",
     "integrations/sana",
     "integrations/self_forcing",
+    "integrations/triangle_model",
     "integrations/wan21",
     "integrations/wan22",
 ]
@@ -80,6 +81,7 @@ extra-paths = [
     "integrations/lingbot",
     "integrations/sana",
     "integrations/self_forcing",
+    "integrations/triangle_model",
     "integrations/wan21",
     "integrations/wan22",
 ]

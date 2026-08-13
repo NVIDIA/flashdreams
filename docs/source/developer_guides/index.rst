@@ -55,6 +55,13 @@ Developer Guides
       How to run command-backed local benchmarks that capture logs, MP4s,
       metrics, environment metadata, and an HTML report.
 
+   .. grid-item-card:: Local-window presentation
+      :link: local_window
+      :link-type: doc
+
+      How native input, bounded frame delivery, SlangPy presentation, and
+      graceful shutdown compose with the shared realtime demo runtime.
+
 Where these guides fit
 ----------------------
 
@@ -72,6 +79,7 @@ generated clip, see :doc:`/quickstart/index`.
    runner_slugs
    new_integration
    local_benchmarks
+   local_window
 
 ..
    Temporarily commented out for internal development:

@@ -8,16 +8,40 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections import deque
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
-from flashdreams.runtime.inputs import UserInputs, UserInputSchema
+from flashdreams.runtime.inputs import UserInputEvent, UserInputs, UserInputSchema
 from flashdreams.runtime.types import StepRequirements
 
 from .session_inputs import UserInputWindow
 
 CatchUpPolicy = Literal["drop", "fold", "compress"]
+# Keep the established values so existing WebRTC providers consume native
+# catch-up windows without a compatibility translation.
+REALTIME_SKIPPED_INPUTS_METADATA_KEY = "webrtc_skipped_inputs"
+REALTIME_SKIPPED_WINDOW_METADATA_KEY = "webrtc_skipped_window"
+
+
+def partition_realtime_events(
+    events: Iterable[UserInputEvent],
+    *,
+    start_s: float,
+    end_s: float,
+) -> tuple[
+    tuple[UserInputEvent, ...],
+    tuple[UserInputEvent, ...],
+    tuple[UserInputEvent, ...],
+]:
+    """Partition buffered events into skipped, current, and future groups."""
+    ordered = tuple(sorted(events, key=lambda event: event.timestamp_s))
+    return (
+        tuple(event for event in ordered if event.timestamp_s < start_s),
+        tuple(event for event in ordered if start_s <= event.timestamp_s < end_s),
+        tuple(event for event in ordered if event.timestamp_s >= end_s),
+    )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -158,7 +182,7 @@ class SignalActivationPolicy:
 
         tasks = [asyncio.create_task(signal.wait()) for signal in self.signals]
         try:
-            done, pending = await asyncio.wait(
+            done, _pending = await asyncio.wait(
                 tasks,
                 timeout=self.timeout_s,
                 return_when=asyncio.FIRST_COMPLETED,
@@ -317,6 +341,7 @@ class RealtimeEventInputSource:
     is_finite: bool = False
     is_deterministic: bool = False
     user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
+    _events: deque[UserInputEvent] = field(default_factory=deque, init=False)
 
     def __post_init__(self) -> None:
         if self.max_lag_s is not None and (
@@ -336,6 +361,12 @@ class RealtimeEventInputSource:
 
     def reset(self, *, start_v: float) -> None:
         self.resampler.reset(start_v=start_v)
+        self._events.clear()
+
+    def record_user_event(self, event: UserInputEvent) -> None:
+        """Validate and buffer one event for a future realtime window."""
+        self.user_input_schema.validate_event(event)
+        self._events.append(event)
 
     async def next_realtime_window(
         self,
@@ -347,6 +378,7 @@ class RealtimeEventInputSource:
         chunk_duration_s = input_frame_count * self.resampler.dt
         window_end_s = self.resampler.next_chunk_start_v + chunk_duration_s
         await clock.wait_until_window_end(window_end_s)
+        pre_catch_up_start_s = self.resampler.next_chunk_start_v
         catch_up = clock.catch_up(
             request=request,
             max_lag_s=self.max_lag_s
@@ -357,13 +389,47 @@ class RealtimeEventInputSource:
         start_s = self.resampler.next_chunk_start_v
         frame_times = self.resampler.sample_chunk(input_frame_count)
         end_s = self.resampler.next_chunk_start_v
+        skipped_events, current_events = self._consume_events(
+            start_s=start_s,
+            end_s=end_s,
+        )
+        metadata: dict[str, object] = {}
+        if start_s > pre_catch_up_start_s or skipped_events:
+            skipped_start_s = min(
+                (
+                    pre_catch_up_start_s,
+                    *(event.timestamp_s for event in skipped_events),
+                )
+            )
+            metadata[REALTIME_SKIPPED_INPUTS_METADATA_KEY] = UserInputs(
+                events=skipped_events
+            )
+            metadata[REALTIME_SKIPPED_WINDOW_METADATA_KEY] = (
+                skipped_start_s,
+                start_s,
+            )
         window = UserInputWindow(
             start_s=start_s,
             end_s=end_s,
             frame_times=tuple(frame_times),
-            inputs=UserInputs(),
+            inputs=UserInputs(events=current_events),
+            metadata=metadata,
         )
         return RealtimeWindowResult(window=window, catch_up=catch_up)
+
+    def _consume_events(
+        self,
+        *,
+        start_s: float,
+        end_s: float,
+    ) -> tuple[tuple[UserInputEvent, ...], tuple[UserInputEvent, ...]]:
+        skipped, current, future = partition_realtime_events(
+            self._events,
+            start_s=start_s,
+            end_s=end_s,
+        )
+        self._events = deque(future)
+        return skipped, current
 
 
 def input_frame_count_from_request(request: StepRequirements) -> int:
@@ -371,7 +437,7 @@ def input_frame_count_from_request(request: StepRequirements) -> int:
 
     value = request.input_frame_count
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("StepRequirements.input_frame_count must be an integer.")
+        raise TypeError("StepRequirements.input_frame_count must be an integer.")
     parsed = value
     if parsed <= 0:
         raise ValueError("StepRequirements.input_frame_count must be > 0.")
@@ -392,6 +458,8 @@ def _anchor_if_realtime(
 
 
 __all__ = [
+    "REALTIME_SKIPPED_INPUTS_METADATA_KEY",
+    "REALTIME_SKIPPED_WINDOW_METADATA_KEY",
     "ActivationPolicy",
     "ActivationResult",
     "ActivationSignal",
@@ -399,11 +467,12 @@ __all__ = [
     "CatchUpDecision",
     "CatchUpPolicy",
     "DeterministicClock",
+    "RealtimeClock",
     "RealtimeEventInputSource",
     "RealtimeEventResampler",
-    "RealtimeClock",
     "RealtimeWindowResult",
     "ResamplerRealtimeClock",
     "SignalActivationPolicy",
     "input_frame_count_from_request",
+    "partition_realtime_events",
 ]

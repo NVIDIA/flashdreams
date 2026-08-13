@@ -7,10 +7,11 @@ import asyncio
 from typing import Any, cast
 
 import pytest
-
-from flashdreams.runtime import StepRequirements, UserInputSchema
+from flashdreams.runtime import StepRequirements, UserInputs, UserInputSchema
 from flashdreams.runtime.demo import NullOutputSink, RunResult, SessionEdges
 from flashdreams.runtime.demo.timing import (
+    REALTIME_SKIPPED_INPUTS_METADATA_KEY,
+    REALTIME_SKIPPED_WINDOW_METADATA_KEY,
     CatchUpDecision,
     CatchUpPolicy,
     RealtimeEventInputSource,
@@ -121,7 +122,11 @@ async def test_realtime_input_source_emits_transport_neutral_window() -> None:
     assert result.window.end_s == pytest.approx(3.0)
     assert result.window.frame_times == pytest.approx((2.5, 3.0))
     assert result.window.inputs.events == ()
-    assert result.window.metadata == {}
+    assert result.window.metadata[REALTIME_SKIPPED_INPUTS_METADATA_KEY] == UserInputs()
+    assert result.window.metadata[REALTIME_SKIPPED_WINDOW_METADATA_KEY] == (
+        0.0,
+        pytest.approx(2.0),
+    )
 
 
 @pytest.mark.asyncio

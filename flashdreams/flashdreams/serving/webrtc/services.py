@@ -57,10 +57,13 @@ from flashdreams.runtime.demo import (
     run_demo_session_async,
 )
 from flashdreams.runtime.demo.timing import (
+    REALTIME_SKIPPED_INPUTS_METADATA_KEY,
+    REALTIME_SKIPPED_WINDOW_METADATA_KEY,
     ActivationResult,
     CatchUpPolicy,
     DeterministicClock,
     RealtimeClock,
+    partition_realtime_events,
 )
 
 from .messages import (
@@ -82,8 +85,8 @@ WebRTCMessageKind = Literal[
 WebRTCDropPolicy = Literal["none", "drop_newest", "drop_oldest"]
 
 _CLEAR_EVENT_STATES = frozenset({"clear", "release", "off", "none"})
-WEBRTC_SKIPPED_INPUTS_METADATA_KEY = "webrtc_skipped_inputs"
-WEBRTC_SKIPPED_WINDOW_METADATA_KEY = "webrtc_skipped_window"
+WEBRTC_SKIPPED_INPUTS_METADATA_KEY = REALTIME_SKIPPED_INPUTS_METADATA_KEY
+WEBRTC_SKIPPED_WINDOW_METADATA_KEY = REALTIME_SKIPPED_WINDOW_METADATA_KEY
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -501,12 +504,24 @@ class WebRTCInputSource:
             )
             metadata[legacy_metadata_key] = tuple(segments)
             frame_times = tuple(legacy_frame_times)
-        if start_s > pre_catch_up_start_s:
+        skipped_events, current_events, future_events = partition_realtime_events(
+            self._events,
+            start_s=start_s,
+            end_s=end_s,
+        )
+        self._events = deque(future_events)
+        if start_s > pre_catch_up_start_s or skipped_events:
+            skipped_start_s = min(
+                (
+                    pre_catch_up_start_s,
+                    *(event.timestamp_s for event in skipped_events),
+                )
+            )
             metadata[WEBRTC_SKIPPED_INPUTS_METADATA_KEY] = UserInputs(
-                events=self._events_for_window(pre_catch_up_start_s, start_s)
+                events=skipped_events
             )
             metadata[WEBRTC_SKIPPED_WINDOW_METADATA_KEY] = (
-                pre_catch_up_start_s,
+                skipped_start_s,
                 start_s,
             )
         window = RealtimeWindowResult(
@@ -514,12 +529,11 @@ class WebRTCInputSource:
                 start_s=start_s,
                 end_s=end_s,
                 frame_times=tuple(frame_times),
-                inputs=UserInputs(events=self._events_for_window(start_s, end_s)),
+                inputs=UserInputs(events=current_events),
                 metadata=metadata,
             ),
             catch_up=catch_up,
         )
-        self._prune_events(before_s=start_s)
         return window
 
     def _record_action(
@@ -581,27 +595,6 @@ class WebRTCInputSource:
             source_event_id=active_event_id,
         )
         return WebRTCMessageResult(kind="event", activated=True)
-
-    def _events_for_window(
-        self,
-        start_s: float,
-        end_s: float,
-    ) -> tuple[UserInputEvent, ...]:
-        return tuple(
-            sorted(
-                (
-                    event
-                    for event in self._events
-                    if start_s <= event.timestamp_s < end_s
-                ),
-                key=lambda event: event.timestamp_s,
-            )
-        )
-
-    def _prune_events(self, *, before_s: float) -> None:
-        self._events = deque(
-            event for event in self._events if event.timestamp_s >= before_s
-        )
 
 
 class WebRTCOutputSink:

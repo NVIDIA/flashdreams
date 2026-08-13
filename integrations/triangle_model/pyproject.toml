@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-triangle-model"
+version = "0.1.0"
+description = "Synthetic triangle model integration for FlashDreams."
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams[native-window,runners,serving]",
+    "flashdreams-triangle-app",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.entry-points."flashdreams.runner_configs"]
+triangle-model = "triangle_model.runner:RUNNER_TRIANGLE_MODEL"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-triangle-app = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["triangle_model*"]
+exclude = ["tests"]

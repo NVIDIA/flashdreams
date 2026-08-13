@@ -126,6 +126,9 @@ serving = [
     "aiohttp>=3.9",
     "aiortc>=1.9",
 ]
+native-window = [
+    "slangpy==0.42.0",
+]
 
 [tool.setuptools.dynamic]
 # Resolve version from _version.py (not __init__.py) so setuptools never

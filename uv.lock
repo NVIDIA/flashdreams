@@ -30,6 +30,8 @@ members = [
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-t2v-demo",
+    "flashdreams-triangle-app",
+    "flashdreams-triangle-model",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1026,6 +1028,9 @@ examples = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
+native-window = [
+    { name = "slangpy" },
+]
 rtx-postprocess = [
     { name = "nvidia-vfx" },
 ]
@@ -1081,6 +1086,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.11" },
     { name = "scipy", marker = "extra == 'runners'", specifier = ">=1.11" },
+    { name = "slangpy", marker = "extra == 'native-window'", specifier = "==0.42.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "torch", marker = "sys_platform != 'win32'", specifier = ">=2.9" },
     { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cu130" },
@@ -1091,7 +1097,7 @@ requires-dist = [
     { name = "tyro", specifier = ">=1.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
-provides-extras = ["dev", "examples", "runners", "rtx-postprocess", "serving"]
+provides-extras = ["dev", "examples", "runners", "rtx-postprocess", "serving", "native-window"]
 
 [package.metadata.requires-dev]
 cuda12 = [
@@ -1428,6 +1434,48 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-triangle-app"
+version = "0.1.0"
+source = { editable = "apps/triangle_app" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-triangle-model"
+version = "0.1.0"
+source = { editable = "integrations/triangle_model" }
+dependencies = [
+    { name = "flashdreams", extra = ["native-window", "runners", "serving"] },
+    { name = "flashdreams-triangle-app" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["native-window", "runners", "serving"], editable = "flashdreams" },
+    { name = "flashdreams-triangle-app", editable = "apps/triangle_app" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"

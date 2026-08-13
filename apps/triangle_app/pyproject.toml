@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-triangle-app"
+version = "0.1.0"
+description = "Triangle FlashDreams application for end-to-end demo validation."
+requires-python = ">=3.10"
+dependencies = ["flashdreams"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools]
+packages = ["triangle_app"]
+package-dir = { triangle_app = "." }
