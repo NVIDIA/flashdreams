@@ -127,9 +127,17 @@ class DemoApplication:
 
 def run_replay_application(*, spec: DemoSpec, adapter: DemoAdapter) -> RunResult:
     """Run a finite demo spec through the public replay IO factory and runner."""
+    return run_application_replay(app=DemoAdapterApplication(adapter=adapter, spec=spec))
+
+
+def run_application_replay(*, app: Application) -> RunResult:
+    """Run a finite public application through the replay IO factory and runner."""
+    output_sink = None
+    if isinstance(app, DemoAdapterApplication):
+        output_sink = build_output_sink(app.spec.output)
     return Runner(
-        io_handler=create_replay_io_handler(output_sink=build_output_sink(spec.output)),
-        app=DemoAdapterApplication(adapter=adapter, spec=spec),
+        io_handler=create_replay_io_handler(output_sink=output_sink),
+        app=app,
     ).run()
 
 
@@ -159,4 +167,9 @@ def _raise_for_failed_result(result: RunResult) -> None:
     raise SystemExit(1)
 
 
-__all__ = ["DemoApplication", "create_demo_application", "run_replay_application"]
+__all__ = [
+    "DemoApplication",
+    "create_demo_application",
+    "run_application_replay",
+    "run_replay_application",
+]

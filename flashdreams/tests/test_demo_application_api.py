@@ -38,6 +38,7 @@ from flashdreams.demo import (
     create_replay_io_handler,
     create_webrtc_io_handler,
     input_state_from_window,
+    run_application_replay,
 )
 from flashdreams.runtime import (
     CanonicalInputSchema,
@@ -93,6 +94,7 @@ def test_public_demo_contracts_are_importable() -> None:
     assert IOHandler.__name__ == "IOHandler"
     assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
+    assert run_application_replay.__name__ == "run_application_replay"
     assert create_demo_application.__name__ == "create_demo_application"
     assert create_replay_io_handler.__name__ == "create_replay_io_handler"
     assert create_native_window_io_handler.__name__ == (
@@ -805,6 +807,26 @@ def test_demo_application_replay_selects_factory_and_runner() -> None:
 
     assert app.adapter.runtimes
     runtime = app.adapter.runtimes[0]
+    assert runtime.session.closed
+    assert runtime.closed
+
+
+def test_run_application_replay_uses_demo_adapter_spec() -> None:
+    adapter = _FakeDemoAdapter()
+    app = DemoAdapterApplication(
+        adapter=adapter,
+        spec=DemoSpec(
+            model_id="fake-demo",
+            input_mode="replay",
+            output=NullOutputSpec(),
+        ),
+    )
+
+    result = run_application_replay(app=app)
+
+    assert result.status == "completed"
+    assert adapter.runtimes
+    runtime = adapter.runtimes[0]
     assert runtime.session.closed
     assert runtime.closed
 

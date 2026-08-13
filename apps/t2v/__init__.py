@@ -19,7 +19,6 @@ from t2v.t2v import (
     create_t2v_application,
     create_t2v_spec,
     model_config_from_runner,
-    run_t2v_replay_application,
     t2v_scenario_mapping,
 )
 
@@ -39,6 +38,5 @@ __all__ = [
     "create_t2v_application",
     "create_t2v_spec",
     "model_config_from_runner",
-    "run_t2v_replay_application",
     "t2v_scenario_mapping",
 ]

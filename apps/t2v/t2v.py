@@ -16,9 +16,6 @@ import torch
 from flashdreams.demo import (
     Application,
     DemoAdapterApplication,
-    FileOutputSink,
-    Runner,
-    create_replay_io_handler,
 )
 from flashdreams.infra.decoder import StreamingVideoDecoder
 from flashdreams.infra.video_output import VideoOutputStream
@@ -36,13 +33,11 @@ from flashdreams.runtime import (
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.demo import (
     DemoSpec,
-    Mp4OutputSpec,
     NullOutputSpec,
     OutputSpec,
     PreparedScenario,
 )
 from flashdreams.runtime.demo.outputs import SessionInfo
-from flashdreams.runtime.demo.run_modes import RunResult
 from flashdreams.runtime.demo.session_inputs import (
     PreparedStep,
     ProviderCapabilities,
@@ -515,30 +510,6 @@ def create_t2v_spec(
     )
 
 
-def run_t2v_replay_application(
-    *,
-    model: T2VModelConfig,
-    defaults: T2VRunDefaults | None,
-    output: Mp4OutputSpec | NullOutputSpec,
-) -> RunResult:
-    """Run finite T2V replay through the public runner and replay IO handler."""
-    output_sink = None
-    if isinstance(output, Mp4OutputSpec):
-        output_sink = FileOutputSink(
-            output_path=Path(output.path),
-            fps=output.fps,
-            output_layout=output.output_layout,
-        )
-    result = Runner(
-        io_handler=create_replay_io_handler(output_sink=output_sink),
-        app=create_t2v_application(model=model, defaults=defaults, output=output),
-    ).run()
-    if result.status != "completed":
-        reason = result.reason or str(result.error) or "T2V replay failed."
-        raise RuntimeError(reason)
-    return result
-
-
 def t2v_scenario_mapping(
     *, model: T2VModelConfig, defaults: T2VRunDefaults | None = None
 ) -> dict[str, object]:
@@ -592,6 +563,5 @@ __all__ = [
     "create_t2v_application",
     "create_t2v_spec",
     "model_config_from_runner",
-    "run_t2v_replay_application",
     "t2v_scenario_mapping",
 ]

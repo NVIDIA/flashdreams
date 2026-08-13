@@ -15,10 +15,8 @@ from t2v_demo.runtime import backend_metadata, model_from_backend
 from flashdreams.demo import (
     Application,
     DemoAdapterApplication,
-    FileOutputSink,
-    ReplayIOHandler,
 )
-from flashdreams.runtime.demo import RunResult
+from flashdreams.runtime.demo import Mp4OutputSpec, RunResult
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -103,15 +101,11 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class FakeRunner:
-        def __init__(self, *, io_handler: object, app: object) -> None:
-            captured["io_handler"] = io_handler
-            captured["app"] = app
+    def fake_run_application_replay(*, app: Application) -> RunResult:
+        captured["app"] = app
+        return RunResult(status="completed")
 
-        def run(self) -> RunResult:
-            return RunResult(status="completed")
-
-    monkeypatch.setattr(t2v_shell, "Runner", FakeRunner)
+    monkeypatch.setattr(app, "run_application_replay", fake_run_application_replay)
     config = T2VDemoRunnerConfig(
         runner_name="t2v",
         description="test",
@@ -127,15 +121,13 @@ def test_runner_mp4_launch_uses_demo_entrypoint(
     )
 
     public_app = captured["app"]
-    io_handler = captured["io_handler"]
     assert isinstance(public_app, DemoAdapterApplication)
-    assert isinstance(io_handler, ReplayIOHandler)
     scenario = public_app.spec.scenario
     assert isinstance(scenario, dict)
     assert scenario["prompt"] == "A waterfall"
     assert scenario["total_blocks"] == 3
-    output_sink = io_handler.output_sink
-    assert isinstance(output_sink, FileOutputSink)
-    assert str(output_sink.output_path) == "outputs/test.mp4"
-    assert output_sink.fps == 24
-    assert output_sink.output_layout == "tchw"
+    output = public_app.spec.output
+    assert isinstance(output, Mp4OutputSpec)
+    assert str(output.path) == "outputs/test.mp4"
+    assert output.fps == 24
+    assert output.output_layout == "tchw"

@@ -18,11 +18,10 @@ from t2v.t2v import (
     T2VRunDefaults,
     create_t2v_application,
     create_t2v_spec,
-    run_t2v_replay_application,
     t2v_scenario_mapping,
 )
 
-from flashdreams.demo import Application
+from flashdreams.demo import Application, run_application_replay
 from flashdreams.runtime.demo import (
     DemoSpec,
     Mp4OutputSpec,
@@ -120,11 +119,17 @@ def launch_t2v(
                 output_overrides.get("fps", scenario[FIELD_FPS]), name="fps"
             ),
         )
-        return run_t2v_replay_application(
-            model=model_from_backend(defaults.backend, defaults.preset_id),
-            defaults=defaults,
-            output=output,
+        result = run_application_replay(
+            app=create_t2v_application(
+                model=model_from_backend(defaults.backend, defaults.preset_id),
+                defaults=defaults,
+                output=output,
+            )
         )
+        if result.status != "completed":
+            reason = result.reason or str(result.error) or "T2V replay failed."
+            raise RuntimeError(reason)
+        return result
 
     context = initialize_cuda_distributed(default_device=config.device)
     # The browser download and playback endpoints below read the session
