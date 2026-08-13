@@ -22,6 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.app import InteractiveDriveApp
 from omnidreams.interactive_drive.application import RolloutSpec
@@ -115,6 +116,7 @@ class CrazyRobotaxiApplication:
         self._navigation_lanes: tuple[Any, ...] = ()
         self._ground_snapper: GroundSnapper | None = None
         self._map_bounds: MapBounds | None = None
+        self._enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
 
     def configure_presenter(self, presenter: Any) -> None:
         """Configure application presentation before scene loading."""
@@ -127,14 +129,23 @@ class CrazyRobotaxiApplication:
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
+        self._enclosure_segments_world = scene_data.enclosure_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
         self._map_bounds = map_bounds
+        logger.info(
+            "[crazy-robotaxi] play-area enclosure: exit_caps={} perimeter_segments={}",
+            len(scene_data.exit_cap_segments_world),
+            len(scene_data.perimeter_segments_world),
+        )
 
     def configure_scene_presenter(self, presenter: Any, scene: SceneBundle) -> None:
         """Publish camera calibration to an application-aware presenter."""
         configure = getattr(presenter, "configure_taxi_camera", None)
         if callable(configure):
             configure(scene.selected_camera)
+        configure_enclosure = getattr(presenter, "configure_taxi_enclosure", None)
+        if callable(configure_enclosure):
+            configure_enclosure(self._enclosure_segments_world)
 
     def rollout_spec(
         self,
@@ -153,6 +164,7 @@ class CrazyRobotaxiApplication:
                 active_scene,
                 vehicle,
                 traffic_density=self._config.traffic_density,
+                enclosure_segments_world=self._enclosure_segments_world,
             ),
             physics_step_fn=step_taxi_physics_world,
             visual_flare_enabled=False,

@@ -20,6 +20,7 @@ from omnidreams.interactive_drive.types import (
     PhysicsDebugFrame,
     SceneBundle,
     VehicleState,
+    WorldLineSegments,
 )
 
 _MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
@@ -84,16 +85,40 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         vehicle: VehicleConfig,
         *,
         traffic_density: float,
+        enclosure_segments_world: np.ndarray | None = None,
     ) -> None:
         selected_tracks = select_traffic_tracks(
             tuple(scene.vehicle_bbox_tracks), traffic_density, scene.scene_id
         )
-        taxi_scene = replace(scene, vehicle_bbox_tracks=selected_tracks)
+        line_layers = scene.line_layers
+        enclosure_segments = np.asarray(
+            enclosure_segments_world
+            if enclosure_segments_world is not None
+            else np.empty((0, 2, 3), dtype=np.float32),
+            dtype=np.float32,
+        )
+        if enclosure_segments.ndim != 3 or enclosure_segments.shape[1:] != (2, 3):
+            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
+        if len(enclosure_segments):
+            line_layers = line_layers + (
+                WorldLineSegments(
+                    segments_world=enclosure_segments,
+                    color_rgba=(1.0, 0.0, 0.0, 1.0),
+                    width_px=3.0,
+                    layer_name="crazy_robotaxi_enclosure_walls",
+                ),
+            )
+        taxi_scene = replace(
+            scene,
+            vehicle_bbox_tracks=selected_tracks,
+            line_layers=line_layers,
+        )
         super().__init__(taxi_scene, vehicle, model_adapter=inset_vehicle_chassis)
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
-            "arcade handbrake, inset chassis, traffic_density={:.2f}",
+            "arcade handbrake, inset chassis, traffic_density={:.2f}, enclosure_segments={}",
             traffic_density,
+            len(enclosure_segments),
         )
         self._last_contact_resolved_state: VehicleState | None = None
 
