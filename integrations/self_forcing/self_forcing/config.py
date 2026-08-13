@@ -17,10 +17,9 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
-from torch import Tensor
-
+from flashdreams.core.checkpoint.remap import unwrap_generator_state_dict
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -37,25 +36,8 @@ from self_forcing.runner import SelfForcingT2VRunnerConfig
 CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt"
 
 
-def state_dict_transform(state_dict: dict[str, Any]) -> dict[str, Tensor]:
-    """Strip Self-Forcing wrapper prefixes from the checkpoint state-dict."""
-    if "generator_ema" in state_dict:
-        state_dict = state_dict["generator_ema"]
-    elif "generator" in state_dict:
-        state_dict = state_dict["generator"]
-
-    out: dict[str, Tensor] = {}
-    for k, v in state_dict.items():
-        if k.startswith("model."):
-            new_k = k[len("model.") :]
-        elif k.startswith("net."):
-            new_k = k[len("net.") :]
-        else:
-            new_k = k
-        if new_k.startswith("_fsdp_wrapped_module."):
-            new_k = new_k[len("_fsdp_wrapped_module.") :]
-        out[new_k] = v
-    return out
+state_dict_transform = unwrap_generator_state_dict
+"""State-dict transform for Self-Forcing generator checkpoint envelopes."""
 
 
 # Official Self-Forcing Wan 2.1 1.3B T2V pipeline config.

@@ -17,14 +17,13 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
-from torch import Tensor
+from typing import cast
 
 from causal_forcing.runner import (
     CausalForcingI2VRunnerConfig,
     CausalForcingT2VRunnerConfig,
 )
+from flashdreams.core.checkpoint.remap import unwrap_generator_state_dict
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -42,30 +41,8 @@ CHECKPOINT_PATH_CHUNKWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/
 CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/framewise/causal_forcing.pt"
 
 
-def state_dict_transform(state_dict: dict[str, Any]) -> dict[str, Tensor]:
-    """Strip Causal-Forcing wrapper prefixes from the checkpoint state-dict.
-
-    Drops the ``generator_ema`` / ``generator`` container, the ``model.``
-    / ``net.`` outer prefix, and the ``_fsdp_wrapped_module.`` inner
-    prefix (framewise variant) so keys match a bare ``WanDiTNetwork``.
-    """
-    if "generator_ema" in state_dict:
-        state_dict = state_dict["generator_ema"]
-    elif "generator" in state_dict:
-        state_dict = state_dict["generator"]
-
-    out: dict[str, Tensor] = {}
-    for k, v in state_dict.items():
-        if k.startswith("model."):
-            new_k = k[len("model.") :]
-        elif k.startswith("net."):
-            new_k = k[len("net.") :]
-        else:
-            new_k = k
-        if new_k.startswith("_fsdp_wrapped_module."):
-            new_k = new_k[len("_fsdp_wrapped_module.") :]
-        out[new_k] = v
-    return out
+state_dict_transform = unwrap_generator_state_dict
+"""State-dict transform for Causal-Forcing generator checkpoint envelopes."""
 
 
 # Causal-Forcing chunkwise Wan 2.1 1.3B T2V pipeline.

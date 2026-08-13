@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import Callable
 from typing import Any, cast
 
 from flashdreams.runtime.interfaces import InferenceSession
@@ -446,8 +447,15 @@ async def run_demo_session_async(
     run_mode: RunMode,
     pipeline: StepPipeline,
     reservation: SessionReservation | None = None,
+    model_input_provider_factory: (
+        Callable[[DemoSpec, PreparedScenario], ModelInputProvider] | None
+    ) = None,
 ) -> RunResult:
-    """Run one prepared async/realtime demo session through a selected run mode."""
+    """Run one prepared async/realtime demo session through a selected run mode.
+
+    ``model_input_provider_factory`` overrides the adapter's provider factory
+    for callers that already own a runtime and prepared scenario.
+    """
     if reservation is None:
         reservation = context.admission.try_reserve()
     if reservation is None:
@@ -459,7 +467,9 @@ async def run_demo_session_async(
     session_edges: SessionEdges | None = None
     try:
         try:
-            create_provider = getattr(adapter, "create_model_input_provider")
+            create_provider = model_input_provider_factory
+            if create_provider is None:
+                create_provider = getattr(adapter, "create_model_input_provider")
             provider = await context.host.call_async(create_provider, spec, scenario)
             run_mode.validate_session(
                 spec=spec,

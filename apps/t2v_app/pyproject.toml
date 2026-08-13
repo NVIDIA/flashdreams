@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "t2v-app"
+version = "0.1.0"
+description = "Text-to-video example application for flashdreams-runner"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["flashdreams", "flashdreams-runner"]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-runner = { workspace = true }
+
+[tool.pyright]
+extraPaths = ["../..", "../../flashdreams"]
+venvPath = "../.."
+venv = ".venv"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+t2v_app = ["pipeline_presets.yaml", "web/*.css", "web/*.js"]

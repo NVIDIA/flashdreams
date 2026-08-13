@@ -680,9 +680,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         shared_spec: DemoSpec | None = None,
         shared_spec_factory: Callable[[Any], DemoSpec] | None = None,
         shared_scenario: PreparedScenario | None = None,
+        shared_model_input_provider_factory: (
+            Callable[[DemoSpec, PreparedScenario], ModelInputProvider] | None
+        ) = None,
         shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
         legacy_segment_resampler_factory: Callable[..., Any] | None = None,
         keep_connection_after_completed: bool = False,
+        runtime_ready: bool = False,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
@@ -699,7 +703,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self.fatal_generation_errors = fatal_generation_errors
         self.client_liveness_timeout_s = client_liveness_timeout_s
         self._runtime = runtime
-        self._runtime_ready = False
+        # Runner-hosted applications may finish model initialization before
+        # the WebRTC server lifecycle begins.
+        self._runtime_ready = runtime_ready
         self._warmup_complete = False
         self._active_session: ManagedWebRTCSession | None = None
         self._preload_lock = asyncio.Lock()
@@ -713,6 +719,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._shared_spec = shared_spec
         self._shared_spec_factory = shared_spec_factory
         self._shared_scenario = shared_scenario
+        self._shared_model_input_provider_factory = shared_model_input_provider_factory
         self._shared_pipeline_factory = shared_pipeline_factory
         self._keep_connection_after_completed = keep_connection_after_completed
         self._shared_video_encoder: VideoEncoder | None = None
@@ -760,9 +767,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             kwargs["supported_keys"] = supported_control_keys
         return factory(**kwargs)
 
+    def _uses_shared_demo_path(self) -> bool:
+        return (
+            self._shared_adapter is not None
+            or self._shared_model_input_provider_factory is not None
+        )
+
     def _needs_legacy_segment_metadata(self) -> bool:
-        return self._shared_adapter is None and not _runtime_drives_inference_session(
-            self._runtime
+        return (
+            not self._uses_shared_demo_path()
+            and not _runtime_drives_inference_session(self._runtime)
         )
 
     def _effective_supported_control_keys(self) -> frozenset[str] | None:
@@ -894,7 +908,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> None:
         reset = getattr(context.host.runtime, "reset_for_new_session", None)
         if not callable(reset):
-            if self._shared_adapter is not None:
+            if self._uses_shared_demo_path():
                 return
             raise RuntimeError("WebRTC runtime adapter cannot reset sessions.")
         await context.host.call_async(reset, session_input)
@@ -1342,7 +1356,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 elif self._shared_host is not None:
                     await asyncio.to_thread(self._shared_host.preload)
                 self._runtime_ready = True
-                self._initialize_shared_video_encoder()
+            self._initialize_shared_video_encoder()
             if not self._warmup_complete:
                 await self._run_loopback_warmup_session(
                     num_chunks=self.runtime_config.warmup_chunks
@@ -1886,11 +1900,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         )
         try:
             while not managed_session.closed:
-                adapter = self._shared_adapter
+                adapter: Any = self._shared_adapter
                 spec = self._shared_spec
                 scenario = self._shared_scenario
                 spec_factory = self._shared_spec_factory
-                if adapter is None or spec is None:
+                provider_factory = self._shared_model_input_provider_factory
+                if provider_factory is not None:
+                    if spec is None:
+                        raise RuntimeError(
+                            "Direct WebRTC input providers require shared_spec."
+                        )
+                    adapter = self._runtime
+                elif adapter is None or spec is None:
                     adapter = _LegacyWebRTCDemoAdapter(
                         runtime=self._runtime,
                         identity=self.identity,
@@ -1901,12 +1922,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     spec = spec_factory(session_input)
                     scenario = None
                 if scenario is None:
-                    scenario = adapter.prepare_scenario(spec)
+                    if provider_factory is not None:
+                        raise RuntimeError(
+                            "Direct WebRTC input providers require shared_scenario."
+                        )
+                    scenario = cast(Any, adapter).prepare_scenario(spec)
                 result = await run_demo_session_async(
                     context=context,
                     spec=spec,
                     scenario=scenario,
-                    adapter=adapter,
+                    adapter=cast(Any, adapter),
                     run_mode=run_mode,
                     pipeline=(
                         self._shared_pipeline_factory()
@@ -1914,6 +1939,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         else StepPipeline()
                     ),
                     reservation=managed_session.reservation,
+                    model_input_provider_factory=provider_factory,
                 )
                 managed_session.reservation = None
                 if result.status != "completed":

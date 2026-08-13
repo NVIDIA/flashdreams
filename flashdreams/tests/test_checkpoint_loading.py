@@ -14,7 +14,53 @@ import pytest
 import torch
 from safetensors.torch import save_file as save_safetensors_file
 
+from flashdreams.core.checkpoint.remap import unwrap_generator_state_dict
+
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize("container", ["generator_ema", "generator"])
+def test_unwrap_generator_state_dict_strips_training_prefixes(
+    container: str,
+) -> None:
+    """Unwrap generator containers and strip their root training prefixes."""
+    model_weight = torch.tensor(1.0)
+    net_bias = torch.tensor(2.0)
+    fsdp_scale = torch.tensor(3.0)
+    untouched = torch.tensor(4.0)
+
+    actual = unwrap_generator_state_dict(
+        {
+            container: {
+                "model.weight": model_weight,
+                "net.bias": net_bias,
+                "_fsdp_wrapped_module.scale": fsdp_scale,
+                "untouched": untouched,
+            }
+        }
+    )
+
+    assert actual == {
+        "weight": model_weight,
+        "bias": net_bias,
+        "scale": fsdp_scale,
+        "untouched": untouched,
+    }
+
+
+def test_unwrap_generator_state_dict_prefers_ema_container() -> None:
+    """Prefer EMA parameters when both generator containers are present."""
+    generator = torch.tensor(1.0)
+    generator_ema = torch.tensor(2.0)
+
+    actual = unwrap_generator_state_dict(
+        {
+            "generator": {"model.weight": generator},
+            "generator_ema": {"model._fsdp_wrapped_module.weight": generator_ema},
+        }
+    )
+
+    assert actual == {"weight": generator_ema}
 
 
 def test_local_safetensors_uses_file_backed_loader(

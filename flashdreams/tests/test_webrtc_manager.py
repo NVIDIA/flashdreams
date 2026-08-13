@@ -19,7 +19,12 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
-from flashdreams.runtime.demo import RunResult
+from flashdreams.runtime.demo import (
+    DemoSpec,
+    PreparedScenario,
+    RunResult,
+    WebRTCOutputSpec,
+)
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
@@ -1106,6 +1111,66 @@ async def test_realtime_driver_session_uses_shared_step_pipeline(
     ]
     assert len(chunk_done) == 1
     assert chunk_done[0]["model"] == "fake-model"
+
+
+@pytest.mark.asyncio
+async def test_realtime_driver_session_forwards_direct_provider_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        captured.update(kwargs)
+        return RunResult(status="completed")
+
+    def provider_factory(
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> Any:
+        del spec, scenario
+        raise AssertionError("The fake session helper must not create the provider.")
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+    runtime = SimpleNamespace(close=lambda: None)
+    spec = DemoSpec(
+        model_id="fake-model",
+        input_mode="webrtc",
+        output=WebRTCOutputSpec(),
+    )
+    scenario = PreparedScenario(initial_inputs=InferenceInput())
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        shared_host=manager_module.RuntimeHost(cast(Any, runtime)),
+        shared_spec=spec,
+        shared_scenario=scenario,
+        shared_model_input_provider_factory=provider_factory,
+    )
+    assert not manager._needs_legacy_segment_metadata()
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    await manager._reset_runtime_for_session(context=context, session_input=None)
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    managed, _video_track, _peer, _channel = _managed_session(runtime)
+    managed.reservation = reservation
+    manager._active_session = managed
+
+    await manager._run_realtime_driver_session(
+        managed_session=managed,
+        context=context,
+        session_input=None,
+    )
+
+    assert captured["adapter"] is runtime
+    assert captured["spec"] is spec
+    assert captured["scenario"] is scenario
+    assert captured["model_input_provider_factory"] is provider_factory
+    assert not manager.has_active_session()
+    context.host.close()
 
 
 @pytest.mark.asyncio
