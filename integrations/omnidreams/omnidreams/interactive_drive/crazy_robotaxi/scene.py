@@ -43,7 +43,7 @@ class CrazyRobotaxiSceneData:
     """Directed car-lane centerlines used for target routing."""
 
     perimeter_segments_world: npt.NDArray[np.float32]
-    """Taxi-only closed wall surrounding the player's lane-network component."""
+    """Taxi-only walls enclosing the player's lane-network component."""
 
     @property
     def navigation_routes_world(self) -> tuple[np.ndarray, ...]:
@@ -179,14 +179,15 @@ def _build_lane_network_perimeter(
     lane_rows: list[dict[str, Any]],
     spawn_xy_m: npt.NDArray[np.float32],
 ) -> npt.NDArray[np.float32]:
-    """Build a closed wall around the spawn-connected drivable lane surface.
+    """Build closed walls around the spawn-connected drivable lane surface.
 
     Args:
         lane_rows: ClipGT lane records.
         spawn_xy_m: Initial player position in world XY coordinates.
 
     Returns:
-        Consecutive world-space wall segments with shape ``[N, 2, 3]``.
+        World-space wall segments with shape ``[N, 2, 3]``. Segments are
+        consecutive within each closed boundary ring.
     """
     lane_surfaces: list[Polygon] = []
     lane_heights: list[npt.NDArray[np.float32]] = []
@@ -233,16 +234,19 @@ def _build_lane_network_perimeter(
         key=lambda component: component.distance(spawn_point),
     )
 
-    # Existing road boundaries handle internal curbs. Only the exterior ring
-    # closes exits from the connected street network.
-    ring_xy = np.asarray(enclosure.exterior.coords, dtype=np.float32)
-    if len(ring_xy) < 4:
-        return _empty_segments()
     z_m = float(np.median(np.concatenate(lane_heights)))
-    ring_xyz = np.column_stack(
-        (ring_xy, np.full(len(ring_xy), z_m, dtype=np.float32))
-    ).astype(np.float32)
-    return np.stack((ring_xyz[:-1], ring_xyz[1:]), axis=1)
+    ring_segments: list[npt.NDArray[np.float32]] = []
+    for ring in (enclosure.exterior, *enclosure.interiors):
+        ring_xy = np.asarray(ring.coords, dtype=np.float32)
+        if len(ring_xy) < 4:
+            continue
+        ring_xyz = np.column_stack(
+            (ring_xy, np.full(len(ring_xy), z_m, dtype=np.float32))
+        ).astype(np.float32)
+        ring_segments.append(np.stack((ring_xyz[:-1], ring_xyz[1:]), axis=1))
+    if not ring_segments:
+        return _empty_segments()
+    return np.concatenate(ring_segments, axis=0).astype(np.float32)
 
 
 def _boundary_polylines(
