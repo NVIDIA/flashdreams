@@ -1,22 +1,37 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Synthetic runtime and session used to validate demo plumbing."""
+"""Concrete triangle application."""
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
 from typing import cast
 
 import torch
-from flashdreams.runtime import InferenceInput, StepRequest, StepResult
-from triangle_app import DEFAULT_TRIANGLE_COLOR, TriangleScenario
+from flashdreams.runtime import InferenceConfig, InferenceInput, StepRequest, StepResult
+from triangle_app import DEFAULT_TRIANGLE_COLOR, TriangleApp, TriangleScenario
+
+
+class TriangleModel(TriangleApp):
+    model_id = "triangle-model"
+
+    def create_runtime(self, config: InferenceConfig) -> TriangleRuntime:
+        self.validate_config(config)
+        return TriangleRuntime()
 
 
 class TriangleRuntime:
-    """Stateless runtime that creates isolated synthetic sessions."""
-
     def start_session(self, inputs: InferenceInput) -> TriangleSession:
-        return TriangleSession(_scenario_from_inputs(inputs))
+        return TriangleSession(
+            TriangleScenario(
+                width=int(inputs.global_conditioning["width"]),
+                height=int(inputs.global_conditioning["height"]),
+                fps=int(inputs.global_conditioning["fps"]),
+                total_frames=int(inputs.global_conditioning["total_frames"]),
+            )
+        )
 
     def close(self) -> None:
         return None
@@ -38,7 +53,9 @@ class TriangleSession:
 
     def step(self, inputs: InferenceInput) -> StepResult:
         if self._closed:
-            raise RuntimeError("Cannot step a closed synthetic session.")
+            raise RuntimeError("Cannot step a closed triangle session.")
+        if self._step_index >= self._scenario.total_frames:
+            raise RuntimeError("Triangle session is complete.")
         index = self._step_index
         self._step_index += 1
         return StepResult.from_video_chunk(
@@ -49,14 +66,10 @@ class TriangleSession:
                 color=_color(inputs.step.get("color", DEFAULT_TRIANGLE_COLOR)),
             ).unsqueeze(0),
             layout="tchw",
-            metadata={"generator": "triangle-model"},
         )
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        if inputs is not None:
-            scenario = _scenario_from_inputs(inputs)
-            if scenario != self._scenario:
-                raise ValueError("Create a new session to change triangle geometry.")
+        del inputs
         self._step_index = 0
         self._closed = False
 
@@ -64,13 +77,22 @@ class TriangleSession:
         self._closed = True
 
 
-def _scenario_from_inputs(inputs: InferenceInput) -> TriangleScenario:
-    values = inputs.global_conditioning
-    return TriangleScenario(
-        width=int(values["width"]),
-        height=int(values["height"]),
-        fps=int(values["fps"]),
-        total_frames=int(values["total_frames"]),
+def create_app(args: Sequence[str]) -> TriangleModel:
+    parser = argparse.ArgumentParser(prog="triangle-model")
+    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--height", type=int, default=360)
+    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--total-frames", type=int, default=180)
+    parser.add_argument("--title", default="FlashDreams · Triangle Model")
+    parsed = parser.parse_args(list(args))
+    return TriangleModel(
+        application_name="triangle-model",
+        description="Synthetic triangle application.",
+        width=parsed.width,
+        height=parsed.height,
+        fps=parsed.fps,
+        total_frames=parsed.total_frames,
+        title=parsed.title,
     )
 
 
@@ -85,12 +107,10 @@ def _triangle_frame(
     top = scenario.height // 4
     bottom = 3 * scenario.height // 4
     half_width = max(1, scenario.width // 8)
-
     y = torch.arange(scenario.height).view(-1, 1)
     x = torch.arange(scenario.width).view(1, -1)
     width_at_y = (y - top) * half_width / max(1, bottom - top)
     mask = (y >= top) & (y <= bottom) & ((x - center_x).abs() <= width_at_y)
-
     frame = torch.zeros((scenario.height, scenario.width, 3), dtype=torch.uint8)
     frame[mask] = torch.tensor(color, dtype=torch.uint8)
     return frame.permute(2, 0, 1).contiguous()
@@ -109,7 +129,4 @@ def _color(value: object) -> tuple[int, int, int]:
     return color
 
 
-__all__ = [
-    "TriangleRuntime",
-    "TriangleSession",
-]
+__all__ = ["TriangleModel", "create_app"]

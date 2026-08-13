@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from functools import cache
-from importlib.metadata import entry_points
 from typing import Literal, TypeAlias
 
+from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.runtime import (
     CanonicalInputSchema,
     IdentityInputMapping,
@@ -25,6 +24,7 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     REALTIME_SKIPPED_INPUTS_METADATA_KEY,
+    ApplicationMode,
     DemoSpec,
     PreparedScenario,
     PreparedStep,
@@ -56,8 +56,6 @@ TRIANGLE_INPUT_SCHEMA = InferenceInputSchema(
     ),
     step_fields=(InputField(name="color", input_modality="triangle/rgb"),),
 )
-TRIANGLE_MODEL_ENTRY_POINT_GROUP = "flashdreams.triangle_models"
-
 _KEYBOARD_SCHEMA = UserInputSchema(
     capabilities=(
         UserInputCapability(
@@ -91,6 +89,36 @@ class TriangleScenario:
 class TriangleApp(ABC):
     inference_input_schema = TRIANGLE_INPUT_SCHEMA
     canonical_input_schema = CanonicalInputSchema()
+    output_layout: VideoTensorLayout = "tchw"
+    supported_control_keys = frozenset({"r", "g", "b", "space"})
+
+    def __init__(
+        self,
+        *,
+        application_name: str,
+        description: str,
+        width: int,
+        height: int,
+        fps: int,
+        total_frames: int,
+        title: str,
+        device: str = "cpu",
+        default_mode: ApplicationMode = "local-window",
+    ) -> None:
+        self.application_name = application_name
+        self.description = description
+        self.scenario = TriangleScenario(
+            width=width,
+            height=height,
+            fps=fps,
+            total_frames=total_frames,
+        )
+        self.fps = fps
+        self.video_width = width
+        self.video_height = height
+        self.title = title
+        self.default_mode = default_mode
+        self.config = InferenceConfig(model_id=self.model_id, device=device)
 
     @property
     @abstractmethod
@@ -194,40 +222,13 @@ class TriangleInputProvider:
         return None
 
 
-@cache
-def triangle_models() -> dict[str, TriangleApp]:
-    models: dict[str, TriangleApp] = {}
-    for entry_point in entry_points(group=TRIANGLE_MODEL_ENTRY_POINT_GROUP):
-        value = entry_point.load()
-        model = value() if callable(value) else value
-        if not isinstance(model, TriangleApp):
-            raise TypeError(f"Triangle model {entry_point.name!r} is invalid.")
-        if entry_point.name in models:
-            raise ValueError(f"Duplicate triangle model {entry_point.name!r}.")
-        models[entry_point.name] = model
-    return models
-
-
-def resolve_triangle_model(name: str) -> TriangleApp:
-    try:
-        return triangle_models()[name]
-    except KeyError as exc:
-        available = ", ".join(triangle_models()) or "<none installed>"
-        raise ValueError(
-            f"Unknown triangle model {name!r}; available: {available}."
-        ) from exc
-
-
 __all__ = [
     "DEFAULT_TRIANGLE_COLOR",
     "TRIANGLE_INPUT_MODES",
     "TRIANGLE_INPUT_SCHEMA",
-    "TRIANGLE_MODEL_ENTRY_POINT_GROUP",
     "TRIANGLE_OUTPUT_MODES",
     "TriangleApp",
     "TriangleInputProvider",
     "TriangleOutputMode",
     "TriangleScenario",
-    "resolve_triangle_model",
-    "triangle_models",
 ]

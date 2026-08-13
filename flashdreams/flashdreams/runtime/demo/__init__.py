@@ -3,6 +3,10 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
+from flashdreams.runtime.demo.application import (
+    ApplicationMode,
+    FlashDreamsApplication,
+)
 from flashdreams.runtime.demo.drivers import (
     CLEANUP_TIMEOUT_S,
     BatchSessionDriver,
@@ -107,6 +111,7 @@ __all__ = [
     "ActivationResult",
     "ActivationSignal",
     "AlwaysActiveActivationPolicy",
+    "ApplicationMode",
     "AsyncSessionDriver",
     "BatchInputSource",
     "BatchSessionDriver",
@@ -120,6 +125,7 @@ __all__ = [
     "DeterministicClock",
     "DriverInvariantError",
     "ErrorAction",
+    "FlashDreamsApplication",
     "InMemorySessionMetricsRecorder",
     "InputSource",
     "MetricsSnapshot",

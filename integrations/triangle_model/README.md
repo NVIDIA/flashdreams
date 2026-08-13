@@ -1,20 +1,19 @@
 # Triangle model
 
-`TriangleModel` is a concrete implementation of the reusable
-`triangle_app.TriangleApp` contract:
+The integration implements `TriangleModel(TriangleApp)`, its runtime/session,
+and the package application factory:
 
 ```python
-class TriangleModel(TriangleApp):
-    def create_runtime(self, config):
-        return TriangleRuntime()
+def create_app(args):
+    return TriangleModel(...)
 ```
 
-Run the concrete package:
+Run it directly through FlashDreams:
 
 ```bash
 uv run --package flashdreams-triangle-model \
-  flashdreams-run triangle-app --model triangle-model
+  flashdreams-run triangle-model
 ```
 
-Available modes are `local-window`, `webrtc`, `mp4`, and `null`. Press `R`,
-`G`, or `B` to select the triangle color; Space cycles colors.
+Modes are `local-window`, `webrtc`, `mp4`, and `null`. Press `R`, `G`, or `B`
+to select a color; Space cycles colors.

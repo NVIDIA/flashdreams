@@ -3,37 +3,39 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
-from flashdreams.runtime import InferenceConfig
 from flashdreams.runtime.demo import DemoSpec, NativeWindowOutputSpec
-from triangle_app import TriangleScenario
-from triangle_model import MODEL_ID, TriangleModel
+from triangle_model import create_app
 
 pytestmark = pytest.mark.ci_cpu
 
 
 def test_triangle_model_emits_moving_frames() -> None:
-    adapter = TriangleModel()
+    application = create_app(
+        [
+            "--width",
+            "16",
+            "--height",
+            "16",
+            "--fps",
+            "30",
+            "--total-frames",
+            "2",
+        ]
+    )
     spec = DemoSpec(
-        model_id=MODEL_ID,
+        model_id=application.model_id,
         input_mode="keyboard-driving",
         output=NativeWindowOutputSpec(
             fps=30,
             video_width=16,
             video_height=16,
         ),
-        scenario=TriangleScenario(
-            width=16,
-            height=16,
-            fps=30,
-            total_frames=2,
-        ),
-        config=InferenceConfig(model_id=MODEL_ID, device="cpu"),
+        scenario=application.scenario,
+        config=application.config,
     )
-    scenario = adapter.prepare_scenario(spec)
-    runtime = adapter.create_runtime(cast(InferenceConfig, spec.config))
+    scenario = application.prepare_scenario(spec)
+    runtime = application.create_runtime(application.config)
     session = runtime.start_session(scenario.initial_inputs)
 
     first = session.step(scenario.initial_inputs)

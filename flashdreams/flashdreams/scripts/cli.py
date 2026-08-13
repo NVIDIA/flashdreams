@@ -184,6 +184,10 @@ def entrypoint(argv: list[str] | None = None) -> None:
     """
     tyro.extras.set_accent_color("bright_yellow")
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    from flashdreams.serving.application_launcher import run_application_from_argv
+
+    if run_application_from_argv(raw_args):
+        return
     (
         normalized_args,
         runners,

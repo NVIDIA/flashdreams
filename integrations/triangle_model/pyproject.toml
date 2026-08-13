@@ -11,15 +11,15 @@ version = "0.1.0"
 description = "Synthetic triangle model integration for FlashDreams."
 requires-python = ">=3.10"
 dependencies = [
-    "flashdreams",
+    "flashdreams[native-window,runners,serving]",
     "flashdreams-triangle-app",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
-[project.entry-points."flashdreams.triangle_models"]
-triangle-model = "triangle_model:TriangleModel"
+[project.entry-points."flashdreams.applications"]
+triangle-model = "triangle_model:create_app"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }

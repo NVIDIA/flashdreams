@@ -1440,28 +1440,7 @@ name = "flashdreams-triangle-app"
 version = "0.1.0"
 source = { editable = "apps/triangle_app" }
 dependencies = [
-    { name = "flashdreams", extra = ["native-window", "runners", "serving"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", extras = ["native-window", "runners", "serving"], editable = "flashdreams" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "flashdreams-triangle-model"
-version = "0.1.0"
-source = { editable = "integrations/triangle_model" }
-dependencies = [
     { name = "flashdreams" },
-    { name = "flashdreams-triangle-app" },
 ]
 
 [package.optional-dependencies]
@@ -1472,6 +1451,27 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-triangle-model"
+version = "0.1.0"
+source = { editable = "integrations/triangle_model" }
+dependencies = [
+    { name = "flashdreams", extra = ["native-window", "runners", "serving"] },
+    { name = "flashdreams-triangle-app" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["native-window", "runners", "serving"], editable = "flashdreams" },
     { name = "flashdreams-triangle-app", editable = "apps/triangle_app" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]

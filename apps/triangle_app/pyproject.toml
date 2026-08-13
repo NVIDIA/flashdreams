@@ -10,13 +10,10 @@ name = "flashdreams-triangle-app"
 version = "0.1.0"
 description = "Triangle FlashDreams application for end-to-end demo validation."
 requires-python = ">=3.10"
-dependencies = ["flashdreams[native-window,runners,serving]"]
+dependencies = ["flashdreams"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-
-[project.entry-points."flashdreams.runner_configs"]
-triangle-app = "triangle_app.runner:RUNNER_TRIANGLE_APP"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
