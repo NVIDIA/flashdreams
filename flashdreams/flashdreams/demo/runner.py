@@ -380,8 +380,10 @@ def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
     if not errors:
         return
     first = errors[0]
+    add_note = getattr(first, "add_note", None)
     for extra in errors[1:]:
-        first.add_note(f"Additional cleanup error: {extra!r}")
+        if callable(add_note):
+            add_note(f"Additional cleanup error: {extra!r}")
     raise first
 
 

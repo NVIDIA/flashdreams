@@ -639,7 +639,7 @@ class _ExternalApplicationRuntime:
         del inputs
         session = self._app.create_session()
         session.init()
-        return session
+        return _ExternalInferenceSession(session)
 
     def close(self) -> None:
         self.closed = True
@@ -648,6 +648,29 @@ class _ExternalApplicationRuntime:
 class _FailingCloseMetricsRecorder(InMemorySessionMetricsRecorder):
     def close(self) -> Any:
         raise RuntimeError("run metrics close failed")
+
+
+class _ExternalInferenceSession:
+    def __init__(self, session: "_RunnerFakeSession") -> None:
+        self._session = session
+
+    def session_info(self) -> SessionInfo:
+        return self._session.session_info()
+
+    def next_step_request(self) -> StepRequest | None:
+        requirements = self._session.next_step_requirements()
+        if requirements is None:
+            return None
+        return StepRequest(step_index=requirements.step_index)
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        return self._session.step(inputs)
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        self._session.reset(inputs)
+
+    def close(self) -> None:
+        self._session.close()
 
 
 class _RunnerFakeSession:
