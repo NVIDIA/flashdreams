@@ -50,13 +50,33 @@ class RuntimeApplication(Protocol):
 
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
-    ) -> tuple[object | None, ...]:
-        """Advance state and return one opaque annotation per trajectory frame."""
+    ) -> ApplicationChunkUpdate:
+        """Advance application state and decorate one simulated chunk."""
         ...
 
     def publish_boundary(self, state: VehicleState) -> None:
         """Publish application telemetry for the latest boundary state."""
         ...
+
+
+@dataclass(frozen=True)
+class ApplicationChunkUpdate:
+    """Application-owned trajectory and frame annotations for one chunk."""
+
+    trajectory: TrajectoryChunk
+    """Trajectory decorated with application-specific conditioning actors."""
+
+    frame_application_states: tuple[object | None, ...]
+    """Opaque application state synchronized to every trajectory frame."""
+
+    def __post_init__(self) -> None:
+        """Reject frame annotations that do not match the trajectory."""
+        if len(self.frame_application_states) != len(self.trajectory.timestamps_us):
+            raise ValueError(
+                "frame_application_states must match trajectory timestamps; got "
+                f"{len(self.frame_application_states)} states for "
+                f"{len(self.trajectory.timestamps_us)} timestamps"
+            )
 
 
 @dataclass(frozen=True)
