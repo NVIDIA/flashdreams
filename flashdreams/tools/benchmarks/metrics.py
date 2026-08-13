@@ -249,7 +249,7 @@ def summarize_records(
     }
     generated_fps = _generated_fps_summary(retained)
     if generated_fps is not None:
-        summary["generated_fps"] = generated_fps
+        summary.setdefault("generated_fps", generated_fps)
     return summary
 
 
@@ -615,9 +615,7 @@ def _summary_stats(values: list[float]) -> dict[str, float | int]:
 def _generated_fps_summary(
     records: Iterable[MetricRecord],
 ) -> dict[str, float | int] | None:
-    total_frames = 0.0
-    total_s = 0.0
-    measured_steps = 0
+    fps_values: list[float] = []
     for record in records:
         if record.record_type != "step":
             continue
@@ -629,20 +627,10 @@ def _generated_fps_summary(
             duration_s = _positive_float(record.metrics.get("model_step_s"))
         if duration_s is None:
             continue
-        total_frames += frame_count
-        total_s += duration_s
-        measured_steps += 1
-    if measured_steps == 0 or total_s <= 0:
+        fps_values.append(frame_count / duration_s)
+    if not fps_values:
         return None
-    generated_fps = total_frames / total_s
-    return {
-        "count": measured_steps,
-        "min": generated_fps,
-        "max": generated_fps,
-        "mean": generated_fps,
-        "median": generated_fps,
-        "p90": generated_fps,
-    }
+    return _summary_stats(fps_values)
 
 
 def _non_negative_int(value: object) -> int | None:

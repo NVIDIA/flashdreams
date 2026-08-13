@@ -239,7 +239,7 @@ def test_runtime_benchmark_stats_summary_generated_fps_excludes_warmup(
                 "steps": [
                     {"step_index": 0, "frame_count": 5},
                     {"step_index": 1, "frame_count": 20},
-                    {"step_index": 2, "frame_count": 30},
+                    {"step_index": 2, "frame_count": 60},
                 ],
                 "samples": [
                     {
@@ -274,9 +274,11 @@ def test_runtime_benchmark_stats_summary_generated_fps_excludes_warmup(
 
     summary = summarize_records(records, warmup_steps=1)
 
-    assert summary["generated_frame_count"]["median"] == pytest.approx(25.0)
+    assert summary["generated_frame_count"]["median"] == pytest.approx(40.0)
     assert summary["generated_fps"]["count"] == 2
-    assert summary["generated_fps"]["median"] == pytest.approx(10.0)
+    assert summary["generated_fps"]["mean"] == pytest.approx(15.0)
+    assert summary["generated_fps"]["median"] == pytest.approx(15.0)
+    assert summary["generated_fps"]["p90"] == pytest.approx(20.0)
 
 
 def test_malformed_stats_records_are_ignored(tmp_path: Path) -> None:

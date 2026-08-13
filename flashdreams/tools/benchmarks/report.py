@@ -1536,7 +1536,7 @@ def _float_or_default(value: object, default: float) -> float:
 def _metric_hint(metric: str) -> str:
     hints = {
         "command_wall_s": "Full scenario process time: startup, model work, quality hooks, and file writing.",
-        "generated_fps": "Post-warmup generated frames divided by post-warmup runtime seconds; this is not display or playback FPS.",
+        "generated_fps": "Per-step generated frames divided by step runtime seconds after warmup; this is not display or playback FPS.",
         "quality_score": "Overall 0-1 summary; higher is better.",
         "quality_similarity_score": "0-1 closeness to the baseline MP4; higher is better.",
         "quality_visual_sanity_score": "No-reference check for blank, flat, striped, or unstable output; higher is better.",
