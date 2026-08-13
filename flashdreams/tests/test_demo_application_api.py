@@ -386,7 +386,7 @@ def test_runner_external_host_close_hook_closes_public_app() -> None:
     assert app.closed
 
 
-def test_runner_skips_direct_app_close_for_closed_host() -> None:
+def test_runner_does_not_init_public_app_when_host_starts_closed() -> None:
     app = _RunnerFakeApplication(total_steps=1)
     host = RuntimeHost(_ExternalApplicationRuntime(app))
     host.close()
@@ -403,6 +403,30 @@ def test_runner_skips_direct_app_close_for_closed_host() -> None:
     assert result.error is None
     assert app.init_thread_id is None
     assert not app.closed
+
+
+def test_runner_closes_public_app_when_external_host_disappears() -> None:
+    app = _RunnerFakeApplication(total_steps=1)
+    host = _ExternallyClosedWithoutHooksRuntimeHost(_ExternalApplicationRuntime(app))
+
+    try:
+        result = Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            host=host,
+            run_mode=_AsyncRecordingRunMode(
+                _RecordingIOHandler(),
+                name="external-host-disappears",
+                driver=_CloseHostWithoutHooksDriver(),
+            ),
+            model_id="fake-runner",
+        ).run()
+    finally:
+        host.close()
+
+    assert result.status == "completed"
+    assert host.is_closed
+    assert app.closed
 
 
 def test_runner_closes_public_app_when_context_cleanup_fails() -> None:
@@ -514,7 +538,9 @@ async def test_runner_run_async_delegates_to_async_session_helper() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_run_async_skips_direct_app_close_for_closed_host() -> None:
+async def test_runner_run_async_does_not_init_public_app_when_host_starts_closed() -> (
+    None
+):
     app = _RunnerFakeApplication(total_steps=1)
     host = RuntimeHost(_ExternalApplicationRuntime(app))
     host.close()
@@ -532,6 +558,33 @@ async def test_runner_run_async_skips_direct_app_close_for_closed_host() -> None
     assert result.error is None
     assert app.init_thread_id is None
     assert not app.closed
+
+
+@pytest.mark.asyncio
+async def test_runner_run_async_closes_public_app_when_external_host_disappears() -> (
+    None
+):
+    app = _RunnerFakeApplication(total_steps=1)
+    host = _ExternallyClosedWithoutHooksRuntimeHost(_ExternalApplicationRuntime(app))
+
+    try:
+        result = await Runner(
+            io_handler=_RecordingIOHandler(),
+            app=app,
+            host=host,
+            run_mode=_AsyncRecordingRunMode(
+                _RecordingIOHandler(),
+                name="async-external-host-disappears",
+                driver=_AsyncCloseHostWithoutHooksDriver(),
+            ),
+            model_id="fake-runner",
+        ).run_async()
+    finally:
+        host.close()
+
+    assert result.status == "completed"
+    assert host.is_closed
+    assert app.closed
 
 
 @pytest.mark.asyncio
@@ -1424,6 +1477,39 @@ class _ExternalApplicationRuntime:
         self.closed = True
 
 
+class _ExternallyClosedWithoutHooksRuntimeHost(RuntimeHost):
+    def __init__(self, runtime: _ExternalApplicationRuntime) -> None:
+        super().__init__(runtime)
+        self._externally_closed = False
+
+    @property
+    def is_healthy(self) -> bool:
+        return super().is_healthy and not self._externally_closed
+
+    @property
+    def is_closed(self) -> bool:
+        return self._externally_closed or super().is_closed
+
+    def close_without_hooks(self) -> None:
+        self._externally_closed = True
+
+    def call(self, func: Any, /, *args: object, **kwargs: object) -> Any:
+        if self._externally_closed:
+            raise RuntimeError("runtime host is closed")
+        return super().call(func, *args, **kwargs)
+
+    async def call_async(
+        self,
+        func: Any,
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Any:
+        if self._externally_closed:
+            raise RuntimeError("runtime host is closed")
+        return await super().call_async(func, *args, **kwargs)
+
+
 class _FailingCloseMetricsRecorder(InMemorySessionMetricsRecorder):
     def close(self) -> Any:
         raise RuntimeError("run metrics close failed")
@@ -1566,6 +1652,22 @@ class _ClosingHostDriver:
         return session_edges.close_result(status="completed")
 
 
+class _CloseHostWithoutHooksDriver:
+    def run_one_session(
+        self,
+        *,
+        host: RuntimeHost,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        assert isinstance(host, _ExternallyClosedWithoutHooksRuntimeHost)
+        host.call(provider.close)
+        host.close_without_hooks()
+        return session_edges.close_result(status="completed")
+
+
 @dataclass(slots=True)
 class _AsyncRecordingRunMode:
     io_handler: _RecordingIOHandler
@@ -1677,6 +1779,22 @@ class _AsyncClosingHostDriver:
         del pipeline
         await host.call_async(provider.close)
         host.close()
+        return session_edges.close_result(status="completed")
+
+
+class _AsyncCloseHostWithoutHooksDriver:
+    async def run_one_session(
+        self,
+        *,
+        host: RuntimeHost,
+        provider: Any,
+        session_edges: SessionEdges,
+        pipeline: StepPipeline,
+    ) -> RunResult:
+        del pipeline
+        assert isinstance(host, _ExternallyClosedWithoutHooksRuntimeHost)
+        await host.call_async(provider.close)
+        host.close_without_hooks()
         return session_edges.close_result(status="completed")
 
 

@@ -534,7 +534,11 @@ def _close_application(
         if cleanup.closed:
             return
         if not invoked and host.is_closed:
-            errors.append(_closed_host_cleanup_error(exc))
+            _close_application_after_closed_host(
+                errors=errors,
+                cleanup=cleanup,
+                host_error=exc,
+            )
             return
         errors.append(exc)
 
@@ -560,9 +564,31 @@ async def _close_application_async(
         if cleanup.closed:
             return
         if not invoked and host.is_closed:
-            errors.append(_closed_host_cleanup_error(exc))
+            _close_application_after_closed_host(
+                errors=errors,
+                cleanup=cleanup,
+                host_error=exc,
+            )
             return
         errors.append(exc)
+
+
+def _close_application_after_closed_host(
+    *,
+    errors: list[Exception],
+    cleanup: _ApplicationCleanup,
+    host_error: Exception,
+) -> None:
+    # An externally owned host may already be torn down by the time runner
+    # cleanup runs. At that point worker dispatch is impossible, so the
+    # idempotent app cleanup is the last leak-prevention fallback.
+    fallback_errors: list[Exception] = []
+    _record_cleanup_error(fallback_errors, cleanup.close)
+    if cleanup.closed:
+        return
+    cleanup_error = _closed_host_cleanup_error(host_error)
+    _record_cleanup_notes(cleanup_error, fallback_errors)
+    errors.append(cleanup_error)
 
 
 def _raise_first_cleanup_error(errors: Sequence[Exception]) -> None:
@@ -617,8 +643,8 @@ def _has_primary_outcome(
 def _closed_host_cleanup_error(exc: Exception) -> RuntimeError:
     try:
         raise RuntimeError(
-            "Application cleanup skipped because the RuntimeHost is closed; "
-            "app.close() must run on the model worker."
+            "Application cleanup could not be dispatched because the RuntimeHost "
+            "is closed."
         ) from exc
     except RuntimeError as cleanup_error:
         return cleanup_error

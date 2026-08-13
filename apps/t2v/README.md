@@ -6,6 +6,20 @@ and checkpoint configuration and registers a slug under the
 `flashdreams.applications` entry-point group; this app owns only prompt input,
 output selection, and the thin runtime adapter.
 
+## Setup
+
+Install the workspace from the repo root, which registers every application
+slug below, then set a token for checkpoint downloads:
+
+```bash
+uv sync --extra runners
+export HF_TOKEN=<your-hf-token>
+```
+
+Developers and maintainers should use `uv sync --extra dev --extra runners`
+instead. To build only one model's dependencies rather than the whole workspace,
+see that model's page under `docs/source/models/`.
+
 ## Available applications
 
 Every slug below launches through `flashdreams-run` and carries its model's
