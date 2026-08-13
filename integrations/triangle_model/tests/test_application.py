@@ -37,7 +37,7 @@ pytestmark = pytest.mark.ci_cpu
 def _spec(*, frames: int = 3) -> DemoSpec:
     return DemoSpec(
         model_id=MODEL_ID,
-        input_mode="realtime",
+        input_mode="keyboard-driving",
         output=NativeWindowOutputSpec(
             fps=1000,
             video_width=16,
@@ -128,7 +128,7 @@ def test_triangle_model_builds_webrtc_session(
     assert result == "served"
     spec = manager_args["shared_spec"]
     assert isinstance(spec.output, WebRTCOutputSpec)
-    assert spec.input_mode == "realtime"
+    assert spec.input_mode == "keyboard-driving"
     manager_args["shared_host"].close()
 
 

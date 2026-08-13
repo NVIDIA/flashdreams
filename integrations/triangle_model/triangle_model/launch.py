@@ -115,7 +115,7 @@ def _spec(
     )
     return DemoSpec(
         model_id=MODEL_ID,
-        input_mode="replay" if mode in {"mp4", "null"} else "realtime",
+        input_mode="replay" if mode in {"mp4", "null"} else "keyboard-driving",
         output=_output(config, mode=mode, options=options),
         scenario=scenario,
         config=InferenceConfig(model_id=MODEL_ID, device=config.device),

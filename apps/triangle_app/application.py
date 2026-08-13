@@ -38,7 +38,7 @@ TriangleOutputMode: TypeAlias = Literal[
     "webrtc",
     "local-window",
 ]
-TRIANGLE_INPUT_MODES = ("replay", "realtime")
+TRIANGLE_INPUT_MODES = ("replay", "keyboard-driving")
 TRIANGLE_OUTPUT_MODES: tuple[TriangleOutputMode, ...] = (
     "mp4",
     "null",
@@ -135,7 +135,7 @@ class TriangleApp(ABC):
     ) -> TriangleInputProvider:
         return TriangleInputProvider(
             initial_inputs=scenario.initial_inputs,
-            interactive=spec.input_mode == "realtime",
+            interactive=spec.input_mode == "keyboard-driving",
         )
 
 

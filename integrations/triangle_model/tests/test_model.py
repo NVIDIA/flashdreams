@@ -18,7 +18,7 @@ def test_triangle_model_emits_moving_frames() -> None:
     adapter = TriangleModel()
     spec = DemoSpec(
         model_id=MODEL_ID,
-        input_mode="realtime",
+        input_mode="keyboard-driving",
         output=NativeWindowOutputSpec(
             fps=30,
             video_width=16,
