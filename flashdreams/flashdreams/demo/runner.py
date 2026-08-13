@@ -615,6 +615,10 @@ def _has_primary_outcome(
 
 
 def _closed_host_cleanup_error(exc: Exception) -> RuntimeError:
+    # Do not call Application.close() directly here. Application cleanup can own
+    # model or CUDA state, so it must be dispatched through RuntimeHost's worker.
+    # External host owners are expected to keep the host open through runner
+    # teardown or close it via RuntimeHost.close(), which runs registered hooks.
     try:
         raise RuntimeError(
             "Application cleanup could not be dispatched because the RuntimeHost "
