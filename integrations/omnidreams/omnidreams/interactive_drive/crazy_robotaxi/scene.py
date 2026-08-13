@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import json
-import math
 import zipfile
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +27,9 @@ import numpy.typing as npt
 import pyarrow.parquet as pq
 from omnidreams.interactive_drive.crazy_robotaxi.navigation import NavigationLane
 from omnidreams.interactive_drive.types import SceneBundle
+from shapely.geometry import Point, Polygon
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 
 @dataclass(frozen=True)
@@ -40,11 +42,8 @@ class CrazyRobotaxiSceneData:
     navigation_lanes: tuple[NavigationLane, ...]
     """Directed car-lane centerlines used for target routing."""
 
-    exit_cap_segments_world: npt.NDArray[np.float32]
-    """Taxi-only walls closing mapped road exits."""
-
     perimeter_segments_world: npt.NDArray[np.float32]
-    """Taxi-only outer wall guaranteeing a closed play area."""
+    """Taxi-only closed wall surrounding the player's lane-network component."""
 
     @property
     def navigation_routes_world(self) -> tuple[np.ndarray, ...]:
@@ -54,19 +53,20 @@ class CrazyRobotaxiSceneData:
     @property
     def enclosure_segments_world(self) -> npt.NDArray[np.float32]:
         """Return every Taxi-only enclosure wall."""
-        if len(self.exit_cap_segments_world) == 0:
-            return self.perimeter_segments_world
-        if len(self.perimeter_segments_world) == 0:
-            return self.exit_cap_segments_world
-        return np.concatenate(
-            (self.exit_cap_segments_world, self.perimeter_segments_world), axis=0
-        )
+        return self.perimeter_segments_world
 
 
 _PERIMETER_MARGIN_M = 20.0
-_MIN_EXIT_WIDTH_M = 1.5
-_MAX_EXIT_WIDTH_M = 30.0
-_LEGACY_EDGE_BAND_M = 8.0
+"""Distance between boundary-only legacy geometry and its outer wall."""
+
+_LANE_JOIN_TOLERANCE_M = 0.25
+"""Morphological closing distance used to join adjacent lane polygons."""
+
+_LANE_PERIMETER_CLEARANCE_M = 3.0
+"""Distance between mapped lane rails and the Taxi-only enclosure."""
+
+_LANE_PERIMETER_SIMPLIFY_M = 0.5
+"""Maximum geometric deviation when simplifying the enclosure ring."""
 
 
 def _empty_segments() -> npt.NDArray[np.float32]:
@@ -97,15 +97,16 @@ def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
         else:
             boundary_rows = []
 
-    exit_caps = _build_lane_exit_caps(lane_rows)
-    if len(exit_caps) == 0:
-        exit_caps = _build_legacy_exit_caps(boundary_rows)
-    perimeter = _build_fallback_perimeter(lane_rows, boundary_rows)
+    perimeter = _build_lane_network_perimeter(
+        lane_rows,
+        reference_route_world[0, :2],
+    )
+    if not len(perimeter):
+        perimeter = _build_fallback_perimeter(lane_rows, boundary_rows)
 
     return CrazyRobotaxiSceneData(
         reference_route_world=reference_route_world,
         navigation_lanes=navigation_lanes,
-        exit_cap_segments_world=exit_caps,
         perimeter_segments_world=perimeter,
     )
 
@@ -161,56 +162,87 @@ def _car_lane(payload: dict[str, Any]) -> bool:
     return not vehicle_types or "CAR" in vehicle_types
 
 
-def _deduplicate_segments(
-    segments: list[npt.NDArray[np.float32]],
-) -> npt.NDArray[np.float32]:
-    unique: list[npt.NDArray[np.float32]] = []
-    keys: set[tuple[tuple[int, int], tuple[int, int]]] = set()
-    for segment in segments:
-        if segment.shape != (2, 3):
-            continue
-        length = float(np.linalg.norm(segment[1, :2] - segment[0, :2]))
-        if length < _MIN_EXIT_WIDTH_M:
-            continue
-        points = sorted(
-            (
-                (round(float(point[0]) * 4.0), round(float(point[1]) * 4.0))
-                for point in segment
-            )
+def _polygon_components(geometry: BaseGeometry) -> tuple[Polygon, ...]:
+    """Return every nonempty polygon contained in a Shapely geometry."""
+    if isinstance(geometry, Polygon):
+        return (geometry,) if geometry.area > 1.0e-2 else ()
+    if hasattr(geometry, "geoms"):
+        return tuple(
+            polygon
+            for child in geometry.geoms
+            for polygon in _polygon_components(child)
         )
-        key = (points[0], points[1])
-        if key in keys:
-            continue
-        keys.add(key)
-        unique.append(segment.astype(np.float32))
-    if not unique:
-        return _empty_segments()
-    return np.stack(unique).astype(np.float32)
+    return ()
 
 
-def _build_lane_exit_caps(
-    rows: list[dict[str, Any]],
+def _build_lane_network_perimeter(
+    lane_rows: list[dict[str, Any]],
+    spawn_xy_m: npt.NDArray[np.float32],
 ) -> npt.NDArray[np.float32]:
-    """Close lane ends explicitly labelled as map boundaries by ClipGT."""
-    caps: list[npt.NDArray[np.float32]] = []
-    for row in rows:
+    """Build a closed wall around the spawn-connected drivable lane surface.
+
+    Args:
+        lane_rows: ClipGT lane records.
+        spawn_xy_m: Initial player position in world XY coordinates.
+
+    Returns:
+        Consecutive world-space wall segments with shape ``[N, 2, 3]``.
+    """
+    lane_surfaces: list[Polygon] = []
+    lane_heights: list[npt.NDArray[np.float32]] = []
+    for row in lane_rows:
         payload = row.get("lane", {})
         if not _car_lane(payload):
-            continue
-        map_end = str(payload.get("map_end", "NONE")).upper()
-        if map_end not in {"FRONT", "BACK"}:
             continue
         rails = _aligned_lane_rails(payload)
         if rails is None:
             continue
         left_rail, right_rail = rails
-        endpoint_index = -1 if map_end == "FRONT" else 0
-        cap = np.stack((left_rail[endpoint_index], right_rail[endpoint_index])).astype(
-            np.float32
+        surface = Polygon(
+            np.concatenate((left_rail[:, :2], right_rail[::-1, :2]), axis=0)
         )
-        if float(np.linalg.norm(cap[1, :2] - cap[0, :2])) <= _MAX_EXIT_WIDTH_M:
-            caps.append(cap)
-    return _deduplicate_segments(caps)
+        if not surface.is_valid:
+            surface = surface.buffer(0)
+        lane_surfaces.extend(_polygon_components(surface))
+        lane_heights.extend((left_rail[:, 2], right_rail[:, 2]))
+    if not lane_surfaces:
+        return _empty_segments()
+
+    joined_surface = unary_union(lane_surfaces)
+    joined_surface = joined_surface.buffer(
+        _LANE_JOIN_TOLERANCE_M,
+        join_style="mitre",
+    ).buffer(-_LANE_JOIN_TOLERANCE_M, join_style="mitre")
+    components = _polygon_components(joined_surface)
+    if not components:
+        return _empty_segments()
+
+    spawn_point = Point(float(spawn_xy_m[0]), float(spawn_xy_m[1]))
+    playable_surface = min(
+        components, key=lambda component: component.distance(spawn_point)
+    )
+    enclosure_geometry = playable_surface.buffer(
+        _LANE_PERIMETER_CLEARANCE_M,
+        join_style="mitre",
+    ).simplify(_LANE_PERIMETER_SIMPLIFY_M, preserve_topology=True)
+    enclosure_components = _polygon_components(enclosure_geometry)
+    if not enclosure_components:
+        return _empty_segments()
+    enclosure = min(
+        enclosure_components,
+        key=lambda component: component.distance(spawn_point),
+    )
+
+    # Existing road boundaries handle internal curbs. Only the exterior ring
+    # closes exits from the connected street network.
+    ring_xy = np.asarray(enclosure.exterior.coords, dtype=np.float32)
+    if len(ring_xy) < 4:
+        return _empty_segments()
+    z_m = float(np.median(np.concatenate(lane_heights)))
+    ring_xyz = np.column_stack(
+        (ring_xy, np.full(len(ring_xy), z_m, dtype=np.float32))
+    ).astype(np.float32)
+    return np.stack((ring_xyz[:-1], ring_xyz[1:]), axis=1)
 
 
 def _boundary_polylines(
@@ -222,58 +254,6 @@ def _boundary_polylines(
         if len(points) >= 2:
             polylines.append(points)
     return tuple(polylines)
-
-
-def _build_legacy_exit_caps(
-    boundary_rows: list[dict[str, Any]],
-) -> npt.NDArray[np.float32]:
-    """Conservatively pair compatible boundary ends at a legacy map's AABB."""
-    polylines = _boundary_polylines(boundary_rows)
-    if not polylines:
-        return _empty_segments()
-    all_points = np.concatenate(polylines, axis=0)
-    xy_min = np.min(all_points[:, :2], axis=0)
-    xy_max = np.max(all_points[:, :2], axis=0)
-    endpoints: list[tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]] = []
-    for points in polylines:
-        for index, neighbor_index in ((0, 1), (-1, -2)):
-            point = points[index]
-            distance_to_edge = min(
-                float(point[0] - xy_min[0]),
-                float(xy_max[0] - point[0]),
-                float(point[1] - xy_min[1]),
-                float(xy_max[1] - point[1]),
-            )
-            tangent = points[neighbor_index, :2] - point[:2]
-            tangent_length = float(np.linalg.norm(tangent))
-            if distance_to_edge <= _LEGACY_EDGE_BAND_M and tangent_length > 1.0e-4:
-                endpoints.append((point, tangent / tangent_length))
-
-    candidates: list[tuple[float, int, int]] = []
-    for left_index, (left_point, left_tangent) in enumerate(endpoints):
-        for right_index in range(left_index + 1, len(endpoints)):
-            right_point, right_tangent = endpoints[right_index]
-            connection = right_point[:2] - left_point[:2]
-            distance = float(np.linalg.norm(connection))
-            if not _MIN_EXIT_WIDTH_M <= distance <= _MAX_EXIT_WIDTH_M:
-                continue
-            connection /= distance
-            parallel = abs(float(np.dot(left_tangent, right_tangent)))
-            left_crossing = abs(float(np.dot(left_tangent, connection)))
-            right_crossing = abs(float(np.dot(right_tangent, connection)))
-            if parallel >= math.cos(math.radians(30.0)) and max(
-                left_crossing, right_crossing
-            ) <= math.sin(math.radians(35.0)):
-                candidates.append((distance, left_index, right_index))
-
-    used: set[int] = set()
-    caps: list[npt.NDArray[np.float32]] = []
-    for _distance, left_index, right_index in sorted(candidates):
-        if left_index in used or right_index in used:
-            continue
-        used.update((left_index, right_index))
-        caps.append(np.stack((endpoints[left_index][0], endpoints[right_index][0])))
-    return _deduplicate_segments(caps)
 
 
 def _build_fallback_perimeter(
