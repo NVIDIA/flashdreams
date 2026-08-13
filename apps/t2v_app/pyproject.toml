@@ -8,17 +8,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "t2v-app"
 version = "0.1.0"
-description = "Text-to-video pipeline provider for flashdreams-app"
+description = "Text-to-video example application for flashdreams-runner"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["flashdreams", "flashdreams-app"]
+dependencies = ["flashdreams", "flashdreams-runner"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-app = { workspace = true }
+flashdreams-runner = { workspace = true }
 
 [tool.pyright]
-extraPaths = ["../../flashdreams", "../flashdreams_app"]
+extraPaths = ["../..", "../../flashdreams"]
 venvPath = "../.."
 venv = ".venv"
 

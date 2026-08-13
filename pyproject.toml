@@ -8,6 +8,7 @@ members = [
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
     "apps/*",
+    "flashdreams_runner",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
     "integrations/omnidreams/ludus-renderer",
 ]
@@ -45,7 +46,6 @@ no-build-isolation-package = ["transformer-engine-torch"]
 extraPaths = [
     "flashdreams",
     "apps",
-    "apps/flashdreams_app",
     "apps/t2v_app",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",
@@ -72,7 +72,6 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
-    "apps/flashdreams_app",
     "apps/t2v_app",
     "integrations/omnidreams",
     "integrations/omnidreams/ludus-renderer",

@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Text-to-video pipeline application for ``flashdreams-app``."""
+"""Text-to-video example application for ``flashdreams-runner``."""
 
-from .provider import create_app_spec, parse_options
+from .application import create_runtime
 
-__all__ = ["create_app_spec", "parse_options"]
+__all__ = ["create_runtime"]

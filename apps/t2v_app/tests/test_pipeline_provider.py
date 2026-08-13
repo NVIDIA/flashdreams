@@ -20,7 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from t2v_app import provider as app_provider
+from t2v_app import application
 from t2v_app.presets import load_preset_catalog
 
 from flashdreams.core.checkpoint.remap import unwrap_generator_state_dict
@@ -34,7 +34,7 @@ def test_packaged_yaml_constructs_default_pipeline_config() -> None:
     catalog = load_preset_catalog()
     preset_id, preset = catalog.resolve(None)
 
-    config = app_provider._create_pipeline_config(preset_id, preset)
+    config = application._create_pipeline_config(preset_id, preset)
 
     assert preset_id == "causal-forcing-wan2.1-t2v-1.3b-chunkwise"
     assert config.name == preset_id

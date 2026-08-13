@@ -6,17 +6,18 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flashdreams-app"
+name = "flashdreams-runner"
 version = "0.1.0"
-description = "Generic host for FlashDreams application runtimes"
+description = "Generic shell for FlashDreams applications and I/O modes"
 requires-python = ">=3.10"
 dependencies = ["flashdreams[serving]"]
 
 [project.scripts]
-flashdreams-app = "flashdreams_app.cli:main"
+flashdreams-runner = "flashdreams_runner.cli:main"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+packages = ["flashdreams_runner"]
+package-dir = { flashdreams_runner = "." }

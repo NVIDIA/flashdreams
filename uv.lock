@@ -20,7 +20,6 @@ conflicts = [[
 [manifest]
 members = [
     "flashdreams",
-    "flashdreams-app",
     "flashdreams-causal-forcing",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
@@ -28,6 +27,7 @@ members = [
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
     "flashdreams-omnidreams",
+    "flashdreams-runner",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-t2v-demo",
@@ -1110,17 +1110,6 @@ cuda13 = [
 ]
 
 [[package]]
-name = "flashdreams-app"
-version = "0.1.0"
-source = { editable = "apps/flashdreams_app" }
-dependencies = [
-    { name = "flashdreams", extra = ["serving"] },
-]
-
-[package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
-
-[[package]]
 name = "flashdreams-causal-forcing"
 version = "0.1.0"
 source = { editable = "integrations/causal_forcing" }
@@ -1368,6 +1357,17 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
 provides-extras = ["interactive-drive", "rtx-postprocess", "dev"]
+
+[[package]]
+name = "flashdreams-runner"
+version = "0.1.0"
+source = { editable = "flashdreams_runner" }
+dependencies = [
+    { name = "flashdreams", extra = ["serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-sana-wm"
@@ -4521,13 +4521,13 @@ version = "0.1.0"
 source = { editable = "apps/t2v_app" }
 dependencies = [
     { name = "flashdreams" },
-    { name = "flashdreams-app" },
+    { name = "flashdreams-runner" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-app", editable = "apps/flashdreams_app" },
+    { name = "flashdreams-runner", editable = "flashdreams_runner" },
 ]
 
 [[package]]

@@ -1,13 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Host-owned WebRTC presentation for application runtimes."""
+"""WebRTC I/O mode for application runtimes."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
-from flashdreams.runtime import InferenceConfig, InferenceInput, InferenceRuntime
+from flashdreams.runtime import (
+    InferenceConfig,
+    InferenceInput,
+    InferenceRuntime,
+    OutputArtifact,
+)
 from flashdreams.runtime.demo import (
     DemoSpec,
     PreparedScenario,
@@ -21,15 +27,14 @@ from flashdreams.runtime.demo import (
 from flashdreams.runtime.types import StepRequirements
 from flashdreams.serving.webrtc.demo import serve_webrtc_demo
 from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
 
-from .contracts import AppConfig
+from .contracts import DriveSession, Runtime
 
 
-# TODO: Move this contract into shared FlashDreams and expand it when the
-# serving API needs caller-configurable transport and encoder tuning.
 @dataclass(frozen=True, slots=True)
-class WebRTCOptions:
-    """Minimal WebRTC bind settings for the application prototype."""
+class WebRTCMode:
+    """Serve application sessions over WebRTC."""
 
     host: str
     """Server bind address."""
@@ -37,57 +42,83 @@ class WebRTCOptions:
     port: int
     """Server bind port."""
 
+    device: str
+    """Device used by the application runtime."""
+
+    world_rank: int
+    """Distributed rank responsible for presentation."""
+
+    name: str = "webrtc"
+    """Stable mode name."""
+
+    def run(
+        self,
+        runtime: Runtime,
+        drive_session: DriveSession,
+    ) -> tuple[OutputArtifact, ...]:
+        """Serve live sessions until the WebRTC server exits."""
+        del drive_session
+        serve_webrtc(
+            runtime=runtime,
+            host=self.host,
+            port=self.port,
+            device=self.device,
+            world_rank=self.world_rank,
+        )
+        return ()
+
 
 class _InputProvider:
+    """Provide empty transport inputs to application-owned sessions."""
+
     capabilities = ProviderCapabilities(
         supports_realtime_clock=True,
         deterministic_given_inputs=True,
     )
 
-    def __init__(self, initial_input: InferenceInput) -> None:
-        self._initial_input = initial_input
-
     def prepare_initial_input(self) -> InferenceInput:
-        return self._initial_input
+        """Let the application runtime apply its session defaults."""
+        return InferenceInput()
 
     def prepare_step(
         self, *, request: StepRequirements, user_window: UserInputWindow
     ) -> PreparedStep:
+        """Return one empty step input for a non-interactive T2V session."""
         del request, user_window
         return PreparedStep(inference_input=InferenceInput())
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
+        """Discard reset inputs because resets create fresh app sessions."""
         del inputs
 
     def close(self) -> None:
-        pass
+        """Release provider resources."""
 
 
 def serve_webrtc(
     *,
-    runtime: InferenceRuntime,
-    config: AppConfig,
-    initial_input: InferenceInput,
-    options: WebRTCOptions,
+    runtime: Runtime,
+    host: str,
+    port: int,
     device: str,
     world_rank: int,
 ) -> object:
-    """Serve an application runtime through the shared WebRTC stack.
+    """Serve an initialized application runtime through shared WebRTC.
 
     Args:
         runtime: Initialized application runtime.
-        config: Model identity and video presentation configuration.
-        initial_input: Global conditioning used to start live sessions.
-        options: WebRTC bind settings.
+        host: Server bind address.
+        port: Server bind port.
         device: Device used by the runtime.
         world_rank: Distributed rank responsible for presentation.
 
     Returns:
         Serving backend result.
     """
+    config = runtime.config
     output = WebRTCOutputSpec(
-        host=options.host,
-        port=options.port,
+        host=host,
+        port=port,
         fps=int(config.fps),
         video_width=config.video_width,
         video_height=config.video_height,
@@ -99,21 +130,22 @@ def serve_webrtc(
         output=output,
         config=InferenceConfig(model_id=config.model_id, device=device),
     )
-    scenario = PreparedScenario(initial_inputs=initial_input)
+    scenario = PreparedScenario(initial_inputs=InferenceInput())
 
     def create_model_input_provider(
         spec: DemoSpec,
         scenario: PreparedScenario,
     ) -> _InputProvider:
         del spec, scenario
-        return _InputProvider(initial_input)
+        return _InputProvider()
 
+    inference_runtime = cast(InferenceRuntime, runtime)
     manager = BaseWebRTCSessionManager(
-        runtime=runtime,
-        runtime_config=output,
+        runtime=inference_runtime,
+        runtime_config=cast(WebRTCRuntimeConfig, cast(object, output)),
         fps=int(config.fps),
         identity=config.model_id,
-        shared_host=RuntimeHost(runtime),
+        shared_host=RuntimeHost(inference_runtime),
         shared_spec=spec,
         shared_scenario=scenario,
         shared_model_input_provider_factory=create_model_input_provider,
@@ -126,3 +158,6 @@ def serve_webrtc(
         app_resources=WebRTCAppResources(preload_name=config.model_id),
         world_rank=world_rank,
     )
+
+
+__all__ = ["WebRTCMode", "serve_webrtc"]
