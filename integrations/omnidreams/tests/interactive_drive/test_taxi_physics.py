@@ -86,6 +86,26 @@ def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
     )
 
 
+def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
+    scene = _scene()
+    enclosure = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
+
+    with patch.object(GamePhysicsWorld, "__init__", return_value=None) as initialize:
+        TaxiPhysicsWorld(
+            scene,
+            TaxiVehicleConfig(),
+            traffic_density=1.0,
+            enclosure_segments_world=enclosure,
+        )
+
+    physics_scene = initialize.call_args.args[0]
+    assert scene.line_layers == ()
+    assert len(physics_scene.line_layers) == 1
+    assert physics_scene.line_layers[0].layer_name == "crazy_robotaxi_enclosure_walls"
+    np.testing.assert_allclose(physics_scene.line_layers[0].segments_world, enclosure)
+    assert len(GamePhysicsWorld._build_barriers(physics_scene)) == 1
+
+
 def test_taxi_physics_keeps_app_heading_after_contact_resolution() -> None:
     incoming = VehicleState(
         x_m=1.0,

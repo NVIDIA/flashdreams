@@ -865,6 +865,31 @@ def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
     assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
 
 
+def test_taxi_hud_bev_draws_visible_enclosure_segment() -> None:
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._bev_config = BevConfig(
+        width=64,
+        height=64,
+        height_m=15.0,
+        fov_deg=60.0,
+        tilt_deg=0.0,
+    )
+    presenter.configure_taxi_enclosure(
+        np.asarray([[[-100.0, 0.0, 0.0], [100.0, 0.0, 0.0]]], dtype=np.float32)
+    )
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        bev_rig_to_world=np.eye(4, dtype=np.float32),
+    )
+    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+
+    presenter._draw_bev_taxi_enclosure(ImageDraw.Draw(canvas), (20, 10, 80, 70))
+
+    assert np.any(np.all(np.asarray(canvas) == (235, 50, 50, 255), axis=-1))
+
+
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
     presenter = _hud_presenter_without_window()
     lazy = _LazyFrame()

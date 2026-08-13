@@ -276,6 +276,51 @@ def project_target_pose_to_bev(
     bev: BevConfig,
 ) -> tuple[float, float, bool]:
     """Project a target using the exact rig pose that produced a BEV image."""
+    world_to_sensor = _bev_world_to_sensor(rig_to_world, bev)
+    target_h = np.array([*target_xyz_m, 1.0], dtype=np.float32)
+    target_sensor_flu = (world_to_sensor @ target_h)[:3]
+    projected = _project_bev_sensor_point(target_sensor_flu, bev)
+    if projected is None:
+        return 0.5, 0.5, False
+    u, v = projected
+    return u, v, 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
+
+
+def project_segment_pose_to_bev(
+    segment_world: npt.NDArray[np.float32],
+    rig_to_world: npt.NDArray[np.float32],
+    bev: BevConfig,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Project and viewport-clip one world-space enclosure segment."""
+    segment = np.asarray(segment_world, dtype=np.float32)
+    if segment.shape != (2, 3) or not np.isfinite(segment).all():
+        raise ValueError("BEV segment must have finite shape (2, 3).")
+    world_to_sensor = _bev_world_to_sensor(rig_to_world, bev)
+    homogeneous = np.concatenate((segment, np.ones((2, 1), dtype=np.float32)), axis=1)
+    sensor_points = (world_to_sensor @ homogeneous.T).T[:, :3]
+    near_depth = 1.0e-5
+    depths = sensor_points[:, 0]
+    if bool(np.all(depths <= near_depth)):
+        return None
+    if bool(np.any(depths <= near_depth)):
+        behind = int(np.argmin(depths))
+        ahead = 1 - behind
+        span = float(depths[ahead] - depths[behind])
+        if span <= 0.0:
+            return None
+        alpha = (near_depth - float(depths[behind])) / span
+        sensor_points[behind] = sensor_points[behind] + alpha * (
+            sensor_points[ahead] - sensor_points[behind]
+        )
+    projected = tuple(_project_bev_sensor_point(point, bev) for point in sensor_points)
+    if projected[0] is None or projected[1] is None:
+        return None
+    return _clip_normalized_segment(projected[0], projected[1])
+
+
+def _bev_world_to_sensor(
+    rig_to_world: npt.NDArray[np.float32], bev: BevConfig
+) -> npt.NDArray[np.float32]:
     leveled_rig_to_world = rig_pose_from_state(
         float(rig_to_world[0, 3]),
         float(rig_to_world[1, 3]),
@@ -294,19 +339,45 @@ def project_target_pose_to_bev(
         ],
         dtype=np.float32,
     )
-    world_to_sensor = invert_transform(leveled_rig_to_world @ sensor_to_rig)
-    target_h = np.array([*target_xyz_m, 1.0], dtype=np.float32)
-    target_sensor_flu = (world_to_sensor @ target_h)[:3]
-    depth = float(target_sensor_flu[0])
+    return invert_transform(leveled_rig_to_world @ sensor_to_rig)
+
+
+def _project_bev_sensor_point(
+    point_sensor_flu: npt.NDArray[np.float32], bev: BevConfig
+) -> tuple[float, float] | None:
+    depth = float(point_sensor_flu[0])
     if depth <= 1e-5:
-        return 0.5, 0.5, False
+        return None
 
     focal = (float(bev.height) / 2.0) / math.tan(math.radians(float(bev.fov_deg)) / 2.0)
-    u_px = float(bev.width) / 2.0 - focal * float(target_sensor_flu[1]) / depth
-    v_px = float(bev.height) / 2.0 - focal * float(target_sensor_flu[2]) / depth
-    u = u_px / float(bev.width)
-    v = v_px / float(bev.height)
-    return u, v, 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
+    u_px = float(bev.width) / 2.0 - focal * float(point_sensor_flu[1]) / depth
+    v_px = float(bev.height) / 2.0 - focal * float(point_sensor_flu[2]) / depth
+    return u_px / float(bev.width), v_px / float(bev.height)
+
+
+def _clip_normalized_segment(
+    start: tuple[float, float], end: tuple[float, float]
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Clip a 2D segment to the unit square with Liang-Barsky."""
+    x0, y0 = start
+    dx, dy = end[0] - x0, end[1] - y0
+    lower, upper = 0.0, 1.0
+    for p, q in ((-dx, x0), (dx, 1.0 - x0), (-dy, y0), (dy, 1.0 - y0)):
+        if abs(p) <= 1.0e-12:
+            if q < 0.0:
+                return None
+            continue
+        ratio = q / p
+        if p < 0.0:
+            lower = max(lower, ratio)
+        else:
+            upper = min(upper, ratio)
+        if lower > upper:
+            return None
+    return (
+        (x0 + lower * dx, y0 + lower * dy),
+        (x0 + upper * dx, y0 + upper * dy),
+    )
 
 
 def project_taxi_marker_to_camera(

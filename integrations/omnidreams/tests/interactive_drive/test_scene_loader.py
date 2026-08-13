@@ -12,7 +12,9 @@ from omnidreams.interactive_drive._sample_assets import SAMPLE_SCENE
 from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import RasterConfig
 from omnidreams.interactive_drive.crazy_robotaxi.scene import (
+    _build_fallback_perimeter,
     _build_lane_centerlines,
+    _build_lane_exit_caps,
     load_scene_data,
 )
 from omnidreams.interactive_drive.scene_loader import (
@@ -23,6 +25,29 @@ from omnidreams.interactive_drive.scene_loader import (
 
 def _point(x_m: float, y_m: float, z_m: float = 0.0) -> dict[str, float]:
     return {"x": x_m, "y": y_m, "z": z_m}
+
+
+def _lane_row(
+    *,
+    start_x_m: float,
+    end_x_m: float,
+    center_y_m: float,
+    map_end: str,
+) -> dict[str, object]:
+    return {
+        "lane": {
+            "left_rail": [
+                _point(start_x_m, center_y_m + 2.0),
+                _point(end_x_m, center_y_m + 2.0),
+            ],
+            "right_rail": [
+                _point(start_x_m, center_y_m - 2.0),
+                _point(end_x_m, center_y_m - 2.0),
+            ],
+            "vehicle_types": ["CAR"],
+            "map_end": map_end,
+        }
+    }
 
 
 def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
@@ -50,6 +75,40 @@ def test_lane_centerlines_use_car_lane_rail_midpoints() -> None:
         centerlines[0],
         np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float32),
     )
+
+
+def test_lane_map_end_caps_only_the_labelled_terminal_side() -> None:
+    rows = [
+        _lane_row(start_x_m=0.0, end_x_m=10.0, center_y_m=0.0, map_end="FRONT"),
+        _lane_row(start_x_m=20.0, end_x_m=30.0, center_y_m=0.0, map_end="BACK"),
+        _lane_row(start_x_m=40.0, end_x_m=50.0, center_y_m=0.0, map_end="NONE"),
+    ]
+
+    caps = _build_lane_exit_caps(rows)  # type: ignore[arg-type]
+
+    assert caps.shape == (2, 2, 3)
+    np.testing.assert_allclose(caps[0, :, 0], [10.0, 10.0])
+    np.testing.assert_allclose(caps[1, :, 0], [20.0, 20.0])
+    np.testing.assert_allclose(np.sort(caps[:, :, 1], axis=1), [[-2.0, 2.0]] * 2)
+
+
+def test_fallback_perimeter_is_closed_outside_navigation_extent() -> None:
+    rows = [_lane_row(start_x_m=0.0, end_x_m=10.0, center_y_m=5.0, map_end="NONE")]
+
+    boundary_rows = [
+        {"road_boundary": {"location": [_point(-50.0, 0.0), _point(-40.0, 0.0)]}}
+    ]
+
+    perimeter = _build_fallback_perimeter(  # type: ignore[arg-type]
+        rows, boundary_rows
+    )
+
+    assert perimeter.shape == (4, 2, 3)
+    np.testing.assert_allclose(perimeter[:, 1], np.roll(perimeter[:, 0], -1, axis=0))
+    assert float(perimeter[:, :, 0].min()) < -50.0
+    assert float(perimeter[:, :, 0].max()) > 10.0
+    assert float(perimeter[:, :, 1].min()) < 3.0
+    assert float(perimeter[:, :, 1].max()) > 7.0
 
 
 def test_usdz_prompt_discovery_accepts_legacy_numeric_suffix() -> None:
@@ -94,6 +153,8 @@ def test_load_scene_bundle_from_real_usdz() -> None:
     assert len(scene_data.reference_route_world) >= 2
     assert len(scene_data.navigation_routes_world) > 100
     assert len(scene_data.navigation_lanes) > 100
+    assert len(scene_data.exit_cap_segments_world) > 0
+    assert scene_data.perimeter_segments_world.shape == (4, 2, 3)
     navigation_points = np.concatenate(scene_data.navigation_routes_world, axis=0)
     assert np.ptp(navigation_points[:, 0]) > 200.0
     assert np.ptp(navigation_points[:, 1]) > 200.0
