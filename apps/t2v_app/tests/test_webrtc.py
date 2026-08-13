@@ -224,7 +224,7 @@ def test_t2v_session_records_completed_finite_generation(
     )
 
     assert session.next_step_request() is not None
-    session.generate(InferenceInput())
+    session.step(InferenceInput())
     assert session.next_step_request() is None
     session.destroy()
 

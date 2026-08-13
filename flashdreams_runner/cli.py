@@ -203,10 +203,10 @@ def _drive_session(
         resources.callback(session.destroy)
 
         while (inputs := input_handler.read()) is not None:
-            result = session.generate(inputs)
+            result = session.step(inputs)
             if not isinstance(result, StepResult):
                 raise TypeError(
-                    "Session.generate() must return StepResult, got "
+                    "Session.step() must return StepResult, got "
                     f"{type(result).__name__}."
                 )
             output_handler.write(result)

@@ -21,9 +21,9 @@ class _Session(Session):
     def step_index(self) -> int:
         return 0
 
-    def generate(self, inputs: InferenceInput) -> StepResult:
+    def step(self, inputs: InferenceInput) -> StepResult:
         del inputs
-        raise AssertionError("Server construction must not generate a chunk.")
+        raise AssertionError("Server construction must not run a step.")
 
     def destroy(self) -> None:
         pass

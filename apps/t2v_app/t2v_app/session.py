@@ -159,7 +159,7 @@ class T2VSession(Session):
             },
         )
 
-    def generate(self, inputs: InferenceInput) -> StepResult:
+    def step(self, inputs: InferenceInput) -> StepResult:
         """Generate and finalize one autoregressive video block."""
         if self._destroyed or self._cache is None:
             raise RuntimeError("Cannot generate from a destroyed T2VSession.")

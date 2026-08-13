@@ -143,7 +143,7 @@ class Runtime(ABC):
         """Release model weights and process-wide resources."""
 
     # These aliases let shared FlashDreams serving code consume the application
-    # ABI directly while the runner-facing contract stays create/generate/destroy.
+    # ABI directly while preserving runner lifecycle names.
     def start_session(self, inputs: InferenceInput) -> "Session":
         """Create a session through the shared inference-runtime API."""
         return self.create_session(inputs)
@@ -171,7 +171,7 @@ class Session(ABC):
         return None
 
     @abstractmethod
-    def generate(self, inputs: InferenceInput) -> StepResult:
+    def step(self, inputs: InferenceInput) -> StepResult:
         """Run one application main-loop iteration."""
 
     @abstractmethod
@@ -185,16 +185,6 @@ class Session(ABC):
         if self.steady_output_frame_count is not None:
             metadata["steady_output_frame_count"] = self.steady_output_frame_count
         return StepRequest(step_index=self.step_index, metadata=metadata)
-
-    def step(self, inputs: InferenceInput) -> StepResult:
-        """Generate through the shared inference-session API."""
-        result = self.generate(inputs)
-        if not isinstance(result, StepResult):
-            raise TypeError(
-                "Session.generate() must return StepResult, got "
-                f"{type(result).__name__}."
-            )
-        return result
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
         """Reject reset when an application requires a fresh session."""

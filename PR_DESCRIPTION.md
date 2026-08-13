@@ -24,7 +24,7 @@ uv run flashdreams-runner t2v-app {mp4 | replay | webrtc | none}
 |                          |        input / output         | Session            |
 | main loop:               | ---------------------------> |  prompt + cache    |
 |   read input             | <--------------------------- |  generate/finalize |
-|   Session.generate       |         StepResult           +--------------------+
+|   Session.step           |         StepResult           +--------------------+
 |   present output         |
 +------------+-------------+
              |
@@ -91,7 +91,7 @@ When `--preset-id` is omitted, `t2v-app` uses the catalog's
   `Runtime.destroy()` for one-time model and process state.
 - Keep presentation fields in application-owned `AppConfig`, exposed through
   `Runtime.config` for runner modes.
-- Define `Session.generate()` and `Session.destroy()` for per-user prompt,
+- Define `Session.step()` and `Session.destroy()` for per-user prompt,
   cache, world state, and main-loop logic.
 - Keep compatibility methods on the base runtime/session classes so shared
   FlashDreams WebRTC code consumes application runtimes directly without a
@@ -114,7 +114,7 @@ When `--preset-id` is omitted, `t2v-app` uses the catalog's
   on the legacy runner registry.
 - Construct and retain the FlashDreams pipeline in `T2VRuntime`.
 - Create the prompt-conditioned cache and run pipeline `generate`/`finalize`
-  inside `T2VSession.generate()`.
+  inside `T2VSession.step()`.
 - Keep prompts, dimensions, caches, and step indexes isolated per session.
 
 ## Shared FlashDreams changes

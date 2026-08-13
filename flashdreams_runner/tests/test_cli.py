@@ -73,9 +73,9 @@ def test_runner_owns_lifecycle_io_and_main_loop(
         def step_index(self) -> int:
             return self._step_index
 
-        def generate(self, inputs: InferenceInput) -> StepResult:
+        def step(self, inputs: InferenceInput) -> StepResult:
             assert not inputs.global_conditioning
-            calls.append("session.generate")
+            calls.append("session.step")
             result = _result(self._step_index)
             self._step_index += 1
             return result
@@ -182,7 +182,7 @@ def test_runner_owns_lifecycle_io_and_main_loop(
         "input.initial_input",
         "runtime.create_session",
         "input.read",
-        "session.generate",
+        "session.step",
         "output.write",
         "input.read",
         "output.close",
@@ -266,8 +266,8 @@ def test_runtime_and_session_bridge_shared_inference_api() -> None:
         def step_index(self) -> int:
             return 3
 
-        def generate(self, inputs: InferenceInput) -> StepResult:
-            calls.append("generate")
+        def step(self, inputs: InferenceInput) -> StepResult:
+            calls.append("step")
             return _result(3)
 
         def destroy(self) -> None:
@@ -302,7 +302,7 @@ def test_runtime_and_session_bridge_shared_inference_api() -> None:
     runtime.close()
     assert calls == [
         "create_session",
-        "generate",
+        "step",
         "session.destroy",
         "runtime.destroy",
     ]

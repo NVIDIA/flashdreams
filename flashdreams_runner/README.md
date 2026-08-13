@@ -23,7 +23,7 @@ application module              flashdreams-runner                 I/O mode
 |  model weights   |       | loop:                    |       +-------+-------+
 |  global state    |       |   input = mode.read()    |               |
 |                  |       |   output = Session.      |<--------------+
-| Session          |<------|       generate(input)    |
+| Session          |<------|       step(input)        |
 |  prompt/cache    |       |   mode.write(output)     |-------------->+
 |  game state      |       | destroy Session/Runtime  |
 +------------------+       +--------------------------+
@@ -56,7 +56,7 @@ package and `flashdreams-runner`.
 `Session` owns the application loop implementation and all per-user state, such
 as prompts, K/V caches, world state, and step counters:
 
-- `generate(inputs)` performs exactly one application iteration and returns a
+- `step(inputs)` performs exactly one application iteration and returns a
   `StepResult`.
 - `destroy()` releases session-local resources.
 
@@ -110,7 +110,7 @@ class MySession(Session):
     def step_index(self) -> int:
         return self._step_index
 
-    def generate(self, inputs: InferenceInput) -> StepResult:
+    def step(self, inputs: InferenceInput) -> StepResult:
         video = self.model.generate(self.cache, inputs.step)
         result = StepResult.from_video_chunk(
             step_index=self._step_index,
