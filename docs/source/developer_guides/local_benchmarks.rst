@@ -240,7 +240,10 @@ The candidate run computes baseline quality metrics for the 10-second quality
 scenarios. The one-minute scenarios intentionally disable automatic baseline
 quality scoring because long generated clips drift more; they still report
 runtime performance, PAI-Bench-Long metrics, and baseline/candidate MP4 review
-links.
+links. The default PAI-Bench-Long aggregate excludes
+``subject_consistency`` because it can hit Torch Hub/GitHub validation rate
+limits in benchmark environments, and excludes ``overall_consistency`` because
+it is not useful for the migrated LingBot and Omnidreams one-minute clips.
 
 The two-scenario one-minute suite in
 ``configs/one_minute_demo_benchmarks.json`` remains useful for
@@ -429,15 +432,15 @@ The durable benchmark artifacts are the original scenario MP4s, logs,
 result JSON. Pass ``--pai-bench-keep-staged-videos`` only when debugging the
 external evaluator input staging.
 
-The default dimensions are the non-I2V PAI-Bench quality dimensions:
+The default PAI-Bench-Long dimensions are the stable benchmark dimensions:
 ``aesthetic_quality``, ``background_consistency``, ``imaging_quality``,
-``motion_smoothness``, ``overall_consistency``, and
-``subject_consistency``. Pass ``--pai-bench-dimension`` multiple times to run a
-smaller or custom dimension set for local triage only; doing so changes the
-reported PAI-Bench metric set, so those results should not be compared against
-standard runs. ``--pai-bench-segment-duration-s`` controls the local long-video
-segment size; it defaults to 10 seconds. Pass ``--no-pai-bench-fetch`` to
-avoid fetching an existing git checkout.
+and ``motion_smoothness``. The full-MP4 ``pai-bench-g`` profile still defaults
+to the public non-I2V dimension set. Pass ``--pai-bench-dimension`` multiple
+times to run a smaller or custom dimension set for local triage only; doing so
+changes the reported PAI-Bench metric set, so those results should not be
+compared against standard runs. ``--pai-bench-segment-duration-s`` controls the
+local long-video segment size; it defaults to 10 seconds. Pass
+``--no-pai-bench-fetch`` to avoid fetching an existing git checkout.
 
 Custom scenarios can opt into PAI-Bench profiles by including either
 ``one-minute`` or ``pai-bench`` in their ``tags`` list. This keeps PAI-Bench

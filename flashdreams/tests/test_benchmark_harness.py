@@ -1518,6 +1518,35 @@ def test_cli_quality_profile_adds_pai_bench_long_command() -> None:
     assert "overall_consistency" in quality.command
 
 
+def test_cli_quality_profile_default_pai_bench_long_uses_stable_dimensions() -> None:
+    scenario = BenchmarkScenario(
+        id="review-runner",
+        name="Review runner",
+        tags=("one-minute",),
+        command=("python", "-m", "demo"),
+        output_dir_arg=None,
+    )
+    args = benchmark_cli._parse_args(
+        [
+            "--scenario",
+            "review-runner",
+            "--quality-profile",
+            "pai-bench-long",
+        ]
+    )
+
+    updated = benchmark_cli._apply_quality_profiles([scenario], args=args)
+
+    command = updated[0].quality_commands[0].command
+    dimensions = command[command.index("--dimensions") + 1 :]
+    assert "aesthetic_quality" in dimensions
+    assert "background_consistency" in dimensions
+    assert "imaging_quality" in dimensions
+    assert "motion_smoothness" in dimensions
+    assert "subject_consistency" not in dimensions
+    assert "overall_consistency" not in dimensions
+
+
 def test_cli_pai_bench_profile_skips_non_pai_scenarios() -> None:
     quality_smoke = BenchmarkScenario(
         id="quality-smoke",

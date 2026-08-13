@@ -40,13 +40,19 @@ from tools.benchmarks.scenarios import (
     load_scenario_file,
 )
 
-_DEFAULT_PAI_BENCH_DIMENSIONS = (
+_DEFAULT_PAI_BENCH_G_DIMENSIONS = (
     "aesthetic_quality",
     "background_consistency",
     "imaging_quality",
     "motion_smoothness",
     "overall_consistency",
     "subject_consistency",
+)
+_DEFAULT_PAI_BENCH_LONG_DIMENSIONS = (
+    "aesthetic_quality",
+    "background_consistency",
+    "imaging_quality",
+    "motion_smoothness",
 )
 _PAI_BENCH_TAGS = frozenset({"one-minute", "pai-bench"})
 
@@ -231,7 +237,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=[],
         help=(
             "PAI-Bench quality dimension to evaluate. May be passed multiple "
-            "times. Defaults to the non-I2V quality dimensions."
+            "times. Defaults to the non-I2V quality dimensions; "
+            "pai-bench-long excludes subject_consistency and "
+            "overall_consistency from its default aggregate for benchmark "
+            "stability."
         ),
     )
     parser.add_argument(
@@ -402,7 +411,7 @@ def _pai_bench_quality_command(
     *,
     profile: str,
 ) -> QualityCommandConfig:
-    dimensions = tuple(args.pai_bench_dimension or _DEFAULT_PAI_BENCH_DIMENSIONS)
+    dimensions = _pai_bench_dimensions(args, profile=profile)
     pai_bench_root = (
         str(args.pai_bench_root)
         if args.pai_bench_root is not None
@@ -457,6 +466,18 @@ def _pai_bench_quality_command(
         metrics_path="{quality_dir}/metrics.json",
         timeout_s=float(args.pai_bench_timeout_s),
     )
+
+
+def _pai_bench_dimensions(
+    args: argparse.Namespace,
+    *,
+    profile: str,
+) -> tuple[str, ...]:
+    if args.pai_bench_dimension:
+        return tuple(args.pai_bench_dimension)
+    if profile == "pai-bench-long":
+        return _DEFAULT_PAI_BENCH_LONG_DIMENSIONS
+    return _DEFAULT_PAI_BENCH_G_DIMENSIONS
 
 
 def _pai_bench_python_command(args: argparse.Namespace) -> str:
