@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from flashdreams.runtime import InferenceInput, StepResult
+from flashdreams.runtime.demo import WebRTCAppResources
 from flashdreams_runner import AppConfig, IOHandler, Runtime, Session, webrtc
 
 pytestmark = pytest.mark.ci_cpu
@@ -79,3 +82,50 @@ def test_webrtc_mode_constructs_shared_presentation(
     assert session_manager._shared_adapter is None
     assert session_manager._shared_host is not None
     assert session_manager._shared_host.runtime is runtime
+    assert session_manager.is_runtime_ready()
+
+
+def test_webrtc_mode_uses_application_customization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    custom_manager = object()
+
+    class Customization:
+        def prepare_initial_input(self) -> InferenceInput:
+            return InferenceInput(global_conditioning={"prompt": "custom"})
+
+        def create_session_manager(self, **kwargs: object) -> Any:
+            captured["manager_kwargs"] = kwargs
+            return custom_manager
+
+        def create_app_resources(self, **kwargs: object) -> WebRTCAppResources:
+            captured["resources_kwargs"] = kwargs
+            return WebRTCAppResources(preload_name="custom-ui")
+
+    def fake_serve(**kwargs: object) -> str:
+        captured.update(kwargs)
+        return "served"
+
+    monkeypatch.setattr(webrtc, "serve_webrtc_demo", fake_serve)
+    result = webrtc.serve_webrtc(
+        runtime=_Runtime(),
+        host="127.0.0.1",
+        port=8080,
+        device="cpu",
+        world_rank=0,
+        customization=Customization(),
+    )
+
+    assert result == "served"
+    assert captured["session_manager"] is custom_manager
+    resources = captured["app_resources"]
+    assert isinstance(resources, WebRTCAppResources)
+    assert resources.preload_name == "custom-ui"
+    manager_kwargs = cast(dict[str, object], captured["manager_kwargs"])
+    scenario = cast(Any, manager_kwargs["scenario"])
+    assert scenario.initial_inputs.global_conditioning["prompt"] == "custom"
+    assert (
+        cast(dict[str, object], captured["resources_kwargs"])["session_manager"]
+        is custom_manager
+    )

@@ -22,8 +22,7 @@ uv run flashdreams-runner t2v-app mp4 \
   --output outputs/waterfall.mp4
 
 uv run flashdreams-runner t2v-app webrtc \
-  --preset-id self-forcing-wan2.1-t2v-1.3b \
-  --prompt "A neon-lit city at night"
+  --preset-id self-forcing-wan2.1-t2v-1.3b
 
 uv run flashdreams-runner t2v-app none \
   --steps 2 \
@@ -40,8 +39,10 @@ construct a `StreamInferencePipelineConfig`. The packaged catalog is
 
 Every preset specifies a pipeline provider, application defaults, and
 provider-owned pipeline options. `total_blocks` is an optional default for
-finite runner modes; `--steps` overrides it. WebRTC does not impose a finite
-step count.
+finite runner modes; `--steps` overrides it. The T2V WebRTC page lets each user
+edit the prompt and video duration, keeps the connection open for subsequent
+generations, plays the completed MP4, and downloads a ZIP containing the video
+and prompt metadata.
 
 FlashDreams' `ObjectGraphPipelineProvider` supports these trusted declarative
 nodes:

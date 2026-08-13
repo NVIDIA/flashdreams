@@ -26,4 +26,4 @@ venv = ".venv"
 where = ["."]
 
 [tool.setuptools.package-data]
-t2v_app = ["pipeline_presets.yaml"]
+t2v_app = ["pipeline_presets.yaml", "web/*.css", "web/*.js"]

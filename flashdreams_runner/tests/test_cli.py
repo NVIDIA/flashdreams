@@ -294,7 +294,9 @@ def test_runtime_and_session_bridge_shared_inference_api() -> None:
 
     runtime = FakeRuntime()
     assert runtime.start_session(InferenceInput()) is session
-    assert session.next_step_request().step_index == 3
+    request = session.next_step_request()
+    assert request is not None
+    assert request.step_index == 3
     assert session.step(InferenceInput()).step_index == 3
     session.close()
     runtime.close()

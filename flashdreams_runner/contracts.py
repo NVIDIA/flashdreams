@@ -179,8 +179,8 @@ class Session(ABC):
         """Release per-session state."""
 
     # Shared serving uses the inference-session spelling of this same ABI.
-    def next_step_request(self) -> StepRequest:
-        """Describe the next iteration to shared FlashDreams drivers."""
+    def next_step_request(self) -> StepRequest | None:
+        """Describe the next iteration, or stop a finite shared session."""
         metadata: dict[str, int] = {}
         if self.steady_output_frame_count is not None:
             metadata["steady_output_frame_count"] = self.steady_output_frame_count

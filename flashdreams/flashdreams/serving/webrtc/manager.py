@@ -686,6 +686,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         shared_pipeline_factory: Callable[[], StepPipeline] | None = None,
         legacy_segment_resampler_factory: Callable[..., Any] | None = None,
         keep_connection_after_completed: bool = False,
+        runtime_ready: bool = False,
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
@@ -702,7 +703,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self.fatal_generation_errors = fatal_generation_errors
         self.client_liveness_timeout_s = client_liveness_timeout_s
         self._runtime = runtime
-        self._runtime_ready = False
+        # Runner-hosted applications may finish model initialization before
+        # the WebRTC server lifecycle begins.
+        self._runtime_ready = runtime_ready
         self._warmup_complete = False
         self._active_session: ManagedWebRTCSession | None = None
         self._preload_lock = asyncio.Lock()
@@ -1353,7 +1356,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 elif self._shared_host is not None:
                     await asyncio.to_thread(self._shared_host.preload)
                 self._runtime_ready = True
-                self._initialize_shared_video_encoder()
+            self._initialize_shared_video_encoder()
             if not self._warmup_complete:
                 await self._run_loopback_warmup_session(
                     num_chunks=self.runtime_config.warmup_chunks

@@ -219,6 +219,7 @@ def test_runtime_owns_pipeline_and_session_owns_generation(
     mode = Mode()
     assert isinstance(mode, IOHandler)
     runtime.initialize(device="cpu", io_handler=mode)
+    assert runtime.peek_steady_output_num_frames() == 3
     session = runtime.create_session(InferenceInput())
     assert isinstance(session, T2VSession)
     result = session.generate(InferenceInput())

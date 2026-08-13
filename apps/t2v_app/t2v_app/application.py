@@ -68,12 +68,14 @@ def create_runtime(arguments: ApplicationArguments) -> Runtime:
         pipeline_config=_create_pipeline_config(preset_id, preset),
         session_defaults=T2VSessionDefaults(
             prompt=str(scenario[FIELD_PROMPT]),
+            total_blocks=total_steps,
             pixel_height=_required_int(
                 scenario[FIELD_PIXEL_HEIGHT], name=FIELD_PIXEL_HEIGHT
             ),
             pixel_width=_required_int(
                 scenario[FIELD_PIXEL_WIDTH], name=FIELD_PIXEL_WIDTH
             ),
+            fps=_required_int(scenario[FIELD_FPS], name=FIELD_FPS),
         ),
         config=AppConfig(
             model_id="t2v-app",

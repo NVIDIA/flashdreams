@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import cast
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, Protocol, cast
 
 from flashdreams.runtime import (
     InferenceConfig,
@@ -16,6 +17,7 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     DemoSpec,
+    ModelInputProvider,
     PreparedScenario,
     PreparedStep,
     ProviderCapabilities,
@@ -32,7 +34,7 @@ from flashdreams.serving.webrtc.runtime import WebRTCRuntimeConfig
 from .contracts import DriveSession, Runtime
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WebRTCMode:
     """Serve application sessions over WebRTC."""
 
@@ -51,6 +53,18 @@ class WebRTCMode:
     name: str = "webrtc"
     """Stable mode name."""
 
+    _customization: WebRTCCustomization | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def customize(self, customization: WebRTCCustomization) -> None:
+        """Install application-owned WebRTC behavior before serving starts."""
+        if self._customization is not None:
+            raise RuntimeError("WebRTC mode customization is already installed.")
+        self._customization = customization
+
     def run(
         self,
         runtime: Runtime,
@@ -64,21 +78,25 @@ class WebRTCMode:
             port=self.port,
             device=self.device,
             world_rank=self.world_rank,
+            customization=self._customization,
         )
         return ()
 
 
 class _InputProvider:
-    """Provide empty transport inputs to application-owned sessions."""
+    """Provide prepared session input and empty per-step transport input."""
 
     capabilities = ProviderCapabilities(
         supports_realtime_clock=True,
         deterministic_given_inputs=True,
     )
 
+    def __init__(self, initial_input: InferenceInput) -> None:
+        self._initial_input = initial_input
+
     def prepare_initial_input(self) -> InferenceInput:
-        """Let the application runtime apply its session defaults."""
-        return InferenceInput()
+        """Return the application-provided input for a new session."""
+        return self._initial_input
 
     def prepare_step(
         self, *, request: StepRequirements, user_window: UserInputWindow
@@ -88,11 +106,51 @@ class _InputProvider:
         return PreparedStep(inference_input=InferenceInput())
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Discard reset inputs because resets create fresh app sessions."""
-        del inputs
+        """Replace the initial input when the shared driver requests a reset."""
+        if inputs is not None:
+            self._initial_input = inputs
 
     def close(self) -> None:
         """Release provider resources."""
+
+
+ModelInputProviderFactory = Callable[
+    [DemoSpec, PreparedScenario],
+    ModelInputProvider,
+]
+"""Factory used by shared WebRTC drivers to prepare application input."""
+
+
+class WebRTCCustomization(Protocol):
+    """Application-owned WebRTC UI and session-manager extension point.
+
+    Applications only implement this interface when the generic WebRTC viewer
+    is insufficient. The runner continues to own the server and transport.
+    """
+
+    def prepare_initial_input(self) -> InferenceInput:
+        """Return the initial input used for the first browser generation."""
+        ...
+
+    def create_session_manager(
+        self,
+        *,
+        runtime: Runtime,
+        output: WebRTCOutputSpec,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+        input_provider_factory: ModelInputProviderFactory,
+    ) -> BaseWebRTCSessionManager[Any, Any]:
+        """Create the transport manager used by the customized application."""
+        ...
+
+    def create_app_resources(
+        self,
+        *,
+        session_manager: BaseWebRTCSessionManager[Any, Any],
+    ) -> WebRTCAppResources:
+        """Return packaged browser assets and optional HTTP routes."""
+        ...
 
 
 def serve_webrtc(
@@ -102,6 +160,7 @@ def serve_webrtc(
     port: int,
     device: str,
     world_rank: int,
+    customization: WebRTCCustomization | None = None,
 ) -> object:
     """Serve an initialized application runtime through shared WebRTC.
 
@@ -111,6 +170,7 @@ def serve_webrtc(
         port: Server bind port.
         device: Device used by the runtime.
         world_rank: Distributed rank responsible for presentation.
+        customization: Optional application-owned UI and manager behavior.
 
     Returns:
         Serving backend result.
@@ -130,34 +190,58 @@ def serve_webrtc(
         output=output,
         config=InferenceConfig(model_id=config.model_id, device=device),
     )
-    scenario = PreparedScenario(initial_inputs=InferenceInput())
+    initial_input = (
+        InferenceInput()
+        if customization is None
+        else customization.prepare_initial_input()
+    )
+    scenario = PreparedScenario(initial_inputs=initial_input)
 
     def create_model_input_provider(
         spec: DemoSpec,
         scenario: PreparedScenario,
     ) -> _InputProvider:
-        del spec, scenario
-        return _InputProvider()
+        del spec
+        return _InputProvider(scenario.initial_inputs)
 
     inference_runtime = cast(InferenceRuntime, runtime)
-    manager = BaseWebRTCSessionManager(
-        runtime=inference_runtime,
-        runtime_config=cast(WebRTCRuntimeConfig, cast(object, output)),
-        fps=int(config.fps),
-        identity=config.model_id,
-        shared_host=RuntimeHost(inference_runtime),
-        shared_spec=spec,
-        shared_scenario=scenario,
-        shared_model_input_provider_factory=create_model_input_provider,
-        client_liveness_timeout_s=output.client_liveness_timeout_s,
-    )
+    if customization is None:
+        manager: BaseWebRTCSessionManager[Any, Any] = BaseWebRTCSessionManager(
+            runtime=inference_runtime,
+            runtime_config=cast(WebRTCRuntimeConfig, cast(object, output)),
+            fps=int(config.fps),
+            identity=config.model_id,
+            shared_host=RuntimeHost(inference_runtime),
+            shared_spec=spec,
+            shared_scenario=scenario,
+            shared_model_input_provider_factory=create_model_input_provider,
+            client_liveness_timeout_s=output.client_liveness_timeout_s,
+            runtime_ready=True,
+        )
+        app_resources = WebRTCAppResources(preload_name=config.model_id)
+    else:
+        manager = customization.create_session_manager(
+            runtime=runtime,
+            output=output,
+            spec=spec,
+            scenario=scenario,
+            input_provider_factory=create_model_input_provider,
+        )
+        app_resources = customization.create_app_resources(
+            session_manager=manager,
+        )
     return serve_webrtc_demo(
         output=output,
         model_id=config.model_id,
         session_manager=manager,
-        app_resources=WebRTCAppResources(preload_name=config.model_id),
+        app_resources=app_resources,
         world_rank=world_rank,
     )
 
 
-__all__ = ["WebRTCMode", "serve_webrtc"]
+__all__ = [
+    "ModelInputProviderFactory",
+    "WebRTCCustomization",
+    "WebRTCMode",
+    "serve_webrtc",
+]

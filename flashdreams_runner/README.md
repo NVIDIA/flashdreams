@@ -8,7 +8,7 @@ their generation loops.
 ```bash
 uv run flashdreams-runner t2v-app mp4 --output o.mp4 --prompt "A waterfall"
 uv run flashdreams-runner t2v-app replay --output o.mp4 --prompt "A waterfall"
-uv run flashdreams-runner t2v-app webrtc --prompt "A waterfall"
+uv run flashdreams-runner t2v-app webrtc
 uv run flashdreams-runner t2v-app none --steps 4 --prompt "A waterfall"
 ```
 
@@ -64,6 +64,12 @@ The base classes also expose compatibility spellings for the shared
 FlashDreams serving stack, so WebRTC consumes an application runtime directly
 without a runner-specific adapter.
 
+An application that needs more than the generic viewer can configure the
+runner's `WebRTCMode` during `Runtime.initialize()`. The customization supplies
+initial session input, a specialized session manager, packaged browser assets,
+and application HTTP routes; the runner still owns WebRTC transport and server
+lifecycle.
+
 ## I/O modes
 
 Modes are runner-owned I/O handlers. They never construct model pipelines or
@@ -73,7 +79,7 @@ implement application generation logic.
 |---|---|
 | `mp4` | Compatibility name for a finite replay written to MP4. |
 | `replay` | Runs a finite deterministic input sequence and writes MP4. |
-| `webrtc` | Creates a live server and one application session per admitted client. |
+| `webrtc` | Creates a live server and lets applications add model-specific browser controls and routes. |
 | `none` | Runs a finite input sequence and discards output. |
 
 `--steps` overrides the finite iteration count for `mp4`, `replay`, and `none`.
