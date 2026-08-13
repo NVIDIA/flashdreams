@@ -143,6 +143,45 @@ def test_lingbot_direct_runner_launch_builds_mp4_spec(
     assert captured[0].output.path == tmp_path / "demo.mp4"
 
 
+def test_lingbot_direct_runner_launch_uses_benchmark_when_stats_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[DemoSpec, Path | None, Path | None, bool]] = []
+
+    def fake_run_benchmark_demo(
+        *,
+        spec: DemoSpec,
+        adapter: object,
+        stats_path: Path | None,
+        stats_dir: Path | None,
+        capture_output: bool,
+    ) -> str:
+        del adapter
+        captured.append((spec, stats_path, stats_dir, capture_output))
+        return "completed"
+
+    monkeypatch.setattr(
+        demo_app_module,
+        "run_benchmark_demo",
+        fake_run_benchmark_demo,
+    )
+    stats_path = tmp_path / "stats_demo.json"
+
+    result = demo_app_module.launch_from_runner(
+        config=RUNNER_LINGBOT_WORLD_FAST,
+        mode="mp4",
+        scenario={"example_idx": 2, "total_blocks": 3},
+        output={"path": tmp_path / "demo.mp4", "stats_path": stats_path},
+    )
+
+    assert result == "completed"
+    assert isinstance(captured[0][0].output, Mp4OutputSpec)
+    assert captured[0][1] == stats_path
+    assert captured[0][2] is None
+    assert captured[0][3] is True
+
+
 def test_lingbot_direct_runner_launch_builds_null_spec(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

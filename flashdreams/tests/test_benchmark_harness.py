@@ -34,6 +34,7 @@ from tools.benchmarks.harness import run_benchmark_suite
 from tools.benchmarks.metrics import (
     records_from_log,
     records_from_stats_file,
+    summarize_records,
 )
 from tools.benchmarks.quality import QualityBaselineConfig
 from tools.benchmarks.report import write_html_report
@@ -164,6 +165,18 @@ def test_runtime_benchmark_stats_records_group_samples_by_step(
             {
                 "schema_version": 1,
                 "artifact_type": "flashdreams.runtime.demo.benchmark_stats",
+                "steps": [
+                    {
+                        "step_index": 0,
+                        "frame_count": 2,
+                        "metrics": {"model_step_s": 0.10},
+                    },
+                    {
+                        "step_index": 1,
+                        "frame_count": 3,
+                        "metrics": {"model_step_s": 0.20},
+                    },
+                ],
                 "samples": [
                     {
                         "name": "model_step_s",
@@ -203,11 +216,67 @@ def test_runtime_benchmark_stats_records_group_samples_by_step(
     assert records[0].record_type == "step"
     assert records[0].record_index == 0
     assert records[0].metrics["model_step_s"] == pytest.approx(0.10)
+    assert records[0].metrics["generated_frame_count"] == 2
+    assert records[0].metrics["generated_fps"] == pytest.approx(20.0)
     assert records[0].metrics["pixel_fps"] == pytest.approx(24.0)
     assert records[0].metadata["parser"] == "runtime_metric_samples"
     assert records[0].metadata["sample_count"] == 2
     assert records[1].record_index == 1
     assert records[1].metrics["model_step_s"] == pytest.approx(0.20)
+    assert records[1].metrics["generated_frame_count"] == 3
+    assert records[1].metrics["generated_fps"] == pytest.approx(15.0)
+
+
+def test_runtime_benchmark_stats_summary_generated_fps_excludes_warmup(
+    tmp_path: Path,
+) -> None:
+    stats_path = tmp_path / "stats_demo.json"
+    stats_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifact_type": "flashdreams.runtime.demo.benchmark_stats",
+                "steps": [
+                    {"step_index": 0, "frame_count": 5},
+                    {"step_index": 1, "frame_count": 20},
+                    {"step_index": 2, "frame_count": 30},
+                ],
+                "samples": [
+                    {
+                        "name": "total_s",
+                        "value": 0.5,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 0,
+                    },
+                    {
+                        "name": "total_s",
+                        "value": 2.0,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 1,
+                    },
+                    {
+                        "name": "total_s",
+                        "value": 3.0,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 2,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    records = records_from_stats_file(
+        stats_path, scenario_id="demo", source_root=tmp_path
+    )
+
+    summary = summarize_records(records, warmup_steps=1)
+
+    assert summary["generated_frame_count"]["median"] == pytest.approx(25.0)
+    assert summary["generated_fps"]["count"] == 2
+    assert summary["generated_fps"]["median"] == pytest.approx(10.0)
 
 
 def test_malformed_stats_records_are_ignored(tmp_path: Path) -> None:
@@ -314,6 +383,10 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
     assert _command_value(lingbot.command, "--output.path") == (
         "{output_dir}/lingbot-world-fast-taehv-one-minute.mp4"
     )
+    assert _command_value(lingbot.command, "--output.stats-path") == (
+        "{output_dir}/stats_lingbot_world_fast_taehv_one_minute.json"
+    )
+    assert lingbot.requires_runtime_stats is True
     rendered = lingbot.rendered_command(
         context=_render_context(tmp_path, scenario_id=lingbot.id)
     )
@@ -321,6 +394,32 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
     assert _command_value(rendered, "--output.path") == str(
         tmp_path / lingbot.id / "lingbot-world-fast-taehv-one-minute.mp4"
     )
+    assert _command_value(rendered, "--output.stats-path") == str(
+        tmp_path / lingbot.id / "stats_lingbot_world_fast_taehv_one_minute.json"
+    )
+
+    omnidreams = scenarios["omnidreams-sv-one-minute"]
+    assert omnidreams.output_dir_arg is None
+    assert omnidreams.command[:7] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations/omnidreams",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+    )
+    assert "mp4" in omnidreams.command
+    assert _command_value(omnidreams.command, "--scenario.example-data") == "true"
+    assert _command_value(omnidreams.command, "--scenario.total-blocks") == "226"
+    assert _command_value(omnidreams.command, "--output.path") == (
+        "{output_dir}/omnidreams-sv-one-minute.mp4"
+    )
+    assert _command_value(omnidreams.command, "--output.stats-path") == (
+        "{output_dir}/stats_omnidreams_sv_one_minute.json"
+    )
+    assert "--pipeline.diffusion-model.seed" in omnidreams.command
+    assert omnidreams.requires_runtime_stats is True
 
 
 def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
@@ -358,6 +457,10 @@ def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
     assert _command_value(demo.command, "--output.path") == (
         "{output_dir}/omnidreams-sv-demo-replay.mp4"
     )
+    assert _command_value(demo.command, "--output.stats-path") == (
+        "{output_dir}/stats_omnidreams_sv_demo_replay.json"
+    )
+    assert demo.requires_runtime_stats is True
     rendered = demo.rendered_command(
         context=_render_context(repo_root, scenario_id=demo.id)
     )
@@ -399,8 +502,16 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert omnidreams.report_group.id == "omnidreams"
     assert omnidreams.report_group.name == "Omnidreams"
     assert "--pipeline.diffusion-model.seed" in omnidreams.command
-    assert _command_value(omnidreams.command, "--total-blocks") == "113"
-    assert omnidreams.quality_compare_region == "bottom-half"
+    assert _command_value(omnidreams.command, "--scenario.total-blocks") == "38"
+    assert _command_value(omnidreams.command, "--output.path") == (
+        "{output_dir}/omnidreams-sv-ci-quality-smoke.mp4"
+    )
+    assert _command_value(omnidreams.command, "--output.stats-path") == (
+        "{output_dir}/stats_omnidreams_sv_ci_quality_smoke.json"
+    )
+    assert omnidreams.output_dir_arg is None
+    assert omnidreams.requires_runtime_stats is True
+    assert omnidreams.quality_compare_region == "full"
     assert omnidreams.quality_baseline_compare is True
 
     lingbot = scenarios["lingbot-world-fast-taehv-quality-smoke"]
@@ -418,9 +529,12 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "lingbot-world-fast-taehv-window15-sink3"
     )
     assert lingbot.command[lingbot_slug_index + 1] == "mp4"
-    assert _command_value(lingbot.command, "--scenario.total-blocks") == "40"
+    assert _command_value(lingbot.command, "--scenario.total-blocks") == "14"
     assert _command_value(lingbot.command, "--output.path") == (
         "{output_dir}/lingbot-world-fast-taehv-quality-smoke.mp4"
+    )
+    assert _command_value(lingbot.command, "--output.stats-path") == (
+        "{output_dir}/stats_lingbot_world_fast_taehv_quality_smoke.json"
     )
     assert "--pipeline.diffusion-model.seed" in lingbot.command
     rendered_lingbot = lingbot.rendered_command(
@@ -433,6 +547,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert lingbot.report_group is not None
     assert lingbot.report_group.id == "lingbot"
     assert lingbot.report_group.name == "LingBot"
+    assert lingbot.requires_runtime_stats is True
     assert lingbot.quality_compare_region == "full"
     assert lingbot.quality_baseline_compare is True
 
@@ -453,13 +568,25 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert _command_value(lingbot_review.command, "--output.path") == (
         "{output_dir}/lingbot-world-fast-taehv-one-minute-review.mp4"
     )
+    assert _command_value(lingbot_review.command, "--output.stats-path") == (
+        "{output_dir}/stats_lingbot_world_fast_taehv_one_minute_review.json"
+    )
+    assert lingbot_review.requires_runtime_stats is True
     assert lingbot_review.quality_baseline_compare is False
 
     omnidreams_review = scenarios["omnidreams-sv-one-minute-review"]
-    assert _command_value(omnidreams_review.command, "--total-blocks") == "226"
+    assert _command_value(omnidreams_review.command, "--scenario.total-blocks") == "226"
     assert "omnidreams" in omnidreams_review.command
     assert "omnidreams-perf" not in omnidreams_review.command
     assert "--pipeline.diffusion-model.seed" in omnidreams_review.command
+    assert _command_value(omnidreams_review.command, "--output.path") == (
+        "{output_dir}/omnidreams-sv-one-minute-review.mp4"
+    )
+    assert _command_value(omnidreams_review.command, "--output.stats-path") == (
+        "{output_dir}/stats_omnidreams_sv_one_minute_review.json"
+    )
+    assert omnidreams_review.output_dir_arg is None
+    assert omnidreams_review.requires_runtime_stats is True
     assert omnidreams_review.quality_baseline_compare is False
 
 
@@ -610,6 +737,7 @@ def test_run_benchmark_suite_prefers_runtime_stats_artifact_over_log_regex(
         "payload = {"
         "'schema_version': 1, "
         "'artifact_type': 'flashdreams.runtime.demo.benchmark_stats', "
+        "'steps': [{'step_index': 0, 'frame_count': 3}], "
         "'samples': ["
         "{'name': 'model_step_s', 'value': 0.25, 'unit': 's', "
         "'category': 'timing', 'step_index': 0, 'metadata': {}}, "
@@ -625,6 +753,7 @@ def test_run_benchmark_suite_prefers_runtime_stats_artifact_over_log_regex(
         name="Runtime stats runner",
         command=(sys.executable, "-c", script, "{output_dir}"),
         output_dir_arg=None,
+        requires_runtime_stats=True,
     )
 
     manifest = run_benchmark_suite(
@@ -636,12 +765,54 @@ def test_run_benchmark_suite_prefers_runtime_stats_artifact_over_log_regex(
 
     scenario_manifest = manifest["scenarios"][0]
     metric_summary = scenario_manifest["metric_summary"]
+    assert scenario_manifest["status"] == "pass"
     assert metric_summary["model_step_s"]["median"] == pytest.approx(0.25)
     assert metric_summary["pixel_fps"]["median"] == pytest.approx(24.0)
+    assert metric_summary["generated_fps"]["median"] == pytest.approx(12.0)
     assert "chunk_total_s_median_s" not in metric_summary
     assert scenario_manifest["metric_summary_metadata"]["model_step_s"]["parsers"] == [
         "runtime_metric_samples"
     ]
+
+
+def test_run_benchmark_suite_fails_when_required_runtime_stats_missing(
+    tmp_path: Path,
+) -> None:
+    script = (
+        "import json, sys; "
+        "from pathlib import Path; "
+        "out = Path(sys.argv[1]); "
+        "out.mkdir(parents=True, exist_ok=True); "
+        "(out / 'stats_demo.json').write_text(json.dumps(["
+        "{'autoregressive_index': 0, 'total_ms': 100.0}"
+        "])); "
+        "print('[perf][chunk summary] samples=1 warmup=0 window=1; "
+        "chunk_total_s 100.0ms/100.0ms med/p90')"
+    )
+    scenario = BenchmarkScenario(
+        id="missing-runtime-stats",
+        name="Missing runtime stats",
+        command=(sys.executable, "-c", script, "{output_dir}"),
+        output_dir_arg=None,
+        requires_runtime_stats=True,
+    )
+
+    manifest = run_benchmark_suite(
+        [scenario],
+        output_root=tmp_path / "run",
+        repo_root=tmp_path,
+        include_environment=False,
+    )
+
+    scenario_manifest = manifest["scenarios"][0]
+    assert scenario_manifest["status"] == "fail"
+    assert scenario_manifest["validation_errors"] == [
+        "Scenario requires flashdreams.runtime.demo.benchmark_stats, but no "
+        "runtime stats artifact was found."
+    ]
+    assert scenario_manifest["metric_summary"]["total_s"]["median"] == pytest.approx(
+        0.100
+    )
 
 
 def test_write_html_report_splits_model_detail_pages(tmp_path: Path) -> None:

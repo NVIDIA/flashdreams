@@ -10,6 +10,7 @@ from typing import cast
 import pytest
 
 from flashdreams.infra.runner import RunnerConfig
+from flashdreams.runtime.demo import RunResult
 from flashdreams.scripts import cli
 from flashdreams.serving import launch as launch_module
 from flashdreams.serving.launch import (
@@ -64,12 +65,17 @@ def test_lingbot_mp4_launch_validates_manifest_sections(tmp_path: Path) -> None:
         mode="mp4",
         options=LaunchOptions(
             scenario={"example_idx": 2, "total_blocks": 4},
-            output={"path": tmp_path / "demo.mp4", "fps": 12},
+            output={
+                "path": tmp_path / "demo.mp4",
+                "fps": 12,
+                "stats_path": tmp_path / "stats_demo.json",
+            },
         ),
     )
 
     assert resolved.mode == "mp4"
     assert resolved.summary["output_path"] == tmp_path / "demo.mp4"
+    assert resolved.summary["stats_path"] == tmp_path / "stats_demo.json"
 
 
 def test_lingbot_null_launch_uses_shared_replay_path(
@@ -295,3 +301,27 @@ def test_launch_mode_uses_compact_summary_by_default(
     assert "Resolved runner: 'lingbot-world-fast'" in output
     assert "Selected launch: LingBot null replay" in output
     assert "Scenario: {'total_blocks': 1}" in output
+
+
+def test_launch_mode_exits_nonzero_for_failed_run_result(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lingbot.demo import app
+
+    def fake_launch_from_runner(**kwargs: object) -> RunResult:
+        del kwargs
+        return RunResult(status="failed", reason="demo failed")
+
+    monkeypatch.setattr(app, "launch_from_runner", fake_launch_from_runner)
+    config = _runner_config(runner_name="lingbot-world-fast")
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(
+            config,
+            mode="null",
+            scenario_overrides={"total_blocks": 1},
+        )
+
+    assert exc_info.value.code == 1
+    assert "demo failed" in capsys.readouterr().err

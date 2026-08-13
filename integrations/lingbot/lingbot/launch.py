@@ -31,6 +31,7 @@ _REPLAY_SCENARIO_FIELDS = frozenset(
         "fps",
     }
 )
+_REPLAY_OUTPUT_FIELDS = frozenset({"path", "output", "fps", "stats_path", "stats_dir"})
 _WEBRTC_SCENARIO_FIELDS = frozenset({"example_idx"})
 _WEBRTC_OUTPUT_FIELDS = frozenset(
     {
@@ -68,7 +69,7 @@ class LingbotLaunchCapability:
     ) -> ResolvedLaunch | None:
         if mode in {"mp4", "null"}:
             _validate_fields("scenario", options.scenario, _REPLAY_SCENARIO_FIELDS)
-            _validate_fields("output", options.output, {"path", "output", "fps"})
+            _validate_fields("output", options.output, _REPLAY_OUTPUT_FIELDS)
             output_path = options.output.get("path") or options.output.get("output")
             if output_path is None:
                 if mode == "null":
@@ -100,6 +101,12 @@ def _resolved(
     }
     if output_path is not None:
         summary["output_path"] = output_path
+    stats_path = options.output.get("stats_path")
+    if stats_path is not None:
+        summary["stats_path"] = stats_path
+    stats_dir = options.output.get("stats_dir")
+    if stats_dir is not None:
+        summary["stats_dir"] = stats_dir
     if mode == "webrtc":
         summary["host"] = options.host or options.output.get("host", "0.0.0.0")
         summary["port"] = (

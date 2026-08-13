@@ -22,6 +22,7 @@ _LOCAL_WINDOW_MANIFESTS = {
     "omnidreams-perf": "example_world_model_perf.yaml",
 }
 _DEFAULT_MP4_OUTPUT_PATH = Path("outputs/omnidreams.mp4")
+_REPLAY_OUTPUT_FIELDS = frozenset({"path", "output", "fps", "stats_path", "stats_dir"})
 _REPLAY_SCENARIO_FIELDS = frozenset(
     {
         "conditioning_mode",
@@ -140,7 +141,7 @@ class OmnidreamsLaunchCapability:
     ) -> ResolvedLaunch | None:
         if mode in {"mp4", "null"}:
             _validate_fields("scenario", options.scenario, _REPLAY_SCENARIO_FIELDS)
-            _validate_fields("output", options.output, {"path", "output", "fps"})
+            _validate_fields("output", options.output, _REPLAY_OUTPUT_FIELDS)
             output_path = options.output.get("path") or options.output.get("output")
             if mode == "mp4" and output_path is None:
                 output_path = _DEFAULT_MP4_OUTPUT_PATH
@@ -173,6 +174,12 @@ def _demo_launch(
     }
     if output_path is not None:
         summary["output_path"] = output_path
+    stats_path = options.output.get("stats_path")
+    if stats_path is not None:
+        summary["stats_path"] = stats_path
+    stats_dir = options.output.get("stats_dir")
+    if stats_dir is not None:
+        summary["stats_dir"] = stats_dir
     if mode == "webrtc":
         summary["host"] = options.host or options.output.get("host", "0.0.0.0")
         summary["port"] = (

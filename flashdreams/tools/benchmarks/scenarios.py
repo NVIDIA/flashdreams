@@ -115,6 +115,7 @@ class BenchmarkScenario:
     artifact_globs: tuple[str, ...] = ("*.mp4", "*.json", "*.pt", "*.png", "*.jpg")
     video_globs: tuple[str, ...] = ("*.mp4", "**/*.mp4")
     stats_globs: tuple[str, ...] = ("stats_*.json", "**/stats_*.json")
+    requires_runtime_stats: bool = False
     quality_commands: tuple[QualityCommandConfig, ...] = ()
     quality_compare_region: CompareRegion | None = None
     quality_baseline_compare: bool = True
@@ -132,6 +133,8 @@ class BenchmarkScenario:
             raise ValueError("quality_compare_region must be 'full' or 'bottom-half'")
         if not isinstance(self.quality_baseline_compare, bool):
             raise ValueError("quality_baseline_compare must be a boolean")
+        if not isinstance(self.requires_runtime_stats, bool):
+            raise ValueError("requires_runtime_stats must be a boolean")
         if not self.command:
             raise ValueError(f"scenario {self.id!r} needs a non-empty command")
 
@@ -174,6 +177,10 @@ class BenchmarkScenario:
             stats_globs=_string_tuple(
                 data.get("stats_globs", ("stats_*.json", "**/stats_*.json")),
                 "stats_globs",
+            ),
+            requires_runtime_stats=_bool_field(
+                data.get("requires_runtime_stats", False),
+                "requires_runtime_stats",
             ),
             quality_commands=quality_commands,
             quality_compare_region=_optional_compare_region(
@@ -240,6 +247,7 @@ class BenchmarkScenario:
             "artifact_globs": list(self.artifact_globs),
             "video_globs": list(self.video_globs),
             "stats_globs": list(self.stats_globs),
+            "requires_runtime_stats": self.requires_runtime_stats,
             "quality_compare_region": self.quality_compare_region,
             "quality_baseline_compare": self.quality_baseline_compare,
             "quality_commands": [

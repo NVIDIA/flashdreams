@@ -144,7 +144,7 @@ def main(
     if no_instantiate:
         return
     if resolved_launch is not None:
-        resolved_launch.launch()
+        _handle_launch_result(resolved_launch.launch())
         return
     runner = config.setup()
     completed = False
@@ -158,6 +158,21 @@ def main(
             synchronize=completed,
             terminate_process=completed,
         )
+
+
+def _handle_launch_result(result: object) -> None:
+    from flashdreams.runtime.demo import RunResult
+
+    if not isinstance(result, RunResult):
+        return
+    if result.status in {"completed", "skipped"}:
+        return
+    reason = result.reason or (str(result.error) if result.error is not None else None)
+    if reason is None:
+        reason = f"Launch ended with status {result.status!r}."
+    if _is_rank_zero():
+        print(reason, file=sys.stderr)
+    raise SystemExit(1)
 
 
 def _is_rank_zero() -> bool:

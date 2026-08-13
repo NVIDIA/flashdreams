@@ -242,11 +242,15 @@ def summarize_records(
                 continue
             values_by_key.setdefault(key, []).append(float(value))
 
-    return {
+    summary = {
         key: _summary_stats(values)
         for key, values in sorted(values_by_key.items())
         if values
     }
+    generated_fps = _generated_fps_summary(retained)
+    if generated_fps is not None:
+        summary["generated_fps"] = generated_fps
+    return summary
 
 
 def write_metrics_ndjson(records: Iterable[MetricRecord], path: Path) -> Path:
@@ -340,6 +344,7 @@ def _records_from_runtime_metric_samples(
 
     metrics_by_step: dict[int, dict[str, float | int]] = {}
     sample_count_by_step: dict[int, int] = {}
+    frame_counts_by_step = _runtime_step_frame_counts(payload.get("steps"))
     summary_metrics: dict[str, float | int] = {}
     summary_sample_count = 0
     for sample in samples:
@@ -354,6 +359,13 @@ def _records_from_runtime_metric_samples(
         metrics_by_step.setdefault(step_index, {})[name] = value
         sample_count_by_step[step_index] = sample_count_by_step.get(step_index, 0) + 1
 
+    for step_index, frame_count in frame_counts_by_step.items():
+        metrics = metrics_by_step.setdefault(step_index, {})
+        metrics["generated_frame_count"] = frame_count
+        generated_fps = _generated_fps_for_step(metrics, frame_count=frame_count)
+        if generated_fps is not None:
+            metrics["generated_fps"] = generated_fps
+
     records = [
         MetricRecord(
             scenario_id=scenario_id,
@@ -361,7 +373,9 @@ def _records_from_runtime_metric_samples(
             record_index=step_index,
             source=source,
             metrics=metrics_by_step[step_index],
-            metadata=_runtime_metric_sample_metadata(sample_count_by_step[step_index]),
+            metadata=_runtime_metric_sample_metadata(
+                sample_count_by_step.get(step_index, 0)
+            ),
         )
         for step_index in sorted(metrics_by_step)
     ]
@@ -376,6 +390,35 @@ def _records_from_runtime_metric_samples(
             )
         )
     return records
+
+
+def _runtime_step_frame_counts(steps: object) -> dict[int, int]:
+    if not isinstance(steps, list):
+        return {}
+    frame_counts: dict[int, int] = {}
+    for fallback_index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            continue
+        step_index = _runtime_metric_step_index(step.get("step_index"))
+        if step_index is None:
+            step_index = fallback_index
+        frame_count = _non_negative_int(step.get("frame_count"))
+        if frame_count is not None:
+            frame_counts[step_index] = frame_count
+    return frame_counts
+
+
+def _generated_fps_for_step(
+    metrics: Mapping[str, float | int],
+    *,
+    frame_count: int,
+) -> float | None:
+    duration_s = _positive_float(metrics.get("total_s"))
+    if duration_s is None:
+        duration_s = _positive_float(metrics.get("model_step_s"))
+    if duration_s is None:
+        return None
+    return float(frame_count) / duration_s
 
 
 def _runtime_metric_sample(
@@ -567,6 +610,66 @@ def _summary_stats(values: list[float]) -> dict[str, float | int]:
         "median": statistics.median(sorted_values),
         "p90": _percentile_nearest_rank(sorted_values, 0.9),
     }
+
+
+def _generated_fps_summary(
+    records: Iterable[MetricRecord],
+) -> dict[str, float | int] | None:
+    total_frames = 0.0
+    total_s = 0.0
+    measured_steps = 0
+    for record in records:
+        if record.record_type != "step":
+            continue
+        frame_count = _non_negative_float(record.metrics.get("generated_frame_count"))
+        if frame_count is None:
+            continue
+        duration_s = _positive_float(record.metrics.get("total_s"))
+        if duration_s is None:
+            duration_s = _positive_float(record.metrics.get("model_step_s"))
+        if duration_s is None:
+            continue
+        total_frames += frame_count
+        total_s += duration_s
+        measured_steps += 1
+    if measured_steps == 0 or total_s <= 0:
+        return None
+    generated_fps = total_frames / total_s
+    return {
+        "count": measured_steps,
+        "min": generated_fps,
+        "max": generated_fps,
+        "mean": generated_fps,
+        "median": generated_fps,
+        "p90": generated_fps,
+    }
+
+
+def _non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value.is_integer():
+        int_value = int(value)
+        return int_value if int_value >= 0 else None
+    return None
+
+
+def _non_negative_float(value: object) -> float | None:
+    if not _is_number(value):
+        return None
+    float_value = float(value)
+    if not math.isfinite(float_value) or float_value < 0:
+        return None
+    return float_value
+
+
+def _positive_float(value: object) -> float | None:
+    float_value = _non_negative_float(value)
+    if float_value is None or float_value <= 0:
+        return None
+    return float_value
 
 
 def _percentile_nearest_rank(sorted_values: list[float], percentile: float) -> float:
