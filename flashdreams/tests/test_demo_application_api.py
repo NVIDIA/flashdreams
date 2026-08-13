@@ -17,8 +17,14 @@ from flashdreams.demo import (
     FrameOutputSink,
     InferenceSessionApplicationAdapter,
     IOHandler,
+    IOHandlerServer,
+    ReplayIOHandler,
     Runner,
     RuntimeOutputSinkFrameAdapter,
+    WebRTCIOHandlerServer,
+    create_native_window_io_handler,
+    create_replay_io_handler,
+    create_webrtc_io_handler,
 )
 from flashdreams.runtime import (
     CanonicalInputSchema,
@@ -63,7 +69,13 @@ def test_public_demo_contracts_are_importable() -> None:
     assert Application.__name__ == "Application"
     assert ApplicationSession.__name__ == "ApplicationSession"
     assert IOHandler.__name__ == "IOHandler"
+    assert IOHandlerServer.__name__ == "IOHandlerServer"
     assert FrameOutputSink.__name__ == "FrameOutputSink"
+    assert create_replay_io_handler.__name__ == "create_replay_io_handler"
+    assert create_native_window_io_handler.__name__ == (
+        "create_native_window_io_handler"
+    )
+    assert create_webrtc_io_handler.__name__ == "create_webrtc_io_handler"
 
 
 def test_inference_session_adapter_satisfies_application_session() -> None:
@@ -226,6 +238,70 @@ async def test_runner_run_async_delegates_to_async_session_helper() -> None:
     assert io_handler.emitted_steps == [0]
 
 
+def test_replay_io_factory_runs_through_public_runner() -> None:
+    output_sink = NullOutputSink(store_results=True)
+    io_handler = create_replay_io_handler(output_sink=output_sink)
+    app = _RunnerFakeApplication(total_steps=2)
+
+    assert isinstance(io_handler, ReplayIOHandler)
+    result = Runner(
+        io_handler=io_handler,
+        app=app,
+        model_id="fake-replay-factory",
+    ).run()
+
+    assert result.status == "completed"
+    assert result.metrics is not None
+    assert result.metrics.counters["steps"] == 2
+    assert output_sink.output_count == 2
+
+
+def test_replay_io_factory_forwards_to_metric_tail() -> None:
+    metric_tail = _RecordingFrameOutputSink()
+    io_handler = create_replay_io_handler(metric_output_sink=metric_tail)
+
+    result = Runner(
+        io_handler=io_handler,
+        app=_RunnerFakeApplication(total_steps=1),
+        model_id="fake-replay-factory",
+    ).run()
+
+    assert result.status == "completed"
+    assert metric_tail.records == [(0.0, 0)]
+
+
+def test_native_window_factory_exposes_io_handler_shape() -> None:
+    io_handler = create_native_window_io_handler((1280, 720))
+
+    assert isinstance(io_handler, IOHandler)
+    assert io_handler.run_mode.name == "native-window"
+    with pytest.raises(ValueError, match="viewport dimensions"):
+        create_native_window_io_handler((0, 720))
+
+
+def test_webrtc_io_factory_returns_server_not_ready_handler() -> None:
+    handler = _RecordingIOHandler()
+    server = create_webrtc_io_handler(
+        "127.0.0.1",
+        8080,
+        (1280, 720),
+        handlers=(handler,),
+    )
+    calls: list[IOHandler] = []
+
+    def run_session(io_handler: IOHandler) -> RunResult:
+        calls.append(io_handler)
+        return RunResult(status="completed")
+
+    assert isinstance(server, IOHandlerServer)
+    assert isinstance(server, WebRTCIOHandlerServer)
+    result = server.serve(run_session)
+
+    assert result.status == "completed"
+    assert calls == [handler]
+    assert not isinstance(server, IOHandler)
+
+
 class _FakeSession:
     inference_input_schema = InferenceInputSchema(
         step_fields=(InputField(name="chunk_index"),)
@@ -342,6 +418,14 @@ class _FakeIOHandler:
 
     def close(self) -> Sequence[OutputArtifact]:
         return ()
+
+
+class _RecordingFrameOutputSink:
+    def __init__(self) -> None:
+        self.records: list[tuple[float, int]] = []
+
+    def handle_output(self, timestamp_s: float, chunk: StepResult) -> None:
+        self.records.append((timestamp_s, chunk.step_index))
 
 
 class _RunnerFakeApplication:

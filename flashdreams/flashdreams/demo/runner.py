@@ -14,23 +14,16 @@ from typing import Any, cast
 from flashdreams.runtime.canonical import CanonicalInputSchema
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.demo.drivers import (
-    BatchSessionDriver,
     run_demo_session,
     run_demo_session_async,
 )
 from flashdreams.runtime.demo.host import ModelWarmupPlan, RuntimeHost
-from flashdreams.runtime.demo.outputs import OutputDecision, SessionInfo
 from flashdreams.runtime.demo.pipeline import StepPipeline
 from flashdreams.runtime.demo.run_modes import (
-    AsyncSessionDriver,
     InMemorySessionMetricsRecorder,
-    NoopTransportService,
     RunContext,
     RunMode,
-    RunModeCapabilities,
     RunResult,
-    SessionDriver,
-    SessionEdges,
     SessionMetricsRecorder,
     SingleSessionAdmissionPolicy,
 )
@@ -39,23 +32,17 @@ from flashdreams.runtime.demo.session_inputs import (
     ProviderCapabilities,
     UserInputWindow,
 )
-from flashdreams.runtime.demo.spec import (
-    DemoAdapter,
-    DemoSpec,
-    NullOutputSpec,
-    PreparedScenario,
-)
+from flashdreams.runtime.demo.spec import DemoSpec, NullOutputSpec, PreparedScenario
 from flashdreams.runtime.inputs import (
     InferenceInput,
     InferenceInputSchema,
-    UserInputSchema,
 )
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
 from flashdreams.runtime.mapping import InputMapping
-from flashdreams.runtime.output import OutputArtifact
-from flashdreams.runtime.types import StepRequirements, StepResult
+from flashdreams.runtime.types import StepRequirements
 
 from .application import Application, ApplicationSession, IOHandler
+from .io import IOHandlerRunMode
 
 
 @dataclass(slots=True)
@@ -134,7 +121,10 @@ class Runner:
     def _selected_run_mode(self) -> RunMode:
         if self.run_mode is not None:
             return self.run_mode
-        return _IOHandlerRunMode(self.io_handler)
+        run_mode = getattr(self.io_handler, "run_mode", None)
+        if run_mode is not None:
+            return cast(RunMode, run_mode)
+        return IOHandlerRunMode(self.io_handler)
 
     def _selected_host(self) -> tuple[RuntimeHost, bool]:
         if self.host is not None:
@@ -263,105 +253,6 @@ class _RunnerModelInputProvider:
 
     def close(self) -> None:
         self.closed = True
-
-
-@dataclass(slots=True)
-class _IOHandlerRunMode:
-    io_handler: IOHandler
-    driver: SessionDriver | AsyncSessionDriver = field(
-        default_factory=BatchSessionDriver
-    )
-    name: str = "public-runner"
-    capabilities: RunModeCapabilities = field(
-        default_factory=lambda: RunModeCapabilities(supports_artifacts=True)
-    )
-
-    def validate_run(self, *, spec: DemoSpec, adapter: DemoAdapter) -> None:
-        del spec, adapter
-
-    def validate_session(
-        self,
-        *,
-        spec: DemoSpec,
-        scenario: Any,
-        adapter: DemoAdapter,
-        provider: Any,
-    ) -> None:
-        del spec, scenario, adapter, provider
-
-    def create_run_context(
-        self,
-        *,
-        spec: DemoSpec,
-        adapter: DemoAdapter,
-        host: RuntimeHost,
-        model_warmup_plan: ModelWarmupPlan,
-    ) -> RunContext:
-        del spec, adapter
-        return RunContext(
-            host=host,
-            run_metrics=InMemorySessionMetricsRecorder(),
-            admission=SingleSessionAdmissionPolicy(
-                health_check=lambda: host.is_healthy,
-            ),
-            model_warmup_plan=model_warmup_plan,
-        )
-
-    def create_session_edges(
-        self,
-        *,
-        context: RunContext,
-        spec: DemoSpec,
-        scenario: Any,
-        provider: Any,
-        adapter: DemoAdapter,
-    ) -> SessionEdges:
-        del spec, scenario, provider, adapter
-        return SessionEdges(
-            input_source=_IOHandlerBatchInputSource(self.io_handler),
-            output_sink=_IOHandlerOutputSink(self.io_handler),
-            cleanup_tasks=context.cleanup_tasks,
-            transport=NoopTransportService(),
-        )
-
-    def select_driver(self) -> SessionDriver | AsyncSessionDriver:
-        return self.driver
-
-
-@dataclass(slots=True)
-class _IOHandlerBatchInputSource:
-    io_handler: IOHandler
-    is_finite: bool = False
-    is_deterministic: bool = False
-    user_input_schema: UserInputSchema = field(default_factory=UserInputSchema)
-
-    def is_finished(self) -> bool:
-        return self.io_handler.should_exit()
-
-    def next_window(self, request: StepRequirements) -> UserInputWindow:
-        return self.io_handler.next_window(request)
-
-
-@dataclass(slots=True)
-class _IOHandlerOutputSink:
-    io_handler: IOHandler
-    produces_artifacts: bool = True
-    _generation_started: bool = field(default=False, init=False, repr=False)
-
-    def open(self, session_info: SessionInfo) -> None:
-        self.io_handler.open(session_info)
-
-    def begin_generation(self, generation: int) -> None:
-        self._generation_started = True
-        self.io_handler.begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        if not self._generation_started:
-            self.begin_generation(0)
-        return self.io_handler.emit_chunk(result)
-
-    def close(self) -> Sequence[OutputArtifact]:
-        return self.io_handler.close()
 
 
 def _run_mode_is_async(run_mode: RunMode) -> bool:
