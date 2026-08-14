@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<!-- THROWAWAY 2b feasibility spike -- NOT product code. Delete before any PR. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TAEHV decoder — onnxruntime-web WebGPU parity (fp32/fp16)</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #1a1a1a; }
+    h1 { font-size: 18px; }
+    a { color: #5a8c00; }
+    pre { background: #f4f6f0; border: 1px solid #e0e2dc; border-left: 3px solid #76b900;
+          padding: 14px 16px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }
+    .ok { color: #5a8c00; font-weight: 700; }
+    .bad { color: #c0392b; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>TAEHV decoder · onnxruntime-web (WebGPU) · <span id="which"></span></h1>
+  <p>Switch precision: <a href="?p=fp32">?p=fp32</a> &nbsp;|&nbsp; <a href="?p=fp16">?p=fp16</a></p>
+  <pre id="log">loading…</pre>
+
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+  <script type="module">
+    const ORT_VER = "1.20.1";
+    const P = (new URLSearchParams(location.search).get("p") === "fp16") ? "fp16" : "fp32";
+    document.getElementById("which").textContent = P;
+    const el = document.getElementById("log");
+    const log = (m, cls) => { el.innerHTML += "\n" + (cls ? `<span class="${cls}">${m}</span>` : m); console.log(m); };
+    el.textContent = "";
+
+    const fetchBuf = async (u) => await (await fetch(u)).arrayBuffer();
+
+    async function main() {
+      if (!navigator.gpu) { log("navigator.gpu is undefined — WebGPU not available", "bad"); return; }
+      ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
+      ort.env.logLevel = "warning";
+
+      const meta = await (await fetch("meta.json")).json();
+      const v = meta.variants[P];
+      log(`variant=${P}  onnx=${v.onnx}  latent=${v.latent} (${v.latent_dtype})`);
+
+      const ref = new Float32Array(await fetchBuf(meta.reference));
+
+      // Build the input tensor at the variant's dtype.
+      let latentTensor;
+      if (P === "fp16") {
+        if (typeof Float16Array === "undefined") { log("this browser lacks Float16Array — needed for the fp16 path", "bad"); return; }
+        const f16 = new Float16Array(await fetchBuf(v.latent));  // reinterpret raw fp16 bytes
+        latentTensor = new ort.Tensor("float16", f16, meta.latent_shape);
+      } else {
+        const f32 = new Float32Array(await fetchBuf(v.latent));
+        latentTensor = new ort.Tensor("float32", f32, meta.latent_shape);
+      }
+
+      // fp16 WGSL shaders require the WebGPU 'shader-f16' feature; ORT-web won't
+      // use it unless the GPUDevice was created with it. Provide such a device.
+      if (P === "fp16") {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter || !adapter.features.has("shader-f16")) {
+          log("this GPU/driver does NOT expose WebGPU 'shader-f16' — fp16 shaders cannot run here.", "bad");
+          log("→ fp16 needs a client GPU/driver with shader-f16; fp32 works everywhere. Stopping.", "bad");
+          return;
+        }
+        const device = await adapter.requestDevice({ requiredFeatures: ["shader-f16"] });
+        ort.env.webgpu.device = device;
+        log("shader-f16 IS supported → enabled on the WebGPU device");
+      }
+
+      log("creating InferenceSession on the WebGPU execution provider…");
+      const sess = await ort.InferenceSession.create(v.onnx, {
+        executionProviders: ["webgpu"], graphOptimizationLevel: "all",
+      });
+      const inName = sess.inputNames[0], outName = sess.outputNames[0];
+      log(`session ready · in=[${sess.inputNames}] out=[${sess.outputNames}]`);
+      log("(console will note shape-ops assigned to CPU — that's normal/benign)");
+
+      const feeds = () => ({ [inName]: latentTensor });
+      await sess.run(feeds());                       // warmup (compiles WebGPU shaders)
+      const t0 = performance.now();
+      const out = await sess.run(feeds());           // timed
+      const dt = performance.now() - t0;
+      const o = out[outName];
+      log(`output dims=[${o.dims}] type=${o.type}  WARM DECODE = ${dt.toFixed(1)} ms`, "ok");
+
+      // Bring the output to Float32 for parity vs the fp32 gold reference.
+      // ORT-web fp16 tensors use Float16Array, whose elements read back as floats.
+      const a = (o.type === "float32") ? o.data : Float32Array.from(o.data);
+      if (a.length !== ref.length) { log(`LENGTH MISMATCH: out=${a.length} ref=${ref.length}`, "bad"); return; }
+
+      let maxAbs = 0, sumAbs = 0, sumSq = 0;
+      for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - ref[i]); maxAbs = Math.max(maxAbs, d); sumAbs += d; sumSq += d * d; }
+      const meanAbs = sumAbs / a.length, rmse = Math.sqrt(sumSq / a.length), psnr = 20 * Math.log10(2.0 / rmse);
+      log("");
+      log(`[${P}]  maxAbs=${maxAbs.toExponential(3)}  meanAbs=${meanAbs.toExponential(3)}  PSNR=${psnr.toFixed(2)} dB  vs fp32 gold`);
+      log(`>>> A/B: record WARM DECODE (${dt.toFixed(0)} ms) and PSNR (${psnr.toFixed(1)} dB) for p=${P}, then open the other precision.`);
+    }
+    main().catch((e) => log("ERROR: " + (e && e.message ? e.message : e) + "\n" + (e && e.stack ? e.stack : ""), "bad"));
+  </script>
+</body>
+</html>
