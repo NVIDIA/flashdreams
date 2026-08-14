@@ -134,6 +134,22 @@ def _rollout(
     chunks: list[Tensor] = []
     start = 0
     for ar_idx in range(N_CHUNKS):
+        repulse = int(os.environ.get("REPULSE_EVERY", "0"))
+        if (
+            swap is not None
+            and repulse > 0
+            and ar_idx > swap["at"]
+            and (ar_idx - swap["at"]) % repulse == 0
+        ):
+            # Re-open the edit window before the previous one's style fades:
+            # duty-cycled skin for LoRAs whose long-hold drifts.
+            pipe.replace_text(
+                cache,
+                [[swap["prompt"]]],
+                guidance_scale=swap.get("scale", 1.0),
+                guidance_chunks=swap.get("chunks", 0),
+                recache_last_chunk=False,
+            )
         if swap is not None and ar_idx == swap["at"]:
             pipe.replace_text(
                 cache,
