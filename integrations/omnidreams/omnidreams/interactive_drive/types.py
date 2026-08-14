@@ -170,7 +170,6 @@ class DriverCommand:
     brake: float = 0.0
     steer: float = 0.0
     stop: bool = False
-    handbrake: bool = False
     reverse: bool = False
     steer_is_direct: bool = False
     manual_control: bool = False
@@ -222,7 +221,7 @@ class DynamicActorTrajectory:
     """Whether rigid-body physics, rather than the recorded track, owns the actor."""
 
     is_simulated: bool = False
-    """Whether this chunk carries mutable runtime samples for the actor."""
+    """Whether this chunk carries mutable PhysX samples for the actor."""
 
     def to_game_engine_dict(self) -> dict[str, Any]:
         """Return JSON-compatible identity, collider, and transform keyframes."""
@@ -313,9 +312,6 @@ class PhysXChunkTimings:
 class TrajectoryChunk:
     timestamps_us: npt.NDArray[np.int64]
     rig_poses_world: FloatArray
-    vehicle_states: tuple[VehicleState, ...]
-    """Per-frame authoritative ego states matching ``timestamps_us``."""
-
     boundary_state_after_chunk: VehicleState
     dynamic_actors: tuple[DynamicActorTrajectory, ...] = ()
     physics_debug_frames: tuple[PhysicsDebugFrame, ...] = ()
@@ -332,41 +328,6 @@ class TrajectoryChunk:
 
     physx_timings: PhysXChunkTimings | None = None
     """Detailed synchronization, native update, solve, and readback timings."""
-
-    def __post_init__(self) -> None:
-        """Reject trajectory fields that represent different simulation frames."""
-        frame_count = len(self.timestamps_us)
-        if self.rig_poses_world.shape != (frame_count, 4, 4):
-            raise ValueError(
-                "rig_poses_world must have shape "
-                f"({frame_count}, 4, 4), got {self.rig_poses_world.shape}"
-            )
-        if len(self.vehicle_states) != frame_count:
-            raise ValueError(
-                "vehicle_states must match timestamps_us; got "
-                f"{len(self.vehicle_states)} states for {frame_count} timestamps"
-            )
-        if self.physics_debug_frames and len(self.physics_debug_frames) != frame_count:
-            raise ValueError(
-                "physics_debug_frames must match timestamps_us; got "
-                f"{len(self.physics_debug_frames)} frames for {frame_count} timestamps"
-            )
-        if frame_count == 0:
-            raise ValueError("TrajectoryChunk requires at least one frame")
-        if self.boundary_state_after_chunk != self.vehicle_states[-1]:
-            raise ValueError(
-                "boundary_state_after_chunk must equal the final per-frame state"
-            )
-
-        from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
-
-        expected_poses = np.stack(
-            [rig_pose_from_vehicle_state(state) for state in self.vehicle_states]
-        )
-        if not np.allclose(self.rig_poses_world, expected_poses, atol=1.0e-5):
-            raise ValueError(
-                "rig_poses_world must be derived from the matching vehicle_states"
-            )
 
 
 @dataclass
@@ -388,17 +349,6 @@ class PresentedFrame:
     """Lazy Ludus CUDA debug raster, materialized only by host presenters."""
 
     status_message: str | None = None
-    rig_to_world: FloatArray | None = None
-    """Camera-rig pose synchronized to this frame."""
-
-    vehicle_state: VehicleState | None = None
-    """Authoritative ego state synchronized to this frame."""
-
-    bev_rig_to_world: FloatArray | None = None
-    """Rig pose used to render this frame's potentially lagged BEV image."""
-
-    application_state: object | None = None
-    """Opaque application state synchronized to this frame."""
 
 
 @dataclass(frozen=True)

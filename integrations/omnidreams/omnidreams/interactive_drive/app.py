@@ -9,7 +9,6 @@ from pathlib import Path
 
 import numpy as np
 from loguru import logger
-from omnidreams.interactive_drive.application import InteractiveDriveApplication
 from omnidreams.interactive_drive.backends.base import RenderBackend
 from omnidreams.interactive_drive.config import AppConfig
 from omnidreams.interactive_drive.input.keyboard import (
@@ -30,11 +29,8 @@ from omnidreams.interactive_drive.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
     build_map_bounds,
-    integrate_vehicle,
     state_from_initial_pose,
-    step_physics_world,
 )
-from omnidreams.interactive_drive.simulation.game_physics import GamePhysicsWorld
 from omnidreams.interactive_drive.simulation.ground_snap import GroundSnapper
 from omnidreams.interactive_drive.simulation.map_bounds import MapBounds
 from omnidreams.interactive_drive.streaming_presenter import (
@@ -73,8 +69,6 @@ class InteractiveDriveApp:
         *,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
-        keyboard: KeyboardState | None = None,
-        application: InteractiveDriveApplication | None = None,
     ) -> None:
         """Construct the engine and begin model warmup.
 
@@ -91,8 +85,7 @@ class InteractiveDriveApp:
         """
         self._config = config
         self._backend = backend
-        self._keyboard = keyboard or KeyboardState()
-        self._application = application
+        self._keyboard = KeyboardState()
         if config.backend == "omnidreams":
             self._keyboard.set_view_mode("model_rgb")
         if presenter is None:
@@ -105,8 +98,6 @@ class InteractiveDriveApp:
             bind_keyboard = getattr(self._presenter, "bind_keyboard", None)
             if callable(bind_keyboard):
                 bind_keyboard(self._keyboard)
-        if self._application is not None:
-            self._application.configure_presenter(self._presenter)
         # When ``False`` the caller (the demo's outer scene-change loop)
         # owns the presenter's lifecycle: it constructs one presenter at
         # startup, reuses it across many scenes, and only closes it when
@@ -205,8 +196,6 @@ class InteractiveDriveApp:
         cached = self._cached_scene(scene_path, variant, prompt_override)
         if cached is not None:
             self._scene, self._map_bounds, self._ground_snapper = cached
-            if self._application is not None:
-                self._application.load_scene(self._scene, self._map_bounds)
             self._pipeline.request_scene(self._scene)
             return True
 
@@ -259,8 +248,6 @@ class InteractiveDriveApp:
             # while we were committing the loaded bundle, leave the presenter in
             # close/requested state for the outer loop to consume.
             return False
-        if self._application is not None:
-            self._application.load_scene(self._scene, self._map_bounds)
         self._pipeline.request_scene(self._scene)
         return True
 
@@ -447,8 +434,6 @@ class InteractiveDriveApp:
         """
         if self._scene is None or self._map_bounds is None:
             raise RuntimeError("load_scene() must be called before run_scene()")
-        if self._application is not None:
-            self._application.configure_scene_presenter(self._presenter, self._scene)
         # Seed the loop's initial ``last_presented_frame`` with the scene's
         # first frame. The loop overlays a live loading status over it (see
         # ``_loading_status_message``) until the first generated chunk
@@ -464,57 +449,23 @@ class InteractiveDriveApp:
         # OOB respawn, so switch the indicator to "Resetting..." for those.
         loading_status = self._loading_status_message
         while not self._presenter.should_close:
-            if self._application is None:
-                vehicle_config = self._config.vehicle
-                initial_speed_mps = 10.0
-                integrate_fn = integrate_vehicle
-                physics_world_factory = GamePhysicsWorld
-                physics_step_fn = step_physics_world
-                visual_flare_enabled = self._config.visual_flare_enabled
-                ground_snapper = self._ground_snapper
-                capture_physics_debug = False
-                include_initial_state_in_first_chunk = False
-            else:
-                rollout_spec = self._application.rollout_spec(
-                    self._scene,
-                    default_vehicle=self._config.vehicle,
-                    default_visual_flare_enabled=self._config.visual_flare_enabled,
-                )
-                vehicle_config = rollout_spec.vehicle_config
-                initial_speed_mps = rollout_spec.initial_speed_mps
-                integrate_fn = rollout_spec.integrate_fn
-                physics_world_factory = rollout_spec.physics_world_factory
-                physics_step_fn = rollout_spec.physics_step_fn
-                visual_flare_enabled = rollout_spec.visual_flare_enabled
-                ground_snapper = rollout_spec.ground_snapper
-                capture_physics_debug = rollout_spec.capture_physics_debug
-                include_initial_state_in_first_chunk = (
-                    rollout_spec.include_initial_state_in_first_chunk
-                )
             simulation = EgoVehicleKinematics(
                 initial_state=state_from_initial_pose(
                     initial_rig_to_world=self._scene.initial_rig_to_world,
                     initial_yaw_rad=self._scene.initial_yaw_rad,
-                    initial_speed_mps=initial_speed_mps,
+                    # Start each rollout at a fixed 10 m/s so the ego is
+                    # already rolling on initial load (and after a manual
+                    # reset / OOB respawn), instead of launching at the
+                    # clip's full recorded speed.
+                    initial_speed_mps=10.0,
                 ),
-                vehicle_config=vehicle_config,
-                ground_snapper=ground_snapper,
+                vehicle_config=self._config.vehicle,
+                ground_snapper=self._ground_snapper,
                 initial_timestamp_us=self._scene.initial_timestamp_us,
                 map_bounds=self._map_bounds,
                 oob_margin_m=self._config.oob_margin_m,
                 oob_warning_zone_m=self._config.oob_warning_zone_m,
                 scene=self._scene,
-                integrate_fn=integrate_fn,
-                physics_world_factory=physics_world_factory,
-                physics_step_fn=physics_step_fn,
-                include_initial_state_in_first_chunk=(
-                    include_initial_state_in_first_chunk
-                ),
-            )
-            runtime_application = (
-                None
-                if self._application is None
-                else self._application.create_runtime(self._scene, simulation)
             )
             # Publish the freshly-built initial state up front so read-side
             # speed readouts (the HUD speed digit, the browser ``/state``
@@ -523,10 +474,7 @@ class InteractiveDriveApp:
             # screen through the "Resetting..." window until the new rollout
             # requested its first chunk -- the "reset doesn't reset the
             # displayed speed" symptom.
-            if runtime_application is not None:
-                runtime_application.publish_boundary(simulation.current_state)
-            else:
-                self._keyboard.update_telemetry(simulation.current_state)
+            self._keyboard.update_telemetry(simulation.current_state)
             input_backend = KeyboardInputBackend(self._keyboard)
             try:
                 reset_requested = run_main_loop(
@@ -548,12 +496,10 @@ class InteractiveDriveApp:
                         stop_after_consumed_chunks=(
                             self._config.stop_after_consumed_chunks
                         ),
-                        visual_flare_enabled=visual_flare_enabled,
-                        capture_physics_debug=capture_physics_debug,
+                        visual_flare_enabled=self._config.visual_flare_enabled,
                     ),
                     loading_status=loading_status,
                     trace_context=self._trace_context,
-                    runtime_application=runtime_application,
                 )
             finally:
                 simulation.close()

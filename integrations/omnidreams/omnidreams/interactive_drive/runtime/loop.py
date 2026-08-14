@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-from __future__ import annotations
-
 import os
 import queue
 import time
@@ -12,7 +10,6 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from loguru import logger
-from omnidreams.interactive_drive.application import RuntimeApplication
 from omnidreams.interactive_drive.input.backend import InputBackend
 from omnidreams.interactive_drive.runtime.runtime_controls import RuntimeControls
 from omnidreams.interactive_drive.simulation.backend import SimulationBackend
@@ -161,8 +158,6 @@ class LoopConfig:
     # so consuming chunks 0..N yields N traced chunks (1..N).
     stop_after_consumed_chunks: int | None = None
     visual_flare_enabled: bool = True
-    capture_physics_debug: bool = False
-    """Whether to capture PhysX geometry independently of the selected view."""
 
 
 # OOB overlay strings, module-level so the HUD can match on them for styling.
@@ -213,7 +208,7 @@ def make_chunk_request(
     chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
     set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
     if callable(set_physx_debug_enabled):
-        set_physx_debug_enabled(view_mode == "physx" or config.capture_physics_debug)
+        set_physx_debug_enabled(view_mode == "physx")
     trajectory = simulation.pose_chunk(
         command=command,
         chunk_size=chunk_size,
@@ -414,12 +409,12 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def push_telemetry(
-    runtime_controls: RuntimeControls,
-    simulation: SimulationBackend,
+    runtime_controls: RuntimeControls, simulation: SimulationBackend
 ) -> None:
-    """Forward the latest simulation state to runtime controls.
+    """Forward ``simulation.current_state`` to ``runtime_controls``.
 
-    No-ops for controls that do not expose ``update_telemetry``.
+    No-ops for controls that don't expose ``update_telemetry`` (test fakes,
+    custom controllers); only :class:`KeyboardState` consumes it today.
     """
     update = getattr(runtime_controls, "update_telemetry", None)
     if update is None:
@@ -466,7 +461,6 @@ def run_main_loop(
     simulation: SimulationBackend,
     pipeline: ChunkPipeline,
     config: LoopConfig,
-    runtime_application: RuntimeApplication | None = None,
     loading_status: Callable[[], str | None] | None = None,
     trace_context: TraceContext | None = None,
 ) -> bool:
@@ -505,8 +499,6 @@ def run_main_loop(
             break
         if runtime_controls.consume_reset_request():
             return True
-        if runtime_application is not None:
-            runtime_application.process_events(simulation.current_state)
         active_trace = (
             trace_context if state.last_consumed_chunk_index is not None else None
         )
@@ -525,9 +517,7 @@ def run_main_loop(
 
         # Keep one chunk in flight. Snapshot the current view on the request so
         # PhysX debug geometry is captured only for chunks that can display it.
-        if should_request_chunk(state) and (
-            runtime_application is None or runtime_application.is_running
-        ):
+        if should_request_chunk(state):
             chunk_request = make_chunk_request(
                 state=state,
                 simulation=simulation,
@@ -552,32 +542,15 @@ def run_main_loop(
                         0 if collision_frame_index is None else collision_frame_index
                     ),
                 )
-            if runtime_application is not None:
-                application_update = runtime_application.advance_frames(
-                    chunk_request.trajectory,
-                    frame_interval_s=config.frame_interval_s,
-                )
-                chunk_request = replace(
-                    chunk_request,
-                    trajectory=application_update.trajectory,
-                    frame_application_states=(
-                        application_update.frame_application_states
-                    ),
-                )
             pipeline.request_pose_chunk(chunk_request)
             # The pose chunk just advanced authoritative state, so refresh the
             # OOB overlay from the new boundary frame and auto-respawn (same
             # ``return True`` as a manual reset) when far enough off-map.
-            if (
-                runtime_application is None or runtime_application.is_running
-            ) and update_oob_state(state, simulation, config):
+            if update_oob_state(state, simulation, config):
                 return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
-            if runtime_application is None:
-                push_telemetry(runtime_controls, simulation)
-            else:
-                runtime_application.publish_boundary(simulation.current_state)
+            push_telemetry(runtime_controls, simulation)
 
         _drain_pipeline_frames(
             pipeline=pipeline,

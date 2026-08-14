@@ -1,0 +1,4 @@
+# Pytest fixture outputs (USDZ round-trip artefacts in
+# ``test_scene_fixture`` and visual-diff debug PNGs in
+# ``test_raster_reference_image``). Tests recreate these on every run.
+output/

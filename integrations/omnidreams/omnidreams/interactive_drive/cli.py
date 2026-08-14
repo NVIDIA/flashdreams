@@ -243,24 +243,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--game-mode",
         action="store_true",
         help=(
-            "Enable game-style actor and static-world collisions together with "
-            "the vehicle speed limit."
-        ),
-    )
-    parser.add_argument(
-        "--traffic-density",
-        type=float,
-        default=0.4,
-        metavar="FRACTION",
-        help=(
-            "Fraction of recorded motor vehicles to retain in taxi-game mode "
-            "(default: 0.4). Pedestrians, cyclists, and motorcycles are unaffected."
+            "Enable game-style actor and static-world collisions, along with "
+            "the vehicle speed limit and collision visual flare. By default, "
+            "collisions, the speed limit, and their visual effect are disabled."
         ),
     )
     parser.add_argument(
         "--disable-visual-flare",
         action="store_true",
-        help=("Keep the collision visual flare disabled (the default)."),
+        help=(
+            "Disable the strong full-screen dark fade that signals a collision "
+            "when --game-mode is enabled."
+        ),
     )
     parser.add_argument(
         "--bev",
@@ -305,45 +299,6 @@ def build_parser() -> argparse.ArgumentParser:
             " default ``0`` keeps the mini-map straight down; positive values"
             " re-enable the older perspective navigation view and should stay"
             " below ``bev-fov-deg / 2``."
-        ),
-    )
-    parser.add_argument(
-        "--taxi-game",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Enable the overlay-only taxi game with route-valid pickups, "
-            "timed dropoffs, score, and navigation HUD."
-        ),
-    )
-    parser.add_argument(
-        "--taxi-seed",
-        type=int,
-        default=None,
-        help=(
-            "Debug seed mixed with the scene ID to produce repeatable taxi fares. "
-            "Omit it for a fresh random layout each game."
-        ),
-    )
-    parser.add_argument(
-        "--taxi-highscores",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help=(
-            "Taxi leaderboard CSV path. Defaults to "
-            "$FLASHDREAMS_CACHE_DIR/interactive-drive/highscores.csv."
-        ),
-    )
-    parser.add_argument(
-        "--taxi-alignment-diagnostics",
-        type=Path,
-        default=None,
-        metavar="DIRECTORY",
-        help=(
-            "Capture frame-synchronized conditioning, generated RGB, BEV, "
-            "PhysX geometry, and pose telemetry under a timestamped directory. "
-            "Only applies with --taxi-game."
         ),
     )
     parser.add_argument(
@@ -538,10 +493,7 @@ def prepare_config_and_backend(
     backend: RenderBackend
     if config.backend == "raster":
         backend = RasterRenderBackend(
-            chunk=config.chunk,
-            raster=config.raster,
-            bev=config.bev,
-            synchronize_bev_with_rgb=bool(args.taxi_game),
+            chunk=config.chunk, raster=config.raster, bev=config.bev
         )
     else:
         if config.manifest_path is None:
@@ -570,7 +522,6 @@ def prepare_config_and_backend(
             bev=config.bev,
             offload_text_encoder=config.world_model_offload_text_encoder,
             postprocess=config.postprocess,
-            synchronize_bev_with_rgb=bool(args.taxi_game),
         )
     return config, backend
 
@@ -583,19 +534,5 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
     """
     configure_logging()
     config, backend = prepare_config_and_backend(args)
-    if args.taxi_game:
-        from omnidreams.interactive_drive.crazy_robotaxi.app import (
-            CrazyRobotaxiApp,
-            taxi_config_from_args,
-        )
-
-        app = CrazyRobotaxiApp(
-            config=config,
-            taxi_config=taxi_config_from_args(args),
-            backend=backend,
-            alignment_diagnostics_root=args.taxi_alignment_diagnostics,
-            trace_sink=trace_sink,
-        )
-    else:
-        app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
+    app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
     app.run()

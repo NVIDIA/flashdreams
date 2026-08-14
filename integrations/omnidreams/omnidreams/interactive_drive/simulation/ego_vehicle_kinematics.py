@@ -3,12 +3,11 @@
 
 import math
 import time
-from collections.abc import Callable
 
 import numpy as np
 from loguru import logger
 from omnidreams.interactive_drive.config import ChunkConfig, VehicleConfig
-from omnidreams.interactive_drive.math3d import rig_pose_from_vehicle_state
+from omnidreams.interactive_drive.math3d import rig_pose_from_state
 from omnidreams.interactive_drive.simulation.components import (
     GameEntity,
     game_entity_from_vehicle_state,
@@ -24,23 +23,6 @@ from omnidreams.interactive_drive.types import (
     TrajectoryChunk,
     VehicleState,
 )
-
-PhysicsActorSamples = tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]
-PhysicsStepFn = Callable[
-    [GamePhysicsWorld, VehicleState, DriverCommand, int, float],
-    tuple[VehicleState, PhysicsActorSamples],
-]
-
-
-def step_physics_world(
-    physics_world: GamePhysicsWorld,
-    state: VehicleState,
-    command: DriverCommand,
-    timestamp_us: int,
-    dt_s: float,
-) -> tuple[VehicleState, PhysicsActorSamples]:
-    del command
-    return physics_world.step(state, timestamp_us, dt_s)
 
 
 def _move_towards(current: float, target: float, max_delta: float) -> float:
@@ -313,11 +295,6 @@ def sample_chunk_trajectory(
     ground_snapper: GroundSnapper | None,
     physics_world: GamePhysicsWorld | None = None,
     capture_physics_debug: bool = False,
-    integrate_fn: Callable[
-        [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
-    ] = integrate_vehicle,
-    physics_step_fn: PhysicsStepFn = step_physics_world,
-    include_start_state: bool = False,
 ) -> TrajectoryChunk:
     timestamps = np.array(
         [
@@ -329,7 +306,6 @@ def sample_chunk_trajectory(
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
 
     state = VehicleState(**start_state.__dict__)
-    vehicle_states: list[VehicleState] = []
     actor_samples: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]] = []
     physics_debug_frames = []
     physx_elapsed_s = 0.0
@@ -352,30 +328,13 @@ def sample_chunk_trajectory(
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
     for frame_idx in range(chunk_size):
-        use_start_state = include_start_state and frame_idx == 0
-        if not use_start_state:
-            state = integrate_fn(
-                state, command, chunk_config.frame_interval_s, vehicle_config
-            )
-        if physics_world is not None and use_start_state:
-            frame_actor_samples = tuple(
-                (
-                    entity.entity_id,
-                    entity.transform.position_m.copy(),
-                    entity.transform.orientation_xyzw.copy(),
-                    entity.detached_from_track,
-                )
-                for entity in physics_world.entities
-            )
-            actor_samples.append(frame_actor_samples)
-            if capture_physics_debug:
-                physics_debug_frames.append(physics_world.debug_frame(state))
-        elif physics_world is not None:
+        state = integrate_vehicle(
+            state, command, chunk_config.frame_interval_s, vehicle_config
+        )
+        if physics_world is not None:
             physx_started_at = time.perf_counter()
-            state, frame_actor_samples = physics_step_fn(
-                physics_world,
+            state, frame_actor_samples = physics_world.step(
                 state,
-                command,
                 int(timestamps[frame_idx]),
                 chunk_config.frame_interval_s,
             )
@@ -403,8 +362,14 @@ def sample_chunk_trajectory(
                 physics_debug_frames.append(physics_world.debug_frame(state))
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
-        vehicle_states.append(state)
-        poses[frame_idx] = rig_pose_from_vehicle_state(state)
+        poses[frame_idx] = rig_pose_from_state(
+            x_m=state.x_m,
+            y_m=state.y_m,
+            z_m=state.z_m,
+            yaw_rad=state.yaw_rad,
+            pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
+            roll_rad=state.roll_rad + state.suspension_roll_rad,
+        )
 
     dynamic_actors = (
         physics_world.build_trajectories(timestamps, actor_samples)
@@ -414,7 +379,6 @@ def sample_chunk_trajectory(
     return TrajectoryChunk(
         timestamps_us=timestamps,
         rig_poses_world=poses,
-        vehicle_states=tuple(vehicle_states),
         boundary_state_after_chunk=state,
         dynamic_actors=dynamic_actors,
         physics_debug_frames=tuple(physics_debug_frames),
@@ -503,14 +467,6 @@ class EgoVehicleKinematics:
         oob_margin_m: float = 50.0,
         oob_warning_zone_m: float = 100.0,
         scene: SceneBundle | None = None,
-        integrate_fn: Callable[
-            [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
-        ] = integrate_vehicle,
-        physics_world_factory: Callable[
-            [SceneBundle, VehicleConfig], GamePhysicsWorld
-        ] = GamePhysicsWorld,
-        physics_step_fn: PhysicsStepFn = step_physics_world,
-        include_initial_state_in_first_chunk: bool = False,
     ) -> None:
         self._state = initial_state
         self._vehicle_config = vehicle_config
@@ -519,13 +475,8 @@ class EgoVehicleKinematics:
         self._map_bounds = map_bounds
         self._oob_margin_m = float(oob_margin_m)
         self._oob_warning_zone_m = float(oob_warning_zone_m)
-        self._integrate_fn = integrate_fn
-        self._physics_step_fn = physics_step_fn
-        self._include_initial_state_in_next_chunk = bool(
-            include_initial_state_in_first_chunk
-        )
         self._physics_world = (
-            physics_world_factory(scene, vehicle_config) if scene is not None else None
+            GamePhysicsWorld(scene, vehicle_config) if scene is not None else None
         )
         self._capture_physics_debug = False
 
@@ -596,11 +547,7 @@ class EgoVehicleKinematics:
             ground_snapper=self._ground_snapper,
             physics_world=self._physics_world,
             capture_physics_debug=self._capture_physics_debug,
-            integrate_fn=self._integrate_fn,
-            physics_step_fn=self._physics_step_fn,
-            include_start_state=self._include_initial_state_in_next_chunk,
         )
-        self._include_initial_state_in_next_chunk = False
         self._state = trajectory.boundary_state_after_chunk
         self._next_timestamp_us = int(
             trajectory.timestamps_us[-1] + chunk_config.frame_interval_us

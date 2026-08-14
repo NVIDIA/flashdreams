@@ -11,20 +11,6 @@ import numpy as np
 import pytest
 import torch
 from omnidreams.interactive_drive.config import BevConfig
-from omnidreams.interactive_drive.crazy_robotaxi.game import (
-    TaxiGameSnapshot,
-    TaxiPhase,
-)
-from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
-    SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
-)
-from omnidreams.interactive_drive.crazy_robotaxi.hud_presenter import (
-    _build_bev_panel_image as _build_taxi_bev_panel_image,
-)
-from omnidreams.interactive_drive.crazy_robotaxi.input import (
-    CrazyRobotaxiKeyboardState,
-)
-from omnidreams.interactive_drive.input.keyboard import KeyboardState
 from omnidreams.interactive_drive.presenter import (
     SlangPyPresenter,
     _CudaRGBFrame,
@@ -32,16 +18,10 @@ from omnidreams.interactive_drive.presenter import (
     _NonBlockingCudaStream,
 )
 from omnidreams.interactive_drive.slangpy_hud_presenter import (
-    MPS_TO_MPH,
     SlangPyHudPresenter,
     _bev_ego_footprint_points,
 )
-from omnidreams.interactive_drive.types import (
-    CameraCalibration,
-    PhysicsDebugFrame,
-    PresentedFrame,
-    VehicleState,
-)
+from omnidreams.interactive_drive.types import PhysicsDebugFrame, PresentedFrame
 from PIL import Image, ImageDraw
 
 
@@ -76,24 +56,6 @@ def test_hud_keyboard_drive_overrides_connected_wheel_while_key_is_held() -> Non
     )
 
     assert presenter._poll_drive_state() is keyboard_state
-
-
-def test_hud_taxi_name_entry_accepts_characters_backspace_and_enter() -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    presenter._keyboard = CrazyRobotaxiKeyboardState()
-    presenter._taxi_name_buffer = ""
-    presenter._key_codes = {
-        "name_a": "a",
-        "name_1": "1",
-        "space": "space",
-        "backspace": "backspace",
-        "enter": "enter",
-    }
-
-    for key in ("a", "space", "1", "backspace", "1", "enter"):
-        presenter._handle_taxi_name_key(key)
-
-    assert presenter._keyboard.consume_taxi_name_submission() == "A 1"
 
 
 def test_cuda_existing_device_handles_uses_current_context_by_default(
@@ -586,65 +548,6 @@ def test_hud_prepare_frame_keeps_cuda_model_rgb_lazy() -> None:
     assert bev.prefetch_calls == 1
 
 
-def test_hud_prepare_frame_does_not_advance_taxi_display_state() -> None:
-    presenter = _hud_presenter_without_window()
-    displayed = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
-        depth_host_f32=None,
-    )
-    queued = PresentedFrame(
-        timestamp_us=1,
-        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
-        depth_host_f32=None,
-    )
-    presenter._latest_presented_frame = displayed
-    presenter._cuda_hud_interop = None
-
-    presenter.prepare_frame(queued, view_mode="rgb")
-
-    assert presenter._latest_presented_frame is displayed
-
-
-def test_hud_present_frame_latches_taxi_state_before_render() -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    rendered_frames: list[PresentedFrame | None] = []
-    frame = PresentedFrame(
-        timestamp_us=1,
-        rgb_host_uint8=np.zeros((4, 4, 3), dtype=np.uint8),
-        depth_host_f32=None,
-    )
-    presenter._pending_resize = None
-    presenter._present_cuda_hud_frame = lambda frame, rgb: False
-    presenter._update_camera_pil = lambda rgb: None
-    presenter._render_canvas = lambda status: rendered_frames.append(
-        presenter._latest_presented_frame
-    )
-    presenter._present_canvas = lambda **kwargs: None
-
-    presenter.present_frame(frame, view_mode="rgb")
-
-    assert rendered_frames == [frame]
-
-
-def test_hud_speed_uses_displayed_state_instead_of_future_telemetry() -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    presenter._keyboard = KeyboardState()
-    presenter._keyboard.update_telemetry(VehicleState(20.0, 0.0, 0.0, 1.0, 30.0, 0.0))
-    displayed_state = VehicleState(2.0, 0.0, 0.0, 0.1, 4.0, 0.0)
-    presenter._latest_presented_frame = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
-        depth_host_f32=None,
-        vehicle_state=displayed_state,
-    )
-    presenter._speed_mph = 0.0
-
-    presenter._update_speed(SimpleNamespace())
-
-    assert presenter._speed_mph == pytest.approx(4.0 * MPS_TO_MPH * 0.18)
-
-
 def test_hud_prepare_frame_prefetches_one_bev_per_raster_batch() -> None:
     presenter = _hud_presenter_without_window()
     first = _LazyFrame()
@@ -784,110 +687,6 @@ def test_hud_bev_panel_build_runs_outside_draw_path() -> None:
         assert panel.size == (4, 3)
     finally:
         presenter._bev_panel_exec.shutdown(wait=True, cancel_futures=True)
-
-
-def test_taxi_hud_bev_panel_preserves_the_complete_source_image() -> None:
-    source = np.full((10, 10, 3), 255, dtype=np.uint8)
-
-    _key, panel = _build_taxi_bev_panel_image(
-        (0, 0, 20, 10), source, (20, 10), lambda image: image
-    )
-
-    pixels = np.asarray(panel)
-    assert np.all(pixels[:, 5:15] == 255)
-    assert np.all(pixels[:, :5] != 255)
-    assert np.all(pixels[:, 15:] != 255)
-
-
-@pytest.mark.parametrize(
-    ("phase", "marker_color"),
-    [
-        ("seeking_pickup", (118, 185, 0, 255)),
-        ("to_dropoff", (200, 150, 50, 255)),
-    ],
-)
-def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
-    phase: TaxiPhase,
-    marker_color: tuple[int, int, int, int],
-) -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    presenter._bev_config = BevConfig(
-        width=64,
-        height=64,
-        height_m=15.0,
-        fov_deg=60.0,
-        tilt_deg=0.0,
-    )
-    snapshot = TaxiGameSnapshot(
-        phase=phase,
-        target_xyz_m=(5.0, 0.0, 0.0),
-        distance_m=5.0,
-        relative_bearing_rad=0.0,
-        target_radius_m=6.0,
-        remaining_time_s=None,
-        score=0,
-        pickup_targets_xyz_m=((5.0, 0.0, 0.0),),
-    )
-    presenter._latest_presented_frame = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
-        depth_host_f32=None,
-        bev_rig_to_world=np.eye(4, dtype=np.float32),
-        application_state=snapshot,
-    )
-    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
-    content_rect = (20, 10, 80, 70)
-
-    presenter._draw_bev_taxi_target(
-        ImageDraw.Draw(canvas), content_rect, marker_size=10
-    )
-
-    pixels = np.asarray(canvas)
-    marker_mask = np.all(pixels == marker_color, axis=-1)
-    assert np.any(marker_mask)
-
-    presenter._latest_presented_frame.application_state = TaxiGameSnapshot(
-        phase=phase,
-        target_xyz_m=(1000.0, 0.0, 0.0),
-        distance_m=1000.0,
-        relative_bearing_rad=0.0,
-        target_radius_m=6.0,
-        remaining_time_s=None,
-        score=0,
-        pickup_targets_xyz_m=((1000.0, 0.0, 0.0),),
-    )
-    distant_canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
-
-    presenter._draw_bev_taxi_target(
-        ImageDraw.Draw(distant_canvas), content_rect, marker_size=10
-    )
-
-    assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
-
-
-def test_taxi_hud_bev_draws_visible_enclosure_segment() -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    presenter._bev_config = BevConfig(
-        width=64,
-        height=64,
-        height_m=15.0,
-        fov_deg=60.0,
-        tilt_deg=0.0,
-    )
-    presenter.configure_taxi_enclosure(
-        np.asarray([[[-100.0, 0.0, 0.0], [100.0, 0.0, 0.0]]], dtype=np.float32)
-    )
-    presenter._latest_presented_frame = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
-        depth_host_f32=None,
-        bev_rig_to_world=np.eye(4, dtype=np.float32),
-    )
-    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
-
-    presenter._draw_bev_taxi_enclosure(ImageDraw.Draw(canvas), (20, 10, 80, 70))
-
-    assert np.any(np.all(np.asarray(canvas) == (235, 50, 50, 255), axis=-1))
 
 
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:

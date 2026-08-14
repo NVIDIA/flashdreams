@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-from pathlib import Path
-
 import pytest
 from omnidreams.interactive_drive import cli
 from omnidreams.interactive_drive.cli import build_parser
@@ -58,36 +56,6 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
     assert config.vehicle.actor_collision_enabled is game_mode_enabled
     assert config.vehicle.static_collision_enabled is game_mode_enabled
     assert config.visual_flare_enabled is visual_flare_enabled
-
-
-@pytest.mark.parametrize(
-    ("argv", "expected_synchronization"),
-    [([], False), (["--taxi-game"], True)],
-)
-def test_taxi_game_selects_frame_synchronous_bev(
-    monkeypatch: pytest.MonkeyPatch,
-    argv: list[str],
-    expected_synchronization: bool,
-) -> None:
-    backend_kwargs: dict[str, object] = {}
-
-    def build_backend(**kwargs: object) -> object:
-        backend_kwargs.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(cli, "RasterRenderBackend", build_backend)
-
-    cli.prepare_config_and_backend(build_parser().parse_args(argv))
-
-    assert backend_kwargs["synchronize_bev_with_rgb"] is expected_synchronization
-
-
-def test_taxi_alignment_diagnostics_accepts_output_directory() -> None:
-    args = build_parser().parse_args(
-        ["--taxi-game", "--taxi-alignment-diagnostics", "diagnostics"]
-    )
-
-    assert args.taxi_alignment_diagnostics == Path("diagnostics")
 
 
 def test_postprocess_preset_defaults_disabled() -> None:
