@@ -285,40 +285,6 @@ The HUD also subscribes to the backend's `/bev_stream` and shows a top-down
 BEV minimap below the steering and pedal controls; pass `--no-bev` to skip
 the extra rasterizer dispatch when you don't need it.
 
-Enable the overlay-only taxi game with `--taxi-game`. The HUD selects
-road-valid pickups from the scene's car-lane centerlines (falling back to the
-recorded route when lane data is unavailable). Every valid pickup remains
-available, but the forward camera shows only the three nearest pickups that are
-currently inside its view; the BEV draws every pickup that is inside its local
-map coverage and omits out-of-view targets. While seeking, the compass follows
-the nearest available pickup as the player moves. The initial layout includes a
-pickup constrained to project inside the starting camera view and preferably be
-no farther than 200 meters. Collecting any pickup randomly selects a reachable
-dropoff at least 200 routed meters away through the scene's directed car-lane
-graph, falling back to a shorter fare only when no such destination is
-reachable. Pickup and dropoff candidates are kept at least 100 meters inside the
-playable map bounds. Taxi mode starts a trip timer scaled by the shortest legal
-road distance, with a 2x deadline multiplier after pickup, and shows the active
-target, direction arrow, score, trip time, and global game time.
-Each game starts with 60 seconds. A successful
-dropoff awards 500 points plus 100 points per whole trip second remaining and
-adds 30 seconds; an expired trip timer cancels that fare. When the leaderboard
-is non-empty, its top score is shown beside the player's live score.
-When the global clock expires, the game freezes and shows the global top-ten
-leaderboard. Qualifying players enter a 1-12 character name before the board
-appears; zero-point runs are not recorded. Scores persist at
-`$FLASHDREAMS_CACHE_DIR/interactive-drive/highscores.csv`; use
-`--taxi-highscores PATH` to override it. New games use fresh random fare layouts
-by default; pass `--taxi-seed N` when debugging to reproduce the same layout for
-the same scene. Manual reset, OOB respawn, and scene changes start a fresh run
-without saving the unfinished score.
-
-Taxi mode also owns its arcade driving policy: rollouts start stationary,
-`S` brakes and then reverses after stopping, `Space` applies the handbrake,
-steering and acceleration respond more quickly, and `--traffic-density`
-selects the fraction of recorded motor traffic retained. These changes are not
-applied to normal Interactive Drive or `--game-mode`.
-
 **Steering wheel support.** Drop a profile YAML (devices, axis map, FFB
 settings) into `configs/wheels/` and the HUD will pick it up at startup. With
 `--wheel-profile auto` (the default), the HUD scans `/dev/input/by-id` first,
@@ -414,10 +380,6 @@ This is the lighter-weight path that matches the older standalone
 `interactive-drive` script: a single Vulkan window for the omnidreams
 output, no HUD chrome, no scene selector.
 
-Because Taxi mode depends on its HUD and BEV overlays, ``--taxi-game`` cannot
-be combined with bare ``--no-hud`` mode. Omit ``--no-hud`` to use the native
-Taxi HUD, or add ``--stream-mjpeg PORT`` to use the browser HUD.
-
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run \
   omnidreams-perf local-window \
@@ -465,9 +427,6 @@ matches the desktop modes' affordances:
   server's `/state` endpoint at 10 Hz. Reads `--` until the simulation
   has produced its first chunk; numeric the moment chunks start
   arriving.
-- With `--taxi-game`, a **taxi HUD and BEV target pin** show the same active
-  pickup or dropoff, timer, direction arrow, and
-  score as the local HUD.
 - **WASD chiclets** light up while the corresponding direction key is
   held. The page tracks the `keydown`/`keyup` set locally so the
   highlight is zero-latency (no server round-trip); arrow keys light
@@ -491,38 +450,8 @@ ssh -L 8080:localhost:8080 <user>@<host>
 
 Then open `http://localhost:8080/`.
 
-#### Crazy Robotaxi alignment diagnostics
-
-Use `--taxi-alignment-diagnostics` when investigating a generated-view/map
-disconnect. The option captures Taxi-aligned frame data before HUD overlays and
-forces a PhysX collider snapshot for every simulated frame:
-
-```bash
-UV_CACHE_DIR=./uv-cache LUDUS_PHYSX_CACHE=./.cache/ludus-physx \
-uv run --package flashdreams-omnidreams interactive-drive \
-  --backend omnidreams \
-  --manifest example_world_model.yaml \
-  --taxi-game \
-  --stream-mjpeg 8080 \
-  --taxi-alignment-diagnostics ./alignment-diagnostics
-```
-
-Each launch creates a timestamped run directory containing:
-
-- `frames/frame_*.png`: synchronized HD-map conditioning, generated RGB, BEV,
-  and pre-policy PhysX contact-pose panels.
-- `telemetry.csv`: authoritative vehicle, conditioning-rig, and pre-policy
-  PhysX contact poses with their numerical position and yaw differences.
-- `metadata.json`: scene, variant, camera calibration, and captured-frame count.
-
-Drive through the collision being investigated, exit cleanly, and inspect the
-first contact sheets where the BEV and generated view begin to disagree. The
-pose-error columns distinguish app/physics synchronization faults from cases
-where the generated RGB fails to follow an otherwise consistent conditioning
-trajectory.
-
-For a richer browser frontend with lower latency, prefer the separate
-`omnidreams.webrtc.server` entry point.
+For a richer browser frontend with lower latency, prefer the centralized
+``webrtc`` launch mode.
 
 #### Fully headless MJPEG with auto-start
 
@@ -639,25 +568,6 @@ For active actors, Ludus renders the authoritative per-frame PhysX poses as
 oriented HD-map boxes for both RGB and BEV/model inputs. The first topology
 change replaces one scene slot; subsequent chunks update the actor cube pool in
 place without clearing static map or camera buffers.
-
-With `--taxi-game`, the app's Taxi trajectory remains the sole authority for
-ego heading. PhysX contacts still resolve translation and velocity, while the
-Taxi adapter prevents contact rotation from diverging from the HD-map and
-world-model conditioning trajectory. The adapter also insets vehicle chassis
-boxes by 16 cm on each horizontal axis to reduce rectangular-corner snagging;
-the reusable Ludus renderer and normal Interactive Drive collision models are
-unchanged.
-
-Each simulated frame also carries its authoritative ego state alongside the rig
-pose derived from that state. Camera conditioning, the current BEV, native HUD,
-MJPEG telemetry, taxi arrow, and waypoint projection all consume that same
-frame record. The runtime may simulate the next chunk ahead of presentation,
-but presentation never reads that future boundary state for current visuals.
-The Omnidreams output responds causally to the preceding HD-map frame, so Crazy
-Robotaxi delays that synchronized frame record by one presented frame and pairs
-it with the generated RGB that it produced. Frame zero remains tied to the
-rollout's unsimulated initial pose. This Taxi-only presenter policy is shared by
-native and MJPEG modes; normal Interactive Drive presentation is unchanged.
 
 ``GameEntity.to_game_engine_dict()`` and
 ``DynamicActorTrajectory.to_game_engine_dict()`` expose JSON-compatible

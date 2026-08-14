@@ -4,13 +4,9 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-
-if TYPE_CHECKING:
-    from omnidreams.interactive_drive.types import VehicleState
 
 
 def normalize_camera_name(name: str) -> tuple[str, str]:
@@ -113,29 +109,3 @@ def rig_pose_from_state(
         dtype=np.float32,
     )
     return transform_from_rt(rotation, [x_m, y_m, z_m])
-
-
-def rig_pose_from_vehicle_state(
-    state: VehicleState,
-) -> npt.NDArray[np.float32]:
-    """Build the displayed rig pose from one authoritative vehicle state."""
-    return rig_pose_from_state(
-        x_m=state.x_m,
-        y_m=state.y_m,
-        z_m=state.z_m,
-        yaw_rad=state.yaw_rad,
-        pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
-        roll_rad=state.roll_rad + state.suspension_roll_rad,
-    )
-
-
-def level_rig_pose_from_vehicle_state(
-    state: VehicleState,
-) -> npt.NDArray[np.float32]:
-    """Build a heading-up rig pose without chassis pitch or roll."""
-    return rig_pose_from_state(
-        x_m=state.x_m,
-        y_m=state.y_m,
-        z_m=state.z_m,
-        yaw_rad=state.yaw_rad,
-    )

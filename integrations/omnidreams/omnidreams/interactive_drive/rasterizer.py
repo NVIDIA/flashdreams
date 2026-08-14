@@ -273,7 +273,6 @@ class _LudusConditionRasterizerImpl:
             timestamps_us=timestamps_us,
             rgb_frames=rgb_frames,
             bev_frames=bev_frames,
-            bev_rig_poses_world=rig_poses_world,
             physics_debug_frames=physics_debug_frames,
             physx_frames=physx_frames,
         )
@@ -426,7 +425,6 @@ class _LudusConditionRasterizerImpl:
         timestamps_us: npt.NDArray[np.int64],
         rgb_frames: _RenderedCameraFrames,
         bev_frames: _RenderedCameraFrames | None,
-        bev_rig_poses_world: npt.NDArray[np.float32] | None = None,
         physics_debug_frames: tuple[PhysicsDebugFrame, ...] = (),
         physx_frames: _RenderedCameraFrames | None = None,
     ) -> RasterChunk:
@@ -449,8 +447,6 @@ class _LudusConditionRasterizerImpl:
             ),
             target_count=len(timestamps_us),
         )
-        if bev_frames is not None and bev_rig_poses_world is None:
-            raise ValueError("BEV source poses are required with rendered BEV frames")
         if self._use_cuda_frames:
             frames = [
                 PresentedFrame(
@@ -468,11 +464,6 @@ class _LudusConditionRasterizerImpl:
                             source_event=bev_frames.ready_event,
                         )
                         if bev_frames is not None
-                        else None
-                    ),
-                    bev_rig_to_world=(
-                        bev_rig_poses_world[bev_frame_indices[idx]].copy()
-                        if bev_frames is not None and bev_rig_poses_world is not None
                         else None
                     ),
                     physx_debug=(
@@ -504,11 +495,6 @@ class _LudusConditionRasterizerImpl:
                 bev_host_uint8=(
                     bev_host_frames[bev_frame_indices[idx]]
                     if bev_host_frames is not None
-                    else None
-                ),
-                bev_rig_to_world=(
-                    bev_rig_poses_world[bev_frame_indices[idx]].copy()
-                    if bev_frames is not None and bev_rig_poses_world is not None
                     else None
                 ),
                 physx_debug=(
@@ -594,13 +580,7 @@ class LudusConditionRasterizer:
     exactly like the underlying implementation.
     """
 
-    def __init__(
-        self,
-        raster: RasterConfig,
-        bev: BevConfig | None = None,
-        *,
-        synchronize_bev_with_rgb: bool = False,
-    ) -> None:
+    def __init__(self, raster: RasterConfig, bev: BevConfig | None = None) -> None:
         self._exec = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ludus-render"
         )
@@ -608,19 +588,15 @@ class LudusConditionRasterizer:
             _LudusConditionRasterizerImpl, raster, bev
         ).result()
         self._bev_enabled = bool(bev is not None and bev.enabled)
-        self._synchronize_bev_with_rgb = synchronize_bev_with_rgb
         self._pending_bev: (
             concurrent.futures.Future[_RenderedCameraFrames | None] | None
         ) = None
         self._latest_bev: _RenderedCameraFrames | None = None
-        self._pending_bev_poses: npt.NDArray[np.float32] | None = None
-        self._latest_bev_poses: npt.NDArray[np.float32] | None = None
 
     def load_scene(self, scene: SceneBundle) -> None:
         exec_, impl = self._require_alive()
         self._clear_pending_bev()
         self._latest_bev = None
-        self._latest_bev_poses = None
         return exec_.submit(impl.load_scene, scene).result()
 
     def render_chunk(
@@ -635,7 +611,6 @@ class LudusConditionRasterizer:
         if actors_detached:
             self._clear_pending_bev()
             self._latest_bev = None
-            self._latest_bev_poses = None
             return exec_.submit(
                 impl.render_chunk,
                 rig_poses_world,
@@ -651,16 +626,8 @@ class LudusConditionRasterizer:
                 dynamic_actors,
                 physics_debug_frames,
             ).result()
-        if self._synchronize_bev_with_rgb:
-            return exec_.submit(
-                impl.render_chunk,
-                rig_poses_world,
-                timestamps_us,
-                dynamic_actors,
-                physics_debug_frames,
-            ).result()
 
-        lagged_bev, lagged_bev_poses = self._poll_ready_bev()
+        lagged_bev = self._poll_ready_bev()
 
         (
             chunk_timestamps_us,
@@ -677,7 +644,7 @@ class LudusConditionRasterizer:
         # ever making it part of the critical path. Render PhysX before queuing
         # the next BEV: both use the same single-thread executor, so submitting
         # BEV first would put the debug view behind unrelated minimap work.
-        lagged_bev, lagged_bev_poses = self._poll_ready_bev()
+        lagged_bev = self._poll_ready_bev()
         physx_frames = exec_.submit(
             impl.render_physx_debug_frames,
             rig_poses_torch=rig_poses_torch,
@@ -685,9 +652,6 @@ class LudusConditionRasterizer:
             physics_debug_frames=physics_debug_frames,
         ).result()
         if self._pending_bev is None:
-            self._pending_bev_poses = np.ascontiguousarray(
-                rig_poses_world, dtype=np.float32
-            ).copy()
             self._pending_bev = exec_.submit(
                 impl.render_bev_frames,
                 rig_poses_torch=rig_poses_torch,
@@ -697,7 +661,6 @@ class LudusConditionRasterizer:
             timestamps_us=chunk_timestamps_us,
             rgb_frames=rgb_frames,
             bev_frames=lagged_bev,
-            bev_rig_poses_world=lagged_bev_poses,
             physics_debug_frames=physics_debug_frames,
             physx_frames=physx_frames,
         )
@@ -750,18 +713,13 @@ class LudusConditionRasterizer:
         with contextlib.suppress(Exception):
             pending.result(timeout=0)
         self._pending_bev = None
-        self._pending_bev_poses = None
 
-    def _poll_ready_bev(
-        self,
-    ) -> tuple[_RenderedCameraFrames | None, npt.NDArray[np.float32] | None]:
+    def _poll_ready_bev(self) -> _RenderedCameraFrames | None:
         pending = self._pending_bev
         if pending is not None and pending.done():
             self._latest_bev = pending.result()
-            self._latest_bev_poses = self._pending_bev_poses
             self._pending_bev = None
-            self._pending_bev_poses = None
-        return self._latest_bev, self._latest_bev_poses
+        return self._latest_bev
 
 
 def _rendered_frames_to_numpy(rendered: _RenderedCameraFrames) -> list[np.ndarray]:

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnidreams-game-engine"
+version = "0.1.0"
+description = "Reusable legacy game runtime for OmniDreams applications"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "flashdreams[serving]",
+    "flashdreams-omnidreams",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-omnidreams = { workspace = true }
+
+[project.optional-dependencies]
+interactive = ["slangpy==0.42.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-manual-marker>=2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["omnidreams_game_engine*"]
+
+[tool.setuptools.package-data]
+omnidreams_game_engine = [
+    "configs/*.yaml",
+    "configs/wheels/*.yaml",
+    "assets/README.md",
+    "assets/wheel_and_pedals/*.png",
+    "README.md",
+    "hdmap.png",
+    "screenshot.jpg",
+]
+
+[tool.uv]
+managed = true

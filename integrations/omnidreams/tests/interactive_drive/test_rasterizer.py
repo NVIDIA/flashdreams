@@ -12,8 +12,6 @@ import pytest
 import torch
 from ludus_renderer._ops import context as context_module
 from ludus_renderer._ops.context import LudusCudaTimestampedContext
-from ludus_renderer.dynamic_scene import build_hdmap_object_pool
-from omnidreams.interactive_drive.colors import BBOX_V3_COLORS
 from omnidreams.interactive_drive.config import BevConfig, RasterConfig
 from omnidreams.interactive_drive.rasterizer import (
     LudusConditionRasterizer,
@@ -23,32 +21,6 @@ from omnidreams.interactive_drive.rasterizer import (
 )
 
 pytestmark = pytest.mark.ci_cpu
-
-
-def test_dynamic_object_pool_uses_canonical_semantic_colors() -> None:
-    actors = [
-        SimpleNamespace(
-            entity_id=object_type.lower(),
-            object_type=object_type,
-            timestamps_us=np.array([1], dtype=np.int64),
-            translations_world=np.zeros((1, 3), dtype=np.float32),
-            orientations_xyzw=np.array([[0.0, 0.0, 0.0, 1.0]], dtype=np.float32),
-            dimensions_lwh=np.ones(3, dtype=np.float32),
-            is_simulated=True,
-        )
-        for object_type in ("Car", "Truck", "Pedestrian", "Cyclist", "Others")
-    ]
-
-    pool = build_hdmap_object_pool(actors, device=torch.device("cpu"))
-
-    expected = np.array(
-        [
-            [*BBOX_V3_COLORS[object_type][0], *BBOX_V3_COLORS[object_type][1]]
-            for object_type in ("Car", "Truck", "Pedestrian", "Cyclist", "Others")
-        ],
-        dtype=np.float32,
-    )
-    np.testing.assert_allclose(pool.colors.numpy(), expected)
 
 
 class _Event:
@@ -299,49 +271,6 @@ def test_raster_chunk_can_disable_cuda_backed_frames() -> None:
     assert np.array_equal(first, np.arange(18, dtype=np.uint8).reshape(2, 3, 3))
 
 
-def test_synchronous_bev_renders_the_current_pose_batch() -> None:
-    rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
-    calls: list[tuple[np.ndarray, np.ndarray]] = []
-    expected_chunk = object()
-
-    class _Impl:
-        def render_chunk(
-            self,
-            poses: np.ndarray,
-            timestamps: np.ndarray,
-            _actors: tuple[object, ...],
-            _debug_frames: tuple[object, ...],
-        ) -> object:
-            calls.append((poses, timestamps))
-            return expected_chunk
-
-    class _CompletedCall:
-        def __init__(self, result: object) -> None:
-            self._result = result
-
-        def result(self) -> object:
-            return self._result
-
-    class _Executor:
-        def submit(self, function, *args, **kwargs) -> _CompletedCall:
-            return _CompletedCall(function(*args, **kwargs))
-
-    rasterizer._exec = _Executor()
-    rasterizer._impl = _Impl()
-    rasterizer._bev_enabled = True
-    rasterizer._synchronize_bev_with_rgb = True
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
-    poses[:, 0, 3] = [4.0, 8.0]
-    timestamps = np.asarray([10, 20], dtype=np.int64)
-
-    chunk = rasterizer.render_chunk(poses, timestamps)
-
-    assert chunk is expected_chunk
-    assert len(calls) == 1
-    assert calls[0][0] is poses
-    assert calls[0][1] is timestamps
-
-
 def test_lagged_bev_poll_does_not_wait_for_in_flight_render() -> None:
     rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
     pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
@@ -351,17 +280,14 @@ def test_lagged_bev_poll_does_not_wait_for_in_flight_render() -> None:
         frames_hwc_uint8=torch.zeros((1, 1, 1, 3), dtype=torch.uint8),
         ready_event=None,
     )
-    latest_poses = np.eye(4, dtype=np.float32)[None]
     rasterizer._pending_bev = pending
-    rasterizer._pending_bev_poses = None
     rasterizer._latest_bev = latest
-    rasterizer._latest_bev_poses = latest_poses
 
-    assert rasterizer._poll_ready_bev() == (latest, latest_poses)
+    assert rasterizer._poll_ready_bev() is latest
     assert rasterizer._pending_bev is pending
 
 
-def test_lagged_bev_poll_promotes_completed_render_and_source_poses() -> None:
+def test_lagged_bev_poll_promotes_completed_render() -> None:
     rasterizer = LudusConditionRasterizer.__new__(LudusConditionRasterizer)
     pending: concurrent.futures.Future[_RenderedCameraFrames | None] = (
         concurrent.futures.Future()
@@ -370,19 +296,15 @@ def test_lagged_bev_poll_promotes_completed_render_and_source_poses() -> None:
         frames_hwc_uint8=torch.ones((1, 1, 1, 3), dtype=torch.uint8),
         ready_event=None,
     )
-    poses = np.eye(4, dtype=np.float32)[None]
     pending.set_result(rendered)
     rasterizer._pending_bev = pending
-    rasterizer._pending_bev_poses = poses
     rasterizer._latest_bev = None
-    rasterizer._latest_bev_poses = None
 
-    assert rasterizer._poll_ready_bev() == (rendered, poses)
+    assert rasterizer._poll_ready_bev() is rendered
     assert rasterizer._pending_bev is None
-    assert rasterizer._pending_bev_poses is None
 
 
-def test_build_chunk_resamples_lagged_bev_and_preserves_source_pose() -> None:
+def test_build_chunk_resamples_lagged_bev_with_different_frame_count() -> None:
     impl = _impl_for_render_chunk(use_cuda_frames=True)
     rgb_frames = _RenderedCameraFrames(
         frames_hwc_uint8=torch.zeros((7, 1, 1, 3), dtype=torch.uint8),
@@ -393,17 +315,13 @@ def test_build_chunk_resamples_lagged_bev_and_preserves_source_pose() -> None:
         ready_event=None,
     )
 
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 5, axis=0)
-    poses[:, 0, 3] = np.arange(5)
     chunk = impl.build_chunk(
         timestamps_us=np.arange(7, dtype=np.int64),
         rgb_frames=rgb_frames,
         bev_frames=bev_frames,
-        bev_rig_poses_world=poses,
     )
 
     bev_values = [
         int(frame.bev_host_uint8.to_cuda_tensor()[0, 0, 0]) for frame in chunk.frames
     ]
     assert bev_values == [0, 1, 1, 2, 3, 3, 4]
-    assert [frame.bev_rig_to_world[0, 3] for frame in chunk.frames] == bev_values

@@ -111,6 +111,10 @@ extra-paths = [
 # (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
+    # The standalone game and extracted legacy engine preserve the original
+    # dynamically typed inference and presentation boundary.
+    "apps/crazy_robotaxi/**",
+    "apps/omnidreams_game_engine/**",
     "integrations/omnidreams/omnidreams/interactive_drive/**",
     "integrations/omnidreams/tests/interactive_drive/**",
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;

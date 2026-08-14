@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -198,22 +197,13 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
 class GamePhysicsWorld:
     """Adapt a scene bundle to Ludus and delegate all simulation to PhysX."""
 
-    def __init__(
-        self,
-        scene: SceneBundle,
-        vehicle: VehicleConfig,
-        *,
-        model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
-    ) -> None:
+    def __init__(self, scene: SceneBundle, vehicle: VehicleConfig) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
-        adapt_model = model_adapter or (lambda model: model)
-
-        def adapted_object(track: object) -> SceneObject:
-            scene_object = self._object_from_track(track, vehicle)
-            return replace(scene_object, model=adapt_model(scene_object.model))
-
-        objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
+        objects = tuple(
+            self._object_from_track(track, vehicle)
+            for track in scene.vehicle_bbox_tracks
+        )
         barriers = (
             self._build_barriers(scene) if vehicle.static_collision_enabled else ()
         )
@@ -247,7 +237,7 @@ class GamePhysicsWorld:
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
         self._visual_flare_collision_deadline_us: int | None = None
         self._pending_struck_vehicle_ids: set[str] = set()
-        self._ego_model = adapt_model(_ego_model(vehicle))
+        self._ego_model = _ego_model(vehicle)
         self._world = PhysXWorld(
             self._physics_graph,
             self._ego_model,
@@ -774,27 +764,6 @@ class GamePhysicsWorld:
             bridge_ms=max(0.0, step_total_ms - native_ms),
         )
         return result_state, samples
-
-    def synchronize_ego_state(self, state: VehicleState) -> None:
-        """Publish an app-authoritative ego state to the owned PhysX scene.
-
-        This adapter contains the native body identifier and state-array layout so
-        application policies do not depend on Ludus implementation details.
-
-        Args:
-            state: Authoritative vehicle state to publish.
-        """
-        body = _body_state_from_vehicle(state, self._ego_model.half_extents_m[2])
-        pose = np.concatenate((body.position_m, body.orientation_xyzw)).astype(
-            np.float32, copy=False
-        )
-        self._world._scene.update_body(
-            0,
-            pose,
-            np.asarray(body.linear_velocity_mps, dtype=np.float32),
-            np.asarray(body.angular_velocity_radps, dtype=np.float32),
-            False,
-        )
 
     def close(self) -> None:
         """Release the Ludus PhysX world."""

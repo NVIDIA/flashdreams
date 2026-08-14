@@ -1,0 +1,5 @@
+# Scene USDZs are staged into the shared cache root under
+# ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` (see
+# :mod:`omnidreams.scenes`), not into the package tree. Nothing under
+# this package's ``assets/`` dir is gitignored anymore -- the runtime
+# never writes there.

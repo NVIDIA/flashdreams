@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crazy-robotaxi"
+version = "0.1.0"
+description = "Standalone Crazy Robotaxi game for OmniDreams"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "filelock>=3",
+    "flashdreams[serving]",
+    "flashdreams-omnidreams",
+    "omnidreams-game-engine[interactive]",
+]
+
+[project.scripts]
+crazy-robotaxi = "crazy_robotaxi.cli:main"
+
+[project.entry-points."flashdreams.runner_configs"]
+crazy-robotaxi = "crazy_robotaxi.runner:CRAZY_ROBOTAXI_RUNNER"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-omnidreams = { workspace = true }
+omnidreams-game-engine = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "flip-evaluator>=1.7",
+    "pytest>=8.0",
+    "pytest-manual-marker>=2.0",
+    "pyvirtualdisplay>=3.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["crazy_robotaxi*"]
+exclude = ["tests"]
+
+[tool.setuptools.package-data]
+crazy_robotaxi = [
+    "configs/*.yaml",
+    "configs/wheels/*.yaml",
+    "assets/README.md",
+    "assets/wheel_and_pedals/*.png",
+]
+
+[tool.uv]
+managed = true
