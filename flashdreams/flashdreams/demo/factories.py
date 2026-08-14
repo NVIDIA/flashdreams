@@ -243,9 +243,10 @@ class ApplicationWebRTCIOFactory(IOFactory):
 
     def create_output_sink(self) -> OutputSink:
         """Create a sink that owns the background WebRTC transport."""
+        from flashdreams.demo.outputs import CompositeOutputSink
         from flashdreams.serving.webrtc.server import ApplicationWebRTCOutputSink
 
-        return ApplicationWebRTCOutputSink(
+        sink = ApplicationWebRTCOutputSink(
             application_slug=self.application_slug,
             host=self.host,
             port=self.port,
@@ -254,6 +255,12 @@ class ApplicationWebRTCIOFactory(IOFactory):
             input_bridge=self._input_bridge,
             web_configuration=self._web_configuration,
         )
+        create_recording_sink = getattr(
+            self._web_configuration, "create_recording_sink", None
+        )
+        if callable(create_recording_sink):
+            return CompositeOutputSink((sink, create_recording_sink()))
+        return sink
 
 
 @dataclass(frozen=True, slots=True)

@@ -295,9 +295,6 @@ class ApplicationWebRTCOutputSink(OutputSink):
             raise RuntimeError("WebRTC application output sink is not reusable.")
 
         self.prepare()
-        record_open = getattr(self._web_configuration, "open", None)
-        if callable(record_open):
-            record_open(session_info)
         delegate = self._required_delegate()
         try:
             delegate.open(session_info)
@@ -348,11 +345,7 @@ class ApplicationWebRTCOutputSink(OutputSink):
 
     def write(self, result: StepResult) -> OutputDecision:
         """Deliver one application result to the negotiated peer sink."""
-        decision = self._required_delegate().write(result)
-        record = getattr(self._web_configuration, "record", None)
-        if callable(record):
-            record(result)
-        return decision
+        return self._required_delegate().write(result)
 
     def close(self) -> tuple[OutputArtifact, ...]:
         """Close the peer sink and its background transport exactly once."""

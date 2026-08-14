@@ -27,6 +27,7 @@ from flashdreams.demo import (
     CanonicalInputWindow,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
+    OutputDecision,
     SessionInfo,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
@@ -163,8 +164,7 @@ class _V2VWebConfiguration:
     model_web_resource: Any
     configure_app: Callable[[Any], None]
     cleanup: Callable[[], None]
-    open: Callable[[SessionInfo], None]
-    record: Callable[[StepResult], None]
+    create_recording_sink: Callable[[], "_V2VDownloadArchive"]
 
 
 class _V2VDownloadArchive:
@@ -176,18 +176,23 @@ class _V2VDownloadArchive:
         self._collector: VideoResultCollector | None = None
         self._session_info: SessionInfo | None = None
         self._archive: Path | None = None
+        self.produces_artifacts = False
 
     def open(self, session_info: SessionInfo) -> None:
         self._session_info = session_info
 
-    def record(self, result: StepResult) -> None:
+    def begin_generation(self, generation: int) -> None:
+        del generation
+
+    def write(self, result: StepResult) -> OutputDecision:
         if result.layout is None or self._session_info is None:
-            return
+            return OutputDecision()
         if self._collector is None:
             self._collector = VideoResultCollector(output_layout=result.layout)
         self._collector.add(result)
         if result.metadata.get("rollout_complete"):
             self._finish(result)
+        return OutputDecision()
 
     def _finish(self, result: StepResult) -> None:
         assert self._collector is not None
@@ -239,7 +244,10 @@ class _V2VDownloadArchive:
     def configure_app(self, app: Any) -> None:
         app.router.add_get("/api/v2v/download", self.download)
 
-    def close(self) -> None:
+    def close(self) -> tuple[()]:
+        return ()
+
+    def cleanup(self) -> None:
         shutil.rmtree(self._directory, ignore_errors=True)
 
 
@@ -272,15 +280,14 @@ class V2VApplication(IFlashDreamsApplication):
 
         def cleanup() -> None:
             upload_store.close()
-            archive.close()
+            archive.cleanup()
 
         factory.set_web_configuration(
             _V2VWebConfiguration(
                 model_web_resource=files("v2v").joinpath("web"),
                 configure_app=configure_app,
                 cleanup=cleanup,
-                open=archive.open,
-                record=archive.record,
+                create_recording_sink=lambda: archive,
             )
         )
 
