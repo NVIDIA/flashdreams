@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "actions": [
+    {"mouse_dx": 0.2, "mouse_dy": 0.2}, {"buttons": [32]}, {}, {}, {}, {"buttons": [1]}, {}, {}, {"buttons": [1, 32]}, {}, {}, {}, {}, {}, {},
+    {"mouse_dx": 0.2, "mouse_dy": 0.2}, {"buttons": [32]}, {}, {}, {}, {"buttons": [1]}, {}, {}, {"buttons": [1, 32]}, {}, {}, {}, {}, {}, {},
+    {"mouse_dx": 0.2, "mouse_dy": 0.2}, {"buttons": [32]}, {}, {}, {}, {"buttons": [1]}, {}, {}, {"buttons": [1, 32]}, {}, {}, {}, {}, {}, {},
+    {"mouse_dx": 0.2, "mouse_dy": 0.2}, {"buttons": [32]}, {}, {}, {}, {"buttons": [1]}, {}, {}, {"buttons": [1, 32]}, {}, {}, {}, {}, {}, {},
+    {}, {}, {}, {}, {}, {}, {}, {},
+    {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]}, {"buttons": [32]},
+    {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]}, {"buttons": [65]},
+    {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]}, {"buttons": [68]},
+    {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]}, {"buttons": [83]},
+    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+  ]
+}

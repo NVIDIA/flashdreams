@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TAEHV video decoder."""
+"""TAEHV video decoder and Hunyuan Video 1.5 codec configs."""
 
 from __future__ import annotations
 
@@ -26,16 +26,18 @@ import tyro
 from torch import Tensor
 
 from flashdreams.infra.decoder import DecoderConfig, StreamingVideoDecoder
+from flashdreams.infra.encoder import EncoderConfig, StreamingVideoEncoder
 from flashdreams.recipes.taehv.checkpoint import (
     StateDictTransform,
     compose,
     legacy_to_blocks_keys,
     truncate_oversize_tgrow_weights,
 )
-from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache
+from flashdreams.recipes.taehv.impl import TAEHV, TAEHVCache, TAEHVEncoderCache
 
 AVAILABLE_TAEHV_CHECKPOINT_PATHS = {
     "lighttae": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth",
+    "hy1_5": "https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth",
 }
 """Checkpoint paths for the TAEHV decoder."""
 
@@ -230,9 +232,136 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
         return output_temporal_size // r
 
 
-if __name__ == "__main__":
-    import tyro
+@dataclass(kw_only=True)
+class Hy15TAEHVDecoderConfig(DecoderConfig):
+    """Config for the Hunyuan Video 1.5 TAEHV decoder."""
 
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: Hy15TAEHVDecoder
+    )
+
+    checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["hy1_5"]
+    """Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint."""
+
+    state_dict_transform: StateDictTransform | None = legacy_to_blocks_keys
+    """Pre-load state-dict remap from the published flat key layout."""
+
+    dtype: torch.dtype = torch.bfloat16
+    """Network parameter / activation dtype."""
+
+    use_cuda_graph: bool = True
+    """Wrap the decoder forward in a CUDA graph for replay."""
+
+    use_compile: bool = True
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
+
+
+class Hy15TAEHVDecoder(TeahvVAEDecoder):
+    """Hunyuan Video 1.5 TAEHV decoder with raw 32-channel latents."""
+
+    TEMPORAL_COMPRESSION_RATIO = 4
+    SPATIAL_COMPRESSION_RATIO = 16
+
+    def __init__(self, config: Hy15TAEHVDecoderConfig) -> None:
+        StreamingVideoDecoder.__init__(self, config)
+        self.config: Hy15TAEHVDecoderConfig = config
+        self.need_scaled = False
+        self.taehv = TAEHV(
+            checkpoint_path=config.checkpoint_path,
+            model_type="hy1_5",
+            use_cuda_graph=config.use_cuda_graph,
+            use_compile=config.use_compile,
+            state_dict_transform=config.state_dict_transform,
+        ).to(dtype=config.dtype)
+
+
+@dataclass(kw_only=True)
+class Hy15TAEHVEncoderConfig(EncoderConfig):
+    """Config for the Hunyuan Video 1.5 TAEHV encoder."""
+
+    _target: Annotated[type, tyro.conf.Suppress] = field(
+        default_factory=lambda: Hy15TAEHVEncoder
+    )
+
+    checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["hy1_5"]
+    """Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint."""
+
+    state_dict_transform: StateDictTransform | None = legacy_to_blocks_keys
+    """Pre-load state-dict remap from the published flat key layout."""
+
+    dtype: torch.dtype = torch.bfloat16
+    """Network parameter / activation dtype."""
+
+
+class Hy15TAEHVEncoder(StreamingVideoEncoder[TAEHVEncoderCache]):
+    """Hunyuan Video 1.5 TAEHV pixel-video encoder."""
+
+    TEMPORAL_COMPRESSION_RATIO = 4
+    SPATIAL_COMPRESSION_RATIO = 16
+
+    def __init__(self, config: Hy15TAEHVEncoderConfig) -> None:
+        super().__init__(config)
+        self.config: Hy15TAEHVEncoderConfig = config
+        self.taehv = TAEHV(
+            checkpoint_path=config.checkpoint_path,
+            model_type="hy1_5",
+            enable_encoder=True,
+            use_cuda_graph=False,
+            use_compile=False,
+            state_dict_transform=config.state_dict_transform,
+        ).to(dtype=config.dtype)
+
+    def initialize_autoregressive_cache(self) -> TAEHVEncoderCache:
+        """Return an empty causal encoder cache."""
+        return self.taehv.prepare_encoder_cache()
+
+    @torch.no_grad()
+    def forward(
+        self,
+        input: Tensor,
+        autoregressive_index: int = 0,
+        cache: TAEHVEncoderCache | None = None,
+    ) -> Tensor:
+        """Encode frames in ``[-1, 1]`` to raw Hunyuan Video 1.5 latents."""
+        if cache is None:
+            cache = self.initialize_autoregressive_cache()
+        assert input.ndim >= 4, "Expected input to have shape [..., T, C, H, W]"
+
+        *batch_shape, T, C, H, W = input.shape
+        batch_size = math.prod(batch_shape)
+        x = input.reshape(batch_size, T, C, H, W).add(1).mul_(0.5)
+        z = self.taehv.encode(x, cache=cache)
+        return z.reshape(*batch_shape, *z.shape[1:])
+
+    @property
+    def temporal_compression_ratio(self) -> int:
+        """Pixel frames / latent frames for complete causal groups."""
+        return self.TEMPORAL_COMPRESSION_RATIO
+
+    @property
+    def spatial_compression_ratio(self) -> int:
+        """Pixel side / latent side."""
+        return self.SPATIAL_COMPRESSION_RATIO
+
+    def get_output_temporal_size(
+        self, autoregressive_index: int, input_temporal_size: int
+    ) -> int:
+        """Return latent count emitted from complete input frame groups."""
+        r = self.temporal_compression_ratio
+        assert input_temporal_size % r == 0, (
+            f"Hy15 TAEHV encoder input_temporal_size={input_temporal_size} must be "
+            f"divisible by temporal_compression_ratio={r}."
+        )
+        return input_temporal_size // r
+
+    def get_input_temporal_size(
+        self, autoregressive_index: int, output_temporal_size: int
+    ) -> int:
+        """Return pixel frame count needed for ``output_temporal_size`` latents."""
+        return output_temporal_size * self.temporal_compression_ratio
+
+
+if __name__ == "__main__":
     config = tyro.cli(TeahvVAEDecoderConfig)
     model = config.setup()
     print(model)
