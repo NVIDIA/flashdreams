@@ -238,15 +238,19 @@ def test_read_video_fps_uses_lazy_mediapy_metadata(
     fake_media = types.ModuleType("mediapy")
     calls: list[str] = []
 
-    class VideoMetadata:
+    class VideoReader:
         fps = 23.976
 
-        @classmethod
-        def from_path(cls, path: str) -> "VideoMetadata":
+        def __init__(self, path: str) -> None:
             calls.append(path)
-            return cls()
 
-    setattr(fake_media, "VideoMetadata", VideoMetadata)
+        def __enter__(self) -> "VideoReader":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    setattr(fake_media, "VideoReader", VideoReader)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
     assert read_video_fps(Path("clip.mp4")) == pytest.approx(23.976)

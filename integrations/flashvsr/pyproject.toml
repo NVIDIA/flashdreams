@@ -25,6 +25,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
+    "flashdreams-v2v",
     "grpcio>=1.80",
     "mediapy>=1.1",
     "Pillow>=10",
@@ -36,6 +37,7 @@ managed = true
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-v2v = { workspace = true }
 
 [project.optional-dependencies]
 dev = [
@@ -64,6 +66,9 @@ flashvsr-feed-frames = "flashvsr.grpc.uplift_client:run_continuous_client"
 "flashvsr-v1.1-sparse-2.0" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_2_0"
 "flashvsr-v1.1-sparse-1.5" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5"
 "flashvsr-v1.1-full-attn" = "flashvsr.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN"
+
+[project.entry-points."flashdreams.applications"]
+"v2v-flashvsr" = "flashvsr.v2v.app:create_app"
 
 [tool.setuptools.packages.find]
 include = ["flashvsr*"]

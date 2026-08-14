@@ -507,6 +507,7 @@ class ApplicationWebRTCSessionManager:
                 "chunk_index": result.step_index,
                 "num_frames": result.frame_count,
                 "enqueued_frames": result.frame_count,
+                "rollout_complete": bool(result.metadata.get("rollout_complete")),
             },
         )
 

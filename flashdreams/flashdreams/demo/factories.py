@@ -212,6 +212,7 @@ class ApplicationWebRTCIOFactory(IOFactory):
     """Maximum silence between browser control messages or heartbeats."""
 
     _input_bridge: Any = field(default=None, init=False, repr=False, compare=False)
+    _web_configuration: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.application_slug.strip():
@@ -236,6 +237,10 @@ class ApplicationWebRTCIOFactory(IOFactory):
         self._input_bridge.bind(handler)
         return handler
 
+    def set_web_configuration(self, configuration: Any) -> None:
+        """Attach optional application-owned WebRTC routes and static assets."""
+        object.__setattr__(self, "_web_configuration", configuration)
+
     def create_output_sink(self) -> OutputSink:
         """Create a sink that owns the background WebRTC transport."""
         from flashdreams.serving.webrtc.server import ApplicationWebRTCOutputSink
@@ -247,6 +252,7 @@ class ApplicationWebRTCIOFactory(IOFactory):
             peer_timeout_s=self.peer_timeout_s,
             client_liveness_timeout_s=self.client_liveness_timeout_s,
             input_bridge=self._input_bridge,
+            web_configuration=self._web_configuration,
         )
 
 

@@ -9,6 +9,7 @@ const mockMode = new URLSearchParams(window.location.search).has("mock")
  * @property {string=} stylesheet
  * @property {Array<{label: string, keys: Array<string|{key: string, label?: string}>}>=} controls
  * @property {{postprocess?: boolean}=} capabilities
+ * @property {boolean=} autoConnect
  * @property {{endpoint: string, label?: string, placeholder?: string, generateLabel?: string}=} promptGeneration
  * @property {(context: Object) => (void|Promise<void>)=} mount
  * @property {(context: Object) => (void|Promise<void>)=} beforeConnect
@@ -280,6 +281,7 @@ const modelContext = {
   logEvent,
   releaseControls: releaseAllKeys,
   sendCommand: sendModelCommand,
+  connectSession: () => connectSession(),
   setModelName(name) {
     if (typeof name === "string" && name) {
       metrics.model = name
@@ -1175,7 +1177,9 @@ async function initialize() {
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
-  await connectSession({ attemptsRemaining: autoConnectMaxAttempts })
+  if (modelAdapter?.autoConnect !== false) {
+    await connectSession({ attemptsRemaining: autoConnectMaxAttempts })
+  }
 }
 
 connectButton.addEventListener("click", () => {

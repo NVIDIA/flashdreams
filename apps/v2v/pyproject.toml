@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-v2v"
+version = "0.1.0"
+description = "Reusable transport-neutral FlashDreams video-to-video application primitives"
+requires-python = ">=3.10"
+dependencies = ["flashdreams[runners]"]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools]
+packages = ["v2v"]
+package-dir = { v2v = "." }
+
+[tool.setuptools.package-data]
+v2v = ["web/*"]

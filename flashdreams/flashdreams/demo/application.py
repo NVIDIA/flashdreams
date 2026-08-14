@@ -178,6 +178,11 @@ def run_application(
         input_handler=input_handler,
         output_sink=output_sink,
     )
+    configure_webrtc = getattr(application, "configure_webrtc", None)
+    if isinstance(resolved_factory, ApplicationWebRTCIOFactory) and callable(
+        configure_webrtc
+    ):
+        configure_webrtc(resolved_factory)
     resolved_input = resolved_factory.create_input_handler(input_schema)
     resolved_output = resolved_factory.create_output_sink()
     if not isinstance(resolved_input, InputHandler):
@@ -185,7 +190,15 @@ def run_application(
     if not isinstance(resolved_output, OutputSink):
         raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
 
-    application.init([*slug_args, *commandline_args])
+    prepare = getattr(resolved_output, "prepare", None)
+    if callable(prepare) and getattr(application, "requires_pre_session_web", False):
+        prepare()
+    try:
+        application.init([*slug_args, *commandline_args])
+    except BaseException:
+        resolved_output.close()
+        resolved_input.close()
+        raise
     from flashdreams.runtime.demo.application_runtime import (
         run_batch_application_session,
         run_realtime_application_session,

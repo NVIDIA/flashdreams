@@ -154,7 +154,8 @@ def read_video_fps(
 ) -> float:
     """Read a video's frame rate from ``mediapy`` metadata."""
     media = _import_mediapy("Probing video metadata", install_hint=install_hint)
-    return float(media.VideoMetadata.from_path(str(path)).fps)
+    with media.VideoReader(str(path)) as reader:
+        return float(reader.fps)
 
 
 def read_first_frame_rgb(
