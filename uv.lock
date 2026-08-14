@@ -3262,8 +3262,10 @@ name = "omnidreams-game-engine"
 version = "0.1.0"
 source = { editable = "apps/omnidreams_game_engine" }
 dependencies = [
+    { name = "filelock" },
     { name = "flashdreams", extra = ["serving"] },
     { name = "flashdreams-omnidreams" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -3277,10 +3279,12 @@ interactive = [
 
 [package.metadata]
 requires-dist = [
+    { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "slangpy", marker = "extra == 'interactive'", specifier = "==0.42.0" },
 ]
 provides-extras = ["interactive", "dev"]

@@ -30,6 +30,7 @@ from omnidreams_game_engine.colors import (
     LANE_LINE_STYLE_CONFIG,
 )
 from omnidreams_game_engine.config import RasterConfig
+from omnidreams_game_engine.game_map.types import game_map_from_dict
 from omnidreams_game_engine.math3d import (
     euler_xyz_degrees_to_matrix,
     extract_yaw_from_transform,
@@ -898,6 +899,11 @@ def load_scene_bundle(
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
         vehicle_bbox_tracks = _load_vehicle_bbox_tracks(zf)
         ground_mesh_vertices, ground_mesh_faces = _load_ground_mesh(zf)
+        game_map = (
+            game_map_from_dict(json.loads(zf.read("game_map.json")))
+            if "game_map.json" in zf.namelist()
+            else None
+        )
 
     return SceneBundle(
         scene_path=scene_path,
@@ -916,6 +922,7 @@ def load_scene_bundle(
         vehicle_bbox_tracks=vehicle_bbox_tracks,
         ground_mesh_vertices=ground_mesh_vertices,
         ground_mesh_faces=ground_mesh_faces,
+        game_map=game_map,
     )
 
 

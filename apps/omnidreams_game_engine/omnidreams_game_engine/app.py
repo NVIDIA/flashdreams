@@ -14,6 +14,7 @@ from flashdreams.serving.realtime.timing import TraceContext, TraceSink
 from omnidreams_game_engine.application import InteractiveDriveApplication
 from omnidreams_game_engine.backends.base import RenderBackend
 from omnidreams_game_engine.config import AppConfig
+from omnidreams_game_engine.game_map import compile_game_map
 from omnidreams_game_engine.input.keyboard import (
     KeyboardInputBackend,
     KeyboardState,
@@ -329,12 +330,18 @@ class InteractiveDriveApp:
         First variant of a scene: full parse + build bounds/snapper, then cache.
         Later variants: re-seed the cached bundle (frame + prompt only).
         """
+        source_path = Path(str(scene_path))
+        renderer_path = (
+            compile_game_map(source_path).archive_path
+            if source_path.name.endswith(".robotaxi.yaml")
+            else source_path
+        )
         geometry = self._cached_geometry(scene_path)
         if geometry is not None:
             base_scene, map_bounds, ground_snapper = geometry
             scene = reseed_scene_bundle(
                 base_scene,
-                Path(str(scene_path)),
+                renderer_path,
                 self._config.camera_name,
                 variant,
                 prompt_override,
@@ -343,7 +350,7 @@ class InteractiveDriveApp:
             return scene, map_bounds, ground_snapper
 
         scene = load_scene_bundle(
-            scene_path=scene_path,
+            scene_path=renderer_path,
             camera_name=self._config.camera_name,
             variant=variant,
             prompt_override=prompt_override,

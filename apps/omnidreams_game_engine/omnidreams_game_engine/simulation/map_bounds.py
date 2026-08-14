@@ -4,11 +4,10 @@
 """Out-of-bounds detection bounds for interactive_drive.
 
 Stands in for alpasim's GT-trajectory bounds in the interactive case
-where the user drives freely instead of replaying a recorded path. The
-AABB is the union of *every* spatial layer in the
-:class:`SceneBundle` -- ground mesh, lane markers, drivable triangles,
-vehicle bbox tracks, polygons -- so it covers the full extent of the
-scene's content rather than only the road surface.
+where the user drives freely instead of replaying a recorded path. Semantic
+maps use authored element surfaces. Legacy scenes use the union of every
+spatial layer in :class:`SceneBundle` -- ground mesh, lane markers, drivable
+triangles, vehicle tracks, and polygons.
 
 The proximity calculation itself is a verbatim port of
 :meth:`alpasim_runtime.events.state.is_ego_off_map`: distance from the
@@ -50,12 +49,24 @@ class MapBounds:
 
     @classmethod
     def from_scene(cls, scene: SceneBundle) -> "MapBounds | None":
-        """Compute the union AABB of every spatial layer in ``scene``.
+        """Compute authored bounds or the union AABB of legacy spatial layers.
 
         Returns ``None`` when the scene has no usable spatial content
         (empty fixtures, etc.) -- callers then default to "always
         in-bounds" so the OOB respawn path is a no-op for that scene.
         """
+        if scene.game_map is not None:
+            points = np.concatenate(
+                [element.surface_world[:, :2] for element in scene.game_map.elements],
+                axis=0,
+            )
+            return cls(
+                x_min=float(points[:, 0].min()),
+                y_min=float(points[:, 1].min()),
+                x_max=float(points[:, 0].max()),
+                y_max=float(points[:, 1].max()),
+            )
+
         xs: list[np.ndarray] = []
         ys: list[np.ndarray] = []
 

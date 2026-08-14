@@ -49,6 +49,12 @@ class NavigationLane:
     allows_taxi_stops: bool = True
     """Whether pickup and dropoff candidates may be sampled from this lane."""
 
+    lane_id: str | None = None
+    """Stable semantic lane identifier; ``None`` denotes legacy geometry."""
+
+    successor_ids: tuple[str, ...] | None = None
+    """Explicit legal successors; ``None`` enables legacy endpoint inference."""
+
 
 @dataclass(frozen=True)
 class NavigationWaypoint:
@@ -134,7 +140,13 @@ class TaxiNavigationMap:
                 else _normalize_polyline(lane.road_edge_world)
             )
             normalized_lanes.append(
-                NavigationLane(points, road_edge, lane.allows_taxi_stops)
+                NavigationLane(
+                    points,
+                    road_edge,
+                    lane.allows_taxi_stops,
+                    lane.lane_id,
+                    lane.successor_ids,
+                )
             )
             cumulative_distances.append(cumulative)
             road_edge_cumulative_distances.append(
@@ -406,6 +418,23 @@ class TaxiNavigationMap:
     def _build_adjacency(
         self, endpoint_snap_tolerance_m: float
     ) -> tuple[tuple[tuple[int, float], ...], ...]:
+        if all(
+            lane.lane_id is not None and lane.successor_ids is not None
+            for lane in self._lanes
+        ):
+            indices = {
+                lane.lane_id: index
+                for index, lane in enumerate(self._lanes)
+                if lane.lane_id is not None
+            }
+            return tuple(
+                tuple(
+                    (indices[successor], 0.0)
+                    for successor in lane.successor_ids or ()
+                    if successor in indices
+                )
+                for lane in self._lanes
+            )
         cell_size = endpoint_snap_tolerance_m
         start_buckets: dict[tuple[int, int], list[int]] = {}
         for lane_index, lane in enumerate(self._lanes):

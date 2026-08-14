@@ -12,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 
 from flashdreams.serving.realtime.timing import VideoModelTimings
+from omnidreams_game_engine.game_map.types import ResolvedGameMap
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
@@ -162,6 +163,8 @@ class SceneBundle:
     # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
+    game_map: ResolvedGameMap | None = None
+    """Semantic gameplay map embedded by the game-map compiler."""
 
 
 @dataclass(frozen=True)

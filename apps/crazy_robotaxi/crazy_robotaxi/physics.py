@@ -90,7 +90,6 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         selected_tracks = select_traffic_tracks(
             tuple(scene.vehicle_bbox_tracks), traffic_density, scene.scene_id
         )
-        line_layers = scene.line_layers
         enclosure_segments = np.asarray(
             enclosure_segments_world
             if enclosure_segments_world is not None
@@ -99,6 +98,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         )
         if enclosure_segments.ndim != 3 or enclosure_segments.shape[1:] != (2, 3):
             raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
+        line_layers = scene.line_layers
         if len(enclosure_segments):
             line_layers = line_layers + (
                 WorldLineSegments(
@@ -113,7 +113,17 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             vehicle_bbox_tracks=selected_tracks,
             line_layers=line_layers,
         )
-        super().__init__(taxi_scene, vehicle, model_adapter=inset_vehicle_chassis)
+        super().__init__(
+            taxi_scene,
+            vehicle,
+            model_adapter=inset_vehicle_chassis,
+            static_barrier_segments_world=(
+                enclosure_segments
+                if getattr(scene, "game_map", None) is not None
+                or len(enclosure_segments)
+                else None
+            ),
+        )
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
             "arcade handbrake, inset chassis, traffic_density={:.2f}, enclosure_segments={}",

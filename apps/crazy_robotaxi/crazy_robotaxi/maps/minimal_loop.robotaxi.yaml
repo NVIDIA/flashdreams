@@ -1,0 +1,95 @@
+schema_version: 1
+id: crazy-robotaxi-minimal-loop
+name: Minimal Loop and Dead End
+
+profiles:
+  neighborhood:
+    lane_width_m: 3.6
+    lanes: [backward, forward]
+    speed_limit_mps: 13.4
+    curb: true
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+
+elements:
+  - id: hub
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+    pose:
+      x_m: 0
+      y_m: 0
+      heading_deg: 0
+
+  - id: east_road
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 30}
+    attach: {port: start, to: hub.east}
+
+  - id: northeast_curve
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: arc, radius_m: 15, sweep_deg: 90}
+    attach: {port: start, to: east_road.end}
+
+  - id: east_side
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 20}
+    attach: {port: start, to: northeast_curve.end}
+
+  - id: northwest_curve
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: arc, radius_m: 15, sweep_deg: 90}
+    attach: {port: start, to: east_side.end}
+
+  - id: north_road
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 74.4}
+    attach: {port: start, to: northwest_curve.end}
+
+  - id: southwest_curve
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: arc, radius_m: 15, sweep_deg: 90}
+    attach: {port: start, to: north_road.end}
+
+  - id: west_side
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 20}
+    attach: {port: start, to: southwest_curve.end}
+
+  - id: southeast_curve
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: arc, radius_m: 15, sweep_deg: 90}
+    attach: {port: start, to: west_side.end}
+
+  - id: west_road
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 30}
+    attach: {port: start, to: southeast_curve.end}
+
+  - id: dead_end
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 25}
+    attach: {port: start, to: hub.north}
+
+connections:
+  - {a: west_road.end, b: hub.west}
+
+spawns:
+  - id: taxi_start
+    element: east_road
+    lane: 1
+    distance_m: 5
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: A forward-facing taxi driving through a quiet suburban neighborhood in daylight.

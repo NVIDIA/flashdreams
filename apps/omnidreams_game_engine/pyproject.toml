@@ -9,8 +9,10 @@ description = "Reusable legacy game runtime for OmniDreams applications"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
+    "filelock>=3",
     "flashdreams[serving]",
     "flashdreams-omnidreams",
+    "pyyaml>=6",
 ]
 
 [tool.uv.sources]

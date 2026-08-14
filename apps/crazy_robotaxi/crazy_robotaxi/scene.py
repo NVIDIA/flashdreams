@@ -82,6 +82,29 @@ def _empty_segments() -> npt.NDArray[np.float32]:
 
 def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
     """Load recorded and mapped routes only for a Crazy Robotaxi session."""
+    if scene.game_map is not None:
+        lanes = tuple(
+            NavigationLane(
+                centerline_world=lane.centerline_world,
+                road_edge_world=(
+                    lane.right_edge_world if lane.allows_taxi_stops else None
+                ),
+                allows_taxi_stops=lane.allows_taxi_stops,
+                lane_id=lane.lane_id,
+                successor_ids=lane.successor_ids,
+            )
+            for lane in scene.game_map.lanes
+        )
+        spawn_lane = next(
+            lane
+            for lane in scene.game_map.lanes
+            if lane.lane_id == scene.game_map.default_spawn.lane_id
+        )
+        return CrazyRobotaxiSceneData(
+            reference_route_world=spawn_lane.centerline_world,
+            navigation_lanes=lanes,
+            perimeter_segments_world=scene.game_map.collision_segments_world,
+        )
     with zipfile.ZipFile(scene.scene_path, "r") as archive:
         trajectory_doc = json.loads(archive.read("rig_trajectories.json"))
         poses = np.asarray(

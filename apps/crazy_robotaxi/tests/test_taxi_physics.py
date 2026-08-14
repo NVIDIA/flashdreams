@@ -98,10 +98,15 @@ def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
             enclosure_segments_world=enclosure,
         )
 
-    physics_scene = initialize.call_args.args[0]
-    assert scene.line_layers == ()
-    assert len(physics_scene.line_layers) == 1
-    assert physics_scene.line_layers[0].layer_name == "crazy_robotaxi_enclosure_walls"
+        physics_scene = initialize.call_args.args[0]
+        assert scene.line_layers == ()
+        assert len(physics_scene.line_layers) == 1
+        assert (
+            physics_scene.line_layers[0].layer_name == "crazy_robotaxi_enclosure_walls"
+        )
+        np.testing.assert_array_equal(
+            initialize.call_args.kwargs["static_barrier_segments_world"], enclosure
+        )
     np.testing.assert_allclose(physics_scene.line_layers[0].segments_world, enclosure)
     assert len(GamePhysicsWorld._build_barriers(physics_scene)) == 1
 

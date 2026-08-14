@@ -205,6 +205,7 @@ class GamePhysicsWorld:
         vehicle: VehicleConfig,
         *,
         model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
+        static_barrier_segments_world: np.ndarray | None = None,
     ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
@@ -215,9 +216,27 @@ class GamePhysicsWorld:
             return replace(scene_object, model=adapt_model(scene_object.model))
 
         objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
-        barriers = (
-            self._build_barriers(scene) if vehicle.static_collision_enabled else ()
-        )
+        if (
+            vehicle.static_collision_enabled
+            and static_barrier_segments_world is not None
+        ):
+            segments = np.asarray(static_barrier_segments_world, dtype=np.float32)
+            if segments.ndim != 3 or segments.shape[1:] != (2, 3):
+                raise ValueError(
+                    "static_barrier_segments_world must have shape (N, 2, 3)"
+                )
+            barriers = tuple(
+                InvisibleBarrier(
+                    tuple(float(value) for value in segment[0]),
+                    tuple(float(value) for value in segment[1]),
+                    barrier_id=f"semantic-{index}",
+                )
+                for index, segment in enumerate(_simplify_barrier_segments(segments))
+            )
+        else:
+            barriers = (
+                self._build_barriers(scene) if vehicle.static_collision_enabled else ()
+            )
         self.graph = PhysicsObjectGraph(objects=objects, barriers=barriers)
         self._recorded_trajectories_by_id = {
             obj.object_id: _recorded_actor_trajectory(obj) for obj in objects

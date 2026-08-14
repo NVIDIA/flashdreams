@@ -23,6 +23,7 @@ from omnidreams import scenes as _scenes
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.game_map import load_game_map_header, resolve_seed_asset
 from omnidreams_game_engine.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -63,6 +64,9 @@ HUD_PANEL_WIDTH = 500
 # ``cli.py`` defaults) so the realistic controls render out of the box
 # regardless of the user's cwd; ``--control-assets-dir`` overrides it.
 _BUNDLED_CONTROL_ASSETS_DIR = _cli._PACKAGE_ROOT / "assets" / "wheel_and_pedals"
+_PACKAGE_ROOT = Path(__file__).resolve().parent
+_BUNDLED_MAPS_DIR = _PACKAGE_ROOT / "maps"
+_DEFAULT_GAME_MAP = _BUNDLED_MAPS_DIR / "minimal_loop.robotaxi.yaml"
 SCENE_THUMB_SIZE = (140, 64)
 KEYBOARD_STEER_SCALE = 0.75
 KEYBOARD_STEER_RATE_PER_S = 0.6
@@ -505,6 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(
         backend="omnidreams",
         manifest=_cli._PACKAGE_ROOT / "configs/example_world_model.yaml",
+        scene=_DEFAULT_GAME_MAP,
     )
     parser.description = (
         "Standalone Crazy Robotaxi. The default mode opens the native game HUD;"
@@ -521,12 +526,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scene-dir",
         type=Path,
-        default=scenes_cache_root(),
+        default=_BUNDLED_MAPS_DIR,
         help=(
-            "Directory of USDZ scenes shown in the HUD scene selector. "
-            "Defaults to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``, "
-            "the shared cache root used by both this demo and the "
-            "``omnidreams.webrtc.server`` scene pipeline."
+            "Directory of .robotaxi.yaml maps shown in the scene selector. "
+            "Defaults to the maps bundled with Crazy Robotaxi."
         ),
     )
     parser.add_argument(
@@ -614,7 +617,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
-    """Whether the scene picker would find any staged USDZ to offer.
+    """Return whether the scene picker can find a semantic game map.
 
     Mirrors :func:`_discover_scene_options`'s directory sweep -- the
     ``--scene-dir`` cache plus the requested scene's own folder -- so the
@@ -623,7 +626,7 @@ def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
     """
     for directory in (scene_dir, scene.parent):
         resolved = _project_path(directory)
-        if resolved.is_dir() and any(resolved.glob("*.usdz")):
+        if resolved.is_dir() and any(resolved.glob("*.robotaxi.yaml")):
             return True
     return False
 
@@ -724,6 +727,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     configure_logging()
     args = build_parser().parse_args(argv)
     _validate_presenter_mode(args)
+    if not args.synthetic_scene and not args.scene.name.endswith(".robotaxi.yaml"):
+        raise SystemExit(
+            "Crazy Robotaxi accepts semantic .robotaxi.yaml maps, not raw USDZ "
+            "archives. Use crazy-robotaxi-map validate/preview while authoring."
+        )
     if not args.synthetic_scene:
         # Only the bare ``--no-hud`` backend has no scene picker; the HUD
         # and MJPEG paths both let the user pick from ``--scene-dir``, so a
@@ -1233,22 +1241,35 @@ def _discover_scene_options(
     if selected_scene.exists():
         paths.add(selected_scene.resolve())
     if scene_dir.is_dir():
-        paths.update(path.resolve() for path in scene_dir.glob("*.usdz"))
+        paths.update(path.resolve() for path in scene_dir.glob("*.robotaxi.yaml"))
+        if selected_scene.suffix == ".usdz":
+            paths.update(path.resolve() for path in scene_dir.glob("*.usdz"))
     if selected_scene.parent.is_dir():
-        paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
+        paths.update(
+            path.resolve() for path in selected_scene.parent.glob("*.robotaxi.yaml")
+        )
+        if selected_scene.suffix == ".usdz":
+            paths.update(
+                path.resolve() for path in selected_scene.parent.glob("*.usdz")
+            )
+
+    yaml_paths = sorted(path for path in paths if path.name.endswith(".robotaxi.yaml"))
+    archive_paths = sorted(path for path in paths if path.suffix == ".usdz")
+    yaml_options = tuple(_scene_option_for_game_map(path) for path in yaml_paths)
 
     # Group archives by scene UUID so the per-weather sibling files
     # (``clipgt-<uuid>-<variant>.usdz``) collapse into one scene with a variant
     # selector. Single-archive scenes stay a group of one.
     grouped: dict[str, dict[str, Path]] = {}
-    for path in sorted(paths):
+    for path in archive_paths:
         uuid, variant = _scenes.parse_scene_stem(path.stem)
         grouped.setdefault(uuid, {})[variant] = path
 
-    options = tuple(
+    archive_options = tuple(
         _scene_option_for_group(variant_paths)
         for _uuid, variant_paths in sorted(grouped.items())
     )
+    options = yaml_options + archive_options
     logger.info(
         "[demo] discovered scenes: "
         + (
@@ -1260,6 +1281,30 @@ def _discover_scene_options(
         ),
     )
     return options
+
+
+def _scene_option_for_game_map(path: Path) -> SceneOption:
+    """Build a scene-picker option from semantic YAML metadata."""
+    header = load_game_map_header(path)
+    variants = tuple(variant.name for variant in header.variants)
+    thumbnails: dict[str, Image.Image] = {}
+    for variant in header.variants:
+        try:
+            with Image.open(resolve_seed_asset(path, variant.image)) as image:
+                thumbnails[variant.name] = _make_thumbnail(
+                    image.convert("RGB"), SCENE_THUMB_SIZE
+                )
+        except OSError:
+            continue
+    thumbnail = thumbnails.get("default") or next(iter(thumbnails.values()), None)
+    return SceneOption(
+        label=header.name,
+        path=path,
+        variants=variants,
+        thumbnail=thumbnail,
+        variant_thumbnails=thumbnails,
+        variant_paths={variant: path for variant in variants},
+    )
 
 
 def _order_variants(variants: Iterable[str]) -> tuple[str, ...]:
@@ -1304,6 +1349,8 @@ def _scene_option_for_group(variant_paths: dict[str, Path]) -> SceneOption:
 
 
 def _scene_label(path: Path) -> str:
+    if path.name.endswith(".robotaxi.yaml"):
+        return load_game_map_header(path).name
     scene_names = {
         "0d404ff7-2b66-498c-b047-1ed8cded60d4": "Quiet Suburban Boulevard",
         "7bd1eb2f-c375-44ee-b4ca-55473e0773a9": "Late Night Arrival in the Neighborhood",
@@ -1315,6 +1362,10 @@ def _scene_label(path: Path) -> str:
 
 
 def _discover_variants(scene_path: Path) -> tuple[str, ...]:
+    if scene_path.name.endswith(".robotaxi.yaml"):
+        return tuple(
+            variant.name for variant in load_game_map_header(scene_path).variants
+        )
     variants: set[str] = set()
     try:
         with zipfile.ZipFile(scene_path, "r") as zf:
@@ -1394,6 +1445,17 @@ def _same_scene_path(path: Path, raw: str, resolved: Path | None) -> bool:
 
 
 def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
+    if scene_path.name.endswith(".robotaxi.yaml"):
+        header = load_game_map_header(scene_path)
+        default = next(
+            (variant for variant in header.variants if variant.name == "default"),
+            header.variants[0],
+        )
+        try:
+            with Image.open(resolve_seed_asset(scene_path, default.image)) as image:
+                return _make_thumbnail(image.convert("RGB"), SCENE_THUMB_SIZE)
+        except OSError:
+            return None
     try:
         with zipfile.ZipFile(scene_path, "r") as zf:
             names = [
@@ -1424,7 +1486,22 @@ def _load_variant_thumbnails(
     dropdown row still shows a preview. Returns an empty mapping when the
     archive has no parseable first images.
     """
-    decoded: dict[str, Image.Image] = {}
+    if scene_path.name.endswith(".robotaxi.yaml"):
+        header = load_game_map_header(scene_path)
+        decoded: dict[str, Image.Image] = {}
+        for variant in header.variants:
+            try:
+                with Image.open(resolve_seed_asset(scene_path, variant.image)) as image:
+                    decoded[variant.name] = _make_thumbnail(
+                        image.convert("RGB"), SCENE_THUMB_SIZE
+                    )
+            except OSError:
+                continue
+        if not decoded:
+            return {}
+        default = decoded.get("default") or next(iter(decoded.values()))
+        return {variant: decoded.get(variant, default) for variant in variants}
+    decoded = {}
     try:
         with zipfile.ZipFile(scene_path, "r") as zf:
             names_by_variant: dict[str, str] = {}
