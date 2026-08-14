@@ -40,6 +40,15 @@ def test_starter_map_resolves_loop_intersection_and_dead_end() -> None:
         "road_segment",
         "intersection",
     }
+    east_road = next(
+        element for element in game_map.elements if element.element_id == "east_road"
+    )
+    assert float(np.ptp(east_road.surface_world[:, 1])) == pytest.approx(10.0)
+    for lane in (lane for lane in game_map.lanes if lane.element_id == "east_road"):
+        rail_widths = np.linalg.norm(
+            lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
+        )
+        np.testing.assert_allclose(rail_widths, 5.0)
     dead_end = next(
         element for element in game_map.elements if element.element_id == "dead_end"
     )
@@ -173,9 +182,7 @@ def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:
 def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:
     source = _STARTER_MAP.read_text(encoding="utf-8")
     broken = tmp_path / "broken.robotaxi.yaml"
-    broken.write_text(
-        source.replace("length_m: 74.4", "length_m: 70"), encoding="utf-8"
-    )
+    broken.write_text(source.replace("length_m: 80", "length_m: 75"), encoding="utf-8")
 
     with pytest.raises(GameMapError, match="does not close: gap="):
         load_game_map(broken)

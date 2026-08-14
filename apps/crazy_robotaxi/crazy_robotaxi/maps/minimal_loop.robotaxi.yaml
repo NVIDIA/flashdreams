@@ -4,7 +4,7 @@ name: Minimal Loop and Dead End
 
 profiles:
   neighborhood:
-    lane_width_m: 3.6
+    lane_width_m: 5.0
     lanes: [backward, forward]
     speed_limit_mps: 13.4
     curb: true
@@ -48,7 +48,7 @@ elements:
   - id: north_road
     type: road_segment
     profile: neighborhood
-    geometry: {kind: straight, length_m: 74.4}
+    geometry: {kind: straight, length_m: 80}
     attach: {port: start, to: northwest_curve.end}
 
   - id: southwest_curve
