@@ -49,8 +49,10 @@ def test_runner_delegates_to_standalone_legacy_cli(
     config = replace(
         CRAZY_ROBOTAXI_RUNNER,
         scene=Path("city.usdz"),
+        world_model_manifest=Path("example_world_model_perf.yaml"),
         backend="raster",
         stream_mjpeg="127.0.0.1:8080",
+        auto_start=True,
         synthetic_scene=True,
         synthetic_model=False,
         taxi_seed=7,
@@ -66,6 +68,8 @@ def test_runner_delegates_to_standalone_legacy_cli(
             "front",
             "--scene",
             "city.usdz",
+            "--manifest",
+            "example_world_model_perf.yaml",
             "--backend",
             "raster",
             "--stream-mjpeg",
@@ -75,6 +79,7 @@ def test_runner_delegates_to_standalone_legacy_cli(
             "--taxi-highscores",
             "scores.csv",
             "--synthetic-scene",
+            "--auto-start",
             "--no-synthetic-model",
         ]
     ]

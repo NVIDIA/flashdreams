@@ -49,8 +49,8 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     scene: Path | None = None
     """Scene archive override; ``None`` uses the staged default scene."""
 
-    manifest: Path | None = None
-    """World-model manifest override; ``None`` uses the bundled default."""
+    world_model_manifest: Path | None = None
+    """Legacy world-model manifest; named to avoid the global ``--manifest``."""
 
     camera: str | None = None
     """Camera name override for the selected scene."""
@@ -66,6 +66,9 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
 
     stream_mjpeg: str | None = None
     """Optional MJPEG bind address instead of a native window."""
+
+    auto_start: bool = False
+    """Start loading the selected scene immediately after launch."""
 
     synthetic_scene: bool = False
     """Use the procedural CPU-safe scene fixture."""
@@ -98,7 +101,7 @@ class CrazyRobotaxiRunner(Runner):
 
         argv = list(self.config.app_args)
         _append_value(argv, "--scene", self.config.scene)
-        _append_value(argv, "--manifest", self.config.manifest)
+        _append_value(argv, "--manifest", self.config.world_model_manifest)
         _append_value(argv, "--camera", self.config.camera)
         _append_value(argv, "--variant", self.config.variant)
         _append_value(argv, "--prompt", self.config.prompt)
@@ -113,6 +116,8 @@ class CrazyRobotaxiRunner(Runner):
         )
         if self.config.synthetic_scene:
             argv.append("--synthetic-scene")
+        if self.config.auto_start:
+            argv.append("--auto-start")
         if self.config.synthetic_model is not None:
             argv.append(
                 "--synthetic-model"
