@@ -267,6 +267,7 @@ def test_generate_preserves_non_overlapping_stage_metrics(
     pipeline.generate(0, cache)
     metrics = pipeline.finalize(0, cache)
 
+    assert cache.latent_checkpoint_future is None
     assert metrics["conditioning_seconds"] == 10.0
     assert metrics["denoise_seconds"] == 20.0
     assert metrics["denoise_prepare_seconds"] == 1.0
@@ -325,9 +326,10 @@ def test_generate_overlaps_latent_checkpoint_with_decode(
     finally:
         release_checkpoint.set()
 
+    pipeline.finalize(0, cache)
+    assert cache.latent_checkpoint_future is None
     cache.output_path.write_bytes(b"mp4")
     pipeline.mark_complete(cache)
-    assert cache.latent_checkpoint_future is None
 
 
 def test_reference_parser_preserves_order_and_enforces_limits(tmp_path: Path) -> None:
@@ -402,7 +404,9 @@ def test_native_scheduler_matches_official_h3_euler() -> None:
     torch.testing.assert_close(actual, expected)
 
 
-def test_row_timestep_plan_preserves_device_and_conditioning_levels() -> None:
+def test_row_timestep_plan_preserves_device_and_conditioning_levels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Build packed row timesteps without materializing accelerator scalars."""
     state = MiniMaxH3DenoiseState(
         latents=torch.empty(0),
@@ -420,9 +424,14 @@ def test_row_timestep_plan_preserves_device_and_conditioning_levels() -> None:
         latent_width=0,
     )
 
-    timesteps, indices = MiniMaxH3DiffusionModel._row_timesteps(
-        state, torch.tensor(0.5), torch.tensor(0.25)
-    )
+    def reject_scalar_conversion(_tensor: torch.Tensor) -> float:
+        raise AssertionError("row timestep construction converted a tensor to float")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__float__", reject_scalar_conversion)
+        timesteps, indices = MiniMaxH3DiffusionModel._row_timesteps(
+            state, torch.tensor(0.5), torch.tensor(0.25)
+        )
 
     assert timesteps.device == state.video_indices.device
     torch.testing.assert_close(timesteps, torch.tensor([0.25, 0.5, 0.999, 1.0]))

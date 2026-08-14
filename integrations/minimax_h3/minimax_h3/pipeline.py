@@ -319,7 +319,6 @@ def _save_latents(
         },
     )
     os.replace(temporary, path)
-    _write_status(path, "denoised")
 
 
 def _save_latents_async(
@@ -523,7 +522,7 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
         """Return runtime metrics for the completed H3 rollout."""
         if autoregressive_index != 0 or not cache.generated:
             raise ValueError("finalize requires the completed H3 runtime step")
-        _finish_latent_checkpoint(cache, wait=False)
+        _finish_latent_checkpoint(cache, wait=True)
         return {
             "conditioning_seconds": cache.conditioning_seconds,
             "denoise_seconds": cache.denoise_seconds,
