@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from crazy_robotaxi import cli
+from crazy_robotaxi.game import TaxiGameConfig, TaxiGameController
 from crazy_robotaxi.navigation import NavigationLane, TaxiNavigationMap
 from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.game_map import (
@@ -20,6 +21,7 @@ from omnidreams_game_engine.game_map import (
 )
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.simulation.map_bounds import MapBounds
+from omnidreams_game_engine.types import VehicleState
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -70,6 +72,40 @@ def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() 
     )
     assert spawn_lane.successor_ids == ("northeast_curve:lane:1",)
     assert len(navigation.sample_waypoints(spacing_m=20.0, offset_m=0.0)) > 2
+
+
+def test_starter_map_can_initialize_gameplay() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    spawn = game_map.default_spawn
+    lanes = tuple(
+        NavigationLane(
+            centerline_world=lane.centerline_world,
+            road_edge_world=(lane.right_edge_world if lane.allows_taxi_stops else None),
+            allows_taxi_stops=lane.allows_taxi_stops,
+            lane_id=lane.lane_id,
+            successor_ids=lane.successor_ids,
+        )
+        for lane in game_map.lanes
+    )
+    spawn_lane = next(lane for lane in lanes if lane.lane_id == spawn.lane_id)
+    state = VehicleState(
+        x_m=float(spawn.position_world[0]),
+        y_m=float(spawn.position_world[1]),
+        z_m=float(spawn.position_world[2]),
+        yaw_rad=spawn.yaw_rad,
+        speed_mps=0.0,
+        steer_rad=0.0,
+    )
+
+    controller = TaxiGameController(
+        scene_id=game_map.map_id,
+        reference_route_world=spawn_lane.centerline_world,
+        navigation_lanes=lanes,
+        initial_state=state,
+        config=TaxiGameConfig(enabled=True, seed=17),
+    )
+
+    assert controller.snapshot(state).pickup_targets_xyz_m
 
 
 def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(

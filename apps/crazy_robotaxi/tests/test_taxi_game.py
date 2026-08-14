@@ -23,7 +23,6 @@ from crazy_robotaxi.navigation import NavigationLane
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -287,10 +286,9 @@ def test_pickup_markers_and_passengers_use_separate_roadside_positions() -> None
     )
 
 
-def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
-    bounds = MapBounds(x_min=0.0, y_min=0.0, x_max=300.0, y_max=100.0)
+def test_targets_use_full_navigation_extent() -> None:
     controller = TaxiGameController(
-        scene_id="bounded-targets",
+        scene_id="full-extent-targets",
         reference_route_world=np.asarray(
             [[0.0, 50.0, 0.0], [300.0, 50.0, 0.0]], dtype=np.float32
         ),
@@ -300,58 +298,13 @@ def test_pickups_and_dropoffs_exclude_map_boundary_margin() -> None:
             seed=17,
             waypoint_spacing_m=10.0,
             pickup_grid_spacing_m=20.0,
-            waypoint_edge_margin_m=40.0,
         ),
-        map_bounds=bounds,
     )
 
     seeking = controller.snapshot(_state(150.0, 50.0))
     assert seeking.pickup_targets_xyz_m
-    assert all(
-        40.0 <= target[0] <= 260.0 and 40.0 <= target[1] <= 60.0
-        for target in seeking.pickup_targets_xyz_m
-    )
-
-    pickup = seeking.target_xyz_m
-    controller.advance(_trajectory(pickup[:2]), 0.0)
-    dropoff = controller.snapshot(_state(*pickup[:2]))
-
-    assert dropoff.phase == "to_dropoff"
-    assert 40.0 <= dropoff.target_xyz_m[0] <= 260.0
-    assert 40.0 <= dropoff.target_xyz_m[1] <= 60.0
-
-
-def test_default_targets_stay_one_hundred_meters_inside_map_bounds() -> None:
-    bounds = MapBounds(x_min=0.0, y_min=0.0, x_max=500.0, y_max=500.0)
-    controller = TaxiGameController(
-        scene_id="default-bounded-targets",
-        reference_route_world=np.asarray(
-            [[0.0, 250.0, 0.0], [500.0, 250.0, 0.0]], dtype=np.float32
-        ),
-        initial_state=_state(250.0, 250.0),
-        config=TaxiGameConfig(
-            enabled=True,
-            seed=17,
-            waypoint_spacing_m=10.0,
-            pickup_grid_spacing_m=20.0,
-        ),
-        map_bounds=bounds,
-    )
-
-    seeking = controller.snapshot(_state(250.0, 250.0))
-    assert seeking.pickup_targets_xyz_m
-    assert all(
-        100.0 <= target[0] <= 400.0 and 100.0 <= target[1] <= 400.0
-        for target in seeking.pickup_targets_xyz_m
-    )
-
-    pickup = seeking.target_xyz_m
-    controller.advance(_trajectory(pickup[:2]), 0.0)
-    dropoff = controller.snapshot(_state(*pickup[:2]))
-
-    assert dropoff.phase == "to_dropoff"
-    assert 100.0 <= dropoff.target_xyz_m[0] <= 400.0
-    assert 100.0 <= dropoff.target_xyz_m[1] <= 400.0
+    assert any(target[0] < 100.0 for target in seeking.pickup_targets_xyz_m)
+    assert any(target[0] > 200.0 for target in seeking.pickup_targets_xyz_m)
 
 
 def test_fare_completion_survives_no_directed_route_to_next_pickup(

@@ -21,7 +21,6 @@ from omnidreams_game_engine.math3d import (
     rig_pose_from_state,
     rig_pose_from_vehicle_state,
 )
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -73,9 +72,6 @@ class TaxiGameConfig:
 
     pickup_grid_spacing_m: float = 60.0
     """Grid spacing used to distribute simultaneous pickup points across the map."""
-
-    waypoint_edge_margin_m: float = 100.0
-    """Minimum map-boundary clearance for pickup and dropoff targets."""
 
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
@@ -137,8 +133,6 @@ class TaxiGameConfig:
             raise ValueError("traffic_density must be greater than 0 and at most 1")
         if self.pickup_grid_spacing_m <= 0.0:
             raise ValueError("pickup_grid_spacing_m must be positive")
-        if self.waypoint_edge_margin_m < 0.0:
-            raise ValueError("waypoint_edge_margin_m must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -516,7 +510,6 @@ class TaxiGameController:
         initial_state: VehicleState,
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
-        map_bounds: MapBounds | None = None,
         high_score_store: HighScoreStore | None = None,
     ) -> None:
         self._config = config
@@ -534,7 +527,7 @@ class TaxiGameController:
         self._waypoints = self._navigation.sample_waypoints(
             config.waypoint_spacing_m, offset
         )
-        self._eligible_waypoint_indices = self._safe_waypoint_indices(map_bounds)
+        self._eligible_waypoint_indices = tuple(range(len(self._waypoints)))
         self._pickup_point_indices = self._sample_pickup_point_indices()
         self._phase: TaxiPhase = "seeking_pickup"
         self._session_state: TaxiSessionState = "playing"
@@ -786,27 +779,6 @@ class TaxiGameController:
         if len(selected) >= 2:
             return selected
         return self._eligible_waypoint_indices[:2]
-
-    def _safe_waypoint_indices(self, map_bounds: MapBounds | None) -> tuple[int, ...]:
-        """Return targets separated from the playable map boundary."""
-        if map_bounds is None or self._config.waypoint_edge_margin_m == 0.0:
-            return tuple(range(len(self._waypoints)))
-        margin = self._config.waypoint_edge_margin_m
-        eligible = tuple(
-            index
-            for index, waypoint in enumerate(self._waypoints)
-            if map_bounds.x_min + margin
-            <= float(waypoint.xyz_m[0])
-            <= map_bounds.x_max - margin
-            and map_bounds.y_min + margin
-            <= float(waypoint.xyz_m[1])
-            <= map_bounds.y_max - margin
-        )
-        if len(eligible) < 2:
-            raise ValueError(
-                "Taxi map-boundary margin leaves fewer than two eligible waypoints."
-            )
-        return eligible
 
     def _collected_pickup_index(self, x_m: float, y_m: float) -> int | None:
         """Return the closest available pickup inside its activation radius."""

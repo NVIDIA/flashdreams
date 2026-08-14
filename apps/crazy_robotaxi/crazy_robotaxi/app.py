@@ -188,7 +188,6 @@ class CrazyRobotaxiApplication:
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
         self._ground_snapper: GroundSnapper | None = None
-        self._map_bounds: MapBounds | None = None
         self._enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._live_edit = live_edit or LiveEditConfig()
         self._style_ability = style_ability
@@ -219,7 +218,7 @@ class CrazyRobotaxiApplication:
         self._navigation_lanes = scene_data.navigation_lanes
         self._enclosure_segments_world = scene_data.enclosure_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
-        self._map_bounds = map_bounds
+        del map_bounds
         if self._live_edit.coins.enabled or self._live_edit.items.enabled:
             # Lay coins/items along the driving-lane graph; legacy scenes
             # without mapped lanes fall back to the recorded ego route.
@@ -292,7 +291,6 @@ class CrazyRobotaxiApplication:
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,
-            map_bounds=self._map_bounds,
         )
         coin_ability: CoinAbility | None = None
         if self._live_edit.coins.enabled and self._coin_lanes:
