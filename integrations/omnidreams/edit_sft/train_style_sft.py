@@ -129,6 +129,7 @@ LOG_EVERY = 10
 EMA_DECAY = 0.98
 
 NOOP_PROB = float(os.environ.get("NOOP_PROB", "0.1"))
+MAINT_PROB = float(os.environ.get("MAINT_PROB", "0.3"))
 """Probability of a no-op window (swap to the clip's own prompt, source
 targets): anchors the restyle to the text KV instead of the weights."""
 
@@ -445,9 +446,16 @@ def main() -> None:
         """
         uuid, slug, max_chunk = pairs[int(rng.integers(len(pairs)))]
         no_op = bool(rng.random() < NOOP_PROB)
+        # Steady-state ("maintenance") episode: the swap happened long ago —
+        # styled history, style text, LoRA on, styled targets. Without this
+        # the LoRA only ever sees unstyled history and learns a constant
+        # style PUSH; deployed past the trained span the push compounds
+        # through the KV commits and the world blurs out (observed at
+        # +7-10 chunks on the step-1600 run).
+        maint = (not no_op) and bool(rng.random() < MAINT_PROB)
         k_hi = min(SWAP_MAX, max_chunk - SPAN)
         k = int(rng.integers(SWAP_MIN, k_hi + 1))
-        n_pre = min(PRE_CHUNKS, k)
+        n_pre = 0 if maint else min(PRE_CHUNKS, k)
         j0 = k - n_pre
 
         dm._rng = torch.Generator(device=device).manual_seed(int(rng.integers(2**31)))
@@ -466,18 +474,25 @@ def main() -> None:
         tgt = [x.to(device, dtype) for x in tgt_lat[(uuid, slug)][:end]]
         hd = [x.to(device, dtype) for x in hd_lat[uuid][:end]]
 
-        # Context build: replay the KV-window prefix from SOURCE latents at
-        # base weights (deploy: pre-window chunks run the unmodified
-        # network). Per-chunk seeded context noise = the replay_history
+        if maint:
+            # In-window steady state: text already swapped, history styled,
+            # commits at LoRA scale 1 (deploy's use_lora window semantics).
+            swap_text_kv(network, tc, prompt_emb[slug])
+
+        # Context build: replay the KV-window prefix (SOURCE latents at base
+        # weights for swap episodes — deploy runs pre-window chunks on the
+        # unmodified network; STYLED latents at scale 1 for maintenance
+        # episodes). Per-chunk seeded context noise = the replay_history
         # contract; the mid-stream start is the drift corrector's machinery.
-        set_lora_scale(network, 0.0)
+        replay = tgt if maint else src
+        set_lora_scale(network, 1.0 if maint else 0.0)
         start = max(0, j0 - REPLAY_CHUNKS)
         with torch.no_grad():
             for bc in tc.network_cache.block_caches:
                 bc.self_attn._prev_chunk_idx = start - 1
             for j in range(start, j0):
                 g = torch.Generator(device=device).manual_seed(CONTEXT_NOISE_SEED + j)
-                noisy = scheduler.add_noise(src[j], ctx_t, rng=g)
+                noisy = scheduler.add_noise(replay[j], ctx_t, rng=g)
                 tc.start(j)
                 transformer.finalize_kv_cache(
                     noisy_latent=noisy, timestep=ctx_t, cache=tc, input=hd[j]
@@ -491,7 +506,7 @@ def main() -> None:
         sums: dict[str, float] = {}
         total = 0.0
         for j in range(j0, end):
-            if j == k:
+            if j == k and not maint:
                 # The deploy swap: plain cross-attn text-KV rebuild, the
                 # same rebuild the live-edit deploy hook (PR #431) runs on
                 # a plain prompt swap (no-op windows swap to the clip's own
@@ -499,8 +514,10 @@ def main() -> None:
                 # read from the text).
                 emb = prompt_emb[clip_key(uuid) if no_op else slug]
                 swap_text_kv(network, tc, emb)
-            x0_tgt = (src[j] if (no_op or j < k) else tgt[j]).float()
-            losses = train_chunk(tc, j, x0_tgt, hd[j], weight, j >= k, model_rng)
+            x0_tgt = (src[j] if (no_op or (not maint and j < k)) else tgt[j]).float()
+            losses = train_chunk(
+                tc, j, x0_tgt, hd[j], weight, maint or j >= k, model_rng
+            )
             for key, value in losses.items():
                 sums[key] = sums.get(key, 0.0) + weight * value
             total += weight * (
@@ -511,7 +528,7 @@ def main() -> None:
         del cache
         sums["total"] = total
         episode = (
-            f"{uuid[:8]} {'no_op:' if no_op else ''}{slug[:16]} "
+            f"{uuid[:8]} {'no_op:' if no_op else 'maint:' if maint else ''}{slug[:16]} "
             f"k={k} pre={n_pre} span={SPAN} max={max_chunk}"
         )
         return sums, episode
