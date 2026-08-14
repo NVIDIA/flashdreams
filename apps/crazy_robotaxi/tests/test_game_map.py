@@ -19,6 +19,7 @@ from omnidreams_game_engine.game_map import (
     load_game_map,
     write_game_map_preview,
 )
+from omnidreams_game_engine.game_map import compiler as game_map_compiler
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import VehicleState
@@ -72,6 +73,28 @@ def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() 
     )
     assert spawn_lane.successor_ids == ("northeast_curve:lane:1",)
     assert len(navigation.sample_waypoints(spacing_m=20.0, offset_m=0.0)) > 2
+
+
+def test_compiler_emits_shared_divider_and_outer_curbs() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    lane_rows = {
+        row["key"]["label_class_id"]: row["lane"]
+        for row in game_map_compiler._lane_rows(game_map)
+    }
+    line_rows = game_map_compiler._lane_line_rows(game_map)
+    east_lines = [
+        row for row in line_rows if "east_road:lane:0" in row["key"]["label_class_id"]
+    ]
+
+    assert len(line_rows) == 10
+    assert len(east_lines) == 1
+    divider = east_lines[0]["lane_line"]
+    assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])
+    assert divider["styles"] == ["DASHED_SINGLE"]
+    assert lane_rows["east_road:lane:0"]["left_edge_styles"] == ["DASHED_SINGLE"]
+    assert lane_rows["east_road:lane:0"]["right_edge_styles"] == ["TALL_CURB"]
+    assert lane_rows["east_road:lane:1"]["left_edge_styles"] == ["DASHED_SINGLE"]
+    assert lane_rows["east_road:lane:1"]["right_edge_styles"] == ["TALL_CURB"]
 
 
 def test_starter_map_can_initialize_gameplay() -> None:
