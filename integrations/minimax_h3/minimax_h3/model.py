@@ -88,23 +88,24 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             + state.audio_indices.numel()
             + state.text_indices.numel()
         )
-        row_timesteps = torch.full(
-            (sequence_length,),
-            float(video_timestep),
-            dtype=torch.float32,
-            device=state.video_indices.device,
+        video_timestep = video_timestep.to(
+            device=state.video_indices.device, dtype=torch.float32
         )
+        audio_timestep = audio_timestep.to(
+            device=state.video_indices.device, dtype=torch.float32
+        )
+        row_timesteps = video_timestep.expand(sequence_length).clone()
         video_condition = state.video_indices[: state.num_condition_video_rows]
         audio_condition = state.audio_indices[: state.num_condition_audio_rows]
         audio_target = state.audio_indices[state.num_condition_audio_rows :]
-        row_timesteps[video_condition] = max(float(video_timestep), 0.999)
+        row_timesteps[video_condition] = video_timestep.clamp_min(0.999)
         row_timesteps[audio_target] = audio_timestep
         row_timesteps[audio_condition] = 1.0
         return torch.unique(row_timesteps, sorted=True, return_inverse=True)
 
     @torch.no_grad()
     def generate_joint(self, state: MiniMaxH3DenoiseState) -> Tensor:
-        """Denoise both streams and return only unpacked video latents."""
+        """Denoise both streams and return video latents on the execution device."""
         device = self.transformer.device
         video = state.latents.to(device)
         audio = state.audio_latents.to(device)
@@ -182,17 +183,13 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             patch_w,
         )
         rows = rows.permute(0, 4, 1, 5, 2, 6, 3, 7)
-        return (
-            rows.reshape(
-                -1,
-                channels,
-                state.num_latent_frames,
-                state.latent_height,
-                state.latent_width,
-            )
-            .contiguous()
-            .cpu()
-        )
+        return rows.reshape(
+            -1,
+            channels,
+            state.num_latent_frames,
+            state.latent_height,
+            state.latent_width,
+        ).contiguous()
 
 
 __all__ = [

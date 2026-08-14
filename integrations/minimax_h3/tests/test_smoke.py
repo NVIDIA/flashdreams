@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ import pytest
 import tomli as tomllib
 import torch
 from minimax_h3 import config as config_mod
+from minimax_h3 import pipeline as h3_pipeline
 from minimax_h3.config import (
     PIPELINE_MINIMAX_H3_FL2VA,
     PIPELINE_MINIMAX_H3_REF2VA,
@@ -36,6 +38,7 @@ from minimax_h3.config import (
 )
 from minimax_h3.constants import align_num_frames, validate_canvas
 from minimax_h3.lora import convert_musubi_lora
+from minimax_h3.model import MiniMaxH3DenoiseState, MiniMaxH3DiffusionModel
 from minimax_h3.pipeline import MiniMaxH3Pipeline
 from minimax_h3.references import parse_reference_specs
 from minimax_h3.runner import (
@@ -216,6 +219,117 @@ def test_runtime_cache_uses_stage_specific_checkpoints(tmp_path: Path) -> None:
     assert cache.latent_checkpoint.name == "out.mp4.latents.safetensors"
 
 
+def test_generate_preserves_non_overlapping_stage_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep conditioning separate from native denoise and checkpoint timings."""
+    image = tmp_path / "image.png"
+    image.write_bytes(b"test")
+    pipeline = PIPELINE_MINIMAX_H3_FL2VA.setup()
+    cache = pipeline.initialize_cache(
+        prompt="animate",
+        image_path=image,
+        last_image_path=None,
+        references=(),
+        output_path=tmp_path / "out.mp4",
+        width=576,
+        height=768,
+        duration=5.0,
+        steps=30,
+        seed=42,
+        low_ram=True,
+        restart=True,
+        attention="auto",
+        lora=None,
+        lora_weight_name=None,
+        lora_scale=1.0,
+    )
+
+    def generate_low_ram(_: Any) -> torch.Tensor:
+        cache.conditioning_seconds = 10.0
+        cache.denoise_seconds = 20.0
+        cache.denoise_prepare_seconds = 1.0
+        cache.transformer_load_seconds = 4.0
+        cache.denoise_compute_seconds = 14.0
+        cache.denoise_cleanup_seconds = 1.0
+        return torch.zeros(1)
+
+    monkeypatch.setattr(pipeline, "_generate_low_ram", generate_low_ram)
+    monkeypatch.setattr(
+        pipeline,
+        "_decode_video",
+        lambda _cache, _latents: torch.zeros(1, 3, 1, 1),
+    )
+    monkeypatch.setattr(h3_pipeline, "_save_latents", lambda *_args: None)
+    monkeypatch.setattr(torch.cuda, "reset_peak_memory_stats", lambda: None)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda: 0)
+
+    pipeline.generate(0, cache)
+    metrics = pipeline.finalize(0, cache)
+
+    assert metrics["conditioning_seconds"] == 10.0
+    assert metrics["denoise_seconds"] == 20.0
+    assert metrics["denoise_prepare_seconds"] == 1.0
+    assert metrics["transformer_load_seconds"] == 4.0
+    assert metrics["denoise_compute_seconds"] == 14.0
+    assert metrics["denoise_cleanup_seconds"] == 1.0
+    assert metrics["latent_checkpoint_seconds"] >= 0.0
+
+
+def test_generate_overlaps_latent_checkpoint_with_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not put recovery-checkpoint I/O on generate's critical path."""
+    image = tmp_path / "image.png"
+    image.write_bytes(b"test")
+    pipeline = PIPELINE_MINIMAX_H3_FL2VA.setup()
+    cache = pipeline.initialize_cache(
+        prompt="animate",
+        image_path=image,
+        last_image_path=None,
+        references=(),
+        output_path=tmp_path / "out.mp4",
+        width=576,
+        height=768,
+        duration=5.0,
+        steps=30,
+        seed=42,
+        low_ram=True,
+        restart=True,
+        attention="auto",
+        lora=None,
+        lora_weight_name=None,
+        lora_scale=1.0,
+    )
+    checkpoint_started = threading.Event()
+    release_checkpoint = threading.Event()
+
+    def save_latents(*_args: Any) -> None:
+        checkpoint_started.set()
+        assert release_checkpoint.wait(timeout=5)
+
+    def decode_video(*_args: Any) -> torch.Tensor:
+        assert checkpoint_started.wait(timeout=5)
+        return torch.zeros(1, 3, 1, 1)
+
+    monkeypatch.setattr(pipeline, "_generate_low_ram", lambda _: torch.zeros(1))
+    monkeypatch.setattr(pipeline, "_decode_video", decode_video)
+    monkeypatch.setattr(h3_pipeline, "_save_latents", save_latents)
+    monkeypatch.setattr(torch.cuda, "reset_peak_memory_stats", lambda: None)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda: 0)
+
+    try:
+        pipeline.generate(0, cache)
+        assert cache.latent_checkpoint_future is not None
+        assert not cache.latent_checkpoint_future.done()
+    finally:
+        release_checkpoint.set()
+
+    cache.output_path.write_bytes(b"mp4")
+    pipeline.mark_complete(cache)
+    assert cache.latent_checkpoint_future is None
+
+
 def test_reference_parser_preserves_order_and_enforces_limits(tmp_path: Path) -> None:
     """Keep semantic reference order while rejecting unsupported requests."""
     image = tmp_path / "subject.png"
@@ -286,6 +400,33 @@ def test_native_scheduler_matches_official_h3_euler() -> None:
     expected = official.step(flow, official.timesteps[0], sample).prev_sample
     actual = native.step(sample, flow, timesteps[0], sigmas[0], sigmas[1])
     torch.testing.assert_close(actual, expected)
+
+
+def test_row_timestep_plan_preserves_device_and_conditioning_levels() -> None:
+    """Build packed row timesteps without materializing accelerator scalars."""
+    state = MiniMaxH3DenoiseState(
+        latents=torch.empty(0),
+        audio_latents=torch.empty(0),
+        prompt_embeds=torch.empty(0),
+        position_ids=torch.empty(0),
+        token_tags=torch.empty(0),
+        video_indices=torch.tensor([0, 1, 4]),
+        audio_indices=torch.tensor([2, 3]),
+        text_indices=torch.tensor([5]),
+        num_condition_video_rows=1,
+        num_condition_audio_rows=1,
+        num_latent_frames=0,
+        latent_height=0,
+        latent_width=0,
+    )
+
+    timesteps, indices = MiniMaxH3DiffusionModel._row_timesteps(
+        state, torch.tensor(0.5), torch.tensor(0.25)
+    )
+
+    assert timesteps.device == state.video_indices.device
+    torch.testing.assert_close(timesteps, torch.tensor([0.25, 0.5, 0.999, 1.0]))
+    torch.testing.assert_close(indices, torch.tensor([2, 1, 3, 0, 1, 1]))
 
 
 def test_native_transformer_matches_official_h3_forward() -> None:

@@ -21,7 +21,9 @@ import gc
 import hashlib
 import json
 import os
+import threading
 import time
+from concurrent.futures import Future
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,6 +106,12 @@ class MiniMaxH3PipelineCache:
     elapsed_seconds: float = 0.0
     conditioning_seconds: float = 0.0
     denoise_seconds: float = 0.0
+    denoise_prepare_seconds: float = 0.0
+    transformer_load_seconds: float = 0.0
+    denoise_compute_seconds: float = 0.0
+    denoise_cleanup_seconds: float = 0.0
+    latent_checkpoint_seconds: float = 0.0
+    latent_checkpoint_future: Future[float] | None = field(default=None, repr=False)
     decode_seconds: float = 0.0
     peak_gpu_memory_gib: float = 0.0
     attention_backend: str = "default"
@@ -314,6 +322,42 @@ def _save_latents(
     _write_status(path, "denoised")
 
 
+def _save_latents_async(
+    cache: MiniMaxH3PipelineCache,
+    model_id: str,
+    latents: torch.Tensor,
+) -> Future[float]:
+    """Persist the recovery checkpoint without blocking video decoding."""
+    future: Future[float] = Future()
+
+    def persist() -> None:
+        if not future.set_running_or_notify_cancel():
+            return
+        started = time.monotonic()
+        try:
+            _save_latents(cache, model_id, latents)
+        except BaseException as exc:
+            future.set_exception(exc)
+        else:
+            future.set_result(time.monotonic() - started)
+
+    threading.Thread(
+        target=persist,
+        name="minimax-h3-latent-checkpoint",
+        daemon=False,
+    ).start()
+    return future
+
+
+def _finish_latent_checkpoint(cache: MiniMaxH3PipelineCache, *, wait: bool) -> None:
+    """Collect a completed checkpoint write, optionally waiting for it."""
+    future = cache.latent_checkpoint_future
+    if future is None or (not wait and not future.done()):
+        return
+    cache.latent_checkpoint_seconds = future.result()
+    cache.latent_checkpoint_future = None
+
+
 def _load_latents(cache: MiniMaxH3PipelineCache, model_id: str) -> torch.Tensor:
     from safetensors import safe_open
     from safetensors.torch import load_file
@@ -439,27 +483,34 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
             cache.resumed_stage = "decode"
             latents = _load_latents(cache, self.config.model_id)
         else:
-            denoise_started = time.monotonic()
             if cache.low_ram:
                 latents = self._generate_low_ram(cache)
             else:
                 latents = self._generate_standard(cache)
-            cache.denoise_seconds = time.monotonic() - denoise_started
-            _save_latents(cache, self.config.model_id, latents)
+            cache.latent_checkpoint_future = _save_latents_async(
+                cache, self.config.model_id, latents
+            )
 
         decode_started = time.monotonic()
-        frames = self._decode_video(cache, latents)
+        try:
+            frames = self._decode_video(cache, latents)
+        except BaseException:
+            try:
+                _finish_latent_checkpoint(cache, wait=True)
+            except BaseException:
+                logger.exception("Latent checkpoint also failed after decode failure")
+            raise
         cache.decode_seconds = time.monotonic() - decode_started
         cache.elapsed_seconds = time.monotonic() - started
         cache.peak_gpu_memory_gib = torch.cuda.max_memory_allocated() / 2**30
         cache.generated = True
-        _write_status(cache.latent_checkpoint, "decoded-video")
         return frames
 
     def mark_complete(self, cache: MiniMaxH3PipelineCache) -> None:
         """Record completion only after the runtime output target closes."""
         if not cache.generated or not cache.output_path.is_file():
             raise RuntimeError("cannot complete H3 job before its MP4 is written")
+        _finish_latent_checkpoint(cache, wait=True)
         _write_status(
             cache.latent_checkpoint, "complete", output=str(cache.output_path)
         )
@@ -472,9 +523,15 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
         """Return runtime metrics for the completed H3 rollout."""
         if autoregressive_index != 0 or not cache.generated:
             raise ValueError("finalize requires the completed H3 runtime step")
+        _finish_latent_checkpoint(cache, wait=False)
         return {
             "conditioning_seconds": cache.conditioning_seconds,
             "denoise_seconds": cache.denoise_seconds,
+            "denoise_prepare_seconds": cache.denoise_prepare_seconds,
+            "transformer_load_seconds": cache.transformer_load_seconds,
+            "denoise_compute_seconds": cache.denoise_compute_seconds,
+            "denoise_cleanup_seconds": cache.denoise_cleanup_seconds,
+            "latent_checkpoint_seconds": cache.latent_checkpoint_seconds,
             "decode_seconds": cache.decode_seconds,
             "total_seconds": cache.elapsed_seconds,
             "peak_gpu_memory_gib": cache.peak_gpu_memory_gib,
@@ -695,8 +752,11 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
     def _run_native_denoise(
         self, cache: MiniMaxH3PipelineCache, conditioned: dict[str, Any]
     ) -> torch.Tensor:
+        denoise_started = time.monotonic()
         _write_status(cache.latent_checkpoint, "denoising-native-flashdreams")
+        prepare_started = time.monotonic()
         state = self._prepare_denoise_state(cache, conditioned)
+        cache.denoise_prepare_seconds = time.monotonic() - prepare_started
         backend = "cudnn" if cache.attention == "default" else "flash"
         cache.attention_backend = backend
         base_transformer = cast(
@@ -722,14 +782,24 @@ class MiniMaxH3Pipeline(StreamInferencePipeline[Any, Any, Any]):
             ),
             seed=cache.seed,
         )
+        transformer_load_started = time.monotonic()
         model = model_config.setup()
+        cache.transformer_load_seconds = time.monotonic() - transformer_load_started
         try:
             self._apply_lora(model.transformer, cache)
-            return model.generate_joint(state)
+            compute_started = time.monotonic()
+            latents = model.generate_joint(state)
+            if latents.is_cuda:
+                torch.cuda.synchronize(latents.device)
+            cache.denoise_compute_seconds = time.monotonic() - compute_started
         finally:
+            cleanup_started = time.monotonic()
             del model
             gc.collect()
             torch.cuda.empty_cache()
+            cache.denoise_cleanup_seconds = time.monotonic() - cleanup_started
+        cache.denoise_seconds = time.monotonic() - denoise_started
+        return latents
 
     def _generate_standard(self, cache: MiniMaxH3PipelineCache) -> torch.Tensor:
         conditioning_started = time.monotonic()
