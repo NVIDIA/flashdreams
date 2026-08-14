@@ -68,14 +68,13 @@ OMNIDREAMS_CONFIGS[_EAGER_NAME] = derive_config(
     ),
 )
 
-from omnidreams.runner import _write_video  # noqa: E402
+from flashdreams.infra.runner_io import write_video_tensor  # noqa: E402
 from omnidreams.webrtc import session as webrtc_session  # noqa: E402
 from omnidreams.webrtc.session import (  # noqa: E402
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
 )
 
-from einops import rearrange  # noqa: E402
 
 FPS = 30
 N_CHUNKS = int(os.environ.get("N_CHUNKS", "26"))
@@ -150,6 +149,7 @@ def main() -> None:
     assert renderer is not None and runtime._initial_ego_pose is not None
     pools = list(renderer._base_timestamped_scene.cube_pools or [])
     ego0 = runtime._initial_ego_pose
+    assert runtime._scene_data is not None
     t0_us = int(runtime._scene_data.ego_poses[0].timestamp)
 
     templates = _extract_ped_templates(pools, ego_pose=ego0, t0_us=t0_us)
@@ -171,8 +171,10 @@ def main() -> None:
     clone = clone_template_pool(placements, ego_pose=ego0)
     print(f"placed {len(placements)} pedestrian clones from fwd {FWD0} m", flush=True)
 
-    runtime._spawned_actors = [object()]  # type: ignore[list-item]
-    webrtc_session.actors_to_cube_pool = lambda actors, ts, device: clone
+    runtime._spawned_actors = [object()]  # ty: ignore[invalid-assignment]
+    webrtc_session.actors_to_cube_pool = (  # ty: ignore[invalid-assignment]
+        lambda actors, ts, device: clone
+    )
 
     if os.environ.get("EDIT_PROMPT"):
         # Scene-class synergy: align the text channel with the box channel
@@ -202,7 +204,7 @@ def main() -> None:
     video = torch.cat(chunks, dim=0).float() / 127.5 - 1.0
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     name = "hdmap.mp4" if HDMAP_ONLY else "drive.mp4"
-    _write_video(rearrange(video, "t c h w -> t h w c"), OUT_DIR / name, fps=FPS)
+    write_video_tensor(video, OUT_DIR / name, fps=FPS, layout="tchw")
     print(f"{video.shape[0]} frames -> {OUT_DIR / name}")
 
 

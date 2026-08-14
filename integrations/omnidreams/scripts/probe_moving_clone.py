@@ -70,14 +70,13 @@ OMNIDREAMS_CONFIGS[_EAGER_NAME] = derive_config(
     ),
 )
 
-from omnidreams.runner import _write_video  # noqa: E402
+from flashdreams.infra.runner_io import write_video_tensor  # noqa: E402
 from omnidreams.webrtc import session as webrtc_session  # noqa: E402
 from omnidreams.webrtc.session import (  # noqa: E402
     OmnidreamsInferenceRuntime,
     OmnidreamsRuntimeConfig,
 )
 
-from einops import rearrange  # noqa: E402
 
 FPS = 30
 N_CHUNKS = int(os.environ.get("N_CHUNKS", "26"))
@@ -140,6 +139,7 @@ def main() -> None:
     pools = list(renderer._base_timestamped_scene.cube_pools or [])
     ego0 = runtime._initial_ego_pose
     assert ego0 is not None
+    assert runtime._scene_data is not None
     t0_us = int(runtime._scene_data.ego_poses[0].timestamp)
     origin, forward, left = _ego_frame(ego0)
 
@@ -171,8 +171,10 @@ def main() -> None:
 
     # Route through the standard overlay path: sentinel actor list so the
     # session builds a pool, patched builder returns the clone.
-    runtime._spawned_actors = [object()]  # type: ignore[list-item]
-    webrtc_session.actors_to_cube_pool = lambda actors, ts, device: clone
+    runtime._spawned_actors = [object()]  # ty: ignore[invalid-assignment]
+    webrtc_session.actors_to_cube_pool = (  # ty: ignore[invalid-assignment]
+        lambda actors, ts, device: clone
+    )
 
     if GUIDE_SCALE > 0 and not HDMAP_ONLY:
         wrapper = runtime._wrapper
@@ -201,7 +203,7 @@ def main() -> None:
             state["ar_idx"] += 1
             return frames_box
 
-        wrapper._render_condition_frames = dual_render
+        wrapper._render_condition_frames = dual_render  # ty: ignore[invalid-assignment]
         orig_pf = transformer.predict_flow
 
         def guided_pf(noisy_latent, timestep, cache, input=None):
@@ -213,7 +215,7 @@ def main() -> None:
             )
             return flow_nobox + GUIDE_SCALE * (flow_box - flow_nobox)
 
-        transformer.predict_flow = guided_pf
+        transformer.predict_flow = guided_pf  # ty: ignore[invalid-assignment]
         print(f"box-axis guidance active at s={GUIDE_SCALE}", flush=True)
 
     chunks: list[torch.Tensor] = []
@@ -234,7 +236,7 @@ def main() -> None:
     video = torch.cat(chunks, dim=0).float() / 127.5 - 1.0
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     name = "hdmap.mp4" if HDMAP_ONLY else "drive.mp4"
-    _write_video(rearrange(video, "t c h w -> t h w c"), OUT_DIR / name, fps=FPS)
+    write_video_tensor(video, OUT_DIR / name, fps=FPS, layout="tchw")
     print(f"{video.shape[0]} frames -> {OUT_DIR / name}")
 
 
