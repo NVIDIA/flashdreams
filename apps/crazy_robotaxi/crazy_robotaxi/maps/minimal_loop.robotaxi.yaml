@@ -23,7 +23,7 @@ elements:
     type: intersection
     profile: neighborhood
     geometry:
-      kind: t
+      kind: four_way
     pose:
       x_m: 0
       y_m: 0
@@ -95,7 +95,7 @@ elements:
     geometry:
       length_m: 5
       road_profile: neighborhood
-    attach: {port: road, to: dead_end.end}
+    attach: {port: road, to: hub.south}
 
   - id: lot_driveway
     type: driveway

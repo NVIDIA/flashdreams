@@ -61,9 +61,9 @@ def test_starter_map_resolves_loop_and_parking_destination() -> None:
     )
     ports = {port[0]: port for port in dead_end.ports}
     assert ports["start"][4] is True
-    assert ports["end"][4] is True
+    assert ports["end"][4] is False
     end_xy = np.asarray(ports["end"][1:3], dtype=np.float32)
-    assert not any(
+    assert any(
         np.allclose(segment[:, :2].mean(axis=0), end_xy, atol=1.0e-3)
         for segment in game_map.collision_segments_world
     )
@@ -93,7 +93,6 @@ def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
     game_map = load_game_map(_STARTER_MAP)
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
 
-    assert lanes["dead_end:lane:1"].successor_ids == ("lot_opening:lane:1",)
     assert lanes["lot_opening:lane:1"].successor_ids == ("lot_driveway:lane:1",)
     assert lanes["lot_driveway:lane:1"].successor_ids == ("neighborhood_lot:lane:1",)
     assert lanes["neighborhood_lot:lane:1"].successor_ids == (
@@ -248,4 +247,17 @@ def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:
     )
 
     with pytest.raises(GameMapError, match="does not close: gap="):
+        load_game_map(broken)
+
+
+def test_element_overlap_validation_rejects_crossing_parking_lot(
+    tmp_path: Path,
+) -> None:
+    source = _STARTER_MAP.read_text(encoding="utf-8")
+    broken = tmp_path / "overlap.robotaxi.yaml"
+    broken.write_text(
+        source.replace("to: hub.south", "to: dead_end.end"), encoding="utf-8"
+    )
+
+    with pytest.raises(GameMapError, match="Elements 'north_road'.*overlap"):
         load_game_map(broken)

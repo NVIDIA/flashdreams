@@ -609,6 +609,93 @@ def _segments(points: np.ndarray) -> np.ndarray:
     return np.stack((points[:-1], points[1:]), axis=1).astype(np.float32)
 
 
+def _cross_2d(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    return float((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+
+
+def _point_on_polygon_edge(point: np.ndarray, polygon: np.ndarray) -> bool:
+    for start, end in zip(polygon[:-1], polygon[1:], strict=True):
+        if abs(_cross_2d(start, end, point)) > _PLACEMENT_TOLERANCE_M:
+            continue
+        if (
+            min(start[0], end[0]) - _PLACEMENT_TOLERANCE_M
+            <= point[0]
+            <= max(start[0], end[0]) + _PLACEMENT_TOLERANCE_M
+            and min(start[1], end[1]) - _PLACEMENT_TOLERANCE_M
+            <= point[1]
+            <= max(start[1], end[1]) + _PLACEMENT_TOLERANCE_M
+        ):
+            return True
+    return False
+
+
+def _point_in_polygon_interior(point: np.ndarray, polygon: np.ndarray) -> bool:
+    if _point_on_polygon_edge(point, polygon):
+        return False
+    inside = False
+    x, y = float(point[0]), float(point[1])
+    for start, end in zip(polygon[:-1], polygon[1:], strict=True):
+        y_crosses = (float(start[1]) > y) != (float(end[1]) > y)
+        if not y_crosses:
+            continue
+        crossing_x = float(start[0]) + (y - float(start[1])) * (
+            float(end[0]) - float(start[0])
+        ) / (float(end[1]) - float(start[1]))
+        if x < crossing_x:
+            inside = not inside
+    return inside
+
+
+def _polygons_overlap_interior(first: np.ndarray, second: np.ndarray) -> bool:
+    first_min = np.min(first, axis=0)
+    first_max = np.max(first, axis=0)
+    second_min = np.min(second, axis=0)
+    second_max = np.max(second, axis=0)
+    if np.any(
+        np.minimum(first_max, second_max) - np.maximum(first_min, second_min)
+        <= _PLACEMENT_TOLERANCE_M
+    ):
+        return False
+    for first_start, first_end in zip(first[:-1], first[1:], strict=True):
+        for second_start, second_end in zip(second[:-1], second[1:], strict=True):
+            first_side_a = _cross_2d(first_start, first_end, second_start)
+            first_side_b = _cross_2d(first_start, first_end, second_end)
+            second_side_a = _cross_2d(second_start, second_end, first_start)
+            second_side_b = _cross_2d(second_start, second_end, first_end)
+            if (
+                first_side_a * first_side_b < -_PLACEMENT_TOLERANCE_M
+                and second_side_a * second_side_b < -_PLACEMENT_TOLERANCE_M
+            ):
+                return True
+    return any(
+        _point_in_polygon_interior(point, second) for point in first[:-1]
+    ) or any(_point_in_polygon_interior(point, first) for point in second[:-1])
+
+
+def _validate_element_overlaps(
+    elements: list[GameMapElement], connections: dict[str, str]
+) -> None:
+    connected_elements = {
+        frozenset(
+            (
+                endpoint.rsplit(".", 1)[0],
+                other.rsplit(".", 1)[0],
+            )
+        )
+        for endpoint, other in connections.items()
+    }
+    for index, first in enumerate(elements):
+        for second in elements[index + 1 :]:
+            if frozenset((first.element_id, second.element_id)) in connected_elements:
+                continue
+            if _polygons_overlap_interior(
+                first.surface_world[:, :2], second.surface_world[:, :2]
+            ):
+                raise GameMapError(
+                    f"Elements {first.element_id!r} and {second.element_id!r} overlap"
+                )
+
+
 def _connected_endpoints(connections: set[frozenset[str]]) -> dict[str, str]:
     result: dict[str, str] = {}
     for connection in connections:
@@ -1191,6 +1278,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             )
             elements.append(element)
             collision_groups.extend(curbs)
+    _validate_element_overlaps(elements, connections)
     _wire_lane_successors(lane_builds, specs, poses, connections)
     lane_by_id = {lane.lane_id: lane for lane in lane_builds}
     spawns_raw = _sequence(doc.get("spawns"), "spawns")
