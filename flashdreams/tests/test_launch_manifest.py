@@ -29,6 +29,24 @@ def _config(name: str = "demo-runner") -> RunnerConfig:
     )
 
 
+def test_entrypoint_routes_application_slug_through_unified_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flashdreams.demo import application as application_module
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(application_module, "entrypoint", calls.append)
+    monkeypatch.setattr(
+        application_module,
+        "registered_application_slugs",
+        lambda: ("t2v-fake",),
+    )
+
+    cli.entrypoint(["t2v-fake", "--prompt", "A waterfall"])
+
+    assert calls == [["t2v-fake", "--prompt", "A waterfall"]]
+
+
 def test_launch_manifest_loads_strict_sections_and_relative_paths(
     tmp_path: Path,
 ) -> None:

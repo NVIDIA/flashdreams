@@ -15,6 +15,9 @@
 
 from __future__ import annotations
 
+import threading
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from flashvsr.grpc.protos import flashvsr_pb2 as pb2
@@ -103,3 +106,69 @@ def test_attention_mode_auto_falls_back_to_full_when_sparse_unavailable(
     )
 
     assert grpc_server._resolve_attention_mode("auto") == "full"
+
+
+def test_grpc_server_defaults_to_loopback() -> None:
+    from flashvsr.grpc import uplift_server as grpc_server
+
+    assert grpc_server._grpc_listen_address(50051) == "127.0.0.1:50051"
+
+
+def test_unary_session_token_prevents_cross_client_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flashvsr.grpc import uplift_server as grpc_server
+
+    class Context:
+        code = None
+        details = None
+
+        def set_code(self, code) -> None:
+            self.code = code
+
+        def set_details(self, details: str) -> None:
+            self.details = details
+
+    server = object.__new__(grpc_server.FlashVSR)
+    server._default_H = 4
+    server._default_W = 6
+    server._default_scale = 2
+    server._default_sparse_ratio = 1.5
+    server._attention_mode = "full"
+    server._sessions = {}
+    server._sessions_lock = threading.Lock()
+    monkeypatch.setattr(
+        server,
+        "_get_upsampler",
+        lambda *_args: SimpleNamespace(initialize_cache=lambda: object()),
+    )
+
+    owner = Context()
+    started = server.start_session(
+        pb2.StartSessionRequest(session_id="owner", input_height=4, input_width=6),
+        owner,
+    )
+
+    assert started.success
+    assert started.session_token
+
+    attacker = Context()
+    denied_end = server.end_session(pb2.EndSessionRequest(session_id="owner"), attacker)
+    assert not denied_end.success
+    assert attacker.code == grpc_server.grpc.StatusCode.PERMISSION_DENIED
+    assert "owner" in server._sessions
+
+    chunk_attacker = Context()
+    denied_chunk = server.upscale_chunk(
+        pb2.UpscaleChunkRequest(session_id="owner"),
+        chunk_attacker,
+    )
+    assert denied_chunk.error == "invalid session token"
+    assert chunk_attacker.code == grpc_server.grpc.StatusCode.PERMISSION_DENIED
+
+    ended = server.end_session(
+        pb2.EndSessionRequest(session_id="owner", session_token=started.session_token),
+        owner,
+    )
+    assert ended.success
+    assert "owner" not in server._sessions

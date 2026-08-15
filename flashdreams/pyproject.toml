@@ -116,6 +116,10 @@ runners = [
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
+local-window = [
+    "slangpy==0.42.0",
+]
+
 # Optional NVIDIA VFX runtime used only by the RTX postprocess presets.
 # Kept out of the default install because it is proprietary and requires
 # supported NVIDIA RTX hardware.

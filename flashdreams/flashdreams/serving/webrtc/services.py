@@ -17,12 +17,23 @@ import inspect
 import json
 import math
 import threading
+import time
 from collections import deque
-from collections.abc import Callable, Coroutine, Mapping, MutableSet, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Coroutine,
+    Mapping,
+    MutableSet,
+    Sequence,
+)
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from flashdreams.demo.io import InputHandler
+from flashdreams.demo.outputs import WebRTCOutputSink
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
     StepRequirements,
     StepResult,
@@ -32,6 +43,11 @@ from flashdreams.runtime import (
     UserInputSchema,
 )
 from flashdreams.runtime._utils import freeze_mapping
+from flashdreams.runtime.canonical import (
+    DRIVER_COMMAND,
+    InputCanonicalizer,
+    KeyboardToDriverCommand,
+)
 from flashdreams.runtime.demo import (
     AsyncSessionDriver,
     DemoAdapter,
@@ -39,7 +55,6 @@ from flashdreams.runtime.demo import (
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
     ModelWarmupPlan,
-    OutputDecision,
     PreparedScenario,
     RealtimeSessionDriver,
     RealtimeWindowResult,
@@ -62,6 +77,8 @@ from flashdreams.runtime.demo.timing import (
     DeterministicClock,
     RealtimeClock,
 )
+from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
+from flashdreams.runtime.keyboard import normalize_key
 
 from .messages import (
     MESSAGE_TYPE_ACTION,
@@ -272,6 +289,80 @@ class WebRTCTransportService:
             callback(reason)
 
 
+class WebRTCManagerLifecycle:
+    """Shared preload, admission, and client-liveness behavior for managers."""
+
+    def __init__(
+        self,
+        *,
+        busy_message: str,
+        client_liveness_timeout_s: float,
+        health_check: Callable[[], bool] | None = None,
+    ) -> None:
+        if client_liveness_timeout_s <= 0:
+            raise ValueError("client_liveness_timeout_s must be > 0")
+        self.busy_message = busy_message
+        self.client_liveness_timeout_s = float(client_liveness_timeout_s)
+        self.admission = SingleSessionAdmissionPolicy(health_check=health_check)
+        self._preload_lock = asyncio.Lock()
+        self._runtime_ready = False
+
+    @property
+    def runtime_ready(self) -> bool:
+        """Whether the one-time preload callback completed successfully."""
+        return self._runtime_ready
+
+    async def ensure_preloaded(
+        self,
+        initialize: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Run ``initialize`` exactly once, serializing concurrent callers."""
+        async with self._preload_lock:
+            if self._runtime_ready:
+                return
+            await initialize()
+            self._runtime_ready = True
+
+    def mark_ready(self) -> None:
+        """Mark the lifecycle ready for compatibility setup and test fixtures."""
+        self._runtime_ready = True
+
+    def mark_unready(self) -> None:
+        """Mark the lifecycle unavailable after manager shutdown."""
+        self._runtime_ready = False
+
+    def reserve(self) -> Any:
+        """Reserve the single peer slot or raise the manager's busy error."""
+        reservation = self.admission.try_reserve()
+        if reservation is None:
+            raise SessionBusyError(self.busy_message)
+        return reservation
+
+    async def watch_client_liveness(
+        self,
+        *,
+        is_closed: Callable[[], bool],
+        last_message_at: Callable[[], float],
+        close_session: Callable[[], Awaitable[None]],
+        check_interval_s: float = 1.0,
+    ) -> None:
+        """Close a peer whose control channel has exceeded the silence limit."""
+        if check_interval_s <= 0:
+            raise ValueError("check_interval_s must be > 0")
+        loop = asyncio.get_running_loop()
+        while not is_closed():
+            elapsed_s = loop.time() - last_message_at()
+            if elapsed_s >= self.client_liveness_timeout_s:
+                await close_session()
+                return
+            await asyncio.sleep(
+                min(
+                    check_interval_s,
+                    self.client_liveness_timeout_s - elapsed_s,
+                )
+            )
+
+
 @dataclass(slots=True)
 class WebRTCActivationPolicy:
     """Activate on the first browser action/event or stop on disconnect."""
@@ -342,6 +433,132 @@ class WebRTCActivationPolicy:
         anchor = getattr(clock, "anchor", None)
         if callable(now) and callable(anchor):
             anchor(now())
+
+
+class ApplicationWebRTCInputHandler(InputHandler):
+    """Convert browser key actions into application canonical input windows."""
+
+    def __init__(
+        self,
+        input_schema: CanonicalInputSchema,
+        *,
+        clock: Any = time.monotonic,
+    ) -> None:
+        unsupported = [
+            modality.name
+            for modality in input_schema.modalities
+            if not modality.is_satisfied_by(DRIVER_COMMAND)
+        ]
+        if unsupported:
+            raise ValueError(
+                "WebRTC input cannot provide canonical modalities: "
+                f"{sorted(set(unsupported))}."
+            )
+        self._requested_names = frozenset(
+            modality.name for modality in input_schema.modalities
+        )
+        converters = (
+            [KeyboardToDriverCommand()]
+            if DRIVER_COMMAND.name in self._requested_names
+            else []
+        )
+        self._canonicalizer = InputCanonicalizer(converters)
+        self._clock = clock
+        self._events: list[UserInputEvent] = []
+        self._lock = threading.Lock()
+        self._opened = False
+        self._session_start_s = 0.0
+        self._window_start_s = 0.0
+
+    @property
+    def browser_controls(self) -> tuple[dict[str, object], ...]:
+        """Return generic browser controls for the requested modalities."""
+        if DRIVER_COMMAND.name not in self._requested_names:
+            return ()
+        return (
+            {
+                "label": "Drive",
+                "keys": ("w", "a", "s", "d"),
+            },
+            {
+                "label": "Stop",
+                "keys": ({"key": "space", "label": "Stop"},),
+            },
+        )
+
+    def open(self, session_info: SessionInfo) -> None:
+        """Open one browser-input session and discard stale events."""
+        del session_info
+        self._canonicalizer.reset()
+        with self._lock:
+            self._events.clear()
+        self._session_start_s = self._clock()
+        self._window_start_s = 0.0
+        self._opened = True
+
+    def current_inputs(self) -> CanonicalInputWindow:
+        """Return canonical levels for events received since the last call."""
+        if not self._opened:
+            raise RuntimeError("Cannot fetch inputs from a closed input handler.")
+        now_s = max(0.0, self._clock() - self._session_start_s)
+        with self._lock:
+            events = tuple(self._events)
+            self._events.clear()
+        if events and events[-1].timestamp_s >= now_s:
+            now_s = math.nextafter(events[-1].timestamp_s, math.inf)
+        window = TimeWindow(start_s=self._window_start_s, end_s=now_s)
+        self._window_start_s = now_s
+        canonical = self._canonicalizer.canonicalize(
+            UserInputs(events=events),
+            window=window,
+            source_schema=WEBRTC_USER_INPUT_SCHEMA,
+        )
+        return CanonicalInputWindow(
+            values={
+                name: value
+                for name, value in canonical.values.items()
+                if name in self._requested_names
+            },
+            metadata=canonical.metadata,
+            window=window,
+        )
+
+    def handle_browser_payload(self, payload: Mapping[str, Any]) -> bool:
+        """Record one supported browser action; return whether it was consumed."""
+        if payload.get("type") != MESSAGE_TYPE_ACTION:
+            return False
+        action = payload.get("action")
+        if not isinstance(action, Mapping):
+            return False
+        raw_event = action.get("event")
+        event_type = {
+            "keydown": "key_down",
+            "keyup": "key_up",
+            "key_down": "key_down",
+            "key_up": "key_up",
+        }.get(raw_event)
+        key = action.get("key")
+        if event_type is None or not isinstance(key, str) or not key.strip():
+            return False
+        if not self._opened or DRIVER_COMMAND.name not in self._requested_names:
+            return False
+        event = UserInputEvent(
+            timestamp_s=max(0.0, self._clock() - self._session_start_s),
+            event_type=event_type,
+            payload={"key": normalize_key(key)},
+            source="webrtc-browser",
+        )
+        with self._lock:
+            if not self._opened:
+                return False
+            self._events.append(event)
+        return True
+
+    def close(self) -> None:
+        """Close the handler and discard queued browser events."""
+        self._opened = False
+        with self._lock:
+            self._events.clear()
 
 
 @dataclass(slots=True)
@@ -604,60 +821,30 @@ class WebRTCInputSource:
         )
 
 
-class WebRTCOutputSink:
-    """Output sink that schedules WebRTC media delivery without blocking."""
+class ApplicationWebRTCInputBridge:
+    """Thread-safe late binding between an I/O factory and its input handler."""
 
-    produces_artifacts = False
+    def __init__(self) -> None:
+        self._handler: ApplicationWebRTCInputHandler | None = None
+        self._lock = threading.Lock()
 
-    def __init__(self, *, bridge: WebRTCOutputBridge) -> None:
-        self._bridge = bridge
-        self._opened = False
-        self._closed = True
-        self._bridge_closed = False
-        self._generation = 0
-        self._force_keyframe = False
-        self.session_info: SessionInfo | None = None
+    def bind(self, handler: ApplicationWebRTCInputHandler) -> None:
+        with self._lock:
+            if self._handler is not None and self._handler is not handler:
+                raise RuntimeError("Application WebRTC input is already bound.")
+            self._handler = handler
 
-    def open(self, session_info: SessionInfo) -> None:
-        self.session_info = session_info
-        self._opened = True
-        self._closed = False
-        self._generation = 0
-        self._force_keyframe = True
-        self._bridge.begin_generation(0)
+    @property
+    def browser_controls(self) -> tuple[dict[str, object], ...]:
+        """Return controls advertised by the currently bound input handler."""
+        with self._lock:
+            handler = self._handler
+        return () if handler is None else handler.browser_controls
 
-    def begin_generation(self, generation: int) -> None:
-        if generation < 0:
-            raise ValueError("generation must be >= 0.")
-        self._generation = generation
-        self._force_keyframe = True
-        self._bridge.begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        if not self._opened or self._closed:
-            raise RuntimeError("Cannot write to a closed output sink.")
-        decision = self._bridge.submit_chunk(
-            result,
-            generation=self._generation,
-            force_keyframe=self._force_keyframe,
-        )
-        self._force_keyframe = False
-        return OutputDecision(
-            should_stop=decision.should_stop,
-            dropped=decision.dropped,
-            drop_policy=decision.drop_policy,
-            backpressure_s=decision.backpressure_s,
-            metadata=decision.metadata,
-        )
-
-    def close(self) -> Sequence[Any]:
-        if self._bridge_closed:
-            return ()
-        self._closed = True
-        self._opened = False
-        self._bridge.close()
-        self._bridge_closed = True
-        return ()
+    def handle_browser_payload(self, payload: Mapping[str, Any]) -> bool:
+        with self._lock:
+            handler = self._handler
+        return False if handler is None else handler.handle_browser_payload(payload)
 
 
 class ThreadSafeWebRTCOutputBridge:
@@ -1210,6 +1397,8 @@ class _ThreadSafeActivationSignal:
 
 
 __all__ = [
+    "ApplicationWebRTCInputBridge",
+    "ApplicationWebRTCInputHandler",
     "AsyncioBlockingPreparationService",
     "BlockingPreparationService",
     "ThreadSafeWebRTCOutputBridge",

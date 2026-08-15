@@ -30,7 +30,7 @@ members = [
     "flashdreams-omnidreams",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
-    "flashdreams-t2v-demo",
+    "flashdreams-t2v",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1023,6 +1023,9 @@ examples = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
+local-window = [
+    { name = "slangpy" },
+]
 rtx-postprocess = [
     { name = "nvidia-vfx" },
 ]
@@ -1078,6 +1081,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.11" },
     { name = "scipy", marker = "extra == 'runners'", specifier = ">=1.11" },
+    { name = "slangpy", marker = "extra == 'local-window'", specifier = "==0.42.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "torch", marker = "sys_platform != 'win32'", specifier = ">=2.9" },
     { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cu130" },
@@ -1088,7 +1092,7 @@ requires-dist = [
     { name = "tyro", specifier = ">=1.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
-provides-extras = ["dev", "examples", "runners", "rtx-postprocess", "serving"]
+provides-extras = ["dev", "examples", "runners", "local-window", "rtx-postprocess", "serving"]
 
 [package.metadata.requires-dev]
 cuda12 = [
@@ -1110,6 +1114,7 @@ version = "0.1.0"
 source = { editable = "integrations/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
 ]
@@ -1122,6 +1127,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1134,6 +1140,7 @@ version = "0.1.0"
 source = { editable = "integrations/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
 ]
 
@@ -1145,6 +1152,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
@@ -1444,6 +1452,7 @@ version = "0.1.0"
 source = { editable = "integrations/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "mediapy" },
 ]
 
@@ -1455,21 +1464,22 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-t2v-demo"
+name = "flashdreams-t2v"
 version = "0.1.0"
-source = { editable = "apps/t2v_demo" }
+source = { editable = "apps/t2v" }
 dependencies = [
-    { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-wan21"

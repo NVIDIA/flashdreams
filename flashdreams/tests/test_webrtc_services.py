@@ -175,10 +175,10 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
+async def test_webrtc_output_sink_returns_presentation_backpressure() -> None:
     loop = asyncio.get_running_loop()
     encoder = _BlockingEncoder()
-    track = _FakeVideoTrack()
+    track = _FakeVideoTrack(queue_depth=3)
     deliveries: list[object] = []
     bridge = ThreadSafeWebRTCOutputBridge(
         loop=loop,
@@ -194,6 +194,7 @@ async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
 
     assert isinstance(decision, OutputDecision)
     assert not decision.dropped
+    assert decision.backpressure_s == pytest.approx(0.1)
     assert encoder.prepared_payloads == [step_result.step_index]
     await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
     assert not encoder.release.is_set()

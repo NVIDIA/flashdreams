@@ -32,6 +32,14 @@ from flashdreams.runtime.demo import (
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_output_decision_validates_presentation_backpressure() -> None:
+    assert OutputDecision(backpressure_s=0.1).backpressure_s == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=-0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=float("inf"))
+
+
 def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
     tmp_path: Path,
 ) -> None:
@@ -107,6 +115,29 @@ def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
             "layout": "thwc",
         }
     ]
+
+
+def test_mp4_output_sink_closes_empty_collector_without_writing(
+    tmp_path: Path,
+) -> None:
+    writer_called = False
+
+    def fake_writer(*args: Any, **kwargs: Any) -> Path:
+        nonlocal writer_called
+        del args, kwargs
+        writer_called = True
+        return tmp_path / "out.mp4"
+
+    sink = Mp4OutputSink(
+        output_path=tmp_path / "out.mp4",
+        fps=24,
+        writer=fake_writer,
+    )
+    sink.open(SessionInfo(output_layout="tchw"))
+
+    assert tuple(sink.close()) == ()
+    assert tuple(sink.close()) == ()
+    assert not writer_called
 
 
 def test_output_sink_is_built_from_demo_spec(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ import asyncio
 import inspect
 from typing import Any, cast
 
+from flashdreams.demo.io import SessionInfo
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import (
     StepRequest,
@@ -17,7 +18,6 @@ from flashdreams.runtime.types import (
 )
 
 from .host import RuntimeHost
-from .outputs import SessionInfo
 from .pipeline import StepPipeline
 from .run_modes import (
     DriverStatus,

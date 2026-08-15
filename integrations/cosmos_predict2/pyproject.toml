@@ -26,9 +26,11 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "mediapy>=1.1",
+    "flashdreams-t2v",
 ]
 
 [tool.uv.sources]
+flashdreams-t2v = { workspace = true }
 flashdreams = { workspace = true }
 
 [project.optional-dependencies]
@@ -43,6 +45,9 @@ dev = [
 [project.entry-points."flashdreams.runner_configs"]
 "cosmos2-t2v-2b-720p" = "cosmos_predict2.config:RUNNER_COSMOS2_T2V_2B_720P"
 "cosmos2-i2v-2b-720p" = "cosmos_predict2.config:RUNNER_COSMOS2_I2V_2B_720P"
+
+[project.entry-points."flashdreams.applications"]
+"t2v-cosmos-predict2" = "cosmos_predict2.t2v.app:create_app"
 
 [tool.setuptools.packages.find]
 include = ["cosmos_predict2*"]

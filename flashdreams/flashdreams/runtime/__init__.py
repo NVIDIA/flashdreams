@@ -21,6 +21,7 @@ from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     CanonicalInputs,
     CanonicalInputSchema,
+    CanonicalInputWindow,
     CanonicalModality,
     InferenceInput,
     InferenceInputSchema,
@@ -69,7 +70,6 @@ from flashdreams.runtime.metrics import (
     RuntimeMetricSample,
 )
 from flashdreams.runtime.output import NullOutputTarget, OutputArtifact, OutputTarget
-from flashdreams.runtime.runner import run_inference_session
 from flashdreams.runtime.types import (
     StepRequest,
     StepRequirements,
@@ -80,6 +80,7 @@ from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
+    "CanonicalInputWindow",
     "CanonicalInputs",
     "CanonicalInputSchema",
     "CanonicalModality",
@@ -132,7 +133,6 @@ __all__ = [
     "StepResult",
     "TimeWindow",
     "ThreadAffineRuntimeWorker",
-    "run_inference_session",
     "step_requirements_from_request",
     "undeclared_inference_inputs",
     "UserInputCapability",

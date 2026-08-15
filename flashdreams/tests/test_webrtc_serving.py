@@ -285,7 +285,14 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v4" in html
+    assert "/static/request_session.js?v=shared-webrtc-v6" in html
+    assert "attemptsRemaining: autoConnectMaxAttempts" in javascript
+    assert javascript.count("connected = true") == 1
+    assert 'pc.connectionState !== "connected"' in javascript
+    assert 'channel.readyState !== "open"' in javascript
+    assert 'setStatus("Connected", "connected")' in javascript
+    assert "isTransientFetchError(error)" in javascript
+    assert "peerConnection !== pc || controlChannel !== channel" in javascript
     for slot in (
         "modelStageSlot",
         "modelStatusSlot",

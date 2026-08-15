@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from flashdreams.runtime import (
+    CanonicalInputSchema,
     InferenceInput,
     StepRequest,
     StepRequirements,
@@ -19,18 +20,22 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
+from flashdreams.runtime.canonical import DRIVER_COMMAND
 from flashdreams.runtime.demo import RunResult
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
+    ApplicationWebRTCSessionManager,
     BaseWebRTCSessionManager,
+    BufferedTrackOutputBridge,
     ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    ApplicationWebRTCInputHandler,
     WebRTCInputSource,
     WebRTCTransportService,
 )
@@ -1224,3 +1229,174 @@ def test_resolve_video_encoder_uses_runtime_encoder_when_present() -> None:
 
     manager = _make_manager(_BaseTestManager, _RuntimeWithEncoder())
     assert manager._resolve_video_encoder() is provided
+
+
+class _BlockingBufferedTrack:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.closed = False
+
+    def prepare_result_frames(self, result: StepResult) -> tuple[object, ...]:
+        del result
+        return (object(),)
+
+    async def enqueue_frames(self, frames: object) -> int:
+        del frames
+        self.started.set()
+        await self.release.wait()
+        return 1
+
+    async def flush(self) -> None:
+        return
+
+    async def close(self) -> None:
+        self.closed = True
+        self.release.set()
+
+    def qsize(self) -> int:
+        return 0
+
+
+def _bridge_result() -> StepResult:
+    return StepResult(step_index=0, output="frame", frame_count=1)
+
+
+@pytest.mark.asyncio
+async def test_buffered_track_bridge_does_not_block_on_stalled_handoff() -> None:
+    track = _BlockingBufferedTrack()
+    bridge = BufferedTrackOutputBridge(
+        loop=asyncio.get_running_loop(),
+        track=cast(Any, track),
+    )
+
+    decision = await asyncio.wait_for(
+        asyncio.to_thread(
+            bridge.submit_chunk,
+            _bridge_result(),
+            generation=0,
+        ),
+        timeout=0.1,
+    )
+
+    assert decision.accepted
+    assert not decision.should_stop
+    assert not decision.dropped
+    await asyncio.wait_for(track.started.wait(), timeout=1.0)
+    bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_buffered_track_bridge_drops_transient_overflow_without_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(manager_module, "_MAX_PENDING_TRACK_CHUNKS", 1)
+    track = _BlockingBufferedTrack()
+    bridge = BufferedTrackOutputBridge(
+        loop=asyncio.get_running_loop(),
+        track=cast(Any, track),
+    )
+
+    first = bridge.submit_chunk(_bridge_result(), generation=0)
+    second = bridge.submit_chunk(_bridge_result(), generation=0)
+
+    assert first.accepted
+    assert second.dropped
+    assert not second.should_stop
+    assert second.metadata["reason"] == "track queue busy"
+    bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_application_manager_close_awaits_application_before_release() -> None:
+    class _Peer:
+        connectionState = "connected"
+
+        async def close(self) -> None:
+            self.connectionState = "closed"
+
+    class _Track:
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class _Bridge:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    manager = ApplicationWebRTCSessionManager()
+    peer = _Peer()
+    track = _Track()
+    bridge = _Bridge()
+
+    manager._peer = cast(Any, peer)
+    manager._track = cast(Any, track)
+    manager._bridge = cast(Any, bridge)
+
+    closing = asyncio.create_task(manager._close_peer(cast(Any, peer)))
+    await asyncio.sleep(0)
+
+    assert bridge.closed
+    assert track.closed
+    assert manager.has_active_session()
+    assert manager._peer is peer
+
+    manager.finish_application()
+    await closing
+
+    assert not manager.has_active_session()
+    assert manager._peer is None
+    assert manager._track is None
+    assert manager._bridge is None
+
+
+def test_application_manager_peer_wait_has_timeout() -> None:
+    manager = ApplicationWebRTCSessionManager(peer_timeout_s=0.01)
+
+    with pytest.raises(TimeoutError, match="Timed out waiting"):
+        manager.connect_output(manager_module.SessionInfo())
+
+
+def test_application_webrtc_input_handler_preserves_key_levels() -> None:
+    now = [10.0]
+    handler = ApplicationWebRTCInputHandler(
+        CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        clock=lambda: now[0],
+    )
+    handler.open(manager_module.SessionInfo())
+
+    now[0] = 10.1
+    assert handler.handle_browser_payload(
+        {"type": "action", "action": {"event": "keydown", "key": "w"}}
+    )
+    pressed = handler.current_inputs()
+
+    now[0] = 10.2
+    held = handler.current_inputs()
+
+    now[0] = 10.3
+    assert handler.handle_browser_payload(
+        {"type": "action", "action": {"event": "keyup", "key": "w"}}
+    )
+    released = handler.current_inputs()
+
+    assert pressed.values["driver_command"]["throttle"] == 1.0
+    assert held.values["driver_command"]["throttle"] == 1.0
+    assert released.values["driver_command"]["throttle"] == 0.0
+    assert pressed.window.start_s == pytest.approx(0.0)
+    assert released.window.end_s == pytest.approx(0.3)
+
+
+def test_application_manager_advertises_input_bridge_controls() -> None:
+    controls = (
+        {"label": "Drive", "keys": ("w", "a", "s", "d")},
+        {"label": "Stop", "keys": ({"key": "space", "label": "Stop"},)},
+    )
+    manager = ApplicationWebRTCSessionManager(
+        input_bridge=SimpleNamespace(browser_controls=controls)
+    )
+
+    assert manager.browser_ui_config() == {"controls": controls}

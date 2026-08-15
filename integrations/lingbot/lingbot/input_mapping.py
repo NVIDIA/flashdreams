@@ -339,8 +339,7 @@ def load_camera_trace(
 class LingbotInputMapping:
     """Build Lingbot per-step camera inputs from canonical user input.
 
-    Two trajectory sources are supported through one mapping object, because
-    ``run_inference_session`` takes a single mapping:
+    One mapping object supports two trajectory sources:
 
     - a fixed :class:`LingbotCameraTrace`, sliced per step, which consumes no
       canonical modality and keeps MP4/benchmark runs deterministic;
