@@ -9,7 +9,7 @@ profiles:
     lanes: [backward, forward]
     speed_limit_mps: 13.4
     curb: true
-    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
 
 elements:
   - id: hub
@@ -93,4 +93,8 @@ spawns:
     variants:
       default:
         image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: A forward-facing taxi driving through a quiet suburban neighborhood in daylight.
+        prompt: >-
+          A forward-facing taxi driving on a full-width two-lane asphalt public
+          street for cars in a quiet suburban neighborhood in daylight, with one
+          lane in each direction, a double solid yellow centerline, concrete
+          curbs, sidewalks, houses, and parked cars.

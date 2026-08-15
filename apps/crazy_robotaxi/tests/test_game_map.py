@@ -105,10 +105,13 @@ def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
     assert len(east_lines) == 1
     divider = east_lines[0]["lane_line"]
     assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])
-    assert divider["styles"] == ["DASHED_SINGLE"]
-    assert lane_rows["east_road:lane:0"]["left_edge_styles"] == ["DASHED_SINGLE"]
+    assert divider["styles"] == ["SOLID_GROUP"]
+    assert divider["colors"] == ["YELLOW"]
+    assert lane_rows["east_road:lane:0"]["left_edge_styles"] == ["SOLID_GROUP"]
+    assert lane_rows["east_road:lane:0"]["left_edge_colors"] == ["YELLOW"]
     assert lane_rows["east_road:lane:0"]["right_edge_styles"] == ["VIRTUAL"]
-    assert lane_rows["east_road:lane:1"]["left_edge_styles"] == ["DASHED_SINGLE"]
+    assert lane_rows["east_road:lane:1"]["left_edge_styles"] == ["SOLID_GROUP"]
+    assert lane_rows["east_road:lane:1"]["left_edge_colors"] == ["YELLOW"]
     assert lane_rows["east_road:lane:1"]["right_edge_styles"] == ["VIRTUAL"]
 
 
@@ -166,6 +169,8 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
     )
     assert scene.game_map is not None
     assert scene.game_map.map_id == "crazy-robotaxi-minimal-loop"
+    assert "full-width two-lane asphalt public street" in scene.prompt
+    assert "double solid yellow centerline" in scene.prompt
     assert scene.initial_speed_mps == pytest.approx(0.0)
     np.testing.assert_allclose(
         scene.initial_rig_to_world[:2, 3],
