@@ -125,7 +125,7 @@ under native DIT.
 ## Semantic game maps
 
 Crazy Robotaxi maps are authored as versioned `.robotaxi.yaml` files. The game
-engine validates named road profiles, snaps road and intersection ports,
+engine validates named road profiles, snaps element ports,
 generates directed navigation lanes and curb colliders, and transparently
 compiles the result into the private ClipGT archive consumed by OmniDreams.
 The generated archive is cached under
@@ -193,6 +193,41 @@ spawns:
 roadside clearance beyond the outer lane rail on each side before the physical
 curb; it defaults to zero.
 
+Parking destinations use three explicit elements. A `parking_lot_opening`
+transitions from its `geometry.road_profile` to its access `profile`; connect
+its `road` and `access` ports to the public road and driveway respectively. A
+straight `driveway` carries the access profile to a rectangular `parking_lot`,
+whose `width_m` and `depth_m` define its enclosed surface. The lot compiler
+cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
+and links the aisle directions with an internal turnaround route.
+
+```yaml
+profiles:
+  parking_access:
+    lane_width_m: 3.2
+    curb_offset_m: 0.4
+    lanes: [backward, forward]
+    speed_limit_mps: 5.5
+    curb: true
+    lane_marking: {style: VIRTUAL, color: WHITE}
+elements:
+  - id: lot_opening
+    type: parking_lot_opening
+    profile: parking_access
+    geometry: {length_m: 5, road_profile: neighborhood}
+    attach: {port: road, to: main.end}
+  - id: lot_driveway
+    type: driveway
+    profile: parking_access
+    geometry: {kind: straight, length_m: 10}
+    attach: {port: start, to: lot_opening.access}
+  - id: neighborhood_lot
+    type: parking_lot
+    profile: parking_access
+    geometry: {width_m: 26, depth_m: 32}
+    attach: {port: entrance, to: lot_driveway.end}
+```
+
 Exactly one element uses `pose`; attached element transforms are derived from
 their ports. Positive arc sweeps turn left and negative sweeps turn right.
 Seed paths are relative to the YAML file. The compiler cache key includes the
@@ -200,9 +235,9 @@ YAML, every referenced seed, and the compiler version, so edits rebuild the
 private archive automatically on the next load.
 
 The current schema supports straight and constant-radius curved road segments,
-T intersections, four-way intersections, flat ground, and per-spawn visual
-variants. Driveways, parking lots and openings, boulevards, elevation, and
-freeform splines are planned extensions.
+T intersections, four-way intersections, driveways, profile-transitioning
+parking-lot openings, bounded parking lots, flat ground, and per-spawn visual
+variants. Boulevards, elevation, and freeform splines are planned extensions.
 
 The bundled WIP map reuses the existing OmniDreams seed image. Its geometry is
 not expected to match that image, so the first generated frames may visibly

@@ -60,7 +60,7 @@ class GameMapLane:
     """Stable compiler-generated lane identifier."""
 
     element_id: str
-    """Owning road or intersection identifier."""
+    """Owning routable map-element identifier."""
 
     centerline_world: FloatArray
     """Directed centerline with shape ``[N, 3]``."""
@@ -101,7 +101,7 @@ class GameMapElement:
     """Schema discriminator such as ``road_segment`` or ``intersection``."""
 
     profile_id: str
-    """Road profile shared by this element and its ports."""
+    """Primary road or access profile used by this element."""
 
     surface_world: FloatArray
     """Closed surface polygon with shape ``[N, 3]``."""

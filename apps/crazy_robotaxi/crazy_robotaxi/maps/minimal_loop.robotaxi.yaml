@@ -1,6 +1,6 @@
 schema_version: 1
 id: crazy-robotaxi-minimal-loop
-name: Minimal Loop and Dead End
+name: Minimal Loop and Parking Lot
 
 profiles:
   neighborhood:
@@ -10,6 +10,13 @@ profiles:
     speed_limit_mps: 13.4
     curb: true
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
+  parking_access:
+    lane_width_m: 3.2
+    curb_offset_m: 0.4
+    lanes: [backward, forward]
+    speed_limit_mps: 5.5
+    curb: true
+    lane_marking: {style: VIRTUAL, color: WHITE}
 
 elements:
   - id: hub
@@ -82,6 +89,26 @@ elements:
     geometry: {kind: straight, length_m: 25}
     attach: {port: start, to: hub.north}
 
+  - id: lot_opening
+    type: parking_lot_opening
+    profile: parking_access
+    geometry:
+      length_m: 5
+      road_profile: neighborhood
+    attach: {port: road, to: dead_end.end}
+
+  - id: lot_driveway
+    type: driveway
+    profile: parking_access
+    geometry: {kind: straight, length_m: 10}
+    attach: {port: start, to: lot_opening.access}
+
+  - id: neighborhood_lot
+    type: parking_lot
+    profile: parking_access
+    geometry: {width_m: 26, depth_m: 32}
+    attach: {port: entrance, to: lot_driveway.end}
+
 connections:
   - {a: west_road.end, b: hub.west}
 
@@ -97,4 +124,5 @@ spawns:
           A forward-facing taxi driving on a full-width two-lane asphalt public
           street for cars in a quiet suburban neighborhood in daylight, with one
           lane in each direction, a double solid yellow centerline, concrete
-          curbs, sidewalks, houses, and parked cars.
+          curbs, sidewalks, houses, parked cars, and a connected neighborhood
+          parking lot reached through a driveway.

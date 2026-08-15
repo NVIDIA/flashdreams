@@ -31,14 +31,17 @@ _STARTER_MAP = (
 )
 
 
-def test_starter_map_resolves_loop_intersection_and_dead_end() -> None:
+def test_starter_map_resolves_loop_and_parking_destination() -> None:
     game_map = load_game_map(_STARTER_MAP)
 
     assert game_map.schema_version == 1
-    assert len(game_map.elements) == 11
+    assert len(game_map.elements) == 14
     assert {element.element_type for element in game_map.elements} == {
         "road_segment",
         "intersection",
+        "parking_lot_opening",
+        "driveway",
+        "parking_lot",
     }
     east_road = next(
         element for element in game_map.elements if element.element_id == "east_road"
@@ -58,12 +61,52 @@ def test_starter_map_resolves_loop_intersection_and_dead_end() -> None:
     )
     ports = {port[0]: port for port in dead_end.ports}
     assert ports["start"][4] is True
-    assert ports["end"][4] is False
+    assert ports["end"][4] is True
     end_xy = np.asarray(ports["end"][1:3], dtype=np.float32)
-    assert any(
+    assert not any(
         np.allclose(segment[:, :2].mean(axis=0), end_xy, atol=1.0e-3)
         for segment in game_map.collision_segments_world
     )
+
+    opening = next(
+        element for element in game_map.elements if element.element_id == "lot_opening"
+    )
+    opening_widths = (
+        float(np.ptp(opening.surface_world[:, 0])),
+        float(np.ptp(opening.surface_world[:, 1])),
+    )
+    assert max(opening_widths) == pytest.approx(8.4)
+    assert all(port[4] for port in opening.ports)
+
+    lot = next(
+        element
+        for element in game_map.elements
+        if element.element_id == "neighborhood_lot"
+    )
+    assert float(np.ptp(lot.surface_world[:, 0])) == pytest.approx(26.0)
+    assert float(np.ptp(lot.surface_world[:, 1])) == pytest.approx(32.0)
+    assert lot.ports[0][0] == "entrance"
+    assert lot.ports[0][4] is True
+
+
+def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+
+    assert lanes["dead_end:lane:1"].successor_ids == ("lot_opening:lane:1",)
+    assert lanes["lot_opening:lane:1"].successor_ids == ("lot_driveway:lane:1",)
+    assert lanes["lot_driveway:lane:1"].successor_ids == ("neighborhood_lot:lane:1",)
+    assert lanes["neighborhood_lot:lane:1"].successor_ids == (
+        "neighborhood_lot:turnaround",
+    )
+    assert lanes["neighborhood_lot:turnaround"].successor_ids == (
+        "neighborhood_lot:lane:0",
+    )
+    assert lanes["neighborhood_lot:lane:0"].successor_ids == ("lot_driveway:lane:0",)
+    assert not lanes["lot_opening:lane:1"].allows_taxi_stops
+    assert not lanes["lot_driveway:lane:1"].allows_taxi_stops
+    assert lanes["neighborhood_lot:lane:1"].allows_taxi_stops
+    assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
 
 
 def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() -> None:
@@ -97,11 +140,16 @@ def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
         for row in game_map_compiler._lane_rows(game_map)
     }
     line_rows = game_map_compiler._lane_line_rows(game_map)
+    area_rows = game_map_compiler._intersection_rows(game_map)
     east_lines = [
         row for row in line_rows if "east_road:lane:0" in row["key"]["label_class_id"]
     ]
 
     assert len(line_rows) == 10
+    assert {row["intersection_area"]["category"] for row in area_rows} == {
+        "intersection",
+        "parking_lot",
+    }
     assert len(east_lines) == 1
     divider = east_lines[0]["lane_line"]
     assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])
@@ -187,7 +235,7 @@ def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:
 
     assert preview.read_text(encoding="utf-8").startswith("<svg")
     option = next(item for item in options if item.path == _STARTER_MAP.resolve())
-    assert option.label == "Minimal Loop and Dead End"
+    assert option.label == "Minimal Loop and Parking Lot"
     assert option.variants == ("default",)
     assert option.thumbnail is not None
 

@@ -31,7 +31,7 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "3"
+_COMPILER_VERSION = "4"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
 _SHARED_EDGE_TOLERANCE_M = 0.01
@@ -111,7 +111,7 @@ def _lane_edge_groups(
     """Group coincident road-lane edges within each authored element."""
     groups: list[list[tuple[GameMapLane, str, np.ndarray]]] = []
     for lane in game_map.lanes:
-        if not lane.allows_taxi_stops:
+        if not lane.allows_taxi_stops or lane.marking_style == "VIRTUAL":
             continue
         for side, points in (
             ("left", lane.left_edge_world),
@@ -232,13 +232,17 @@ def _intersection_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
             "key": _key(game_map, f"intersection:{element.element_id}"),
             "intersection_area": {
                 "location": [_point(point) for point in element.surface_world],
-                "category": "intersection",
+                "category": (
+                    "parking_lot"
+                    if element.element_type == "parking_lot"
+                    else "intersection"
+                ),
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
         for element in game_map.elements
-        if element.element_type == "intersection"
+        if element.element_type in {"intersection", "parking_lot"}
     ]
 
 
