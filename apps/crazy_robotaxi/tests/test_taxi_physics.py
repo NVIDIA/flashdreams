@@ -22,7 +22,7 @@ from crazy_robotaxi.physics import (
     select_traffic_tracks,
     step_taxi_physics_world,
 )
-from omnidreams_game_engine.config import ChunkConfig
+from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
 from omnidreams_game_engine.simulation.components import (
     rigid_body_model_from_vehicle_config,
 )
@@ -89,11 +89,12 @@ def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
 def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
     scene = _scene()
     enclosure = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
+    config = TaxiVehicleConfig()
 
     with patch.object(GamePhysicsWorld, "__init__", return_value=None) as initialize:
         TaxiPhysicsWorld(
             scene,
-            TaxiVehicleConfig(),
+            config,
             traffic_density=1.0,
             enclosure_segments_world=enclosure,
         )
@@ -107,6 +108,8 @@ def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
         np.testing.assert_array_equal(
             initialize.call_args.kwargs["static_barrier_segments_world"], enclosure
         )
+        assert initialize.call_args.kwargs["static_barrier_restitution"] == 0.45
+        assert config.collision_restitution == VehicleConfig().collision_restitution
     np.testing.assert_allclose(physics_scene.line_layers[0].segments_world, enclosure)
     assert len(GamePhysicsWorld._build_barriers(physics_scene)) == 1
 
@@ -301,6 +304,7 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
         _scene(line_layers=(boundary,)),
         config,
         traffic_density=1.0,
+        enclosure_segments_world=boundary.segments_world,
     )
     initial_yaw = math.radians(15.0)
     state = VehicleState(
@@ -315,6 +319,7 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
     )
     command = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
     contact_detected = False
+    contact_velocity_y_mps = 0.0
 
     try:
         for frame_index in range(90):
@@ -328,13 +333,16 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
             native_state = world._world.state_buffer[world._world._ego_slot]
             native_yaw = _yaw_from_quaternion_xyzw(native_state[3:7])
             assert native_yaw == pytest.approx(state.yaw_rad, abs=1.0e-5)
-            contact_detected |= state.ragdoll_active
+            if state.ragdoll_active and not contact_detected:
+                contact_detected = True
+                contact_velocity_y_mps = float(state.velocity_y_mps or 0.0)
             if contact_detected and frame_index > 20:
                 break
     finally:
         world.close()
 
     assert contact_detected is True
+    assert contact_velocity_y_mps < -0.75
     assert state.yaw_rad == pytest.approx(initial_yaw, abs=1.0e-5)
 
 

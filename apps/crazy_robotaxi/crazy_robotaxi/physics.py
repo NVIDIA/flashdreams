@@ -12,7 +12,6 @@ from dataclasses import replace
 import numpy as np
 from loguru import logger
 from ludus_renderer import RigidBodyModel
-from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.simulation.components import canonical_object_type
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
@@ -22,6 +21,8 @@ from omnidreams_game_engine.types import (
     VehicleState,
     WorldLineSegments,
 )
+
+from crazy_robotaxi.driving import TaxiVehicleConfig
 
 _MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
 _CHASSIS_INSET_M = 0.16
@@ -82,7 +83,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
     def __init__(
         self,
         scene: SceneBundle,
-        vehicle: VehicleConfig,
+        vehicle: TaxiVehicleConfig,
         *,
         traffic_density: float,
         enclosure_segments_world: np.ndarray | None = None,
@@ -123,6 +124,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
                 or len(enclosure_segments)
                 else None
             ),
+            static_barrier_restitution=vehicle.curb_collision_restitution,
         )
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "

@@ -30,6 +30,9 @@ class TaxiVehicleConfig(VehicleConfig):
     max_handbrake_yaw_rate_radps: float = 1.5
     max_lateral_accel_mps2: float = 8.5
     max_body_roll_rad: float = 0.16
+    curb_collision_restitution: float = 0.45
+    """Rebound coefficient for map curbs and other static barriers."""
+
     speed_limit_enabled: bool = True
     actor_collision_enabled: bool = True
     static_collision_enabled: bool = True

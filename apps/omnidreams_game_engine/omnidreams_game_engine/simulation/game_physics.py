@@ -58,6 +58,9 @@ _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US = 2_000_000
 """Maximum time moving tracks can remain outside a stationary PhysX window."""
 
 _PHYSX_BARRIER_SPACING_M = 2.0
+_BARRIER_CONTACT_SLOP_M = 0.05
+"""Extra proximity accepted when reinforcing a resolved barrier contact."""
+
 _PHYSX_DEBUG_FORWARD_M = 125.0
 _PHYSX_DEBUG_REAR_M = 15.0
 _PHYSX_DEBUG_LATERAL_M = 100.0
@@ -196,6 +199,60 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
     return tuple(simplified)
 
 
+def _reinforce_static_barrier_rebound(
+    barriers: tuple[InvisibleBarrier, ...],
+    requested_ego: BodyState,
+    resolved_velocity_mps: np.ndarray,
+    ego_model: RigidBodyModel,
+    restitution: float,
+) -> np.ndarray:
+    """Raise outward barrier velocity to the configured restitution floor."""
+    position = np.asarray(requested_ego.position_m[:2], dtype=np.float32)
+    incoming_velocity = np.asarray(requested_ego.linear_velocity_mps, dtype=np.float32)
+    reinforced = np.asarray(resolved_velocity_mps, dtype=np.float32).copy()
+    yaw = _yaw_from_quaternion_xyzw(requested_ego.orientation_xyzw)
+    forward = np.asarray([math.cos(yaw), math.sin(yaw)], dtype=np.float32)
+    left = np.asarray([-forward[1], forward[0]], dtype=np.float32)
+    half_extents = ego_model.half_extents_m
+
+    for barrier in barriers:
+        start = np.asarray(barrier.start_xy_m, dtype=np.float32)
+        end = np.asarray(barrier.end_xy_m, dtype=np.float32)
+        segment = end - start
+        length_squared = float(np.dot(segment, segment))
+        if length_squared <= 1.0e-8:
+            continue
+        alpha = float(
+            np.clip(np.dot(position - start, segment) / length_squared, 0.0, 1.0)
+        )
+        offset = position - (start + segment * alpha)
+        distance = float(np.linalg.norm(offset))
+        if distance > 1.0e-6:
+            normal = offset / distance
+        else:
+            speed = float(np.linalg.norm(incoming_velocity[:2]))
+            normal = (
+                -incoming_velocity[:2] / speed
+                if speed > 1.0e-6
+                else np.asarray([1.0, 0.0], dtype=np.float32)
+            )
+        support = (
+            abs(float(np.dot(normal, forward))) * half_extents[0]
+            + abs(float(np.dot(normal, left))) * half_extents[1]
+        )
+        contact_distance = support + barrier.thickness_m * 0.5
+        if distance > contact_distance + _BARRIER_CONTACT_SLOP_M:
+            continue
+        incoming_normal_speed = float(np.dot(incoming_velocity[:2], normal))
+        if incoming_normal_speed >= 0.0:
+            continue
+        target_outward_speed = -restitution * incoming_normal_speed
+        resolved_normal_speed = float(np.dot(reinforced[:2], normal))
+        if resolved_normal_speed < target_outward_speed:
+            reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
+    return reinforced
+
+
 class GamePhysicsWorld:
     """Adapt a scene bundle to Ludus and delegate all simulation to PhysX."""
 
@@ -206,9 +263,16 @@ class GamePhysicsWorld:
         *,
         model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
         static_barrier_segments_world: np.ndarray | None = None,
+        static_barrier_restitution: float | None = None,
     ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
+        if static_barrier_restitution is not None and (
+            not math.isfinite(static_barrier_restitution)
+            or not 0.0 <= static_barrier_restitution <= 1.0
+        ):
+            raise ValueError("static_barrier_restitution must be within [0, 1]")
+        self._static_barrier_restitution = static_barrier_restitution
         adapt_model = model_adapter or (lambda model: model)
 
         def adapted_object(track: object) -> SceneObject:
@@ -605,6 +669,21 @@ class GamePhysicsWorld:
             timestamp_us,
             dt_s,
         )
+        if self._static_barrier_restitution is not None:
+            reinforced_velocity = _reinforce_static_barrier_rebound(
+                self._physics_graph.barriers,
+                ego_before_step,
+                physics_step.ego.linear_velocity_mps,
+                self._ego_model,
+                self._static_barrier_restitution,
+            )
+            physics_step = replace(
+                physics_step,
+                ego=replace(
+                    physics_step.ego,
+                    linear_velocity_mps=reinforced_velocity,
+                ),
+            )
         active_objects = {
             scene_object.object_id: scene_object
             for scene_object in self._physics_graph.objects
