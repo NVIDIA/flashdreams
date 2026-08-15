@@ -306,7 +306,7 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
         traffic_density=1.0,
         enclosure_segments_world=boundary.segments_world,
     )
-    initial_yaw = math.radians(15.0)
+    initial_yaw = math.radians(30.0)
     state = VehicleState(
         x_m=-5.0,
         y_m=-3.0,
@@ -320,10 +320,13 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
     command = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
     contact_detected = False
     contact_velocity_y_mps = 0.0
+    contact_requested_speed_mps = 0.0
+    contact_resolved_speed_mps = 0.0
 
     try:
         for frame_index in range(90):
             state = integrate_taxi_vehicle(state, command, 1.0 / 30.0, config)
+            requested_speed_mps = state.speed_mps
             state, _ = world.step_with_command(
                 state,
                 command,
@@ -336,6 +339,8 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
             if state.ragdoll_active and not contact_detected:
                 contact_detected = True
                 contact_velocity_y_mps = float(state.velocity_y_mps or 0.0)
+                contact_requested_speed_mps = requested_speed_mps
+                contact_resolved_speed_mps = state.speed_mps
             if contact_detected and frame_index > 20:
                 break
     finally:
@@ -343,6 +348,9 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
 
     assert contact_detected is True
     assert contact_velocity_y_mps < -0.75
+    assert contact_resolved_speed_mps >= (
+        contact_requested_speed_mps * config.curb_forward_momentum_retention - 1.0e-5
+    )
     assert state.yaw_rad == pytest.approx(initial_yaw, abs=1.0e-5)
 
 

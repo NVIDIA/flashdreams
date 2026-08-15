@@ -126,6 +126,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             ),
             static_barrier_restitution=vehicle.curb_collision_restitution,
         )
+        self._taxi_vehicle = vehicle
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
             "arcade handbrake, inset chassis, traffic_density={:.2f}, enclosure_segments={}",
@@ -160,11 +161,25 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             ],
             dtype=np.float32,
         )
+        forward_speed_mps = float(np.dot(velocity, forward))
+        if (
+            getattr(self, "last_step_static_barrier_collision", False)
+            and not command.handbrake
+            and command.brake <= 0.01
+            and not command.stop
+            and state.speed_mps * forward_speed_mps > 0.0
+        ):
+            retained_speed_mps = (
+                abs(state.speed_mps)
+                * self._taxi_vehicle.curb_forward_momentum_retention
+            )
+            if abs(forward_speed_mps) < retained_speed_mps:
+                forward_speed_mps = math.copysign(retained_speed_mps, state.speed_mps)
         resolved = replace(
             resolved,
             yaw_rad=state.yaw_rad,
             yaw_rate_radps=state.yaw_rate_radps,
-            speed_mps=float(np.dot(velocity, forward)),
+            speed_mps=forward_speed_mps,
             velocity_x_mps=float(velocity[0]),
             velocity_y_mps=float(velocity[1]),
         )

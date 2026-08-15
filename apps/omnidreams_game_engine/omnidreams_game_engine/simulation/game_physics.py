@@ -205,8 +205,8 @@ def _reinforce_static_barrier_rebound(
     resolved_velocity_mps: np.ndarray,
     ego_model: RigidBodyModel,
     restitution: float,
-) -> np.ndarray:
-    """Raise outward barrier velocity to the configured restitution floor."""
+) -> tuple[np.ndarray, bool]:
+    """Raise outward barrier velocity and report inward barrier contact."""
     position = np.asarray(requested_ego.position_m[:2], dtype=np.float32)
     incoming_velocity = np.asarray(requested_ego.linear_velocity_mps, dtype=np.float32)
     reinforced = np.asarray(resolved_velocity_mps, dtype=np.float32).copy()
@@ -214,6 +214,7 @@ def _reinforce_static_barrier_rebound(
     forward = np.asarray([math.cos(yaw), math.sin(yaw)], dtype=np.float32)
     left = np.asarray([-forward[1], forward[0]], dtype=np.float32)
     half_extents = ego_model.half_extents_m
+    contact_detected = False
 
     for barrier in barriers:
         start = np.asarray(barrier.start_xy_m, dtype=np.float32)
@@ -246,11 +247,12 @@ def _reinforce_static_barrier_rebound(
         incoming_normal_speed = float(np.dot(incoming_velocity[:2], normal))
         if incoming_normal_speed >= 0.0:
             continue
+        contact_detected = True
         target_outward_speed = -restitution * incoming_normal_speed
         resolved_normal_speed = float(np.dot(reinforced[:2], normal))
         if resolved_normal_speed < target_outward_speed:
             reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
-    return reinforced
+    return reinforced, contact_detected
 
 
 class GamePhysicsWorld:
@@ -326,6 +328,7 @@ class GamePhysicsWorld:
         self._detached_entity_ids: set[str] = set()
         self.last_step_timings = None
         self.last_step_actor_collision = False
+        self.last_step_static_barrier_collision = False
         self._visual_flare_collision_velocity_mps: np.ndarray | None = None
         self._visual_flare_driving_direction_xy: np.ndarray | None = None
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
@@ -669,8 +672,12 @@ class GamePhysicsWorld:
             timestamp_us,
             dt_s,
         )
+        self.last_step_static_barrier_collision = False
         if self._static_barrier_restitution is not None:
-            reinforced_velocity = _reinforce_static_barrier_rebound(
+            (
+                reinforced_velocity,
+                self.last_step_static_barrier_collision,
+            ) = _reinforce_static_barrier_rebound(
                 self._physics_graph.barriers,
                 ego_before_step,
                 physics_step.ego.linear_velocity_mps,

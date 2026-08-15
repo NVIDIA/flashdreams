@@ -33,6 +33,9 @@ class TaxiVehicleConfig(VehicleConfig):
     curb_collision_restitution: float = 0.45
     """Rebound coefficient for map curbs and other static barriers."""
 
+    curb_forward_momentum_retention: float = 0.85
+    """Minimum forward-speed fraction retained through a glancing curb impact."""
+
     speed_limit_enabled: bool = True
     actor_collision_enabled: bool = True
     static_collision_enabled: bool = True
