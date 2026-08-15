@@ -43,12 +43,16 @@ def test_starter_map_resolves_loop_intersection_and_dead_end() -> None:
     east_road = next(
         element for element in game_map.elements if element.element_id == "east_road"
     )
-    assert float(np.ptp(east_road.surface_world[:, 1])) == pytest.approx(10.0)
+    assert float(np.ptp(east_road.surface_world[:, 1])) == pytest.approx(8.4)
     for lane in (lane for lane in game_map.lanes if lane.element_id == "east_road"):
         rail_widths = np.linalg.norm(
             lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
         )
-        np.testing.assert_allclose(rail_widths, 5.0)
+        np.testing.assert_allclose(rail_widths, 3.6)
+        roadside_offsets = np.linalg.norm(
+            lane.roadside_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
+        )
+        np.testing.assert_allclose(roadside_offsets, 0.6, atol=1.0e-6)
     dead_end = next(
         element for element in game_map.elements if element.element_id == "dead_end"
     )
@@ -67,7 +71,9 @@ def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() 
     lanes = tuple(
         NavigationLane(
             centerline_world=lane.centerline_world,
-            road_edge_world=(lane.right_edge_world if lane.allows_taxi_stops else None),
+            road_edge_world=(
+                lane.roadside_edge_world if lane.allows_taxi_stops else None
+            ),
             allows_taxi_stops=lane.allows_taxi_stops,
             lane_id=lane.lane_id,
             successor_ids=lane.successor_ids,
@@ -84,7 +90,7 @@ def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() 
     assert len(navigation.sample_waypoints(spacing_m=20.0, offset_m=0.0)) > 2
 
 
-def test_compiler_emits_shared_divider_and_outer_curbs() -> None:
+def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
     game_map = load_game_map(_STARTER_MAP)
     lane_rows = {
         row["key"]["label_class_id"]: row["lane"]
@@ -101,9 +107,9 @@ def test_compiler_emits_shared_divider_and_outer_curbs() -> None:
     assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])
     assert divider["styles"] == ["DASHED_SINGLE"]
     assert lane_rows["east_road:lane:0"]["left_edge_styles"] == ["DASHED_SINGLE"]
-    assert lane_rows["east_road:lane:0"]["right_edge_styles"] == ["TALL_CURB"]
+    assert lane_rows["east_road:lane:0"]["right_edge_styles"] == ["VIRTUAL"]
     assert lane_rows["east_road:lane:1"]["left_edge_styles"] == ["DASHED_SINGLE"]
-    assert lane_rows["east_road:lane:1"]["right_edge_styles"] == ["TALL_CURB"]
+    assert lane_rows["east_road:lane:1"]["right_edge_styles"] == ["VIRTUAL"]
 
 
 def test_starter_map_can_initialize_gameplay() -> None:
@@ -112,7 +118,9 @@ def test_starter_map_can_initialize_gameplay() -> None:
     lanes = tuple(
         NavigationLane(
             centerline_world=lane.centerline_world,
-            road_edge_world=(lane.right_edge_world if lane.allows_taxi_stops else None),
+            road_edge_world=(
+                lane.roadside_edge_world if lane.allows_taxi_stops else None
+            ),
             allows_taxi_stops=lane.allows_taxi_stops,
             lane_id=lane.lane_id,
             successor_ids=lane.successor_ids,
@@ -182,7 +190,9 @@ def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:
 def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:
     source = _STARTER_MAP.read_text(encoding="utf-8")
     broken = tmp_path / "broken.robotaxi.yaml"
-    broken.write_text(source.replace("length_m: 80", "length_m: 75"), encoding="utf-8")
+    broken.write_text(
+        source.replace("length_m: 76.8", "length_m: 72"), encoding="utf-8"
+    )
 
     with pytest.raises(GameMapError, match="does not close: gap="):
         load_game_map(broken)

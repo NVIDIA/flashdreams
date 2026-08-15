@@ -31,7 +31,7 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "2"
+_COMPILER_VERSION = "3"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
 _SHARED_EDGE_TOLERANCE_M = 0.01
@@ -154,12 +154,12 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                     "map_end": "NONE",
                     "use_types": [],
                     "left_edge_styles": (
-                        [lane.marking_style if left_shared else "TALL_CURB"]
+                        [lane.marking_style if left_shared else "VIRTUAL"]
                         if lane.allows_taxi_stops
                         else []
                     ),
                     "right_edge_styles": (
-                        [lane.marking_style if right_shared else "TALL_CURB"]
+                        [lane.marking_style if right_shared else "VIRTUAL"]
                         if lane.allows_taxi_stops
                         else []
                     ),

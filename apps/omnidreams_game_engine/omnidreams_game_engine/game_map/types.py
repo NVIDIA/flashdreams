@@ -71,6 +71,9 @@ class GameMapLane:
     right_edge_world: FloatArray
     """Right rail in travel direction with shape ``[N, 3]``."""
 
+    roadside_edge_world: FloatArray
+    """Physical roadside edge to the right of travel with shape ``[N, 3]``."""
+
     speed_limit_mps: float
     """Authored speed limit for this lane."""
 
@@ -167,6 +170,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "centerline_world": lane.centerline_world.tolist(),
                 "left_edge_world": lane.left_edge_world.tolist(),
                 "right_edge_world": lane.right_edge_world.tolist(),
+                "roadside_edge_world": lane.roadside_edge_world.tolist(),
                 "speed_limit_mps": lane.speed_limit_mps,
                 "marking_style": lane.marking_style,
                 "marking_color": lane.marking_color,
@@ -218,6 +222,10 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             centerline_world=np.asarray(raw["centerline_world"], dtype=np.float32),
             left_edge_world=np.asarray(raw["left_edge_world"], dtype=np.float32),
             right_edge_world=np.asarray(raw["right_edge_world"], dtype=np.float32),
+            roadside_edge_world=np.asarray(
+                raw.get("roadside_edge_world", raw["right_edge_world"]),
+                dtype=np.float32,
+            ),
             speed_limit_mps=float(raw["speed_limit_mps"]),
             marking_style=str(raw["marking_style"]),
             marking_color=str(raw["marking_color"]),

@@ -46,6 +46,7 @@ class GameMapHeader:
 class _Profile:
     profile_id: str
     lane_width_m: float
+    curb_offset_m: float
     directions: tuple[str, ...]
     speed_limit_mps: float
     curb: bool
@@ -55,6 +56,10 @@ class _Profile:
     @property
     def width_m(self) -> float:
         return self.lane_width_m * len(self.directions)
+
+    @property
+    def surface_width_m(self) -> float:
+        return self.width_m + 2.0 * self.curb_offset_m
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,7 @@ class _LaneBuild:
     centerline: np.ndarray
     left_edge: np.ndarray
     right_edge: np.ndarray
+    roadside_edge: np.ndarray
     speed_limit_mps: float
     marking_style: str
     marking_color: str
@@ -118,6 +124,16 @@ def _positive_float(value: object, context: str) -> float:
         raise GameMapError(f"{context} must be a number") from exc
     if not math.isfinite(number) or number <= 0.0:
         raise GameMapError(f"{context} must be positive")
+    return number
+
+
+def _nonnegative_float(value: object, context: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise GameMapError(f"{context} must be a number") from exc
+    if not math.isfinite(number) or number < 0.0:
+        raise GameMapError(f"{context} must be nonnegative")
     return number
 
 
@@ -223,6 +239,10 @@ def _parse_profiles(doc: dict[str, Any]) -> dict[str, _Profile]:
             lane_width_m=_positive_float(
                 raw.get("lane_width_m"), f"profile {profile_id!r}.lane_width_m"
             ),
+            curb_offset_m=_nonnegative_float(
+                raw.get("curb_offset_m", 0.0),
+                f"profile {profile_id!r}.curb_offset_m",
+            ),
             directions=directions,
             speed_limit_mps=_positive_float(
                 raw.get("speed_limit_mps", 13.4),
@@ -325,7 +345,7 @@ def _local_ports(spec: _ElementSpec, profile: _Profile) -> tuple[_Port, ...]:
         raise GameMapError(
             f"Element {spec.element_id!r} has unsupported intersection kind {kind!r}"
         )
-    half = profile.width_m
+    half = profile.surface_width_m
     ports = [
         _Port("east", half, 0.0, 0.0),
         _Port("west", -half, 0.0, 180.0),
@@ -534,7 +554,7 @@ def _road_geometry(
 ) -> tuple[GameMapElement, list[_LaneBuild], list[np.ndarray]]:
     local_center = _sample_centerline(spec)
     world_center = _transform_xy(local_center, pose)
-    surface = _surface_for_road(world_center, profile.width_m)
+    surface = _surface_for_road(world_center, profile.surface_width_m)
     ports = _world_ports(spec, profile, pose)
     lane_builds: list[_LaneBuild] = []
     for index, direction in enumerate(profile.directions):
@@ -548,6 +568,10 @@ def _road_geometry(
             start_port, end_port = end_port, start_port
         left = _offset_polyline(lane_center, profile.lane_width_m * 0.5)
         right = _offset_polyline(lane_center, -profile.lane_width_m * 0.5)
+        roadside = _offset_polyline(
+            lane_center,
+            -(profile.lane_width_m * 0.5 + profile.curb_offset_m),
+        )
         lane_builds.append(
             _LaneBuild(
                 f"{spec.element_id}:lane:{index}",
@@ -555,6 +579,7 @@ def _road_geometry(
                 _xyz(lane_center),
                 _xyz(left),
                 _xyz(right),
+                _xyz(roadside),
                 profile.speed_limit_mps,
                 profile.marking_style,
                 profile.marking_color,
@@ -566,8 +591,10 @@ def _road_geometry(
         )
     curb_segments: list[np.ndarray] = []
     if profile.curb:
-        left_side = _xyz(_offset_polyline(world_center, profile.width_m * 0.5))
-        right_side = _xyz(_offset_polyline(world_center, -profile.width_m * 0.5))
+        left_side = _xyz(_offset_polyline(world_center, profile.surface_width_m * 0.5))
+        right_side = _xyz(
+            _offset_polyline(world_center, -profile.surface_width_m * 0.5)
+        )
         curb_segments.extend((_segments(left_side), _segments(right_side)))
         for port_name, endpoint_index in (("start", 0), ("end", -1)):
             endpoint = f"{spec.element_id}.{port_name}"
@@ -600,7 +627,7 @@ def _road_geometry(
 def _intersection_geometry(
     spec: _ElementSpec, profile: _Profile, pose: _Pose, connected: dict[str, str]
 ) -> tuple[GameMapElement, list[np.ndarray]]:
-    half = profile.width_m
+    half = profile.surface_width_m
     local = np.asarray(
         [[-half, -half], [half, -half], [half, half], [-half, half], [-half, -half]],
         dtype=np.float64,
@@ -635,7 +662,7 @@ def _intersection_geometry(
                 direction = end - start
                 length = float(np.linalg.norm(direction[:2]))
                 unit = direction / max(length, 1.0e-9)
-                gap = profile.width_m * 0.5
+                gap = profile.surface_width_m * 0.5
                 curbs.append(
                     np.asarray(
                         [[start, midpoint - unit * gap], [midpoint + unit * gap, end]],
@@ -728,18 +755,19 @@ def _wire_lane_successors(
                 connector_id = f"{intersection_id}:connector:{connector_count}"
                 connector_count += 1
                 connector = _LaneBuild(
-                    connector_id,
-                    intersection_id,
-                    centerline,
-                    left,
-                    right,
-                    source.speed_limit_mps,
-                    source.marking_style,
-                    source.marking_color,
-                    "",
-                    "",
-                    [target.lane_id],
-                    False,
+                    lane_id=connector_id,
+                    element_id=intersection_id,
+                    centerline=centerline,
+                    left_edge=left,
+                    right_edge=right,
+                    roadside_edge=right,
+                    speed_limit_mps=source.speed_limit_mps,
+                    marking_style=source.marking_style,
+                    marking_color=source.marking_color,
+                    start_port="",
+                    end_port="",
+                    successors=[target.lane_id],
+                    allows_taxi_stops=False,
                 )
                 lanes.append(connector)
                 lane_by_id[connector_id] = connector
@@ -854,6 +882,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             centerline_world=lane.centerline,
             left_edge_world=lane.left_edge,
             right_edge_world=lane.right_edge,
+            roadside_edge_world=lane.roadside_edge,
             speed_limit_mps=lane.speed_limit_mps,
             marking_style=lane.marking_style,
             marking_color=lane.marking_color,

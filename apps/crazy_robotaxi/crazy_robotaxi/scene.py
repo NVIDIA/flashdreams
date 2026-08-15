@@ -87,7 +87,7 @@ def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
             NavigationLane(
                 centerline_world=lane.centerline_world,
                 road_edge_world=(
-                    lane.right_edge_world if lane.allows_taxi_stops else None
+                    lane.roadside_edge_world if lane.allows_taxi_stops else None
                 ),
                 allows_taxi_stops=lane.allows_taxi_stops,
                 lane_id=lane.lane_id,

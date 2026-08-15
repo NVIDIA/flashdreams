@@ -2574,7 +2574,7 @@ class SlangPyHudPresenter:
                     round(top + end[1] * content_h),
                 ),
                 fill=(235, 50, 50, 255),
-                width=4,
+                width=2,
             )
 
     def _draw_bev_taxi_target(
