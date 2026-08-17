@@ -28,10 +28,10 @@ from typing import Any
 
 from flashdreams.demo.factories import (
     ApplicationWebRTCIOFactory,
-    CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
     NullInputHandler,
+    NullIOFactory,
     ProvidedIOFactory,
 )
 from flashdreams.demo.io import (
@@ -40,7 +40,7 @@ from flashdreams.demo.io import (
     OutputSink,
     SessionInfo,
 )
-from flashdreams.demo.outputs import LocalWindowOutputSink, NullOutputSink
+from flashdreams.demo.outputs import LocalWindowOutputSink
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepRequirements, StepResult
@@ -168,16 +168,18 @@ def run_application(
             current canonical inputs do not match the application schema.
     """
     application, slug_args = create_application(application_slug)
-    input_schema = application.input_schema
-    if not isinstance(input_schema, CanonicalInputSchema):
-        raise TypeError(
-            "IFlashDreamsApplication.input_schema must be a CanonicalInputSchema."
-        )
     resolved_factory = _resolve_io_factory(
         io_factory=io_factory,
         input_handler=input_handler,
         output_sink=output_sink,
     )
+    application.init([*slug_args, *commandline_args])
+
+    input_schema = application.input_schema
+    if not isinstance(input_schema, CanonicalInputSchema):
+        raise TypeError(
+            "IFlashDreamsApplication.input_schema must be a CanonicalInputSchema."
+        )
     resolved_input = resolved_factory.create_input_handler(input_schema)
     resolved_output = resolved_factory.create_output_sink()
     if not isinstance(resolved_input, InputHandler):
@@ -185,13 +187,11 @@ def run_application(
     if not isinstance(resolved_output, OutputSink):
         raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
 
-    application.init([*slug_args, *commandline_args])
-    from flashdreams.runtime.demo.application_runtime import (
-        run_batch_application_session,
-        run_realtime_application_session,
-    )
-
     if isinstance(resolved_factory, ApplicationWebRTCIOFactory):
+        from flashdreams.runtime.demo.application_runtime import (
+            run_realtime_application_session,
+        )
+
         result = asyncio.run(
             run_realtime_application_session(
                 application=application,
@@ -201,12 +201,73 @@ def run_application(
             )
         )
     else:
-        result = run_batch_application_session(
-            application=application,
+        from flashdreams.demo.bridge import (
+            ApplicationDemoAdapter,
+            IOFactoryRunMode,
+            application_demo_spec,
+            application_scenario,
+            output_spec_for,
+        )
+        from flashdreams.runtime.demo.drivers import run_demo_session
+        from flashdreams.runtime.demo.host import RuntimeHost
+        from flashdreams.runtime.demo.pipeline import StepPipeline
+        from flashdreams.runtime.demo.run_modes import (
+            build_model_warmup_plan,
+            warmup_run_context,
+        )
+
+        spec = application_demo_spec(
+            app=application,
+            application_slug=application_slug,
+            output=output_spec_for(resolved_factory),
+        )
+        scenario = application_scenario(application, realtime=False)
+        adapter = ApplicationDemoAdapter(
+            app=application,
+            spec=spec,
+            scenario=scenario,
+        )
+        run_mode = IOFactoryRunMode(
             input_handler=resolved_input,
-            input_schema=input_schema,
             output_sink=resolved_output,
         )
+        run_mode.validate_run(spec=spec, adapter=adapter)
+        if spec.config is None:
+            raise RuntimeError("DemoSpec.config was not initialized.")
+        host = RuntimeHost(adapter.create_runtime(spec.config))
+        try:
+            model_warmup_plan = build_model_warmup_plan(
+                host=host,
+                adapter=adapter,
+                spec=spec,
+                scenario=scenario,
+            )
+            context = run_mode.create_run_context(
+                spec=spec,
+                adapter=adapter,
+                host=host,
+                model_warmup_plan=model_warmup_plan,
+            )
+            try:
+                warmup_run_context(
+                    context=context,
+                    spec=spec,
+                    scenario=scenario,
+                    adapter=adapter,
+                    run_mode=run_mode,
+                )
+                result = run_demo_session(
+                    context=context,
+                    spec=spec,
+                    scenario=scenario,
+                    adapter=adapter,
+                    run_mode=run_mode,
+                    pipeline=StepPipeline(),
+                )
+            finally:
+                context.close()
+        finally:
+            host.close()
     if result.status != "completed":
         if result.error is not None:
             raise result.error
@@ -310,10 +371,7 @@ def _parse_host_io(
     if output_kind == "local-window":
         return LocalWindowIOFactory(fps=output_fps), application_args
     if output_kind == "null":
-        return (
-            CallableIOFactory(lambda _schema: NullInputHandler(), NullOutputSink),
-            application_args,
-        )
+        return NullIOFactory(), application_args
     if output_kind == "mp4":
         path = output_path or Path("outputs") / f"{application_slug}.mp4"
         return Mp4IOFactory(output_path=path, fps=output_fps), application_args

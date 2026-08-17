@@ -12,12 +12,15 @@ from typing import Any
 import pytest
 import torch
 
+from flashdreams.demo import LocalWindowOutputSink
 from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
     CompositeOutputSinkError,
     DemoSpec,
+    IOFactoryOutputSpec,
+    LocalWindowOutputSpec,
     Mp4OutputSink,
     Mp4OutputSpec,
     NullOutputSink,
@@ -27,6 +30,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
     build_benchmark_output_sink,
     build_output_sink,
+    build_output_target,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -162,6 +166,40 @@ def test_output_sink_is_built_from_demo_spec(tmp_path: Path) -> None:
     assert null_sink.store_results
     with pytest.raises(ValueError, match="realtime transport sink"):
         build_output_sink(WebRTCOutputSpec())
+
+
+def test_application_output_specs_have_explicit_dispatch_boundaries(
+    tmp_path: Path,
+) -> None:
+    local_sink = build_output_sink(LocalWindowOutputSpec(title="Application", fps=24.0))
+    unresolved_mp4_sink = build_output_sink(
+        Mp4OutputSpec(
+            path=tmp_path / "application.mp4",
+            fps=None,
+            output_layout=None,
+        )
+    )
+
+    assert isinstance(local_sink, LocalWindowOutputSink)
+    assert local_sink.title == "Application"
+    assert local_sink.fps == 24.0
+    assert isinstance(unresolved_mp4_sink, Mp4OutputSink)
+    assert unresolved_mp4_sink.fps is None
+    assert unresolved_mp4_sink.output_layout is None
+    with pytest.raises(TypeError, match="IOFactory output cannot be built"):
+        build_output_sink(IOFactoryOutputSpec())
+    with pytest.raises(TypeError, match="does not create a replay OutputTarget"):
+        build_output_target(LocalWindowOutputSpec())
+    with pytest.raises(TypeError, match="does not create a replay OutputTarget"):
+        build_output_target(IOFactoryOutputSpec())
+    with pytest.raises(ValueError, match="requires explicit fps and output_layout"):
+        build_output_target(
+            Mp4OutputSpec(
+                path=tmp_path / "application.mp4",
+                fps=None,
+                output_layout=None,
+            )
+        )
 
 
 def test_sinks_do_not_retain_step_result_references(tmp_path: Path) -> None:

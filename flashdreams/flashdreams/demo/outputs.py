@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import math
-import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -708,6 +707,8 @@ def build_output_sink(
 ) -> OutputSink:
     """Build an output sink from a demo output specification."""
     from flashdreams.runtime.demo.spec import (
+        IOFactoryOutputSpec,
+        LocalWindowOutputSpec,
         Mp4OutputSpec,
         NullOutputSpec,
         WebRTCOutputSpec,
@@ -723,6 +724,14 @@ def build_output_sink(
             output_layout=output.output_layout,
             writer=writer,
             move_to_cpu=output.move_to_cpu,
+        )
+    if isinstance(output, LocalWindowOutputSpec):
+        # Spec-built local windows are presentation-only. Application factories
+        # bind presenter callbacks to their matching input handler.
+        return LocalWindowOutputSink(title=output.title, fps=output.fps)
+    if isinstance(output, IOFactoryOutputSpec):
+        raise TypeError(
+            "Application IOFactory output cannot be built from a demo spec."
         )
     if isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC output requires a realtime transport sink.")
@@ -754,6 +763,8 @@ def build_output_target(
 ) -> OutputTarget:
     """Build a replay output target from a demo output specification."""
     from flashdreams.runtime.demo.spec import (
+        IOFactoryOutputSpec,
+        LocalWindowOutputSpec,
         Mp4OutputSpec,
         NullOutputSpec,
         WebRTCOutputSpec,
@@ -762,6 +773,10 @@ def build_output_target(
     if isinstance(output, NullOutputSpec):
         return NullOutputTarget(store_results=output.store_results)
     if isinstance(output, Mp4OutputSpec):
+        if output.fps is None or output.output_layout is None:
+            raise ValueError(
+                "MP4 replay OutputTarget requires explicit fps and output_layout."
+            )
         output_path = Path(output.path)
         if mp4_writer is not None:
             return Mp4VideoOutputTarget(
@@ -776,6 +791,14 @@ def build_output_target(
             fps=output.fps,
             output_layout=output.output_layout,
             move_to_cpu=output.move_to_cpu,
+        )
+    if isinstance(output, LocalWindowOutputSpec):
+        raise TypeError(
+            "Local-window presentation does not create a replay OutputTarget."
+        )
+    if isinstance(output, IOFactoryOutputSpec):
+        raise TypeError(
+            "Application IOFactory output does not create a replay OutputTarget."
         )
     if isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC output does not create a replay OutputTarget.")

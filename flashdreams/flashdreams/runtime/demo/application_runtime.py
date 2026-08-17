@@ -20,9 +20,18 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from flashdreams.demo.bridge import (
+    _CANONICAL_INPUT_WINDOW_KEY,
+)
+from flashdreams.demo.bridge import (
+    ApplicationRuntime as _ApplicationRuntime,
+)
+from flashdreams.demo.bridge import (
+    current_application_inputs as _current_application_inputs,
+)
 from flashdreams.demo.io import InputHandler, OutputDecision, OutputSink, SessionInfo
 from flashdreams.runtime.inputs import (
     CanonicalInputSchema,
@@ -32,9 +41,9 @@ from flashdreams.runtime.inputs import (
     UserInputSchema,
 )
 from flashdreams.runtime.output import OutputArtifact
-from flashdreams.runtime.types import StepRequest, StepRequirements, StepResult
+from flashdreams.runtime.types import StepRequirements, StepResult
 
-from .drivers import BatchSessionDriver, RealtimeSessionDriver
+from .drivers import RealtimeSessionDriver
 from .host import RuntimeHost
 from .pipeline import StepPipeline
 from .run_modes import (
@@ -56,94 +65,7 @@ from .timing import (
 )
 
 if TYPE_CHECKING:
-    from flashdreams.demo.application import (
-        IFlashDreamsApplication,
-        IFlashDreamsApplicationSession,
-    )
-
-_CANONICAL_INPUT_WINDOW_KEY = "flashdreams.application.canonical_input_window"
-"""Private inference-input key used only across the application adapter boundary."""
-
-
-# This is a hacky shim to get legacy & `IFlashdreams*` code working together with the `*SessionDriver` code.
-# This will and should be removed ASAP.
-class _ApplicationRuntime:
-    """Create application sessions through the driver's hosted runtime boundary."""
-
-    def __init__(self, application: "IFlashDreamsApplication") -> None:
-        self._application = application
-
-    def start_session(self, inputs: InferenceInput) -> "_ApplicationSession":
-        """Create and initialize one application session."""
-        del inputs
-        from flashdreams.demo.application import IFlashDreamsApplicationSession
-
-        session = self._application.create_session()
-        if not isinstance(session, IFlashDreamsApplicationSession):
-            raise TypeError(
-                "IFlashDreamsApplication.create_session() must return "
-                "IFlashDreamsApplicationSession."
-            )
-        session.init()
-        return _ApplicationSession(session)
-
-    def close(self) -> None:
-        """Close runtime-owned resources after the driver closes its session."""
-
-
-class _ApplicationSession:
-    """Expose an application session through the inference-session contract."""
-
-    def __init__(self, session: "IFlashDreamsApplicationSession") -> None:
-        self._session = session
-
-    def session_info(self) -> SessionInfo:
-        """Return validated metadata for input and output setup."""
-        value = self._session.session_info()
-        if not isinstance(value, SessionInfo):
-            raise TypeError(
-                "IFlashDreamsApplicationSession.session_info() must return SessionInfo."
-            )
-        return value
-
-    def next_step_requirements(self) -> StepRequirements | None:
-        """Return the application requirements for the driver's next step."""
-        return self._session.next_step_requirements()
-
-    def next_step_request(self) -> StepRequest | None:
-        """Project application requirements onto the legacy session request."""
-        requirements = self.next_step_requirements()
-        if requirements is None:
-            return None
-        metadata = dict(requirements.metadata)
-        metadata["input_frame_count"] = requirements.input_frame_count
-        if requirements.steady_output_frame_count is not None:
-            metadata["steady_output_frame_count"] = (
-                requirements.steady_output_frame_count
-            )
-        return StepRequest(
-            step_index=requirements.step_index,
-            inference_input_schema=requirements.inference_input_schema,
-            metadata=metadata,
-        )
-
-    def step(self, inputs: InferenceInput) -> StepResult:
-        """Run one application step with its canonical input window."""
-        canonical_inputs = inputs.step.get(_CANONICAL_INPUT_WINDOW_KEY)
-        if not isinstance(canonical_inputs, CanonicalInputWindow):
-            raise TypeError(
-                "Application input provider must supply a CanonicalInputWindow."
-            )
-        return self._session.step(canonical_inputs)
-
-    def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Reject resets because application sessions do not declare reset support."""
-        del inputs
-        raise RuntimeError("FlashDreams application sessions do not support reset.")
-
-    def close(self) -> None:
-        """Close the underlying application session."""
-        self._session.close()
+    from flashdreams.demo.application import IFlashDreamsApplication
 
 
 class _ApplicationInputSource:
@@ -307,32 +229,6 @@ class _ApplicationRealtimeClock:
         return CatchUpDecision()
 
 
-def run_batch_application_session(
-    *,
-    application: "IFlashDreamsApplication",
-    input_handler: InputHandler,
-    input_schema: CanonicalInputSchema,
-    output_sink: OutputSink,
-) -> RunResult:
-    """Run one application through the shared batch driver."""
-    host, provider, edges = _application_runtime_parts(
-        application=application,
-        input_handler=input_handler,
-        input_schema=input_schema,
-        output_sink=output_sink,
-        realtime=False,
-    )
-    try:
-        return BatchSessionDriver().run_one_session(
-            host=host,
-            provider=provider,
-            session_edges=edges,
-            pipeline=StepPipeline(),
-        )
-    finally:
-        host.close()
-
-
 async def run_realtime_application_session(
     *,
     application: "IFlashDreamsApplication",
@@ -386,32 +282,6 @@ def _application_runtime_parts(
     )
 
 
-def _current_application_inputs(
-    handler: InputHandler,
-    input_schema: CanonicalInputSchema,
-) -> CanonicalInputWindow:
-    inputs = handler.current_inputs()
-    if not isinstance(inputs, CanonicalInputWindow):
-        raise TypeError(
-            "InputHandler.current_inputs() must return CanonicalInputWindow."
-        )
-    expected = {modality.name: modality for modality in input_schema.modalities}
-    unknown = sorted(set(inputs.values) - set(expected))
-    if unknown:
-        raise ValueError(f"Canonical inputs contain undeclared modalities: {unknown}.")
-    missing = sorted(set(expected) - set(inputs.values))
-    if missing:
-        raise ValueError(
-            f"Canonical inputs are missing requested modalities: {missing}."
-        )
-    for name, value in inputs.values.items():
-        if not isinstance(value, Mapping):
-            raise TypeError(f"Canonical input {name!r} must be a named field mapping.")
-        expected[name].value(value)
-    return inputs
-
-
 __all__ = [
-    "run_batch_application_session",
     "run_realtime_application_session",
 ]

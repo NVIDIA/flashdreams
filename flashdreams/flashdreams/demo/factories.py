@@ -29,6 +29,7 @@ from flashdreams.demo.local_window import LocalWindowInputBridge
 from flashdreams.demo.outputs import (
     LocalWindowOutputSink,
     Mp4OutputSink,
+    NullOutputSink,
     WebRTCOutputSink,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
@@ -162,6 +163,23 @@ class LocalWindowIOFactory(IOFactory):
 
 
 @dataclass(frozen=True, slots=True)
+class NullIOFactory(IOFactory):
+    """Create empty input handling and discard generated outputs."""
+
+    store_results: bool = False
+    """Whether the null sink records result metadata."""
+
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an empty input handler."""
+        del input_schema
+        return NullInputHandler()
+
+    def create_output_sink(self) -> OutputSink:
+        """Create a null output sink."""
+        return NullOutputSink(store_results=self.store_results)
+
+
+@dataclass(frozen=True, slots=True)
 class Mp4IOFactory(IOFactory):
     """Create empty input handlers and MP4 artifact output sinks."""
 
@@ -276,6 +294,7 @@ __all__ = [
     "CallableIOFactory",
     "LocalWindowIOFactory",
     "Mp4IOFactory",
+    "NullIOFactory",
     "NullInputHandler",
     "ProvidedIOFactory",
     "WebRTCIOFactory",

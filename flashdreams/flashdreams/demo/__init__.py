@@ -28,6 +28,7 @@ from flashdreams.demo.factories import (
     LocalWindowIOFactory,
     Mp4IOFactory,
     NullInputHandler,
+    NullIOFactory,
     ProvidedIOFactory,
     WebRTCIOFactory,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "Mp4IOFactory",
     "Mp4OutputSink",
     "NullInputHandler",
+    "NullIOFactory",
     "NullOutputSink",
     "OutputDecision",
     "OutputSink",
