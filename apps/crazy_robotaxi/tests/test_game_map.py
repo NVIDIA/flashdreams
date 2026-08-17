@@ -148,11 +148,14 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
 
     assert game_map.name == "Original Boulevard District (WIP)"
     assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 14
+    assert len(game_map.elements) == 27
     assert {element.element_type for element in game_map.elements} >= {
         "boulevard",
         "road_segment",
         "intersection",
+        "parking_lot_opening",
+        "driveway",
+        "parking_lot",
     }
     central_boulevard = next(
         element
@@ -168,6 +171,77 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
     assert float(np.ptp(central_crossing.surface_world[:, 0])) == pytest.approx(8.4)
     assert float(np.ptp(central_crossing.surface_world[:, 1])) == pytest.approx(15.6)
     assert all(port[4] for port in central_crossing.ports)
+
+
+def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+
+    connected_ports = {
+        element_id: {port[0] for port in elements[element_id].ports if port[4]}
+        for element_id in (
+            "central_north_junction",
+            "east_north_junction",
+            "central_lower_junction",
+            "east_lower_junction",
+        )
+    }
+    assert connected_ports == {
+        "central_north_junction": {"east", "south"},
+        "east_north_junction": {"west", "south"},
+        "central_lower_junction": {"east", "north", "south"},
+        "east_lower_junction": {"east", "west", "north"},
+    }
+
+    north_successors = lanes["north_cross_street:lane:1"].successor_ids
+    lower_successors = lanes["lower_cross_street:lane:1"].successor_ids
+    assert {lanes[lane_id].element_id for lane_id in north_successors} == {
+        "east_north_junction"
+    }
+    assert {lanes[lane_id].element_id for lane_id in lower_successors} == {
+        "east_lower_junction"
+    }
+    assert lanes["central_lot_driveway:lane:1"].successor_ids == (
+        "central_parking_lot:lane:1",
+    )
+    assert lanes["east_lot_driveway:lane:1"].successor_ids == (
+        "east_parking_lot:lane:1",
+    )
+
+
+def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    rows = game_map_compiler._road_marking_rows(game_map)
+    masks = [
+        row
+        for row in rows
+        if row["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
+    ]
+    parking_lots = {
+        element.element_id: element
+        for element in game_map.elements
+        if element.element_type == "parking_lot"
+    }
+
+    assert set(parking_lots) == {"central_parking_lot", "east_parking_lot"}
+    assert len(masks) == 2
+    mask_polygons = [
+        np.asarray(
+            [
+                [point["x"], point["y"], point["z"]]
+                for point in row["road_marking"]["location"]
+            ],
+            dtype=np.float32,
+        )
+        for row in masks
+    ]
+    for lot in parking_lots.values():
+        assert any(
+            np.allclose(mask, lot.surface_world)
+            for mask in mask_polygons
+            if mask.shape == lot.surface_world.shape
+        )
 
 
 def test_boulevard_compiles_white_lane_dividers_and_yellow_centerline() -> None:

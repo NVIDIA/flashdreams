@@ -277,7 +277,9 @@ flat ground, and per-spawn visual variants. Elevation and freeform splines are
 planned extensions.
 
 The bundled maps reuse the existing OmniDreams seed image. The minimal loop is
-the default; `boulevard_district.robotaxi.yaml` recreates a compact portion of
-the original Quiet Suburban Boulevard around its starting area. Their geometry
-is not expected to match the seed exactly, so the first generated frames may
-visibly adjust toward the selected semantic map.
+the default; `boulevard_district.robotaxi.yaml` is a clean, game-oriented
+reinterpretation of the original Quiet Suburban Boulevard around its starting
+area, with connected neighborhood blocks and routed parking lots. Incidental
+legacy roadnet masks are omitted rather than treated as parking destinations.
+The authored geometry is not expected to match the seed exactly, so the first
+generated frames may visibly adjust toward the selected semantic map.

@@ -21,6 +21,13 @@ profiles:
     speed_limit_mps: 11.2
     curb: true
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
+  parking_access:
+    lane_width_m: 3.2
+    curb_offset_m: 0.4
+    lanes: [backward, forward]
+    speed_limit_mps: 5.5
+    curb: true
+    lane_marking: {style: VIRTUAL, color: WHITE}
 
 elements:
   - id: west_boulevard
@@ -60,7 +67,7 @@ elements:
   - id: central_north_street
     type: road_segment
     profile: neighborhood
-    geometry: {kind: straight, length_m: 55}
+    geometry: {kind: straight, length_m: 45}
     attach: {port: start, to: central_crossing.north}
 
   - id: east_north_street
@@ -68,6 +75,28 @@ elements:
     profile: neighborhood
     geometry: {kind: straight, length_m: 45}
     attach: {port: start, to: east_crossing.north}
+
+  - id: central_north_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: four_way
+      port_profiles: {}
+    attach: {port: south, to: central_north_street.end}
+
+  - id: north_cross_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 75}
+    attach: {port: start, to: central_north_junction.east}
+
+  - id: east_north_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: four_way
+      port_profiles: {}
+    attach: {port: west, to: north_cross_street.end}
 
   - id: central_south_street
     type: road_segment
@@ -105,7 +134,7 @@ elements:
     type: intersection
     profile: neighborhood
     geometry:
-      kind: t
+      kind: four_way
       port_profiles: {}
     attach: {port: north, to: east_south_street.end}
 
@@ -115,8 +144,74 @@ elements:
     geometry: {kind: straight, length_m: 25}
     attach: {port: start, to: east_south_junction.east}
 
+  - id: east_south_tail
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 30}
+    attach: {port: start, to: east_south_junction.south}
+
+  - id: central_lower_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: four_way
+      port_profiles: {}
+    attach: {port: north, to: central_south_tail.end}
+
+  - id: lower_cross_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 75}
+    attach: {port: start, to: central_lower_junction.east}
+
+  - id: east_lower_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: four_way
+      port_profiles: {}
+    attach: {port: west, to: lower_cross_street.end}
+
+  - id: central_lot_opening
+    type: parking_lot_opening
+    profile: parking_access
+    geometry: {length_m: 5, road_profile: neighborhood}
+    attach: {port: road, to: central_lower_junction.south}
+
+  - id: central_lot_driveway
+    type: driveway
+    profile: parking_access
+    geometry: {kind: straight, length_m: 8}
+    attach: {port: start, to: central_lot_opening.access}
+
+  - id: central_parking_lot
+    type: parking_lot
+    profile: parking_access
+    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
+    attach: {port: entrance, to: central_lot_driveway.end}
+
+  - id: east_lot_opening
+    type: parking_lot_opening
+    profile: parking_access
+    geometry: {length_m: 5, road_profile: neighborhood}
+    attach: {port: road, to: east_lower_junction.east}
+
+  - id: east_lot_driveway
+    type: driveway
+    profile: parking_access
+    geometry: {kind: straight, length_m: 8}
+    attach: {port: start, to: east_lot_opening.access}
+
+  - id: east_parking_lot
+    type: parking_lot
+    profile: parking_access
+    geometry: {width_m: 24, depth_m: 28, parking_space_width_m: 2.7}
+    attach: {port: entrance, to: east_lot_driveway.end}
+
 connections:
+  - {a: east_north_junction.south, b: east_north_street.end}
   - {a: south_cross_street.end, b: east_south_junction.west}
+  - {a: east_lower_junction.north, b: east_south_tail.end}
 
 spawns:
   - id: original_area_start
