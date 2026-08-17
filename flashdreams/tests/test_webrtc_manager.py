@@ -13,12 +13,18 @@ import torch
 
 from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.runtime import (
+    DRIVER_COMMAND,
+    DRIVING_SUPPORTED_KEYS,
     InferenceInput,
+    InputCanonicalizer,
+    KeyboardToDriverCommand,
+    ScriptedModality,
     StepRequest,
     StepRequirements,
     StepResult,
     UserInputEvent,
     UserInputs,
+    UserInputSchema,
 )
 from flashdreams.runtime.demo import (
     ModelInputProvider,
@@ -39,6 +45,7 @@ from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    WEBRTC_USER_INPUT_SCHEMA,
     ThreadSafeWebRTCOutputBridge,
     WebRTCActivationPolicy,
     WebRTCInputSource,
@@ -55,6 +62,17 @@ def _runtime_config() -> SimpleNamespace:
         video_height=4,
         warmup_chunks=0,
         warmup_timeout_s=1.0,
+    )
+
+
+def _shared_scenario(
+    *converters: Any,
+    source_schema: UserInputSchema = WEBRTC_USER_INPUT_SCHEMA,
+) -> PreparedScenario:
+    return PreparedScenario(
+        initial_inputs=InferenceInput(),
+        source_schema=source_schema,
+        canonicalizer=InputCanonicalizer(converters),
     )
 
 
@@ -1429,3 +1447,138 @@ async def test_application_liveness_policy_survives_old_ten_second_limit(
     )
 
     assert close_calls == 0
+
+
+def test_base_manager_advertises_feedable_driver_controls() -> None:
+    manager = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+
+    assert manager.browser_ui_config() == {
+        "controls": [
+            {"label": "Drive", "keys": ["w", "a", "s", "d"]},
+            {
+                "label": "Stop",
+                "keys": [{"key": "space", "label": "Stop"}],
+            },
+        ]
+    }
+    assert manager._effective_supported_control_keys() == DRIVING_SUPPORTED_KEYS
+
+
+def test_base_manager_omits_controls_without_feedable_advertisement() -> None:
+    no_scenario = _make_manager(_BaseTestManager, SimpleNamespace())
+    no_converter = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(),
+    )
+    unfeedable = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(
+            KeyboardToDriverCommand(),
+            source_schema=UserInputSchema(),
+        ),
+    )
+    no_advertisement = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(
+            ScriptedModality(modality=DRIVER_COMMAND, timeline=()),
+        ),
+    )
+
+    for manager in (no_scenario, no_converter, unfeedable, no_advertisement):
+        assert manager.browser_ui_config() == {"controls": []}
+    assert no_advertisement._effective_supported_control_keys() is None
+    assert no_advertisement._supports_key_payload({"key": "q"})
+
+
+def test_explicit_supported_keys_override_converter_metadata() -> None:
+    manager = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+        supported_control_keys=frozenset({"q"}),
+    )
+
+    assert manager._effective_supported_control_keys() == frozenset({"q"})
+    assert manager._supports_key_payload({"key": "q"})
+    assert not manager._supports_key_payload({"key": "space"})
+
+
+def test_legacy_supported_keys_override_converter_metadata() -> None:
+    manager = _make_manager(
+        _WOnlyTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+
+    assert manager._effective_supported_control_keys() == frozenset({"w"})
+    assert manager._supports_key_payload({"key": "w"})
+    assert not manager._supports_key_payload({"key": "space"})
+
+
+@pytest.mark.asyncio
+async def test_shared_key_filter_runs_before_activation() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+    managed, _track, _peer, channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    input_source = WebRTCInputSource(resampler=managed.resampler)
+    managed.input_source = input_source
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "action", "action": {"event": "keydown", "key": "q"}}
+        ),
+    )
+
+    assert not managed.first_action_received.is_set()
+    assert not input_source.activation_signal.is_set()
+    assert tuple(input_source._events) == ()
+    assert channel.messages == []
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {
+                "type": "action",
+                "action": {"event": "keydown", "key": "space"},
+            }
+        ),
+    )
+
+    assert managed.first_action_received.is_set()
+    assert input_source.activation_signal.is_set()
+    assert [event.payload for event in input_source._events] == [{"key": "space"}]
+
+
+@pytest.mark.asyncio
+async def test_legacy_key_filter_runs_before_activation() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_WOnlyTestManager, runtime)
+    managed, _track, _peer, channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "action", "action": {"event": "keydown", "key": "q"}}
+        ),
+    )
+
+    assert not managed.first_action_received.is_set()
+    assert resampler.edges == []
+    assert len(managed.pending_action_arrivals) == 0
+    assert channel.messages == []

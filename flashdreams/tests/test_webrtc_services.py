@@ -175,6 +175,31 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
 
 
 @pytest.mark.asyncio
+async def test_webrtc_activation_anchors_to_first_input_event() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+    source.handle_browser_message(
+        json.dumps({"type": "action", "action": {"event": "keydown", "key": "w"}}),
+        timestamp_s=0.05,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+    ).wait_until_active(clock)
+
+    assert result.activated
+    assert source.activation_timestamp_s == pytest.approx(0.05)
+    assert resampler.next_chunk_start_v == pytest.approx(0.05)
+
+
+@pytest.mark.asyncio
 async def test_webrtc_output_sink_returns_presentation_backpressure() -> None:
     loop = asyncio.get_running_loop()
     encoder = _BlockingEncoder()

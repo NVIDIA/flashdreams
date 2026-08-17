@@ -11,12 +11,15 @@ events, so adding a device is a registration rather than an application change.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from flashdreams.runtime import (
     DRIVER_COMMAND,
+    DRIVING_SUPPORTED_KEYS,
+    BrowserControlGroup,
+    BrowserControlKey,
     CanonicalInputs,
     CanonicalModality,
     DeviceConverterSchema,
@@ -143,6 +146,37 @@ def test_keyboard_edges_become_canonical_driver_command() -> None:
     assert _command(canonical)["throttle"] == 1.0
     assert _command(canonical)["steer"] == 0.0
     assert canonical.metadata["canonical_sources"]["driver_command"] == "keyboard"
+
+
+def test_default_driver_converter_advertises_browser_controls() -> None:
+    schema = KeyboardToDriverCommand().schema
+
+    assert schema.accepted_keys == DRIVING_SUPPORTED_KEYS
+    assert [group.to_payload() for group in schema.browser_controls] == [
+        {"label": "Drive", "keys": ["w", "a", "s", "d"]},
+        {
+            "label": "Stop",
+            "keys": [{"key": "space", "label": "Stop"}],
+        },
+    ]
+
+
+def test_browser_control_metadata_rejects_malformed_groups() -> None:
+    with pytest.raises(TypeError, match="key must be a string"):
+        BrowserControlKey(cast(str, 1))
+    with pytest.raises(ValueError, match="keys must be non-empty"):
+        BrowserControlGroup(label="Empty", keys=())
+    with pytest.raises(TypeError, match="must contain BrowserControlKey"):
+        BrowserControlGroup(
+            label="Bad",
+            keys=cast(tuple[BrowserControlKey, ...], ("w",)),
+        )
+    with pytest.raises(TypeError, match="must contain BrowserControlGroup"):
+        DeviceConverterSchema(
+            name="bad-browser-controls",
+            produces=DRIVER_COMMAND,
+            browser_controls=cast(tuple[BrowserControlGroup, ...], ({"bad": True},)),
+        )
 
 
 def test_key_aliases_are_normalized() -> None:

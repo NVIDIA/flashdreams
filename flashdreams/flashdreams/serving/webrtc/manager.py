@@ -24,6 +24,7 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.runtime.canonical import DeviceConverterSchema
 from flashdreams.runtime.demo import (
     DemoSpec,
     InMemorySessionMetricsRecorder,
@@ -747,6 +748,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Model runtime driven by this transport manager."""
         return self._runtime
 
+    def browser_ui_config(self) -> dict[str, object]:
+        """Return controls advertised by feedable scenario converters."""
+        controls = [
+            group.to_payload()
+            for schema in self._feedable_converter_schemas()
+            for group in schema.browser_controls
+        ]
+        return {"controls": controls}
+
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""
         if self.has_active_session():
@@ -789,9 +799,29 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if supported_control_keys is not None:
             return frozenset(supported_control_keys)
         legacy_supported_keys = getattr(self, "_resampler_supported_keys", None)
-        if legacy_supported_keys is None:
-            return None
-        return frozenset(legacy_supported_keys)
+        if legacy_supported_keys is not None:
+            return frozenset(legacy_supported_keys)
+        return self._converter_supported_control_keys()
+
+    def _feedable_converter_schemas(self) -> tuple[DeviceConverterSchema, ...]:
+        scenario = self._shared_scenario
+        if scenario is None:
+            return ()
+        schemas: list[DeviceConverterSchema] = []
+        for converter in scenario.canonicalizer.converters_for(scenario.source_schema):
+            schema = converter.schema
+            if isinstance(schema, DeviceConverterSchema):
+                schemas.append(schema)
+        return tuple(schemas)
+
+    def _converter_supported_control_keys(self) -> frozenset[str] | None:
+        accepted_keys = frozenset(
+            key
+            for schema in self._feedable_converter_schemas()
+            if schema.accepted_keys is not None
+            for key in schema.accepted_keys
+        )
+        return accepted_keys or None
 
     @staticmethod
     def _positive_int_runtime_value(value: Any, *, label: str) -> int:
@@ -1695,6 +1725,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 channel, make_error_payload("Payload must be a JSON object.")
             )
             return
+        if self._is_filtered_key_action(payload):
+            return
         if managed_session.input_source is not None:
             await self._handle_shared_datachannel_payload(
                 managed_session=managed_session,
@@ -1778,6 +1810,22 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.
         managed_session.first_action_received.set()
+
+    def _is_filtered_key_action(self, payload: dict[str, Any]) -> bool:
+        if str(payload.get("type", "")).strip().lower() != MESSAGE_TYPE_ACTION:
+            return False
+        action_payload = payload.get("action", payload)
+        if not isinstance(action_payload, dict):
+            return False
+        event = str(action_payload.get("event", "")).strip().lower()
+        if event not in {"keydown", "keyup"}:
+            return False
+        key = action_payload.get("key")
+        return (
+            isinstance(key, str)
+            and bool(key.strip())
+            and not self._supports_key_payload({"key": key})
+        )
 
     async def _handle_shared_datachannel_payload(
         self,

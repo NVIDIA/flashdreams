@@ -423,7 +423,10 @@ class WebRTCActivationPolicy:
         now = getattr(clock, "now", None)
         anchor = getattr(clock, "anchor", None)
         if callable(now) and callable(anchor):
-            anchor(now())
+            activation_timestamp_s = self.input_source.activation_timestamp_s
+            if activation_timestamp_s is None:
+                activation_timestamp_s = now()
+            anchor(activation_timestamp_s)
 
 
 @dataclass(slots=True)
@@ -450,6 +453,11 @@ class WebRTCInputSource:
         init=False,
         repr=False,
     )
+    _activation_timestamp_s: float | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.max_lag_s is not None and (
@@ -465,6 +473,11 @@ class WebRTCInputSource:
     def activation_signal(self) -> "_ThreadSafeActivationSignal":
         return self._activation_signal
 
+    @property
+    def activation_timestamp_s(self) -> float | None:
+        """Return the timestamp of the event that first activated this run."""
+        return self._activation_timestamp_s
+
     def is_finished(self) -> bool:
         return False
 
@@ -473,6 +486,7 @@ class WebRTCInputSource:
         if self.legacy_segment_resampler is not None:
             self.legacy_segment_resampler.reset(start_v=start_v)
         self._events.clear()
+        self._activation_timestamp_s = None
         self._activation_signal.clear()
 
     def handle_browser_message(
@@ -547,7 +561,7 @@ class WebRTCInputSource:
         self.user_input_schema.validate_event(event)
         self._events.append(event)
         if activate:
-            self._activation_signal.set()
+            self._activate(timestamp_s)
 
     async def next_realtime_window(
         self,
@@ -612,7 +626,7 @@ class WebRTCInputSource:
     ) -> WebRTCMessageResult:
         event = str(payload.get("event", "")).strip().lower()
         if event == "step":
-            self._activation_signal.set()
+            self._activate(timestamp_s)
             return WebRTCMessageResult(kind="action", activated=True)
         if event not in {"keydown", "keyup"}:
             return WebRTCMessageResult(
@@ -637,6 +651,11 @@ class WebRTCInputSource:
             payload={"key": key},
         )
         return WebRTCMessageResult(kind="action", activated=True)
+
+    def _activate(self, timestamp_s: float) -> None:
+        if self._activation_timestamp_s is None:
+            self._activation_timestamp_s = timestamp_s
+        self._activation_signal.set()
 
     def _record_text_event(
         self,

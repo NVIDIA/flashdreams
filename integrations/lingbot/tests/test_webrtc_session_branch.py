@@ -28,7 +28,7 @@ from lingbot.input_mapping import (
 from lingbot.webrtc.session import LINGBOT_WEBRTC_SOURCE_SCHEMA
 
 from flashdreams.runtime.canonical import InputCanonicalizer
-from flashdreams.runtime.demo import RealtimeEventResampler
+from flashdreams.runtime.demo import PreparedScenario, RealtimeEventResampler
 from flashdreams.runtime.inputs import InferenceInput, TimeWindow
 from flashdreams.runtime.types import StepRequest, StepResult
 from flashdreams.serving.webrtc.manager import (
@@ -163,6 +163,27 @@ def _manager(runtime: _FakeRuntime) -> _Manager:
         fps=_FPS,
         identity="fake",
     )
+
+
+def test_lingbot_converter_without_metadata_keeps_default_manager_keys() -> None:
+    runtime = _FakeRuntime()
+    scenario = PreparedScenario(
+        initial_inputs=InferenceInput(),
+        source_schema=LINGBOT_WEBRTC_SOURCE_SCHEMA,
+        canonicalizer=runtime.input_canonicalizer,
+    )
+    manager = _Manager(
+        runtime=runtime,
+        runtime_config=_FakeRuntimeConfig(),
+        fps=_FPS,
+        identity="fake",
+        shared_scenario=scenario,
+    )
+
+    assert manager.browser_ui_config() == {"controls": []}
+    assert manager._effective_supported_control_keys() is None
+    assert manager._supports_key_payload({"key": "q"})
+    assert not manager._supports_key_payload({"key": "z"})
 
 
 def _reference_poses(edges: list[tuple[float, str, str]], *, chunks: int) -> np.ndarray:
