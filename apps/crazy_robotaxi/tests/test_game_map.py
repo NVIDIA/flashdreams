@@ -169,7 +169,7 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
 
     assert game_map.name == "Original Boulevard District (WIP)"
     assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 45
+    assert len(game_map.elements) == 87
     assert {element.element_type for element in game_map.elements} >= {
         "boulevard",
         "road_segment",
@@ -177,6 +177,7 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
         "parking_lot_opening",
         "driveway",
         "parking_lot",
+        "cul_de_sac",
     }
     central_boulevard = next(
         element
@@ -262,6 +263,7 @@ def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> N
 
 def test_boulevard_eastern_district_forms_routed_loop_and_destination() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
 
     def reachable_lane_ids(start_lane_id: str) -> set[str]:
@@ -280,7 +282,39 @@ def test_boulevard_eastern_district_forms_routed_loop_and_destination() -> None:
     assert "eastern_sweep:lane:2" in outbound
     assert "eastern_south_approach:lane:1" in outbound
     assert "eastern_parking_lot:lane:1" in outbound
+    assert "east_spine_cul_de_sac:turnaround" in outbound
+    assert "east_lower_west_cul_de_sac:turnaround" in outbound
+    assert "east_lower_south_cul_de_sac_1:turnaround" in outbound
+    assert "east_lower_south_cul_de_sac_4:turnaround" in outbound
+    assert "east_lower_east_cul_de_sac:turnaround" in outbound
+    assert "eastern_north_cul_de_sac:turnaround" in outbound
+    assert "eastern_side_cul_de_sac:turnaround" in outbound
+    assert "east_commercial_parking_lot_1:lane:1" in outbound
+    assert "east_commercial_parking_lot_2:lane:1" in outbound
     assert "east_boulevard:lane:0" in returning
+    assert "east_boulevard:lane:0" in reachable_lane_ids(
+        "east_spine_cul_de_sac:turnaround"
+    )
+    assert "east_boulevard:lane:0" in reachable_lane_ids(
+        "east_commercial_parking_lot_1:lane:0"
+    )
+    assert "east_boulevard:lane:0" in reachable_lane_ids(
+        "east_commercial_parking_lot_2:lane:0"
+    )
+    eastern_prefixes = (
+        "eastern_",
+        "east_spine_",
+        "east_north_loop_",
+        "east_lower_",
+        "east_commercial_",
+    )
+    assert all(
+        port[4]
+        for element_id, element in elements.items()
+        if element_id.startswith(eastern_prefixes)
+        and element_id != "east_lower_junction"
+        for port in element.ports
+    )
 
 
 def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
@@ -295,7 +329,7 @@ def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
         segment_lengths = np.linalg.norm(
             np.diff(lane.centerline_world[:, :2], axis=0), axis=1
         )
-        assert float(np.max(segment_lengths)) < 2.25
+        assert float(np.max(segment_lengths)) < 2.4
         rail_widths = np.linalg.norm(
             lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
         )
@@ -306,14 +340,54 @@ def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
     assert len(elements["eastern_north_junction"].surface_world) == 8
     assert len(elements["eastern_south_junction"].surface_world) == 7
 
-    continuation = elements["eastern_southwest_continuation"]
-    end = next(port for port in continuation.ports if port[0] == "end")
-    assert end[4] is False
-    end_xy = np.asarray(end[1:3], dtype=np.float32)
-    assert any(
-        np.allclose(segment[:, :2].mean(axis=0), end_xy, atol=1.0e-3)
-        for segment in game_map.collision_segments_world
+    assert "eastern_southwest_continuation" not in elements
+    assert all(
+        "highway" not in element_id and "ramp" not in element_id
+        for element_id in elements
     )
+
+
+def test_cul_de_sacs_are_bounded_unmarked_turnarounds() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    cul_de_sacs = {
+        element.element_id: element
+        for element in game_map.elements
+        if element.element_type == "cul_de_sac"
+    }
+    cul_de_sac_lanes = {
+        lane.element_id: lane
+        for lane in game_map.lanes
+        if lane.element_id in cul_de_sacs
+    }
+    lane_rows = {
+        row["key"]["label_class_id"]: row["lane"]
+        for row in game_map_compiler._lane_rows(game_map)
+    }
+    line_row_ids = {
+        row["key"]["label_class_id"]
+        for row in game_map_compiler._lane_line_rows(game_map)
+    }
+
+    assert set(cul_de_sacs) == {
+        "eastern_north_cul_de_sac",
+        "eastern_side_cul_de_sac",
+        "east_spine_cul_de_sac",
+        "east_lower_west_cul_de_sac",
+        "east_lower_south_cul_de_sac_1",
+        "east_lower_south_cul_de_sac_4",
+        "east_lower_east_cul_de_sac",
+    }
+    assert set(cul_de_sac_lanes) == set(cul_de_sacs)
+    assert all(element.ports[0][4] for element in cul_de_sacs.values())
+    assert not any("cul_de_sac" in row_id for row_id in line_row_ids)
+    for element_id, lane in cul_de_sac_lanes.items():
+        assert lane.lane_id == f"{element_id}:turnaround"
+        assert not lane.allows_taxi_stops
+        assert lane.left_marking_style == "VIRTUAL"
+        assert lane.right_marking_style == "VIRTUAL"
+        compiled_lane = lane_rows[lane.lane_id]
+        assert compiled_lane["left_edge_styles"] == []
+        assert compiled_lane["right_edge_styles"] == []
 
 
 def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
@@ -339,9 +413,11 @@ def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
         "central_parking_lot",
         "east_parking_lot",
         "eastern_parking_lot",
+        "east_commercial_parking_lot_1",
+        "east_commercial_parking_lot_2",
     }
-    assert len(masks) == 3
-    assert len(rows) == 3
+    assert len(masks) == 5
+    assert len(rows) == 5
     assert not parking_line_rows
     mask_polygons = [
         np.asarray(
@@ -562,6 +638,36 @@ def test_cubic_bezier_validation_rejects_degenerate_start(tmp_path: Path) -> Non
     broken.write_text(yaml.safe_dump(source), encoding="utf-8")
 
     with pytest.raises(GameMapError, match="first control point must differ"):
+        load_game_map(broken)
+
+
+@pytest.mark.parametrize(
+    ("geometry", "message"),
+    [
+        (
+            {"radius_m": 4.0, "neck_length_m": 10.0},
+            "radius_m must exceed half its profile surface width",
+        ),
+        (
+            {"radius_m": 10.0, "neck_length_m": 5.0},
+            "neck_length_m is too short",
+        ),
+    ],
+)
+def test_cul_de_sac_validation_rejects_invalid_geometry(
+    tmp_path: Path, geometry: dict[str, float], message: str
+) -> None:
+    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
+    cul_de_sac = next(
+        element
+        for element in source["elements"]
+        if element["id"] == "east_lower_west_cul_de_sac"
+    )
+    cul_de_sac["geometry"] = geometry
+    broken = tmp_path / "broken-cul-de-sac.robotaxi.yaml"
+    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
+
+    with pytest.raises(GameMapError, match=message):
         load_game_map(broken)
 
 

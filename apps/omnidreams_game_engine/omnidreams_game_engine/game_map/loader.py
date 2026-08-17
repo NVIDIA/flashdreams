@@ -32,6 +32,7 @@ _LINEAR_LANE_ELEMENT_TYPES = {
     "driveway",
     "parking_lot_opening",
     "parking_lot",
+    "cul_de_sac",
 }
 
 
@@ -480,6 +481,7 @@ def _parse_elements(
             "driveway",
             "parking_lot_opening",
             "parking_lot",
+            "cul_de_sac",
         }:
             raise GameMapError(
                 f"Element {element_id!r} has unsupported type {element_type!r}"
@@ -510,6 +512,8 @@ def _parse_elements(
             )
         elif element_type == "parking_lot_opening":
             geometry_keys = {"length_m", "road_profile"}
+        elif element_type == "cul_de_sac":
+            geometry_keys = {"radius_m", "neck_length_m"}
         else:
             geometry_keys = {"width_m", "depth_m"}
         if set(geometry) != geometry_keys:
@@ -656,6 +660,24 @@ def _local_ports(
         if depth <= profile.surface_width_m:
             raise GameMapError(
                 f"Element {spec.element_id!r} depth_m must exceed its access profile width"
+            )
+        return (_Port("entrance", 0.0, 0.0, 180.0, profile.profile_id),)
+    if spec.element_type == "cul_de_sac":
+        radius = _positive_float(
+            spec.geometry.get("radius_m"), f"element {spec.element_id!r}.radius_m"
+        )
+        neck_length = _positive_float(
+            spec.geometry.get("neck_length_m"),
+            f"element {spec.element_id!r}.neck_length_m",
+        )
+        if radius <= profile.surface_width_m * 0.5:
+            raise GameMapError(
+                f"Element {spec.element_id!r} radius_m must exceed half its profile surface width"
+            )
+        circle_reach = math.sqrt(radius**2 - (profile.surface_width_m * 0.5) ** 2)
+        if neck_length < circle_reach:
+            raise GameMapError(
+                f"Element {spec.element_id!r} neck_length_m is too short for its radius and profile width"
             )
         return (_Port("entrance", 0.0, 0.0, 180.0, profile.profile_id),)
     kind = str(spec.geometry.get("kind", "t"))
@@ -1495,6 +1517,126 @@ def _parking_lot_geometry(
     )
 
 
+def _cul_de_sac_geometry(
+    spec: _ElementSpec,
+    profile: _Profile,
+    pose: _Pose,
+    connected: dict[str, str],
+    profiles: dict[str, _Profile],
+    settings: _CompilerSettings,
+) -> tuple[GameMapElement, list[_LaneBuild], list[np.ndarray]]:
+    """Build an unmarked circular turnaround with one road entrance."""
+    radius = _positive_float(
+        spec.geometry.get("radius_m"), f"element {spec.element_id!r}.radius_m"
+    )
+    neck_length = _positive_float(
+        spec.geometry.get("neck_length_m"),
+        f"element {spec.element_id!r}.neck_length_m",
+    )
+    half_surface = profile.surface_width_m * 0.5
+    surface_reach = math.sqrt(radius**2 - half_surface**2)
+    surface_angle = math.asin(half_surface / radius)
+    arc_length = radius * (2.0 * math.pi - 2.0 * surface_angle)
+    sample_count = max(12, int(math.ceil(arc_length / settings.sample_spacing_m)) + 1)
+    surface_angles = np.linspace(
+        math.pi + surface_angle,
+        3.0 * math.pi - surface_angle,
+        sample_count,
+    )
+    surface_arc = np.column_stack(
+        (
+            neck_length + radius * np.cos(surface_angles),
+            radius * np.sin(surface_angles),
+        )
+    )
+    local_surface = np.vstack(
+        (
+            [0.0, -half_surface],
+            [neck_length - surface_reach, -half_surface],
+            surface_arc[1:-1],
+            [neck_length - surface_reach, half_surface],
+            [0.0, half_surface],
+            [0.0, -half_surface],
+        )
+    )
+    surface = _xyz(_transform_xy(local_surface, pose))
+
+    lane_radius = radius - (profile.lane_width_m * 0.5 + profile.curb_offset_m)
+    lane_offset = profile.lane_width_m * 0.5
+    lane_reach = math.sqrt(max(lane_radius**2 - lane_offset**2, 0.0))
+    lane_angle = math.asin(min(1.0, lane_offset / lane_radius))
+    lane_arc_length = lane_radius * (2.0 * math.pi - 2.0 * lane_angle)
+    lane_sample_count = max(
+        12, int(math.ceil(lane_arc_length / settings.sample_spacing_m)) + 1
+    )
+    lane_angles = np.linspace(
+        math.pi + lane_angle,
+        3.0 * math.pi - lane_angle,
+        lane_sample_count,
+    )
+    lane_arc = np.column_stack(
+        (
+            neck_length + lane_radius * np.cos(lane_angles),
+            lane_radius * np.sin(lane_angles),
+        )
+    )
+    local_centerline = np.vstack(
+        (
+            [0.0, -lane_offset],
+            [neck_length - lane_reach, -lane_offset],
+            lane_arc[1:-1],
+            [neck_length - lane_reach, lane_offset],
+            [0.0, lane_offset],
+        )
+    )
+    centerline = _transform_xy(local_centerline, pose)
+    left = _offset_polyline(centerline, profile.lane_width_m * 0.5)
+    right = _offset_polyline(centerline, -profile.lane_width_m * 0.5)
+    lane = _LaneBuild(
+        lane_id=f"{spec.element_id}:turnaround",
+        element_id=spec.element_id,
+        centerline=_xyz(centerline),
+        left_edge=_xyz(left),
+        right_edge=_xyz(right),
+        roadside_edge=_xyz(right),
+        speed_limit_mps=profile.speed_limit_mps,
+        marking_style="VIRTUAL",
+        marking_color="WHITE",
+        start_port="entrance",
+        end_port="entrance",
+        successors=[],
+        allows_taxi_stops=False,
+        left_marking_style="VIRTUAL",
+        left_marking_color="WHITE",
+        right_marking_style="VIRTUAL",
+        right_marking_color="WHITE",
+    )
+
+    curbs: list[np.ndarray] = []
+    if profile.curb:
+        curbs.append(_segments(surface[:-1]))
+        if f"{spec.element_id}.entrance" not in connected:
+            curbs.append(np.asarray([[surface[-2], surface[0]]], dtype=np.float32))
+    ports = _world_ports(spec, profile, pose, profiles)
+    element_ports = tuple(
+        (
+            name,
+            port.x_m,
+            port.y_m,
+            port.heading_deg,
+            f"{spec.element_id}.{name}" in connected,
+        )
+        for name, port in ports.items()
+    )
+    return (
+        GameMapElement(
+            spec.element_id, spec.element_type, spec.profile_id, surface, element_ports
+        ),
+        [lane],
+        curbs,
+    )
+
+
 def _intersection_geometry(
     spec: _ElementSpec,
     profile: _Profile,
@@ -1875,6 +2017,18 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             lane_builds.extend(built_lanes)
             collision_groups.extend(curbs)
             line_markings.extend(markings)
+        elif spec.element_type == "cul_de_sac":
+            element, built_lanes, curbs = _cul_de_sac_geometry(
+                spec,
+                profile,
+                poses[spec.element_id],
+                connections,
+                profiles,
+                settings,
+            )
+            elements.append(element)
+            lane_builds.extend(built_lanes)
+            collision_groups.extend(curbs)
         else:
             element, curbs = _intersection_geometry(
                 spec, profile, poses[spec.element_id], connections, profiles

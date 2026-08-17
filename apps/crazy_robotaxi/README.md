@@ -305,6 +305,20 @@ curb openings; unconnected edges remain physically bounded.
       north: {x_m: 10, y_m: 10, heading_deg: 90, profile: neighborhood}
 ```
 
+A `cul_de_sac` closes an otherwise unfinished road with a curb-bounded circular
+turnaround. `radius_m` controls the bulb and `neck_length_m` carries the curb
+back to its single `entrance` port. The compiler creates a navigable U-turn
+inside the bulb, but its lane rails are virtual: the ClipGT BEV contains the
+road surface and curb boundary without a visible centerline or lane dividers.
+
+```yaml
+- id: neighborhood_turnaround
+  type: cul_de_sac
+  profile: neighborhood
+  geometry: {radius_m: 10, neck_length_m: 10}
+  attach: {port: entrance, to: unfinished_street.end}
+```
+
 Parking destinations use three explicit elements. A `parking_lot_opening`
 transitions from its `geometry.road_profile` to its access `profile`; connect
 its `road` and `access` ports to the public road and driveway respectively. A
@@ -355,14 +369,18 @@ private archive automatically on the next load.
 The current schema supports straight, constant-radius, and cubic Bézier road
 segments and boulevards; regular and freeform mixed-profile intersections;
 driveways; profile-transitioning parking-lot openings; bounded parking lots;
-flat ground; and per-spawn visual variants. Elevation remains a planned
-extension.
+curb-bounded unmarked cul-de-sacs; flat ground; and per-spawn visual variants.
+Elevation remains a planned extension.
 
 The bundled maps reuse the existing OmniDreams seed image. The minimal loop is
 the default; `boulevard_district.robotaxi.yaml` is a clean, game-oriented
 reinterpretation of the original Quiet Suburban Boulevard around its starting
-area, with connected neighborhood blocks, an irregular eastern arterial loop,
-and routed parking lots. Incidental legacy roadnet masks are omitted rather
+area and its full eastern district, with connected neighborhood blocks, an
+irregular eastern gateway, two northern return districts, a southern commercial
+grid, routed parking lots, and cul-de-sacs replacing the original map's cut-off
+roads. The western grade-separated highway and ramps are deliberately omitted:
+flat overlapping roads are ambiguous in both the current schema and the world
+model's BEV conditioning. Incidental legacy roadnet masks are omitted rather
 than treated as parking destinations.
 Static prompts describe visual setting and atmosphere rather than map topology;
 the BEV conditioning remains the source of truth as maps change. The authored
