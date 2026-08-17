@@ -515,6 +515,13 @@ def renderer_settings_from_args(args: argparse.Namespace) -> RendererSettings:
     settings = replace(settings, bev=bev)
     setattr(args, "_renderer_settings", settings)
     args.renderer_config = path
+    # The HUD presenters still consume these resolved values from the argparse
+    # namespace. Keep that compatibility surface concrete after YAML + CLI merge.
+    args.bev = settings.bev.enabled
+    args.bev_resolution = f"{settings.bev.width}x{settings.bev.height}"
+    args.bev_height_m = settings.bev.height_m
+    args.bev_fov_deg = settings.bev.fov_deg
+    args.bev_tilt_deg = settings.bev.tilt_deg
     return settings
 
 

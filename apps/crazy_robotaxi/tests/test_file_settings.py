@@ -78,3 +78,19 @@ def test_visual_cli_values_override_renderer_yaml() -> None:
     assert not settings.bev.enabled
     assert (settings.bev.width, settings.bev.height) == (640, 480)
     assert settings.bev.height_m == pytest.approx(90.0)
+    assert args.bev is False
+    assert args.bev_resolution == "640x480"
+    assert args.bev_height_m == pytest.approx(90.0)
+
+
+def test_default_renderer_populates_legacy_presenter_arguments() -> None:
+    """Publish file defaults through the namespace consumed by HUD presenters."""
+    args = runtime_cli.build_parser().parse_args([])
+
+    runtime_cli.renderer_settings_from_args(args)
+
+    assert args.bev is True
+    assert args.bev_resolution == "1024x1024"
+    assert args.bev_height_m == pytest.approx(75.0)
+    assert args.bev_fov_deg == pytest.approx(60.0)
+    assert args.bev_tilt_deg == pytest.approx(0.0)
