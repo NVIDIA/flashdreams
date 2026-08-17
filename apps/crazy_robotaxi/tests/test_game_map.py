@@ -135,7 +135,7 @@ def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
     assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
 
 
-def test_parking_destination_emits_roadnet_mask_and_white_space_lines() -> None:
+def test_parking_destination_emits_roadnet_mask_without_stall_lines() -> None:
     game_map = load_game_map(_STARTER_MAP)
     road_marking_rows = game_map_compiler._road_marking_rows(game_map)
     parking_line_rows = [
@@ -145,13 +145,9 @@ def test_parking_destination_emits_roadnet_mask_and_white_space_lines() -> None:
     ]
 
     assert not game_map.road_marking_polygons_world
-    assert len(game_map.line_markings) == 18
+    assert not game_map.line_markings
     assert len(road_marking_rows) == 1
-    assert len(parking_line_rows) == 18
-    assert {
-        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0])
-        for row in parking_line_rows
-    } == {("SOLID_SINGLE", "WHITE")}
+    assert not parking_line_rows
     roadnet_mask = road_marking_rows[0]
     assert roadnet_mask["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
     lot = next(
@@ -173,7 +169,7 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
 
     assert game_map.name == "Original Boulevard District (WIP)"
     assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 31
+    assert len(game_map.elements) == 45
     assert {element.element_type for element in game_map.elements} >= {
         "boulevard",
         "road_segment",
@@ -264,6 +260,62 @@ def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> N
     )
 
 
+def test_boulevard_eastern_district_forms_routed_loop_and_destination() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+
+    def reachable_lane_ids(start_lane_id: str) -> set[str]:
+        pending = [start_lane_id]
+        reached = {start_lane_id}
+        while pending:
+            for successor_id in lanes[pending.pop()].successor_ids:
+                if successor_id not in reached:
+                    reached.add(successor_id)
+                    pending.append(successor_id)
+        return reached
+
+    outbound = reachable_lane_ids("east_boulevard:lane:2")
+    returning = reachable_lane_ids("eastern_parking_lot:lane:0")
+
+    assert "eastern_sweep:lane:2" in outbound
+    assert "eastern_south_approach:lane:1" in outbound
+    assert "eastern_parking_lot:lane:1" in outbound
+    assert "east_boulevard:lane:0" in returning
+
+
+def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
+    sweep_lanes = [
+        lane for lane in game_map.lanes if lane.element_id == "eastern_sweep"
+    ]
+
+    assert len(sweep_lanes) == 4
+    for lane in sweep_lanes:
+        segment_lengths = np.linalg.norm(
+            np.diff(lane.centerline_world[:, :2], axis=0), axis=1
+        )
+        assert float(np.max(segment_lengths)) < 2.25
+        rail_widths = np.linalg.norm(
+            lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
+        )
+        np.testing.assert_allclose(rail_widths, 3.6, atol=1.0e-4)
+
+    assert all(port[4] for port in elements["eastern_gateway"].ports)
+    assert len(elements["eastern_gateway"].surface_world) == 7
+    assert len(elements["eastern_north_junction"].surface_world) == 8
+    assert len(elements["eastern_south_junction"].surface_world) == 7
+
+    continuation = elements["eastern_southwest_continuation"]
+    end = next(port for port in continuation.ports if port[0] == "end")
+    assert end[4] is False
+    end_xy = np.asarray(end[1:3], dtype=np.float32)
+    assert any(
+        np.allclose(segment[:, :2].mean(axis=0), end_xy, atol=1.0e-3)
+        for segment in game_map.collision_segments_world
+    )
+
+
 def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     rows = game_map_compiler._road_marking_rows(game_map)
@@ -283,14 +335,14 @@ def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
         if element.element_type == "parking_lot"
     }
 
-    assert set(parking_lots) == {"central_parking_lot", "east_parking_lot"}
-    assert len(masks) == 2
-    assert len(rows) == 2
-    assert len(parking_line_rows) == 30
-    assert {
-        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0])
-        for row in parking_line_rows
-    } == {("SOLID_SINGLE", "WHITE")}
+    assert set(parking_lots) == {
+        "central_parking_lot",
+        "east_parking_lot",
+        "eastern_parking_lot",
+    }
+    assert len(masks) == 3
+    assert len(rows) == 3
+    assert not parking_line_rows
     mask_polygons = [
         np.asarray(
             [
@@ -363,7 +415,7 @@ def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
         row for row in line_rows if "east_road:lane:0" in row["key"]["label_class_id"]
     ]
 
-    assert len(line_rows) == 28
+    assert len(line_rows) == 10
     assert {row["intersection_area"]["category"] for row in area_rows} == {
         "intersection"
     }
@@ -436,18 +488,13 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
     assert scene.game_map is not None
     assert scene.game_map.map_id == "crazy-robotaxi-minimal-loop"
     assert not scene.game_map.road_marking_polygons_world
-    assert len(scene.game_map.line_markings) == 18
+    assert not scene.game_map.line_markings
     assert "quiet suburban neighborhood" in scene.prompt
     assert "lane" not in scene.prompt
     assert "parking lot" not in scene.prompt
-    white_parking_lines = [
-        layer
+    assert all(
+        layer.layer_name != "lanelines_white_solid_single"
         for layer in scene.line_layers
-        if layer.layer_name == "lanelines_white_solid_single"
-    ]
-    assert len(white_parking_lines) == 1
-    assert len(white_parking_lines[0].segments_world) >= len(
-        scene.game_map.line_markings
     )
     assert scene.initial_speed_mps == pytest.approx(0.0)
     np.testing.assert_allclose(
@@ -502,4 +549,53 @@ def test_element_overlap_validation_rejects_crossing_parking_lot(
     )
 
     with pytest.raises(GameMapError, match="Elements 'north_road'.*overlap"):
+        load_game_map(broken)
+
+
+def test_cubic_bezier_validation_rejects_degenerate_start(tmp_path: Path) -> None:
+    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
+    sweep = next(
+        element for element in source["elements"] if element["id"] == "eastern_sweep"
+    )
+    sweep["geometry"]["control_points"][0] = {"x_m": 0, "y_m": 0}
+    broken = tmp_path / "broken-curve.robotaxi.yaml"
+    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
+
+    with pytest.raises(GameMapError, match="first control point must differ"):
+        load_game_map(broken)
+
+
+def test_freeform_intersection_validation_rejects_off_edge_port(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
+    gateway = next(
+        element for element in source["elements"] if element["id"] == "eastern_gateway"
+    )
+    gateway["geometry"]["ports"]["north"]["y_m"] = 13
+    broken = tmp_path / "broken-intersection.robotaxi.yaml"
+    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
+
+    with pytest.raises(GameMapError, match="port 'north' must lie on"):
+        load_game_map(broken)
+
+
+def test_freeform_intersection_validation_rejects_self_intersection(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
+    gateway = next(
+        element for element in source["elements"] if element["id"] == "eastern_gateway"
+    )
+    gateway["geometry"]["surface"] = [
+        {"x_m": 0, "y_m": -14},
+        {"x_m": 30, "y_m": 8},
+        {"x_m": 0, "y_m": 14},
+        {"x_m": 30, "y_m": -4},
+        {"x_m": 14, "y_m": -14},
+    ]
+    broken = tmp_path / "self-intersection.robotaxi.yaml"
+    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
+
+    with pytest.raises(GameMapError, match="surface must not self-intersect"):
         load_game_map(broken)

@@ -9,12 +9,7 @@ compiler:
   parking_lot:
     turnaround_width_multiplier: 0.75
     turnaround_min_depth_m: 5.0
-    inner_clearance_m: 0.5
-    outer_clearance_m: 0.6
-    minimum_bay_depth_m: 3.0
-    first_stripe_offset_m: 3.0
     turnaround_control_inset_m: 0.75
-    marking: {style: SOLID_SINGLE, color: WHITE}
 
 profiles:
   boulevard:
@@ -233,7 +228,7 @@ elements:
   - id: central_parking_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
+    geometry: {width_m: 26, depth_m: 32}
     attach: {port: entrance, to: central_lot_driveway.end}
 
   - id: east_lot_opening
@@ -251,13 +246,153 @@ elements:
   - id: east_parking_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 24, depth_m: 24, parking_space_width_m: 2.7}
+    geometry: {width_m: 24, depth_m: 24}
     attach: {port: entrance, to: east_lot_driveway.end}
+
+  - id: eastern_gateway
+    type: intersection
+    profile: boulevard
+    geometry:
+      kind: freeform
+      surface:
+        - {x_m: 0, y_m: -14}
+        - {x_m: 14, y_m: -14}
+        - {x_m: 30, y_m: -4}
+        - {x_m: 30, y_m: 8}
+        - {x_m: 18, y_m: 14}
+        - {x_m: 0, y_m: 14}
+      connector_center: {x_m: 12, y_m: 0}
+      ports:
+        west: {x_m: 0, y_m: 0, heading_deg: 180, profile: boulevard}
+        north: {x_m: 9, y_m: 14, heading_deg: 90, profile: neighborhood}
+        south: {x_m: 7, y_m: -14, heading_deg: 270, profile: neighborhood}
+        southeast:
+          {x_m: 22, y_m: -9, heading_deg: -57.994617, profile: boulevard}
+    attach: {port: west, to: east_boulevard.end}
+
+  - id: eastern_north_approach
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 52}
+    attach: {port: start, to: eastern_gateway.north}
+
+  - id: eastern_north_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: freeform
+      surface:
+        - {x_m: -6, y_m: 0}
+        - {x_m: 6, y_m: 0}
+        - {x_m: 10, y_m: 5}
+        - {x_m: 10, y_m: 14}
+        - {x_m: 8, y_m: 18}
+        - {x_m: -4, y_m: 18}
+        - {x_m: -6, y_m: 14}
+      connector_center: {x_m: 1, y_m: 9}
+      ports:
+        south: {x_m: 0, y_m: 0, heading_deg: 270, profile: neighborhood}
+        north: {x_m: 2, y_m: 18, heading_deg: 90, profile: neighborhood}
+        east: {x_m: 10, y_m: 9.5, heading_deg: 0, profile: neighborhood}
+    attach: {port: south, to: eastern_north_approach.end}
+
+  - id: eastern_north_continuation
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 32}
+    attach: {port: start, to: eastern_north_junction.north}
+
+  - id: eastern_side_road
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 18}
+    attach: {port: start, to: eastern_north_junction.east}
+
+  - id: eastern_lot_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+      port_profiles: {}
+    attach: {port: west, to: eastern_side_road.end}
+
+  - id: eastern_side_tail
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 20}
+    attach: {port: start, to: eastern_lot_junction.east}
+
+  - id: eastern_lot_opening
+    type: parking_lot_opening
+    profile: parking_access
+    geometry: {length_m: 5, road_profile: neighborhood}
+    attach: {port: road, to: eastern_lot_junction.north}
+
+  - id: eastern_lot_driveway
+    type: driveway
+    profile: parking_access
+    geometry: {kind: straight, length_m: 8}
+    attach: {port: start, to: eastern_lot_opening.access}
+
+  - id: eastern_parking_lot
+    type: parking_lot
+    profile: parking_access
+    geometry: {width_m: 24, depth_m: 24}
+    attach: {port: entrance, to: eastern_lot_driveway.end}
+
+  - id: eastern_south_approach
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 70}
+    attach: {port: start, to: eastern_gateway.south}
+
+  - id: eastern_south_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: freeform
+      surface:
+        - {x_m: -8, y_m: -20}
+        - {x_m: 20, y_m: -20}
+        - {x_m: 25, y_m: -15}
+        - {x_m: 9, y_m: -5}
+        - {x_m: 8, y_m: 0}
+        - {x_m: -8, y_m: 0}
+      connector_center: {x_m: 2, y_m: -9}
+      ports:
+        north: {x_m: 0, y_m: 0, heading_deg: 90, profile: neighborhood}
+        sweep:
+          {x_m: 17, y_m: -10, heading_deg: 57.994617, profile: boulevard}
+        southwest: {x_m: 6, y_m: -20, heading_deg: 270, profile: boulevard}
+    attach: {port: north, to: eastern_south_approach.end}
+
+  - id: eastern_sweep
+    type: boulevard
+    profile: boulevard
+    geometry:
+      kind: cubic_bezier
+      control_points:
+        - {x_m: 30, y_m: 0}
+        - {x_m: 62.184798, y_m: -20.882003}
+        - {x_m: 73.139854, y_m: -43.353913}
+    attach: {port: start, to: eastern_gateway.southeast}
+
+  - id: eastern_southwest_continuation
+    type: boulevard
+    profile: boulevard
+    geometry:
+      kind: cubic_bezier
+      control_points:
+        - {x_m: 20, y_m: 0}
+        - {x_m: 40, y_m: -10}
+        - {x_m: 60, y_m: -25}
+    attach: {port: start, to: eastern_south_junction.southwest}
 
 connections:
   - {a: east_north_junction.south, b: east_north_street.end}
   - {a: south_cross_street.end, b: east_south_junction.west}
   - {a: east_lower_junction.north, b: east_south_tail.end}
+  - {a: eastern_sweep.end, b: eastern_south_junction.sweep}
 
 spawns:
   - id: original_area_start

@@ -9,12 +9,7 @@ compiler:
   parking_lot:
     turnaround_width_multiplier: 0.75
     turnaround_min_depth_m: 5.0
-    inner_clearance_m: 0.5
-    outer_clearance_m: 0.6
-    minimum_bay_depth_m: 3.0
-    first_stripe_offset_m: 3.0
     turnaround_control_inset_m: 0.75
-    marking: {style: SOLID_SINGLE, color: WHITE}
 
 profiles:
   neighborhood:
@@ -125,7 +120,7 @@ elements:
   - id: neighborhood_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
+    geometry: {width_m: 26, depth_m: 32}
     attach: {port: entrance, to: lot_driveway.end}
 
 connections:

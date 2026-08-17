@@ -193,12 +193,7 @@ compiler:
   parking_lot:
     turnaround_width_multiplier: 0.75
     turnaround_min_depth_m: 5.0
-    inner_clearance_m: 0.5
-    outer_clearance_m: 0.6
-    minimum_bay_depth_m: 3.0
-    first_stripe_offset_m: 3.0
     turnaround_control_inset_m: 0.75
-    marking: {style: SOLID_SINGLE, color: WHITE}
 profiles:
   neighborhood:
     lane_width_m: 3.6
@@ -267,18 +262,60 @@ elements:
       port_profiles: {north: neighborhood, south: neighborhood}
 ```
 
+Road segments and boulevards also support cubic Bézier centerlines. The start
+point is the element-local origin; the three authored control points are the
+two Bézier controls followed by the endpoint. Port headings come from the
+curve's endpoint tangents, so curves attach and close through the same named
+port mechanism as straight and circular roads.
+
+```yaml
+- id: arterial_sweep
+  type: boulevard
+  profile: boulevard
+  geometry:
+    kind: cubic_bezier
+    control_points:
+      - {x_m: 30, y_m: 0}
+      - {x_m: 65, y_m: -20}
+      - {x_m: 80, y_m: -50}
+  attach: {port: start, to: gateway.southeast}
+```
+
+Use a `freeform` intersection for skewed or multi-angle junctions. Its surface,
+connector center, and ports use local coordinates. Each port must lie on a
+surface edge, point perpendicular and outward from that edge, and have enough
+edge length for its profile's full paved width. Connected ports cut matching
+curb openings; unconnected edges remain physically bounded.
+
+```yaml
+- id: gateway
+  type: intersection
+  profile: boulevard
+  geometry:
+    kind: freeform
+    surface:
+      - {x_m: 0, y_m: -10}
+      - {x_m: 20, y_m: -10}
+      - {x_m: 20, y_m: 10}
+      - {x_m: 0, y_m: 10}
+    connector_center: {x_m: 10, y_m: 0}
+    ports:
+      west: {x_m: 0, y_m: 0, heading_deg: 180, profile: boulevard}
+      east: {x_m: 20, y_m: 0, heading_deg: 0, profile: boulevard}
+      north: {x_m: 10, y_m: 10, heading_deg: 90, profile: neighborhood}
+```
+
 Parking destinations use three explicit elements. A `parking_lot_opening`
 transitions from its `geometry.road_profile` to its access `profile`; connect
 its `road` and `access` ports to the public road and driveway respectively. A
 straight `driveway` carries the access profile to a rectangular `parking_lot`,
 whose `width_m` and `depth_m` define its enclosed surface. The lot compiler
 cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
-links the aisle directions with an internal turnaround route, and emits painted
-parking-space dividers on both sides of the aisle. `parking_space_width_m`
-explicitly controls the bay spacing. In the compiled BEV, the
-entire lot surface is emitted as a green `ROI_POLYGON_ROADNET_MASK`, while the
-space dividers are emitted as white solid line primitives so they remain visible
-to the model. The lot is not emitted as an intersection.
+and links the aisle directions with an internal turnaround route. In the
+compiled BEV, the entire lot surface is emitted as a green
+`ROI_POLYGON_ROADNET_MASK`. Parking-space dividers are intentionally omitted:
+ClipGT would encode them as ordinary lane lines, which can condition the model
+to produce bike lanes or turn lanes. The lot is not emitted as an intersection.
 
 ```yaml
 profiles:
@@ -305,7 +342,7 @@ elements:
   - id: neighborhood_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
+    geometry: {width_m: 26, depth_m: 32}
     attach: {port: entrance, to: lot_driveway.end}
 ```
 
@@ -315,17 +352,18 @@ Seed paths are relative to the YAML file. The compiler cache key includes the
 YAML, every referenced seed, and the compiler version, so edits rebuild the
 private archive automatically on the next load.
 
-The current schema supports straight and constant-radius curved road segments,
-boulevards, mixed-profile T and four-way intersections, driveways,
-profile-transitioning parking-lot openings, marked and bounded parking lots,
-flat ground, and per-spawn visual variants. Elevation and freeform splines are
-planned extensions.
+The current schema supports straight, constant-radius, and cubic Bézier road
+segments and boulevards; regular and freeform mixed-profile intersections;
+driveways; profile-transitioning parking-lot openings; bounded parking lots;
+flat ground; and per-spawn visual variants. Elevation remains a planned
+extension.
 
 The bundled maps reuse the existing OmniDreams seed image. The minimal loop is
 the default; `boulevard_district.robotaxi.yaml` is a clean, game-oriented
 reinterpretation of the original Quiet Suburban Boulevard around its starting
-area, with connected neighborhood blocks and routed parking lots. Incidental
-legacy roadnet masks are omitted rather than treated as parking destinations.
+area, with connected neighborhood blocks, an irregular eastern arterial loop,
+and routed parking lots. Incidental legacy roadnet masks are omitted rather
+than treated as parking destinations.
 Static prompts describe visual setting and atmosphere rather than map topology;
 the BEV conditioning remains the source of truth as maps change. The authored
 geometry is not expected to match the seed exactly, so the first generated

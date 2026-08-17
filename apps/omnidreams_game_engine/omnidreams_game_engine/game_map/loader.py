@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -56,13 +56,7 @@ class _CompilerSettings:
     intersection_connector_samples: int
     parking_turnaround_width_multiplier: float
     parking_turnaround_min_depth_m: float
-    parking_inner_clearance_m: float
-    parking_outer_clearance_m: float
-    parking_minimum_bay_depth_m: float
-    parking_first_stripe_offset_m: float
     parking_turnaround_control_inset_m: float
-    parking_marking_style: str
-    parking_marking_color: str
 
     def as_dict(self) -> dict[str, object]:
         """Return settings as stable cache metadata."""
@@ -168,6 +162,90 @@ def _nonnegative_float(value: object, context: str) -> float:
     if not math.isfinite(number) or number < 0.0:
         raise GameMapError(f"{context} must be nonnegative")
     return number
+
+
+def _finite_float(value: object, context: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise GameMapError(f"{context} must be a number") from exc
+    if not math.isfinite(number):
+        raise GameMapError(f"{context} must be finite")
+    return number
+
+
+def _xy(value: object, context: str) -> np.ndarray:
+    raw = _mapping(value, context)
+    if set(raw) != {"x_m", "y_m"}:
+        raise GameMapError(f"{context} requires exactly x_m and y_m")
+    return np.asarray(
+        [
+            _finite_float(raw["x_m"], f"{context}.x_m"),
+            _finite_float(raw["y_m"], f"{context}.y_m"),
+        ],
+        dtype=np.float64,
+    )
+
+
+def _cubic_bezier_points(spec: _ElementSpec) -> np.ndarray:
+    values = _sequence(
+        spec.geometry.get("control_points"),
+        f"element {spec.element_id!r}.control_points",
+    )
+    if len(values) != 3:
+        raise GameMapError(
+            f"Element {spec.element_id!r} cubic_bezier requires exactly three control points"
+        )
+    points = np.vstack(
+        (
+            np.zeros(2, dtype=np.float64),
+            *(
+                _xy(value, f"element {spec.element_id!r}.control_points[{index}]")
+                for index, value in enumerate(values)
+            ),
+        )
+    )
+    if np.linalg.norm(points[1] - points[0]) <= _PLACEMENT_TOLERANCE_M:
+        raise GameMapError(
+            f"Element {spec.element_id!r} first control point must differ from its start"
+        )
+    if np.linalg.norm(points[3] - points[2]) <= _PLACEMENT_TOLERANCE_M:
+        raise GameMapError(
+            f"Element {spec.element_id!r} endpoint must differ from its second control point"
+        )
+    return points
+
+
+def _freeform_surface(spec: _ElementSpec) -> np.ndarray:
+    values = _sequence(
+        spec.geometry.get("surface"), f"element {spec.element_id!r}.surface"
+    )
+    if len(values) < 3:
+        raise GameMapError(
+            f"Element {spec.element_id!r} freeform surface requires at least three vertices"
+        )
+    points = np.vstack(
+        [
+            _xy(value, f"element {spec.element_id!r}.surface[{index}]")
+            for index, value in enumerate(values)
+        ]
+    )
+    if np.linalg.norm(points[0] - points[-1]) <= _PLACEMENT_TOLERANCE_M:
+        points = points[:-1]
+    if len(points) < 3:
+        raise GameMapError(
+            f"Element {spec.element_id!r} freeform surface requires three distinct vertices"
+        )
+    polygon = np.vstack((points, points[0]))
+    twice_area = float(
+        np.sum(polygon[:-1, 0] * polygon[1:, 1] - polygon[1:, 0] * polygon[:-1, 1])
+    )
+    if abs(twice_area) <= _PLACEMENT_TOLERANCE_M:
+        raise GameMapError(
+            f"Element {spec.element_id!r} freeform surface must have nonzero area"
+        )
+    _validate_simple_polygon(spec, polygon)
+    return polygon
 
 
 def _read_document(path: Path) -> dict[str, Any]:
@@ -343,20 +421,12 @@ def _parse_compiler_settings(doc: dict[str, Any]) -> _CompilerSettings:
     parking_expected = {
         "turnaround_width_multiplier",
         "turnaround_min_depth_m",
-        "inner_clearance_m",
-        "outer_clearance_m",
-        "minimum_bay_depth_m",
-        "first_stripe_offset_m",
         "turnaround_control_inset_m",
-        "marking",
     }
     if set(parking) != parking_expected:
         raise GameMapError(
             f"compiler.parking_lot must contain exactly {sorted(parking_expected)}"
         )
-    marking = _mapping(parking["marking"], "compiler.parking_lot.marking")
-    if set(marking) != {"style", "color"}:
-        raise GameMapError("compiler.parking_lot.marking requires style and color")
     samples = raw["intersection_connector_samples"]
     if type(samples) is not int or samples < 2:
         raise GameMapError(
@@ -378,25 +448,10 @@ def _parse_compiler_settings(doc: dict[str, Any]) -> _CompilerSettings:
             parking["turnaround_min_depth_m"],
             "compiler.parking_lot.turnaround_min_depth_m",
         ),
-        parking_inner_clearance_m=_nonnegative_float(
-            parking["inner_clearance_m"], "compiler.parking_lot.inner_clearance_m"
-        ),
-        parking_outer_clearance_m=_nonnegative_float(
-            parking["outer_clearance_m"], "compiler.parking_lot.outer_clearance_m"
-        ),
-        parking_minimum_bay_depth_m=_positive_float(
-            parking["minimum_bay_depth_m"], "compiler.parking_lot.minimum_bay_depth_m"
-        ),
-        parking_first_stripe_offset_m=_nonnegative_float(
-            parking["first_stripe_offset_m"],
-            "compiler.parking_lot.first_stripe_offset_m",
-        ),
         parking_turnaround_control_inset_m=_nonnegative_float(
             parking["turnaround_control_inset_m"],
             "compiler.parking_lot.turnaround_control_inset_m",
         ),
-        parking_marking_style=str(marking["style"]).upper(),
-        parking_marking_color=str(marking["color"]).upper(),
     )
 
 
@@ -436,18 +491,27 @@ def _parse_elements(
             )
         geometry = _mapping(raw["geometry"], f"element {element_id!r}.geometry")
         if element_type in {"road_segment", "boulevard", "driveway"}:
-            kind = geometry.get("kind")
-            geometry_keys = (
-                {"kind", "length_m"}
-                if kind == "straight"
-                else {"kind", "radius_m", "sweep_deg"}
-            )
+            kind = str(geometry.get("kind", ""))
+            if kind == "straight":
+                geometry_keys = {"kind", "length_m"}
+            elif kind == "arc":
+                geometry_keys = {"kind", "radius_m", "sweep_deg"}
+            elif kind == "cubic_bezier" and element_type != "driveway":
+                geometry_keys = {"kind", "control_points"}
+            else:
+                raise GameMapError(
+                    f"Element {element_id!r} has unsupported {element_type} geometry {kind!r}"
+                )
         elif element_type == "intersection":
-            geometry_keys = {"kind", "port_profiles"}
+            geometry_keys = (
+                {"kind", "surface", "connector_center", "ports"}
+                if geometry.get("kind") == "freeform"
+                else {"kind", "port_profiles"}
+            )
         elif element_type == "parking_lot_opening":
             geometry_keys = {"length_m", "road_profile"}
         else:
-            geometry_keys = {"width_m", "depth_m", "parking_space_width_m"}
+            geometry_keys = {"width_m", "depth_m"}
         if set(geometry) != geometry_keys:
             raise GameMapError(
                 f"Element {element_id!r}.geometry must contain exactly {sorted(geometry_keys)}"
@@ -533,6 +597,30 @@ def _local_ports(
                 _Port("start", 0.0, 0.0, 180.0, profile.profile_id),
                 _Port("end", x_m, y_m, sweep, profile.profile_id),
             )
+        if kind == "cubic_bezier":
+            points = _cubic_bezier_points(spec)
+            start_tangent = points[1] - points[0]
+            end_tangent = points[3] - points[2]
+            start_heading = (
+                math.degrees(
+                    math.atan2(float(start_tangent[1]), float(start_tangent[0]))
+                )
+                + 180.0
+            ) % 360.0
+            end_heading = (
+                math.degrees(math.atan2(float(end_tangent[1]), float(end_tangent[0])))
+                % 360.0
+            )
+            return (
+                _Port("start", 0.0, 0.0, start_heading, profile.profile_id),
+                _Port(
+                    "end",
+                    float(points[3, 0]),
+                    float(points[3, 1]),
+                    end_heading,
+                    profile.profile_id,
+                ),
+            )
         raise GameMapError(
             f"Element {spec.element_id!r} has unsupported road geometry {kind!r}"
         )
@@ -571,6 +659,65 @@ def _local_ports(
             )
         return (_Port("entrance", 0.0, 0.0, 180.0, profile.profile_id),)
     kind = str(spec.geometry.get("kind", "t"))
+    if kind == "freeform":
+        surface = _freeform_surface(spec)
+        connector_center = _xy(
+            spec.geometry.get("connector_center"),
+            f"element {spec.element_id!r}.connector_center",
+        )
+        if not _point_in_polygon_interior(connector_center, surface):
+            raise GameMapError(
+                f"Element {spec.element_id!r} connector_center must lie inside its surface"
+            )
+        raw_ports = _mapping(
+            spec.geometry.get("ports"), f"element {spec.element_id!r}.ports"
+        )
+        if len(raw_ports) < 3:
+            raise GameMapError(
+                f"Element {spec.element_id!r} freeform intersection requires at least three ports"
+            )
+        ports: list[_Port] = []
+        for name, raw_value in raw_ports.items():
+            raw = _mapping(raw_value, f"element {spec.element_id!r}.ports.{name}")
+            expected = {"x_m", "y_m", "heading_deg", "profile"}
+            if set(raw) != expected:
+                raise GameMapError(
+                    f"Element {spec.element_id!r} port {name!r} requires exactly {sorted(expected)}"
+                )
+            profile_id = str(raw["profile"])
+            if profile_id not in profiles:
+                raise GameMapError(
+                    f"Element {spec.element_id!r} port {name!r} references unknown profile {profile_id!r}"
+                )
+            point = np.asarray(
+                [
+                    _finite_float(
+                        raw["x_m"], f"element {spec.element_id!r}.ports.{name}.x_m"
+                    ),
+                    _finite_float(
+                        raw["y_m"], f"element {spec.element_id!r}.ports.{name}.y_m"
+                    ),
+                ],
+                dtype=np.float64,
+            )
+            if not _point_on_polygon_edge(point, surface):
+                raise GameMapError(
+                    f"Element {spec.element_id!r} port {name!r} must lie on its surface perimeter"
+                )
+            ports.append(
+                _Port(
+                    name,
+                    float(point[0]),
+                    float(point[1]),
+                    _finite_float(
+                        raw["heading_deg"],
+                        f"element {spec.element_id!r}.ports.{name}.heading_deg",
+                    )
+                    % 360.0,
+                    profile_id,
+                )
+            )
+        return tuple(ports)
     if kind not in {"t", "four_way"}:
         raise GameMapError(
             f"Element {spec.element_id!r} has unsupported intersection kind {kind!r}"
@@ -775,6 +922,32 @@ def _sample_centerline(spec: _ElementSpec, sample_spacing_m: float) -> np.ndarra
         length = float(spec.geometry["length_m"])
         count = max(2, int(math.ceil(length / sample_spacing_m)) + 1)
         return np.column_stack((np.linspace(0.0, length, count), np.zeros(count)))
+    if kind == "cubic_bezier":
+        control = _cubic_bezier_points(spec)
+        control_length = float(np.sum(np.linalg.norm(np.diff(control, axis=0), axis=1)))
+        dense_count = max(33, int(math.ceil(control_length / sample_spacing_m)) * 8 + 1)
+        t = np.linspace(0.0, 1.0, dense_count)[:, None]
+        dense = (
+            (1.0 - t) ** 3 * control[0]
+            + 3.0 * (1.0 - t) ** 2 * t * control[1]
+            + 3.0 * (1.0 - t) * t**2 * control[2]
+            + t**3 * control[3]
+        )
+        segment_lengths = np.linalg.norm(np.diff(dense, axis=0), axis=1)
+        cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+        length = float(cumulative[-1])
+        if length <= _PLACEMENT_TOLERANCE_M:
+            raise GameMapError(
+                f"Element {spec.element_id!r} cubic_bezier must have positive length"
+            )
+        count = max(3, int(math.ceil(length / sample_spacing_m)) + 1)
+        distances = np.linspace(0.0, length, count)
+        return np.column_stack(
+            (
+                np.interp(distances, cumulative, dense[:, 0]),
+                np.interp(distances, cumulative, dense[:, 1]),
+            )
+        )
     radius = float(spec.geometry["radius_m"])
     sweep = math.radians(float(spec.geometry["sweep_deg"]))
     arc_length = radius * abs(sweep)
@@ -828,6 +1001,64 @@ def _point_on_polygon_edge(point: np.ndarray, polygon: np.ndarray) -> bool:
         ):
             return True
     return False
+
+
+def _port_edge(
+    point: np.ndarray, polygon: np.ndarray
+) -> tuple[int, float, float] | None:
+    for index, (start, end) in enumerate(zip(polygon[:-1], polygon[1:], strict=True)):
+        if abs(_cross_2d(start, end, point)) > _PLACEMENT_TOLERANCE_M:
+            continue
+        direction = end - start
+        length = float(np.linalg.norm(direction))
+        if length <= _PLACEMENT_TOLERANCE_M:
+            continue
+        distance = float(np.dot(point - start, direction / length))
+        if -_PLACEMENT_TOLERANCE_M <= distance <= length + _PLACEMENT_TOLERANCE_M:
+            return index, max(0.0, min(length, distance)), length
+    return None
+
+
+def _proper_segment_intersection(
+    first_start: np.ndarray,
+    first_end: np.ndarray,
+    second_start: np.ndarray,
+    second_end: np.ndarray,
+) -> bool:
+    first_side_a = _cross_2d(first_start, first_end, second_start)
+    first_side_b = _cross_2d(first_start, first_end, second_end)
+    second_side_a = _cross_2d(second_start, second_end, first_start)
+    second_side_b = _cross_2d(second_start, second_end, first_end)
+    return (
+        first_side_a * first_side_b < -_PLACEMENT_TOLERANCE_M
+        and second_side_a * second_side_b < -_PLACEMENT_TOLERANCE_M
+    )
+
+
+def _validate_simple_polygon(spec: _ElementSpec, polygon: np.ndarray) -> None:
+    edge_count = len(polygon) - 1
+    for first_index in range(edge_count):
+        first_start = polygon[first_index]
+        first_end = polygon[first_index + 1]
+        if np.linalg.norm(first_end - first_start) <= _PLACEMENT_TOLERANCE_M:
+            raise GameMapError(
+                f"Element {spec.element_id!r} freeform surface has a zero-length edge"
+            )
+        for second_index in range(first_index + 1, edge_count):
+            if second_index in {
+                first_index,
+                first_index + 1,
+            } or (first_index == 0 and second_index == edge_count - 1):
+                continue
+            if _proper_segment_intersection(
+                first_start,
+                first_end,
+                polygon[second_index],
+                polygon[second_index + 1],
+            ):
+                raise GameMapError(
+                    f"Element {spec.element_id!r} freeform surface must not self-intersect"
+                )
 
 
 def _point_in_polygon_interior(point: np.ndarray, polygon: np.ndarray) -> bool:
@@ -1020,7 +1251,6 @@ def _parking_lot_opening_geometry(
     count = max(2, int(math.ceil(length / settings.sample_spacing_m)) + 1)
     x = np.linspace(0.0, length, count)
     alpha = np.linspace(0.0, 1.0, count)
-    world_center = _transform_xy(np.column_stack((x, np.zeros(count))), pose)
     start_half = road_profile.surface_width_m * 0.5
     end_half = access_profile.surface_width_m * 0.5
     surface_half = start_half + alpha * (end_half - start_half)
@@ -1158,38 +1388,6 @@ def _parking_lot_geometry(
         dtype=np.float64,
     )
     surface = _xyz(_transform_xy(local_surface, pose))
-    parking_space_width = _positive_float(
-        spec.geometry.get("parking_space_width_m"),
-        f"element {spec.element_id!r}.parking_space_width_m",
-    )
-    inner_y = profile.surface_width_m * 0.5 + settings.parking_inner_clearance_m
-    outer_y = width * 0.5 - settings.parking_outer_clearance_m
-    line_markings: list[GameMapLineMarking] = []
-    if outer_y - inner_y >= settings.parking_minimum_bay_depth_m:
-        first_stripe_x = max(
-            settings.parking_first_stripe_offset_m, parking_space_width
-        )
-        stripe_positions = np.arange(
-            first_stripe_x,
-            aisle_length + _PLACEMENT_TOLERANCE_M,
-            parking_space_width,
-        )
-        for stripe_index, stripe_x in enumerate(stripe_positions):
-            for side_name, side in (("right", -1.0), ("left", 1.0)):
-                local_stripe = np.asarray(
-                    [[stripe_x, side * inner_y], [stripe_x, side * outer_y]],
-                    dtype=np.float64,
-                )
-                line_markings.append(
-                    GameMapLineMarking(
-                        marking_id=(
-                            f"{spec.element_id}:parking-space:{stripe_index}:{side_name}"
-                        ),
-                        polyline_world=_xyz(_transform_xy(local_stripe, pose)),
-                        style=settings.parking_marking_style,
-                        color=settings.parking_marking_color,
-                    )
-                )
     ports = _world_ports(spec, profile, pose, profiles)
     lane_builds: list[_LaneBuild] = []
     for index, direction in enumerate(profile.directions):
@@ -1293,7 +1491,7 @@ def _parking_lot_geometry(
         ),
         lane_builds,
         curbs,
-        line_markings,
+        [],
     )
 
 
@@ -1305,22 +1503,88 @@ def _intersection_geometry(
     profiles: dict[str, _Profile],
 ) -> tuple[GameMapElement, list[np.ndarray]]:
     local_ports = _local_ports(spec, profile, profiles)
-    x_half = max(abs(port.x_m) for port in local_ports)
-    y_half = max(abs(port.y_m) for port in local_ports)
-    local = np.asarray(
-        [
-            [-x_half, -y_half],
-            [x_half, -y_half],
-            [x_half, y_half],
-            [-x_half, y_half],
-            [-x_half, -y_half],
-        ],
-        dtype=np.float64,
-    )
+    if spec.geometry.get("kind") == "freeform":
+        local = _freeform_surface(spec)
+    else:
+        x_half = max(abs(port.x_m) for port in local_ports)
+        y_half = max(abs(port.y_m) for port in local_ports)
+        local = np.asarray(
+            [
+                [-x_half, -y_half],
+                [x_half, -y_half],
+                [x_half, y_half],
+                [-x_half, y_half],
+                [-x_half, -y_half],
+            ],
+            dtype=np.float64,
+        )
     surface = _xyz(_transform_xy(local, pose))
     ports = _world_ports(spec, profile, pose, profiles)
     curbs: list[np.ndarray] = []
-    if any(profiles[port.profile_id].curb for port in ports.values()):
+    if spec.geometry.get("kind") == "freeform" and any(
+        profiles[port.profile_id].curb for port in local_ports
+    ):
+        twice_area = float(
+            np.sum(local[:-1, 0] * local[1:, 1] - local[1:, 0] * local[:-1, 1])
+        )
+        intervals_by_edge: dict[int, list[tuple[float, float]]] = {}
+        for port in local_ports:
+            point = np.asarray([port.x_m, port.y_m], dtype=np.float64)
+            match = _port_edge(point, local)
+            assert match is not None
+            edge_index, distance, edge_length = match
+            edge = local[edge_index + 1] - local[edge_index]
+            unit = edge / edge_length
+            outward = (
+                np.asarray([unit[1], -unit[0]])
+                if twice_area > 0.0
+                else np.asarray([-unit[1], unit[0]])
+            )
+            heading = math.radians(port.heading_deg)
+            port_outward = np.asarray([math.cos(heading), math.sin(heading)])
+            heading_error = math.degrees(
+                math.acos(float(np.clip(np.dot(outward, port_outward), -1.0, 1.0)))
+            )
+            if heading_error > _ANGLE_TOLERANCE_DEG:
+                raise GameMapError(
+                    f"Element {spec.element_id!r} port {port.name!r} heading must point perpendicular and outward from its surface"
+                )
+            half_width = profiles[port.profile_id].surface_width_m * 0.5
+            if (
+                distance - half_width < -_PLACEMENT_TOLERANCE_M
+                or distance + half_width > edge_length + _PLACEMENT_TOLERANCE_M
+            ):
+                raise GameMapError(
+                    f"Element {spec.element_id!r} port {port.name!r} opening does not fit on its surface edge"
+                )
+            endpoint = f"{spec.element_id}.{port.name}"
+            if endpoint in connected:
+                intervals_by_edge.setdefault(edge_index, []).append(
+                    (distance - half_width, distance + half_width)
+                )
+        for edge_index, (local_start, local_end) in enumerate(
+            zip(local[:-1], local[1:], strict=True)
+        ):
+            direction = local_end - local_start
+            length = float(np.linalg.norm(direction))
+            unit = direction / length
+            cursor = 0.0
+            intervals = sorted(intervals_by_edge.get(edge_index, ()))
+            for gap_start, gap_end in intervals:
+                if gap_start < cursor - _PLACEMENT_TOLERANCE_M:
+                    raise GameMapError(
+                        f"Element {spec.element_id!r} freeform port openings overlap"
+                    )
+                if gap_start > cursor + _PLACEMENT_TOLERANCE_M:
+                    segment = np.vstack(
+                        (local_start + cursor * unit, local_start + gap_start * unit)
+                    )
+                    curbs.append(_xyz(_transform_xy(segment, pose)))
+                cursor = max(cursor, gap_end)
+            if cursor < length - _PLACEMENT_TOLERANCE_M:
+                segment = np.vstack((local_start + cursor * unit, local_end))
+                curbs.append(_xyz(_transform_xy(segment, pose)))
+    elif any(profiles[port.profile_id].curb for port in ports.values()):
         corners = surface[:-1]
         for index in range(4):
             start = corners[index]
@@ -1384,6 +1648,19 @@ def _bezier(
     )
 
 
+def _intersection_connector_center(spec: _ElementSpec, pose: _Pose) -> np.ndarray:
+    local = (
+        _xy(
+            spec.geometry.get("connector_center"),
+            f"element {spec.element_id!r}.connector_center",
+        )
+        if spec.geometry.get("kind") == "freeform"
+        else np.zeros(2, dtype=np.float64)
+    )
+    world = _transform_xy(local[None, :], pose)[0]
+    return np.asarray([world[0], world[1], 0.0], dtype=np.float32)
+
+
 def _wire_lane_successors(
     lanes: list[_LaneBuild],
     specs: tuple[_ElementSpec, ...],
@@ -1414,9 +1691,8 @@ def _wire_lane_successors(
             )
     connector_count = 0
     for intersection_id, ports in intersection_ports.items():
-        center = np.asarray(
-            [poses[intersection_id].x_m, poses[intersection_id].y_m, 0.0],
-            dtype=np.float32,
+        center = _intersection_connector_center(
+            by_id[intersection_id], poses[intersection_id]
         )
         incoming = [
             (port, lane)
