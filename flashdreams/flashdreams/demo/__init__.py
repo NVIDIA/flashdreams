@@ -32,6 +32,7 @@ from flashdreams.demo.factories import (
     ProvidedIOFactory,
     WebRTCApplicationServing,
     WebRTCIOFactory,
+    register_application_input_handler,
 )
 from flashdreams.demo.io import (
     InputHandler,
@@ -89,4 +90,5 @@ __all__ = [
     "build_benchmark_output_sink",
     "create_application",
     "run_application",
+    "register_application_input_handler",
 ]

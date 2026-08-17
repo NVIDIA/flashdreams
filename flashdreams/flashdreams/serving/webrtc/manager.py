@@ -39,7 +39,6 @@ from flashdreams.runtime.demo import (
     RuntimeHost,
     SessionEdges,
     SessionInfo,
-    SingleSessionAdmissionPolicy,
     StepPipeline,
     UserInputWindow,
     WebRTCErrorPolicy,
@@ -777,8 +776,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._lifecycle = WebRTCManagerLifecycle(
             busy_message=busy_message,
             client_liveness_timeout_s=client_liveness_timeout_s,
-            health_check=lambda: self._shared_host is None
-            or self._shared_host.is_healthy,
+            health_check=lambda: (
+                self._shared_host is None or self._shared_host.is_healthy
+            ),
         )
 
     @property

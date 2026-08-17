@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.demo import LocalWindowOutputSink
+from flashdreams.demo import LocalWindowOutputSink, Mp4IOFactory
 from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
@@ -493,6 +493,24 @@ def test_benchmark_output_sink_composes_with_mp4_output(tmp_path: Path) -> None:
             "layout": "thwc",
         }
     ]
+
+
+def test_mp4_io_factory_optionally_composes_benchmark_stats(tmp_path: Path) -> None:
+    plain = Mp4IOFactory(output_path=tmp_path / "plain.mp4").create_output_sink()
+    benchmark = Mp4IOFactory(
+        output_path=tmp_path / "benchmark.mp4",
+        stats_path=tmp_path / "stats_benchmark.json",
+    ).create_output_sink()
+
+    assert isinstance(plain, Mp4OutputSink)
+    assert isinstance(benchmark, CompositeOutputSink)
+    assert isinstance(benchmark.sinks[0], Mp4OutputSink)
+    assert isinstance(benchmark.sinks[1], BenchmarkStatsOutputSink)
+    with pytest.raises(ValueError, match="must be different"):
+        Mp4IOFactory(
+            output_path=tmp_path / "shared.json",
+            stats_path=tmp_path / "shared.json",
+        )
 
 
 def test_composite_output_sink_closes_siblings_after_close_failure(

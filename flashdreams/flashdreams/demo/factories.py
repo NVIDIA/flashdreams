@@ -27,6 +27,8 @@ from flashdreams.demo.io import InputHandler, IOFactory, OutputSink, SessionInfo
 from flashdreams.demo.local_input import SlangPyLocalInputHandler
 from flashdreams.demo.local_window import LocalWindowInputBridge
 from flashdreams.demo.outputs import (
+    BenchmarkStatsOutputSink,
+    CompositeOutputSink,
     LocalWindowOutputSink,
     Mp4OutputSink,
     NullOutputSink,
@@ -38,6 +40,23 @@ from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindo
 
 if TYPE_CHECKING:
     from flashdreams.serving.webrtc.services import WebRTCOutputBridge
+
+_APPLICATION_INPUT_FACTORIES: dict[str, Callable[[], InputHandler]] = {}
+
+
+def register_application_input_handler(
+    modality_name: str,
+    factory: Callable[[], InputHandler],
+) -> None:
+    """Register a GitLab/plugin input handler for one canonical modality."""
+    if not modality_name.strip():
+        raise ValueError("modality_name must be non-empty.")
+    existing = _APPLICATION_INPUT_FACTORIES.get(modality_name)
+    if existing is not None and existing is not factory:
+        if getattr(existing, "__name__", "") != getattr(factory, "__name__", ""):
+            raise ValueError(f"Input handler already registered for {modality_name!r}.")
+        return
+    _APPLICATION_INPUT_FACTORIES[modality_name] = factory
 
 
 @dataclass(slots=True)
@@ -195,6 +214,17 @@ class Mp4IOFactory(IOFactory):
     move_to_cpu: bool = True
     """Whether to move collected chunks to CPU memory immediately."""
 
+    stats_path: Path | None = None
+    """Optional structured benchmark stats artifact path."""
+
+    def __post_init__(self) -> None:
+        output_path = Path(self.output_path)
+        stats_path = None if self.stats_path is None else Path(self.stats_path)
+        if stats_path is not None and output_path.resolve() == stats_path.resolve():
+            raise ValueError("MP4 output and benchmark stats paths must be different.")
+        object.__setattr__(self, "output_path", output_path)
+        object.__setattr__(self, "stats_path", stats_path)
+
     def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
         """Create an input handler for ``input_schema``."""
         del input_schema
@@ -202,11 +232,19 @@ class Mp4IOFactory(IOFactory):
 
     def create_output_sink(self) -> OutputSink:
         """Create an output sink for one application run."""
-        return Mp4OutputSink(
+        video_sink = Mp4OutputSink(
             output_path=self.output_path,
             fps=self.fps,
             output_layout=self.output_layout,
             move_to_cpu=self.move_to_cpu,
+        )
+        if self.stats_path is None:
+            return video_sink
+        return CompositeOutputSink(
+            (
+                video_sink,
+                BenchmarkStatsOutputSink(output_path=self.stats_path),
+            )
         )
 
 
@@ -267,8 +305,8 @@ class WebRTCIOFactory(IOFactory):
     bridge_factory: Callable[[], WebRTCOutputBridge]
     """Create the transport bridge owned by a peer connection."""
 
-    input_factory: Callable[[CanonicalInputSchema], InputHandler] = (
-        lambda _schema: NullInputHandler()
+    input_factory: Callable[[CanonicalInputSchema], InputHandler] = lambda _schema: (
+        NullInputHandler()
     )
     """Create the peer input handler bound to an application schema."""
 
@@ -290,4 +328,5 @@ __all__ = [
     "ProvidedIOFactory",
     "WebRTCApplicationServing",
     "WebRTCIOFactory",
+    "register_application_input_handler",
 ]

@@ -186,12 +186,29 @@ class SlangPyLocalInputHandler(InputHandler):
         key = _slangpy_enum_name(getattr(event, "key", None))
         if key is None:
             return
-        event_type = "key_up" if is_release else "key_down"
+        self.record_key(
+            event_type="key_up" if is_release else "key_down",
+            key=key,
+            source="slangpy-keyboard",
+        )
+
+    def record_key(
+        self,
+        *,
+        event_type: str,
+        key: str,
+        source: str,
+    ) -> None:
+        """Record one normalized keyboard edge from any IO transport."""
+        if not self._opened or DRIVER_COMMAND.name not in self._requested_names:
+            return
+        if event_type not in {"key_down", "key_up"}:
+            raise ValueError(f"Unsupported keyboard event type: {event_type!r}.")
         raw_event = UserInputEvent(
             timestamp_s=max(0.0, self._clock() - self._session_start_s),
             event_type=event_type,
             payload={"key": key},
-            source="slangpy-keyboard",
+            source=source,
         )
         with self._event_lock:
             self._events.append(raw_event)

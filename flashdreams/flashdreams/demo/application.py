@@ -534,14 +534,16 @@ def _parse_host_io(
 ) -> tuple[IOFactory | WebRTCApplicationServing, list[str]]:
     output_kind = _selected_output(args)
     output_path: Path | None = None
+    stats_path: Path | None = None
     output_fps: float | None = None
     host = "127.0.0.1"
     port = 8080
     application_args: list[str] = []
-    host_options = (
-        {"--output", "--host", "--port"}
+    host_options = {"--output", "--stats-path"}
+    host_options.update(
+        {"--host", "--port"}
         if output_kind == "webrtc"
-        else {"--output", "--output-path", "--output-fps"}
+        else {"--output-path", "--output-fps"}
     )
     index = 0
     while index < len(args):
@@ -552,6 +554,8 @@ def _parse_host_io(
             value = args[index + 1]
             if argument == "--output-path":
                 output_path = Path(value)
+            elif argument == "--stats-path":
+                stats_path = Path(value)
             elif argument == "--output-fps":
                 output_fps = float(value)
             elif argument == "--host":
@@ -564,13 +568,28 @@ def _parse_host_io(
         index += 1
 
     if output_kind == "local-window":
+        if stats_path is not None:
+            raise ValueError("--stats-path requires --output mp4.")
         return LocalWindowIOFactory(fps=output_fps), application_args
     if output_kind == "null":
+        if stats_path is not None:
+            raise ValueError("--stats-path requires --output mp4.")
         return NullIOFactory(), application_args
     if output_kind == "mp4":
         path = output_path or Path("outputs") / f"{application_slug}.mp4"
-        return Mp4IOFactory(output_path=path, fps=output_fps), application_args
+        if stats_path is not None and path.resolve() == stats_path.resolve():
+            raise ValueError("--output-path and --stats-path must be different.")
+        return (
+            Mp4IOFactory(
+                output_path=path,
+                fps=output_fps,
+                stats_path=stats_path,
+            ),
+            application_args,
+        )
     if output_kind == "webrtc":
+        if stats_path is not None:
+            raise ValueError("--stats-path requires --output mp4.")
         if not 1 <= port <= 65535:
             raise ValueError("--port must be between 1 and 65535.")
         return (
@@ -592,7 +611,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if not args or args[0] in {"-h", "--help"}:
         print(
             "usage: flashdreams-run APPLICATION "
-            "[--output local-window|null|mp4|webrtc] [--host HOST] [--port PORT] "
+            "[--output local-window|null|mp4|webrtc] [--output-path PATH] "
+            "[--stats-path PATH] [--host HOST] [--port PORT] "
             "[APPLICATION_ARGS ...]"
         )
         return
