@@ -29,6 +29,12 @@ pytestmark = pytest.mark.ci_cpu
 _STARTER_MAP = (
     Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / "minimal_loop.robotaxi.yaml"
 )
+_BOULEVARD_MAP = (
+    Path(__file__).parents[1]
+    / "crazy_robotaxi"
+    / "maps"
+    / "boulevard_district.robotaxi.yaml"
+)
 
 
 def test_starter_map_resolves_loop_and_parking_destination() -> None:
@@ -106,6 +112,62 @@ def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
     assert not lanes["lot_driveway:lane:1"].allows_taxi_stops
     assert lanes["neighborhood_lot:lane:1"].allows_taxi_stops
     assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
+
+
+def test_parking_destination_emits_painted_spaces() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    rows = game_map_compiler._road_marking_rows(game_map)
+
+    assert len(game_map.road_marking_polygons_world) == 18
+    assert len(rows) == 18
+    assert {row["road_marking"]["category"] for row in rows} == {
+        "parking_space_divider"
+    }
+
+
+def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+
+    assert game_map.name == "Original Boulevard District (WIP)"
+    assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
+    assert len(game_map.elements) == 14
+    assert {element.element_type for element in game_map.elements} >= {
+        "boulevard",
+        "road_segment",
+        "intersection",
+    }
+    central_boulevard = next(
+        element
+        for element in game_map.elements
+        if element.element_id == "central_boulevard"
+    )
+    assert float(np.ptp(central_boulevard.surface_world[:, 1])) == pytest.approx(15.6)
+    central_crossing = next(
+        element
+        for element in game_map.elements
+        if element.element_id == "central_crossing"
+    )
+    assert float(np.ptp(central_crossing.surface_world[:, 0])) == pytest.approx(8.4)
+    assert float(np.ptp(central_crossing.surface_world[:, 1])) == pytest.approx(15.6)
+    assert all(port[4] for port in central_crossing.ports)
+
+
+def test_boulevard_compiles_white_lane_dividers_and_yellow_centerline() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    rows = [
+        row
+        for row in game_map_compiler._lane_line_rows(game_map)
+        if "central_boulevard" in row["key"]["label_class_id"]
+    ]
+
+    assert len(rows) == 3
+    markings = {
+        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0]) for row in rows
+    }
+    assert markings == {
+        ("DASHED_SINGLE", "WHITE"),
+        ("SOLID_GROUP", "YELLOW"),
+    }
 
 
 def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() -> None:
@@ -216,6 +278,7 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
     )
     assert scene.game_map is not None
     assert scene.game_map.map_id == "crazy-robotaxi-minimal-loop"
+    assert len(scene.game_map.road_marking_polygons_world) == 18
     assert "full-width two-lane asphalt public street" in scene.prompt
     assert "double solid yellow centerline" in scene.prompt
     assert scene.initial_speed_mps == pytest.approx(0.0)
@@ -237,6 +300,8 @@ def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:
     assert option.label == "Minimal Loop and Parking Lot"
     assert option.variants == ("default",)
     assert option.thumbnail is not None
+    boulevard = next(item for item in options if item.path == _BOULEVARD_MAP.resolve())
+    assert boulevard.label == "Original Boulevard District (WIP)"
 
 
 def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:

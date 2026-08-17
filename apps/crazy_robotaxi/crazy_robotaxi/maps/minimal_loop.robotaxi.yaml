@@ -106,7 +106,7 @@ elements:
   - id: neighborhood_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 26, depth_m: 32}
+    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
     attach: {port: entrance, to: lot_driveway.end}
 
 connections:
@@ -125,4 +125,5 @@ spawns:
           street for cars in a quiet suburban neighborhood in daylight, with one
           lane in each direction, a double solid yellow centerline, concrete
           curbs, sidewalks, houses, parked cars, and a connected neighborhood
-          parking lot reached through a driveway.
+          parking lot with clearly painted parking spaces reached through a
+          driveway.

@@ -60,6 +60,11 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
                 f'<text x="{x + 5:.2f}" y="{y - 5:.2f}" fill="#111" '
                 f'font-size="9">{html.escape(name)}</text>'
             )
+    for polygon in game_map.road_marking_polygons_world:
+        lines.append(
+            f'<polygon points="{_points(polygon[:, :2], convert)}" '
+            'fill="#f4f4f4" stroke="none"/>'
+        )
     for lane in game_map.lanes:
         color = "#ffd60a" if lane.allows_taxi_stops else "#64d2ff"
         lines.append(

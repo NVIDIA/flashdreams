@@ -31,7 +31,7 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "4"
+_COMPILER_VERSION = "5"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
 _SHARED_EDGE_TOLERANCE_M = 0.01
@@ -111,12 +111,14 @@ def _lane_edge_groups(
     """Group coincident road-lane edges within each authored element."""
     groups: list[list[tuple[GameMapLane, str, np.ndarray]]] = []
     for lane in game_map.lanes:
-        if not lane.allows_taxi_stops or lane.marking_style == "VIRTUAL":
+        if not lane.allows_taxi_stops:
             continue
         for side, points in (
             ("left", lane.left_edge_world),
             ("right", lane.right_edge_world),
         ):
+            if _edge_marking(lane, side)[0] == "VIRTUAL":
+                continue
             group = next(
                 (
                     members
@@ -133,6 +135,12 @@ def _lane_edge_groups(
     return groups
 
 
+def _edge_marking(lane: GameMapLane, side: str) -> tuple[str, str]:
+    if side == "left":
+        return lane.left_marking_style, lane.left_marking_color
+    return lane.right_marking_style, lane.right_marking_color
+
+
 def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     shared_edges = {
         (lane.lane_id, side)
@@ -144,6 +152,8 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     for lane in game_map.lanes:
         left_shared = (lane.lane_id, "left") in shared_edges
         right_shared = (lane.lane_id, "right") in shared_edges
+        left_style, left_color = _edge_marking(lane, "left")
+        right_style, right_color = _edge_marking(lane, "right")
         rows.append(
             {
                 "key": _key(game_map, lane.lane_id),
@@ -154,21 +164,17 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                     "map_end": "NONE",
                     "use_types": [],
                     "left_edge_styles": (
-                        [lane.marking_style if left_shared else "VIRTUAL"]
+                        [left_style if left_shared else "VIRTUAL"]
                         if lane.allows_taxi_stops
                         else []
                     ),
                     "right_edge_styles": (
-                        [lane.marking_style if right_shared else "VIRTUAL"]
+                        [right_style if right_shared else "VIRTUAL"]
                         if lane.allows_taxi_stops
                         else []
                     ),
-                    "left_edge_colors": [
-                        lane.marking_color if left_shared else "WHITE"
-                    ],
-                    "right_edge_colors": [
-                        lane.marking_color if right_shared else "WHITE"
-                    ],
+                    "left_edge_colors": [left_color if left_shared else "WHITE"],
+                    "right_edge_colors": [right_color if right_shared else "WHITE"],
                     "egomotion_label_class_id": "ego",
                 },
                 "version": 1,
@@ -182,7 +188,8 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     for members in _lane_edge_groups(game_map):
         if len(members) < 2:
             continue
-        lane, _side, reference = members[0]
+        lane, side, reference = members[0]
+        marking_style, marking_color = _edge_marking(lane, side)
         aligned_points = [reference]
         for _member_lane, _member_side, points in members[1:]:
             aligned = _aligned_polyline(reference, points)
@@ -197,8 +204,8 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                 "key": _key(game_map, f"lane_line:{member_ids}"),
                 "lane_line": {
                     "line_rail": [_point(point) for point in divider],
-                    "styles": [lane.marking_style],
-                    "colors": [lane.marking_color],
+                    "styles": [marking_style],
+                    "colors": [marking_color],
                     "left_driving_direction": ["FORWARD"],
                     "right_driving_direction": ["FORWARD"],
                     "is_first_point_physical_end": "false",
@@ -243,6 +250,21 @@ def _intersection_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
         }
         for element in game_map.elements
         if element.element_type in {"intersection", "parking_lot"}
+    ]
+
+
+def _road_marking_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
+    return [
+        {
+            "key": _key(game_map, f"road_marking:{index}"),
+            "road_marking": {
+                "location": [_point(point) for point in polygon],
+                "category": "parking_space_divider",
+                "egomotion_label_class_id": "ego",
+            },
+            "version": 1,
+        }
+        for index, polygon in enumerate(game_map.road_marking_polygons_world)
     ]
 
 
@@ -331,6 +353,9 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
         )
         _write_parquet(
             archive, "clipgt/intersection_area.parquet", _intersection_rows(game_map)
+        )
+        _write_parquet(
+            archive, "clipgt/road_marking.parquet", _road_marking_rows(game_map)
         )
 
 

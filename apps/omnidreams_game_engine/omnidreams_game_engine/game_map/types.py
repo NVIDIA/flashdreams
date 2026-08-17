@@ -83,6 +83,18 @@ class GameMapLane:
     marking_color: str
     """ClipGT-compatible lane-marking color."""
 
+    left_marking_style: str
+    """ClipGT-compatible marking style for the directed left rail."""
+
+    left_marking_color: str
+    """ClipGT-compatible marking color for the directed left rail."""
+
+    right_marking_style: str
+    """ClipGT-compatible marking style for the directed right rail."""
+
+    right_marking_color: str
+    """ClipGT-compatible marking color for the directed right rail."""
+
     successor_ids: tuple[str, ...]
     """Legal successor lane identifiers."""
 
@@ -135,6 +147,9 @@ class ResolvedGameMap:
     collision_segments_world: FloatArray
     """Explicit curb colliders with shape ``[N, 2, 3]``."""
 
+    road_marking_polygons_world: tuple[FloatArray, ...]
+    """Closed road-marking polygons used by conditioning and previews."""
+
     ground_vertices: FloatArray
     """Flat ground-mesh vertices."""
 
@@ -174,6 +189,10 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "speed_limit_mps": lane.speed_limit_mps,
                 "marking_style": lane.marking_style,
                 "marking_color": lane.marking_color,
+                "left_marking_style": lane.left_marking_style,
+                "left_marking_color": lane.left_marking_color,
+                "right_marking_style": lane.right_marking_style,
+                "right_marking_color": lane.right_marking_color,
                 "successor_ids": list(lane.successor_ids),
                 "allows_taxi_stops": lane.allows_taxi_stops,
             }
@@ -190,6 +209,9 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
             for element in game_map.elements
         ],
         "collision_segments_world": game_map.collision_segments_world.tolist(),
+        "road_marking_polygons_world": [
+            polygon.tolist() for polygon in game_map.road_marking_polygons_world
+        ],
         "ground_vertices": game_map.ground_vertices.tolist(),
         "ground_faces": game_map.ground_faces.tolist(),
         "spawns": [
@@ -229,6 +251,14 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             speed_limit_mps=float(raw["speed_limit_mps"]),
             marking_style=str(raw["marking_style"]),
             marking_color=str(raw["marking_color"]),
+            left_marking_style=str(raw.get("left_marking_style", raw["marking_style"])),
+            left_marking_color=str(raw.get("left_marking_color", raw["marking_color"])),
+            right_marking_style=str(
+                raw.get("right_marking_style", raw["marking_style"])
+            ),
+            right_marking_color=str(
+                raw.get("right_marking_color", raw["marking_color"])
+            ),
             successor_ids=tuple(str(item) for item in raw["successor_ids"]),
             allows_taxi_stops=bool(raw["allows_taxi_stops"]),
         )
@@ -281,6 +311,10 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         collision_segments_world=np.asarray(
             value["collision_segments_world"], dtype=np.float32
         ).reshape(-1, 2, 3),
+        road_marking_polygons_world=tuple(
+            np.asarray(polygon, dtype=np.float32)
+            for polygon in value.get("road_marking_polygons_world", [])
+        ),
         ground_vertices=np.asarray(value["ground_vertices"], dtype=np.float32),
         ground_faces=np.asarray(value["ground_faces"], dtype=np.int32),
         spawns=spawns,

@@ -191,7 +191,38 @@ spawns:
 
 `lane_width_m` controls routing and lane rails. `curb_offset_m` adds paved
 roadside clearance beyond the outer lane rail on each side before the physical
-curb; it defaults to zero.
+curb; it defaults to zero. Profiles with more than two lanes may provide
+`divider_markings`, ordered from the leftmost adjacent lane pair to the
+rightmost, to distinguish white same-direction dividers from the yellow
+opposing-direction centerline.
+
+A `boulevard` uses the same straight or constant-radius geometry as a
+`road_segment` but remains explicit in the semantic map. Intersections can
+override individual port profiles with `geometry.port_profiles`; this lets a
+four-lane boulevard connect to narrower neighborhood streets without discarding
+profile compatibility checks.
+
+```yaml
+profiles:
+  boulevard:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 15.6
+    curb: true
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: SOLID_GROUP, color: YELLOW}
+      - {style: DASHED_SINGLE, color: WHITE}
+elements:
+  - id: boulevard_crossing
+    type: intersection
+    profile: boulevard
+    geometry:
+      kind: four_way
+      port_profiles: {north: neighborhood, south: neighborhood}
+```
 
 Parking destinations use three explicit elements. A `parking_lot_opening`
 transitions from its `geometry.road_profile` to its access `profile`; connect
@@ -199,7 +230,9 @@ its `road` and `access` ports to the public road and driveway respectively. A
 straight `driveway` carries the access profile to a rectangular `parking_lot`,
 whose `width_m` and `depth_m` define its enclosed surface. The lot compiler
 cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
-and links the aisle directions with an internal turnaround route.
+links the aisle directions with an internal turnaround route, and emits painted
+parking-space dividers on both sides of the aisle. `parking_space_width_m`
+controls the bay spacing and defaults to 2.7 meters.
 
 ```yaml
 profiles:
@@ -224,7 +257,7 @@ elements:
   - id: neighborhood_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 26, depth_m: 32}
+    geometry: {width_m: 26, depth_m: 32, parking_space_width_m: 2.7}
     attach: {port: entrance, to: lot_driveway.end}
 ```
 
@@ -235,10 +268,13 @@ YAML, every referenced seed, and the compiler version, so edits rebuild the
 private archive automatically on the next load.
 
 The current schema supports straight and constant-radius curved road segments,
-T intersections, four-way intersections, driveways, profile-transitioning
-parking-lot openings, bounded parking lots, flat ground, and per-spawn visual
-variants. Boulevards, elevation, and freeform splines are planned extensions.
+boulevards, mixed-profile T and four-way intersections, driveways,
+profile-transitioning parking-lot openings, marked and bounded parking lots,
+flat ground, and per-spawn visual variants. Elevation and freeform splines are
+planned extensions.
 
-The bundled WIP map reuses the existing OmniDreams seed image. Its geometry is
-not expected to match that image, so the first generated frames may visibly
-adjust toward the semantic map.
+The bundled maps reuse the existing OmniDreams seed image. The minimal loop is
+the default; `boulevard_district.robotaxi.yaml` recreates a compact portion of
+the original Quiet Suburban Boulevard around its starting area. Their geometry
+is not expected to match the seed exactly, so the first generated frames may
+visibly adjust toward the selected semantic map.

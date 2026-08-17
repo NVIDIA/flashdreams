@@ -1,0 +1,134 @@
+schema_version: 1
+id: crazy-robotaxi-boulevard-district
+name: Original Boulevard District (WIP)
+
+profiles:
+  boulevard:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 15.6
+    curb: true
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: SOLID_GROUP, color: YELLOW}
+      - {style: DASHED_SINGLE, color: WHITE}
+  neighborhood:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, forward]
+    speed_limit_mps: 11.2
+    curb: true
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+
+elements:
+  - id: west_boulevard
+    type: boulevard
+    profile: boulevard
+    geometry: {kind: straight, length_m: 80}
+    pose: {x_m: -120, y_m: 0, heading_deg: 0}
+
+  - id: central_crossing
+    type: intersection
+    profile: boulevard
+    geometry:
+      kind: four_way
+      port_profiles: {north: neighborhood, south: neighborhood}
+    attach: {port: west, to: west_boulevard.end}
+
+  - id: central_boulevard
+    type: boulevard
+    profile: boulevard
+    geometry: {kind: straight, length_m: 75}
+    attach: {port: start, to: central_crossing.east}
+
+  - id: east_crossing
+    type: intersection
+    profile: boulevard
+    geometry:
+      kind: four_way
+      port_profiles: {north: neighborhood, south: neighborhood}
+    attach: {port: west, to: central_boulevard.end}
+
+  - id: east_boulevard
+    type: boulevard
+    profile: boulevard
+    geometry: {kind: straight, length_m: 80}
+    attach: {port: start, to: east_crossing.east}
+
+  - id: central_north_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 55}
+    attach: {port: start, to: central_crossing.north}
+
+  - id: east_north_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 45}
+    attach: {port: start, to: east_crossing.north}
+
+  - id: central_south_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 39.2}
+    attach: {port: start, to: central_crossing.south}
+
+  - id: central_south_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+      port_profiles: {}
+    attach: {port: west, to: central_south_street.end}
+
+  - id: central_south_tail
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 30}
+    attach: {port: start, to: central_south_junction.east}
+
+  - id: south_cross_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 75}
+    attach: {port: start, to: central_south_junction.north}
+
+  - id: east_south_street
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 39.2}
+    attach: {port: start, to: east_crossing.south}
+
+  - id: east_south_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+      port_profiles: {}
+    attach: {port: north, to: east_south_street.end}
+
+  - id: east_south_spur
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 25}
+    attach: {port: start, to: east_south_junction.east}
+
+connections:
+  - {a: south_cross_street.end, b: east_south_junction.west}
+
+spawns:
+  - id: original_area_start
+    element: central_boulevard
+    lane: 2
+    distance_m: 30
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: >-
+          A forward-facing taxi driving on a broad four-lane asphalt boulevard
+          for cars through a quiet suburban district in daylight, with two lanes
+          in each direction, a double solid yellow centerline, white lane lines,
+          concrete curbs, sidewalks, low commercial buildings, houses, parked
+          cars, cross streets, and frequent neighborhood intersections.
