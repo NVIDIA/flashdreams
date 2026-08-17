@@ -89,6 +89,12 @@ class IFlashDreamsApplicationSession(ABC):
     def step(self, inputs: CanonicalInputWindow) -> StepResult:
         """Produce one model result for previously declared requirements."""
 
+    def reset(self) -> None:
+        """Reset per-generation state when the application supports reuse."""
+        raise NotImplementedError(
+            "This FlashDreams application session does not support reset."
+        )
+
     def close(self) -> None:
         """Release optional per-session resources."""
 
@@ -100,6 +106,11 @@ class IFlashDreamsApplication(ABC):
     @abstractmethod
     def input_schema(self) -> CanonicalInputSchema:
         """Declare the named canonical inputs consumed by this application."""
+
+    @property
+    def supports_session_reset(self) -> bool:
+        """Return whether sessions support resetting per-generation state."""
+        return False
 
     @abstractmethod
     def init(self, commandline_args: Sequence[str]) -> None:
@@ -117,6 +128,9 @@ class IFlashDreamsApplication(ABC):
         """Return canonical inputs for optional temporary model warmup sessions."""
         del spec, scenario
         return ()
+
+    def close(self) -> None:
+        """Release optional application-lifetime model resources."""
 
     def createSession(self) -> IFlashDreamsApplicationSession:
         """Create a session through the package-facing compatibility spelling."""

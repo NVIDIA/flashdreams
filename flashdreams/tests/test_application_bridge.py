@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import Any, ClassVar
 
 import pytest
@@ -50,6 +52,7 @@ from flashdreams.runtime import (
     CanonicalInputSchema,
     CanonicalInputWindow,
     CanonicalModality,
+    InferenceInput,
     InputCanonicalizer,
     StepRequirements,
     StepResult,
@@ -133,6 +136,55 @@ class _RecordingApplication(IFlashDreamsApplication):
 
     def create_session(self) -> IFlashDreamsApplicationSession:
         self.session = _RecordingApplicationSession(self)
+        return self.session
+
+
+class _ResettableApplicationSession(_RecordingApplicationSession):
+    def reset(self) -> None:
+        self.step_index = 0
+        self.app.events.append(f"session.reset:{threading.get_ident()}")
+
+
+class _ResettableApplication(_RecordingApplication):
+    @property
+    def supports_session_reset(self) -> bool:
+        return True
+
+    def create_session(self) -> IFlashDreamsApplicationSession:
+        self.session = _ResettableApplicationSession(self)
+        return self.session
+
+
+class _BlockingResettableApplicationSession(_ResettableApplicationSession):
+    def step(self, inputs: CanonicalInputWindow) -> StepResult:
+        app = self.app
+        assert isinstance(app, _BlockingResettableApplication)
+        app.step_in_flight = True
+        app.step_started.set()
+        try:
+            assert app.release_step.wait(timeout=2.0)
+            return super().step(inputs)
+        finally:
+            app.step_in_flight = False
+
+    def reset(self) -> None:
+        app = self.app
+        assert isinstance(app, _BlockingResettableApplication)
+        assert not app.step_in_flight
+        app.reset_started.set()
+        super().reset()
+
+
+class _BlockingResettableApplication(_ResettableApplication):
+    def __init__(self) -> None:
+        super().__init__()
+        self.step_started = threading.Event()
+        self.release_step = threading.Event()
+        self.reset_started = threading.Event()
+        self.step_in_flight = False
+
+    def create_session(self) -> IFlashDreamsApplicationSession:
+        self.session = _BlockingResettableApplicationSession(self)
         return self.session
 
 
@@ -258,6 +310,75 @@ def test_application_run_records_completed_session_metrics() -> None:
         "output.write:1",
         "output.close",
     ]
+
+
+def test_application_reset_delegates_on_the_model_worker() -> None:
+    app = _ResettableApplication()
+    spec = application_demo_spec(
+        app=app,
+        application_slug="resettable-app",
+        output=IOFactoryOutputSpec(),
+    )
+    scenario = application_scenario(app, realtime=False)
+    adapter = ApplicationDemoAdapter(app=app, spec=spec, scenario=scenario)
+    provider = adapter.create_model_input_provider(spec, scenario)
+    assert isinstance(provider, ApplicationCanonicalInputProvider)
+    config = spec.config
+    assert config is not None
+    host = RuntimeHost(adapter.create_runtime(config))
+    try:
+        host.preload()
+        session = host.call(host.start_session, InferenceInput())
+        host.call(session.reset)
+        host.call(session.close)
+
+        assert provider.capabilities.supports_reset
+        reset_event = next(
+            event for event in app.events if event.startswith("session.reset:")
+        )
+        assert int(reset_event.rsplit(":", 1)[1]) == host.worker.worker_thread_id
+        assert host.worker.worker_thread_id != threading.get_ident()
+    finally:
+        host.close()
+
+
+@pytest.mark.asyncio
+async def test_application_reset_waits_for_an_in_flight_step() -> None:
+    app = _BlockingResettableApplication()
+    spec = application_demo_spec(
+        app=app,
+        application_slug="blocking-resettable-app",
+        output=IOFactoryOutputSpec(),
+    )
+    scenario = application_scenario(app, realtime=False)
+    adapter = ApplicationDemoAdapter(app=app, spec=spec, scenario=scenario)
+    config = spec.config
+    assert config is not None
+    host = RuntimeHost(adapter.create_runtime(config))
+    try:
+        host.preload()
+        session = await host.call_async(host.start_session, InferenceInput())
+        step_input = InferenceInput(step={_CANONICAL_INPUT_WINDOW_KEY: _empty_window()})
+        step_task = asyncio.create_task(host.call_async(session.step, step_input))
+        for _ in range(100):
+            if app.step_started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert app.step_started.is_set()
+
+        reset_task = asyncio.create_task(host.call_async(session.reset))
+        await asyncio.sleep(0.05)
+        assert not app.reset_started.is_set()
+
+        app.release_step.set()
+        await step_task
+        await reset_task
+        await host.call_async(session.close)
+    finally:
+        app.release_step.set()
+        host.close()
+
+    assert app.reset_started.is_set()
 
 
 def test_application_run_rejects_a_second_reservation_as_busy() -> None:

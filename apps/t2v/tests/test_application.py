@@ -53,6 +53,7 @@ from flashdreams.runtime.demo import (
     build_model_warmup_plan,
 )
 from flashdreams.runtime.demo import drivers as driver_module
+from flashdreams.runtime.inputs import InferenceInput
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -66,6 +67,8 @@ class _FakePipeline:
         self.decoder = _FakeDecoder()
         self.device: str | None = None
         self.cache_kwargs: dict[str, Any] | None = None
+        self.cache_initializations: list[dict[str, Any]] = []
+        self.setup_count = 0
         self.generated: list[int] = []
         self.finalized: list[int] = []
         self.closed = False
@@ -79,6 +82,7 @@ class _FakePipeline:
 
     def initialize_cache(self, **kwargs: Any) -> object:
         self.cache_kwargs = kwargs
+        self.cache_initializations.append(kwargs)
         return object()
 
     def get_num_output_frames(self, autoregressive_index: int) -> int:
@@ -114,6 +118,7 @@ class _FakePipelineConfig:
         self.pipeline = pipeline
 
     def setup(self) -> _FakePipeline:
+        self.pipeline.setup_count += 1
         return self.pipeline
 
 
@@ -191,6 +196,60 @@ def test_t2v_model_warmup_covers_observed_autoregressive_signatures() -> None:
     }
     assert pipeline.generated == list(range(7))
     assert pipeline.finalized == list(range(7))
+    assert pipeline.closed
+
+
+def test_t2v_pipeline_is_reused_across_warmup_reset_and_sessions() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        [
+            "--prompt",
+            "A waterfall",
+            "--total-blocks",
+            "10",
+            "--device",
+            "cpu",
+        ]
+    )
+    spec = application_demo_spec(
+        app=application,
+        application_slug="t2v-fake",
+        output=WebRTCOutputSpec(),
+    )
+    scenario = application_scenario(application, realtime=True)
+    adapter = ApplicationDemoAdapter(app=application, spec=spec, scenario=scenario)
+    config = spec.config
+    assert config is not None
+    host = RuntimeHost(adapter.create_runtime(config))
+    try:
+        plan = build_model_warmup_plan(
+            host=host,
+            adapter=adapter,
+            spec=spec,
+            scenario=scenario,
+        )
+        step_input = plan.sessions[0].step_inputs[0]
+        host.preload()
+        host.warmup(plan)
+
+        first = host.call(host.start_session, InferenceInput())
+        host.call(first.step, step_input)
+        host.call(first.reset)
+        host.call(first.step, step_input)
+        host.call(first.close)
+
+        second = host.call(host.start_session, InferenceInput())
+        host.call(second.step, step_input)
+        host.call(second.close)
+
+        assert pipeline.setup_count == 1
+        assert len(pipeline.cache_initializations) == 4
+        assert pipeline.generated == [*range(7), 0, 0, 0]
+        assert not pipeline.closed
+    finally:
+        host.close()
+
     assert pipeline.closed
 
 

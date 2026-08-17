@@ -121,6 +121,9 @@ class ApplicationRuntime:
     )
     """Cached steady output size exposed to WebRTC offer negotiation."""
 
+    _closed: bool = field(default=False, init=False, repr=False)
+    """Whether application-lifetime resources have been released."""
+
     def preload(self) -> None:
         """Initialize and retain the first application session."""
         if self._preloaded_session is not None:
@@ -166,10 +169,28 @@ class ApplicationRuntime:
 
     def close(self) -> None:
         """Release runtime-owned resources."""
+        if self._closed:
+            return
+        self._closed = True
         session = self._preloaded_session
         self._preloaded_session = None
-        if session is not None:
-            session.close()
+        session_error: BaseException | None = None
+        try:
+            if session is not None:
+                session.close()
+        except BaseException as exc:
+            session_error = exc
+        try:
+            self.app.close()
+        except BaseException as exc:
+            if session_error is None:
+                raise
+            _add_exception_note(
+                session_error,
+                f"Application cleanup failed: {exc}",
+            )
+        if session_error is not None:
+            raise session_error
 
 
 @dataclass(slots=True)
@@ -219,9 +240,9 @@ class ApplicationSession:
         return self.session.step(canonical_inputs)
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Reject resets until application sessions declare reset support."""
+        """Reset the application session's per-generation state."""
         del inputs
-        raise RuntimeError("FlashDreams application sessions do not support reset.")
+        self.session.reset()
 
     def close(self) -> None:
         """Close the application-owned session."""
@@ -249,12 +270,16 @@ class ApplicationCanonicalInputProvider:
     )
     """Model-facing input schema declared by an optional adapter."""
 
+    supports_reset: bool = False
+    """Whether the paired application session supports generation resets."""
+
     capabilities: ProviderCapabilities = field(init=False)
     """Runtime capabilities derived from the prepared source schema."""
 
     def __post_init__(self) -> None:
         self.capabilities = ProviderCapabilities(
             supports_realtime_clock=True,
+            supports_reset=self.supports_reset,
             deterministic_given_inputs=False,
             user_input_schema=self.source_schema,
             inference_input_schema=self.inference_input_schema,
@@ -300,9 +325,12 @@ class ApplicationCanonicalInputProvider:
         )
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
-        """Reject resets until application sessions declare reset support."""
-        del inputs
-        raise RuntimeError("FlashDreams application sessions do not support reset.")
+        """Reset canonical conversion and optional initial model inputs."""
+        if not self.supports_reset:
+            raise RuntimeError("FlashDreams application sessions do not support reset.")
+        if inputs is not None:
+            self.initial_inputs = inputs
+        self.canonicalizer.reset()
 
     def close(self) -> None:
         """Leave input and output cleanup to the session edges."""
@@ -390,6 +418,7 @@ class ApplicationDemoAdapter:
             source_schema=scenario.source_schema,
             initial_inputs=scenario.initial_inputs,
             inference_input_schema=self.inference_input_schema,
+            supports_reset=self.app.supports_session_reset,
         )
 
     def create_model_warmup_sessions(

@@ -133,11 +133,18 @@ class T2VApplication(IFlashDreamsApplication):
     def __init__(self, *, defaults: T2VApplicationDefaults) -> None:
         self.defaults = defaults
         self._session_config: _T2VSessionConfig | None = None
+        self._pipeline: Any | None = None
+        self._closed = False
 
     @property
     def input_schema(self) -> CanonicalInputSchema:
         """Declare that plain T2V consumes no live canonical controls."""
         return CanonicalInputSchema(description="uncontrolled text-to-video")
+
+    @property
+    def supports_session_reset(self) -> bool:
+        """Return whether T2V sessions can rebuild per-generation state."""
+        return True
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
@@ -198,7 +205,20 @@ class T2VApplication(IFlashDreamsApplication):
             raise RuntimeError(
                 "T2VApplication.init() must run before create_session()."
             )
-        session = self.session_type(config=self._session_config)
+        if self._closed:
+            raise RuntimeError("Cannot create a session from a closed T2V application.")
+        pipeline = self._pipeline
+        if pipeline is None:
+            pipeline = (
+                self._session_config.pipeline_config.setup()
+                .to(self._session_config.device)
+                .eval()
+            )
+            self._pipeline = pipeline
+        session = self.session_type(
+            config=self._session_config,
+            pipeline=pipeline,
+        )
         session.set_prompt(self._session_config.prompt)
         return session
 
@@ -231,21 +251,33 @@ class T2VApplication(IFlashDreamsApplication):
             ),
         )
 
+    def close(self) -> None:
+        """Release the application-lifetime T2V pipeline."""
+        if self._closed:
+            return
+        self._closed = True
+        pipeline = self._pipeline
+        self._pipeline = None
+        if pipeline is not None:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
+
 
 class T2VApplicationSession(IFlashDreamsApplicationSession):
     """Reusable cache-isolated text-to-video model session."""
 
-    def __init__(self, *, config: _T2VSessionConfig) -> None:
+    def __init__(self, *, config: _T2VSessionConfig, pipeline: Any) -> None:
         self.config = config
         self._prompt: str | None = None
-        self._pipeline: Any | None = None
+        self._pipeline: Any | None = pipeline
         self._cache: Any | None = None
         self._step_index = 0
         self._closed = False
 
     def set_prompt(self, prompt: str) -> None:
         """Set the initial prompt before model cache initialization."""
-        if self._pipeline is not None:
+        if self._cache is not None:
             raise RuntimeError("Cannot change the prompt after session initialization.")
         prompt = prompt.strip()
         if not prompt:
@@ -253,15 +285,20 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         self._prompt = prompt
 
     def init(self) -> None:
-        """Construct the pipeline and initialize its autoregressive cache."""
+        """Initialize the session-local autoregressive cache."""
         if self._prompt is None:
             raise RuntimeError("Set a prompt before initializing the T2V session.")
         if self._closed:
             raise RuntimeError("Cannot initialize a closed T2V session.")
-        if self._pipeline is not None:
+        if self._cache is not None:
             return
 
-        pipeline = self.config.pipeline_config.setup().to(self.config.device).eval()
+        pipeline = self._pipeline
+        if pipeline is None:
+            raise RuntimeError("T2V application pipeline is unavailable.")
+        self._cache = self._initialize_cache(pipeline)
+
+    def _initialize_cache(self, pipeline: Any) -> Any:
         decoder = getattr(pipeline, "decoder", None)
         if decoder is None or not hasattr(decoder, "spatial_compression_ratio"):
             raise TypeError(
@@ -273,8 +310,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                 "T2V dimensions must be divisible by the decoder spatial "
                 f"compression ratio ({ratio})."
             )
-        self._pipeline = pipeline
-        self._cache = pipeline.initialize_cache(
+        return pipeline.initialize_cache(
             text=[self._prompt],
             image=None,
             height=self.config.pixel_height // ratio,
@@ -349,15 +385,21 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         self._step_index += 1
         return result
 
+    def reset(self) -> None:
+        """Rebuild autoregressive state on the retained T2V pipeline."""
+        if self._closed:
+            raise RuntimeError("Cannot reset a closed T2V session.")
+        pipeline = self._pipeline
+        if pipeline is None:
+            raise RuntimeError("T2V application pipeline is unavailable.")
+        self._cache = self._initialize_cache(pipeline)
+        self._step_index = 0
+
     def close(self) -> None:
-        """Release resources owned by this model session."""
+        """Release session-local autoregressive state."""
         if self._closed:
             return
         self._closed = True
-        if self._pipeline is not None:
-            close = getattr(self._pipeline, "close", None)
-            if callable(close):
-                close()
         self._cache = None
         self._pipeline = None
 
