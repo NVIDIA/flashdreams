@@ -42,9 +42,10 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
         '<rect width="100%" height="100%" fill="#e9e2d2"/>',
     ]
     for element in game_map.elements:
+        fill = "#14a878" if element.element_type == "parking_lot" else "#4b4f55"
         lines.append(
             f'<polygon points="{_points(element.surface_world[:, :2], convert)}" '
-            'fill="#4b4f55" stroke="#222" stroke-width="1"/>'
+            f'fill="{fill}" stroke="#222" stroke-width="1"/>'
         )
         center = np.mean(element.surface_world[:-1, :2], axis=0)
         x, y = convert(center)

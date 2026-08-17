@@ -114,15 +114,33 @@ def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
     assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
 
 
-def test_parking_destination_emits_painted_spaces() -> None:
+def test_parking_destination_emits_roadnet_mask_and_painted_spaces() -> None:
     game_map = load_game_map(_STARTER_MAP)
     rows = game_map_compiler._road_marking_rows(game_map)
 
     assert len(game_map.road_marking_polygons_world) == 18
-    assert len(rows) == 18
+    assert len(rows) == 19
     assert {row["road_marking"]["category"] for row in rows} == {
-        "parking_space_divider"
+        "ROI_POLYGON_ROADNET_MASK",
+        "ROI_POLYGON_ROAD_MARKING",
     }
+    roadnet_mask = next(
+        row
+        for row in rows
+        if row["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
+    )
+    lot = next(
+        element
+        for element in game_map.elements
+        if element.element_id == "neighborhood_lot"
+    )
+    np.testing.assert_allclose(
+        [
+            [point["x"], point["y"], point["z"]]
+            for point in roadnet_mask["road_marking"]["location"]
+        ],
+        lot.surface_world,
+    )
 
 
 def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> None:
@@ -208,9 +226,9 @@ def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
 
     assert len(line_rows) == 10
     assert {row["intersection_area"]["category"] for row in area_rows} == {
-        "intersection",
-        "parking_lot",
+        "intersection"
     }
+    assert len(area_rows) == 1
     assert len(east_lines) == 1
     divider = east_lines[0]["lane_line"]
     assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])

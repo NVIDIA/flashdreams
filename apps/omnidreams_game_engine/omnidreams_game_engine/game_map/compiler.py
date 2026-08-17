@@ -31,7 +31,7 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "5"
+_COMPILER_VERSION = "6"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
 _SHARED_EDGE_TOLERANCE_M = 0.01
@@ -239,33 +239,43 @@ def _intersection_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
             "key": _key(game_map, f"intersection:{element.element_id}"),
             "intersection_area": {
                 "location": [_point(point) for point in element.surface_world],
-                "category": (
-                    "parking_lot"
-                    if element.element_type == "parking_lot"
-                    else "intersection"
-                ),
+                "category": "intersection",
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
         for element in game_map.elements
-        if element.element_type in {"intersection", "parking_lot"}
+        if element.element_type == "intersection"
     ]
 
 
 def _road_marking_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
-    return [
+    roadnet_masks = [
+        {
+            "key": _key(game_map, f"roadnet_mask:{element.element_id}"),
+            "road_marking": {
+                "location": [_point(point) for point in element.surface_world],
+                "category": "ROI_POLYGON_ROADNET_MASK",
+                "egomotion_label_class_id": "ego",
+            },
+            "version": 1,
+        }
+        for element in game_map.elements
+        if element.element_type == "parking_lot"
+    ]
+    parking_space_markings = [
         {
             "key": _key(game_map, f"road_marking:{index}"),
             "road_marking": {
                 "location": [_point(point) for point in polygon],
-                "category": "parking_space_divider",
+                "category": "ROI_POLYGON_ROAD_MARKING",
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
         for index, polygon in enumerate(game_map.road_marking_polygons_world)
     ]
+    return roadnet_masks + parking_space_markings
 
 
 def _write_parquet(

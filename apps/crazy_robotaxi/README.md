@@ -232,7 +232,10 @@ whose `width_m` and `depth_m` define its enclosed surface. The lot compiler
 cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
 links the aisle directions with an internal turnaround route, and emits painted
 parking-space dividers on both sides of the aisle. `parking_space_width_m`
-controls the bay spacing and defaults to 2.7 meters.
+controls the bay spacing and defaults to 2.7 meters. In the compiled BEV, the
+entire lot surface is emitted as a green `ROI_POLYGON_ROADNET_MASK`, matching
+the original map's representation of unlaned drivable areas; it is not emitted
+as an intersection.
 
 ```yaml
 profiles:
