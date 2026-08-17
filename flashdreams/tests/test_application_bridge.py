@@ -48,6 +48,7 @@ from flashdreams.demo.bridge import (
 )
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
+    CAMERA_COMMAND,
     DRIVER_COMMAND,
     CanonicalInputSchema,
     CanonicalInputWindow,
@@ -613,7 +614,7 @@ def test_failed_step_closes_resources_and_returns_artifacts() -> None:
 
 def test_application_scenario_selects_converters_only_for_raw_realtime_input() -> None:
     interactive = _RecordingApplication(
-        input_schema=CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
+        input_schema=CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_COMMAND))
     )
     uncontrolled = _RecordingApplication()
 
@@ -623,8 +624,9 @@ def test_application_scenario_selects_converters_only_for_raw_realtime_input() -
 
     assert batch.source_schema == UserInputSchema()
     assert batch.canonicalizer.converters == ()
-    assert len(realtime.canonicalizer.converters) == 1
-    assert realtime.canonicalizer.converters[0].schema.produces == DRIVER_COMMAND
+    assert [
+        converter.schema.produces for converter in realtime.canonicalizer.converters
+    ] == [DRIVER_COMMAND, CAMERA_COMMAND]
     assert empty_realtime.canonicalizer.converters == ()
 
 

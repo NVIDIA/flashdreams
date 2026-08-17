@@ -23,6 +23,7 @@ from flashdreams.demo import (
 from flashdreams.demo import application as application_module
 from flashdreams.demo.bridge import ApplicationCanonicalInputProvider
 from flashdreams.runtime import (
+    CAMERA_COMMAND,
     DRIVER_COMMAND,
     CanonicalInputSchema,
     CanonicalInputWindow,
@@ -238,7 +239,7 @@ class _InteractiveApplication(IFlashDreamsApplication):
     def input_schema(self) -> CanonicalInputSchema:
         if not self.live:
             return CanonicalInputSchema()
-        return CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
+        return CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_COMMAND))
 
     def init(self, commandline_args: Sequence[str]) -> None:
         del commandline_args
@@ -510,6 +511,36 @@ async def test_interactive_application_control_reaches_step_on_worker(
                     "label": "Stop",
                     "keys": [{"key": "space", "label": "Stop"}],
                 },
+                {
+                    "label": "Drive / Turn",
+                    "keys": [
+                        {"key": "w", "label": "Forward"},
+                        {"key": "a", "label": "Turn left"},
+                        {"key": "s", "label": "Backward"},
+                        {"key": "d", "label": "Turn right"},
+                    ],
+                },
+                {
+                    "label": "Strafe",
+                    "keys": [
+                        {"key": "q", "label": "Strafe left"},
+                        {"key": "e", "label": "Strafe right"},
+                    ],
+                },
+                {
+                    "label": "Pitch",
+                    "keys": [
+                        {"key": "i", "label": "Pitch up"},
+                        {"key": "k", "label": "Pitch down"},
+                    ],
+                },
+                {
+                    "label": "Look",
+                    "keys": [
+                        {"key": "j", "label": "Look left"},
+                        {"key": "l", "label": "Look right"},
+                    ],
+                },
             ]
         }
         await asyncio.wait_for(manager.preload_runtime(), timeout=1.0)
@@ -529,7 +560,7 @@ async def test_interactive_application_control_reaches_step_on_worker(
             json.dumps(
                 {
                     "type": "action",
-                    "action": {"event": "keydown", "key": "q"},
+                    "action": {"event": "keydown", "key": "z"},
                 }
             )
         )
@@ -541,7 +572,7 @@ async def test_interactive_application_control_reaches_step_on_worker(
             json.dumps(
                 {
                     "type": "action",
-                    "action": {"event": "keydown", "key": "space"},
+                    "action": {"event": "keydown", "key": "q"},
                 }
             )
         )
@@ -557,7 +588,13 @@ async def test_interactive_application_control_reaches_step_on_worker(
 
     assert result == "served"
     assert len(app.windows) == 1
-    assert app.windows[0].values[DRIVER_COMMAND.name]["stop"] is True
+    window = app.windows[0]
+    assert window.values[DRIVER_COMMAND.name]["stop"] is False
+    camera = window.values[CAMERA_COMMAND.name]
+    assert camera["move_right"] == -1.0
+    segments = camera["segments"]
+    assert segments[0][0] == pytest.approx(window.window.start_s)
+    assert segments[-1][1] == pytest.approx(window.window.end_s)
     assert len(app.sessions) == 1
     worker_thread_id = app.sessions[0].init_thread_id
     assert worker_thread_id is not None

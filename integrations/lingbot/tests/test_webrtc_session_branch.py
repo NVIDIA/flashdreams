@@ -27,6 +27,7 @@ from lingbot.input_mapping import (
 )
 from lingbot.webrtc.session import LINGBOT_WEBRTC_SOURCE_SCHEMA
 
+from flashdreams.runtime import DEFAULT_SUPPORTED_KEYS
 from flashdreams.runtime.canonical import InputCanonicalizer
 from flashdreams.runtime.demo import PreparedScenario, RealtimeEventResampler
 from flashdreams.runtime.inputs import InferenceInput, TimeWindow
@@ -165,7 +166,7 @@ def _manager(runtime: _FakeRuntime) -> _Manager:
     )
 
 
-def test_lingbot_converter_without_metadata_keeps_default_manager_keys() -> None:
+def test_lingbot_converter_advertises_camera_controls() -> None:
     runtime = _FakeRuntime()
     scenario = PreparedScenario(
         initial_inputs=InferenceInput(),
@@ -180,8 +181,41 @@ def test_lingbot_converter_without_metadata_keeps_default_manager_keys() -> None
         shared_scenario=scenario,
     )
 
-    assert manager.browser_ui_config() == {"controls": []}
-    assert manager._effective_supported_control_keys() is None
+    assert manager.browser_ui_config() == {
+        "controls": [
+            {
+                "label": "Drive / Turn",
+                "keys": [
+                    {"key": "w", "label": "Forward"},
+                    {"key": "a", "label": "Turn left"},
+                    {"key": "s", "label": "Backward"},
+                    {"key": "d", "label": "Turn right"},
+                ],
+            },
+            {
+                "label": "Strafe",
+                "keys": [
+                    {"key": "q", "label": "Strafe left"},
+                    {"key": "e", "label": "Strafe right"},
+                ],
+            },
+            {
+                "label": "Pitch",
+                "keys": [
+                    {"key": "i", "label": "Pitch up"},
+                    {"key": "k", "label": "Pitch down"},
+                ],
+            },
+            {
+                "label": "Look",
+                "keys": [
+                    {"key": "j", "label": "Look left"},
+                    {"key": "l", "label": "Look right"},
+                ],
+            },
+        ]
+    }
+    assert manager._effective_supported_control_keys() == DEFAULT_SUPPORTED_KEYS
     assert manager._supports_key_payload({"key": "q"})
     assert not manager._supports_key_payload({"key": "z"})
 

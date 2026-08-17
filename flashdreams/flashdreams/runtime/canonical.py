@@ -38,12 +38,14 @@ from flashdreams.runtime.inputs import (
     UserInputSchema,
 )
 from flashdreams.runtime.keyboard import (
+    DEFAULT_SUPPORTED_KEYS,
     DRIVING_SUPPORTED_KEYS,
     KeyboardState,
     normalize_key,
 )
 
 DriverBindings = Mapping[str, frozenset[str]]
+CameraBindings = Mapping[str, tuple[str, str]]
 
 DEFAULT_DRIVING_BINDINGS: DriverBindings = MappingProxyType(
     {
@@ -62,6 +64,23 @@ so the set of tracked keys is derived from them rather than declared twice.
 """
 
 _DRIVER_ACTIONS = frozenset(DEFAULT_DRIVING_BINDINGS)
+
+DEFAULT_CAMERA_BINDINGS: CameraBindings = MappingProxyType(
+    {
+        "move_forward": ("w", "s"),
+        "move_right": ("e", "q"),
+        "yaw": ("a", "d"),
+        "pitch": ("i", "k"),
+    }
+)
+"""Default axis bindings for :class:`KeyboardToCameraCommand`.
+
+Each pair is ``(positive, negative)``. Alternate yaw keys ``j`` and ``l`` are
+normalized onto ``a`` and ``d`` so the canonical axes stay layout-independent.
+"""
+
+_CAMERA_AXES = frozenset(DEFAULT_CAMERA_BINDINGS)
+_CAMERA_KEY_ALIASES: Mapping[str, str] = MappingProxyType({"j": "a", "l": "d"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +152,40 @@ DRIVER_BROWSER_CONTROLS = (
     ),
 )
 """Browser-facing controls for the default keyboard driving converter."""
+
+CAMERA_BROWSER_CONTROLS = (
+    BrowserControlGroup(
+        label="Drive / Turn",
+        keys=(
+            BrowserControlKey("w", label="Forward"),
+            BrowserControlKey("a", label="Turn left"),
+            BrowserControlKey("s", label="Backward"),
+            BrowserControlKey("d", label="Turn right"),
+        ),
+    ),
+    BrowserControlGroup(
+        label="Strafe",
+        keys=(
+            BrowserControlKey("q", label="Strafe left"),
+            BrowserControlKey("e", label="Strafe right"),
+        ),
+    ),
+    BrowserControlGroup(
+        label="Pitch",
+        keys=(
+            BrowserControlKey("i", label="Pitch up"),
+            BrowserControlKey("k", label="Pitch down"),
+        ),
+    ),
+    BrowserControlGroup(
+        label="Look",
+        keys=(
+            BrowserControlKey("j", label="Look left"),
+            BrowserControlKey("l", label="Look right"),
+        ),
+    ),
+)
+"""Browser-facing controls for the default keyboard camera converter."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -223,6 +276,16 @@ DRIVER_COMMAND = CanonicalModality(
     description=(
         "Normalized driving intent. throttle/brake are in [0, 1], steer is in "
         "[-1, 1] with positive meaning left."
+    ),
+)
+
+CAMERA_COMMAND = CanonicalModality(
+    name="camera_command",
+    payload_fields=frozenset({*_CAMERA_AXES, "segments"}),
+    description=(
+        "Free-camera intent. move_forward, move_right, yaw, and pitch are in "
+        "[-1, 1] and hold the level state at the end of the window. segments "
+        "carries the piecewise-constant timeline inside the window."
     ),
 )
 
@@ -323,6 +386,89 @@ class KeyboardToDriverCommand:
                 "reverse": held("reverse"),
             }
         )
+
+
+class KeyboardToCameraCommand:
+    """Convert keyboard edges into :data:`CAMERA_COMMAND` level state."""
+
+    def __init__(
+        self,
+        *,
+        name: str = "keyboard-to-camera-command",
+        supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS,
+        priority: int = 0,
+    ) -> None:
+        self._supported_keys = frozenset(normalize_key(key) for key in supported_keys)
+        self._state = KeyboardState(supported_keys=self._supported_keys)
+        uses_default_bindings = self._supported_keys == DEFAULT_SUPPORTED_KEYS
+        self._schema = DeviceConverterSchema(
+            name=name,
+            produces=CAMERA_COMMAND,
+            device_kind="keyboard",
+            priority=priority,
+            browser_controls=(CAMERA_BROWSER_CONTROLS if uses_default_bindings else ()),
+            accepted_keys=self._supported_keys,
+            consumes=(
+                UserInputCapability(
+                    event_type="key_down",
+                    payload_fields=frozenset({"key"}),
+                ),
+                UserInputCapability(
+                    event_type="key_up",
+                    payload_fields=frozenset({"key"}),
+                ),
+            ),
+        )
+
+    @property
+    def schema(self) -> DeviceConverterSchema:
+        return self._schema
+
+    def reset(self) -> None:
+        self._state = KeyboardState(supported_keys=self._supported_keys)
+
+    def convert(
+        self,
+        user_inputs: UserInputs,
+        window: TimeWindow,
+    ) -> Mapping[str, Any] | None:
+        segments: list[tuple[float, float, dict[str, float]]] = []
+        segment_start = window.start_s
+        axes = _camera_axes_from_keys(self._state.resolved_effective_keys())
+
+        for event in user_inputs.events:
+            if event.event_type not in {"key_down", "key_up"}:
+                continue
+            key = event.payload.get("key")
+            if not isinstance(key, str):
+                continue
+            edge_t = min(max(float(event.timestamp_s), window.start_s), window.end_s)
+            if edge_t > segment_start:
+                segments.append((segment_start, edge_t, axes))
+                segment_start = edge_t
+            self._state.apply_event(
+                event="keydown" if event.event_type == "key_down" else "keyup",
+                key=key,
+            )
+            axes = _camera_axes_from_keys(self._state.resolved_effective_keys())
+
+        if window.end_s > segment_start or not segments:
+            segments.append((segment_start, window.end_s, axes))
+
+        return CAMERA_COMMAND.value({**axes, "segments": tuple(segments)})
+
+
+def _camera_axes_from_keys(pressed: Iterable[str]) -> dict[str, float]:
+    keys = {_CAMERA_KEY_ALIASES.get(key, key) for key in pressed}
+    axes: dict[str, float] = {}
+    for axis, (positive, negative) in DEFAULT_CAMERA_BINDINGS.items():
+        value = 0.0
+        if positive in keys:
+            value += 1.0
+        if negative in keys:
+            value -= 1.0
+        axes[axis] = value
+    return axes
 
 
 class ScriptedModality:

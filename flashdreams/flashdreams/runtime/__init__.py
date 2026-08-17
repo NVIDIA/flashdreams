@@ -8,6 +8,9 @@ intentionally additive while integrations migrate onto it.
 """
 
 from flashdreams.runtime.canonical import (
+    CAMERA_BROWSER_CONTROLS,
+    CAMERA_COMMAND,
+    DEFAULT_CAMERA_BINDINGS,
     DEFAULT_DRIVING_BINDINGS,
     DRIVER_BROWSER_CONTROLS,
     DRIVER_COMMAND,
@@ -16,6 +19,7 @@ from flashdreams.runtime.canonical import (
     DeviceConverter,
     DeviceConverterSchema,
     InputCanonicalizer,
+    KeyboardToCameraCommand,
     KeyboardToDriverCommand,
     ScriptedModality,
 )
@@ -85,6 +89,8 @@ from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntime
 __all__ = [
     "BrowserControlGroup",
     "BrowserControlKey",
+    "CAMERA_BROWSER_CONTROLS",
+    "CAMERA_COMMAND",
     "CanonicalInputWindow",
     "CanonicalInputs",
     "CanonicalInputSchema",
@@ -93,6 +99,7 @@ __all__ = [
     "check_mapping_set_compatibility",
     "combine_mapping_schemas",
     "DeclaresMappingSchema",
+    "DEFAULT_CAMERA_BINDINGS",
     "DEFAULT_DRIVING_BINDINGS",
     "DEFAULT_SUPPORTED_KEYS",
     "DeviceConverter",
@@ -117,6 +124,7 @@ __all__ = [
     "ImageRequest",
     "KEY_ALIASES",
     "KeyboardState",
+    "KeyboardToCameraCommand",
     "KeyboardToDriverCommand",
     "MappingCompatibility",
     "MetricsRecorder",

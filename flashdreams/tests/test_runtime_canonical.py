@@ -16,6 +16,8 @@ from typing import Any, cast
 import pytest
 
 from flashdreams.runtime import (
+    CAMERA_COMMAND,
+    DEFAULT_SUPPORTED_KEYS,
     DRIVER_COMMAND,
     DRIVING_SUPPORTED_KEYS,
     BrowserControlGroup,
@@ -28,6 +30,7 @@ from flashdreams.runtime import (
     InputCanonicalizer,
     InputField,
     InputMappingSchema,
+    KeyboardToCameraCommand,
     KeyboardToDriverCommand,
     ScriptedModality,
     TimeWindow,
@@ -132,6 +135,11 @@ def _command(canonical: CanonicalInputs) -> Mapping[str, Any]:
     return canonical.values[DRIVER_COMMAND.name]
 
 
+def _camera_command(canonical: CanonicalInputs) -> Mapping[str, Any]:
+    assert CAMERA_COMMAND.name in canonical.values
+    return canonical.values[CAMERA_COMMAND.name]
+
+
 # --- per-step conditioning ----------------------------------------------
 
 
@@ -157,6 +165,72 @@ def test_default_driver_converter_advertises_browser_controls() -> None:
         {
             "label": "Stop",
             "keys": [{"key": "space", "label": "Stop"}],
+        },
+    ]
+
+
+def test_camera_edges_preserve_sub_window_timing() -> None:
+    canonicalizer = InputCanonicalizer([KeyboardToCameraCommand()])
+    inputs = UserInputs(
+        events=(
+            _key("key_down", "q", 0.25),
+            _key("key_up", "q", 0.75),
+        )
+    )
+
+    canonical = canonicalizer.canonicalize(
+        inputs, window=WINDOW, source_schema=KEYBOARD_SOURCE
+    )
+
+    command = _camera_command(canonical)
+    segments = command["segments"]
+    assert [(start, end) for start, end, _axes in segments] == [
+        (0.0, 0.25),
+        (0.25, 0.75),
+        (0.75, 1.0),
+    ]
+    assert [axes["move_right"] for _start, _end, axes in segments] == [
+        0.0,
+        -1.0,
+        0.0,
+    ]
+    assert command["move_right"] == 0.0
+
+
+def test_default_camera_converter_advertises_browser_controls() -> None:
+    schema = KeyboardToCameraCommand().schema
+
+    assert schema.accepted_keys == DEFAULT_SUPPORTED_KEYS
+    assert [group.to_payload() for group in schema.browser_controls] == [
+        {
+            "label": "Drive / Turn",
+            "keys": [
+                {"key": "w", "label": "Forward"},
+                {"key": "a", "label": "Turn left"},
+                {"key": "s", "label": "Backward"},
+                {"key": "d", "label": "Turn right"},
+            ],
+        },
+        {
+            "label": "Strafe",
+            "keys": [
+                {"key": "q", "label": "Strafe left"},
+                {"key": "e", "label": "Strafe right"},
+            ],
+        },
+        {
+            "label": "Pitch",
+            "keys": [
+                {"key": "i", "label": "Pitch up"},
+                {"key": "k", "label": "Pitch down"},
+            ],
+        },
+        {
+            "label": "Look",
+            "keys": [
+                {"key": "j", "label": "Look left"},
+                {"key": "l", "label": "Look right"},
+            ],
         },
     ]
 

@@ -35,8 +35,11 @@ from flashdreams.demo.io import (
 )
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime.canonical import (
+    CAMERA_COMMAND,
     DRIVER_COMMAND,
+    DeviceConverter,
     InputCanonicalizer,
+    KeyboardToCameraCommand,
     KeyboardToDriverCommand,
 )
 from flashdreams.runtime.config import InferenceConfig
@@ -696,10 +699,13 @@ def application_scenario(
 
     from flashdreams.serving.webrtc.services import WEBRTC_USER_INPUT_SCHEMA
 
+    available_modalities = (DRIVER_COMMAND, CAMERA_COMMAND)
     unsupported = [
         modality.name
         for modality in schema.modalities
-        if not modality.is_satisfied_by(DRIVER_COMMAND)
+        if not any(
+            modality.is_satisfied_by(available) for available in available_modalities
+        )
     ]
     if unsupported:
         raise ValueError(
@@ -707,7 +713,11 @@ def application_scenario(
             f"{sorted(set(unsupported))}."
         )
     requested = frozenset(modality.name for modality in schema.modalities)
-    converters = [KeyboardToDriverCommand()] if DRIVER_COMMAND.name in requested else []
+    converters: list[DeviceConverter] = []
+    if DRIVER_COMMAND.name in requested:
+        converters.append(KeyboardToDriverCommand())
+    if CAMERA_COMMAND.name in requested:
+        converters.append(KeyboardToCameraCommand())
     return PreparedScenario(
         initial_inputs=InferenceInput(),
         source_schema=WEBRTC_USER_INPUT_SCHEMA,
