@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 from crazy_robotaxi import cli
 from crazy_robotaxi.game import TaxiGameConfig, TaxiGameController
 from crazy_robotaxi.navigation import NavigationLane, TaxiNavigationMap
@@ -36,6 +37,25 @@ _BOULEVARD_MAP = (
     / "maps"
     / "boulevard_district.robotaxi.yaml"
 )
+
+
+def test_map_compiler_settings_are_explicit_and_affect_geometry(
+    tmp_path: Path,
+) -> None:
+    """Keep compiler tuning in the authored map and its cache metadata."""
+    baseline = load_game_map(_STARTER_MAP)
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["compiler"]["ground_margin_m"] = 35.0
+    modified_path = tmp_path / "modified.robotaxi.yaml"
+    modified_path.write_text(yaml.safe_dump(source), encoding="utf-8")
+
+    modified = load_game_map(modified_path)
+
+    assert baseline.compiler_settings["ground_margin_m"] == pytest.approx(20.0)
+    assert modified.compiler_settings["ground_margin_m"] == pytest.approx(35.0)
+    assert np.ptp(modified.ground_vertices[:, 0]) == pytest.approx(
+        np.ptp(baseline.ground_vertices[:, 0]) + 30.0
+    )
 
 
 def test_starter_map_resolves_loop_and_parking_destination() -> None:
@@ -465,7 +485,7 @@ def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:
     source = _STARTER_MAP.read_text(encoding="utf-8")
     broken = tmp_path / "broken.robotaxi.yaml"
     broken.write_text(
-        source.replace("length_m: 76.8", "length_m: 72"), encoding="utf-8"
+        source.replace("length_m: 68.4", "length_m: 64"), encoding="utf-8"
     )
 
     with pytest.raises(GameMapError, match="does not close: gap="):

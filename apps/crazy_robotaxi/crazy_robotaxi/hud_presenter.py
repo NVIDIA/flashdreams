@@ -3389,7 +3389,7 @@ class SlangPyHudPresenter:
             KeyboardStateDriveSink(keyboard, source="keyboard")
         )
 
-    def configure_taxi_hud(self, bev: BevConfig) -> None:
+    def configure_taxi_hud(self, bev: BevConfig, vehicle: Any = None) -> None:
         """Configure BEV projection used by taxi target overlays."""
         from crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
@@ -3397,7 +3397,7 @@ class SlangPyHudPresenter:
 
         self._bev_config = bev
         self._keyboard_drive = TaxiKeyboardDriveState(
-            KeyboardStateDriveSink(self._keyboard, source="keyboard")
+            KeyboardStateDriveSink(self._keyboard, source="keyboard"), vehicle
         )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:

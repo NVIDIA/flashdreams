@@ -18,11 +18,13 @@ from omnidreams_game_engine.backends.world_model import WorldModelRenderBackend
 from omnidreams_game_engine.cli_args import ExplicitArgTrackingArgumentParser
 from omnidreams_game_engine.config import (
     AppConfig,
-    BevConfig,
-    RasterConfig,
     WorldModelProfileConfig,
 )
 from omnidreams_game_engine.log import configure_logging
+from omnidreams_game_engine.renderer_settings import (
+    RendererSettings,
+    load_renderer_settings,
+)
 from omnidreams_game_engine.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams_game_engine.world_model.manifest import (
     load_world_model_manifest,
@@ -58,6 +60,17 @@ def resolve_manifest_path(path: str | Path) -> Path:
     from a workspace root.
     """
     return resolve_world_model_manifest_path(path)
+
+
+def resolve_app_config_path(path: str | Path) -> Path:
+    """Resolve an application config from the working or packaged directory."""
+    candidate = Path(path).expanduser()
+    if candidate.is_file():
+        return candidate.resolve()
+    bundled = _CONFIGS_ROOT / candidate
+    if bundled.is_file():
+        return bundled.resolve()
+    return candidate.resolve()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -142,6 +155,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Omnidreams pipeline manifest (YAML). Accepts a path or a bundled "
             "config filename such as example_world_model_perf.yaml."
         ),
+    )
+    parser.add_argument(
+        "--renderer-config",
+        type=Path,
+        default=_CONFIGS_ROOT / "default_renderer.yaml",
+        help="Complete renderer YAML; defaults to the packaged game renderer.",
+    )
+    parser.add_argument(
+        "--game-config",
+        type=Path,
+        default=_CONFIGS_ROOT / "default_game.yaml",
+        help="Complete game-rules and taxi-physics YAML.",
     )
     parser.add_argument(
         "--synthetic-model",
@@ -286,7 +311,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--traffic-density",
         type=float,
-        default=0.4,
+        default=None,
         metavar="FRACTION",
         help=(
             "Fraction of recorded motor vehicles to retain in taxi-game mode "
@@ -301,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bev",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=None,
         help=(
             "Render a synthetic top-down BEV map alongside the main camera and"
             " publish it on /bev_stream. The default is a straight-down,"
@@ -311,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--bev-resolution",
-        default="1024x1024",
+        default=None,
         help=(
             "BEV render resolution as WIDTHxHEIGHT (default: 1024x1024). The"
             " HUD panel is roughly 470x400, so 1024 gives ~2x SSAA per axis"
@@ -323,19 +348,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bev-height-m",
         type=float,
-        default=BevConfig().height_m,
+        default=None,
         help="BEV camera altitude in metres above the rig.",
     )
     parser.add_argument(
         "--bev-fov-deg",
         type=float,
-        default=BevConfig().fov_deg,
+        default=None,
         help="BEV camera vertical field-of-view in degrees.",
     )
     parser.add_argument(
         "--bev-tilt-deg",
         type=float,
-        default=BevConfig().tilt_deg,
+        default=None,
         help=(
             "Advanced override for the BEV camera pitch in degrees. The"
             " default ``0`` keeps the mini-map straight down; positive values"
@@ -464,6 +489,35 @@ def _parse_resolution(value: str) -> tuple[int, int]:
     return width, height
 
 
+def renderer_settings_from_args(args: argparse.Namespace) -> RendererSettings:
+    """Load renderer YAML and apply explicit visual CLI overrides."""
+    cached = getattr(args, "_renderer_settings", None)
+    if cached is not None:
+        return cached
+    path = resolve_app_config_path(
+        getattr(args, "renderer_config", _CONFIGS_ROOT / "default_renderer.yaml")
+    )
+    settings = load_renderer_settings(path)
+    bev = settings.bev
+    if getattr(args, "bev", None) is not None:
+        bev = replace(bev, enabled=bool(args.bev))
+    if getattr(args, "bev_resolution", None) is not None:
+        width, height = _parse_resolution(args.bev_resolution)
+        bev = replace(bev, width=width, height=height)
+    for arg_name, field_name in (
+        ("bev_height_m", "height_m"),
+        ("bev_fov_deg", "fov_deg"),
+        ("bev_tilt_deg", "tilt_deg"),
+    ):
+        value = getattr(args, arg_name, None)
+        if value is not None:
+            bev = replace(bev, **{field_name: float(value)})
+    settings = replace(settings, bev=bev)
+    setattr(args, "_renderer_settings", settings)
+    args.renderer_config = path
+    return settings
+
+
 def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
     """Forward only the OOB flags the user actually passed.
 
@@ -530,15 +584,8 @@ def prepare_config_and_backend(
             "--synthetic-initial-rgb / --synthetic-prompt require --synthetic-scene"
         )
 
-    bev_width, bev_height = _parse_resolution(args.bev_resolution)
-    bev_config = BevConfig(
-        enabled=bool(args.bev),
-        width=bev_width,
-        height=bev_height,
-        height_m=float(args.bev_height_m),
-        fov_deg=float(args.bev_fov_deg),
-        tilt_deg=float(args.bev_tilt_deg),
-    )
+    renderer_settings = renderer_settings_from_args(args)
+    bev_config = renderer_settings.bev
     manifest_path = (
         resolve_manifest_path(args.manifest) if args.manifest is not None else None
     )
@@ -550,7 +597,8 @@ def prepare_config_and_backend(
         variant=args.variant,
         prompt_override=args.prompt,
         manifest_path=manifest_path,
-        raster=RasterConfig(
+        raster=replace(
+            renderer_settings.raster,
             compute_device=args.compute_device,
             sync_gpu_timing=args.sync_gpu_timing,
         ),
@@ -563,7 +611,11 @@ def prepare_config_and_backend(
         game_mode=bool(args.game_mode),
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
-        visual_flare_enabled=False if args.disable_visual_flare else None,
+        visual_flare_enabled=(
+            False
+            if args.disable_visual_flare
+            else renderer_settings.visual_flare_enabled
+        ),
         **_oob_kwargs(args),
     )
 

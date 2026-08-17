@@ -2,6 +2,20 @@ schema_version: 1
 id: crazy-robotaxi-minimal-loop
 name: Minimal Loop and Parking Lot
 
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 20.0
+  intersection_connector_samples: 8
+  parking_lot:
+    turnaround_width_multiplier: 0.75
+    turnaround_min_depth_m: 5.0
+    inner_clearance_m: 0.5
+    outer_clearance_m: 0.6
+    minimum_bay_depth_m: 3.0
+    first_stripe_offset_m: 3.0
+    turnaround_control_inset_m: 0.75
+    marking: {style: SOLID_SINGLE, color: WHITE}
+
 profiles:
   neighborhood:
     lane_width_m: 3.6
@@ -10,6 +24,8 @@ profiles:
     speed_limit_mps: 13.4
     curb: true
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
   parking_access:
     lane_width_m: 3.2
     curb_offset_m: 0.4
@@ -17,6 +33,8 @@ profiles:
     speed_limit_mps: 5.5
     curb: true
     lane_marking: {style: VIRTUAL, color: WHITE}
+    divider_markings:
+      - {style: VIRTUAL, color: WHITE}
 
 elements:
   - id: hub
@@ -24,6 +42,7 @@ elements:
     profile: neighborhood
     geometry:
       kind: four_way
+      port_profiles: {}
     pose:
       x_m: 0
       y_m: 0
@@ -56,7 +75,7 @@ elements:
   - id: north_road
     type: road_segment
     profile: neighborhood
-    geometry: {kind: straight, length_m: 76.8}
+    geometry: {kind: straight, length_m: 68.4}
     attach: {port: start, to: northwest_curve.end}
 
   - id: southwest_curve

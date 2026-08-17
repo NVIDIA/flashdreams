@@ -155,6 +155,9 @@ class ResolvedGameMap:
     source_path: Path
     """Canonical YAML source path."""
 
+    compiler_settings: dict[str, object]
+    """Resolved authoring settings that affect generated map geometry."""
+
     lanes: tuple[GameMapLane, ...]
     """Directed road and intersection lanes."""
 
@@ -198,6 +201,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
         "map_id": game_map.map_id,
         "name": game_map.name,
         "source_path": str(game_map.source_path),
+        "compiler_settings": game_map.compiler_settings,
         "lanes": [
             {
                 "lane_id": lane.lane_id,
@@ -335,6 +339,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         map_id=str(value["map_id"]),
         name=str(value["name"]),
         source_path=Path(str(value["source_path"])),
+        compiler_settings=dict(value.get("compiler_settings", {})),
         lanes=lanes,
         elements=elements,
         collision_segments_world=np.asarray(

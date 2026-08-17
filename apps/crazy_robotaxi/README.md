@@ -122,6 +122,33 @@ reach the native fp8 weight snapshot — so running them requires
 obstacle without guidance) do not touch the model and run at full speed
 under native DIT.
 
+## Configuration files
+
+The standalone game keeps its portable configuration in three independent,
+strict YAML documents:
+
+- `*.robotaxi.yaml` describes one map, including compiler geometry and paint.
+- `default_renderer.yaml` describes primary-camera and BEV rendering.
+- `default_game.yaml` describes rules, scoring, controls, taxi dimensions, and
+  arcade physics.
+
+The packaged renderer and game files are used when no path is supplied. Select
+edited copies independently:
+
+```bash
+flashdreams-run crazy-robotaxi \
+  --renderer-config /path/to/renderer.yaml \
+  --game-config /path/to/game.yaml \
+  --auto-start True
+```
+
+The dedicated executable accepts the same two arguments. Existing explicit CLI
+tuning flags override YAML values. The world-model manifest remains separate
+because it configures inference rather than the map, renderer, or game.
+
+All three YAML formats reject missing and unknown fields. The packaged files are
+complete reference configurations intended to be copied and edited.
+
 ## Semantic game maps
 
 Crazy Robotaxi maps are authored as versioned `.robotaxi.yaml` files. The game
@@ -159,6 +186,19 @@ Minimal authoring shape:
 schema_version: 1
 id: my-map
 name: My Map
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 20.0
+  intersection_connector_samples: 8
+  parking_lot:
+    turnaround_width_multiplier: 0.75
+    turnaround_min_depth_m: 5.0
+    inner_clearance_m: 0.5
+    outer_clearance_m: 0.6
+    minimum_bay_depth_m: 3.0
+    first_stripe_offset_m: 3.0
+    turnaround_control_inset_m: 0.75
+    marking: {style: SOLID_SINGLE, color: WHITE}
 profiles:
   neighborhood:
     lane_width_m: 3.6
@@ -167,6 +207,8 @@ profiles:
     speed_limit_mps: 13.4
     curb: true
     lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
 elements:
   - id: main
     type: road_segment
@@ -178,6 +220,7 @@ elements:
     profile: neighborhood
     geometry: {kind: arc, radius_m: 15, sweep_deg: 90}
     attach: {port: start, to: main.end}
+connections: []
 spawns:
   - id: taxi_start
     element: main
@@ -191,8 +234,8 @@ spawns:
 
 `lane_width_m` controls routing and lane rails. `curb_offset_m` adds paved
 roadside clearance beyond the outer lane rail on each side before the physical
-curb; it defaults to zero. Profiles with more than two lanes may provide
-`divider_markings`, ordered from the leftmost adjacent lane pair to the
+curb. Every profile provides one `divider_markings` entry per adjacent lane
+pair, ordered from the leftmost adjacent lane pair to the
 rightmost, to distinguish white same-direction dividers from the yellow
 opposing-direction centerline.
 
@@ -232,7 +275,7 @@ whose `width_m` and `depth_m` define its enclosed surface. The lot compiler
 cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
 links the aisle directions with an internal turnaround route, and emits painted
 parking-space dividers on both sides of the aisle. `parking_space_width_m`
-controls the bay spacing and defaults to 2.7 meters. In the compiled BEV, the
+explicitly controls the bay spacing. In the compiled BEV, the
 entire lot surface is emitted as a green `ROI_POLYGON_ROADNET_MASK`, while the
 space dividers are emitted as white solid line primitives so they remain visible
 to the model. The lot is not emitted as an intersection.
@@ -246,6 +289,8 @@ profiles:
     speed_limit_mps: 5.5
     curb: true
     lane_marking: {style: VIRTUAL, color: WHITE}
+    divider_markings:
+      - {style: VIRTUAL, color: WHITE}
 elements:
   - id: lot_opening
     type: parking_lot_opening

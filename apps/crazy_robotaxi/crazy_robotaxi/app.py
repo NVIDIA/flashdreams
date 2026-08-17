@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ from crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
 )
+from crazy_robotaxi.game_settings import load_game_settings
 from crazy_robotaxi.high_scores import (
     default_high_scores_path,
 )
@@ -209,7 +211,7 @@ class CrazyRobotaxiApplication:
         """Configure application presentation before scene loading."""
         configure = getattr(presenter, "configure_taxi_hud", None)
         if callable(configure):
-            configure(self._presenter_config)
+            configure(self._presenter_config, self._config.vehicle)
 
     def load_scene(self, scene: SceneBundle, map_bounds: MapBounds | None) -> None:
         """Accept scene data already loaded by Interactive Drive."""
@@ -217,7 +219,7 @@ class CrazyRobotaxiApplication:
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
         self._enclosure_segments_world = scene_data.enclosure_segments_world
-        self._ground_snapper = _build_taxi_ground_snapper(scene)
+        self._ground_snapper = _build_taxi_ground_snapper(scene, self._config)
         del map_bounds
         if self._live_edit.coins.enabled or self._live_edit.items.enabled:
             # Lay coins/items along the driving-lane graph; legacy scenes
@@ -439,9 +441,16 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
         if args.taxi_highscores is not None
         else default_high_scores_path()
     )
-    return TaxiGameConfig(
-        enabled=True,
-        traffic_density=float(args.traffic_density),
+    config = getattr(args, "_game_settings", None) or load_game_settings(
+        args.game_config
+    )
+    return replace(
+        config,
+        traffic_density=(
+            config.traffic_density
+            if args.traffic_density is None
+            else float(args.traffic_density)
+        ),
         seed=None if args.taxi_seed is None else int(args.taxi_seed),
         high_scores_path=high_scores_path,
         alignment_diagnostics_enabled=(
@@ -450,20 +459,26 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
     )
 
 
-def _build_taxi_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
+def _build_taxi_ground_snapper(
+    scene: SceneBundle, config: TaxiGameConfig
+) -> GroundSnapper | None:
     if scene.ground_mesh_vertices is None or scene.ground_mesh_faces is None:
         return None
     return GroundSnapper(
         scene.ground_mesh_vertices,
         scene.ground_mesh_faces,
-        max_absolute_rotation_deg=10.0,
-        invalid_sample_handler=settle_invalid_ground_attitude,
+        max_absolute_rotation_deg=config.ground_snap_max_absolute_rotation_deg,
+        invalid_sample_handler=partial(
+            settle_invalid_ground_attitude,
+            settle_fraction=config.ground_snap_settle_fraction,
+        ),
     )
 
 
-def settle_invalid_ground_attitude(state: VehicleState) -> VehicleState:
+def settle_invalid_ground_attitude(
+    state: VehicleState, *, settle_fraction: float = 0.25
+) -> VehicleState:
     """Ease stale ground attitude toward level after an invalid Taxi sample."""
-    settle_fraction = 0.25
     pitch = state.pitch_rad * (1.0 - settle_fraction)
     roll = state.roll_rad * (1.0 - settle_fraction)
     if abs(pitch) < 1.0e-4:

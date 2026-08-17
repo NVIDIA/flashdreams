@@ -1118,7 +1118,7 @@ class MJPEGStreamingPresenter:
             _KeyboardDriveSink(keyboard)
         )
 
-    def configure_taxi_hud(self, bev: BevConfig) -> None:
+    def configure_taxi_hud(self, bev: BevConfig, vehicle: Any = None) -> None:
         """Configure BEV projection used by browser taxi overlays."""
         from crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
@@ -1126,9 +1126,11 @@ class MJPEGStreamingPresenter:
 
         self._taxi_enabled = True
         self._bev_config = bev
-        self._keyboard_drive_factory = TaxiKeyboardDriveState
+        self._keyboard_drive_factory = lambda sink: TaxiKeyboardDriveState(
+            sink, vehicle
+        )
         self._keyboard_drive = TaxiKeyboardDriveState(
-            _KeyboardDriveSink(self._keyboard)
+            _KeyboardDriveSink(self._keyboard), vehicle
         )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:

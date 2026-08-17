@@ -127,6 +127,12 @@ class TaxiGameConfig:
     alignment_diagnostics_enabled: bool = False
     """Whether the rollout captures frame-synchronized alignment evidence."""
 
+    ground_snap_max_absolute_rotation_deg: float = 10.0
+    """Maximum ground rotation accepted by the taxi ground snapper."""
+
+    ground_snap_settle_fraction: float = 0.25
+    """Fraction of stale ground attitude removed after an invalid sample."""
+
     def __post_init__(self) -> None:
         """Validate Taxi-only values at configuration time."""
         if not 0.0 < self.traffic_density <= 1.0:

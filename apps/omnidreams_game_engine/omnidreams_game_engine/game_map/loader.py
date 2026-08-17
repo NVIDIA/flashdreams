@@ -26,7 +26,6 @@ from omnidreams_game_engine.game_map.types import (
 _SCHEMA_VERSION = 1
 _PLACEMENT_TOLERANCE_M = 1.0e-3
 _ANGLE_TOLERANCE_DEG = 1.0e-3
-_SAMPLE_SPACING_M = 2.0
 _LINEAR_LANE_ELEMENT_TYPES = {
     "road_segment",
     "boulevard",
@@ -48,6 +47,26 @@ class GameMapHeader:
     name: str
     variants: tuple[GameMapVisualVariant, ...]
     source_path: Path
+
+
+@dataclass(frozen=True)
+class _CompilerSettings:
+    sample_spacing_m: float
+    ground_margin_m: float
+    intersection_connector_samples: int
+    parking_turnaround_width_multiplier: float
+    parking_turnaround_min_depth_m: float
+    parking_inner_clearance_m: float
+    parking_outer_clearance_m: float
+    parking_minimum_bay_depth_m: float
+    parking_first_stripe_offset_m: float
+    parking_turnaround_control_inset_m: float
+    parking_marking_style: str
+    parking_marking_color: str
+
+    def as_dict(self) -> dict[str, object]:
+        """Return settings as stable cache metadata."""
+        return dict(self.__dict__)
 
 
 @dataclass(frozen=True)
@@ -173,6 +192,8 @@ def _parse_variants(
     variants: list[GameMapVisualVariant] = []
     for name, raw_variant in variants_raw.items():
         variant = _mapping(raw_variant, f"variant {name!r}")
+        if set(variant) != {"image", "prompt"}:
+            raise GameMapError(f"Variant {name!r} requires exactly image and prompt")
         image = str(variant.get("image", "")).strip()
         prompt = str(variant.get("prompt", "")).strip()
         if not image or not prompt:
@@ -231,13 +252,27 @@ def _parse_profiles(doc: dict[str, Any]) -> dict[str, _Profile]:
     profiles: dict[str, _Profile] = {}
     for profile_id, raw_value in raw_profiles.items():
         raw = _mapping(raw_value, f"profile {profile_id!r}")
+        required = {
+            "lane_width_m",
+            "curb_offset_m",
+            "lanes",
+            "speed_limit_mps",
+            "curb",
+            "lane_marking",
+            "divider_markings",
+        }
+        if set(raw) != required:
+            raise GameMapError(
+                f"Profile {profile_id!r} must contain exactly {sorted(required)}"
+            )
         marking = _mapping(
-            raw.get(
-                "lane_marking",
-                {"style": "DASHED_SINGLE", "color": "WHITE"},
-            ),
+            raw.get("lane_marking"),
             f"profile {profile_id!r}.lane_marking",
         )
+        if set(marking) != {"style", "color"}:
+            raise GameMapError(
+                f"Profile {profile_id!r}.lane_marking requires style and color"
+            )
         directions = tuple(
             str(value).lower()
             for value in _sequence(raw.get("lanes"), f"profile {profile_id!r}.lanes")
@@ -248,62 +283,121 @@ def _parse_profiles(doc: dict[str, Any]) -> dict[str, _Profile]:
             raise GameMapError(
                 f"Profile {profile_id!r} lanes must contain forward/backward values"
             )
-        raw_dividers = raw.get("divider_markings")
-        if raw_dividers is None:
-            divider_markings = tuple(
-                (
-                    str(marking.get("style", "DASHED_SINGLE")).upper(),
-                    str(marking.get("color", "WHITE")).upper(),
-                )
-                for _ in range(len(directions) - 1)
+        divider_values = _sequence(
+            raw.get("divider_markings"), f"profile {profile_id!r}.divider_markings"
+        )
+        if len(divider_values) != len(directions) - 1:
+            raise GameMapError(
+                f"Profile {profile_id!r} divider_markings must contain one entry per adjacent lane pair"
             )
-        else:
-            divider_values = _sequence(
-                raw_dividers, f"profile {profile_id!r}.divider_markings"
+        divider_markings_list: list[tuple[str, str]] = []
+        for index, value in enumerate(divider_values):
+            divider = _mapping(
+                value, f"profile {profile_id!r}.divider_markings[{index}]"
             )
-            if len(divider_values) != len(directions) - 1:
+            if set(divider) != {"style", "color"}:
                 raise GameMapError(
-                    f"Profile {profile_id!r} divider_markings must contain one entry per adjacent lane pair"
+                    f"Profile {profile_id!r}.divider_markings[{index}] requires style and color"
                 )
-            divider_markings = tuple(
-                (
-                    str(
-                        _mapping(
-                            value,
-                            f"profile {profile_id!r}.divider_markings[{index}]",
-                        ).get("style", "DASHED_SINGLE")
-                    ).upper(),
-                    str(
-                        _mapping(
-                            value,
-                            f"profile {profile_id!r}.divider_markings[{index}]",
-                        ).get("color", "WHITE")
-                    ).upper(),
-                )
-                for index, value in enumerate(divider_values)
+            divider_markings_list.append(
+                (str(divider["style"]).upper(), str(divider["color"]).upper())
             )
+        divider_markings = tuple(divider_markings_list)
+        if type(raw["curb"]) is not bool:
+            raise GameMapError(f"Profile {profile_id!r}.curb must be a boolean")
         profiles[profile_id] = _Profile(
             profile_id=profile_id,
             lane_width_m=_positive_float(
                 raw.get("lane_width_m"), f"profile {profile_id!r}.lane_width_m"
             ),
             curb_offset_m=_nonnegative_float(
-                raw.get("curb_offset_m", 0.0),
+                raw.get("curb_offset_m"),
                 f"profile {profile_id!r}.curb_offset_m",
             ),
             directions=directions,
             speed_limit_mps=_positive_float(
-                raw.get("speed_limit_mps", 13.4),
+                raw.get("speed_limit_mps"),
                 f"profile {profile_id!r}.speed_limit_mps",
             ),
-            curb=bool(raw.get("curb", True)),
-            marking_style=str(marking.get("style", "DASHED_SINGLE")).upper(),
-            marking_color=str(marking.get("color", "WHITE")).upper(),
+            curb=raw["curb"],
+            marking_style=str(marking["style"]).upper(),
+            marking_color=str(marking["color"]).upper(),
             divider_markings=divider_markings,
         )
     if not profiles:
         raise GameMapError("Map must define at least one road profile")
     return profiles
+
+
+def _parse_compiler_settings(doc: dict[str, Any]) -> _CompilerSettings:
+    raw = _mapping(doc.get("compiler"), "compiler")
+    expected = {
+        "sample_spacing_m",
+        "ground_margin_m",
+        "intersection_connector_samples",
+        "parking_lot",
+    }
+    if set(raw) != expected:
+        raise GameMapError(f"compiler must contain exactly {sorted(expected)}")
+    parking = _mapping(raw["parking_lot"], "compiler.parking_lot")
+    parking_expected = {
+        "turnaround_width_multiplier",
+        "turnaround_min_depth_m",
+        "inner_clearance_m",
+        "outer_clearance_m",
+        "minimum_bay_depth_m",
+        "first_stripe_offset_m",
+        "turnaround_control_inset_m",
+        "marking",
+    }
+    if set(parking) != parking_expected:
+        raise GameMapError(
+            f"compiler.parking_lot must contain exactly {sorted(parking_expected)}"
+        )
+    marking = _mapping(parking["marking"], "compiler.parking_lot.marking")
+    if set(marking) != {"style", "color"}:
+        raise GameMapError("compiler.parking_lot.marking requires style and color")
+    samples = raw["intersection_connector_samples"]
+    if type(samples) is not int or samples < 2:
+        raise GameMapError(
+            "compiler.intersection_connector_samples must be an integer >= 2"
+        )
+    return _CompilerSettings(
+        sample_spacing_m=_positive_float(
+            raw["sample_spacing_m"], "compiler.sample_spacing_m"
+        ),
+        ground_margin_m=_nonnegative_float(
+            raw["ground_margin_m"], "compiler.ground_margin_m"
+        ),
+        intersection_connector_samples=samples,
+        parking_turnaround_width_multiplier=_positive_float(
+            parking["turnaround_width_multiplier"],
+            "compiler.parking_lot.turnaround_width_multiplier",
+        ),
+        parking_turnaround_min_depth_m=_positive_float(
+            parking["turnaround_min_depth_m"],
+            "compiler.parking_lot.turnaround_min_depth_m",
+        ),
+        parking_inner_clearance_m=_nonnegative_float(
+            parking["inner_clearance_m"], "compiler.parking_lot.inner_clearance_m"
+        ),
+        parking_outer_clearance_m=_nonnegative_float(
+            parking["outer_clearance_m"], "compiler.parking_lot.outer_clearance_m"
+        ),
+        parking_minimum_bay_depth_m=_positive_float(
+            parking["minimum_bay_depth_m"], "compiler.parking_lot.minimum_bay_depth_m"
+        ),
+        parking_first_stripe_offset_m=_nonnegative_float(
+            parking["first_stripe_offset_m"],
+            "compiler.parking_lot.first_stripe_offset_m",
+        ),
+        parking_turnaround_control_inset_m=_nonnegative_float(
+            parking["turnaround_control_inset_m"],
+            "compiler.parking_lot.turnaround_control_inset_m",
+        ),
+        parking_marking_style=str(marking["style"]).upper(),
+        parking_marking_color=str(marking["color"]).upper(),
+    )
 
 
 def _parse_elements(
@@ -313,6 +407,12 @@ def _parse_elements(
     ids: set[str] = set()
     for index, raw_value in enumerate(_sequence(doc.get("elements"), "elements")):
         raw = _mapping(raw_value, f"elements[{index}]")
+        required = {"id", "type", "profile", "geometry"}
+        placement = {"pose", "attach"} & set(raw)
+        if len(placement) != 1 or set(raw) != required | placement:
+            raise GameMapError(
+                f"elements[{index}] requires id, type, profile, geometry, and exactly one of pose/attach"
+            )
         element_id = str(raw.get("id", "")).strip()
         if not element_id or element_id in ids:
             raise GameMapError(f"Element id {element_id!r} is empty or duplicated")
@@ -334,17 +434,43 @@ def _parse_elements(
             raise GameMapError(
                 f"Element {element_id!r} references unknown profile {profile_id!r}"
             )
+        geometry = _mapping(raw["geometry"], f"element {element_id!r}.geometry")
+        if element_type in {"road_segment", "boulevard", "driveway"}:
+            kind = geometry.get("kind")
+            geometry_keys = (
+                {"kind", "length_m"}
+                if kind == "straight"
+                else {"kind", "radius_m", "sweep_deg"}
+            )
+        elif element_type == "intersection":
+            geometry_keys = {"kind", "port_profiles"}
+        elif element_type == "parking_lot_opening":
+            geometry_keys = {"length_m", "road_profile"}
+        else:
+            geometry_keys = {"width_m", "depth_m", "parking_space_width_m"}
+        if set(geometry) != geometry_keys:
+            raise GameMapError(
+                f"Element {element_id!r}.geometry must contain exactly {sorted(geometry_keys)}"
+            )
         pose = None
         if "pose" in raw:
             raw_pose = _mapping(raw["pose"], f"element {element_id!r}.pose")
+            if set(raw_pose) != {"x_m", "y_m", "heading_deg"}:
+                raise GameMapError(
+                    f"Element {element_id!r}.pose requires x_m, y_m, and heading_deg"
+                )
             pose = _Pose(
-                float(raw_pose.get("x_m", 0.0)),
-                float(raw_pose.get("y_m", 0.0)),
-                float(raw_pose.get("heading_deg", 0.0)),
+                float(raw_pose["x_m"]),
+                float(raw_pose["y_m"]),
+                float(raw_pose["heading_deg"]),
             )
         attach_port = attach_to = None
         if "attach" in raw:
             attach = _mapping(raw["attach"], f"element {element_id!r}.attach")
+            if set(attach) != {"port", "to"}:
+                raise GameMapError(
+                    f"Element {element_id!r}.attach requires port and to"
+                )
             attach_port = str(attach.get("port", ""))
             attach_to = str(attach.get("to", ""))
             if "." not in attach_to:
@@ -360,7 +486,7 @@ def _parse_elements(
                 element_id,
                 element_type,
                 profile_id,
-                _mapping(raw.get("geometry", {}), f"element {element_id!r}.geometry"),
+                geometry,
                 pose,
                 attach_port,
                 attach_to,
@@ -449,19 +575,9 @@ def _local_ports(
         raise GameMapError(
             f"Element {spec.element_id!r} has unsupported intersection kind {kind!r}"
         )
-    raw_port_profiles = spec.geometry.get("port_profiles")
-    if raw_port_profiles is None:
-        half = profile.surface_width_m
-        ports = [
-            _Port("east", half, 0.0, 0.0, profile.profile_id),
-            _Port("west", -half, 0.0, 180.0, profile.profile_id),
-            _Port("north", 0.0, half, 90.0, profile.profile_id),
-        ]
-        if kind == "four_way":
-            ports.append(_Port("south", 0.0, -half, -90.0, profile.profile_id))
-        return tuple(ports)
     port_profiles = _mapping(
-        raw_port_profiles, f"element {spec.element_id!r}.port_profiles"
+        spec.geometry.get("port_profiles"),
+        f"element {spec.element_id!r}.port_profiles",
     )
     valid_port_names = {"east", "west", "north"}
     if kind == "four_way":
@@ -620,6 +736,8 @@ def _validate_extra_connections(
     }
     for index, raw_value in enumerate(doc.get("connections", []) or []):
         raw = _mapping(raw_value, f"connections[{index}]")
+        if set(raw) != {"a", "b"}:
+            raise GameMapError(f"connections[{index}] requires exactly a and b")
         endpoints = (str(raw.get("a", "")), str(raw.get("b", "")))
         resolved: list[tuple[str, _Port]] = []
         for endpoint in endpoints:
@@ -651,16 +769,16 @@ def _validate_extra_connections(
             used.add(endpoint)
 
 
-def _sample_centerline(spec: _ElementSpec) -> np.ndarray:
+def _sample_centerline(spec: _ElementSpec, sample_spacing_m: float) -> np.ndarray:
     kind = str(spec.geometry.get("kind", "straight"))
     if kind == "straight":
         length = float(spec.geometry["length_m"])
-        count = max(2, int(math.ceil(length / _SAMPLE_SPACING_M)) + 1)
+        count = max(2, int(math.ceil(length / sample_spacing_m)) + 1)
         return np.column_stack((np.linspace(0.0, length, count), np.zeros(count)))
     radius = float(spec.geometry["radius_m"])
     sweep = math.radians(float(spec.geometry["sweep_deg"]))
     arc_length = radius * abs(sweep)
-    count = max(3, int(math.ceil(arc_length / _SAMPLE_SPACING_M)) + 1)
+    count = max(3, int(math.ceil(arc_length / sample_spacing_m)) + 1)
     angles = np.linspace(0.0, abs(sweep), count)
     sign = 1.0 if sweep > 0.0 else -1.0
     return np.column_stack(
@@ -807,8 +925,9 @@ def _road_geometry(
     pose: _Pose,
     connected: dict[str, str],
     profiles: dict[str, _Profile],
+    settings: _CompilerSettings,
 ) -> tuple[GameMapElement, list[_LaneBuild], list[np.ndarray]]:
-    local_center = _sample_centerline(spec)
+    local_center = _sample_centerline(spec, settings.sample_spacing_m)
     world_center = _transform_xy(local_center, pose)
     surface = _surface_for_road(world_center, profile.surface_width_m)
     ports = _world_ports(spec, profile, pose, profiles)
@@ -891,13 +1010,14 @@ def _parking_lot_opening_geometry(
     pose: _Pose,
     connected: dict[str, str],
     profiles: dict[str, _Profile],
+    settings: _CompilerSettings,
 ) -> tuple[GameMapElement, list[_LaneBuild], list[np.ndarray]]:
     """Build a curb-bounded taper between public-road and access profiles."""
     road_profile = profiles[str(spec.geometry["road_profile"])]
     length = _positive_float(
         spec.geometry.get("length_m"), f"element {spec.element_id!r}.length_m"
     )
-    count = max(2, int(math.ceil(length / _SAMPLE_SPACING_M)) + 1)
+    count = max(2, int(math.ceil(length / settings.sample_spacing_m)) + 1)
     x = np.linspace(0.0, length, count)
     alpha = np.linspace(0.0, 1.0, count)
     world_center = _transform_xy(np.column_stack((x, np.zeros(count))), pose)
@@ -995,6 +1115,7 @@ def _parking_lot_geometry(
     pose: _Pose,
     connected: dict[str, str],
     profiles: dict[str, _Profile],
+    settings: _CompilerSettings,
 ) -> tuple[
     GameMapElement,
     list[_LaneBuild],
@@ -1008,9 +1129,20 @@ def _parking_lot_geometry(
     width = _positive_float(
         spec.geometry.get("width_m"), f"element {spec.element_id!r}.width_m"
     )
-    turnaround_depth = max(profile.surface_width_m * 0.75, 5.0)
+    turnaround_depth = max(
+        profile.surface_width_m * settings.parking_turnaround_width_multiplier,
+        settings.parking_turnaround_min_depth_m,
+    )
     aisle_length = depth - turnaround_depth
-    count = max(2, int(math.ceil(aisle_length / _SAMPLE_SPACING_M)) + 1)
+    if aisle_length <= 0.0:
+        raise GameMapError(
+            f"Element {spec.element_id!r} depth_m must exceed its configured turnaround depth"
+        )
+    if settings.parking_turnaround_control_inset_m > depth:
+        raise GameMapError(
+            "compiler.parking_lot.turnaround_control_inset_m must not exceed parking-lot depth"
+        )
+    count = max(2, int(math.ceil(aisle_length / settings.sample_spacing_m)) + 1)
     local_center = np.column_stack(
         (np.linspace(0.0, aisle_length, count), np.zeros(count))
     )
@@ -1027,14 +1159,16 @@ def _parking_lot_geometry(
     )
     surface = _xyz(_transform_xy(local_surface, pose))
     parking_space_width = _positive_float(
-        spec.geometry.get("parking_space_width_m", 2.7),
+        spec.geometry.get("parking_space_width_m"),
         f"element {spec.element_id!r}.parking_space_width_m",
     )
-    inner_y = profile.surface_width_m * 0.5 + 0.5
-    outer_y = width * 0.5 - 0.6
+    inner_y = profile.surface_width_m * 0.5 + settings.parking_inner_clearance_m
+    outer_y = width * 0.5 - settings.parking_outer_clearance_m
     line_markings: list[GameMapLineMarking] = []
-    if outer_y - inner_y >= 3.0:
-        first_stripe_x = max(3.0, parking_space_width)
+    if outer_y - inner_y >= settings.parking_minimum_bay_depth_m:
+        first_stripe_x = max(
+            settings.parking_first_stripe_offset_m, parking_space_width
+        )
         stripe_positions = np.arange(
             first_stripe_x,
             aisle_length + _PLACEMENT_TOLERANCE_M,
@@ -1052,8 +1186,8 @@ def _parking_lot_geometry(
                             f"{spec.element_id}:parking-space:{stripe_index}:{side_name}"
                         ),
                         polyline_world=_xyz(_transform_xy(local_stripe, pose)),
-                        style="SOLID_SINGLE",
-                        color="WHITE",
+                        style=settings.parking_marking_style,
+                        color=settings.parking_marking_color,
                     )
                 )
     ports = _world_ports(spec, profile, pose, profiles)
@@ -1091,9 +1225,17 @@ def _parking_lot_geometry(
         (lane for lane in lane_builds if lane.start_port == "interior"), None
     )
     if incoming is not None and outgoing is not None:
-        control_local = np.asarray([[depth - 0.75, 0.0]], dtype=np.float64)
+        control_local = np.asarray(
+            [[depth - settings.parking_turnaround_control_inset_m, 0.0]],
+            dtype=np.float64,
+        )
         control = _xyz(_transform_xy(control_local, pose))[0]
-        centerline = _bezier(incoming.centerline[-1], control, outgoing.centerline[0])
+        centerline = _bezier(
+            incoming.centerline[-1],
+            control,
+            outgoing.centerline[0],
+            settings.intersection_connector_samples,
+        )
         left = _xyz(_offset_polyline(centerline[:, :2], profile.lane_width_m * 0.5))
         right = _xyz(_offset_polyline(centerline[:, :2], -profile.lane_width_m * 0.5))
         connector_id = f"{spec.element_id}:turnaround"
@@ -1233,8 +1375,10 @@ def _distance(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.linalg.norm(a[:2] - b[:2]))
 
 
-def _bezier(start: np.ndarray, control: np.ndarray, end: np.ndarray) -> np.ndarray:
-    t = np.linspace(0.0, 1.0, 8, dtype=np.float32)[:, None]
+def _bezier(
+    start: np.ndarray, control: np.ndarray, end: np.ndarray, samples: int
+) -> np.ndarray:
+    t = np.linspace(0.0, 1.0, samples, dtype=np.float32)[:, None]
     return ((1.0 - t) ** 2 * start + 2.0 * (1.0 - t) * t * control + t**2 * end).astype(
         np.float32
     )
@@ -1245,6 +1389,7 @@ def _wire_lane_successors(
     specs: tuple[_ElementSpec, ...],
     poses: dict[str, _Pose],
     connections: dict[str, str],
+    connector_samples: int,
 ) -> None:
     by_id = {spec.element_id: spec for spec in specs}
     lane_by_id = {lane.lane_id: lane for lane in lanes}
@@ -1290,7 +1435,10 @@ def _wire_lane_successors(
                 if in_port == out_port:
                     continue
                 centerline = _bezier(
-                    source.centerline[-1], center, target.centerline[0]
+                    source.centerline[-1],
+                    center,
+                    target.centerline[0],
+                    connector_samples,
                 )
                 width = _distance(source.left_edge[-1], source.right_edge[-1])
                 left = _xyz(_offset_polyline(centerline[:, :2], width * 0.5))
@@ -1342,14 +1490,17 @@ def _wire_lane_successors(
 def _spawn_on_lane(
     raw: dict[str, Any], source_path: Path, lane_by_id: dict[str, _LaneBuild]
 ) -> GameMapSpawn:
+    expected = {"id", "element", "lane", "distance_m", "variants"}
+    if set(raw) != expected:
+        raise GameMapError(f"Spawn must contain exactly {sorted(expected)}")
     spawn_id = str(raw.get("id", "")).strip()
     element_id = str(raw.get("element", "")).strip()
-    lane_index = int(raw.get("lane", 0))
+    lane_index = int(raw["lane"])
     lane_id = f"{element_id}:lane:{lane_index}"
     if lane_id not in lane_by_id:
         raise GameMapError(f"Spawn {spawn_id!r} references unknown lane {lane_id!r}")
     lane = lane_by_id[lane_id]
-    distance_m = max(0.0, float(raw.get("distance_m", 0.0)))
+    distance_m = max(0.0, float(raw["distance_m"]))
     segment_lengths = np.linalg.norm(np.diff(lane.centerline[:, :2], axis=0), axis=1)
     cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
     distance_m = min(distance_m, float(cumulative[-1]))
@@ -1383,9 +1534,22 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         raise GameMapError(
             f"Unsupported schema_version {doc.get('schema_version')!r}; expected {_SCHEMA_VERSION}"
         )
+    required_root = {
+        "schema_version",
+        "id",
+        "name",
+        "compiler",
+        "profiles",
+        "elements",
+        "connections",
+        "spawns",
+    }
+    if set(doc) != required_root:
+        raise GameMapError(f"Map must contain exactly {sorted(required_root)}")
     map_id = str(doc.get("id", "")).strip()
     if not map_id:
         raise GameMapError("Map id must not be empty")
+    settings = _parse_compiler_settings(doc)
     profiles = _parse_profiles(doc)
     specs = _parse_elements(doc, profiles)
     poses, connection_pairs = _resolve_poses(specs, profiles)
@@ -1400,21 +1564,36 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         profile = profiles[spec.profile_id]
         if spec.element_type in {"road_segment", "boulevard", "driveway"}:
             element, built_lanes, curbs = _road_geometry(
-                spec, profile, poses[spec.element_id], connections, profiles
+                spec,
+                profile,
+                poses[spec.element_id],
+                connections,
+                profiles,
+                settings,
             )
             elements.append(element)
             lane_builds.extend(built_lanes)
             collision_groups.extend(curbs)
         elif spec.element_type == "parking_lot_opening":
             element, built_lanes, curbs = _parking_lot_opening_geometry(
-                spec, profile, poses[spec.element_id], connections, profiles
+                spec,
+                profile,
+                poses[spec.element_id],
+                connections,
+                profiles,
+                settings,
             )
             elements.append(element)
             lane_builds.extend(built_lanes)
             collision_groups.extend(curbs)
         elif spec.element_type == "parking_lot":
             element, built_lanes, curbs, markings = _parking_lot_geometry(
-                spec, profile, poses[spec.element_id], connections, profiles
+                spec,
+                profile,
+                poses[spec.element_id],
+                connections,
+                profiles,
+                settings,
             )
             elements.append(element)
             lane_builds.extend(built_lanes)
@@ -1427,7 +1606,13 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             elements.append(element)
             collision_groups.extend(curbs)
     _validate_element_overlaps(elements, connections)
-    _wire_lane_successors(lane_builds, specs, poses, connections)
+    _wire_lane_successors(
+        lane_builds,
+        specs,
+        poses,
+        connections,
+        settings.intersection_connector_samples,
+    )
     lane_by_id = {lane.lane_id: lane for lane in lane_builds}
     spawns_raw = _sequence(doc.get("spawns"), "spawns")
     if not spawns_raw:
@@ -1463,8 +1648,8 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         else np.empty((0, 2, 3), dtype=np.float32)
     )
     all_points = np.concatenate([element.surface_world for element in elements], axis=0)
-    x_min, y_min = np.min(all_points[:, :2], axis=0) - 20.0
-    x_max, y_max = np.max(all_points[:, :2], axis=0) + 20.0
+    x_min, y_min = np.min(all_points[:, :2], axis=0) - settings.ground_margin_m
+    x_max, y_max = np.max(all_points[:, :2], axis=0) + settings.ground_margin_m
     ground_vertices = np.asarray(
         [
             [x_min, y_min, 0.0],
@@ -1480,6 +1665,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         map_id=map_id,
         name=str(doc.get("name", map_id)),
         source_path=source_path,
+        compiler_settings=settings.as_dict(),
         lanes=lanes,
         elements=tuple(elements),
         collision_segments_world=collisions,

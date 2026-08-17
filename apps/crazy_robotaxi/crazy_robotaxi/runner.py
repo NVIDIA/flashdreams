@@ -52,6 +52,12 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     world_model_manifest: Path | None = None
     """Legacy world-model manifest; named to avoid the global ``--manifest``."""
 
+    renderer_config: Path | None = None
+    """Renderer YAML override; ``None`` uses the packaged default."""
+
+    game_config: Path | None = None
+    """Gameplay and taxi-physics YAML override; ``None`` uses the packaged default."""
+
     camera: str | None = None
     """Camera name override for the selected scene."""
 
@@ -102,6 +108,8 @@ class CrazyRobotaxiRunner(Runner):
         argv = list(self.config.app_args)
         _append_value(argv, "--scene", self.config.scene)
         _append_value(argv, "--manifest", self.config.world_model_manifest)
+        _append_value(argv, "--renderer-config", self.config.renderer_config)
+        _append_value(argv, "--game-config", self.config.game_config)
         _append_value(argv, "--camera", self.config.camera)
         _append_value(argv, "--variant", self.config.variant)
         _append_value(argv, "--prompt", self.config.prompt)

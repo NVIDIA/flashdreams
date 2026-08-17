@@ -2,6 +2,20 @@ schema_version: 1
 id: crazy-robotaxi-boulevard-district
 name: Original Boulevard District (WIP)
 
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 20.0
+  intersection_connector_samples: 8
+  parking_lot:
+    turnaround_width_multiplier: 0.75
+    turnaround_min_depth_m: 5.0
+    inner_clearance_m: 0.5
+    outer_clearance_m: 0.6
+    minimum_bay_depth_m: 3.0
+    first_stripe_offset_m: 3.0
+    turnaround_control_inset_m: 0.75
+    marking: {style: SOLID_SINGLE, color: WHITE}
+
 profiles:
   boulevard:
     lane_width_m: 3.6
@@ -21,6 +35,8 @@ profiles:
     speed_limit_mps: 11.2
     curb: true
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
   parking_access:
     lane_width_m: 3.2
     curb_offset_m: 0.4
@@ -28,6 +44,8 @@ profiles:
     speed_limit_mps: 5.5
     curb: true
     lane_marking: {style: VIRTUAL, color: WHITE}
+    divider_markings:
+      - {style: VIRTUAL, color: WHITE}
 
 elements:
   - id: west_boulevard

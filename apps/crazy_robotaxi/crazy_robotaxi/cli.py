@@ -22,7 +22,7 @@ from loguru import logger
 from omnidreams import scenes as _scenes
 from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from omnidreams_game_engine.app import InteractiveDriveApp
-from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.game_map import load_game_map_header, resolve_seed_asset
 from omnidreams_game_engine.input.wheel_profiles import (
     EV_ABS,
@@ -726,6 +726,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Launch a standalone Crazy Robotaxi session."""
     configure_logging()
     args = build_parser().parse_args(argv)
+    args.renderer_config = _cli.resolve_app_config_path(args.renderer_config)
+    args.game_config = _cli.resolve_app_config_path(args.game_config)
+    if args.taxi_game:
+        from crazy_robotaxi.game_settings import load_game_settings
+
+        args._game_settings = load_game_settings(args.game_config)
     _validate_presenter_mode(args)
     if not args.synthetic_scene and not args.scene.name.endswith(".robotaxi.yaml"):
         raise SystemExit(
@@ -792,6 +798,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
+    renderer_settings = _cli.renderer_settings_from_args(args)
     _materialize_synthetic_scene_for_picker(args)
     scene_options = _discover_scene_options(args.scene_dir, args.scene)
     if not args.scene.exists() and scene_options:
@@ -830,7 +837,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     placeholder_keyboard = KeyboardState()
     app: InteractiveDriveApp | None = None
     presenter = SlangPyHudPresenter(
-        raster=RasterConfig(),
+        raster=renderer_settings.raster,
         keyboard=placeholder_keyboard,
         args=args,
         scene_options=scene_options,
@@ -1035,8 +1042,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
     bind_host, bind_port = parse_bind(args.stream_mjpeg)
     placeholder_keyboard = KeyboardState()
     app: InteractiveDriveApp | None = None
+    renderer_settings = _cli.renderer_settings_from_args(args)
     presenter = MJPEGStreamingPresenter(
-        raster=RasterConfig(),
+        raster=renderer_settings.raster,
         keyboard=placeholder_keyboard,
         bind_host=bind_host,
         bind_port=bind_port,
@@ -1195,6 +1203,8 @@ def _resolve_demo_paths(args: argparse.Namespace) -> None:
             setattr(args, attr, _project_path(value))
     if args.manifest is not None:
         args.manifest = _cli.resolve_manifest_path(args.manifest)
+    args.renderer_config = _cli.resolve_app_config_path(args.renderer_config)
+    args.game_config = _cli.resolve_app_config_path(args.game_config)
     if args.control_assets_dir is not None:
         args.control_assets_dir = _project_path(args.control_assets_dir)
 
