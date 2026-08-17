@@ -121,9 +121,6 @@ spawns:
       default:
         image: package://omnidreams_game_engine/screenshot.jpg
         prompt: >-
-          A forward-facing taxi driving on a full-width two-lane asphalt public
-          street for cars in a quiet suburban neighborhood in daylight, with one
-          lane in each direction, a double solid yellow centerline, concrete
-          curbs, sidewalks, houses, parked cars, and a connected neighborhood
-          parking lot with clearly painted parking spaces reached through a
-          driveway.
+          A forward-facing view from a taxi moving through a quiet suburban
+          neighborhood in daylight, with houses, low commercial buildings,
+          landscaping, and parked cars.

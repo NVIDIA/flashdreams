@@ -20,6 +20,7 @@ from omnidreams_game_engine.game_map import (
     write_game_map_preview,
 )
 from omnidreams_game_engine.game_map import compiler as game_map_compiler
+from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import VehicleState
@@ -114,21 +115,25 @@ def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
     assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
 
 
-def test_parking_destination_emits_roadnet_mask_and_painted_spaces() -> None:
+def test_parking_destination_emits_roadnet_mask_and_white_space_lines() -> None:
     game_map = load_game_map(_STARTER_MAP)
-    rows = game_map_compiler._road_marking_rows(game_map)
-
-    assert len(game_map.road_marking_polygons_world) == 18
-    assert len(rows) == 19
-    assert {row["road_marking"]["category"] for row in rows} == {
-        "ROI_POLYGON_ROADNET_MASK",
-        "ROI_POLYGON_ROAD_MARKING",
-    }
-    roadnet_mask = next(
+    road_marking_rows = game_map_compiler._road_marking_rows(game_map)
+    parking_line_rows = [
         row
-        for row in rows
-        if row["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
-    )
+        for row in game_map_compiler._lane_line_rows(game_map)
+        if ":parking-space:" in row["key"]["label_class_id"]
+    ]
+
+    assert not game_map.road_marking_polygons_world
+    assert len(game_map.line_markings) == 18
+    assert len(road_marking_rows) == 1
+    assert len(parking_line_rows) == 18
+    assert {
+        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0])
+        for row in parking_line_rows
+    } == {("SOLID_SINGLE", "WHITE")}
+    roadnet_mask = road_marking_rows[0]
+    assert roadnet_mask["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
     lot = next(
         element
         for element in game_map.elements
@@ -148,7 +153,7 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
 
     assert game_map.name == "Original Boulevard District (WIP)"
     assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 27
+    assert len(game_map.elements) == 31
     assert {element.element_type for element in game_map.elements} >= {
         "boulevard",
         "road_segment",
@@ -184,23 +189,31 @@ def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> N
             "central_north_junction",
             "east_north_junction",
             "central_lower_junction",
+            "lower_lot_junction",
             "east_lower_junction",
+            "east_lot_junction",
         )
     }
     assert connected_ports == {
         "central_north_junction": {"east", "south"},
         "east_north_junction": {"west", "south"},
-        "central_lower_junction": {"east", "north", "south"},
-        "east_lower_junction": {"east", "west", "north"},
+        "central_lower_junction": {"east", "north"},
+        "lower_lot_junction": {"east", "west", "north"},
+        "east_lower_junction": {"west", "north"},
+        "east_lot_junction": {"east", "west", "north"},
     }
 
     north_successors = lanes["north_cross_street:lane:1"].successor_ids
-    lower_successors = lanes["lower_cross_street:lane:1"].successor_ids
+    lower_successors = lanes["lower_cross_west:lane:1"].successor_ids
+    east_spur_successors = lanes["east_south_spur:lane:1"].successor_ids
     assert {lanes[lane_id].element_id for lane_id in north_successors} == {
         "east_north_junction"
     }
     assert {lanes[lane_id].element_id for lane_id in lower_successors} == {
-        "east_lower_junction"
+        "lower_lot_junction"
+    }
+    assert {lanes[lane_id].element_id for lane_id in east_spur_successors} == {
+        "east_lot_junction"
     }
     assert lanes["central_lot_driveway:lane:1"].successor_ids == (
         "central_parking_lot:lane:1",
@@ -209,10 +222,36 @@ def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> N
         "east_parking_lot:lane:1",
     )
 
+    def reachable_lane_ids(start_lane_id: str) -> set[str]:
+        pending = [start_lane_id]
+        reached = {start_lane_id}
+        while pending:
+            for successor_id in lanes[pending.pop()].successor_ids:
+                if successor_id not in reached:
+                    reached.add(successor_id)
+                    pending.append(successor_id)
+        return reached
+
+    assert "central_parking_lot:lane:1" in reachable_lane_ids("lower_cross_west:lane:1")
+    assert "east_parking_lot:lane:1" in reachable_lane_ids("east_south_spur:lane:1")
+    assert any(
+        lanes[lane_id].element_id == "lower_cross_west"
+        for lane_id in reachable_lane_ids("central_parking_lot:lane:0")
+    )
+    assert any(
+        lanes[lane_id].element_id == "east_south_spur"
+        for lane_id in reachable_lane_ids("east_parking_lot:lane:0")
+    )
+
 
 def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     rows = game_map_compiler._road_marking_rows(game_map)
+    parking_line_rows = [
+        row
+        for row in game_map_compiler._lane_line_rows(game_map)
+        if ":parking-space:" in row["key"]["label_class_id"]
+    ]
     masks = [
         row
         for row in rows
@@ -226,6 +265,12 @@ def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
 
     assert set(parking_lots) == {"central_parking_lot", "east_parking_lot"}
     assert len(masks) == 2
+    assert len(rows) == 2
+    assert len(parking_line_rows) == 30
+    assert {
+        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0])
+        for row in parking_line_rows
+    } == {("SOLID_SINGLE", "WHITE")}
     mask_polygons = [
         np.asarray(
             [
@@ -298,7 +343,7 @@ def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
         row for row in line_rows if "east_road:lane:0" in row["key"]["label_class_id"]
     ]
 
-    assert len(line_rows) == 10
+    assert len(line_rows) == 28
     assert {row["intersection_area"]["category"] for row in area_rows} == {
         "intersection"
     }
@@ -370,9 +415,20 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
     )
     assert scene.game_map is not None
     assert scene.game_map.map_id == "crazy-robotaxi-minimal-loop"
-    assert len(scene.game_map.road_marking_polygons_world) == 18
-    assert "full-width two-lane asphalt public street" in scene.prompt
-    assert "double solid yellow centerline" in scene.prompt
+    assert not scene.game_map.road_marking_polygons_world
+    assert len(scene.game_map.line_markings) == 18
+    assert "quiet suburban neighborhood" in scene.prompt
+    assert "lane" not in scene.prompt
+    assert "parking lot" not in scene.prompt
+    white_parking_lines = [
+        layer
+        for layer in scene.line_layers
+        if layer.layer_name == "lanelines_white_solid_single"
+    ]
+    assert len(white_parking_lines) == 1
+    assert len(white_parking_lines[0].segments_world) >= len(
+        scene.game_map.line_markings
+    )
     assert scene.initial_speed_mps == pytest.approx(0.0)
     np.testing.assert_allclose(
         scene.initial_rig_to_world[:2, 3],
@@ -381,6 +437,15 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
     bounds = MapBounds.from_scene(scene)
     assert bounds is not None
     assert bounds.width_m < float(np.ptp(scene.ground_mesh_vertices[:, 0]))
+
+
+def test_embedded_map_without_line_markings_remains_loadable() -> None:
+    serialized = game_map_to_dict(load_game_map(_STARTER_MAP))
+    serialized.pop("line_markings")
+
+    restored = game_map_from_dict(serialized)
+
+    assert restored.line_markings == ()
 
 
 def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:

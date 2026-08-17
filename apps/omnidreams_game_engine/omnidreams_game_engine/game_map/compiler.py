@@ -31,7 +31,7 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "6"
+_COMPILER_VERSION = "7"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
 _SHARED_EDGE_TOLERANCE_M = 0.01
@@ -210,6 +210,23 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                     "right_driving_direction": ["FORWARD"],
                     "is_first_point_physical_end": "false",
                     "is_last_point_physical_end": "false",
+                    "egomotion_label_class_id": "ego",
+                },
+                "version": 1,
+            }
+        )
+    for marking in game_map.line_markings:
+        rows.append(
+            {
+                "key": _key(game_map, f"lane_line:{marking.marking_id}"),
+                "lane_line": {
+                    "line_rail": [_point(point) for point in marking.polyline_world],
+                    "styles": [marking.style],
+                    "colors": [marking.color],
+                    "left_driving_direction": ["FORWARD"],
+                    "right_driving_direction": ["FORWARD"],
+                    "is_first_point_physical_end": "true",
+                    "is_last_point_physical_end": "true",
                     "egomotion_label_class_id": "ego",
                 },
                 "version": 1,

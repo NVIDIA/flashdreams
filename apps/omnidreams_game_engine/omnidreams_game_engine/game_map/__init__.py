@@ -16,6 +16,7 @@ from omnidreams_game_engine.game_map.loader import (
 from omnidreams_game_engine.game_map.preview import write_game_map_preview
 from omnidreams_game_engine.game_map.types import (
     GameMapLane,
+    GameMapLineMarking,
     GameMapSpawn,
     ResolvedGameMap,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "CompiledGameMap",
     "GameMapError",
     "GameMapLane",
+    "GameMapLineMarking",
     "GameMapSpawn",
     "ResolvedGameMap",
     "compile_game_map",

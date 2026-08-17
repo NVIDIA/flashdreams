@@ -123,6 +123,23 @@ class GameMapElement:
 
 
 @dataclass(frozen=True)
+class GameMapLineMarking:
+    """Resolved line marking emitted into model conditioning."""
+
+    marking_id: str
+    """Stable compiler-generated marking identifier."""
+
+    polyline_world: FloatArray
+    """World-space marking centerline with shape ``[N, 3]``."""
+
+    style: str
+    """ClipGT-compatible lane-line style."""
+
+    color: str
+    """ClipGT-compatible lane-line color."""
+
+
+@dataclass(frozen=True)
 class ResolvedGameMap:
     """Validated semantic map with generated runtime geometry."""
 
@@ -149,6 +166,9 @@ class ResolvedGameMap:
 
     road_marking_polygons_world: tuple[FloatArray, ...]
     """Closed road-marking polygons used by conditioning and previews."""
+
+    line_markings: tuple[GameMapLineMarking, ...]
+    """Standalone painted lines used by conditioning and previews."""
 
     ground_vertices: FloatArray
     """Flat ground-mesh vertices."""
@@ -211,6 +231,15 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
         "collision_segments_world": game_map.collision_segments_world.tolist(),
         "road_marking_polygons_world": [
             polygon.tolist() for polygon in game_map.road_marking_polygons_world
+        ],
+        "line_markings": [
+            {
+                "marking_id": marking.marking_id,
+                "polyline_world": marking.polyline_world.tolist(),
+                "style": marking.style,
+                "color": marking.color,
+            }
+            for marking in game_map.line_markings
         ],
         "ground_vertices": game_map.ground_vertices.tolist(),
         "ground_faces": game_map.ground_faces.tolist(),
@@ -314,6 +343,15 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         road_marking_polygons_world=tuple(
             np.asarray(polygon, dtype=np.float32)
             for polygon in value.get("road_marking_polygons_world", [])
+        ),
+        line_markings=tuple(
+            GameMapLineMarking(
+                marking_id=str(raw["marking_id"]),
+                polyline_world=np.asarray(raw["polyline_world"], dtype=np.float32),
+                style=str(raw["style"]),
+                color=str(raw["color"]),
+            )
+            for raw in value.get("line_markings", [])
         ),
         ground_vertices=np.asarray(value["ground_vertices"], dtype=np.float32),
         ground_faces=np.asarray(value["ground_faces"], dtype=np.int32),

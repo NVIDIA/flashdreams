@@ -17,6 +17,7 @@ import yaml
 from omnidreams_game_engine.game_map.types import (
     GameMapElement,
     GameMapLane,
+    GameMapLineMarking,
     GameMapSpawn,
     GameMapVisualVariant,
     ResolvedGameMap,
@@ -994,7 +995,12 @@ def _parking_lot_geometry(
     pose: _Pose,
     connected: dict[str, str],
     profiles: dict[str, _Profile],
-) -> tuple[GameMapElement, list[_LaneBuild], list[np.ndarray], list[np.ndarray]]:
+) -> tuple[
+    GameMapElement,
+    list[_LaneBuild],
+    list[np.ndarray],
+    list[GameMapLineMarking],
+]:
     """Build a bounded lot with a two-way aisle and routed turnaround."""
     depth = _positive_float(
         spec.geometry.get("depth_m"), f"element {spec.element_id!r}.depth_m"
@@ -1024,10 +1030,9 @@ def _parking_lot_geometry(
         spec.geometry.get("parking_space_width_m", 2.7),
         f"element {spec.element_id!r}.parking_space_width_m",
     )
-    stripe_half_width = 0.06
     inner_y = profile.surface_width_m * 0.5 + 0.5
     outer_y = width * 0.5 - 0.6
-    marking_polygons: list[np.ndarray] = []
+    line_markings: list[GameMapLineMarking] = []
     if outer_y - inner_y >= 3.0:
         first_stripe_x = max(3.0, parking_space_width)
         stripe_positions = np.arange(
@@ -1035,20 +1040,22 @@ def _parking_lot_geometry(
             aisle_length + _PLACEMENT_TOLERANCE_M,
             parking_space_width,
         )
-        for stripe_x in stripe_positions:
-            for side in (-1.0, 1.0):
-                near_y, far_y = sorted((side * inner_y, side * outer_y))
+        for stripe_index, stripe_x in enumerate(stripe_positions):
+            for side_name, side in (("right", -1.0), ("left", 1.0)):
                 local_stripe = np.asarray(
-                    [
-                        [stripe_x - stripe_half_width, near_y],
-                        [stripe_x + stripe_half_width, near_y],
-                        [stripe_x + stripe_half_width, far_y],
-                        [stripe_x - stripe_half_width, far_y],
-                        [stripe_x - stripe_half_width, near_y],
-                    ],
+                    [[stripe_x, side * inner_y], [stripe_x, side * outer_y]],
                     dtype=np.float64,
                 )
-                marking_polygons.append(_xyz(_transform_xy(local_stripe, pose)))
+                line_markings.append(
+                    GameMapLineMarking(
+                        marking_id=(
+                            f"{spec.element_id}:parking-space:{stripe_index}:{side_name}"
+                        ),
+                        polyline_world=_xyz(_transform_xy(local_stripe, pose)),
+                        style="SOLID_SINGLE",
+                        color="WHITE",
+                    )
+                )
     ports = _world_ports(spec, profile, pose, profiles)
     lane_builds: list[_LaneBuild] = []
     for index, direction in enumerate(profile.directions):
@@ -1144,7 +1151,7 @@ def _parking_lot_geometry(
         ),
         lane_builds,
         curbs,
-        marking_polygons,
+        line_markings,
     )
 
 
@@ -1388,6 +1395,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     lane_builds: list[_LaneBuild] = []
     collision_groups: list[np.ndarray] = []
     road_marking_polygons: list[np.ndarray] = []
+    line_markings: list[GameMapLineMarking] = []
     for spec in specs:
         profile = profiles[spec.profile_id]
         if spec.element_type in {"road_segment", "boulevard", "driveway"}:
@@ -1411,7 +1419,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             elements.append(element)
             lane_builds.extend(built_lanes)
             collision_groups.extend(curbs)
-            road_marking_polygons.extend(markings)
+            line_markings.extend(markings)
         else:
             element, curbs = _intersection_geometry(
                 spec, profile, poses[spec.element_id], connections, profiles
@@ -1468,15 +1476,16 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     )
     ground_faces = np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
     return ResolvedGameMap(
-        _SCHEMA_VERSION,
-        map_id,
-        str(doc.get("name", map_id)),
-        source_path,
-        lanes,
-        tuple(elements),
-        collisions,
-        tuple(road_marking_polygons),
-        ground_vertices,
-        ground_faces,
-        spawns,
+        schema_version=_SCHEMA_VERSION,
+        map_id=map_id,
+        name=str(doc.get("name", map_id)),
+        source_path=source_path,
+        lanes=lanes,
+        elements=tuple(elements),
+        collision_segments_world=collisions,
+        road_marking_polygons_world=tuple(road_marking_polygons),
+        line_markings=tuple(line_markings),
+        ground_vertices=ground_vertices,
+        ground_faces=ground_faces,
+        spawns=spawns,
     )

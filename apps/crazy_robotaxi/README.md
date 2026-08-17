@@ -186,7 +186,7 @@ spawns:
     variants:
       default:
         image: seed.png
-        prompt: A forward-facing taxi on a neighborhood road.
+        prompt: A forward-facing view from a taxi in a quiet neighborhood at daylight.
 ```
 
 `lane_width_m` controls routing and lane rails. `curb_offset_m` adds paved
@@ -233,9 +233,9 @@ cuts a curb gap only at a connected `entrance`, creates a two-way access aisle,
 links the aisle directions with an internal turnaround route, and emits painted
 parking-space dividers on both sides of the aisle. `parking_space_width_m`
 controls the bay spacing and defaults to 2.7 meters. In the compiled BEV, the
-entire lot surface is emitted as a green `ROI_POLYGON_ROADNET_MASK`, matching
-the original map's representation of unlaned drivable areas; it is not emitted
-as an intersection.
+entire lot surface is emitted as a green `ROI_POLYGON_ROADNET_MASK`, while the
+space dividers are emitted as white solid line primitives so they remain visible
+to the model. The lot is not emitted as an intersection.
 
 ```yaml
 profiles:
@@ -281,5 +281,7 @@ the default; `boulevard_district.robotaxi.yaml` is a clean, game-oriented
 reinterpretation of the original Quiet Suburban Boulevard around its starting
 area, with connected neighborhood blocks and routed parking lots. Incidental
 legacy roadnet masks are omitted rather than treated as parking destinations.
-The authored geometry is not expected to match the seed exactly, so the first
-generated frames may visibly adjust toward the selected semantic map.
+Static prompts describe visual setting and atmosphere rather than map topology;
+the BEV conditioning remains the source of truth as maps change. The authored
+geometry is not expected to match the seed exactly, so the first generated
+frames may visibly adjust toward the selected semantic map.

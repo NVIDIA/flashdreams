@@ -141,8 +141,22 @@ elements:
   - id: east_south_spur
     type: road_segment
     profile: neighborhood
-    geometry: {kind: straight, length_m: 25}
+    geometry: {kind: straight, length_m: 15.8}
     attach: {port: start, to: east_south_junction.east}
+
+  - id: east_lot_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+      port_profiles: {}
+    attach: {port: west, to: east_south_spur.end}
+
+  - id: east_south_spur_tail
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 15.8}
+    attach: {port: start, to: east_lot_junction.east}
 
   - id: east_south_tail
     type: road_segment
@@ -154,29 +168,43 @@ elements:
     type: intersection
     profile: neighborhood
     geometry:
-      kind: four_way
+      kind: t
       port_profiles: {}
     attach: {port: north, to: central_south_tail.end}
 
-  - id: lower_cross_street
+  - id: lower_cross_west
     type: road_segment
     profile: neighborhood
-    geometry: {kind: straight, length_m: 75}
+    geometry: {kind: straight, length_m: 33.3}
     attach: {port: start, to: central_lower_junction.east}
+
+  - id: lower_lot_junction
+    type: intersection
+    profile: neighborhood
+    geometry:
+      kind: t
+      port_profiles: {}
+    attach: {port: east, to: lower_cross_west.end}
+
+  - id: lower_cross_east
+    type: road_segment
+    profile: neighborhood
+    geometry: {kind: straight, length_m: 33.3}
+    attach: {port: start, to: lower_lot_junction.west}
 
   - id: east_lower_junction
     type: intersection
     profile: neighborhood
     geometry:
-      kind: four_way
+      kind: t
       port_profiles: {}
-    attach: {port: west, to: lower_cross_street.end}
+    attach: {port: west, to: lower_cross_east.end}
 
   - id: central_lot_opening
     type: parking_lot_opening
     profile: parking_access
     geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: central_lower_junction.south}
+    attach: {port: road, to: lower_lot_junction.north}
 
   - id: central_lot_driveway
     type: driveway
@@ -194,7 +222,7 @@ elements:
     type: parking_lot_opening
     profile: parking_access
     geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: east_lower_junction.east}
+    attach: {port: road, to: east_lot_junction.north}
 
   - id: east_lot_driveway
     type: driveway
@@ -205,7 +233,7 @@ elements:
   - id: east_parking_lot
     type: parking_lot
     profile: parking_access
-    geometry: {width_m: 24, depth_m: 28, parking_space_width_m: 2.7}
+    geometry: {width_m: 24, depth_m: 24, parking_space_width_m: 2.7}
     attach: {port: entrance, to: east_lot_driveway.end}
 
 connections:
@@ -222,8 +250,6 @@ spawns:
       default:
         image: package://omnidreams_game_engine/screenshot.jpg
         prompt: >-
-          A forward-facing taxi driving on a broad four-lane asphalt boulevard
-          for cars through a quiet suburban district in daylight, with two lanes
-          in each direction, a double solid yellow centerline, white lane lines,
-          concrete curbs, sidewalks, low commercial buildings, houses, parked
-          cars, cross streets, and frequent neighborhood intersections.
+          A forward-facing view from a taxi moving through a quiet suburban
+          district in daylight, with low commercial buildings, houses,
+          landscaping, and parked cars.

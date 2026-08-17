@@ -66,6 +66,12 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
             f'<polygon points="{_points(polygon[:, :2], convert)}" '
             'fill="#f4f4f4" stroke="none"/>'
         )
+    for marking in game_map.line_markings:
+        color = "#ffd60a" if marking.color == "YELLOW" else "#f4f4f4"
+        lines.append(
+            f'<polyline points="{_points(marking.polyline_world[:, :2], convert)}" '
+            f'fill="none" stroke="{color}" stroke-width="1.5"/>'
+        )
     for lane in game_map.lanes:
         color = "#ffd60a" if lane.allows_taxi_stops else "#64d2ff"
         lines.append(
