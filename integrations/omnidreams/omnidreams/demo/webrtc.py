@@ -31,6 +31,7 @@ from flashdreams.runtime.demo import (
     RuntimeHost,
     WebRTCAppResources,
     WebRTCOutputSpec,
+    build_model_warmup_plan,
 )
 from flashdreams.serving.webrtc.bootstrap import run_webrtc_server
 from flashdreams.serving.webrtc.demo import (
@@ -187,6 +188,12 @@ def _serve_shared_omnidreams_webrtc_demo(
         raise RuntimeError("DemoSpec.config was not initialized.")
     runtime = adapter.create_runtime(config)
     host = RuntimeHost(runtime)
+    model_warmup_plan = build_model_warmup_plan(
+        host=host,
+        adapter=adapter,
+        spec=spec,
+        scenario=prepared,
+    )
     manager = BaseWebRTCSessionManager(
         runtime=runtime,
         runtime_config=runtime_config,
@@ -197,6 +204,7 @@ def _serve_shared_omnidreams_webrtc_demo(
         supported_control_keys=WSAD_SUPPORTED_KEYS,
         fatal_generation_errors=True,
         client_liveness_timeout_s=output.client_liveness_timeout_s,
+        model_warmup_plan=model_warmup_plan,
         shared_host=host,
         shared_adapter=adapter,
         shared_spec=spec,

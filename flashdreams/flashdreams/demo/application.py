@@ -22,9 +22,10 @@ import importlib
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from flashdreams.demo.factories import (
     LocalWindowIOFactory,
@@ -46,8 +47,27 @@ from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindo
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepRequirements, StepResult
 
+if TYPE_CHECKING:
+    from flashdreams.runtime.demo.spec import DemoSpec, PreparedScenario
+
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
 """Entry-point group whose values expose a zero-argument ``create_app`` factory."""
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ApplicationWarmupSessionInputs:
+    """Canonical step inputs used to warm one temporary application session."""
+
+    step_inputs: Sequence[CanonicalInputWindow] = ()
+    """Ordered canonical windows that exercise the application's model shapes."""
+
+    def __post_init__(self) -> None:
+        step_inputs = tuple(self.step_inputs)
+        if not all(isinstance(value, CanonicalInputWindow) for value in step_inputs):
+            raise TypeError(
+                "Application warmup step inputs must be CanonicalInputWindow values."
+            )
+        object.__setattr__(self, "step_inputs", step_inputs)
 
 
 class IFlashDreamsApplicationSession(ABC):
@@ -88,6 +108,15 @@ class IFlashDreamsApplication(ABC):
     @abstractmethod
     def create_session(self) -> IFlashDreamsApplicationSession:
         """Create one isolated application session."""
+
+    def create_model_warmup_sessions(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> Sequence[ApplicationWarmupSessionInputs]:
+        """Return canonical inputs for optional temporary model warmup sessions."""
+        del spec, scenario
+        return ()
 
     def createSession(self) -> IFlashDreamsApplicationSession:
         """Create a session through the package-facing compatibility spelling."""
@@ -307,6 +336,7 @@ def serve_application_webrtc(
     )
     from flashdreams.runtime.demo import bootstrap as demo_bootstrap
     from flashdreams.runtime.demo.host import RuntimeHost
+    from flashdreams.runtime.demo.run_modes import build_model_warmup_plan
     from flashdreams.runtime.demo.spec import WebRTCAppResources, WebRTCOutputSpec
     from flashdreams.serving.webrtc import demo as webrtc_demo
     from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
@@ -344,6 +374,12 @@ def serve_application_webrtc(
             raise RuntimeError("DemoSpec.config was not initialized.")
         runtime = adapter.create_runtime(config)
         host = RuntimeHost(runtime)
+        model_warmup_plan = build_model_warmup_plan(
+            host=host,
+            adapter=adapter,
+            spec=spec,
+            scenario=scenario,
+        )
         manager = BaseWebRTCSessionManager(
             runtime=runtime,
             runtime_config=output,
@@ -352,6 +388,7 @@ def serve_application_webrtc(
             busy_message="A WebRTC application session is already active.",
             warmup_label=f"{application_slug} WebRTC",
             client_liveness_timeout_s=output.client_liveness_timeout_s,
+            model_warmup_plan=model_warmup_plan,
             shared_host=host,
             shared_adapter=adapter,
             shared_spec=spec,

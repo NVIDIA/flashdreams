@@ -91,6 +91,15 @@ _CANONICAL_INPUT_WINDOW_KEY = "flashdreams.application.canonical_input_window"
 """Private carrier key between the application provider and session adapter."""
 
 
+def _application_inference_input(
+    canonical_inputs: CanonicalInputWindow,
+) -> InferenceInput:
+    """Wrap canonical application inputs in the private runtime carrier."""
+    return InferenceInput(
+        step={_CANONICAL_INPUT_WINDOW_KEY: canonical_inputs},
+    )
+
+
 @dataclass(slots=True)
 class ApplicationRuntime:
     """Create application sessions through the hosted runtime boundary."""
@@ -287,9 +296,7 @@ class ApplicationCanonicalInputProvider:
             )
         validate_declared_modalities(canonical_window, self.input_schema)
         return PreparedStep(
-            inference_input=InferenceInput(
-                step={_CANONICAL_INPUT_WINDOW_KEY: canonical_window}
-            )
+            inference_input=_application_inference_input(canonical_window)
         )
 
     def reset(self, inputs: InferenceInput | None = None) -> None:
@@ -390,11 +397,27 @@ class ApplicationDemoAdapter:
         spec: DemoSpec,
         scenario: PreparedScenario,
     ) -> Sequence[WarmupSessionInputs]:
-        """Return application-provided warmup sessions when available."""
-        create = getattr(self.app, "create_model_warmup_sessions", None)
-        if callable(create):
-            return create(spec, scenario)
-        return ()
+        """Translate application warmup windows into hosted runtime inputs."""
+        from flashdreams.demo.application import ApplicationWarmupSessionInputs
+
+        sessions = self.app.create_model_warmup_sessions(spec, scenario)
+        runtime_sessions: list[WarmupSessionInputs] = []
+        for session in sessions:
+            if not isinstance(session, ApplicationWarmupSessionInputs):
+                raise TypeError(
+                    "IFlashDreamsApplication.create_model_warmup_sessions() must "
+                    "return only ApplicationWarmupSessionInputs."
+                )
+            runtime_sessions.append(
+                WarmupSessionInputs(
+                    initial_input=InferenceInput(),
+                    step_inputs=tuple(
+                        _application_inference_input(value)
+                        for value in session.step_inputs
+                    ),
+                )
+            )
+        return tuple(runtime_sessions)
 
 
 @dataclass(slots=True)

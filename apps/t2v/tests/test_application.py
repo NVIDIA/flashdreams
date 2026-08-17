@@ -38,10 +38,20 @@ from flashdreams.demo import (
     SessionInfo,
 )
 from flashdreams.demo import application as application_module
-from flashdreams.demo.bridge import current_application_inputs
+from flashdreams.demo.bridge import (
+    ApplicationDemoAdapter,
+    application_demo_spec,
+    application_scenario,
+    current_application_inputs,
+)
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
+from flashdreams.runtime.demo import (
+    RuntimeHost,
+    WebRTCOutputSpec,
+    build_model_warmup_plan,
+)
 from flashdreams.runtime.demo import drivers as driver_module
 
 pytestmark = pytest.mark.ci_cpu
@@ -128,6 +138,60 @@ def test_prompt_is_required() -> None:
     application = _application(_FakePipeline())
     with pytest.raises(ValueError, match="--prompt is required"):
         application.init([])
+
+
+def test_t2v_model_warmup_covers_observed_autoregressive_signatures() -> None:
+    pipeline = _FakePipeline()
+    application = _application(pipeline)
+    application.init(
+        [
+            "--prompt",
+            "A waterfall",
+            "--total-blocks",
+            "10",
+            "--device",
+            "cpu",
+        ]
+    )
+    spec = application_demo_spec(
+        app=application,
+        application_slug="t2v-fake",
+        output=WebRTCOutputSpec(),
+    )
+    scenario = application_scenario(application, realtime=True)
+    adapter = ApplicationDemoAdapter(
+        app=application,
+        spec=spec,
+        scenario=scenario,
+    )
+    config = spec.config
+    assert config is not None
+    host = RuntimeHost(adapter.create_runtime(config))
+    try:
+        plan = build_model_warmup_plan(
+            host=host,
+            adapter=adapter,
+            spec=spec,
+            scenario=scenario,
+        )
+        assert len(plan.sessions) == 1
+        assert len(plan.sessions[0].step_inputs) == 7
+
+        host.preload()
+        host.warmup(plan)
+    finally:
+        host.close()
+
+    assert pipeline.device == "cpu"
+    assert pipeline.cache_kwargs == {
+        "text": ["A waterfall"],
+        "image": None,
+        "height": 60,
+        "width": 104,
+    }
+    assert pipeline.generated == list(range(7))
+    assert pipeline.finalized == list(range(7))
+    assert pipeline.closed
 
 
 def test_application_session_emits_canonical_video_results(

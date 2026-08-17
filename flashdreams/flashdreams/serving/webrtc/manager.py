@@ -29,6 +29,7 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
+    ModelWarmupPlan,
     PreparedScenario,
     PreparedStep,
     ProviderCapabilities,
@@ -678,6 +679,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         supported_control_keys: AbstractSet[str] | None = None,
         fatal_generation_errors: bool = False,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        model_warmup_plan: ModelWarmupPlan | None = None,
         shared_host: RuntimeHost | None = None,
         shared_adapter: Any | None = None,
         shared_spec: DemoSpec | None = None,
@@ -689,6 +691,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
+        if model_warmup_plan is not None and not isinstance(
+            model_warmup_plan, ModelWarmupPlan
+        ):
+            raise TypeError("model_warmup_plan must be a ModelWarmupPlan.")
         self.runtime_config = runtime_config
         self.fps = fps
         self.identity = identity
@@ -708,6 +714,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._session_lock = asyncio.Lock()
         self._pending_session_input: Any = None
         self._shared_runtime_adapter: _LegacyWebRTCRuntimeAdapter | None = None
+        self._model_warmup_plan = (
+            ModelWarmupPlan() if model_warmup_plan is None else model_warmup_plan
+        )
         self._shared_host: RuntimeHost | None = shared_host
         self._owns_shared_host = shared_host is not None
         self._shared_context: RunContext | None = None
@@ -916,6 +925,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             host=host,
             run_metrics=InMemorySessionMetricsRecorder(),
             admission=self._lifecycle.admission,
+            model_warmup_plan=self._model_warmup_plan,
         )
         return self._shared_context
 
@@ -1387,13 +1397,22 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     await result
             elif self._shared_host is not None:
                 await asyncio.to_thread(self._shared_host.preload)
+            if self._model_warmup_plan.sessions:
+                host = self._shared_host
+                if host is None:
+                    host = self._shared_run_context(asyncio.get_running_loop()).host
+                await asyncio.to_thread(host.warmup, self._model_warmup_plan)
             self._initialize_shared_video_encoder()
 
         await self._lifecycle.ensure_preloaded(initialize_runtime)
         async with self._warmup_lock:
             if not self._warmup_complete:
                 await self._run_loopback_warmup_session(
-                    num_chunks=self.runtime_config.warmup_chunks
+                    num_chunks=(
+                        0
+                        if self._model_warmup_plan.sessions
+                        else self.runtime_config.warmup_chunks
+                    )
                 )
                 self._warmup_complete = True
 

@@ -20,9 +20,12 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from flashdreams.demo import (
+    ApplicationWarmupSessionInputs,
     CanonicalInputSchema,
     CanonicalInputWindow,
     IFlashDreamsApplication,
@@ -32,7 +35,14 @@ from flashdreams.demo import (
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import StepRequirements
+
+if TYPE_CHECKING:
+    from flashdreams.runtime.demo import DemoSpec, PreparedScenario
+
+_T2V_WARMUP_BLOCK_COUNT = 7
+"""Leading AR blocks that cover observed specializations at indices 0, 1, and 6."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -192,6 +202,35 @@ class T2VApplication(IFlashDreamsApplication):
         session.set_prompt(self._session_config.prompt)
         return session
 
+    def create_model_warmup_sessions(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> Sequence[ApplicationWarmupSessionInputs]:
+        """Warm the leading autoregressive model specializations."""
+        del scenario
+        if spec.output.mode != "webrtc":
+            return ()
+        config = self._session_config
+        if config is None:
+            raise RuntimeError(
+                "T2VApplication.init() must run before model warmup planning."
+            )
+        warmup_blocks = min(config.total_blocks, _T2V_WARMUP_BLOCK_COUNT)
+        return (
+            ApplicationWarmupSessionInputs(
+                step_inputs=tuple(
+                    CanonicalInputWindow(
+                        window=TimeWindow(
+                            start_s=float(block_index),
+                            end_s=float(block_index + 1),
+                        )
+                    )
+                    for block_index in range(warmup_blocks)
+                )
+            ),
+        )
+
 
 class T2VApplicationSession(IFlashDreamsApplicationSession):
     """Reusable cache-isolated text-to-video model session."""
@@ -290,6 +329,12 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         generated = self._pipeline.generate(
             autoregressive_index=self._step_index,
             cache=self._cache,
+        )
+        logger.info(
+            "T2V AR {} output tensor signature shape={} dtype={}",
+            self._step_index,
+            tuple(generated.shape),
+            generated.dtype,
         )
         self._pipeline.finalize(
             autoregressive_index=self._step_index,

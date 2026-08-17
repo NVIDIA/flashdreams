@@ -17,6 +17,7 @@
 
 from flashdreams.demo.application import (
     APPLICATION_ENTRY_POINT_GROUP,
+    ApplicationWarmupSessionInputs,
     IFlashDreamsApplication,
     IFlashDreamsApplicationSession,
     create_application,
@@ -58,6 +59,7 @@ from flashdreams.runtime.inputs import (
 
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
+    "ApplicationWarmupSessionInputs",
     "BenchmarkStatsOutputSink",
     "CallableIOFactory",
     "CompositeOutputSink",

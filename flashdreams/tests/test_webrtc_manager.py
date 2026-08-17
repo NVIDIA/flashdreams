@@ -28,9 +28,12 @@ from flashdreams.runtime import (
 )
 from flashdreams.runtime.demo import (
     ModelInputProvider,
+    ModelWarmupPlan,
     PreparedScenario,
     ResamplerRealtimeClock,
     RunResult,
+    RuntimeHost,
+    WarmupSessionInputs,
     WebRTCErrorPolicy,
 )
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
@@ -232,6 +235,56 @@ class _WOnlyTestManager(_BaseTestManager):
     _resampler_supported_keys = frozenset({"w"})
 
 
+class _RecordingWarmupSession:
+    def __init__(self, runtime: _RecordingWarmupRuntime) -> None:
+        self.runtime = runtime
+
+    def next_step_request(self) -> StepRequest:
+        return _step_request(step_index=len(self.runtime.warmup_step_inputs))
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        self.runtime.warmup_step_inputs.append(inputs)
+        return StepResult(
+            step_index=len(self.runtime.warmup_step_inputs) - 1,
+            output=object(),
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+
+    def close(self) -> None:
+        self.runtime.warmup_sessions_closed += 1
+
+
+class _RecordingWarmupRuntime:
+    def __init__(self) -> None:
+        self.preload_count = 0
+        self.warmup_initial_inputs: list[InferenceInput] = []
+        self.warmup_step_inputs: list[InferenceInput] = []
+        self.warmup_sessions_closed = 0
+
+    def preload(self) -> None:
+        self.preload_count += 1
+
+    def start_session(self, inputs: InferenceInput) -> _RecordingWarmupSession:
+        self.warmup_initial_inputs.append(inputs)
+        return _RecordingWarmupSession(self)
+
+    def close(self) -> None:
+        return
+
+
+class _SpyRuntimeHost(RuntimeHost):
+    def __init__(self, runtime: _RecordingWarmupRuntime) -> None:
+        super().__init__(runtime)
+        self.warmup_calls: list[ModelWarmupPlan] = []
+
+    def warmup(self, plan: ModelWarmupPlan | None = None) -> None:
+        resolved_plan = plan or ModelWarmupPlan()
+        self.warmup_calls.append(resolved_plan)
+        super().warmup(resolved_plan)
+
+
 def _make_manager(
     manager_cls: type[BaseWebRTCSessionManager], runtime: Any, **kwargs: Any
 ) -> BaseWebRTCSessionManager:
@@ -254,6 +307,121 @@ async def _close_test_manager(manager: BaseWebRTCSessionManager[Any, Any]) -> No
         manager._shared_host.close()
         manager._shared_host = None
     await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_nonempty_model_warmup_plan_runs_once_for_server_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _RecordingWarmupRuntime()
+    host = _SpyRuntimeHost(runtime)
+    plan = ModelWarmupPlan(
+        sessions=(
+            WarmupSessionInputs(
+                initial_input=InferenceInput(metadata={"session": 0}),
+                step_inputs=(InferenceInput(step={"block": 0}),),
+            ),
+            WarmupSessionInputs(
+                initial_input=InferenceInput(metadata={"session": 1}),
+                step_inputs=(
+                    InferenceInput(step={"block": 1}),
+                    InferenceInput(step={"block": 6}),
+                ),
+            ),
+        ),
+    )
+    config = _runtime_config()
+    config.warmup_chunks = 5
+    manager = _BaseTestManager(
+        runtime=runtime,
+        runtime_config=config,
+        fps=30,
+        identity="fake-model",
+        model_warmup_plan=plan,
+        shared_host=host,
+    )
+    loopback_chunks: list[int] = []
+    offer_warmup_counts: list[int] = []
+
+    async def run_inline(function: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return function(*args, **kwargs)
+
+    async def record_loopback(*, num_chunks: int) -> None:
+        loopback_chunks.append(num_chunks)
+
+    async def fake_answer(**kwargs: Any) -> dict[str, str]:
+        del kwargs
+        offer_warmup_counts.append(len(host.warmup_calls))
+        return {"sdp": "answer", "type": "answer"}
+
+    monkeypatch.setattr(manager_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(manager, "_run_loopback_warmup_session", record_loopback)
+    monkeypatch.setattr(
+        manager,
+        "_create_answer_with_runtime_ready_locked",
+        fake_answer,
+    )
+
+    try:
+        await manager.preload_runtime()
+        context = manager._shared_run_context(asyncio.get_running_loop())
+        await manager.create_answer(offer_sdp="first", offer_type="offer")
+        await manager.create_answer(offer_sdp="later", offer_type="offer")
+        await manager.preload_runtime()
+
+        assert context.model_warmup_plan is plan
+        assert host.warmup_calls == [plan]
+        assert len(runtime.warmup_initial_inputs) == len(plan.sessions)
+        assert len(runtime.warmup_step_inputs) == 3
+        assert runtime.warmup_sessions_closed == len(plan.sessions)
+        assert runtime.preload_count == 1
+        assert loopback_chunks == [0]
+        assert offer_warmup_counts == [1, 1]
+    finally:
+        await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_empty_model_warmup_plan_keeps_loopback_model_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _RecordingWarmupRuntime()
+    host = _SpyRuntimeHost(runtime)
+    plan = ModelWarmupPlan()
+    config = _runtime_config()
+    config.warmup_chunks = 4
+    manager = _BaseTestManager(
+        runtime=runtime,
+        runtime_config=config,
+        fps=30,
+        identity="fake-model",
+        model_warmup_plan=plan,
+        shared_host=host,
+    )
+    loopback_chunks: list[int] = []
+
+    async def run_inline(function: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return function(*args, **kwargs)
+
+    async def record_loopback(*, num_chunks: int) -> None:
+        loopback_chunks.append(num_chunks)
+
+    monkeypatch.setattr(manager_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(manager, "_run_loopback_warmup_session", record_loopback)
+
+    try:
+        await manager.preload_runtime()
+        context = manager._shared_run_context(asyncio.get_running_loop())
+        await manager.preload_runtime()
+
+        assert context.model_warmup_plan is plan
+        assert host.warmup_calls == []
+        assert runtime.warmup_initial_inputs == []
+        assert runtime.warmup_step_inputs == []
+        assert runtime.preload_count == 1
+        assert loopback_chunks == [4]
+    finally:
+        await _close_test_manager(manager)
 
 
 def test_drives_inference_session_detects_session_runtime() -> None:
