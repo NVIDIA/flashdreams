@@ -360,6 +360,9 @@ class WebRTCActivationPolicy:
 
     input_source: "WebRTCInputSource"
     transport: WebRTCTransportService
+    activate_without_input: bool = False
+    """Whether an active transport can start before a browser event arrives."""
+
     timeout_s: float | None = None
     timeout_reason: str = "activation timed out"
     anchor_clock: bool = True
@@ -374,6 +377,14 @@ class WebRTCActivationPolicy:
         self,
         clock: RealtimeClock | DeterministicClock,
     ) -> ActivationResult:
+        if self.activate_without_input:
+            if not self.transport.is_active():
+                return ActivationResult(
+                    activated=False,
+                    reason=self.transport.close_reason or "transport closed",
+                )
+            self._anchor(clock)
+            return ActivationResult(activated=True)
         if self.input_source.activation_signal.is_set():
             self._anchor(clock)
             return ActivationResult(activated=True)

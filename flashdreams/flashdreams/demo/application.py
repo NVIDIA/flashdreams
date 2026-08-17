@@ -388,6 +388,7 @@ def serve_application_webrtc(
             busy_message="A WebRTC application session is already active.",
             warmup_label=f"{application_slug} WebRTC",
             client_liveness_timeout_s=output.client_liveness_timeout_s,
+            activate_without_input=not app.input_schema.modalities,
             model_warmup_plan=model_warmup_plan,
             shared_host=host,
             shared_adapter=adapter,

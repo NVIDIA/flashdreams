@@ -396,6 +396,7 @@ async def test_application_serving_preloads_on_worker_and_sizes_track(
     )
     manager = captured["session_manager"]
     manager._shared_video_encoder = encoder
+    assert manager._activate_without_input
     host = manager._shared_host
     assert host is not None
 
@@ -496,6 +497,7 @@ async def test_interactive_application_control_reaches_step_on_worker(
     manager = captured["session_manager"]
     manager._shared_video_encoder = encoder
     manager._keep_connection_after_completed = False
+    assert not manager._activate_without_input
     callback_thread_id = threading.get_ident()
     host = manager._shared_host
     assert host is not None

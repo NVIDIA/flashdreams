@@ -1554,6 +1554,7 @@ async def test_shared_session_edges_use_base_webrtc_services(
         _BaseTestManager,
         runtime,
         keep_connection_after_completed=keep_connection,
+        activate_without_input=True,
     )
     context = manager._shared_run_context(asyncio.get_running_loop())
     managed, _track, _peer, _channel = _managed_session(runtime)
@@ -1579,6 +1580,7 @@ async def test_shared_session_edges_use_base_webrtc_services(
     assert isinstance(edges.error_policy, WebRTCErrorPolicy)
     assert isinstance(edges.clock, ResamplerRealtimeClock)
     assert isinstance(edges.activation, WebRTCActivationPolicy)
+    assert edges.activation.activate_without_input
     assert isinstance(bridge, ThreadSafeWebRTCOutputBridge)
     assert bridge._close_track is close_track
 

@@ -200,6 +200,51 @@ async def test_webrtc_activation_anchors_to_first_input_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_webrtc_activation_can_start_without_input() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+        activate_without_input=True,
+    ).wait_until_active(clock)
+
+    assert result.activated
+    assert source.activation_timestamp_s is None
+    assert resampler.next_chunk_start_v == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_activation_without_input_still_honors_disconnect() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    transport.disconnect("browser disconnected")
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+        activate_without_input=True,
+    ).wait_until_active(clock)
+
+    assert not result.activated
+    assert result.reason == "browser disconnected"
+    assert resampler.next_chunk_start_v == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
 async def test_webrtc_output_sink_returns_presentation_backpressure() -> None:
     loop = asyncio.get_running_loop()
     encoder = _BlockingEncoder()

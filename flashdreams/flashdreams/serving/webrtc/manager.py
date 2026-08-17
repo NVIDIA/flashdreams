@@ -578,6 +578,7 @@ class _ManagedWebRTCSessionEdgeFactory:
             activation=WebRTCActivationPolicy(
                 input_source=input_source,
                 transport=transport,
+                activate_without_input=self._manager._activate_without_input,
             ),
         )
 
@@ -679,6 +680,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         supported_control_keys: AbstractSet[str] | None = None,
         fatal_generation_errors: bool = False,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        activate_without_input: bool = False,
         model_warmup_plan: ModelWarmupPlan | None = None,
         shared_host: RuntimeHost | None = None,
         shared_adapter: Any | None = None,
@@ -707,6 +709,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         )
         self.fatal_generation_errors = fatal_generation_errors
         self.client_liveness_timeout_s = client_liveness_timeout_s
+        self._activate_without_input = activate_without_input
         self._runtime = runtime
         self._warmup_complete = False
         self._active_session: ManagedWebRTCSession | None = None
