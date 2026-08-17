@@ -348,6 +348,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                 frame_count = int(get_frame_count(self._step_index))
         return StepRequirements(
             step_index=self._step_index,
+            input_frame_count=frame_count if frame_count is not None else 1,
             steady_output_frame_count=frame_count,
         )
 

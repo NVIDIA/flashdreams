@@ -46,7 +46,11 @@ from flashdreams.demo.bridge import (
 )
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
-from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
+from flashdreams.runtime import (
+    CanonicalInputSchema,
+    CanonicalModality,
+    StepRequirements,
+)
 from flashdreams.runtime.demo import (
     RuntimeHost,
     WebRTCOutputSpec,
@@ -291,6 +295,18 @@ def test_application_session_emits_canonical_video_results(
     assert output_sink.session_info.video_width == 832
     assert output_sink.session_info.video_height == 480
     assert pipeline.closed
+
+
+def test_application_session_paces_steps_to_output_frame_count() -> None:
+    application = _application(_FakePipeline())
+    application.init(["--prompt", "A waterfall", "--device", "cpu"])
+    session = application.create_session()
+
+    assert session.next_step_requirements() == StepRequirements(
+        step_index=0,
+        input_frame_count=2,
+        steady_output_frame_count=2,
+    )
 
 
 def test_application_session_honors_sink_stop_decision(
