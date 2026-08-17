@@ -83,111 +83,6 @@ _CAMERA_AXES = frozenset(DEFAULT_CAMERA_BINDINGS)
 _CAMERA_KEY_ALIASES: Mapping[str, str] = MappingProxyType({"j": "a", "l": "d"})
 
 
-@dataclass(frozen=True, slots=True)
-class BrowserControlKey:
-    """Describe one browser-rendered control key."""
-
-    key: str
-    """Normalized key sent through the WebRTC data channel."""
-
-    label: str | None = None
-    """Accessible label; ``None`` uses ``key``."""
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.key, str):
-            raise TypeError("BrowserControlKey.key must be a string.")
-        if not self.key.strip():
-            raise ValueError("BrowserControlKey.key must be non-empty.")
-        if self.label is not None:
-            if not isinstance(self.label, str):
-                raise TypeError("BrowserControlKey.label must be a string when set.")
-            if not self.label.strip():
-                raise ValueError("BrowserControlKey.label must be non-empty when set.")
-
-    def to_payload(self) -> str | dict[str, str]:
-        """Return the JSON-compatible browser payload."""
-        if self.label is None:
-            return self.key
-        return {"key": self.key, "label": self.label}
-
-
-@dataclass(frozen=True, slots=True)
-class BrowserControlGroup:
-    """Describe one labeled group of browser control keys."""
-
-    label: str
-    """Group label rendered beside its keys."""
-
-    keys: tuple[BrowserControlKey, ...]
-    """Non-empty ordered controls rendered by the browser."""
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.label, str):
-            raise TypeError("BrowserControlGroup.label must be a string.")
-        if not self.label.strip():
-            raise ValueError("BrowserControlGroup.label must be non-empty.")
-        keys = tuple(self.keys)
-        if not keys:
-            raise ValueError("BrowserControlGroup.keys must be non-empty.")
-        if not all(isinstance(key, BrowserControlKey) for key in keys):
-            raise TypeError("BrowserControlGroup.keys must contain BrowserControlKey.")
-        object.__setattr__(self, "keys", keys)
-
-    def to_payload(self) -> dict[str, object]:
-        """Return the JSON-compatible browser payload."""
-        return {
-            "label": self.label,
-            "keys": [key.to_payload() for key in self.keys],
-        }
-
-
-DRIVER_BROWSER_CONTROLS = (
-    BrowserControlGroup(
-        label="Drive",
-        keys=tuple(BrowserControlKey(key) for key in ("w", "a", "s", "d")),
-    ),
-    BrowserControlGroup(
-        label="Stop",
-        keys=(BrowserControlKey("space", label="Stop"),),
-    ),
-)
-"""Browser-facing controls for the default keyboard driving converter."""
-
-CAMERA_BROWSER_CONTROLS = (
-    BrowserControlGroup(
-        label="Drive / Turn",
-        keys=(
-            BrowserControlKey("w", label="Forward"),
-            BrowserControlKey("a", label="Turn left"),
-            BrowserControlKey("s", label="Backward"),
-            BrowserControlKey("d", label="Turn right"),
-        ),
-    ),
-    BrowserControlGroup(
-        label="Strafe",
-        keys=(
-            BrowserControlKey("q", label="Strafe left"),
-            BrowserControlKey("e", label="Strafe right"),
-        ),
-    ),
-    BrowserControlGroup(
-        label="Pitch",
-        keys=(
-            BrowserControlKey("i", label="Pitch up"),
-            BrowserControlKey("k", label="Pitch down"),
-        ),
-    ),
-    BrowserControlGroup(
-        label="Look",
-        keys=(
-            BrowserControlKey("j", label="Look left"),
-            BrowserControlKey("l", label="Look right"),
-        ),
-    ),
-)
-"""Browser-facing controls for the default keyboard camera converter."""
-
-
 @dataclass(frozen=True, kw_only=True, slots=True)
 class DeviceConverterSchema:
     """Metadata for one device-to-canonical-modality converter."""
@@ -207,9 +102,6 @@ class DeviceConverterSchema:
     priority: int = 0
     """Selection priority among converters producing the same modality."""
 
-    browser_controls: tuple[BrowserControlGroup, ...] = ()
-    """Browser controls advertised when this converter is feedable."""
-
     accepted_keys: frozenset[str] | None = None
     """Keys accepted by transport filtering; ``None`` keeps its fallback policy."""
 
@@ -225,14 +117,6 @@ class DeviceConverterSchema:
             raise ValueError("DeviceConverterSchema.name must be non-empty.")
         if not isinstance(self.produces, CanonicalModality):
             raise TypeError("produces must be a CanonicalModality object.")
-        browser_controls = tuple(self.browser_controls)
-        if not all(
-            isinstance(group, BrowserControlGroup) for group in browser_controls
-        ):
-            raise TypeError(
-                "browser_controls must contain BrowserControlGroup objects."
-            )
-        object.__setattr__(self, "browser_controls", browser_controls)
         if self.accepted_keys is not None:
             if isinstance(self.accepted_keys, str):
                 raise TypeError("accepted_keys must be a collection of key strings.")
@@ -329,7 +213,6 @@ class KeyboardToDriverCommand:
             produces=DRIVER_COMMAND,
             device_kind="keyboard",
             priority=priority,
-            browser_controls=(DRIVER_BROWSER_CONTROLS if uses_default_bindings else ()),
             accepted_keys=self._supported_keys,
             consumes=(
                 UserInputCapability(
@@ -400,13 +283,11 @@ class KeyboardToCameraCommand:
     ) -> None:
         self._supported_keys = frozenset(normalize_key(key) for key in supported_keys)
         self._state = KeyboardState(supported_keys=self._supported_keys)
-        uses_default_bindings = self._supported_keys == DEFAULT_SUPPORTED_KEYS
         self._schema = DeviceConverterSchema(
             name=name,
             produces=CAMERA_COMMAND,
             device_kind="keyboard",
             priority=priority,
-            browser_controls=(CAMERA_BROWSER_CONTROLS if uses_default_bindings else ()),
             accepted_keys=self._supported_keys,
             consumes=(
                 UserInputCapability(

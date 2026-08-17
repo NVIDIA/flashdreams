@@ -804,13 +804,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         return self._runtime
 
     def browser_ui_config(self) -> dict[str, object]:
-        """Return controls advertised by feedable scenario converters."""
-        controls = [
-            group.to_payload()
-            for schema in self._feedable_converter_schemas()
-            for group in schema.browser_controls
-        ]
-        return {"controls": controls}
+        """Return accepted control keys for the generic browser UI."""
+        accepted_keys = self._effective_supported_control_keys() or ()
+        return {"accepted_keys": sorted(accepted_keys)}
 
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""

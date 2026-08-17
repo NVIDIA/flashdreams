@@ -20,8 +20,6 @@ from flashdreams.runtime import (
     DEFAULT_SUPPORTED_KEYS,
     DRIVER_COMMAND,
     DRIVING_SUPPORTED_KEYS,
-    BrowserControlGroup,
-    BrowserControlKey,
     CanonicalInputs,
     CanonicalModality,
     DeviceConverterSchema,
@@ -156,17 +154,10 @@ def test_keyboard_edges_become_canonical_driver_command() -> None:
     assert canonical.metadata["canonical_sources"]["driver_command"] == "keyboard"
 
 
-def test_default_driver_converter_advertises_browser_controls() -> None:
+def test_default_driver_converter_advertises_accepted_keys() -> None:
     schema = KeyboardToDriverCommand().schema
 
     assert schema.accepted_keys == DRIVING_SUPPORTED_KEYS
-    assert [group.to_payload() for group in schema.browser_controls] == [
-        {"label": "Drive", "keys": ["w", "a", "s", "d"]},
-        {
-            "label": "Stop",
-            "keys": [{"key": "space", "label": "Stop"}],
-        },
-    ]
 
 
 def test_camera_edges_preserve_sub_window_timing() -> None:
@@ -197,59 +188,30 @@ def test_camera_edges_preserve_sub_window_timing() -> None:
     assert command["move_right"] == 0.0
 
 
-def test_default_camera_converter_advertises_browser_controls() -> None:
+def test_default_camera_converter_advertises_accepted_keys() -> None:
     schema = KeyboardToCameraCommand().schema
 
     assert schema.accepted_keys == DEFAULT_SUPPORTED_KEYS
-    assert [group.to_payload() for group in schema.browser_controls] == [
-        {
-            "label": "Drive / Turn",
-            "keys": [
-                {"key": "w", "label": "Forward"},
-                {"key": "a", "label": "Turn left"},
-                {"key": "s", "label": "Backward"},
-                {"key": "d", "label": "Turn right"},
-            ],
-        },
-        {
-            "label": "Strafe",
-            "keys": [
-                {"key": "q", "label": "Strafe left"},
-                {"key": "e", "label": "Strafe right"},
-            ],
-        },
-        {
-            "label": "Pitch",
-            "keys": [
-                {"key": "i", "label": "Pitch up"},
-                {"key": "k", "label": "Pitch down"},
-            ],
-        },
-        {
-            "label": "Look",
-            "keys": [
-                {"key": "j", "label": "Look left"},
-                {"key": "l", "label": "Look right"},
-            ],
-        },
-    ]
 
 
-def test_browser_control_metadata_rejects_malformed_groups() -> None:
-    with pytest.raises(TypeError, match="key must be a string"):
-        BrowserControlKey(cast(str, 1))
-    with pytest.raises(ValueError, match="keys must be non-empty"):
-        BrowserControlGroup(label="Empty", keys=())
-    with pytest.raises(TypeError, match="must contain BrowserControlKey"):
-        BrowserControlGroup(
-            label="Bad",
-            keys=cast(tuple[BrowserControlKey, ...], ("w",)),
-        )
-    with pytest.raises(TypeError, match="must contain BrowserControlGroup"):
+def test_converter_schema_rejects_malformed_accepted_keys() -> None:
+    with pytest.raises(TypeError, match="must be a collection"):
         DeviceConverterSchema(
-            name="bad-browser-controls",
+            name="bad-accepted-keys",
             produces=DRIVER_COMMAND,
-            browser_controls=cast(tuple[BrowserControlGroup, ...], ({"bad": True},)),
+            accepted_keys=cast(frozenset[str], "w"),
+        )
+    with pytest.raises(TypeError, match="must contain strings"):
+        DeviceConverterSchema(
+            name="bad-accepted-key-type",
+            produces=DRIVER_COMMAND,
+            accepted_keys=cast(frozenset[str], frozenset({"w", 1})),
+        )
+    with pytest.raises(ValueError, match="must not contain empty keys"):
+        DeviceConverterSchema(
+            name="empty-accepted-key",
+            produces=DRIVER_COMMAND,
+            accepted_keys=frozenset({""}),
         )
 
 

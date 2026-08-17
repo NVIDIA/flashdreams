@@ -505,42 +505,22 @@ async def test_interactive_application_control_reaches_step_on_worker(
 
     try:
         assert manager.browser_ui_config() == {
-            "controls": [
-                {"label": "Drive", "keys": ["w", "a", "s", "d"]},
-                {
-                    "label": "Stop",
-                    "keys": [{"key": "space", "label": "Stop"}],
-                },
-                {
-                    "label": "Drive / Turn",
-                    "keys": [
-                        {"key": "w", "label": "Forward"},
-                        {"key": "a", "label": "Turn left"},
-                        {"key": "s", "label": "Backward"},
-                        {"key": "d", "label": "Turn right"},
-                    ],
-                },
-                {
-                    "label": "Strafe",
-                    "keys": [
-                        {"key": "q", "label": "Strafe left"},
-                        {"key": "e", "label": "Strafe right"},
-                    ],
-                },
-                {
-                    "label": "Pitch",
-                    "keys": [
-                        {"key": "i", "label": "Pitch up"},
-                        {"key": "k", "label": "Pitch down"},
-                    ],
-                },
-                {
-                    "label": "Look",
-                    "keys": [
-                        {"key": "j", "label": "Look left"},
-                        {"key": "l", "label": "Look right"},
-                    ],
-                },
+            "accepted_keys": [
+                "a",
+                "d",
+                "down",
+                "e",
+                "i",
+                "j",
+                "k",
+                "l",
+                "left",
+                "q",
+                "right",
+                "s",
+                "space",
+                "up",
+                "w",
             ]
         }
         await asyncio.wait_for(manager.preload_runtime(), timeout=1.0)

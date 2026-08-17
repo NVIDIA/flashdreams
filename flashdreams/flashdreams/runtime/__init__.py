@@ -8,14 +8,10 @@ intentionally additive while integrations migrate onto it.
 """
 
 from flashdreams.runtime.canonical import (
-    CAMERA_BROWSER_CONTROLS,
     CAMERA_COMMAND,
     DEFAULT_CAMERA_BINDINGS,
     DEFAULT_DRIVING_BINDINGS,
-    DRIVER_BROWSER_CONTROLS,
     DRIVER_COMMAND,
-    BrowserControlGroup,
-    BrowserControlKey,
     DeviceConverter,
     DeviceConverterSchema,
     InputCanonicalizer,
@@ -87,9 +83,6 @@ from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
-    "BrowserControlGroup",
-    "BrowserControlKey",
-    "CAMERA_BROWSER_CONTROLS",
     "CAMERA_COMMAND",
     "CanonicalInputWindow",
     "CanonicalInputs",
@@ -105,7 +98,6 @@ __all__ = [
     "DeviceConverter",
     "DeviceConverterSchema",
     "DRIVING_SUPPORTED_KEYS",
-    "DRIVER_BROWSER_CONTROLS",
     "DRIVER_COMMAND",
     "ExecutionBackend",
     "IdentityInputMapping",

@@ -1690,7 +1690,7 @@ async def test_application_liveness_policy_survives_old_ten_second_limit(
     assert close_calls == 0
 
 
-def test_base_manager_advertises_feedable_driver_controls() -> None:
+def test_base_manager_advertises_feedable_driver_keys() -> None:
     manager = _make_manager(
         _BaseTestManager,
         SimpleNamespace(),
@@ -1698,18 +1698,22 @@ def test_base_manager_advertises_feedable_driver_controls() -> None:
     )
 
     assert manager.browser_ui_config() == {
-        "controls": [
-            {"label": "Drive", "keys": ["w", "a", "s", "d"]},
-            {
-                "label": "Stop",
-                "keys": [{"key": "space", "label": "Stop"}],
-            },
+        "accepted_keys": [
+            "a",
+            "d",
+            "down",
+            "left",
+            "right",
+            "s",
+            "space",
+            "up",
+            "w",
         ]
     }
     assert manager._effective_supported_control_keys() == DRIVING_SUPPORTED_KEYS
 
 
-def test_base_manager_omits_controls_without_feedable_advertisement() -> None:
+def test_base_manager_omits_keys_without_feedable_advertisement() -> None:
     no_scenario = _make_manager(_BaseTestManager, SimpleNamespace())
     no_converter = _make_manager(
         _BaseTestManager,
@@ -1733,7 +1737,7 @@ def test_base_manager_omits_controls_without_feedable_advertisement() -> None:
     )
 
     for manager in (no_scenario, no_converter, unfeedable, no_advertisement):
-        assert manager.browser_ui_config() == {"controls": []}
+        assert manager.browser_ui_config() == {"accepted_keys": []}
     assert no_advertisement._effective_supported_control_keys() is None
     assert no_advertisement._supports_key_payload({"key": "q"})
 
