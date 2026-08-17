@@ -169,7 +169,7 @@ def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> No
 
     assert game_map.name == "Original Boulevard District (WIP)"
     assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 87
+    assert len(game_map.elements) == 93
     assert {element.element_type for element in game_map.elements} >= {
         "boulevard",
         "road_segment",
@@ -212,8 +212,8 @@ def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> N
         )
     }
     assert connected_ports == {
-        "central_north_junction": {"east", "south"},
-        "east_north_junction": {"west", "south"},
+        "central_north_junction": {"east", "north", "south"},
+        "east_north_junction": {"north", "west", "south"},
         "central_lower_junction": {"east", "north"},
         "lower_lot_junction": {"east", "west", "north"},
         "east_lower_junction": {"west", "north"},
@@ -317,6 +317,37 @@ def test_boulevard_eastern_district_forms_routed_loop_and_destination() -> None:
     )
 
 
+def test_boulevard_map_preserves_traced_gateway_and_junction_topology() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
+
+    gateway_ports = {port[0]: port for port in elements["eastern_gateway"].ports}
+    assert gateway_ports["north"][3] == pytest.approx(82.746805)
+    assert gateway_ports["south"][3] == pytest.approx(262.746805)
+    for element_id in ("eastern_north_approach", "eastern_south_approach"):
+        ports = {port[0]: port for port in elements[element_id].ports}
+        assert abs(ports["end"][1] - ports["start"][1]) > 6.0
+
+    assert all(port[4] for port in elements["upper_north_cross_street"].ports)
+    assert "east_lower_approach_3" not in elements
+    assert {port[0] for port in elements["east_spine_crossing_3"].ports} == {
+        "east",
+        "west",
+        "north",
+    }
+    assert {port[0] for port in elements["east_spine_crossing_4"].ports} == {
+        "east",
+        "west",
+        "north",
+        "south",
+    }
+    lower_three_ports = {
+        port[0]: port for port in elements["east_lower_junction_3"].ports
+    }
+    assert set(lower_three_ports) == {"east", "west", "north"}
+    assert lower_three_ports["north"][3] == pytest.approx(270.0, abs=0.1)
+
+
 def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     elements = {element.element_id: element for element in game_map.elements}
@@ -336,9 +367,10 @@ def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
         np.testing.assert_allclose(rail_widths, 3.6, atol=1.0e-4)
 
     assert all(port[4] for port in elements["eastern_gateway"].ports)
-    assert len(elements["eastern_gateway"].surface_world) == 7
+    assert len(elements["eastern_gateway"].surface_world) == 9
     assert len(elements["eastern_north_junction"].surface_world) == 8
-    assert len(elements["eastern_south_junction"].surface_world) == 7
+    assert "eastern_south_junction" not in elements
+    assert elements["eastern_south_cul_de_sac"].ports[0][4]
 
     assert "eastern_southwest_continuation" not in elements
     assert all(
@@ -370,7 +402,9 @@ def test_cul_de_sacs_are_bounded_unmarked_turnarounds() -> None:
 
     assert set(cul_de_sacs) == {
         "eastern_north_cul_de_sac",
+        "eastern_south_cul_de_sac",
         "eastern_side_cul_de_sac",
+        "east_upper_north_cul_de_sac",
         "east_spine_cul_de_sac",
         "east_lower_west_cul_de_sac",
         "east_lower_south_cul_de_sac_1",

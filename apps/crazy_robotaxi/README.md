@@ -373,12 +373,13 @@ curb-bounded unmarked cul-de-sacs; flat ground; and per-spawn visual variants.
 Elevation remains a planned extension.
 
 The bundled maps reuse the existing OmniDreams seed image. The minimal loop is
-the default; `boulevard_district.robotaxi.yaml` is a clean, game-oriented
-reinterpretation of the original Quiet Suburban Boulevard around its starting
-area and its full eastern district, with connected neighborhood blocks, an
-irregular eastern gateway, two northern return districts, a southern commercial
-grid, routed parking lots, and cul-de-sacs replacing the original map's cut-off
-roads. The western grade-separated highway and ramps are deliberately omitted:
+the default; `boulevard_district.robotaxi.yaml` is a game-oriented reconstruction
+of the original Quiet Suburban Boulevard around its starting area and eastern
+district. It preserves the angled road through the eastern gateway, the traced
+T- and four-way junction sequence along the eastern boulevard, connected
+neighborhood blocks, routed parking lots, and cul-de-sacs replacing the original
+map's cut-off roads. The western grade-separated highway and ramps are
+deliberately omitted:
 flat overlapping roads are ambiguous in both the current schema and the world
 model's BEV conditioning. Incidental legacy roadnet masks are omitted rather
 than treated as parking destinations.
