@@ -1416,7 +1416,7 @@ async def test_keep_connection_starts_next_generation_before_track_close(
     context = manager._shared_run_context(asyncio.get_running_loop())
     reservation = context.admission.try_reserve()
     assert reservation is not None
-    managed, track, peer, _channel = _managed_session(runtime)
+    managed, track, peer, channel = _managed_session(runtime)
     input_source = WebRTCInputSource(resampler=managed.resampler)
     transport = WebRTCTransportService(loop=asyncio.get_running_loop())
     managed.input_source = input_source
@@ -1431,15 +1431,25 @@ async def test_keep_connection_starts_next_generation_before_track_close(
             first_reservation = kwargs["reservation"]
             assert first_reservation is not None
             first_reservation.release()
+            generation_edges = kwargs["run_mode"].create_session_edges(
+                context=kwargs["context"],
+                spec=kwargs["spec"],
+                scenario=kwargs["scenario"],
+                provider=cast(ModelInputProvider, SimpleNamespace()),
+                adapter=kwargs["adapter"],
+            )
+            result = generation_edges.close_result()
+            assert transport.is_active()
 
             async def activate_next_generation() -> None:
                 await asyncio.sleep(0)
                 input_source.activation_signal.set()
 
             asyncio.create_task(activate_next_generation())
-            return RunResult(status="completed")
+            return result
         assert not track.closed
         assert not peer.closed
+        transport.disconnect("transport closed")
         return RunResult(status="not_activated", reason="transport closed")
 
     monkeypatch.setattr(
@@ -1455,6 +1465,10 @@ async def test_keep_connection_starts_next_generation_before_track_close(
     )
 
     assert run_count == 2
+    assert any(
+        json.loads(message).get("type") == "generation_complete"
+        for message in channel.messages
+    )
     assert track.closed
     assert peer.closed
     await _close_test_manager(manager)
@@ -1560,6 +1574,7 @@ async def test_shared_session_edges_use_base_webrtc_services(
     managed, _track, _peer, _channel = _managed_session(runtime)
     managed.input_source = WebRTCInputSource(resampler=managed.resampler)
     managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    manager._active_session = managed
     edge_factory = manager_module._ManagedWebRTCSessionEdgeFactory(
         manager=manager,
         managed_session=managed,
@@ -1576,7 +1591,9 @@ async def test_shared_session_edges_use_base_webrtc_services(
     output_sink = cast(WebRTCOutputSink, edges.output_sink)
     bridge = output_sink._bridge
 
-    assert edges.transport is managed.transport
+    assert edges.transport is not managed.transport
+    assert isinstance(edges.transport, manager_module._GenerationTransportView)
+    assert edges.transport.peer_transport is managed.transport
     assert isinstance(edges.error_policy, WebRTCErrorPolicy)
     assert isinstance(edges.clock, ResamplerRealtimeClock)
     assert isinstance(edges.activation, WebRTCActivationPolicy)
@@ -1584,7 +1601,10 @@ async def test_shared_session_edges_use_base_webrtc_services(
     assert isinstance(bridge, ThreadSafeWebRTCOutputBridge)
     assert bridge._close_track is close_track
 
-    edges.output_sink.close()
+    result = edges.close_result()
+    assert result.status == "completed"
+    assert managed.transport.is_active()
+    assert not managed.peer_connection.closed
     await _close_test_manager(manager)
 
 

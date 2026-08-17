@@ -569,7 +569,7 @@ class _ManagedWebRTCSessionEdgeFactory:
             cleanup_tasks=context.cleanup_tasks,
             metrics=InMemorySessionMetricsRecorder(),
             error_policy=WebRTCErrorPolicy(),
-            transport=transport,
+            transport=_GenerationTransportView(transport),
             clock=ResamplerRealtimeClock(
                 resampler=self._managed_session.resampler,
                 now_fn=self._loop.time,
@@ -597,6 +597,21 @@ class _ManagedWebRTCSessionEdgeFactory:
             self._loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(self._manager.close_active_session())
             )
+
+
+@dataclass(frozen=True, slots=True)
+class _GenerationTransportView:
+    """Expose peer liveness without transferring peer-close ownership."""
+
+    peer_transport: WebRTCTransportService
+    """Peer-scoped transport owned by the managed WebRTC session."""
+
+    def is_active(self) -> bool:
+        """Return whether the underlying peer transport remains active."""
+        return self.peer_transport.is_active()
+
+    def close(self) -> None:
+        """Release the generation view without closing the reusable peer."""
 
 
 @dataclass(slots=True)
