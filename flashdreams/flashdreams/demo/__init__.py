@@ -23,13 +23,13 @@ from flashdreams.demo.application import (
     run_application,
 )
 from flashdreams.demo.factories import (
-    ApplicationWebRTCIOFactory,
     CallableIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
     NullInputHandler,
     NullIOFactory,
     ProvidedIOFactory,
+    WebRTCApplicationServing,
     WebRTCIOFactory,
 )
 from flashdreams.demo.io import (
@@ -44,7 +44,6 @@ from flashdreams.demo.outputs import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
     CompositeOutputSinkError,
-    DeferredWebRTCOutputSink,
     LocalWindowOutputSink,
     Mp4OutputSink,
     NullOutputSink,
@@ -59,12 +58,10 @@ from flashdreams.runtime.inputs import (
 
 __all__ = [
     "APPLICATION_ENTRY_POINT_GROUP",
-    "ApplicationWebRTCIOFactory",
     "BenchmarkStatsOutputSink",
     "CallableIOFactory",
     "CompositeOutputSink",
     "CompositeOutputSinkError",
-    "DeferredWebRTCOutputSink",
     "IFlashDreamsApplication",
     "IFlashDreamsApplicationSession",
     "IOFactory",
@@ -84,6 +81,7 @@ __all__ = [
     "SessionInfo",
     "SlangPyLocalInputHandler",
     "LocalWindowOutputSink",
+    "WebRTCApplicationServing",
     "WebRTCIOFactory",
     "WebRTCOutputSink",
     "build_benchmark_output_sink",

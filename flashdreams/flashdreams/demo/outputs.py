@@ -126,51 +126,6 @@ class NullOutputSink(OutputSink):
         return ()
 
 
-class DeferredWebRTCOutputSink(OutputSink):
-    """Preserve one sink identity until its concrete output is available."""
-
-    produces_artifacts = False
-
-    def __init__(
-        self,
-        sink_resolver: Callable[[SessionInfo], OutputSink] | None = None,
-    ) -> None:
-        self._sink: OutputSink | None = None
-        self._sink_resolver = sink_resolver
-
-    def bind(self, sink: OutputSink) -> None:
-        """Bind the concrete output sink exactly once."""
-        if self._sink is not None:
-            raise RuntimeError("WebRTC output sink is already bound.")
-        self._sink = sink
-
-    def open(self, session_info: SessionInfo) -> None:
-        """Open the bound sink."""
-        if self._sink is None and self._sink_resolver is not None:
-            self.bind(self._sink_resolver(session_info))
-        self._required().open(session_info)
-
-    def begin_generation(self, generation: int) -> None:
-        """Begin a generation on the bound sink."""
-        self._required().begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        """Write a result to the bound sink."""
-        return self._required().write(result)
-
-    def close(self) -> Sequence[OutputArtifact]:
-        """Close the bound sink."""
-        sink = self._sink
-        if sink is None:
-            return ()
-        return sink.close()
-
-    def _required(self) -> OutputSink:
-        if self._sink is None:
-            raise RuntimeError("WebRTC output sink has not been bound.")
-        return self._sink
-
-
 class WebRTCOutputSink(OutputSink):
     """Schedule WebRTC media delivery without blocking model execution."""
 
@@ -959,7 +914,6 @@ __all__ = [
     "BenchmarkStatsOutputSink",
     "CompositeOutputSink",
     "CompositeOutputSinkError",
-    "DeferredWebRTCOutputSink",
     "LocalWindowOutputSink",
     "Mp4OutputSink",
     "NullOutputSink",

@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
+
 from flashdreams.demo import (
     CallableIOFactory,
     IFlashDreamsApplication,

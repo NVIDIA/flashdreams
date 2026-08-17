@@ -24,15 +24,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 from flashdreams.demo.factories import (
-    ApplicationWebRTCIOFactory,
     LocalWindowIOFactory,
     Mp4IOFactory,
     NullInputHandler,
     NullIOFactory,
     ProvidedIOFactory,
+    WebRTCApplicationServing,
 )
 from flashdreams.demo.io import (
     InputHandler,
@@ -41,6 +41,7 @@ from flashdreams.demo.io import (
     SessionInfo,
 )
 from flashdreams.demo.outputs import LocalWindowOutputSink
+from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalInputWindow
 from flashdreams.runtime.output import OutputArtifact
 from flashdreams.runtime.types import StepRequirements, StepResult
@@ -141,6 +142,18 @@ def create_application(
     return _validate_application(factory(), origin=module.__name__), []
 
 
+@overload
+def run_application(
+    application_slug: str,
+    commandline_args: Sequence[str] = (),
+    *,
+    io_factory: WebRTCApplicationServing,
+    input_handler: None = None,
+    output_sink: None = None,
+) -> object: ...
+
+
+@overload
 def run_application(
     application_slug: str,
     commandline_args: Sequence[str] = (),
@@ -148,7 +161,17 @@ def run_application(
     io_factory: IOFactory | None = None,
     input_handler: InputHandler | None = None,
     output_sink: OutputSink | None = None,
-) -> tuple[OutputArtifact, ...]:
+) -> tuple[OutputArtifact, ...]: ...
+
+
+def run_application(
+    application_slug: str,
+    commandline_args: Sequence[str] = (),
+    *,
+    io_factory: IOFactory | WebRTCApplicationServing | None = None,
+    input_handler: InputHandler | None = None,
+    output_sink: OutputSink | None = None,
+) -> object:
     """Run an application with host-owned canonical input handling.
 
     Args:
@@ -159,7 +182,7 @@ def run_application(
         output_sink: Caller-owned output sink; ``None`` uses the factory.
 
     Returns:
-        Persistent artifacts returned by the output sink.
+        Persistent artifacts for bounded runs, or the WebRTC server result.
 
     Raises:
         TypeError: The application, handler, sink, or input values violate their
@@ -180,6 +203,13 @@ def run_application(
         raise TypeError(
             "IFlashDreamsApplication.input_schema must be a CanonicalInputSchema."
         )
+    if isinstance(resolved_factory, WebRTCApplicationServing):
+        return serve_application_webrtc(
+            app=application,
+            application_slug=application_slug,
+            serving=resolved_factory,
+        )
+
     resolved_input = resolved_factory.create_input_handler(input_schema)
     resolved_output = resolved_factory.create_output_sink()
     if not isinstance(resolved_input, InputHandler):
@@ -187,87 +217,73 @@ def run_application(
     if not isinstance(resolved_output, OutputSink):
         raise TypeError("IOFactory.create_output_sink() must return an OutputSink.")
 
-    if isinstance(resolved_factory, ApplicationWebRTCIOFactory):
-        from flashdreams.runtime.demo.application_runtime import (
-            run_realtime_application_session,
-        )
+    from flashdreams.demo.bridge import (
+        ApplicationDemoAdapter,
+        IOFactoryRunMode,
+        application_demo_spec,
+        application_scenario,
+        output_spec_for,
+    )
+    from flashdreams.runtime.demo.drivers import run_demo_session
+    from flashdreams.runtime.demo.host import RuntimeHost
+    from flashdreams.runtime.demo.pipeline import StepPipeline
+    from flashdreams.runtime.demo.run_modes import (
+        build_model_warmup_plan,
+        warmup_run_context,
+    )
 
-        result = asyncio.run(
-            run_realtime_application_session(
-                application=application,
-                input_handler=resolved_input,
-                input_schema=input_schema,
-                output_sink=resolved_output,
-            )
-        )
-    else:
-        from flashdreams.demo.bridge import (
-            ApplicationDemoAdapter,
-            IOFactoryRunMode,
-            application_demo_spec,
-            application_scenario,
-            output_spec_for,
-        )
-        from flashdreams.runtime.demo.drivers import run_demo_session
-        from flashdreams.runtime.demo.host import RuntimeHost
-        from flashdreams.runtime.demo.pipeline import StepPipeline
-        from flashdreams.runtime.demo.run_modes import (
-            build_model_warmup_plan,
-            warmup_run_context,
-        )
-
-        spec = application_demo_spec(
-            app=application,
-            application_slug=application_slug,
-            output=output_spec_for(resolved_factory),
-        )
-        scenario = application_scenario(application, realtime=False)
-        adapter = ApplicationDemoAdapter(
-            app=application,
+    spec = application_demo_spec(
+        app=application,
+        application_slug=application_slug,
+        output=output_spec_for(resolved_factory),
+    )
+    scenario = application_scenario(application, realtime=False)
+    adapter = ApplicationDemoAdapter(
+        app=application,
+        spec=spec,
+        scenario=scenario,
+    )
+    run_mode = IOFactoryRunMode(
+        input_handler=resolved_input,
+        output_sink=resolved_output,
+    )
+    run_mode.validate_run(spec=spec, adapter=adapter)
+    if spec.config is None:
+        raise RuntimeError("DemoSpec.config was not initialized.")
+    host = RuntimeHost(adapter.create_runtime(spec.config))
+    try:
+        model_warmup_plan = build_model_warmup_plan(
+            host=host,
+            adapter=adapter,
             spec=spec,
             scenario=scenario,
         )
-        run_mode = IOFactoryRunMode(
-            input_handler=resolved_input,
-            output_sink=resolved_output,
+        context = run_mode.create_run_context(
+            spec=spec,
+            adapter=adapter,
+            host=host,
+            model_warmup_plan=model_warmup_plan,
         )
-        run_mode.validate_run(spec=spec, adapter=adapter)
-        if spec.config is None:
-            raise RuntimeError("DemoSpec.config was not initialized.")
-        host = RuntimeHost(adapter.create_runtime(spec.config))
         try:
-            model_warmup_plan = build_model_warmup_plan(
-                host=host,
-                adapter=adapter,
+            warmup_run_context(
+                context=context,
                 spec=spec,
                 scenario=scenario,
-            )
-            context = run_mode.create_run_context(
-                spec=spec,
                 adapter=adapter,
-                host=host,
-                model_warmup_plan=model_warmup_plan,
+                run_mode=run_mode,
             )
-            try:
-                warmup_run_context(
-                    context=context,
-                    spec=spec,
-                    scenario=scenario,
-                    adapter=adapter,
-                    run_mode=run_mode,
-                )
-                result = run_demo_session(
-                    context=context,
-                    spec=spec,
-                    scenario=scenario,
-                    adapter=adapter,
-                    run_mode=run_mode,
-                    pipeline=StepPipeline(),
-                )
-            finally:
-                context.close()
+            result = run_demo_session(
+                context=context,
+                spec=spec,
+                scenario=scenario,
+                adapter=adapter,
+                run_mode=run_mode,
+                pipeline=StepPipeline(),
+            )
         finally:
-            host.close()
+            context.close()
+    finally:
+        host.close()
     if result.status != "completed":
         if result.error is not None:
             raise result.error
@@ -277,12 +293,94 @@ def run_application(
     return tuple(result.artifacts)
 
 
+def serve_application_webrtc(
+    *,
+    app: IFlashDreamsApplication,
+    application_slug: str,
+    serving: WebRTCApplicationServing,
+) -> object:
+    """Serve an initialized application through the shared WebRTC manager."""
+    from flashdreams.demo.bridge import (
+        ApplicationDemoAdapter,
+        application_demo_spec,
+        application_scenario,
+    )
+    from flashdreams.runtime.demo import bootstrap as demo_bootstrap
+    from flashdreams.runtime.demo.host import RuntimeHost
+    from flashdreams.runtime.demo.spec import WebRTCAppResources, WebRTCOutputSpec
+    from flashdreams.serving.webrtc import demo as webrtc_demo
+    from flashdreams.serving.webrtc.manager import BaseWebRTCSessionManager
+
+    demo_bootstrap.configure_logging()
+    distributed = demo_bootstrap.initialize_cuda_distributed(default_device="cuda")
+    host: RuntimeHost | None = None
+    manager: BaseWebRTCSessionManager[Any, Any] | None = None
+    try:
+        output = WebRTCOutputSpec(
+            host=serving.host,
+            port=serving.port,
+            fps=serving.fps,
+            video_width=serving.video_width,
+            video_height=serving.video_height,
+            warmup_chunks=serving.warmup_chunks,
+            warmup_timeout_s=serving.warmup_timeout_s,
+            client_liveness_timeout_s=serving.client_liveness_timeout_s,
+            preload_name=application_slug,
+        )
+        spec = application_demo_spec(
+            app=app,
+            application_slug=application_slug,
+            output=output,
+            input_mode="webrtc",
+            config=InferenceConfig(
+                model_id=application_slug,
+                device=str(distributed.device),
+            ),
+        )
+        scenario = application_scenario(app, realtime=True)
+        adapter = ApplicationDemoAdapter(app=app, spec=spec, scenario=scenario)
+        config = spec.config
+        if config is None:
+            raise RuntimeError("DemoSpec.config was not initialized.")
+        runtime = adapter.create_runtime(config)
+        host = RuntimeHost(runtime)
+        manager = BaseWebRTCSessionManager(
+            runtime=runtime,
+            runtime_config=output,
+            fps=output.fps,
+            identity=spec.model_id,
+            busy_message="A WebRTC application session is already active.",
+            warmup_label=f"{application_slug} WebRTC",
+            client_liveness_timeout_s=output.client_liveness_timeout_s,
+            shared_host=host,
+            shared_adapter=adapter,
+            shared_spec=spec,
+            shared_scenario=scenario,
+            keep_connection_after_completed=True,
+        )
+        return webrtc_demo.serve_webrtc_demo(
+            output=output,
+            model_id=spec.model_id,
+            session_manager=manager,
+            app_resources=WebRTCAppResources(preload_name=application_slug),
+            world_rank=distributed.world_rank,
+        )
+    except BaseException as exc:
+        _cleanup_webrtc_startup_failure(
+            manager=manager,
+            host=host,
+            primary_error=exc,
+            world_rank=distributed.world_rank,
+        )
+        raise
+
+
 def _resolve_io_factory(
     *,
-    io_factory: IOFactory | None,
+    io_factory: IOFactory | WebRTCApplicationServing | None,
     input_handler: InputHandler | None,
     output_sink: OutputSink | None,
-) -> IOFactory:
+) -> IOFactory | WebRTCApplicationServing:
     if io_factory is not None:
         if input_handler is not None or output_sink is not None:
             raise ValueError(
@@ -299,6 +397,51 @@ def _resolve_io_factory(
             output_sink if output_sink is not None else LocalWindowOutputSink()
         ),
     )
+
+
+def _cleanup_webrtc_startup_failure(
+    *,
+    manager: Any | None,
+    host: Any | None,
+    primary_error: BaseException,
+    world_rank: int,
+) -> None:
+    from flashdreams.runtime.demo import bootstrap as demo_bootstrap
+
+    errors: list[BaseException] = []
+    if manager is None:
+        if host is not None:
+            _record_cleanup_error(errors, host.close)
+    else:
+        _record_cleanup_error(errors, manager.send_exit_signal)
+        _record_cleanup_error(errors, _shutdown_webrtc_manager, manager)
+    _record_cleanup_error(
+        errors,
+        demo_bootstrap.cleanup_cuda_distributed,
+        world_rank=world_rank,
+        synchronize_distributed=False,
+    )
+    add_note = getattr(primary_error, "add_note", None)
+    for cleanup_error in errors:
+        if callable(add_note):
+            add_note(f"Additional WebRTC startup cleanup error: {cleanup_error!r}")
+
+
+def _record_cleanup_error(
+    errors: list[BaseException],
+    cleanup: Callable[..., Any],
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    try:
+        cleanup(*args, **kwargs)
+    except BaseException as cleanup_error:  # noqa: BLE001
+        errors.append(cleanup_error)
+
+
+def _shutdown_webrtc_manager(manager: Any) -> None:
+    asyncio.run(manager.shutdown())
 
 
 def _create_from_entry_point(entry_point: EntryPoint) -> IFlashDreamsApplication:
@@ -336,7 +479,7 @@ def _import_application_module(slug: str) -> Any:
 def _parse_host_io(
     application_slug: str,
     args: Sequence[str],
-) -> tuple[IOFactory, list[str]]:
+) -> tuple[IOFactory | WebRTCApplicationServing, list[str]]:
     output_kind = _selected_output(args)
     output_path: Path | None = None
     output_fps: float | None = None
@@ -379,7 +522,7 @@ def _parse_host_io(
         if not 1 <= port <= 65535:
             raise ValueError("--port must be between 1 and 65535.")
         return (
-            ApplicationWebRTCIOFactory(
+            WebRTCApplicationServing(
                 application_slug,
                 host=host,
                 port=port,
@@ -403,6 +546,13 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         return
     application_slug = args.pop(0)
     io_factory, application_args = _parse_host_io(application_slug, args)
+    if isinstance(io_factory, WebRTCApplicationServing):
+        run_application(
+            application_slug,
+            application_args,
+            io_factory=io_factory,
+        )
+        return
     artifacts = run_application(
         application_slug,
         application_args,
@@ -431,4 +581,5 @@ __all__ = [
     "entrypoint",
     "registered_application_slugs",
     "run_application",
+    "serve_application_webrtc",
 ]

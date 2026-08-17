@@ -11,8 +11,8 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.runtime import (
-    CanonicalInputSchema,
     InferenceInput,
     StepRequest,
     StepRequirements,
@@ -20,23 +20,29 @@ from flashdreams.runtime import (
     UserInputEvent,
     UserInputs,
 )
-from flashdreams.runtime.canonical import DRIVER_COMMAND
-from flashdreams.runtime.demo import RunResult
+from flashdreams.runtime.demo import (
+    ModelInputProvider,
+    PreparedScenario,
+    ResamplerRealtimeClock,
+    RunResult,
+    WebRTCErrorPolicy,
+)
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
+from flashdreams.serving.webrtc import services as services_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
-    ApplicationWebRTCSessionManager,
     BaseWebRTCSessionManager,
-    BufferedTrackOutputBridge,
     ManagedWebRTCSession,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
-    ApplicationWebRTCInputHandler,
+    ThreadSafeWebRTCOutputBridge,
+    WebRTCActivationPolicy,
     WebRTCInputSource,
+    WebRTCManagerLifecycle,
     WebRTCTransportService,
 )
 
@@ -218,6 +224,18 @@ def _make_manager(
         identity="fake-model",
         **kwargs,
     )
+
+
+async def _close_test_manager(manager: BaseWebRTCSessionManager[Any, Any]) -> None:
+    """Close a manager without routing synchronous host teardown through a thread."""
+    await manager.close_active_session()
+    if manager._shared_context is not None:
+        await manager._shared_context.close_async()
+        manager._shared_context = None
+    if manager._shared_host is not None:
+        manager._shared_host.close()
+        manager._shared_host = None
+    await manager.shutdown()
 
 
 def test_drives_inference_session_detects_session_runtime() -> None:
@@ -1152,6 +1170,111 @@ async def test_realtime_driver_session_reports_non_completed_result(
 
 
 @pytest.mark.asyncio
+async def test_base_manager_accepts_sequential_completed_peers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_count = 0
+
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        nonlocal run_count
+        run_count += 1
+        reservation = kwargs["reservation"]
+        assert reservation is not None
+        reservation.release()
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    peers: list[_FakePeerConnection] = []
+
+    for _ in range(2):
+        reservation = context.admission.try_reserve()
+        assert reservation is not None
+        managed, track, peer, _channel = _managed_session(runtime)
+        managed.reservation = reservation
+        manager._active_session = managed
+
+        await manager._run_realtime_driver_session(
+            managed_session=managed,
+            context=context,
+            session_input=None,
+        )
+
+        assert track.closed
+        assert peer.closed
+        assert not manager.has_active_session()
+        peers.append(peer)
+
+    assert run_count == 2
+    assert all(peer.closed for peer in peers)
+    await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_keep_connection_starts_next_generation_before_track_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_count = 0
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        keep_connection_after_completed=True,
+    )
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    managed, track, peer, _channel = _managed_session(runtime)
+    input_source = WebRTCInputSource(resampler=managed.resampler)
+    transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    managed.input_source = input_source
+    managed.transport = transport
+    managed.reservation = reservation
+    manager._active_session = managed
+
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        nonlocal run_count
+        run_count += 1
+        if run_count == 1:
+            first_reservation = kwargs["reservation"]
+            assert first_reservation is not None
+            first_reservation.release()
+
+            async def activate_next_generation() -> None:
+                await asyncio.sleep(0)
+                input_source.activation_signal.set()
+
+            asyncio.create_task(activate_next_generation())
+            return RunResult(status="completed")
+        assert not track.closed
+        assert not peer.closed
+        return RunResult(status="not_activated", reason="transport closed")
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+
+    await manager._run_realtime_driver_session(
+        managed_session=managed,
+        context=context,
+        session_input=None,
+    )
+
+    assert run_count == 2
+    assert track.closed
+    assert peer.closed
+    await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
     manager = _make_manager(
         _BaseTestManager,
@@ -1231,172 +1354,78 @@ def test_resolve_video_encoder_uses_runtime_encoder_when_present() -> None:
     assert manager._resolve_video_encoder() is provided
 
 
-class _BlockingBufferedTrack:
-    def __init__(self) -> None:
-        self.started = asyncio.Event()
-        self.release = asyncio.Event()
-        self.closed = False
-
-    def prepare_result_frames(self, result: StepResult) -> tuple[object, ...]:
-        del result
-        return (object(),)
-
-    async def enqueue_frames(self, frames: object) -> int:
-        del frames
-        self.started.set()
-        await self.release.wait()
-        return 1
-
-    async def flush(self) -> None:
-        return
-
-    async def close(self) -> None:
-        self.closed = True
-        self.release.set()
-
-    def qsize(self) -> int:
-        return 0
-
-
-def _bridge_result() -> StepResult:
-    return StepResult(step_index=0, output="frame", frame_count=1)
-
-
 @pytest.mark.asyncio
-async def test_buffered_track_bridge_does_not_block_on_stalled_handoff() -> None:
-    track = _BlockingBufferedTrack()
-    bridge = BufferedTrackOutputBridge(
+@pytest.mark.parametrize(
+    ("keep_connection", "close_track"),
+    ((False, True), (True, False)),
+)
+async def test_shared_session_edges_use_base_webrtc_services(
+    keep_connection: bool,
+    close_track: bool,
+) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        keep_connection_after_completed=keep_connection,
+    )
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    managed, _track, _peer, _channel = _managed_session(runtime)
+    managed.input_source = WebRTCInputSource(resampler=managed.resampler)
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    edge_factory = manager_module._ManagedWebRTCSessionEdgeFactory(
+        manager=manager,
+        managed_session=managed,
         loop=asyncio.get_running_loop(),
-        track=cast(Any, track),
     )
 
-    decision = await asyncio.wait_for(
-        asyncio.to_thread(
-            bridge.submit_chunk,
-            _bridge_result(),
-            generation=0,
-        ),
-        timeout=0.1,
+    edges = edge_factory.create_session_edges(
+        context=context,
+        spec=SimpleNamespace(),
+        scenario=cast(PreparedScenario, SimpleNamespace()),
+        provider=cast(ModelInputProvider, SimpleNamespace()),
+        adapter=SimpleNamespace(),
     )
+    output_sink = cast(WebRTCOutputSink, edges.output_sink)
+    bridge = output_sink._bridge
 
-    assert decision.accepted
-    assert not decision.should_stop
-    assert not decision.dropped
-    await asyncio.wait_for(track.started.wait(), timeout=1.0)
-    bridge.close()
+    assert edges.transport is managed.transport
+    assert isinstance(edges.error_policy, WebRTCErrorPolicy)
+    assert isinstance(edges.clock, ResamplerRealtimeClock)
+    assert isinstance(edges.activation, WebRTCActivationPolicy)
+    assert isinstance(bridge, ThreadSafeWebRTCOutputBridge)
+    assert bridge._close_track is close_track
+
+    edges.output_sink.close()
+    await _close_test_manager(manager)
 
 
 @pytest.mark.asyncio
-async def test_buffered_track_bridge_drops_transient_overflow_without_stopping(
+async def test_application_liveness_policy_survives_old_ten_second_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(manager_module, "_MAX_PENDING_TRACK_CHUNKS", 1)
-    track = _BlockingBufferedTrack()
-    bridge = BufferedTrackOutputBridge(
-        loop=asyncio.get_running_loop(),
-        track=cast(Any, track),
+    lifecycle = WebRTCManagerLifecycle(
+        busy_message="busy",
+        client_liveness_timeout_s=30.0,
+    )
+    loop = asyncio.get_running_loop()
+    stopped = False
+    close_calls = 0
+
+    async def stop_after_first_check(delay_s: float) -> None:
+        nonlocal stopped
+        assert delay_s == pytest.approx(1.0)
+        stopped = True
+
+    async def close_session() -> None:
+        nonlocal close_calls
+        close_calls += 1
+
+    monkeypatch.setattr(services_module.asyncio, "sleep", stop_after_first_check)
+    await lifecycle.watch_client_liveness(
+        is_closed=lambda: stopped,
+        last_message_at=lambda: loop.time() - 11.0,
+        close_session=close_session,
     )
 
-    first = bridge.submit_chunk(_bridge_result(), generation=0)
-    second = bridge.submit_chunk(_bridge_result(), generation=0)
-
-    assert first.accepted
-    assert second.dropped
-    assert not second.should_stop
-    assert second.metadata["reason"] == "track queue busy"
-    bridge.close()
-
-
-@pytest.mark.asyncio
-async def test_application_manager_close_awaits_application_before_release() -> None:
-    class _Peer:
-        connectionState = "connected"
-
-        async def close(self) -> None:
-            self.connectionState = "closed"
-
-    class _Track:
-        closed = False
-
-        async def close(self) -> None:
-            self.closed = True
-
-    class _Bridge:
-        closed = False
-
-        def close(self) -> None:
-            self.closed = True
-
-    manager = ApplicationWebRTCSessionManager()
-    peer = _Peer()
-    track = _Track()
-    bridge = _Bridge()
-
-    manager._peer = cast(Any, peer)
-    manager._track = cast(Any, track)
-    manager._bridge = cast(Any, bridge)
-
-    closing = asyncio.create_task(manager._close_peer(cast(Any, peer)))
-    await asyncio.sleep(0)
-
-    assert bridge.closed
-    assert track.closed
-    assert manager.has_active_session()
-    assert manager._peer is peer
-
-    manager.finish_application()
-    await closing
-
-    assert not manager.has_active_session()
-    assert manager._peer is None
-    assert manager._track is None
-    assert manager._bridge is None
-
-
-def test_application_manager_peer_wait_has_timeout() -> None:
-    manager = ApplicationWebRTCSessionManager(peer_timeout_s=0.01)
-
-    with pytest.raises(TimeoutError, match="Timed out waiting"):
-        manager.connect_output(manager_module.SessionInfo())
-
-
-def test_application_webrtc_input_handler_preserves_key_levels() -> None:
-    now = [10.0]
-    handler = ApplicationWebRTCInputHandler(
-        CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
-        clock=lambda: now[0],
-    )
-    handler.open(manager_module.SessionInfo())
-
-    now[0] = 10.1
-    assert handler.handle_browser_payload(
-        {"type": "action", "action": {"event": "keydown", "key": "w"}}
-    )
-    pressed = handler.current_inputs()
-
-    now[0] = 10.2
-    held = handler.current_inputs()
-
-    now[0] = 10.3
-    assert handler.handle_browser_payload(
-        {"type": "action", "action": {"event": "keyup", "key": "w"}}
-    )
-    released = handler.current_inputs()
-
-    assert pressed.values["driver_command"]["throttle"] == 1.0
-    assert held.values["driver_command"]["throttle"] == 1.0
-    assert released.values["driver_command"]["throttle"] == 0.0
-    assert pressed.window.start_s == pytest.approx(0.0)
-    assert released.window.end_s == pytest.approx(0.3)
-
-
-def test_application_manager_advertises_input_bridge_controls() -> None:
-    controls = (
-        {"label": "Drive", "keys": ("w", "a", "s", "d")},
-        {"label": "Stop", "keys": ({"key": "space", "label": "Stop"},)},
-    )
-    manager = ApplicationWebRTCSessionManager(
-        input_bridge=SimpleNamespace(browser_controls=controls)
-    )
-
-    assert manager.browser_ui_config() == {"controls": controls}
+    assert close_calls == 0

@@ -42,7 +42,6 @@ from flashdreams.demo.bridge import current_application_inputs
 from flashdreams.infra.results import StepResult
 from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import CanonicalInputSchema, CanonicalModality
-from flashdreams.runtime.demo import application_runtime
 from flashdreams.runtime.demo import drivers as driver_module
 
 pytestmark = pytest.mark.ci_cpu
@@ -245,68 +244,6 @@ def test_batch_driver_preserves_public_application_contract(
     assert type(driver_module.BatchSessionDriver()).__name__ == "BatchSessionDriver"
     assert artifacts == ()
     assert pipeline.generated == [0, 1]
-
-
-@pytest.mark.asyncio
-async def test_realtime_driver_preserves_result_contract() -> None:
-    pipeline = _FakePipeline()
-    application = _application(pipeline)
-    application.init(
-        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
-    )
-
-    driver = driver_module.RealtimeSessionDriver()
-    result = await application_runtime.run_realtime_application_session(
-        application=application,
-        input_handler=NullInputHandler(),
-        input_schema=application.input_schema,
-        output_sink=NullOutputSink(store_results=True),
-    )
-
-    assert type(driver).__name__ == "RealtimeSessionDriver"
-    assert result.status == "completed"
-    assert result.artifacts == ()
-    assert result.metrics is not None
-    assert result.metrics.counters["steps"] == 2
-    assert result.reason is None
-    assert result.error is None
-
-
-@pytest.mark.asyncio
-async def test_realtime_driver_awaits_output_backpressure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _PacingSink(NullOutputSink):
-        def write(self, result: StepResult) -> OutputDecision:
-            decision_index = self.output_count
-            super().write(result)
-            if decision_index == 0:
-                return OutputDecision(backpressure_s=0.25)
-            return OutputDecision(should_stop=True)
-
-    delays: list[float] = []
-
-    async def record_sleep(delay_s: float) -> None:
-        delays.append(delay_s)
-
-    monkeypatch.setattr(application_runtime.asyncio, "sleep", record_sleep)
-    pipeline = _FakePipeline()
-    application = _application(pipeline)
-    application.init(
-        ["--prompt", "A waterfall", "--total-blocks", "2", "--device", "cpu"]
-    )
-    sink = _PacingSink(store_results=True)
-
-    result = await application_runtime.run_realtime_application_session(
-        application=application,
-        input_handler=NullInputHandler(),
-        input_schema=application.input_schema,
-        output_sink=sink,
-    )
-
-    assert result.status == "completed"
-    assert sink.output_count == 2
-    assert delays == pytest.approx([0.0, 0.25, 0.0])
 
 
 class _NamedInputHandler:

@@ -98,9 +98,52 @@ class ApplicationRuntime:
     app: IFlashDreamsApplication
     """Application that owns session construction."""
 
+    _preloaded_session: ApplicationSession | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    """Initialized session retained for the first managed run."""
+
+    _steady_output_frame_count: int | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    """Cached steady output size exposed to WebRTC offer negotiation."""
+
+    def preload(self) -> None:
+        """Initialize and retain the first application session."""
+        if self._preloaded_session is not None:
+            return
+        session = self._create_session()
+        try:
+            session_info = session.session_info()
+        except BaseException:
+            session.close()
+            raise
+        self._steady_output_frame_count = max(
+            1,
+            session_info.steady_output_frame_count or 1,
+        )
+        self._preloaded_session = session
+
     def start_session(self, inputs: InferenceInput) -> ApplicationSession:
         """Create and initialize one application session."""
         del inputs
+        session = self._preloaded_session
+        if session is not None:
+            self._preloaded_session = None
+            return session
+        return self._create_session()
+
+    def peek_steady_output_num_frames(self) -> int:
+        """Return the output size cached during model-worker preload."""
+        if self._steady_output_frame_count is None:
+            raise RuntimeError("Application runtime must be preloaded before serving.")
+        return self._steady_output_frame_count
+
+    def _create_session(self) -> ApplicationSession:
         from flashdreams.demo.application import IFlashDreamsApplicationSession
 
         session = self.app.create_session()
@@ -114,6 +157,10 @@ class ApplicationRuntime:
 
     def close(self) -> None:
         """Release runtime-owned resources."""
+        session = self._preloaded_session
+        self._preloaded_session = None
+        if session is not None:
+            session.close()
 
 
 @dataclass(slots=True)
@@ -568,6 +615,7 @@ def application_demo_spec(
     application_slug: str,
     output: OutputSpec,
     input_mode: str = "application",
+    config: InferenceConfig | None = None,
 ) -> DemoSpec:
     """Build a demo specification for one initialized application."""
     del app
@@ -575,7 +623,7 @@ def application_demo_spec(
         model_id=application_slug,
         input_mode=input_mode,
         output=output,
-        config=InferenceConfig(model_id=application_slug),
+        config=config or InferenceConfig(model_id=application_slug),
     )
 
 
