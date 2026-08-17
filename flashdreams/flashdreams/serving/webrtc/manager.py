@@ -614,6 +614,34 @@ class _GenerationTransportView:
         """Release the generation view without closing the reusable peer."""
 
 
+async def _wait_for_next_generation_or_disconnect(
+    *,
+    input_source: WebRTCInputSource,
+    transport: WebRTCTransportService,
+) -> bool:
+    """Wait for another activation while draining both signal waiters.
+
+    Returns:
+        ``True`` when activation wins while the peer remains connected.
+    """
+    activated = asyncio.create_task(input_source.activation_signal.wait())
+    closed = asyncio.create_task(transport.closed_signal.wait())
+    waiters = (activated, closed)
+    try:
+        done, _ = await asyncio.wait(
+            waiters,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for waiter in done:
+            waiter.result()
+        return closed not in done and transport.is_active()
+    finally:
+        for waiter in waiters:
+            if not waiter.done():
+                waiter.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
+
+
 @dataclass(slots=True)
 class ManagedWebRTCSession:
     """Per-session state for the single active WebRTC peer connection."""
@@ -2039,15 +2067,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 # Do not construct another driver until the user submits the
                 # next prompt/generation. This keeps an idle T2V peer alive
                 # without surfacing an expected disconnect as a failed run.
-                activated = asyncio.create_task(input_source.activation_signal.wait())
-                closed = asyncio.create_task(transport.closed_signal.wait())
-                done, pending = await asyncio.wait(
-                    {activated, closed}, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-                if closed in done or not transport.is_active():
+                if not await _wait_for_next_generation_or_disconnect(
+                    input_source=input_source,
+                    transport=transport,
+                ):
                     break
         finally:
             managed_session.reservation = None

@@ -1475,6 +1475,57 @@ async def test_keep_connection_starts_next_generation_before_track_close(
 
 
 @pytest.mark.asyncio
+async def test_next_generation_wait_cancels_children_with_parent() -> None:
+    class _TrackingSignal:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+            self._event = asyncio.Event()
+
+        async def wait(self) -> None:
+            self.started.set()
+            try:
+                await self._event.wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+
+    activation_signal = _TrackingSignal()
+    closed_signal = _TrackingSignal()
+    input_source = cast(
+        WebRTCInputSource,
+        SimpleNamespace(activation_signal=activation_signal),
+    )
+    transport = cast(
+        WebRTCTransportService,
+        SimpleNamespace(
+            closed_signal=closed_signal,
+            is_active=lambda: True,
+        ),
+    )
+    parent = asyncio.create_task(
+        manager_module._wait_for_next_generation_or_disconnect(
+            input_source=input_source,
+            transport=transport,
+        )
+    )
+    await asyncio.wait_for(
+        asyncio.gather(
+            activation_signal.started.wait(),
+            closed_signal.started.wait(),
+        ),
+        timeout=1.0,
+    )
+
+    parent.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+
+    assert activation_signal.cancelled.is_set()
+    assert closed_signal.cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
     manager = _make_manager(
         _BaseTestManager,
