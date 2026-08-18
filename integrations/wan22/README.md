@@ -10,16 +10,19 @@ provides the pre-rolled `WanInferencePipelineConfig` literal, the diffusers
 `state_dict` remap for the Wan-AI `Wan2.2-TI2V-5B-Diffusers` checkpoint, and
 the `ti2v-wan22` application entry point.
 
-The application accepts a prompt and first-frame image, then generates the
-model's standard single-block 81-frame, 640x1280 rollout through the shared
-null, MP4, local-window, or WebRTC application host. HY-WorldPlay also reuses
-the pipeline config as its base recipe.
+Wan 2.2 TI2V-5B is **bidirectional**: the application accepts a prompt and
+first-frame image, then generates the complete 81-frame, 640x1280 clip in one
+rollout instead of advancing through multiple causal blocks. It therefore
+requires exactly one block (`--total-blocks 1`, which is the default);
+multi-block generation is not supported. The application runs through the
+shared null, MP4, local-window, or WebRTC host. HY-WorldPlay also reuses the
+pipeline config as its base recipe.
 
 ## Shipped slug
 
 | slug | description |
 | --- | --- |
-| `ti2v-wan22` | Wan 2.2 TI2V-5B at 640x1280, conditioned on a prompt and first frame. |
+| `ti2v-wan22` | Bidirectional, single-block Wan 2.2 TI2V-5B at 640x1280, conditioned on a prompt and first frame. |
 
 ## Install
 

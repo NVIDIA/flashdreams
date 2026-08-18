@@ -7,7 +7,10 @@ This is a worked example of the
 [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
 developer-guide flow.
 
-**In this plugin, bidirectional video generation is treated as a 1-rollout (large-windowed) causal rollout.**
+Wan 2.1 is **bidirectional**: it generates the complete clip in one rollout
+instead of advancing through multiple causal blocks. It therefore requires
+exactly one block (`--total-blocks 1`); multi-block generation is not
+supported.
 
 ## Shipped slugs
 
@@ -16,7 +19,8 @@ developer-guide flow.
 | `wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only). |
 | `wan21-i2v-14b-480p` | Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame). |
 
-The higher-level T2V application is registered as `t2v-wan21`.
+The higher-level T2V application is registered as `t2v-wan21` and uses the
+same single-block bidirectional rollout.
 
 ## Install
 

@@ -15,6 +15,15 @@ local-window/serving dependencies without installing unrelated integrations:
 - `t2v-wan21` → `--package flashdreams-wan21`
 - `ti2v-wan22` → `--package flashdreams-wan22`
 
+The applications use one of two rollout modes:
+
+- `t2v-cosmos-predict2`, `t2v-wan21`, and `ti2v-wan22` are
+  **bidirectional**. They generate the complete clip in one rollout and require
+  exactly one block (`--total-blocks 1`, which is the default).
+- `t2v-causal-forcing`, `t2v-fastvideo-causal-wan22`, and
+  `t2v-self-forcing` are causal, streaming applications that can generate
+  multiple blocks.
+
 Native SlangPy window (default):
 
 ```bash
