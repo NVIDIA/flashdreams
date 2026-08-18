@@ -16,8 +16,7 @@ developer-guide flow.
 | `wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only). |
 | `wan21-i2v-14b-480p` | Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame). |
 
-The higher-level T2V application is registered as `t2v-wan21`; see the
-[shared T2V application guide](../../apps/t2v/README.md) for launch modes.
+The higher-level T2V application is registered as `t2v-wan21`.
 
 ## Install
 
@@ -49,7 +48,48 @@ export HF_HOME=~/.cache/huggingface  # default
 
 ## Run
 
-Once installed, the slugs are discovered automatically by `flashdreams-run`:
+### T2V application
+
+The simplest application launch uses the default local window and model
+settings:
+
+```bash
+uv run --package flashdreams-wan21 flashdreams-run t2v-wan21 \
+  --prompt "A cat surfing."
+```
+
+Per-application help:
+
+```bash
+uv run --package flashdreams-wan21 flashdreams-run t2v-wan21 --help
+```
+
+Generate an MP4 instead:
+
+```bash
+uv run --package flashdreams-wan21 flashdreams-run t2v-wan21 \
+  --output mp4 \
+  --output-path artifacts/t2v-wan21.mp4 \
+  --prompt "A cat surfing."
+```
+
+Serve the same application through WebRTC:
+
+```bash
+uv run --package flashdreams-wan21 flashdreams-run t2v-wan21 \
+  --output webrtc \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --prompt "A cat surfing."
+```
+
+Then open `http://localhost:8080/request_session`. See the
+[shared T2V application guide](../../apps/t2v/README.md) for all output modes.
+
+### Legacy runners
+
+The legacy runner slugs are also discovered automatically by
+`flashdreams-run`:
 
 ```bash
 # List every registered runner (this plugin's slugs appear under "wan21-*").
