@@ -3,22 +3,14 @@
 
 from __future__ import annotations
 
-import asyncio
-import threading
 from collections.abc import Callable
-from concurrent.futures import Future
 from contextlib import AbstractContextManager, ExitStack
-from importlib.resources import as_file, files
+from importlib.resources import as_file
 from pathlib import Path
 from typing import Any, Protocol
 
 from aiohttp import web
 from loguru import logger
-
-from flashdreams.demo.io import OutputDecision, OutputSink, SessionInfo
-from flashdreams.demo.outputs import DeferredWebRTCOutputSink
-from flashdreams.infra.results import StepResult
-from flashdreams.runtime.output import OutputArtifact
 
 
 class SessionBusyError(RuntimeError):
@@ -182,179 +174,7 @@ def create_packaged_webrtc_app(
     return app
 
 
-class _BackgroundWebRTCServer:
-    """Run one aiohttp application on its own event-loop thread."""
-
-    def __init__(
-        self,
-        *,
-        app: web.Application,
-        host: str,
-        port: int,
-        thread_name: str,
-    ) -> None:
-        self._app = app
-        self._host = host
-        self._port = port
-        self._ready: Future[None] = Future()
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._thread = threading.Thread(
-            target=self._run,
-            name=thread_name,
-            daemon=True,
-        )
-        self._stop_lock = threading.Lock()
-        self._stop_requested = False
-
-    def start(self) -> None:
-        """Start serving and raise any bind/startup failure synchronously."""
-        self._thread.start()
-        try:
-            self._ready.result()
-        except BaseException:
-            self._thread.join()
-            raise
-
-    def stop(self) -> None:
-        """Stop serving, run aiohttp cleanup, and join the event-loop thread."""
-        with self._stop_lock:
-            if self._stop_requested:
-                return
-            self._stop_requested = True
-            loop = self._loop
-        if loop is not None and self._thread.is_alive():
-            loop.call_soon_threadsafe(loop.stop)
-        if threading.current_thread() is not self._thread:
-            self._thread.join()
-
-    def _run(self) -> None:
-        loop = asyncio.new_event_loop()
-        self._loop = loop
-        asyncio.set_event_loop(loop)
-        runner = web.AppRunner(self._app)
-        try:
-            loop.run_until_complete(runner.setup())
-            site = web.TCPSite(runner, host=self._host, port=self._port)
-            loop.run_until_complete(site.start())
-            self._ready.set_result(None)
-            loop.run_forever()
-        except BaseException as exc:
-            if not self._ready.done():
-                self._ready.set_exception(exc)
-            else:
-                logger.exception("WebRTC server event loop failed.")
-        finally:
-            try:
-                loop.run_until_complete(runner.cleanup())
-            except Exception:
-                logger.exception("WebRTC server cleanup failed.")
-            finally:
-                loop.close()
-
-
-class ApplicationWebRTCOutputSink(OutputSink):
-    """Bind a regular application output loop to a background WebRTC server."""
-
-    produces_artifacts = False
-
-    def __init__(
-        self,
-        *,
-        application_slug: str,
-        host: str,
-        port: int,
-        peer_timeout_s: float,
-        client_liveness_timeout_s: float,
-        input_bridge: Any,
-    ) -> None:
-        self._application_slug = application_slug
-        self._host = host
-        self._port = port
-        self._delegate: DeferredWebRTCOutputSink | None = None
-        self._peer_timeout_s = peer_timeout_s
-        self._client_liveness_timeout_s = client_liveness_timeout_s
-        self._input_bridge = input_bridge
-        self._manager: Any | None = None
-        self._server: _BackgroundWebRTCServer | None = None
-        self._opened = False
-        self._closed = False
-        self._artifacts: tuple[OutputArtifact, ...] = ()
-
-    def open(self, session_info: SessionInfo) -> None:
-        """Start the transport and wait for a negotiated browser peer."""
-        if self._opened or self._closed:
-            raise RuntimeError("WebRTC application output sink is not reusable.")
-
-        from flashdreams.serving.webrtc.manager import (
-            ApplicationWebRTCSessionManager,
-        )
-
-        manager = ApplicationWebRTCSessionManager(
-            peer_timeout_s=self._peer_timeout_s,
-            client_liveness_timeout_s=self._client_liveness_timeout_s,
-            input_bridge=self._input_bridge,
-        )
-        request_host = "127.0.0.1" if self._host in {"0.0.0.0", "::"} else self._host
-        if ":" in request_host:
-            request_host = f"[{request_host}]"
-        app = create_packaged_webrtc_app(
-            web_resource=files("flashdreams.serving.webrtc").joinpath("web"),
-            session_manager=manager,
-            request_session_url=(f"http://{request_host}:{self._port}/request_session"),
-            preload_name=self._application_slug,
-        )
-        server = _BackgroundWebRTCServer(
-            app=app,
-            host=self._host,
-            port=self._port,
-            thread_name=f"{self._application_slug}-webrtc",
-        )
-        delegate = DeferredWebRTCOutputSink(manager.connect_output)
-        self._manager = manager
-        self._server = server
-        self._delegate = delegate
-        try:
-            server.start()
-            delegate.open(session_info)
-            self._opened = True
-        except BaseException:
-            self.close()
-            raise
-
-    def begin_generation(self, generation: int) -> None:
-        """Begin a generation on the negotiated peer sink."""
-        self._required_delegate().begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        """Deliver one application result to the negotiated peer sink."""
-        return self._required_delegate().write(result)
-
-    def close(self) -> tuple[OutputArtifact, ...]:
-        """Close the peer sink and its background transport exactly once."""
-        if self._closed:
-            return self._artifacts
-        self._closed = True
-        self._opened = False
-        try:
-            if self._delegate is not None:
-                self._artifacts = tuple(self._delegate.close())
-        finally:
-            try:
-                if self._manager is not None:
-                    self._manager.finish_application()
-            finally:
-                if self._server is not None:
-                    self._server.stop()
-        return self._artifacts
-
-    def _required_delegate(self) -> DeferredWebRTCOutputSink:
-        if not self._opened or self._delegate is None:
-            raise RuntimeError("Cannot write to a closed WebRTC output sink.")
-        return self._delegate
-
-
 __all__ = [
-    "ApplicationWebRTCOutputSink",
     "SessionBusyError",
     "WebRTCSessionManager",
     "create_packaged_webrtc_app",

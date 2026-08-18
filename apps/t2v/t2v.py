@@ -20,9 +20,12 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from flashdreams.demo import (
+    ApplicationWarmupSessionInputs,
     CanonicalInputSchema,
     CanonicalInputWindow,
     IFlashDreamsApplication,
@@ -32,7 +35,14 @@ from flashdreams.demo import (
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.results import StepResult
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import StepRequirements
+
+if TYPE_CHECKING:
+    from flashdreams.runtime.demo import DemoSpec, PreparedScenario
+
+_T2V_WARMUP_BLOCK_COUNT = 7
+"""Leading AR blocks that cover observed specializations at indices 0, 1, and 6."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -61,14 +71,26 @@ class T2VApplicationDefaults:
     """Layout emitted by the integration pipeline."""
 
     @classmethod
-    def from_runner_config(cls, runner_config: Any) -> "T2VApplicationDefaults":
+    def from_runner_config(
+        cls,
+        runner_config: Any,
+        *,
+        total_blocks: int | None = None,
+    ) -> "T2VApplicationDefaults":
         """Derive application defaults from an integration-owned runner config."""
-        required = ("pipeline", "total_blocks", "pixel_height", "pixel_width")
+        required = ["pipeline", "pixel_height", "pixel_width"]
+        if total_blocks is None:
+            required.append("total_blocks")
         missing = [name for name in required if not hasattr(runner_config, name)]
         if missing:
             raise TypeError(
                 f"T2V runner config is missing application defaults: {missing}."
             )
+        resolved_total_blocks = (
+            int(runner_config.total_blocks)
+            if total_blocks is None
+            else int(total_blocks)
+        )
         output_layout = getattr(
             runner_config,
             "postprocess_output_layout",
@@ -78,7 +100,7 @@ class T2VApplicationDefaults:
             output_layout = "tchw"
         return cls(
             pipeline_config=runner_config.pipeline,
-            total_blocks=int(runner_config.total_blocks),
+            total_blocks=resolved_total_blocks,
             pixel_height=int(runner_config.pixel_height),
             pixel_width=int(runner_config.pixel_width),
             fps=float(getattr(runner_config, "fps", 16.0)),
@@ -123,11 +145,42 @@ class T2VApplication(IFlashDreamsApplication):
     def __init__(self, *, defaults: T2VApplicationDefaults) -> None:
         self.defaults = defaults
         self._session_config: _T2VSessionConfig | None = None
+        self._pipeline: Any | None = None
+        self._closed = False
 
     @property
     def input_schema(self) -> CanonicalInputSchema:
         """Declare that plain T2V consumes no live canonical controls."""
         return CanonicalInputSchema(description="uncontrolled text-to-video")
+
+    @property
+    def supports_session_reset(self) -> bool:
+        """Return whether T2V sessions can rebuild per-generation state."""
+        return True
+
+    def _validate_total_blocks(self, total_blocks: int) -> None:
+        """Integration hook for model-specific rollout-length validation."""
+        if total_blocks <= 0:
+            raise ValueError("--total-blocks must be greater than zero.")
+
+    def _apply_compile_override(
+        self,
+        pipeline_config: Any,
+        enabled: bool,
+    ) -> Any:
+        """Integration hook for applying compilation to transformer config."""
+        return derive_config(
+            pipeline_config,
+            diffusion_model={
+                "transformer": {"compile_network": enabled},
+            },
+        )
+
+    def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Add integration-specific application arguments to ``parser``."""
+
+    def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
+        """Capture validated integration-specific application arguments."""
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
@@ -149,27 +202,26 @@ class T2VApplication(IFlashDreamsApplication):
             action=argparse.BooleanOptionalAction,
             default=None,
         )
+        self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
         prompt = (args.prompt or "").strip()
         if not prompt:
             raise ValueError("--prompt is required and must be non-empty.")
-        if args.total_blocks <= 0:
-            raise ValueError("--total-blocks must be greater than zero.")
+        self._validate_total_blocks(args.total_blocks)
         if args.pixel_height <= 0 or args.pixel_width <= 0:
             raise ValueError(
                 "--pixel-height and --pixel-width must be greater than zero."
             )
         if args.fps <= 0:
             raise ValueError("--fps must be greater than zero.")
+        self._apply_parsed_arguments(args)
 
         pipeline_config = self.defaults.pipeline_config
         if args.compile is not None:
-            pipeline_config = derive_config(
+            pipeline_config = self._apply_compile_override(
                 pipeline_config,
-                diffusion_model={
-                    "transformer": {"compile_network": args.compile},
-                },
+                args.compile,
             )
         self._session_config = _T2VSessionConfig(
             pipeline_config=pipeline_config,
@@ -188,25 +240,79 @@ class T2VApplication(IFlashDreamsApplication):
             raise RuntimeError(
                 "T2VApplication.init() must run before create_session()."
             )
-        session = self.session_type(config=self._session_config)
+        if self._closed:
+            raise RuntimeError("Cannot create a session from a closed T2V application.")
+        pipeline = self._pipeline
+        if pipeline is None:
+            pipeline = (
+                self._session_config.pipeline_config.setup()
+                .to(self._session_config.device)
+                .eval()
+            )
+            self._pipeline = pipeline
+        session = self.session_type(
+            config=self._session_config,
+            pipeline=pipeline,
+        )
         session.set_prompt(self._session_config.prompt)
         return session
+
+    def create_model_warmup_sessions(
+        self,
+        spec: DemoSpec,
+        scenario: PreparedScenario,
+    ) -> Sequence[ApplicationWarmupSessionInputs]:
+        """Warm the leading autoregressive model specializations."""
+        del scenario
+        if spec.output.mode != "webrtc":
+            return ()
+        config = self._session_config
+        if config is None:
+            raise RuntimeError(
+                "T2VApplication.init() must run before model warmup planning."
+            )
+        warmup_blocks = min(config.total_blocks, _T2V_WARMUP_BLOCK_COUNT)
+        return (
+            ApplicationWarmupSessionInputs(
+                step_inputs=tuple(
+                    CanonicalInputWindow(
+                        window=TimeWindow(
+                            start_s=float(block_index),
+                            end_s=float(block_index + 1),
+                        )
+                    )
+                    for block_index in range(warmup_blocks)
+                )
+            ),
+        )
+
+    def close(self) -> None:
+        """Release the application-lifetime T2V pipeline."""
+        if self._closed:
+            return
+        self._closed = True
+        pipeline = self._pipeline
+        self._pipeline = None
+        if pipeline is not None:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
 
 
 class T2VApplicationSession(IFlashDreamsApplicationSession):
     """Reusable cache-isolated text-to-video model session."""
 
-    def __init__(self, *, config: _T2VSessionConfig) -> None:
+    def __init__(self, *, config: _T2VSessionConfig, pipeline: Any) -> None:
         self.config = config
         self._prompt: str | None = None
-        self._pipeline: Any | None = None
+        self._pipeline: Any | None = pipeline
         self._cache: Any | None = None
         self._step_index = 0
         self._closed = False
 
     def set_prompt(self, prompt: str) -> None:
         """Set the initial prompt before model cache initialization."""
-        if self._pipeline is not None:
+        if self._cache is not None:
             raise RuntimeError("Cannot change the prompt after session initialization.")
         prompt = prompt.strip()
         if not prompt:
@@ -214,15 +320,20 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         self._prompt = prompt
 
     def init(self) -> None:
-        """Construct the pipeline and initialize its autoregressive cache."""
+        """Initialize the session-local autoregressive cache."""
         if self._prompt is None:
             raise RuntimeError("Set a prompt before initializing the T2V session.")
         if self._closed:
             raise RuntimeError("Cannot initialize a closed T2V session.")
-        if self._pipeline is not None:
+        if self._cache is not None:
             return
 
-        pipeline = self.config.pipeline_config.setup().to(self.config.device).eval()
+        pipeline = self._pipeline
+        if pipeline is None:
+            raise RuntimeError("T2V application pipeline is unavailable.")
+        self._cache = self._initialize_cache(pipeline)
+
+    def _initialize_cache(self, pipeline: Any) -> Any:
         decoder = getattr(pipeline, "decoder", None)
         if decoder is None or not hasattr(decoder, "spatial_compression_ratio"):
             raise TypeError(
@@ -234,8 +345,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                 "T2V dimensions must be divisible by the decoder spatial "
                 f"compression ratio ({ratio})."
             )
-        self._pipeline = pipeline
-        self._cache = pipeline.initialize_cache(
+        return pipeline.initialize_cache(
             text=[self._prompt],
             image=None,
             height=self.config.pixel_height // ratio,
@@ -273,6 +383,7 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
                 frame_count = int(get_frame_count(self._step_index))
         return StepRequirements(
             step_index=self._step_index,
+            input_frame_count=frame_count if frame_count is not None else 1,
             steady_output_frame_count=frame_count,
         )
 
@@ -291,6 +402,12 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
             autoregressive_index=self._step_index,
             cache=self._cache,
         )
+        logger.info(
+            "T2V AR {} output tensor signature shape={} dtype={}",
+            self._step_index,
+            tuple(generated.shape),
+            generated.dtype,
+        )
         self._pipeline.finalize(
             autoregressive_index=self._step_index,
             cache=self._cache,
@@ -304,15 +421,21 @@ class T2VApplicationSession(IFlashDreamsApplicationSession):
         self._step_index += 1
         return result
 
+    def reset(self) -> None:
+        """Rebuild autoregressive state on the retained T2V pipeline."""
+        if self._closed:
+            raise RuntimeError("Cannot reset a closed T2V session.")
+        pipeline = self._pipeline
+        if pipeline is None:
+            raise RuntimeError("T2V application pipeline is unavailable.")
+        self._cache = self._initialize_cache(pipeline)
+        self._step_index = 0
+
     def close(self) -> None:
-        """Release resources owned by this model session."""
+        """Release session-local autoregressive state."""
         if self._closed:
             return
         self._closed = True
-        if self._pipeline is not None:
-            close = getattr(self._pipeline, "close", None)
-            if callable(close):
-                close()
         self._cache = None
         self._pipeline = None
 

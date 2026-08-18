@@ -26,9 +26,11 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "mediapy>=1.1",
+    "flashdreams-t2v",
 ]
 
 [tool.uv.sources]
+flashdreams-t2v = { workspace = true }
 flashdreams = { workspace = true }
 
 [project.optional-dependencies]
@@ -42,6 +44,9 @@ dev = [
 # informational, the registry key always comes from ``cfg.runner_name``.
 [project.entry-points."flashdreams.runner_configs"]
 "fastvideo-causal-wan2.2-t2v-14b" = "fastvideo_causal_wan22.config:RUNNER_WAN22_T2V_14B"
+
+[project.entry-points."flashdreams.applications"]
+"t2v-fastvideo-causal-wan22" = "fastvideo_causal_wan22.t2v.app:create_app"
 
 [tool.setuptools.packages.find]
 include = ["fastvideo_causal_wan22*"]

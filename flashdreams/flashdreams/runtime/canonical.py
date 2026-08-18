@@ -37,9 +37,15 @@ from flashdreams.runtime.inputs import (
     UserInputs,
     UserInputSchema,
 )
-from flashdreams.runtime.keyboard import KeyboardState, normalize_key
+from flashdreams.runtime.keyboard import (
+    DEFAULT_SUPPORTED_KEYS,
+    DRIVING_SUPPORTED_KEYS,
+    KeyboardState,
+    normalize_key,
+)
 
 DriverBindings = Mapping[str, frozenset[str]]
+CameraBindings = Mapping[str, tuple[str, str]]
 
 DEFAULT_DRIVING_BINDINGS: DriverBindings = MappingProxyType(
     {
@@ -59,27 +65,66 @@ so the set of tracked keys is derived from them rather than declared twice.
 
 _DRIVER_ACTIONS = frozenset(DEFAULT_DRIVING_BINDINGS)
 
+DEFAULT_CAMERA_BINDINGS: CameraBindings = MappingProxyType(
+    {
+        "move_forward": ("w", "s"),
+        "move_right": ("e", "q"),
+        "yaw": ("a", "d"),
+        "pitch": ("i", "k"),
+    }
+)
+"""Default axis bindings for :class:`KeyboardToCameraCommand`.
+
+Each pair is ``(positive, negative)``. Alternate yaw keys ``j`` and ``l`` are
+normalized onto ``a`` and ``d`` so the canonical axes stay layout-independent.
+"""
+
+_CAMERA_AXES = frozenset(DEFAULT_CAMERA_BINDINGS)
+_CAMERA_KEY_ALIASES: Mapping[str, str] = MappingProxyType({"j": "a", "l": "d"})
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class DeviceConverterSchema:
     """Metadata for one device-to-canonical-modality converter."""
 
     name: str
+    """Unique converter name."""
+
     produces: CanonicalModality
+    """Canonical modality produced by the converter."""
+
     consumes: tuple[UserInputCapability, ...] = ()
+    """Raw input capabilities required from a source."""
+
     device_kind: str | None = None
+    """Device family recorded in canonical input metadata."""
+
     priority: int = 0
+    """Selection priority among converters producing the same modality."""
+
+    accepted_keys: frozenset[str] | None = None
+    """Keys accepted by transport filtering; ``None`` keeps its fallback policy."""
+
     metadata: Mapping[str, Any] = field(
         default_factory=dict,
         compare=False,
         hash=False,
     )
+    """Converter-specific metadata not interpreted by the runtime."""
 
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("DeviceConverterSchema.name must be non-empty.")
         if not isinstance(self.produces, CanonicalModality):
             raise TypeError("produces must be a CanonicalModality object.")
+        if self.accepted_keys is not None:
+            if isinstance(self.accepted_keys, str):
+                raise TypeError("accepted_keys must be a collection of key strings.")
+            if not all(isinstance(key, str) for key in self.accepted_keys):
+                raise TypeError("accepted_keys must contain strings.")
+            if any(not key.strip() for key in self.accepted_keys):
+                raise ValueError("accepted_keys must not contain empty keys.")
+            object.__setattr__(self, "accepted_keys", frozenset(self.accepted_keys))
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
@@ -118,6 +163,16 @@ DRIVER_COMMAND = CanonicalModality(
     ),
 )
 
+CAMERA_COMMAND = CanonicalModality(
+    name="camera_command",
+    payload_fields=frozenset({*_CAMERA_AXES, "segments"}),
+    description=(
+        "Free-camera intent. move_forward, move_right, yaw, and pitch are in "
+        "[-1, 1] and hold the level state at the end of the window. segments "
+        "carries the piecewise-constant timeline inside the window."
+    ),
+)
+
 
 class KeyboardToDriverCommand:
     """Convert keyboard edges into :data:`DRIVER_COMMAND` level state.
@@ -149,12 +204,16 @@ class KeyboardToDriverCommand:
         self._supported_keys = frozenset(
             key for keys in self._bindings.values() for key in keys
         )
+        uses_default_bindings = self._bindings == DEFAULT_DRIVING_BINDINGS
+        if uses_default_bindings:
+            self._supported_keys = DRIVING_SUPPORTED_KEYS
         self._state = KeyboardState(supported_keys=self._supported_keys)
         self._schema = DeviceConverterSchema(
             name=name,
             produces=DRIVER_COMMAND,
             device_kind="keyboard",
             priority=priority,
+            accepted_keys=self._supported_keys,
             consumes=(
                 UserInputCapability(
                     event_type="key_down",
@@ -210,6 +269,87 @@ class KeyboardToDriverCommand:
                 "reverse": held("reverse"),
             }
         )
+
+
+class KeyboardToCameraCommand:
+    """Convert keyboard edges into :data:`CAMERA_COMMAND` level state."""
+
+    def __init__(
+        self,
+        *,
+        name: str = "keyboard-to-camera-command",
+        supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS,
+        priority: int = 0,
+    ) -> None:
+        self._supported_keys = frozenset(normalize_key(key) for key in supported_keys)
+        self._state = KeyboardState(supported_keys=self._supported_keys)
+        self._schema = DeviceConverterSchema(
+            name=name,
+            produces=CAMERA_COMMAND,
+            device_kind="keyboard",
+            priority=priority,
+            accepted_keys=self._supported_keys,
+            consumes=(
+                UserInputCapability(
+                    event_type="key_down",
+                    payload_fields=frozenset({"key"}),
+                ),
+                UserInputCapability(
+                    event_type="key_up",
+                    payload_fields=frozenset({"key"}),
+                ),
+            ),
+        )
+
+    @property
+    def schema(self) -> DeviceConverterSchema:
+        return self._schema
+
+    def reset(self) -> None:
+        self._state = KeyboardState(supported_keys=self._supported_keys)
+
+    def convert(
+        self,
+        user_inputs: UserInputs,
+        window: TimeWindow,
+    ) -> Mapping[str, Any] | None:
+        segments: list[tuple[float, float, dict[str, float]]] = []
+        segment_start = window.start_s
+        axes = _camera_axes_from_keys(self._state.resolved_effective_keys())
+
+        for event in user_inputs.events:
+            if event.event_type not in {"key_down", "key_up"}:
+                continue
+            key = event.payload.get("key")
+            if not isinstance(key, str):
+                continue
+            edge_t = min(max(float(event.timestamp_s), window.start_s), window.end_s)
+            if edge_t > segment_start:
+                segments.append((segment_start, edge_t, axes))
+                segment_start = edge_t
+            self._state.apply_event(
+                event="keydown" if event.event_type == "key_down" else "keyup",
+                key=key,
+            )
+            axes = _camera_axes_from_keys(self._state.resolved_effective_keys())
+
+        if window.end_s > segment_start or not segments:
+            segments.append((segment_start, window.end_s, axes))
+
+        return CAMERA_COMMAND.value({**axes, "segments": tuple(segments)})
+
+
+def _camera_axes_from_keys(pressed: Iterable[str]) -> dict[str, float]:
+    keys = {_CAMERA_KEY_ALIASES.get(key, key) for key in pressed}
+    axes: dict[str, float] = {}
+    for axis, (positive, negative) in DEFAULT_CAMERA_BINDINGS.items():
+        value = 0.0
+        if positive in keys:
+            value += 1.0
+        if negative in keys:
+            value -= 1.0
+        axes[axis] = value
+    return axes
 
 
 class ScriptedModality:

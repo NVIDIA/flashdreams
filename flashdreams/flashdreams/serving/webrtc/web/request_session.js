@@ -296,7 +296,7 @@ const modelContext = {
 
 async function loadModelAdapter() {
   let adapter = {}
-  let serverControls = []
+  let serverAcceptedKeys = []
   const stylesheetHrefs = new Set()
   try {
     const response = await fetch("/api/ui/config")
@@ -305,8 +305,8 @@ async function loadModelAdapter() {
       if (typeof config.model_stylesheet === "string" && config.model_stylesheet) {
         stylesheetHrefs.add(config.model_stylesheet)
       }
-      if (Array.isArray(config.controls)) {
-        serverControls = config.controls
+      if (Array.isArray(config.accepted_keys)) {
+        serverAcceptedKeys = config.accepted_keys
       }
       if (typeof config.adapter_module === "string" && config.adapter_module) {
         const module = await import(config.adapter_module)
@@ -329,9 +329,12 @@ async function loadModelAdapter() {
     stylesheet.href = href
     document.head.append(stylesheet)
   }
+  const genericControls = serverAcceptedKeys.length > 0
+    ? [{ label: "Controls", keys: serverAcceptedKeys }]
+    : []
   const modelControls = Array.isArray(adapter.controls)
     ? adapter.controls
-    : serverControls
+    : genericControls
   renderControls(modelControls)
   if (typeof adapter.modelName === "string") {
     modelContext.setModelName(adapter.modelName)

@@ -29,6 +29,7 @@ from flashdreams.demo.local_window import LocalWindowInputBridge
 from flashdreams.demo.outputs import (
     LocalWindowOutputSink,
     Mp4OutputSink,
+    NullOutputSink,
     WebRTCOutputSink,
 )
 from flashdreams.infra.postprocess import VideoTensorLayout
@@ -162,6 +163,23 @@ class LocalWindowIOFactory(IOFactory):
 
 
 @dataclass(frozen=True, slots=True)
+class NullIOFactory(IOFactory):
+    """Create empty input handling and discard generated outputs."""
+
+    store_results: bool = False
+    """Whether the null sink records result metadata."""
+
+    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
+        """Create an empty input handler."""
+        del input_schema
+        return NullInputHandler()
+
+    def create_output_sink(self) -> OutputSink:
+        """Create a null output sink."""
+        return NullOutputSink(store_results=self.store_results)
+
+
+@dataclass(frozen=True, slots=True)
 class Mp4IOFactory(IOFactory):
     """Create empty input handlers and MP4 artifact output sinks."""
 
@@ -193,8 +211,8 @@ class Mp4IOFactory(IOFactory):
 
 
 @dataclass(frozen=True, slots=True)
-class ApplicationWebRTCIOFactory(IOFactory):
-    """Create application I/O served by the shared WebRTC browser transport."""
+class WebRTCApplicationServing:
+    """Describe shared WebRTC serving for one application."""
 
     application_slug: str
     """Installed application slug shown by the WebRTC host."""
@@ -205,13 +223,23 @@ class ApplicationWebRTCIOFactory(IOFactory):
     port: int = 8080
     """Port on which the WebRTC HTTP server listens."""
 
-    peer_timeout_s: float = 120.0
-    """Maximum time to wait for a browser peer after model launch."""
+    fps: int = 30
+    """Browser video frame rate."""
 
-    client_liveness_timeout_s: float = 10.0
+    video_width: int = 1280
+    """Browser video width in pixels."""
+
+    video_height: int = 720
+    """Browser video height in pixels."""
+
+    warmup_chunks: int = 0
+    """Number of loopback chunks requested during server preload."""
+
+    warmup_timeout_s: float = 30.0
+    """Maximum duration allowed for loopback preload."""
+
+    client_liveness_timeout_s: float = 30.0
     """Maximum silence between browser control messages or heartbeats."""
-
-    _input_bridge: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.application_slug.strip():
@@ -220,34 +248,16 @@ class ApplicationWebRTCIOFactory(IOFactory):
             raise ValueError("host must be non-empty.")
         if not 1 <= self.port <= 65535:
             raise ValueError("port must be between 1 and 65535.")
-        if self.peer_timeout_s <= 0:
-            raise ValueError("peer_timeout_s must be > 0.")
+        if self.fps <= 0:
+            raise ValueError("fps must be > 0.")
+        if self.video_width <= 0 or self.video_height <= 0:
+            raise ValueError("video dimensions must be > 0.")
+        if self.warmup_chunks < 0:
+            raise ValueError("warmup_chunks must be >= 0.")
+        if self.warmup_timeout_s <= 0:
+            raise ValueError("warmup_timeout_s must be > 0.")
         if self.client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0.")
-        from flashdreams.serving.webrtc.services import ApplicationWebRTCInputBridge
-
-        object.__setattr__(self, "_input_bridge", ApplicationWebRTCInputBridge())
-
-    def create_input_handler(self, input_schema: CanonicalInputSchema) -> InputHandler:
-        """Create the application input handler for the browser session."""
-        from flashdreams.serving.webrtc.services import ApplicationWebRTCInputHandler
-
-        handler = ApplicationWebRTCInputHandler(input_schema)
-        self._input_bridge.bind(handler)
-        return handler
-
-    def create_output_sink(self) -> OutputSink:
-        """Create a sink that owns the background WebRTC transport."""
-        from flashdreams.serving.webrtc.server import ApplicationWebRTCOutputSink
-
-        return ApplicationWebRTCOutputSink(
-            application_slug=self.application_slug,
-            host=self.host,
-            port=self.port,
-            peer_timeout_s=self.peer_timeout_s,
-            client_liveness_timeout_s=self.client_liveness_timeout_s,
-            input_bridge=self._input_bridge,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,11 +282,12 @@ class WebRTCIOFactory(IOFactory):
 
 
 __all__ = [
-    "ApplicationWebRTCIOFactory",
     "CallableIOFactory",
     "LocalWindowIOFactory",
     "Mp4IOFactory",
+    "NullIOFactory",
     "NullInputHandler",
     "ProvidedIOFactory",
+    "WebRTCApplicationServing",
     "WebRTCIOFactory",
 ]

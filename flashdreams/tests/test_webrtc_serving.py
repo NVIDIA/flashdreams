@@ -285,7 +285,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v6" in html
+    assert "/static/request_session.js?v=shared-webrtc-v7" in html
     assert "attemptsRemaining: autoConnectMaxAttempts" in javascript
     assert javascript.count("connected = true") == 1
     assert 'pc.connectionState !== "connected"' in javascript
@@ -309,6 +309,9 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert 'fetch("/api/postprocess/options")' in javascript
     assert "@typedef {Object} WebRTCModelAdapter" in javascript
     assert "adapter.capabilities?.postprocess === true" in javascript
+    assert "config.accepted_keys" in javascript
+    assert 'label: "Controls"' in javascript
+    assert "Array.isArray(adapter.controls)" in javascript
     assert "renderControls(modelControls)" in javascript
     assert "/api/session/initial_scene" not in javascript
 

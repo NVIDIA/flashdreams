@@ -8,11 +8,14 @@ intentionally additive while integrations migrate onto it.
 """
 
 from flashdreams.runtime.canonical import (
+    CAMERA_COMMAND,
+    DEFAULT_CAMERA_BINDINGS,
     DEFAULT_DRIVING_BINDINGS,
     DRIVER_COMMAND,
     DeviceConverter,
     DeviceConverterSchema,
     InputCanonicalizer,
+    KeyboardToCameraCommand,
     KeyboardToDriverCommand,
     ScriptedModality,
 )
@@ -80,6 +83,7 @@ from flashdreams.runtime.video_output import Mp4VideoOutputTarget
 from flashdreams.runtime.worker import ModelExecutionWorker, ThreadAffineRuntimeWorker
 
 __all__ = [
+    "CAMERA_COMMAND",
     "CanonicalInputWindow",
     "CanonicalInputs",
     "CanonicalInputSchema",
@@ -88,6 +92,7 @@ __all__ = [
     "check_mapping_set_compatibility",
     "combine_mapping_schemas",
     "DeclaresMappingSchema",
+    "DEFAULT_CAMERA_BINDINGS",
     "DEFAULT_DRIVING_BINDINGS",
     "DEFAULT_SUPPORTED_KEYS",
     "DeviceConverter",
@@ -111,6 +116,7 @@ __all__ = [
     "ImageRequest",
     "KEY_ALIASES",
     "KeyboardState",
+    "KeyboardToCameraCommand",
     "KeyboardToDriverCommand",
     "MappingCompatibility",
     "MetricsRecorder",

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import math
-import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,51 +124,6 @@ class NullOutputSink(OutputSink):
         self.opened = False
         self.closed = True
         return ()
-
-
-class DeferredWebRTCOutputSink(OutputSink):
-    """Preserve one sink identity until its concrete output is available."""
-
-    produces_artifacts = False
-
-    def __init__(
-        self,
-        sink_resolver: Callable[[SessionInfo], OutputSink] | None = None,
-    ) -> None:
-        self._sink: OutputSink | None = None
-        self._sink_resolver = sink_resolver
-
-    def bind(self, sink: OutputSink) -> None:
-        """Bind the concrete output sink exactly once."""
-        if self._sink is not None:
-            raise RuntimeError("WebRTC output sink is already bound.")
-        self._sink = sink
-
-    def open(self, session_info: SessionInfo) -> None:
-        """Open the bound sink."""
-        if self._sink is None and self._sink_resolver is not None:
-            self.bind(self._sink_resolver(session_info))
-        self._required().open(session_info)
-
-    def begin_generation(self, generation: int) -> None:
-        """Begin a generation on the bound sink."""
-        self._required().begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        """Write a result to the bound sink."""
-        return self._required().write(result)
-
-    def close(self) -> Sequence[OutputArtifact]:
-        """Close the bound sink."""
-        sink = self._sink
-        if sink is None:
-            return ()
-        return sink.close()
-
-    def _required(self) -> OutputSink:
-        if self._sink is None:
-            raise RuntimeError("WebRTC output sink has not been bound.")
-        return self._sink
 
 
 class WebRTCOutputSink(OutputSink):
@@ -708,6 +662,8 @@ def build_output_sink(
 ) -> OutputSink:
     """Build an output sink from a demo output specification."""
     from flashdreams.runtime.demo.spec import (
+        IOFactoryOutputSpec,
+        LocalWindowOutputSpec,
         Mp4OutputSpec,
         NullOutputSpec,
         WebRTCOutputSpec,
@@ -723,6 +679,14 @@ def build_output_sink(
             output_layout=output.output_layout,
             writer=writer,
             move_to_cpu=output.move_to_cpu,
+        )
+    if isinstance(output, LocalWindowOutputSpec):
+        # Spec-built local windows are presentation-only. Application factories
+        # bind presenter callbacks to their matching input handler.
+        return LocalWindowOutputSink(title=output.title, fps=output.fps)
+    if isinstance(output, IOFactoryOutputSpec):
+        raise TypeError(
+            "Application IOFactory output cannot be built from a demo spec."
         )
     if isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC output requires a realtime transport sink.")
@@ -754,6 +718,8 @@ def build_output_target(
 ) -> OutputTarget:
     """Build a replay output target from a demo output specification."""
     from flashdreams.runtime.demo.spec import (
+        IOFactoryOutputSpec,
+        LocalWindowOutputSpec,
         Mp4OutputSpec,
         NullOutputSpec,
         WebRTCOutputSpec,
@@ -762,6 +728,10 @@ def build_output_target(
     if isinstance(output, NullOutputSpec):
         return NullOutputTarget(store_results=output.store_results)
     if isinstance(output, Mp4OutputSpec):
+        if output.fps is None or output.output_layout is None:
+            raise ValueError(
+                "MP4 replay OutputTarget requires explicit fps and output_layout."
+            )
         output_path = Path(output.path)
         if mp4_writer is not None:
             return Mp4VideoOutputTarget(
@@ -776,6 +746,14 @@ def build_output_target(
             fps=output.fps,
             output_layout=output.output_layout,
             move_to_cpu=output.move_to_cpu,
+        )
+    if isinstance(output, LocalWindowOutputSpec):
+        raise TypeError(
+            "Local-window presentation does not create a replay OutputTarget."
+        )
+    if isinstance(output, IOFactoryOutputSpec):
+        raise TypeError(
+            "Application IOFactory output does not create a replay OutputTarget."
         )
     if isinstance(output, WebRTCOutputSpec):
         raise ValueError("WebRTC output does not create a replay OutputTarget.")
@@ -936,7 +914,6 @@ __all__ = [
     "BenchmarkStatsOutputSink",
     "CompositeOutputSink",
     "CompositeOutputSinkError",
-    "DeferredWebRTCOutputSink",
     "LocalWindowOutputSink",
     "Mp4OutputSink",
     "NullOutputSink",

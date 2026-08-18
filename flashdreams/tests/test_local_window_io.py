@@ -24,11 +24,22 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.demo import LocalWindowIOFactory, LocalWindowOutputSink, SessionInfo
+from flashdreams.demo import (
+    IFlashDreamsApplication,
+    IFlashDreamsApplicationSession,
+    LocalWindowIOFactory,
+    LocalWindowOutputSink,
+    SessionInfo,
+)
+from flashdreams.demo import application as application_module
 from flashdreams.demo.local_input import SlangPyLocalInputHandler
 from flashdreams.demo.local_window import SlangPyLocalWindowPresenter
-from flashdreams.runtime import DRIVER_COMMAND, StepResult
-from flashdreams.runtime.inputs import CanonicalInputSchema, CanonicalModality
+from flashdreams.runtime import DRIVER_COMMAND, StepRequirements, StepResult
+from flashdreams.runtime.inputs import (
+    CanonicalInputSchema,
+    CanonicalInputWindow,
+    CanonicalModality,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -198,6 +209,105 @@ def test_local_window_factory_shares_presenter_with_input_handler() -> None:
     assert inputs.values["driver_command"]["steer"] == 1.0
     output.close()
     handler.close()
+
+
+class _InteractiveApplicationSession(IFlashDreamsApplicationSession):
+    def __init__(
+        self,
+        *,
+        presenter: _Presenter,
+        windows: list[CanonicalInputWindow],
+    ) -> None:
+        self.presenter = presenter
+        self.windows = windows
+        self.step_index = 0
+        self.closed = False
+
+    def init(self) -> None:
+        return None
+
+    def session_info(self) -> SessionInfo:
+        return SessionInfo(
+            output_layout="tchw",
+            steady_output_frame_count=1,
+            frames_per_second=16.0,
+            video_width=2,
+            video_height=2,
+        )
+
+    def next_step_requirements(self) -> StepRequirements | None:
+        if self.step_index >= 2:
+            return None
+        if self.step_index == 1:
+            assert self.presenter.event_processed.wait(timeout=2.0)
+        return StepRequirements(step_index=self.step_index)
+
+    def step(self, inputs: CanonicalInputWindow) -> StepResult:
+        self.windows.append(inputs)
+        result = StepResult.from_video_chunk(
+            step_index=self.step_index,
+            video_chunk=torch.zeros((1, 3, 2, 2)),
+            layout="tchw",
+        )
+        self.step_index += 1
+        return result
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _InteractiveApplication(IFlashDreamsApplication):
+    def __init__(self, presenter: _Presenter) -> None:
+        self.presenter = presenter
+        self.windows: list[CanonicalInputWindow] = []
+        self.session: _InteractiveApplicationSession | None = None
+
+    @property
+    def input_schema(self) -> CanonicalInputSchema:
+        return CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
+
+    def init(self, commandline_args: tuple[str, ...] | list[str]) -> None:
+        assert not commandline_args
+
+    def create_session(self) -> IFlashDreamsApplicationSession:
+        self.session = _InteractiveApplicationSession(
+            presenter=self.presenter,
+            windows=self.windows,
+        )
+        return self.session
+
+
+class _EventAfterFirstFramePresenter(_Presenter):
+    def present(self, frame: object) -> bool:
+        if not self.present_threads:
+            self.pending_events.append(_KeyboardEvent("w", "press"))
+        return super().present(frame)
+
+
+def test_public_application_keeps_local_window_input_and_output_wired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    presenter = _EventAfterFirstFramePresenter()
+    application = _InteractiveApplication(presenter)
+    monkeypatch.setattr(
+        application_module,
+        "create_application",
+        lambda _slug: (application, []),
+    )
+
+    artifacts = application_module.run_application(
+        "interactive-fake",
+        io_factory=LocalWindowIOFactory(presenter_factory=lambda **_kwargs: presenter),
+    )
+
+    assert artifacts == ()
+    assert len(application.windows) == 2
+    assert application.windows[0].values["driver_command"]["throttle"] == 0.0
+    assert application.windows[1].values["driver_command"]["throttle"] == 1.0
+    assert presenter.callbacks
+    assert presenter.present_threads
+    assert presenter.close_thread is not None
+    assert application.session is not None and application.session.closed
 
 
 def test_local_window_output_owns_presenter_thread_and_queues_writes() -> None:
