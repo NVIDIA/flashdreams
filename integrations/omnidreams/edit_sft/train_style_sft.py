@@ -23,28 +23,42 @@ flow matching in latent space on edit-timestamped clips:
 
 - **Context build**: chunks before the sampled swap chunk ``k`` are the
   SOURCE rollout's own latents (``generate_sources.py``), replayed through
-  ``finalize_kv_cache`` at the host's ``context_noise`` (the vendored
-  ``_host.replay_history`` machinery) under base weights —
+  ``finalize_kv_cache`` at the host's ``context_noise`` (the
+  ``drift_correction`` ``replay_history`` machinery) under base weights —
   at deploy the LoRA window opens only at the swap. RoPE is absolute and
   the KV window holds ``REPLAY_CHUNKS`` chunks, so replaying just the
   window prefix reproduces a full rollout's visible state exactly.
 - **Edit supervision**: at ``k`` the text KV is rebuilt to the style
-  prompt (plain ``swap_text_kv`` rebuild — exactly the deploy swap of the
-  live-edit hook, PR #431); chunks ``[k, k + SPAN)`` are then supervised
-  toward the STYLED latents (the JoyAI output encoded by
-  ``precompute_style.py``). States
+  prompt (plain ``replace_text_from_embeddings``, exactly the deploy
+  swap); chunks ``[k, k + SPAN)`` are then supervised toward the STYLED
+  latents (the JoyAI output encoded by ``precompute_style.py``). States
   stay on-policy within each chunk (the student's own detached flow
   advances the two-step trajectory, mirroring ``scheduler.sample``); the
   v-target at every state is ``(z_t - x0_styled) / sigma``. A 0.5-weighted
   context term (t=128) supervises the same forward whose K/V the commit
   writes, and the STYLED latent is committed into the rolling KV — teacher
   forcing proceeds on edited history, merged-weight commits matching the
-  deploy window semantics (the live-edit deploy hook, PR #431).
+  deploy window semantics (``_edit_lora``).
 - **No-op regularization**: ``PRE_CHUNKS`` supervised chunks right before
   ``k`` target the SOURCE latents under the clip's own prompt (keeps
   non-edit behavior identical), and with ``NOOP_PROB`` the whole window is
   a no-op (swap to the clip's own prompt, source targets) so the style
   must come from the text KV, not the weights.
+- **v4 self-consistency maintenance** (:data:`V4_MAINT`, default on): the
+  v3 maintenance episodes (``MAINT_PROB``: styled history at scale 1,
+  styled targets) taught a SOFT steady state — their JoyAI targets are RGB
+  re-encoded through the VAE, so the fixed point the LoRA converges to is
+  blurred and the drift corrector can only pull back to that soft point
+  (``issues_and_fixes.md`` Issue 1). v4 replaces the JoyAI latents in
+  maintenance episodes ONLY with the model's OWN early-window styled
+  rollouts — the ``gen_style_drift_pairs.py`` clean reference branches:
+  history and targets both come from a branch segment held at most
+  :data:`V4_EARLY` chunks past its swap (the pre-drift styled manifold),
+  so the steady state supervised is the model's own sharp styled
+  continuation. Swap-transition and no-op episodes keep their JoyAI /
+  source targets unchanged — they still define the style identity at the
+  transition. Pairs without a usable branch segment fall back to the v3
+  maintenance path (counted, reported in the DONE line).
 
 Data is gated by the style-mode VLM filter
 (``style_pairs/filter_report.json``) when present: ``passed`` pairs train
@@ -53,11 +67,10 @@ anywhere, ``early_window_ok`` pairs only within the first
 drift sets in on heavy styles). Without a report every pair on disk
 trains, with a warning.
 
-Host mechanics are the guidance-distillation trainer's (vendored into
-this directory): eager pipeline, LoRA r64 on the 8 attention projections
-(the checkpoint loads through the live-edit deploy hook's
-``TextEditLoRA``, PR #431, unchanged), functional self-attention on grad
-forwards, per-block checkpointing, and every term's backward
+Host mechanics are the ``guidance_distill/train_guidance.py`` ones: eager
+pipeline, LoRA r64 on the 8 attention projections (checkpoint loads
+through ``omnidreams/_edit_lora.py`` unchanged), functional self-attention
+on grad forwards, per-block checkpointing, and every term's backward
 immediately after its forward inside ``functional_attention()`` (the
 recompute must retake the non-writing path, and later stock forwards
 in-place mutate buffers the tape saved). No teacher forward exists here —
@@ -81,16 +94,17 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import cast
 
 # Must land before the first CUDA allocation (co-tenant VRAM share).
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "drift_correction"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "guidance_distill"))
 
 import numpy as np
 import torch
-from _host import CONTEXT_NOISE_SEED, build_pipeline, swap_text_kv
+from _host import CONTEXT_NOISE_SEED, build_pipeline
 from _lora import (
     apply_lora,
     lora_parameters,
@@ -101,16 +115,22 @@ from _lora import (
 from _train_attn import functional_attention, patch_functional_attention
 from style_prompts import DEFAULT_SKIP_STYLES, STYLE_PROMPTS, clip_key
 from torch import Tensor
-
-from flashdreams.infra.diffusion.scheduler.fm import FlowMatchScheduler
+from train_guidance import LORA_TARGETS, checkpoint_blocks
 
 ## Training configuration
 
 BASE = Path("integrations/omnidreams/edit_sft")
 OUT_DIR = BASE / "outputs"
 SRC_DIR = OUT_DIR / "sources"
-STYLE_DIR = OUT_DIR / "style_pairs"
-LAT_DIR = OUT_DIR / "latents"
+STYLE_DIR = Path(os.environ.get("STYLE_DIR", str(OUT_DIR / "style_pairs")))
+"""Styled-target corpus; ``style_pairs_teacher`` = the teacher-regenerated
+targets (``gen_teacher_styled_targets.py``, v5 recipe)."""
+LAT_DIR = Path(os.environ.get("LAT_DIR", str(OUT_DIR / "latents")))
+"""Latents matching STYLE_DIR (``precompute_style.py`` with the same env)."""
+CKPT_PREFIX = os.environ.get("CKPT_PREFIX", "lora_style")
+"""Checkpoint filename prefix (``<prefix>_step<N>.pt``)."""
+PAIRS_DIR = Path(os.environ.get("PAIRS_DIR", str(OUT_DIR / "style_drift_pairs")))
+"""Clean-branch corpus (``gen_style_drift_pairs.py``) for v4 maintenance."""
 
 STEPS = int(os.environ.get("STEPS", "1000"))
 LR = float(os.environ.get("LR", "2e-4"))
@@ -132,6 +152,20 @@ NOOP_PROB = float(os.environ.get("NOOP_PROB", "0.1"))
 MAINT_PROB = float(os.environ.get("MAINT_PROB", "0.3"))
 """Probability of a no-op window (swap to the clip's own prompt, source
 targets): anchors the restyle to the text KV instead of the weights."""
+
+V4_MAINT = os.environ.get("V4_MAINT", "1") == "1"
+"""Maintenance episodes replay/target the model's OWN early-window styled
+branches (self-consistency) instead of the JoyAI re-encodes; 0 = exact v3
+maintenance behavior. ``MAINT_PROB`` semantics are unchanged."""
+
+V4_EARLY = int(os.environ.get("V4_EARLY", "7"))
+"""Max style-hold depth (chunks since swap, 1-based) a v4 episode may
+touch: history ``[k - REPLAY_CHUNKS, k)`` and targets ``[k, k + SPAN)``
+must fit inside branch depths ``1..V4_EARLY``. 7 is the tightest feasible
+with ``REPLAY_CHUNKS=3`` / ``SPAN=4`` (one k per branch, ``k = s + 3``);
+Issue 1 puts "excellent" at +1..+4 and structure-holds at +7..+12, so 7
+keeps targets on the sharp side of the drift. Raising it trades target
+sharpness for more (s, k) cells."""
 
 PRE_CHUNKS = int(os.environ.get("PRE_CHUNKS", "1"))
 """Supervised chunks immediately before ``k`` (source targets, original
@@ -155,8 +189,8 @@ frames 0..116 (~3.9 s) — the pre-drift window the style filter certified."""
 REPLAY_CHUNKS = int(os.environ.get("REPLAY_CHUNKS", "3"))
 """Source chunks replayed before the first supervised chunk. 3 chunks =
 the full ``window_size_t=6`` / ``len_t=2`` KV window, so the visible state
-equals a full-history replay (the drift corrector's mid-stream-start
-machinery, PR #398); raise only if the host's window grows."""
+equals a full-history replay (``train_v2.py`` mid-stream-start machinery);
+raise only if the host's window grows."""
 
 CTX_WEIGHT = 0.5
 """Weight of the finalize/context-forward (t=128) term."""
@@ -167,49 +201,6 @@ SKIP_STYLES = frozenset(
     if s
 )
 """Slugs excluded from training regardless of the filter verdict."""
-
-LORA_TARGETS = (
-    "self_attn.q_proj",
-    "self_attn.k_proj",
-    "self_attn.v_proj",
-    "self_attn.output_proj",
-    "cross_attn.q_proj",
-    "cross_attn.k_proj",
-    "cross_attn.v_proj",
-    "cross_attn.output_proj",
-)
-"""Drift-corrector recipe + cross-attn (the edit signal enters there).
-Vendored from the guidance-distillation trainer (deferred from PR #431) so
-this pipeline is self-contained; consolidate when that trainer lands."""
-
-
-def checkpoint_blocks(network) -> None:
-    """Route every DiT block ``forward`` through gradient checkpointing.
-
-    Vendored from the guidance-distillation trainer (deferred from
-    PR #431); consolidate when that trainer lands. Per-instance overrides
-    (not wrapper modules) so the network loop's ``isinstance(block, Block)``
-    assertion keeps passing. Requires the functional-attention toggle on
-    grad passes: recomputation must be side-effect free and must retake the
-    same code path, so every backward runs inside
-    ``functional_attention()``. No-op under ``no_grad`` passes (rollout,
-    finalize).
-
-    Args:
-        network: The unwrapped ``CosmosDiTNetwork``.
-    """
-    from torch.utils.checkpoint import checkpoint
-
-    def wrap(fn):
-        def ckpt_fn(*args, _inner=fn, **kwargs):
-            if not torch.is_grad_enabled():
-                return _inner(*args, **kwargs)
-            return checkpoint(_inner, *args, use_reentrant=False, **kwargs)
-
-        return ckpt_fn
-
-    for block in network.blocks:
-        block.forward = wrap(block.forward)
 
 
 def load_pairs(train_uuids: set[str], n_chunks: int) -> list[tuple[str, str, int]]:
@@ -265,6 +256,49 @@ def load_pairs(train_uuids: set[str], n_chunks: int) -> list[tuple[str, str, int
     return pairs
 
 
+def load_v4_branches(pair_keys: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
+    """Load the clean-branch segments usable for v4 maintenance episodes.
+
+    A ``gen_style_drift_pairs.py`` branch file stores per swap offset ``s``
+    the styled rollout's chunks ``s..n_chunks-1``. A maintenance swap chunk
+    ``k`` is usable when the whole episode — history ``[k - REPLAY_CHUNKS,
+    k)`` plus targets ``[k, k + SPAN)`` — lies at hold depth <=
+    :data:`V4_EARLY` inside the branch::
+
+        s + REPLAY_CHUNKS <= k <= min(s + V4_EARLY, n_chunks) - SPAN
+
+    Returns ``{(uuid, slug): {"cells": [(s, k), ...], "branches":
+    {s: latents for chunks s..}}}`` for the trainable ``pair_keys``,
+    branch latents trimmed to the deepest chunk any usable ``k`` touches.
+    Files or offsets too short for any ``k`` are skipped (reported).
+    """
+    corpus: dict[tuple[str, str], dict] = {}
+    for path in sorted(PAIRS_DIR.glob("*__*.pt")):
+        uuid, slug = path.stem.split("__", 1)
+        if (uuid, slug) not in pair_keys:
+            continue
+        d = torch.load(path, map_location="cpu", weights_only=False)
+        n = int(d["n_chunks"])
+        cells: list[tuple[int, int]] = []
+        branches: dict[int, list[Tensor]] = {}
+        for s, lats in sorted((int(s), lat) for s, lat in d["branches"].items()):
+            assert len(lats) == n - s, f"{path.name} s={s}: {len(lats)} chunks"
+            ks = list(range(s + REPLAY_CHUNKS, min(s + V4_EARLY, n) - SPAN + 1))
+            if not ks:
+                continue
+            cells += [(s, k) for k in ks]
+            branches[s] = lats[: max(ks) + SPAN - s]
+        if not cells:
+            print(f"v4: skip {path.name} — no usable k at V4_EARLY={V4_EARLY}")
+            continue
+        corpus[(uuid, slug)] = {"cells": cells, "branches": branches}
+        print(
+            f"v4: {uuid[:8]}__{slug} usable k {[k for _, k in cells]}",
+            flush=True,
+        )
+    return corpus
+
+
 def main() -> None:
     """Run the teacher-forced style-SFT loop."""
     rng = np.random.default_rng(SEED)
@@ -278,6 +312,16 @@ def main() -> None:
         f"no trainable styled pairs under {STYLE_DIR} (run precompute_style.py "
         "first; check filter_report.json / SKIP_STYLES)."
     )
+    v4_corpus = load_v4_branches({(u, s) for u, s, _ in pairs}) if V4_MAINT else {}
+    v4_fallbacks = [0]  # maintenance draws without a branch -> v3 path
+    if V4_MAINT:
+        n_cells = sum(len(e["cells"]) for e in v4_corpus.values())
+        print(
+            f"v4 maintenance ON: {n_cells} self-consistency cells over "
+            f"{len(v4_corpus)}/{len(pairs)} pairs (V4_EARLY={V4_EARLY}); "
+            "pairs without branches fall back to v3 maintenance.",
+            flush=True,
+        )
 
     prompt_emb = torch.load(
         OUT_DIR / "style_embeddings.pt", map_location="cpu", weights_only=False
@@ -309,10 +353,17 @@ def main() -> None:
             map_location="cpu",
             weights_only=False,
         )["latents"]
-        assert len(tgt) == n_chunks, (
-            f"pair {uuid}__{slug}: {len(tgt)} styled chunks != {n_chunks}"
+        # Teacher-regenerated targets cover one chunk48 window (24 student
+        # chunks) — shorter than the clip; clamp the pair's usable range.
+        assert SWAP_MIN + SPAN <= len(tgt) <= n_chunks, (
+            f"pair {uuid}__{slug}: {len(tgt)} styled chunks "
+            f"(need {SWAP_MIN + SPAN}..{n_chunks})"
         )
         tgt_lat[(uuid, slug)] = tgt
+    pairs = [
+        (uuid, slug, min(max_chunk, len(tgt_lat[(uuid, slug)])))
+        for uuid, slug, max_chunk in pairs
+    ]
 
     pipe = build_pipeline(with_oneshot_encoders=False)
     assert pipe.V_group is None, "single-GPU trainer; run without CP"
@@ -320,8 +371,7 @@ def main() -> None:
     dtype = torch.bfloat16
     dm = pipe.diffusion_model
     transformer = dm.transformer
-    # The base ``Scheduler`` annotation hides the FM schedule buffers.
-    scheduler = cast(FlowMatchScheduler, dm.scheduler)
+    scheduler = dm.scheduler
     timesteps = scheduler.denoising_step_list  # [1000, 450] on the chunk2 host
     sigmas = scheduler.denoising_sigmas
     n_steps = int(timesteps.shape[0])
@@ -453,8 +503,18 @@ def main() -> None:
         # through the KV commits and the world blurs out (observed at
         # +7-10 chunks on the step-1600 run).
         maint = (not no_op) and bool(rng.random() < MAINT_PROB)
-        k_hi = min(SWAP_MAX, max_chunk - SPAN)
-        k = int(rng.integers(SWAP_MIN, k_hi + 1))
+        # v4: self-consistency maintenance — replay/target a clean
+        # early-window branch of the model's OWN styled rollout instead of
+        # the (VAE-soft) JoyAI latents. Only maintenance changes; swap and
+        # no-op episodes keep JoyAI/source targets.
+        v4 = v4_corpus.get((uuid, slug)) if maint else None
+        if maint and V4_MAINT and v4 is None:
+            v4_fallbacks[0] += 1
+        if v4 is not None:
+            s, k = v4["cells"][int(rng.integers(len(v4["cells"])))]
+        else:
+            k_hi = min(SWAP_MAX, max_chunk - SPAN)
+            k = int(rng.integers(SWAP_MIN, k_hi + 1))
         n_pre = 0 if maint else min(PRE_CHUNKS, k)
         j0 = k - n_pre
 
@@ -470,20 +530,28 @@ def main() -> None:
         )
         tc = cache.transformer_cache
         end = k + SPAN
-        src = [x.to(device, dtype) for x in src_lat[uuid][:end]]
-        tgt = [x.to(device, dtype) for x in tgt_lat[(uuid, slug)][:end]]
         hd = [x.to(device, dtype) for x in hd_lat[uuid][:end]]
+        if v4 is not None:
+            # Absolute-indexed view of the branch (chunks < s are never
+            # touched: history starts at k - REPLAY_CHUNKS >= s and
+            # maintenance has no pre-window / no-op chunks).
+            blat = v4["branches"][s]
+            tgt = [None] * s + [x.to(device, dtype) for x in blat[: end - s]]
+            src = tgt
+        else:
+            src = [x.to(device, dtype) for x in src_lat[uuid][:end]]
+            tgt = [x.to(device, dtype) for x in tgt_lat[(uuid, slug)][:end]]
 
         if maint:
             # In-window steady state: text already swapped, history styled,
             # commits at LoRA scale 1 (deploy's use_lora window semantics).
-            swap_text_kv(network, tc, prompt_emb[slug])
+            pipe.replace_text_from_embeddings(cache, prompt_emb[slug])
 
         # Context build: replay the KV-window prefix (SOURCE latents at base
         # weights for swap episodes — deploy runs pre-window chunks on the
         # unmodified network; STYLED latents at scale 1 for maintenance
         # episodes). Per-chunk seeded context noise = the replay_history
-        # contract; the mid-stream start is the drift corrector's machinery.
+        # contract; the mid-stream start is the train_v2 machinery.
         replay = tgt if maint else src
         set_lora_scale(network, 1.0 if maint else 0.0)
         start = max(0, j0 - REPLAY_CHUNKS)
@@ -507,13 +575,11 @@ def main() -> None:
         total = 0.0
         for j in range(j0, end):
             if j == k and not maint:
-                # The deploy swap: plain cross-attn text-KV rebuild, the
-                # same rebuild the live-edit deploy hook (PR #431) runs on
-                # a plain prompt swap (no-op windows swap to the clip's own
-                # prompt — same machinery, identical KV — so style must be
-                # read from the text).
+                # The deploy swap: plain cross-attn KV rebuild (no-op
+                # windows swap to the clip's own prompt — same machinery,
+                # identical KV — so style must be read from the text).
                 emb = prompt_emb[clip_key(uuid) if no_op else slug]
-                swap_text_kv(network, tc, emb)
+                pipe.replace_text_from_embeddings(cache, emb)
             x0_tgt = (src[j] if (no_op or (not maint and j < k)) else tgt[j]).float()
             losses = train_chunk(
                 tc, j, x0_tgt, hd[j], weight, maint or j >= k, model_rng
@@ -527,9 +593,16 @@ def main() -> None:
 
         del cache
         sums["total"] = total
+        if no_op:
+            tag = "no_op:"
+        elif v4 is not None:
+            tag = f"maintv4[s={s}]:"
+        elif maint:
+            tag = "maintfb:" if V4_MAINT else "maint:"
+        else:
+            tag = ""
         episode = (
-            f"{uuid[:8]} {'no_op:' if no_op else 'maint:' if maint else ''}{slug[:16]} "
-            f"k={k} pre={n_pre} span={SPAN} max={max_chunk}"
+            f"{uuid[:8]} {tag}{slug[:16]} k={k} pre={n_pre} span={SPAN} max={max_chunk}"
         )
         return sums, episode
 
@@ -557,11 +630,12 @@ def main() -> None:
                 flush=True,
             )
         if step % SAVE_EVERY == 0 or step == STEPS:
-            path = OUT_DIR / f"lora_style_step{step}.pt"
+            path = OUT_DIR / f"{CKPT_PREFIX}_step{step}.pt"
             save_lora(network, path)
             print(f"saved {path}", flush=True)
 
-    print(f"TRAIN-STYLE-SFT-DONE | final loss ema {ema:.4f}", flush=True)
+    fb = f" | v4 fallbacks {v4_fallbacks[0]}" if V4_MAINT else ""
+    print(f"TRAIN-STYLE-SFT-DONE | final loss ema {ema:.4f}{fb}", flush=True)
 
 
 if __name__ == "__main__":

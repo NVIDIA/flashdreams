@@ -16,8 +16,8 @@
 """Precompute the style-SFT embeddings and latents (one shot).
 
 Three phases, so ``train_style_sft.py`` never loads the ~14 GB text
-encoder or touches ffmpeg (the precompute-embeddings pattern from the
-guidance-distillation trainer, extended with video encoding):
+encoder or touches ffmpeg (the ``guidance_distill/precompute_embeddings``
+pattern, extended with video encoding):
 
 A. Text + first-frame embeddings — every style-slug prompt
    (:data:`~style_prompts.STYLE_PROMPTS`) and every source clip's own
@@ -46,8 +46,8 @@ Outputs (under ``edit_sft/outputs/``):
 
 Latent files are skipped when present, so the script is resumable — the
 frame-count assert catches the silent-empty ffmpeg reads observed on this
-box (they hit once the process has grown to rollout size; the one-shot
-encoders are released before the first decode to shrink the process).
+box (``build_pairs.py`` note; the one-shot encoders are released before
+the first decode to shrink the process).
 
 Run from the flashdreams repo root (~20 GB VRAM during phase A)::
 
@@ -65,48 +65,31 @@ from pathlib import Path
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "drift_correction"))
 
 import torch
 from _host import build_pipeline
+from build_pairs import _sample_files
 from omnidreams.pipeline import OmnidreamsPipeline
 from omnidreams.runner import (
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
-    _ensure_hf_single_view_example_data_synced,
+    _load_first_frame,
+    _load_video,
 )
 from style_prompts import STYLE_PROMPTS, clip_key
 from torch import Tensor
-
-from flashdreams.infra.runner_io import load_first_frame_tensor, load_video_tensor
 
 ## Configuration
 
 BASE = Path("integrations/omnidreams/edit_sft")
 OUT_DIR = Path(os.environ.get("OUT_DIR", str(BASE / "outputs")))
 SRC_DIR = OUT_DIR / "sources"
-STYLE_DIR = OUT_DIR / "style_pairs"
-LAT_DIR = OUT_DIR / "latents"
-
-
-def _sample_files(uuid: str) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Cache-first ``((hdmap,), (first_frame,))`` resolution for a sample.
-
-    Vendored from the Clean Forcing pair builder (PR #398): the runner's
-    ``_ensure_hf_single_view_example_data_synced`` lists the HF repo per
-    clip even when every file is already local, and the shared IP rate
-    limit has killed pipeline stages before. Fall back to the network path
-    only on a cache miss.
-    """
-    root = (
-        Path.home()
-        / ".cache/huggingface/hub/datasets--nvidia--omni-dreams-samples/snapshots"
-    )
-    hits = sorted(root.glob(f"*/data/single_view/{uuid}/*_hdmap.mp4"))
-    for h in hits:
-        frame = h.parent / "first_frame.png"
-        if frame.exists():
-            return (h,), (frame,)
-    return _ensure_hf_single_view_example_data_synced(uuid)
+STYLE_DIR = Path(os.environ.get("STYLE_DIR", str(OUT_DIR / "style_pairs")))
+"""Styled-target videos; point at ``style_pairs_teacher`` for the
+teacher-regenerated corpus (``gen_teacher_styled_targets.py``)."""
+LAT_DIR = Path(os.environ.get("LAT_DIR", str(OUT_DIR / "latents")))
+"""Latent output dir; use a separate dir per styled corpus (don't clobber)."""
 
 
 def _styled_videos(known_uuids: set[str]) -> list[tuple[str, str, Path]]:
@@ -167,73 +150,106 @@ def main() -> None:
     styled = _styled_videos(set(uuids))
     assert styled, f"no recognized styled pairs under {STYLE_DIR}"
 
-    # First frames are PNGs (cv2, no ffmpeg fork) — safe to load lazily,
-    # but front-load them anyway so phase A never touches the filesystem
-    # mid-encoding.
-    firsts: dict[str, Tensor] = {}
-    for uuid in uuids:
-        _, (frame_path,) = _sample_files(uuid)
-        firsts[uuid] = load_first_frame_tensor(
-            frame_path,
-            pixel_height=DEFAULT_VIDEO_HEIGHT,
-            pixel_width=DEFAULT_VIDEO_WIDTH,
-            device=torch.device("cpu"),
-            dtype=dtype,
-        )[None, :, None]  # [1, V=1, 1, C, H, W]
-
-    pipe = build_pipeline(with_oneshot_encoders=True)
-    device = pipe.device
-    assert pipe.text_encoder is not None  # with_oneshot_encoders=True
-
-    # Phase A: style + clip prompt embeddings and first-frame latents.
-    emb_by_text: dict[str, Tensor] = {}
-    prompt_embeddings: dict[str, Tensor] = {}
-    for slug in sorted({slug for _, slug, _ in styled}):
-        text = STYLE_PROMPTS[slug]
-        if text not in emb_by_text:  # _v2 slugs alias their base prompt
-            emb = torch.stack([pipe.text_encoder([text])], dim=0)  # [1, 1, L, D]
-            emb_by_text[text] = emb.to("cpu", dtype)
-        prompt_embeddings[slug] = emb_by_text[text]
-        print(
-            f"encoded style prompt {slug}: {tuple(prompt_embeddings[slug].shape)}",
-            flush=True,
+    # Phase A is skippable when the embedding files already cover every
+    # needed key (reruns against a new STYLE_DIR/LAT_DIR corpus): the
+    # ~14 GB text encoder never loads.
+    emb_path = OUT_DIR / "style_embeddings.pt"
+    assets_path = OUT_DIR / "style_clip_assets.pt"
+    skip_phase_a = False
+    if emb_path.exists() and assets_path.exists():
+        prev_emb = torch.load(emb_path, map_location="cpu", weights_only=False)
+        prev_assets = torch.load(assets_path, map_location="cpu", weights_only=False)
+        skip_phase_a = all(slug in prev_emb for _, slug, _ in styled) and all(
+            clip_key(u) in prev_emb and u in prev_assets["image_embeddings"]
+            for u in uuids
         )
-    image_embeddings: dict[str, Tensor] = {}
-    for uuid in uuids:
-        emb = pipe.precompute_embeddings(
-            text=[[prompts[uuid]]], image=firsts[uuid].to(device)
+        del prev_emb, prev_assets
+
+    if skip_phase_a:
+        print("phase A: existing embedding files cover all keys — skipped", flush=True)
+        pipe = build_pipeline(with_oneshot_encoders=False)
+    else:
+        # First frames are PNGs (cv2, no ffmpeg fork) — safe to load lazily,
+        # but front-load them anyway so phase A never touches the filesystem
+        # mid-encoding.
+        firsts: dict[str, Tensor] = {}
+        for uuid in uuids:
+            _, (frame_path,) = _sample_files(uuid)
+            firsts[uuid] = _load_first_frame(
+                frame_path,
+                pixel_height=DEFAULT_VIDEO_HEIGHT,
+                pixel_width=DEFAULT_VIDEO_WIDTH,
+                device="cpu",
+                dtype=dtype,
+            )[None, :, None]  # [1, V=1, 1, C, H, W]
+
+        pipe = build_pipeline(with_oneshot_encoders=True)
+        device = pipe.device
+        assert pipe.text_encoder is not None  # with_oneshot_encoders=True
+
+        # Phase A: style + clip prompt embeddings and first-frame latents.
+        emb_by_text: dict[str, Tensor] = {}
+        prompt_embeddings: dict[str, Tensor] = {}
+        for slug in sorted({slug for _, slug, _ in styled}):
+            text = STYLE_PROMPTS[slug]
+            if text not in emb_by_text:  # _v2 slugs alias their base prompt
+                emb = torch.stack([pipe.text_encoder([text])], dim=0)  # [1, 1, L, D]
+                emb_by_text[text] = emb.to("cpu", dtype)
+            prompt_embeddings[slug] = emb_by_text[text]
+            print(
+                f"encoded style prompt {slug}: {tuple(prompt_embeddings[slug].shape)}",
+                flush=True,
+            )
+        image_embeddings: dict[str, Tensor] = {}
+        for uuid in uuids:
+            emb = pipe.precompute_embeddings(
+                text=[[prompts[uuid]]], image=firsts[uuid].to(device)
+            )
+            text_emb = emb["text_embeddings"]
+            image_emb = emb["image_embeddings"]
+            assert text_emb is not None and image_emb is not None
+            prompt_embeddings[clip_key(uuid)] = text_emb.to("cpu", dtype)
+            image_embeddings[uuid] = image_emb.to("cpu", dtype)
+            print(f"encoded clip {uuid}", flush=True)
+
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        torch.save(prompt_embeddings, emb_path)
+        torch.save(
+            {"uuids": uuids, "prompts": prompts, "image_embeddings": image_embeddings},
+            assets_path,
         )
-        text_emb = emb["text_embeddings"]
-        image_emb = emb["image_embeddings"]
-        assert text_emb is not None and image_emb is not None
-        prompt_embeddings[clip_key(uuid)] = text_emb.to("cpu", dtype)
-        image_embeddings[uuid] = image_emb.to("cpu", dtype)
-        print(f"encoded clip {uuid}", flush=True)
+        # Shrink the process before the ffmpeg decodes below (fork hazard).
+        pipe.release_oneshot_encoders()
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save(prompt_embeddings, OUT_DIR / "style_embeddings.pt")
-    torch.save(
-        {"uuids": uuids, "prompts": prompts, "image_embeddings": image_embeddings},
-        OUT_DIR / "style_clip_assets.pt",
-    )
-    # Shrink the process before the ffmpeg decodes below (fork hazard).
-    pipe.release_oneshot_encoders()
-
-    def encode_to(path: Path, video_path: Path, key: str) -> None:
-        video = load_video_tensor(
+    def encode_to(
+        path: Path, video_path: Path, key: str, allow_short: bool = False
+    ) -> None:
+        video = _load_video(
             video_path,
             pixel_height=DEFAULT_VIDEO_HEIGHT,
             pixel_width=DEFAULT_VIDEO_WIDTH,
-            device=torch.device("cpu"),
+            device="cpu",
             dtype=dtype,
         )
-        assert video.shape[0] >= total_frames, (
-            f"{video_path.name}: {video.shape[0]} frames < {total_frames} "
-            "(short clip, or a silent-empty ffmpeg read — re-run to resume)."
-        )
-        chunks = encode_video_chunks(pipe, video[:total_frames], n_chunks)
-        torch.save({key: chunks, "n_chunks": n_chunks}, path)
-        print(f"encoded {path.name}: {n_chunks} chunks", flush=True)
+        if allow_short and video.shape[0] < total_frames:
+            # Teacher-regenerated targets cover one bidirectional chunk48
+            # window (189 frames = student chunks 0..23); encode the full
+            # chunks available. Still assert non-empty (silent ffmpeg reads).
+            avail = (int(video.shape[0]) - 5) // 8 + 1
+            assert avail >= 1, (
+                f"{video_path.name}: {video.shape[0]} frames < one chunk "
+                "(silent-empty ffmpeg read? re-run to resume)."
+            )
+        else:
+            assert video.shape[0] >= total_frames, (
+                f"{video_path.name}: {video.shape[0]} frames < {total_frames} "
+                "(short clip, or a silent-empty ffmpeg read — re-run to resume)."
+            )
+            avail = n_chunks
+        frames_used = 5 + (avail - 1) * 8
+        chunks = encode_video_chunks(pipe, video[:frames_used], avail)
+        torch.save({key: chunks, "n_chunks": avail}, path)
+        print(f"encoded {path.name}: {avail} chunks", flush=True)
 
     LAT_DIR.mkdir(parents=True, exist_ok=True)
     # Phase B: per-clip HDMap latents (conditioning for replay + training).
@@ -251,11 +267,12 @@ def main() -> None:
         if out.exists():
             print(f"skip {out.name} (exists)", flush=True)
             continue
-        encode_to(out, path, "latents")
+        encode_to(out, path, "latents", allow_short=True)
 
+    phase_a = "reused" if skip_phase_a else "encoded"
     print(
-        f"PRECOMPUTE-STYLE-DONE | {len(prompt_embeddings)} prompt embeddings, "
-        f"{len(uuids)} clips, {len(styled)} styled pairs -> {OUT_DIR}/",
+        f"PRECOMPUTE-STYLE-DONE | embeddings {phase_a}, {len(uuids)} clips, "
+        f"{len(styled)} styled pairs -> {LAT_DIR}/",
         flush=True,
     )
 
