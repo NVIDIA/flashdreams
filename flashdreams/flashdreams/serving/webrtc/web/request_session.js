@@ -70,6 +70,10 @@ let disconnecting = false
 let heldKeySequence = 0
 let postprocessAvailable = false
 let liveVideoStream = null
+let lastGamepadState = null
+let lastGamepadSentAt = 0
+const gamepadSendIntervalMs = 50
+const gamepadKeepaliveMs = 250
 
 const metrics = {
   fps: null,
@@ -267,6 +271,76 @@ function sendModelCommand(payload, label = "model command") {
   setFlow(`sent ${label}`)
   logEvent(label, { source: "client" })
   return true
+}
+
+function gamepadButtonValue(gamepad, index) {
+  const button = gamepad.buttons[index]
+  if (!button) return 0
+  return Math.max(0, Math.min(1, Number(button.value) || (button.pressed ? 1 : 0)))
+}
+
+function readGamepadState() {
+  if (!document.hasFocus() || typeof navigator.getGamepads !== "function") {
+    return {
+      connected: false,
+      steer: 0,
+      throttle: 0,
+      brake: 0,
+      reverse: false,
+      stop: false,
+    }
+  }
+  const gamepad = Array.from(navigator.getGamepads()).find(Boolean)
+  if (!gamepad) {
+    return {
+      connected: false,
+      steer: 0,
+      throttle: 0,
+      brake: 0,
+      reverse: false,
+      stop: false,
+    }
+  }
+  let steer = -(Number(gamepad.axes[0]) || 0)
+  if (gamepadButtonValue(gamepad, 14) > 0.5) steer = 1
+  if (gamepadButtonValue(gamepad, 15) > 0.5) steer = -1
+  return {
+    connected: true,
+    steer: Math.max(-1, Math.min(1, steer)),
+    throttle: Math.max(
+      gamepadButtonValue(gamepad, 7),
+      gamepadButtonValue(gamepad, 12)
+    ),
+    brake: Math.max(
+      gamepadButtonValue(gamepad, 6),
+      gamepadButtonValue(gamepad, 13)
+    ),
+    reverse: gamepadButtonValue(gamepad, 1) > 0.5,
+    stop: gamepadButtonValue(gamepad, 0) > 0.5,
+  }
+}
+
+function sendGamepadState(state, {force = false} = {}) {
+  const serialized = JSON.stringify(state)
+  const now = performance.now()
+  const changed = serialized !== lastGamepadState
+  if (!force && !changed && now - lastGamepadSentAt < gamepadKeepaliveMs) {
+    return false
+  }
+  if (!force && changed && now - lastGamepadSentAt < gamepadSendIntervalMs) {
+    return false
+  }
+  if (!sendModelMessage({type: "gamepad_state", gamepad: state})) {
+    return false
+  }
+  lastGamepadState = serialized
+  lastGamepadSentAt = now
+  return true
+}
+
+function pollGamepad() {
+  sendGamepadState(readGamepadState())
+  window.requestAnimationFrame(pollGamepad)
 }
 
 const modelContext = {
@@ -1176,6 +1250,7 @@ async function initialize() {
   renderMetrics()
   await loadModelAdapter()
   attachPointerControls()
+  window.requestAnimationFrame(pollGamepad)
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   await connectSession({ attemptsRemaining: autoConnectMaxAttempts })
@@ -1194,7 +1269,18 @@ remoteVideo.addEventListener("emptied", () => {
 })
 window.addEventListener("keydown", handleKeyDown)
 window.addEventListener("keyup", handleKeyUp)
-window.addEventListener("blur", releaseAllKeys)
+window.addEventListener("blur", () => {
+  releaseAllKeys()
+  sendGamepadState(readGamepadState(), {force: true})
+})
+window.addEventListener("gamepadconnected", () => {
+  lastGamepadState = null
+  sendGamepadState(readGamepadState(), {force: true})
+})
+window.addEventListener("gamepaddisconnected", () => {
+  lastGamepadState = null
+  sendGamepadState(readGamepadState(), {force: true})
+})
 window.addEventListener("pagehide", () => {
   disconnectSession()
 })

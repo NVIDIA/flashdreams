@@ -103,13 +103,15 @@ def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:
     )
     inputs = handler.current_inputs()
 
-    assert inputs.values["driver_command"] == {
+    command = inputs.values["driver_command"]
+    assert {name: command[name] for name in DRIVER_COMMAND.payload_fields} == {
         "throttle": 0.75,
         "brake": 0.4,
         "steer": -0.25,
         "stop": False,
         "reverse": False,
     }
+    assert command["segments"]
     assert inputs.metadata["canonical_sources"] == {"driver_command": "gamepad"}
 
 

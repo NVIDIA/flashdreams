@@ -43,6 +43,7 @@ from flashdreams.runtime.canonical import (
     KeyboardToDriverCommand,
 )
 from flashdreams.runtime.config import InferenceConfig
+from flashdreams.runtime.gamepad import GamepadToDriverCommand
 from flashdreams.runtime.demo.drivers import BatchSessionDriver
 from flashdreams.runtime.demo.host import (
     ModelWarmupPlan,
@@ -715,7 +716,7 @@ def application_scenario(
     requested = frozenset(modality.name for modality in schema.modalities)
     converters: list[DeviceConverter] = []
     if DRIVER_COMMAND.name in requested:
-        converters.append(KeyboardToDriverCommand())
+        converters.extend((GamepadToDriverCommand(), KeyboardToDriverCommand()))
     if CAMERA_COMMAND.name in requested:
         converters.append(KeyboardToCameraCommand())
     return PreparedScenario(

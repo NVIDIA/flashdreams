@@ -14,6 +14,7 @@ MESSAGE_TYPE_DISCONNECT = "disconnect"
 MESSAGE_TYPE_ERROR = "error"
 MESSAGE_TYPE_EVENT = "event"
 MESSAGE_TYPE_EVENT_ACK = "event_ack"
+MESSAGE_TYPE_GAMEPAD = "gamepad_state"
 MESSAGE_TYPE_HEARTBEAT = "heartbeat"
 
 

@@ -30,6 +30,13 @@ from flashdreams.runtime.canonical import (
     InputCanonicalizer,
     KeyboardToDriverCommand,
 )
+from flashdreams.runtime.gamepad import (
+    GAMEPAD_STATE_CAPABILITY,
+    GAMEPAD_STATE_EVENT,
+    GamepadState,
+    GamepadToDriverCommand,
+    gamepad_state_payload,
+)
 from flashdreams.runtime.inputs import (
     CanonicalInputSchema,
     CanonicalInputWindow,
@@ -39,7 +46,7 @@ from flashdreams.runtime.inputs import (
     UserInputSchema,
 )
 
-_KEYBOARD_SOURCE_SCHEMA = UserInputSchema(
+_LOCAL_SOURCE_SCHEMA = UserInputSchema(
     capabilities=(
         UserInputCapability(
             event_type="key_down",
@@ -51,13 +58,11 @@ _KEYBOARD_SOURCE_SCHEMA = UserInputSchema(
             input_modality="keyboard",
             payload_fields=frozenset({"key"}),
         ),
+        GAMEPAD_STATE_CAPABILITY,
     ),
-    description="SlangPy local-window keyboard events.",
+    description="SlangPy local-window keyboard and gamepad events.",
 )
 """Raw event schema emitted by the SlangPy window callback."""
-
-_GAMEPAD_DEADZONE = 0.05
-"""Minimum SDL gamepad axis magnitude treated as active input."""
 
 
 class SlangPyLocalInputHandler(InputHandler):
@@ -91,7 +96,12 @@ class SlangPyLocalInputHandler(InputHandler):
                 unsupported.append(modality.name)
                 continue
             if not converters:
-                converters.append(KeyboardToDriverCommand())
+                converters.extend(
+                    (
+                        GamepadToDriverCommand(),
+                        KeyboardToDriverCommand(),
+                    )
+                )
         if unsupported:
             raise ValueError(
                 "Local-window input cannot provide canonical modalities: "
@@ -109,8 +119,6 @@ class SlangPyLocalInputHandler(InputHandler):
         self._session_start_s = 0.0
         self._window_start_s = 0.0
         self._opened = False
-        self._gamepad_connected = False
-        self._gamepad_state: dict[str, float] | None = None
 
     @property
     def accepts_window_events(self) -> bool:
@@ -123,8 +131,6 @@ class SlangPyLocalInputHandler(InputHandler):
         self._canonicalizer.reset()
         with self._event_lock:
             self._events.clear()
-            self._gamepad_connected = False
-            self._gamepad_state = None
         self._session_start_s = self._clock()
         self._window_start_s = 0.0
         self._opened = True
@@ -147,7 +153,7 @@ class SlangPyLocalInputHandler(InputHandler):
         canonical = self._canonicalizer.canonicalize(
             UserInputs(events=events),
             window=window,
-            source_schema=_KEYBOARD_SOURCE_SCHEMA,
+            source_schema=_LOCAL_SOURCE_SCHEMA,
         )
         values = {
             name: value
@@ -156,10 +162,6 @@ class SlangPyLocalInputHandler(InputHandler):
         }
         metadata = dict(canonical.metadata)
 
-        gamepad_command = self._current_gamepad_command()
-        if gamepad_command is not None and DRIVER_COMMAND.name in self._requested_names:
-            values[DRIVER_COMMAND.name] = gamepad_command
-            metadata["canonical_sources"] = {DRIVER_COMMAND.name: "gamepad"}
         return CanonicalInputWindow(
             values=values,
             metadata=metadata,
@@ -171,8 +173,6 @@ class SlangPyLocalInputHandler(InputHandler):
         self._opened = False
         with self._event_lock:
             self._events.clear()
-            self._gamepad_connected = False
-            self._gamepad_state = None
 
     def on_keyboard_event(self, event: Any) -> None:
         """Record one SlangPy keyboard edge from the window event pump."""
@@ -200,50 +200,42 @@ class SlangPyLocalInputHandler(InputHandler):
         """Track SlangPy gamepad connection changes."""
         if not self._opened:
             return
-        with self._event_lock:
-            if _event_flag(event, "is_connect"):
-                self._gamepad_connected = True
-            elif _event_flag(event, "is_disconnect"):
-                self._gamepad_connected = False
-                self._gamepad_state = None
+        if _event_flag(event, "is_disconnect"):
+            self._record_gamepad_state(GamepadState(False, 0.0, 0.0, 0.0, False, False))
 
     def on_gamepad_state(self, state: Any) -> None:
-        """Record the latest SDL gamepad axes for driving control."""
+        """Record the latest SDL gamepad driving state."""
         if not self._opened or DRIVER_COMMAND.name not in self._requested_names:
             return
-        with self._event_lock:
-            self._gamepad_connected = True
-            self._gamepad_state = {
-                "left_x": _clamp(float(getattr(state, "left_x", 0.0)), -1.0, 1.0),
-                "left_trigger": _clamp(
-                    float(getattr(state, "left_trigger", 0.0)), 0.0, 1.0
+        self._record_gamepad_state(
+            GamepadState(
+                connected=True,
+                steer=-_clamp(float(getattr(state, "left_x", 0.0)), -1.0, 1.0),
+                throttle=_clamp(
+                    float(getattr(state, "right_trigger", 0.0)),
+                    0.0,
+                    1.0,
                 ),
-                "right_trigger": _clamp(
-                    float(getattr(state, "right_trigger", 0.0)), 0.0, 1.0
+                brake=_clamp(
+                    float(getattr(state, "left_trigger", 0.0)),
+                    0.0,
+                    1.0,
                 ),
-            }
-
-    def _current_gamepad_command(self) -> dict[str, object] | None:
-        with self._event_lock:
-            if not self._gamepad_connected or self._gamepad_state is None:
-                return None
-            state = dict(self._gamepad_state)
-        if not any(abs(value) > _GAMEPAD_DEADZONE for value in state.values()):
-            return None
-        steer = -state["left_x"]
-        if abs(steer) <= _GAMEPAD_DEADZONE:
-            steer = 0.0
-        return dict(
-            DRIVER_COMMAND.value(
-                {
-                    "throttle": state["right_trigger"],
-                    "brake": state["left_trigger"],
-                    "steer": steer,
-                    "stop": False,
-                    "reverse": False,
-                }
+                reverse=False,
+                stop=False,
             )
         )
+
+    def _record_gamepad_state(self, state: GamepadState) -> None:
+        """Append one normalized gamepad event."""
+        event = UserInputEvent(
+            timestamp_s=max(0.0, self._clock() - self._session_start_s),
+            event_type=GAMEPAD_STATE_EVENT,
+            payload=gamepad_state_payload(state),
+            source="slangpy-gamepad",
+        )
+        with self._event_lock:
+            self._events.append(event)
 
 
 def _event_flag(event: Any, method_name: str) -> bool:

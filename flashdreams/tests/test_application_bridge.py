@@ -624,9 +624,9 @@ def test_application_scenario_selects_converters_only_for_raw_realtime_input() -
 
     assert batch.source_schema == UserInputSchema()
     assert batch.canonicalizer.converters == ()
-    assert [
-        converter.schema.produces for converter in realtime.canonicalizer.converters
-    ] == [DRIVER_COMMAND, CAMERA_COMMAND]
+    canonical_schema = realtime.canonicalizer.canonical_schema(realtime.source_schema)
+    assert canonical_schema.supports(DRIVER_COMMAND)
+    assert canonical_schema.supports(CAMERA_COMMAND)
     assert empty_realtime.canonicalizer.converters == ()
 
 

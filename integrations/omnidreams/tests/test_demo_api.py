@@ -51,6 +51,7 @@ from omnidreams.demo.webrtc import (
 )
 
 from flashdreams.runtime import (
+    GAMEPAD_STATE_EVENT,
     CanonicalInputs,
     InferenceConfig,
     InferenceInput,
@@ -636,6 +637,76 @@ def test_omnidreams_ludus_provider_folds_webrtc_skipped_inputs(
     assert step.inference_input.metadata["keyboard_segments"] == (
         (0.25, 0.25 + 2 / 30, ()),
     )
+
+
+def test_omnidreams_webrtc_provider_consumes_canonical_gamepad_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scene, rasterizers = _install_fake_ludus_provider_dependencies(monkeypatch)
+    scene_path = tmp_path / "scene.usdz"
+    scene_path.write_bytes(b"fake")
+    adapter = OmnidreamsDemoAdapter()
+    spec = DemoSpec(
+        model_id=OMNIDREAMS_MODEL_ID,
+        preset_id=DEFAULT_OMNIDREAMS_PRESET,
+        input_mode="keyboard-driving",
+        scenario=OmnidreamsWebRTCScenario(
+            scene_dir=scene_path,
+            scene_uuid="scene-1",
+            camera_name="camera_front_wide_120fov",
+        ),
+        output=WebRTCOutputSpec(
+            fps=30,
+            video_width=2,
+            video_height=2,
+            warmup_chunks=0,
+        ),
+        config=InferenceConfig(
+            model_id=OMNIDREAMS_MODEL_ID,
+            preset_id=DEFAULT_OMNIDREAMS_PRESET,
+            device="cpu",
+            runtime_options={"pipeline_config": object()},
+        ),
+    )
+    prepared = adapter.prepare_scenario(spec)
+    assert spec.config is not None
+    provider = adapter.create_model_input_provider(spec, prepared)
+    assert isinstance(provider, LudusSceneConditioningProvider)
+    provider.prepare_initial_input()
+
+    step = provider.prepare_step(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        user_window=UserInputWindow(
+            start_s=0.0,
+            end_s=2 / 30,
+            frame_times=(1 / 30, 2 / 30),
+            inputs=UserInputs(
+                events=(
+                    UserInputEvent(
+                        timestamp_s=0.0,
+                        event_type=GAMEPAD_STATE_EVENT,
+                        payload={
+                            "connected": True,
+                            "steer": 0.25,
+                            "throttle": 0.5,
+                            "brake": 0.0,
+                            "reverse": False,
+                            "stop": False,
+                        },
+                    ),
+                )
+            ),
+        ),
+    )
+
+    assert step.inference_input is not None
+    assert step.inference_input.metadata["keyboard_segments"] == (
+        (0.0, 2 / 30, ("a", "w")),
+    )
+    poses = rasterizers[0].calls[0]["rig_poses_world"]
+    assert poses[-1, 0, 3] > 0.0
+    assert not np.allclose(poses[-1, :3, :3], np.eye(3))
 
 
 def test_omnidreams_replay_run_mode_uses_precomputed_provider(

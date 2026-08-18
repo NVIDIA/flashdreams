@@ -285,7 +285,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v7" in html
+    assert "/static/request_session.js?v=shared-webrtc-v8" in html
     assert "attemptsRemaining: autoConnectMaxAttempts" in javascript
     assert javascript.count("connected = true") == 1
     assert 'pc.connectionState !== "connected"' in javascript
@@ -313,6 +313,10 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert 'label: "Controls"' in javascript
     assert "Array.isArray(adapter.controls)" in javascript
     assert "renderControls(modelControls)" in javascript
+    assert "navigator.getGamepads()" in javascript
+    assert 'type: "gamepad_state"' in javascript
+    assert "gamepadSendIntervalMs = 50" in javascript
+    assert "gamepadKeepaliveMs = 250" in javascript
     assert "/api/session/initial_scene" not in javascript
 
 

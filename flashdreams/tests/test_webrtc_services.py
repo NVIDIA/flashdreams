@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from flashdreams.runtime import (
+    GAMEPAD_STATE_EVENT,
     CanonicalInputSchema,
     IdentityInputMapping,
     InferenceConfig,
@@ -172,6 +173,67 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
         "event_id": "prompt-1",
         "state": "trigger",
     }
+
+
+@pytest.mark.asyncio
+async def test_webrtc_input_source_emits_analog_gamepad_state() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    message = source.handle_browser_payload(
+        {
+            "type": "gamepad_state",
+            "gamepad": {
+                "connected": True,
+                "steer": -0.25,
+                "throttle": 0.75,
+                "brake": 0.4,
+                "reverse": False,
+                "stop": False,
+            },
+        },
+        timestamp_s=0.05,
+    )
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+
+    result = await source.next_realtime_window(
+        request=StepRequirements(step_index=0, input_frame_count=2),
+        clock=clock,
+    )
+
+    assert message.kind == "gamepad"
+    assert message.activated
+    event = result.window.inputs.events[0]
+    assert event.event_type == GAMEPAD_STATE_EVENT
+    assert event.payload["throttle"] == 0.75
+    assert event.payload["brake"] == 0.4
+    assert event.payload["steer"] == -0.25
+
+
+def test_neutral_gamepad_state_does_not_activate_generation() -> None:
+    source = WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0))
+
+    result = source.handle_browser_payload(
+        {
+            "type": "gamepad_state",
+            "gamepad": {
+                "connected": False,
+                "steer": 0.0,
+                "throttle": 0.0,
+                "brake": 0.0,
+                "reverse": False,
+                "stop": False,
+            },
+        },
+        timestamp_s=0.05,
+    )
+
+    assert result.kind == "gamepad"
+    assert not result.activated
+    assert not source.activation_signal.is_set()
 
 
 @pytest.mark.asyncio

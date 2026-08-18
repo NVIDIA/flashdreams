@@ -6,14 +6,17 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS, KeyboardState
 
 PoseSegment = tuple[float, float, frozenset[str]]
+DriverSegment = tuple[float, float, dict[str, Any]]
+ControlSegment = tuple[float, float, frozenset[str] | dict[str, Any]]
 SPARSE_KEY_SEGMENTS_METADATA_KEY = "sparse_key_segments"
 """Legacy OmniDreams WebRTC metadata key retained for debug/multi-rank paths."""
 
@@ -179,26 +182,52 @@ class CameraPoseIntegrator:
         return self._current_pose.copy()
 
     def _advance(self, *, state: frozenset[str], duration: float) -> None:
+        self._advance_motion(
+            yaw=float("a" in state or "j" in state)
+            - float("d" in state or "l" in state),
+            pitch=float("i" in state) - float("k" in state),
+            forward=float("w" in state) - float("s" in state),
+            right=float("e" in state) - float("q" in state),
+            duration=duration,
+        )
+
+    def _advance_driver(
+        self,
+        *,
+        command: Mapping[str, Any],
+        duration: float,
+    ) -> None:
+        """Advance one analog driving command."""
+        if bool(command["stop"]):
+            return
+        throttle = float(command["throttle"])
+        if bool(command["reverse"]):
+            throttle = -throttle
+        self._advance_motion(
+            yaw=float(command["steer"]),
+            pitch=0.0,
+            forward=throttle - float(command["brake"]),
+            right=0.0,
+            duration=duration,
+        )
+
+    def _advance_motion(
+        self,
+        *,
+        yaw: float,
+        pitch: float,
+        forward: float,
+        right: float,
+        duration: float,
+    ) -> None:
+        """Advance continuous camera controls for ``duration`` seconds."""
         if duration <= 0:
             return
 
-        yaw_rate = 0.0
-        if self.coordinate_system == "FLU":
-            if "a" in state or "j" in state:
-                yaw_rate += self.rotate_speed_rad_per_s
-            if "d" in state or "l" in state:
-                yaw_rate -= self.rotate_speed_rad_per_s
-        else:
-            if "a" in state or "j" in state:
-                yaw_rate -= self.rotate_speed_rad_per_s
-            if "d" in state or "l" in state:
-                yaw_rate += self.rotate_speed_rad_per_s
-        pitch_rate = 0.0
-        if "i" in state:
-            pitch_rate += self.rotate_speed_rad_per_s
-        if "k" in state:
-            pitch_rate -= self.rotate_speed_rad_per_s
-
+        yaw_rate = self.rotate_speed_rad_per_s * (
+            yaw if self.coordinate_system == "FLU" else -yaw
+        )
+        pitch_rate = self.rotate_speed_rad_per_s * pitch
         yaw_delta = yaw_rate * duration
         pitch_delta = pitch_rate * duration
 
@@ -218,16 +247,8 @@ class CameraPoseIntegrator:
             rot_yaw = _rotation_matrix("y", yaw_delta)
         rot_new = rot_yaw @ rot @ rot_pitch
 
-        forward_rate = 0.0
-        if "w" in state:
-            forward_rate += self.move_speed_per_s
-        if "s" in state:
-            forward_rate -= self.move_speed_per_s
-        right_rate = 0.0
-        if "e" in state:
-            right_rate += self.move_speed_per_s
-        if "q" in state:
-            right_rate -= self.move_speed_per_s
+        forward_rate = self.move_speed_per_s * max(-1.0, min(1.0, forward))
+        right_rate = self.move_speed_per_s * max(-1.0, min(1.0, right))
 
         if self.coordinate_system == "FLU":
             vec_forward = rot_new[:, 0]
@@ -260,7 +281,7 @@ class CameraPoseIntegrator:
     def integrate_chunk(
         self,
         *,
-        segments: list[PoseSegment],
+        segments: Sequence[ControlSegment],
         frame_times: list[float],
     ) -> np.ndarray:
         if not segments:
@@ -285,19 +306,33 @@ class CameraPoseIntegrator:
         for _, seg_end, seg_state in segments:
             while ft_idx < len(frame_times) and frame_times[ft_idx] <= seg_end:
                 target_t = frame_times[ft_idx]
-                self._advance(state=seg_state, duration=target_t - cur_t)
+                self._advance_segment(seg_state, duration=target_t - cur_t)
                 cur_t = target_t
                 poses.append(self._current_pose.copy())
                 ft_idx += 1
             if seg_end > cur_t:
-                self._advance(state=seg_state, duration=seg_end - cur_t)
+                self._advance_segment(seg_state, duration=seg_end - cur_t)
                 cur_t = seg_end
 
         return np.stack(poses, axis=0).astype(np.float32)
 
+    def _advance_segment(
+        self,
+        state: frozenset[str] | dict[str, Any],
+        *,
+        duration: float,
+    ) -> None:
+        """Advance either legacy key state or canonical driving state."""
+        if isinstance(state, dict):
+            self._advance_driver(command=state, duration=duration)
+        else:
+            self._advance(state=state, duration=duration)
+
 
 __all__ = [
     "CameraPoseIntegrator",
+    "ControlSegment",
+    "DriverSegment",
     "KeyboardResampler",
     "PoseSegment",
     "SPARSE_KEY_SEGMENTS_METADATA_KEY",
