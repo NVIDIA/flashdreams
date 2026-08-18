@@ -8,6 +8,12 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.accelerated.multi_head_attention import AttentionType
+from flashdreams.accelerated.multi_head_attention_triton import (
+    QKVFusionOption,
+    SDPABackend,
+    TritonMultiHeadAttention,
+)
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
@@ -114,7 +120,7 @@ def test_kvcache_relative_rope_does_not_mutate_cached_keys(monkeypatch) -> None:
         return x.add_(1.0)
 
     monkeypatch.setattr(wan_modules, "apply_rope_freqs", _fake_apply_rope_freqs)
-    attn.apply_kv(
+    attn.query_kv(
         torch.randn(1, 3, 4),
         cache,
         rope_freqs_q=torch.zeros(3, 1, 1, 4),
@@ -161,6 +167,100 @@ def test_wan21_requires_tokens_divisible_by_cp_size(monkeypatch) -> None:
             width=2,
             text_embeddings=torch.zeros(1, 1, 1),
         )
+
+
+@pytest.mark.parametrize(
+    "sdpa_backend", tuple(SDPABackend), ids=lambda backend: backend.value
+)
+def test_wan_network_propagates_sdpa_backend(
+    sdpa_backend: SDPABackend,
+) -> None:
+    """Propagate the configured SDPA implementation through every DiT block."""
+    config = WanDiTNetworkConfig(
+        dim=64,
+        ffn_dim=128,
+        num_heads=4,
+        num_layers=1,
+        patch_embedding_type="linear",
+        attention_backend=wan_modules.AttentionBackend.TRITON,
+        sdpa_backend=sdpa_backend,
+    )
+
+    network = config.setup()
+    block = network.blocks[0]
+
+    assert config.sdpa_backend is sdpa_backend
+    assert network.sdpa_backend is sdpa_backend
+    assert block.sdpa_backend is sdpa_backend
+    assert isinstance(block.self_attn, TritonMultiHeadAttention)
+    assert block.self_attn.qkv_fusion_option is QKVFusionOption.FULL
+    assert block.self_attn.sdpa_backend is sdpa_backend
+    assert isinstance(block.cross_attn, wan_modules.TritonCrossAttention)
+    assert block.cross_attn.attention_type is AttentionType.CROSS_ATTENTION
+    assert block.cross_attn.qkv_fusion_option is QKVFusionOption.FUSE_KV
+    assert block.cross_attn.use_fp8 is True
+    assert block.cross_attn.sdpa_backend is SDPABackend.TRITON
+
+
+def test_triton_attention_registers_only_wan_checkpoint_names() -> None:
+    """Expose logical Triton modules without adding generic checkpoint aliases."""
+    reference = wan_modules.SelfAttention(64, n_heads=4, head_dim=16)
+    actual = wan_modules.TritonSelfAttention(64, n_heads=4, head_dim=16)
+    actual.load_state_dict(reference.state_dict(), strict=True)
+
+    assert actual.query_projection is actual.q
+    assert actual.key_projection is actual.k
+    assert actual.value_projection is actual.v
+    assert actual.output_projection is actual.o
+    assert actual.query_norm is actual.norm_q
+    assert actual.key_norm is actual.norm_k
+
+    generic_names = {"q_proj", "k_proj", "v_proj", "output_proj", "q_norm", "k_norm"}
+    assert generic_names.isdisjoint(actual._modules)
+    assert set(actual.state_dict()) == set(reference.state_dict())
+    assert actual._derived_weights.fused_qkv_weight is not None
+
+
+def test_triton_cross_attention_registers_only_wan_checkpoint_names() -> None:
+    """Load Wan T2V cross-attention weights without generic checkpoint aliases."""
+    reference = wan_modules.CrossAttention(query_dim=64, n_heads=4, head_dim=16)
+    actual = wan_modules.TritonCrossAttention(query_dim=64, n_heads=4, head_dim=16)
+    actual.load_state_dict(reference.state_dict(), strict=True)
+
+    assert actual.query_projection is actual.q
+    assert actual.key_projection is actual.k
+    assert actual.value_projection is actual.v
+    assert actual.output_projection is actual.o
+    assert actual.query_norm is actual.norm_q
+    assert actual.key_norm is actual.norm_k
+
+    generic_names = {"q_proj", "k_proj", "v_proj", "output_proj", "q_norm", "k_norm"}
+    assert generic_names.isdisjoint(actual._modules)
+    assert set(actual.state_dict()) == set(reference.state_dict())
+    assert actual._derived_weights.fused_kv_weight is not None
+
+
+def test_triton_backend_keeps_native_i2v_cross_attention() -> None:
+    """Keep Wan's dual text/image cross-attention when I2V is enabled."""
+    reference = wan_modules.Block(
+        dim=64,
+        ffn_dim=128,
+        num_heads=4,
+        i2v=True,
+    )
+    actual = wan_modules.Block(
+        dim=64,
+        ffn_dim=128,
+        num_heads=4,
+        i2v=True,
+        attention_backend=wan_modules.AttentionBackend.TRITON,
+    )
+    actual.load_state_dict(reference.state_dict(), strict=True)
+
+    assert isinstance(actual.self_attn, wan_modules.TritonSelfAttention)
+    assert isinstance(actual.cross_attn, wan_modules.CrossAttention)
+    assert not isinstance(actual.cross_attn, wan_modules.TritonCrossAttention)
+    assert actual.cross_attn.i2v is True
 
 
 def test_wan_patchify_unpatchify_round_trip_without_cp() -> None:

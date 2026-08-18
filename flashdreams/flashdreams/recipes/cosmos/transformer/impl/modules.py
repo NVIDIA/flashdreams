@@ -329,7 +329,7 @@ class MultiHeadAttention(nn.Module):
         """Append K/V computed from ``x`` into an existing ``kv_cache``."""
         return self._compute_or_update_kv_cache(x, kv_cache, rope_freqs)
 
-    def apply_kv(
+    def query_kv(
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
@@ -382,13 +382,13 @@ class MultiHeadAttention(nn.Module):
         """
         if update_kv_cache:
             kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.apply_kv(x, kv_cache, rope_freqs)
+        return self.query_kv(x, kv_cache, rope_freqs)
 
 
 class SelfAttention(MultiHeadAttention):
     """Self-attention: queries and K/V are derived from the same ``x`` each step."""
 
-    def initialize_cache(
+    def allocate_kv_cache(
         self,
         batch_size: int,
         chunk_size: int,
@@ -397,7 +397,7 @@ class SelfAttention(MultiHeadAttention):
         device: torch.device,
         dtype: torch.dtype,
     ) -> BlockKVCache:
-        """Initialize KV cache for streaming self-attention.
+        """Allocate a KV cache for streaming self-attention.
 
         Args:
             batch_size: Flattened batch size used by attention.
@@ -565,7 +565,7 @@ class Block(nn.Module):
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
         return BlockCache(
-            self_attn=self.self_attn.initialize_cache(
+            self_attn=self.self_attn.allocate_kv_cache(
                 batch_size,
                 chunk_size,
                 window_size,
