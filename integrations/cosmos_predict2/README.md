@@ -7,7 +7,10 @@ This is a worked example of the
 [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
 developer-guide flow.
 
-**In this plugin, bidirectional video generation is treated as a 1-rollout (large-windowed) causal rollout.**
+Cosmos-Predict2 is **bidirectional**: it generates the complete clip in one
+rollout instead of advancing through multiple causal blocks. It therefore
+requires exactly one block (`--total-blocks 1`); multi-block generation is not
+supported.
 
 ## Shipped slugs
 
@@ -15,6 +18,9 @@ developer-guide flow.
 | --- | --- |
 | `cosmos2-t2v-2b-720p` | Cosmos-Predict2 2B T2V at 720p (single AR step, prompt-only). |
 | `cosmos2-i2v-2b-720p` | Cosmos-Predict2 2B I2V at 720p (single AR step, prompt + first-frame image). |
+
+The higher-level T2V application is registered as `t2v-cosmos-predict2` and
+uses the same single-block bidirectional rollout.
 
 ## Install
 

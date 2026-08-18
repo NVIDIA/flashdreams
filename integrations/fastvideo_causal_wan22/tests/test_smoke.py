@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cheap import-time checks for the ``fastvideo_causal_wan22`` plugin."""
+"""Cheap configuration checks for the ``fastvideo_causal_wan22`` plugin."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ import pytest
 import tomli as tomllib
 from fastvideo_causal_wan22 import config as config_mod
 from fastvideo_causal_wan22.config import RUNNER_CONFIGS
+from fastvideo_causal_wan22.t2v.app import FastvideoCausalWan22T2VApplication
 
 from flashdreams.infra.runner import RunnerConfig
 
@@ -54,6 +55,29 @@ def test_runners_have_descriptions() -> None:
         slug for slug, cfg in RUNNER_CONFIGS.items() if not cfg.description.strip()
     ]
     assert not empty, f"runners missing description: {empty}"
+
+
+@pytest.mark.parametrize(
+    ("compile_flag", "expected"),
+    [("--compile", True), ("--no-compile", False)],
+)
+def test_t2v_compile_override_updates_both_transformers(
+    compile_flag: str,
+    expected: bool,
+) -> None:
+    """Both FastVideo noise-level transformers honor the T2V compile flag."""
+    application = FastvideoCausalWan22T2VApplication()
+    application.init(["--prompt", "A waterfall", compile_flag])
+
+    session_config = application._session_config
+    assert session_config is not None
+    transformer = session_config.pipeline_config.diffusion_model.transformer
+    assert transformer.transformer_high_noise.compile_network is expected
+    assert transformer.transformer_low_noise.compile_network is expected
+
+    base_transformer = application.defaults.pipeline_config.diffusion_model.transformer
+    assert base_transformer.transformer_high_noise.compile_network is True
+    assert base_transformer.transformer_low_noise.compile_network is True
 
 
 def test_entry_points_match_module_literals() -> None:

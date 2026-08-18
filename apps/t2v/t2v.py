@@ -71,14 +71,26 @@ class T2VApplicationDefaults:
     """Layout emitted by the integration pipeline."""
 
     @classmethod
-    def from_runner_config(cls, runner_config: Any) -> "T2VApplicationDefaults":
+    def from_runner_config(
+        cls,
+        runner_config: Any,
+        *,
+        total_blocks: int | None = None,
+    ) -> "T2VApplicationDefaults":
         """Derive application defaults from an integration-owned runner config."""
-        required = ("pipeline", "total_blocks", "pixel_height", "pixel_width")
+        required = ["pipeline", "pixel_height", "pixel_width"]
+        if total_blocks is None:
+            required.append("total_blocks")
         missing = [name for name in required if not hasattr(runner_config, name)]
         if missing:
             raise TypeError(
                 f"T2V runner config is missing application defaults: {missing}."
             )
+        resolved_total_blocks = (
+            int(runner_config.total_blocks)
+            if total_blocks is None
+            else int(total_blocks)
+        )
         output_layout = getattr(
             runner_config,
             "postprocess_output_layout",
@@ -88,7 +100,7 @@ class T2VApplicationDefaults:
             output_layout = "tchw"
         return cls(
             pipeline_config=runner_config.pipeline,
-            total_blocks=int(runner_config.total_blocks),
+            total_blocks=resolved_total_blocks,
             pixel_height=int(runner_config.pixel_height),
             pixel_width=int(runner_config.pixel_width),
             fps=float(getattr(runner_config, "fps", 16.0)),
@@ -146,6 +158,30 @@ class T2VApplication(IFlashDreamsApplication):
         """Return whether T2V sessions can rebuild per-generation state."""
         return True
 
+    def _validate_total_blocks(self, total_blocks: int) -> None:
+        """Integration hook for model-specific rollout-length validation."""
+        if total_blocks <= 0:
+            raise ValueError("--total-blocks must be greater than zero.")
+
+    def _apply_compile_override(
+        self,
+        pipeline_config: Any,
+        enabled: bool,
+    ) -> Any:
+        """Integration hook for applying compilation to transformer config."""
+        return derive_config(
+            pipeline_config,
+            diffusion_model={
+                "transformer": {"compile_network": enabled},
+            },
+        )
+
+    def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Add integration-specific application arguments to ``parser``."""
+
+    def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
+        """Capture validated integration-specific application arguments."""
+
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
         parser = argparse.ArgumentParser(prog="flashdreams-run <t2v-slug>")
@@ -166,27 +202,26 @@ class T2VApplication(IFlashDreamsApplication):
             action=argparse.BooleanOptionalAction,
             default=None,
         )
+        self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
         prompt = (args.prompt or "").strip()
         if not prompt:
             raise ValueError("--prompt is required and must be non-empty.")
-        if args.total_blocks <= 0:
-            raise ValueError("--total-blocks must be greater than zero.")
+        self._validate_total_blocks(args.total_blocks)
         if args.pixel_height <= 0 or args.pixel_width <= 0:
             raise ValueError(
                 "--pixel-height and --pixel-width must be greater than zero."
             )
         if args.fps <= 0:
             raise ValueError("--fps must be greater than zero.")
+        self._apply_parsed_arguments(args)
 
         pipeline_config = self.defaults.pipeline_config
         if args.compile is not None:
-            pipeline_config = derive_config(
+            pipeline_config = self._apply_compile_override(
                 pipeline_config,
-                diffusion_model={
-                    "transformer": {"compile_network": args.compile},
-                },
+                args.compile,
             )
         self._session_config = _T2VSessionConfig(
             pipeline_config=pipeline_config,

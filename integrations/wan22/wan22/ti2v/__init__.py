@@ -13,4 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wan 2.2 TI2V-5B inference recipe and application."""
+"""Wan 2.2 text-and-image-to-video application."""
+
+from .app import create_app
+
+__all__ = ["create_app"]

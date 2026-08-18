@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -147,6 +148,43 @@ def test_prompt_is_required() -> None:
     application = _application(_FakePipeline())
     with pytest.raises(ValueError, match="--prompt is required"):
         application.init([])
+
+
+def test_compile_override_updates_single_transformer_config() -> None:
+    application = _application(_FakePipeline())
+    pipeline_config = SimpleNamespace(
+        diffusion_model=SimpleNamespace(
+            transformer=SimpleNamespace(compile_network=True)
+        )
+    )
+
+    resolved = application._apply_compile_override(pipeline_config, False)
+
+    assert resolved.diffusion_model.transformer.compile_network is False
+    assert pipeline_config.diffusion_model.transformer.compile_network is True
+
+
+def test_total_block_validation_can_be_narrowed_by_an_integration() -> None:
+    class _SingleBlockApplication(T2VApplication):
+        def _validate_total_blocks(self, total_blocks: int) -> None:
+            super()._validate_total_blocks(total_blocks)
+            if total_blocks > 1:
+                raise ValueError("test application supports exactly one block")
+
+    application = _SingleBlockApplication(
+        defaults=T2VApplicationDefaults(
+            pipeline_config=_FakePipelineConfig(_FakePipeline()),
+            total_blocks=1,
+            pixel_height=480,
+            pixel_width=832,
+        )
+    )
+    application.init(["--prompt", "A waterfall", "--total-blocks", "1"])
+
+    with pytest.raises(ValueError, match="greater than zero"):
+        application.init(["--prompt", "A waterfall", "--total-blocks", "0"])
+    with pytest.raises(ValueError, match="exactly one block"):
+        application.init(["--prompt", "A waterfall", "--total-blocks", "2"])
 
 
 def test_t2v_model_warmup_covers_observed_autoregressive_signatures() -> None:
@@ -585,3 +623,26 @@ def test_application_defaults_derive_from_runner_config() -> None:
     assert defaults.pixel_width == 640
     assert defaults.fps == 24
     assert defaults.output_layout == "cthw"
+
+
+def test_application_defaults_accept_explicit_total_blocks() -> None:
+    pipeline_config = object()
+    runner_config = type(
+        "RunnerConfig",
+        (),
+        {
+            "pipeline": pipeline_config,
+            "pixel_height": 480,
+            "pixel_width": 832,
+        },
+    )()
+
+    defaults = T2VApplicationDefaults.from_runner_config(
+        runner_config,
+        total_blocks=1,
+    )
+
+    assert defaults.pipeline_config is pipeline_config
+    assert defaults.total_blocks == 1
+    assert defaults.pixel_height == 480
+    assert defaults.pixel_width == 832

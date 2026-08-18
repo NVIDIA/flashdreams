@@ -21,8 +21,8 @@ TI2V mode reuses :class:`WanInferencePipeline`: the I2V control encoder
 on it via ``stamp_image_latent`` and ``ti2v_first_frame_per_token_timestep``
 (frame-0 tokens see ``t=0``, the rest denoise at the scheduler step). The
 ``Wan-AI/Wan2.2-TI2V-5B-Diffusers`` checkpoints load through the DiT and
-VAE remap transforms. Downstream runners (e.g. ``hy_worldplay``) layer the
-I/O wrapper on top.
+VAE remap transforms. The package's application and downstream runners
+(e.g. ``hy_worldplay``) layer their I/O behavior on top.
 """
 
 from __future__ import annotations
@@ -45,11 +45,20 @@ from flashdreams.recipes.wan.transformer.impl.network import (
 )
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
 
+DEFAULT_VIDEO_HEIGHT = 640
+"""Default output height for the standard Wan 2.2 TI2V-5B rollout."""
+
+DEFAULT_VIDEO_WIDTH = 1280
+"""Default output width for the standard Wan 2.2 TI2V-5B rollout."""
+
+DEFAULT_VIDEO_FPS = 16
+"""Default presentation frame rate for the Wan 2.2 TI2V-5B demo."""
+
 WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/"
-    "transformer/diffusion_pytorch_model.safetensors"
+    "transformer/diffusion_pytorch_model.safetensors.index.json"
 )
-"""HF diffusers checkpoint for the Wan 2.2 TI2V-5B DiT (``transformer/`` subfolder)."""
+"""HF sharded-checkpoint index for the Wan 2.2 TI2V-5B DiT."""
 
 
 # Diffusers ``WanTransformer3DModel`` -> ``WanDiTNetwork`` key remap:
@@ -146,6 +155,9 @@ WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {
 
 
 __all__ = [
+    "DEFAULT_VIDEO_FPS",
+    "DEFAULT_VIDEO_HEIGHT",
+    "DEFAULT_VIDEO_WIDTH",
     "PIPELINE_WAN22_TI2V_5B",
     "WAN22_TI2V_5B_DIT_DIFFUSERS_PATH",
     "WAN_CONFIGS",
