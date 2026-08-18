@@ -113,6 +113,53 @@ video = pipeline.generate(autoregressive_index=0, cache=cache)
 pipeline.finalize(autoregressive_index=0, cache=cache) # update one-step stats
 ```
 
+## Benchmarks
+
+The WAN21 benchmarks are manual, GPU-only pytest tests for the shipped
+`wan21-t2v-1.3b-480p` configuration. Each benchmark layer compares the default
+WAN/cuDNN self-attention path, Triton FP8 projections with PyTorch cuDNN SDPA,
+and Triton FP8 projections with Triton FlashAttention2 (FA2). Their stable
+labels are `wan_torch`, `triton_cudnn`, and `triton_fa2`. Both Triton cases
+require an NVIDIA GPU with compute capability 9.0 or newer and do not support
+context parallelism.
+
+First sync this integration and the workspace benchmark dependencies:
+
+```bash
+uv sync --package flashdreams-wan21 --group test
+```
+
+Run the complete suite from the workspace root:
+
+```bash
+uv run --package flashdreams-wan21 --group test pytest \
+  integrations/wan21/benchmarks \
+  -p no:manual_marker -m manual --benchmark-only -v
+```
+
+To run one benchmark layer, replace the benchmark directory with one of these
+files:
+
+- `test_modules.py` benchmarks self-attention and one complete DiT block at the
+  production 480x832, 21-latent-frame tensor geometry with shared random
+  weights.
+- `test_network.py` benchmarks one complete, random-initialized Wan 2.1 1.3B
+  DiT evaluation at the same geometry.
+- `test_pipeline.py` separately benchmarks checkpoint-backed `generate` and
+  `finalize` for the production 50-step CFG pipeline. It records one measured
+  full `generate` per backend and constructs a production-shaped synthetic
+  final state for `finalize`, so the finalize case runs no denoising rollout.
+
+The pipeline uses targeted untimed DiT and VAE component prewarm instead of a
+full-generation warmup. Its results are single-sample latency and throughput
+observations, not median or p90 estimates. The benchmarks exclude model
+construction, checkpoint loading, and cache-object allocation from measured
+rounds. The one-shot pipeline measurements intentionally include AR=0
+CUDA-graph wrapper input staging, which is recurring per-rollout work after a
+fresh cache resets captured graph state. When publishing results, also record
+the exact command and commit, prompt and seed, compiler-cache state, GPU/driver
+and software stack, and any fallback warnings.
+
 ## Tests
 
 ```bash

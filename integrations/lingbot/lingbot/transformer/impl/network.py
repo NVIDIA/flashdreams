@@ -99,6 +99,8 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             cp_method=self.cp_method,
+            attention_backend=self.attention_backend,
+            sdpa_backend=self.sdpa_backend,
         )
 
     def replace_text_embeddings(

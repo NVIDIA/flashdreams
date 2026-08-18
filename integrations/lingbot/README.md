@@ -309,6 +309,13 @@ Text-driven events work with both v1 and v2 through the same DataChannel:
   `event_catalog`, and `active_event_id`; successful updates receive an
   `event_ack`.
 
+## Benchmarks
+
+Manual GPU benchmarks cover the LingBot-owned `CamCtrlBlock`, the complete DiT
+network, and steady-state full-pipeline `generate` and `finalize` stages. See
+the [benchmark guide](benchmarks/README.md) for hardware requirements, scope,
+and the single- and multi-GPU commands.
+
 ## Tests
 
 ```bash
