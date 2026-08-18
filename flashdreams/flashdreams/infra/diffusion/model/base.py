@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Generic, cast
 
+import nvtx
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -197,12 +198,13 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
                     noisy_latent
                 )
 
-            output = self.transformer.predict_flow(
-                noisy_latent=noisy_latent,
-                timestep=timestep,
-                cache=cache,
-                input=input,
-            )
+            with nvtx.annotate("flashdreams.diffusion.predict_flow"):
+                output = self.transformer.predict_flow(
+                    noisy_latent=noisy_latent,
+                    timestep=timestep,
+                    cache=cache,
+                    input=input,
+                )
 
             if self.config.noise_in_unpatchified_shape:
                 output = self.transformer.unpatchify_and_maybe_gather_cp(output)
