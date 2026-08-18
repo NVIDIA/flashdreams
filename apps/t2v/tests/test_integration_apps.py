@@ -38,7 +38,13 @@ def test_t2v_app_installs_dependencies_for_documented_outputs() -> None:
     [
         ("cosmos_predict2", "cosmos_predict2", "t2v-cosmos-predict2"),
         ("causal_forcing", "causal_forcing", "t2v-causal-forcing"),
+        (
+            "fastvideo_causal_wan22",
+            "fastvideo_causal_wan22",
+            "t2v-fastvideo-causal-wan22",
+        ),
         ("self_forcing", "self_forcing", "t2v-self-forcing"),
+        ("wan21", "wan21", "t2v-wan21"),
     ],
 )
 def test_concrete_t2v_app_is_owned_by_integration(

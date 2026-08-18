@@ -16,6 +16,9 @@ developer-guide flow.
 | `wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only). |
 | `wan21-i2v-14b-480p` | Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame). |
 
+The higher-level T2V application is registered as `t2v-wan21`; see the
+[shared T2V application guide](../../apps/t2v/README.md) for launch modes.
+
 ## Install
 
 The plugin is registered as a `uv` workspace member in the repo-root

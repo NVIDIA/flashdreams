@@ -10,7 +10,9 @@ local-window/serving dependencies without installing unrelated integrations:
 
 - `t2v-causal-forcing` → `--package flashdreams-causal-forcing`
 - `t2v-cosmos-predict2` → `--package flashdreams-cosmos-predict2`
+- `t2v-fastvideo-causal-wan22` → `--package flashdreams-fastvideo-causal-wan22`
 - `t2v-self-forcing` → `--package flashdreams-self-forcing`
+- `t2v-wan21` → `--package flashdreams-wan21`
 
 Native SlangPy window (default):
 
@@ -49,8 +51,8 @@ uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
   --prompt "A robot walking through a forest."
 ```
 
-Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`, and
-`t2v-self-forcing`. All backends receive the same transport-neutral
-`InputHandler` and `OutputSink` API. Input handlers publish named,
-time-windowed `CanonicalInputWindow` values matching each application's
-`CanonicalInputSchema`.
+Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`,
+`t2v-fastvideo-causal-wan22`, `t2v-self-forcing`, and `t2v-wan21`. All
+backends receive the same transport-neutral `InputHandler` and `OutputSink`
+API. Input handlers publish named, time-windowed `CanonicalInputWindow` values
+matching each application's `CanonicalInputSchema`.

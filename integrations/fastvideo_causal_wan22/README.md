@@ -13,6 +13,10 @@ developer-guide flow.
 | --- | --- |
 | `fastvideo-causal-wan2.2-t2v-14b` | FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step). |
 
+The higher-level T2V application is registered as
+`t2v-fastvideo-causal-wan22`; see the
+[shared T2V application guide](../../apps/t2v/README.md) for launch modes.
+
 The two MoE branches share every Wan 2.1 14B knob and only differ by
 checkpoint: `high_noise` runs above the boundary
 (`timestep / num_train_timesteps >= boundary_ratio`), `low_noise` runs
