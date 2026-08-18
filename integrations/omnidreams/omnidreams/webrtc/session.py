@@ -44,6 +44,7 @@ from omnidreams.scenes import (
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc import vae_artifacts
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -1134,6 +1135,18 @@ class OmnidreamsWebRTCSessionManager(
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
+
+    def _token_stream_extra_header(self) -> dict[str, Any]:
+        descriptor = vae_artifacts.build_descriptor()
+        if descriptor is None:
+            logger.warning(
+                "Token streaming is enabled but no VAE decoder artifact was found "
+                "under {}; run `python -m omnidreams.webrtc.export_vae` so the "
+                "client can decode latents.",
+                vae_artifacts.cache_dir(),
+            )
+            return {}
+        return {"vae_model": descriptor}
 
     def _chunk_done_extra(self) -> dict[str, Any]:
         return {

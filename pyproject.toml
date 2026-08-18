@@ -95,6 +95,9 @@ exclude = [
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
     "integrations/hy_worldplay/tests/parity_check/**",
+    # Throwaway token-streaming spikes (DEBUG-ONLY, removed before the product
+    # PR); same not-shipped-scaffolding precedent as above.
+    "spike/**",
 ]
 
 [tool.ty.rules]

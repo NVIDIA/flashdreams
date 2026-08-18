@@ -186,6 +186,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         """Human-readable model identifier reported in ``chunk_done``."""
         raise NotImplementedError
 
+    def _token_stream_extra_header(self) -> dict[str, Any]:
+        """Extra fields merged into the token-stream session header.
+
+        Lets a subclass advertise how the client should decode the latents it
+        receives (e.g. a downloadable VAE-decoder model). The base stream is
+        decoder-agnostic, so the default adds nothing.
+        """
+        return {}
+
     def _peek_pending_session_input(self) -> Any:
         """Session input applied to the next ``create_answer`` (or ``None``)."""
         return None
@@ -434,6 +443,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             codec=codec,
             fps=self.fps,
             flow_window_size=self._token_stream_config.flow_window_size,
+            extra_header=self._token_stream_extra_header(),
         )
         session.token_emitter = emitter
         try:

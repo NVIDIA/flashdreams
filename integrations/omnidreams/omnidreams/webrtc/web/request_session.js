@@ -47,6 +47,9 @@ let disconnecting = false
 let heldKeySequence = 0
 let postprocessControlAvailable = false
 let tokenStreamSession = null
+// True while the token render loop owns idleCanvas, so the idle animation
+// yields the canvas instead of overdrawing decoded frames.
+let tokenRenderActive = false
 
 const metrics = {
   fps: null,
@@ -289,6 +292,12 @@ function drawRouteRibbon(ctx, width, height, t) {
 function drawIdleScene(now) {
   const ctx = idleCanvas.getContext("2d")
   if (!ctx) {
+    return
+  }
+  // The token render loop presents decoded frames onto this same canvas; stop
+  // the idle animation (without rescheduling) so it does not overdraw them. The
+  // loop resumes when the token stream stops.
+  if (tokenRenderActive) {
     return
   }
 
@@ -696,6 +705,10 @@ function stopTokenStream() {
     tokenStreamSession.stop()
     tokenStreamSession = null
   }
+  if (tokenRenderActive) {
+    tokenRenderActive = false
+    window.requestAnimationFrame(drawIdleScene)
+  }
 }
 
 // When the user selects token mode and WebGPU is available, open the dedicated
@@ -727,6 +740,7 @@ async function maybeStartTokenStream(webgpu) {
     log: logEvent,
   })
   tokenStreamSession.start()
+  tokenRenderActive = true
   logEvent("token stream started", { source: "client" })
 }
 

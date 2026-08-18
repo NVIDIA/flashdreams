@@ -31,6 +31,11 @@ export class RenderLoop {
     this._running = false
     this._rafId = null
     this._tick = this._tick.bind(this)
+    this._ctx = null
+    this._scratch = null
+    this._scratchCtx = null
+    this._current = null
+    this._frameCursor = 0
   }
 
   /** Begin the animation-frame loop. Idempotent. */
@@ -50,6 +55,8 @@ export class RenderLoop {
       this._rafId = null
     }
     this._queue.length = 0
+    this._current = null
+    this._frameCursor = 0
   }
 
   /**
@@ -65,25 +72,47 @@ export class RenderLoop {
       return
     }
 
-    // Present at most one chunk per animation frame to pace playback.
-    const chunk = this._queue.shift()
-    if (chunk) {
-      for (const frame of chunk.frames) {
-        this._blit(frame)
-        this._onFramePresented?.(now)
+    // Present one frame per animation frame so every decoded frame is shown
+    // (blitting a whole chunk in a single frame would leave only its last frame
+    // visible). The chunk is acked once its last frame is on screen, which
+    // paces the server's flow-control window to the display rate.
+    if (!this._current) {
+      this._current = this._queue.shift() ?? null
+      this._frameCursor = 0
+    }
+    if (this._current) {
+      const frames = this._current.frames
+      this._blit(frames[this._frameCursor])
+      this._onFramePresented?.(now)
+      this._frameCursor += 1
+      if (this._frameCursor >= frames.length) {
+        this._onChunkPresented?.(this._current.chunkId)
+        this._current = null
       }
-      // The chunk is fully on screen; release the server flow-control slot.
-      this._onChunkPresented?.(chunk.chunkId)
     }
 
     this._rafId = window.requestAnimationFrame(this._tick)
   }
 
   _blit(frame) {
-    // TODO: copy the decoded RGB texture/buffer to the canvas via WebGPU once
-    // the VAE decoder produces real output. Kept as a stub so the loop can run
-    // without a decoder.
-    void frame
-    void this._canvas
+    const ctx = this._ctx ?? (this._ctx = this._canvas?.getContext("2d"))
+    if (!ctx) {
+      return
+    }
+    // `frame` is an ImageData at the decoder's native resolution. Stage it on a
+    // matching scratch canvas, then scale-blit onto the (dpr-sized) display
+    // canvas, which cannot take a scaled putImageData directly.
+    if (
+      !this._scratchCtx ||
+      this._scratch.width !== frame.width ||
+      this._scratch.height !== frame.height
+    ) {
+      this._scratch = document.createElement("canvas")
+      this._scratch.width = frame.width
+      this._scratch.height = frame.height
+      this._scratchCtx = this._scratch.getContext("2d")
+    }
+    this._scratchCtx.putImageData(frame, 0, 0)
+    ctx.drawImage(this._scratch, 0, 0, this._canvas.width, this._canvas.height)
   }
 }
