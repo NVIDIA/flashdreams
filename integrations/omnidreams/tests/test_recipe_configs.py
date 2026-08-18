@@ -51,6 +51,15 @@ def test_public_runner_slugs_map_to_internal_pipeline_presets() -> None:
     expected = {
         "omnidreams": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
         "omnidreams-perf": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        "omnidreams-cuda-cudnn": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-cudnn"
+        ),
+        "omnidreams-cuda-sparge": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-sparge"
+        ),
+        "omnidreams-cuda-sage3fp8": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-sage3-fp8"
+        ),
     }
     actual = {slug: cfg.pipeline.name for slug, cfg in OMNIDREAMS_RUNNERS.items()}
     assert actual == expected

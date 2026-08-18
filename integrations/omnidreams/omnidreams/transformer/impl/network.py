@@ -24,6 +24,10 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.multi_head_attention_triton import (
+    QKVFusionOption,
+    SDPABackend,
+)
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
@@ -31,6 +35,7 @@ from flashdreams.core.distributed.context_parallel import (
 from flashdreams.infra.config import InstantiateConfig
 
 from .modules import (
+    AttentionBackend,
     Block,
     BlockCache,
     FinalLayer,
@@ -119,6 +124,27 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method for transformer attention ops."""
 
+    self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    """Self-attention implementation used by every DiT block."""
+
+    cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    """Text and cross-view attention implementation used by every DiT block."""
+
+    sdpa_backend: SDPABackend = SDPABackend.TRITON
+    """SDPA implementation used by accelerated self-attention."""
+
+    cross_attn_sdpa_backend: SDPABackend = SDPABackend.TRITON
+    """SDPA implementation used by accelerated cross-attention."""
+
+    self_attn_qkv_fusion_option: QKVFusionOption = QKVFusionOption.FULL
+    """Projection fusion policy used by accelerated self-attention."""
+
+    cross_attn_qkv_fusion_option: QKVFusionOption = QKVFusionOption.FUSE_KV
+    """Projection fusion policy used by accelerated cross-attention."""
+
+    use_fp8: bool = True
+    """Whether accelerated attention projections and supported storage use FP8."""
+
     view_condition_dim: int = 16
     """Embedding dim for the per-view conditioning vector."""
 
@@ -132,6 +158,15 @@ class CosmosDiTNetwork(nn.Module):
     def __init__(self, config: CosmosDiTNetworkConfig):
         super().__init__()
         self.config = config
+        self.sdpa_backend = SDPABackend(config.sdpa_backend)
+        self.cross_attn_sdpa_backend = SDPABackend(config.cross_attn_sdpa_backend)
+        self.self_attn_qkv_fusion_option = QKVFusionOption(
+            config.self_attn_qkv_fusion_option
+        )
+        self.cross_attn_qkv_fusion_option = QKVFusionOption(
+            config.cross_attn_qkv_fusion_option
+        )
+        self.use_fp8 = config.use_fp8
 
         # add 1 for the condition mask
         in_channels = config.in_channels + 1
@@ -177,6 +212,13 @@ class CosmosDiTNetwork(nn.Module):
                     adaln_lora_dim=self.config.adaln_lora_dim,
                     enable_cross_view_attn=self.config.enable_cross_view_attn,
                     cp_method=self.config.cp_method,
+                    self_attention_backend=self.config.self_attention_backend,
+                    cross_attention_backend=self.config.cross_attention_backend,
+                    sdpa_backend=self.sdpa_backend,
+                    cross_attn_sdpa_backend=self.cross_attn_sdpa_backend,
+                    self_attn_qkv_fusion_option=self.self_attn_qkv_fusion_option,
+                    cross_attn_qkv_fusion_option=self.cross_attn_qkv_fusion_option,
+                    use_fp8=self.use_fp8,
                 )
                 for _ in range(self.config.num_blocks)
             ]

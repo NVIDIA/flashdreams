@@ -17,16 +17,34 @@
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
 
+import nvtx
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.multi_head_attention import AttentionType, QKNormScope
+from flashdreams.accelerated.multi_head_attention_triton import (
+    QKVFusionOption,
+    SDPABackend,
+    TritonMultiHeadAttention,
+)
 from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
+
+
+class AttentionBackend(str, Enum):
+    """Attention implementation used by an Omnidreams DiT block."""
+
+    OMNIDREAMS = "omnidreams"
+    """Use the integration's context-parallel cuDNN attention."""
+
+    TRITON = "triton"
+    """Use Triton-accelerated attention for the selected branch."""
 
 
 class GPT2FeedForward(nn.Module):
@@ -282,6 +300,7 @@ class MultiHeadAttention(nn.Module):
         self.attn_op.set_context_parallel_group(cp_group=cp_group)
 
     def is_context_parallel_enabled(self) -> bool:
+        """Whether context parallelism is active for attention."""
         return self.attn_op.is_context_parallel_enabled()
 
     def context_parallel_size(self) -> int:
@@ -306,7 +325,7 @@ class MultiHeadAttention(nn.Module):
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
-        L = context.shape[-2]
+        L, D = context.shape[-2:]
         n, d = self.n_heads, self.head_dim
 
         k = self.k_norm(self.k_proj(context).reshape(batch_size, L, n, d))
@@ -337,7 +356,7 @@ class MultiHeadAttention(nn.Module):
         """Append K/V computed from ``x`` into an existing ``kv_cache``."""
         return self._compute_or_update_kv_cache(x, kv_cache, rope_freqs)
 
-    def apply_kv(
+    def query_kv(
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
@@ -390,13 +409,13 @@ class MultiHeadAttention(nn.Module):
         """
         if update_kv_cache:
             kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.apply_kv(x, kv_cache, rope_freqs)
+        return self.query_kv(x, kv_cache, rope_freqs)
 
 
 class SelfAttention(MultiHeadAttention):
     """Self-attention: queries and K/V are derived from the same ``x`` each step."""
 
-    def initialize_cache(
+    def allocate_kv_cache(
         self,
         batch_size: int,
         chunk_size: int,
@@ -405,7 +424,7 @@ class SelfAttention(MultiHeadAttention):
         device: torch.device,
         dtype: torch.dtype,
     ) -> BlockKVCache:
-        """Initialize KV cache for streaming self-attention.
+        """Allocate a KV cache for streaming self-attention.
 
         Args:
             batch_size: Flattened batch size used by attention.
@@ -443,14 +462,6 @@ class SelfAttention(MultiHeadAttention):
 class CrossAttention(MultiHeadAttention):
     """Cross-attention: K/V live only in ``kv_cache``; ``forward`` does not refresh them."""
 
-    def initialize_cache(
-        self,
-        context: Tensor,  # [B, V, L, D]
-    ) -> BlockKVCache:
-        """Initialize cross-attention cache from the provided context."""
-        cache = self.compute_kv(context)
-        return cache
-
     def forward(
         self,
         x: Tensor,
@@ -458,6 +469,222 @@ class CrossAttention(MultiHeadAttention):
     ) -> Tensor:
         """Attend with queries from ``x``; populate or roll ``kv_cache`` outside this call."""
         return super().forward(x, kv_cache, rope_freqs=None, update_kv_cache=False)
+
+
+class TritonCrossAttention(TritonMultiHeadAttention):
+    """Static-context cross-attention backed by TMA FlashAttention2."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the canonical query projection."""
+        return self.q_proj
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the canonical key projection."""
+        return self.k_proj
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the canonical value projection."""
+        return self.v_proj
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the canonical output projection."""
+        return self.output_proj
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the canonical query normalization."""
+        return self.q_norm
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the canonical key normalization."""
+        return self.k_norm
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        sdpa_backend: SDPABackend = SDPABackend.TRITON,
+        qkv_fusion_option: QKVFusionOption = QKVFusionOption.FUSE_KV,
+        use_fp8: bool = True,
+    ) -> None:
+        """Initialize bias-free Triton cross-attention.
+
+        Args:
+            query_dim: Feature dimension of query tokens and projected output.
+            context_dim: Feature dimension of key/value tokens. ``None`` uses
+                ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Omnidreams attention.
+            sdpa_backend: Scaled-dot-product attention implementation.
+            qkv_fusion_option: Projection fusion policy.
+            use_fp8: Whether projection GEMMs and supported attention storage
+                use FP8.
+        """
+        del cp_method
+        super().__init__(
+            query_dim=query_dim,
+            context_dim=context_dim,
+            n_heads=n_heads,
+            attention_type=AttentionType.CROSS_ATTENTION,
+            head_dim=head_dim,
+            qkv_fusion_option=qkv_fusion_option,
+            qk_norm_eps=1e-6,
+            qk_norm_scope=QKNormScope.HEAD,
+            rope_interleaved=False,
+            use_fp8=use_fp8,
+            sdpa_backend=sdpa_backend,
+        )
+        self.q_proj = nn.Linear(self.query_dim, self.inner_dim, bias=False)
+        self.k_proj = nn.Linear(self.context_dim, self.inner_dim, bias=False)
+        self.v_proj = nn.Linear(self.context_dim, self.inner_dim, bias=False)
+        self.output_proj = nn.Linear(self.inner_dim, self.query_dim, bias=False)
+        self.q_norm = nn.RMSNorm(self.head_dim, eps=self.qk_norm_eps)
+        self.k_norm = nn.RMSNorm(self.head_dim, eps=self.qk_norm_eps)
+        self._initialize_derived_weights()
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Reject context parallelism unsupported by Triton attention.
+
+        Args:
+            cp_group: Context-parallel process group; ``None`` is a no-op.
+
+        Raises:
+            NotImplementedError: ``cp_group`` is not ``None``.
+        """
+        if cp_group is not None:
+            raise NotImplementedError(
+                "The Triton attention backend does not support context parallelism"
+            )
+
+    def is_context_parallel_enabled(self) -> bool:
+        """Return whether context parallelism is enabled."""
+        return False
+
+    def context_parallel_size(self) -> int:
+        """Return the singleton context-parallel world size."""
+        return 1
+
+
+class TritonSelfAttention(TritonMultiHeadAttention):
+    """Accelerated self-attention adapted to the Omnidreams contract."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the canonical query projection."""
+        return self.q_proj
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the canonical key projection."""
+        return self.k_proj
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the canonical value projection."""
+        return self.v_proj
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the canonical output projection."""
+        return self.output_proj
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the canonical query normalization."""
+        return self.q_norm
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the canonical key normalization."""
+        return self.k_norm
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        sdpa_backend: SDPABackend = SDPABackend.TRITON,
+        qkv_fusion_option: QKVFusionOption = QKVFusionOption.FULL,
+        use_fp8: bool = True,
+    ) -> None:
+        """Initialize bias-free Triton self-attention.
+
+        Args:
+            query_dim: Feature dimension of input and output tokens.
+            context_dim: Self-attention context dimension. ``None`` uses
+                ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Omnidreams attention.
+            sdpa_backend: Scaled-dot-product attention implementation.
+            qkv_fusion_option: Projection fusion policy.
+            use_fp8: Whether projection GEMMs and supported attention storage
+                use FP8.
+
+        Raises:
+            ValueError: ``context_dim`` differs from ``query_dim``.
+        """
+        del cp_method
+        context_dim = query_dim if context_dim is None else context_dim
+        if context_dim != query_dim:
+            raise ValueError(
+                "Triton self-attention requires context_dim to equal query_dim; "
+                f"got {context_dim} and {query_dim}"
+            )
+        super().__init__(
+            query_dim=query_dim,
+            n_heads=n_heads,
+            head_dim=head_dim,
+            attention_type=AttentionType.SELF_ATTENTION,
+            qkv_fusion_option=qkv_fusion_option,
+            qk_norm_eps=1e-6,
+            qk_norm_scope=QKNormScope.HEAD,
+            rope_interleaved=False,
+            use_fp8=use_fp8,
+            sdpa_backend=sdpa_backend,
+        )
+        self.q_proj = nn.Linear(self.query_dim, self.inner_dim, bias=False)
+        self.k_proj = nn.Linear(self.context_dim, self.inner_dim, bias=False)
+        self.v_proj = nn.Linear(self.context_dim, self.inner_dim, bias=False)
+        self.output_proj = nn.Linear(self.inner_dim, self.query_dim, bias=False)
+        self.q_norm = nn.RMSNorm(self.head_dim, eps=self.qk_norm_eps)
+        self.k_norm = nn.RMSNorm(self.head_dim, eps=self.qk_norm_eps)
+        self._initialize_derived_weights()
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Reject context parallelism unsupported by Triton attention.
+
+        Args:
+            cp_group: Context-parallel process group; ``None`` is a no-op.
+
+        Raises:
+            NotImplementedError: ``cp_group`` is not ``None``.
+        """
+        if cp_group is not None:
+            raise NotImplementedError(
+                "The Triton attention backend does not support context parallelism"
+            )
+
+    def is_context_parallel_enabled(self) -> bool:
+        """Return whether context parallelism is enabled."""
+        return False
+
+    def context_parallel_size(self) -> int:
+        """Return the singleton context-parallel world size."""
+        return 1
 
 
 @dataclass
@@ -487,34 +714,75 @@ class Block(nn.Module):
         adaln_lora_dim: int = 256,
         enable_cross_view_attn: bool = False,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS,
+        cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS,
+        sdpa_backend: SDPABackend = SDPABackend.TRITON,
+        cross_attn_sdpa_backend: SDPABackend = SDPABackend.TRITON,
+        self_attn_qkv_fusion_option: QKVFusionOption = QKVFusionOption.FULL,
+        cross_attn_qkv_fusion_option: QKVFusionOption = QKVFusionOption.FUSE_KV,
+        use_fp8: bool = True,
     ) -> None:
         super().__init__()
         self.x_dim = x_dim
         self.enable_cross_view_attn = enable_cross_view_attn
+        self.self_attention_backend = AttentionBackend(self_attention_backend)
+        self.cross_attention_backend = AttentionBackend(cross_attention_backend)
+        self.sdpa_backend = SDPABackend(sdpa_backend)
+        self.cross_attn_sdpa_backend = SDPABackend(cross_attn_sdpa_backend)
+        self.self_attn_qkv_fusion_option = QKVFusionOption(self_attn_qkv_fusion_option)
+        self.cross_attn_qkv_fusion_option = QKVFusionOption(
+            cross_attn_qkv_fusion_option
+        )
+        self.use_fp8 = use_fp8
 
         # Self-attention
         self.layer_norm_self_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
-        )
-        self.self_attn = SelfAttention(
-            query_dim=x_dim,
-            context_dim=None,
-            n_heads=num_heads,
-            head_dim=x_dim // num_heads,
-            cp_method=cp_method,
         )
 
         # Cross-attention
         self.layer_norm_cross_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
         )
-        self.cross_attn = CrossAttention(
-            query_dim=x_dim,
-            context_dim=context_dim,
-            n_heads=num_heads,
-            head_dim=x_dim // num_heads,
-            cp_method=cp_method,
-        )
+        if self.self_attention_backend is AttentionBackend.OMNIDREAMS:
+            self.self_attn = SelfAttention(
+                query_dim=x_dim,
+                context_dim=None,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+            )
+        else:
+            self.self_attn = TritonSelfAttention(
+                query_dim=x_dim,
+                context_dim=None,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+                sdpa_backend=self.sdpa_backend,
+                qkv_fusion_option=self.self_attn_qkv_fusion_option,
+                use_fp8=self.use_fp8,
+            )
+
+        if self.cross_attention_backend is AttentionBackend.OMNIDREAMS:
+            self.cross_attn = CrossAttention(
+                query_dim=x_dim,
+                context_dim=context_dim,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+            )
+        else:
+            self.cross_attn = TritonCrossAttention(
+                query_dim=x_dim,
+                context_dim=context_dim,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+                sdpa_backend=self.cross_attn_sdpa_backend,
+                qkv_fusion_option=self.cross_attn_qkv_fusion_option,
+                use_fp8=self.use_fp8,
+            )
 
         # MLP
         self.layer_norm_mlp = nn.LayerNorm(x_dim, elementwise_affine=False, eps=1e-6)
@@ -555,13 +823,25 @@ class Block(nn.Module):
                 x_dim, elementwise_affine=True, eps=1e-6
             )
             # dense cross view attention
-            self.cross_view_attn = CrossAttention(
-                query_dim=x_dim,
-                context_dim=x_dim,
-                n_heads=num_heads,
-                head_dim=x_dim // num_heads,
-                cp_method=cp_method,
-            )
+            if self.cross_attention_backend is AttentionBackend.OMNIDREAMS:
+                self.cross_view_attn = CrossAttention(
+                    query_dim=x_dim,
+                    context_dim=x_dim,
+                    n_heads=num_heads,
+                    head_dim=x_dim // num_heads,
+                    cp_method=cp_method,
+                )
+            else:
+                self.cross_view_attn = TritonCrossAttention(
+                    query_dim=x_dim,
+                    context_dim=x_dim,
+                    n_heads=num_heads,
+                    head_dim=x_dim // num_heads,
+                    cp_method=cp_method,
+                    sdpa_backend=self.cross_attn_sdpa_backend,
+                    qkv_fusion_option=self.cross_attn_qkv_fusion_option,
+                    use_fp8=self.use_fp8,
+                )
 
     def set_context_parallel_group(
         self,
@@ -598,7 +878,7 @@ class Block(nn.Module):
         num_views = context.shape[1]
         self_attn_batch_size = batch_size * num_views
         return BlockCache(
-            self_attn=self.self_attn.initialize_cache(
+            self_attn=self.self_attn.allocate_kv_cache(
                 self_attn_batch_size,
                 chunk_size,
                 window_size,
@@ -606,9 +886,10 @@ class Block(nn.Module):
                 device=device,
                 dtype=dtype,
             ),
-            cross_attn=self.cross_attn.initialize_cache(context),
+            cross_attn=self.cross_attn.compute_kv(context),
         )
 
+    @nvtx.annotate("omnidreams.dit.block")
     def forward(
         self,
         x: Tensor,
@@ -645,106 +926,111 @@ class Block(nn.Module):
         emb = emb.reshape(B, 1, 1, D)
 
         # Compute AdaLN modulation
-        if self.use_adaln_lora:
-            assert adaln_lora is not None, (
-                "adaln_lora is required when use_adaln_lora is True"
-            )
-            adaln_lora = adaln_lora.reshape(B, 1, 1, 3 * D)
-            shift_self, scale_self, gate_self = (
-                self.adaln_modulation_self_attn(emb) + adaln_lora
-            ).chunk(3, dim=-1)
-            shift_cross, scale_cross, gate_cross = (
-                self.adaln_modulation_cross_attn(emb) + adaln_lora
-            ).chunk(3, dim=-1)
-            shift_mlp, scale_mlp, gate_mlp = (
-                self.adaln_modulation_mlp(emb) + adaln_lora
-            ).chunk(3, dim=-1)
-        else:
-            shift_self, scale_self, gate_self = self.adaln_modulation_self_attn(
-                emb
-            ).chunk(3, dim=-1)
-            shift_cross, scale_cross, gate_cross = self.adaln_modulation_cross_attn(
-                emb
-            ).chunk(3, dim=-1)
-            shift_mlp, scale_mlp, gate_mlp = self.adaln_modulation_mlp(emb).chunk(
-                3, dim=-1
-            )
+        with nvtx.annotate("omnidreams.dit.adaln"):
+            if self.use_adaln_lora:
+                assert adaln_lora is not None, (
+                    "adaln_lora is required when use_adaln_lora is True"
+                )
+                adaln_lora = adaln_lora.reshape(B, 1, 1, 3 * D)
+                shift_self, scale_self, gate_self = (
+                    self.adaln_modulation_self_attn(emb) + adaln_lora
+                ).chunk(3, dim=-1)
+                shift_cross, scale_cross, gate_cross = (
+                    self.adaln_modulation_cross_attn(emb) + adaln_lora
+                ).chunk(3, dim=-1)
+                shift_mlp, scale_mlp, gate_mlp = (
+                    self.adaln_modulation_mlp(emb) + adaln_lora
+                ).chunk(3, dim=-1)
+            else:
+                shift_self, scale_self, gate_self = self.adaln_modulation_self_attn(
+                    emb
+                ).chunk(3, dim=-1)
+                shift_cross, scale_cross, gate_cross = self.adaln_modulation_cross_attn(
+                    emb
+                ).chunk(3, dim=-1)
+                shift_mlp, scale_mlp, gate_mlp = self.adaln_modulation_mlp(emb).chunk(
+                    3, dim=-1
+                )
 
-        if self.enable_cross_view_attn:
-            assert view_embedding_proj is not None
-            (
-                view_shift_self,
-                view_scale_self,
-                view_gate_self,
-                view_shift_cross,
-                view_scale_cross,
-                view_gate_cross,
-                view_shift_mlp,
-                view_scale_mlp,
-                view_gate_mlp,
-            ) = view_embedding_proj.chunk(9, dim=-1)
+            if self.enable_cross_view_attn:
+                assert view_embedding_proj is not None
+                (
+                    view_shift_self,
+                    view_scale_self,
+                    view_gate_self,
+                    view_shift_cross,
+                    view_scale_cross,
+                    view_gate_cross,
+                    view_shift_mlp,
+                    view_scale_mlp,
+                    view_gate_mlp,
+                ) = view_embedding_proj.chunk(9, dim=-1)
 
-            def expand_view_mod(v_mod: Tensor) -> Tensor:
-                return v_mod.reshape(B, V, 1, D)
+                def expand_view_mod(v_mod: Tensor) -> Tensor:
+                    return v_mod.reshape(B, V, 1, D)
 
-            shift_self = shift_self + expand_view_mod(view_shift_self)
-            scale_self = scale_self + expand_view_mod(view_scale_self)
-            gate_self = gate_self + expand_view_mod(view_gate_self)
+                shift_self = shift_self + expand_view_mod(view_shift_self)
+                scale_self = scale_self + expand_view_mod(view_scale_self)
+                gate_self = gate_self + expand_view_mod(view_gate_self)
 
-            shift_cross = shift_cross + expand_view_mod(view_shift_cross)
-            scale_cross = scale_cross + expand_view_mod(view_scale_cross)
-            gate_cross = gate_cross + expand_view_mod(view_gate_cross)
+                shift_cross = shift_cross + expand_view_mod(view_shift_cross)
+                scale_cross = scale_cross + expand_view_mod(view_scale_cross)
+                gate_cross = gate_cross + expand_view_mod(view_gate_cross)
 
-            shift_mlp = shift_mlp + expand_view_mod(view_shift_mlp)
-            scale_mlp = scale_mlp + expand_view_mod(view_scale_mlp)
-            gate_mlp = gate_mlp + expand_view_mod(view_gate_mlp)
+                shift_mlp = shift_mlp + expand_view_mod(view_shift_mlp)
+                scale_mlp = scale_mlp + expand_view_mod(view_scale_mlp)
+                gate_mlp = gate_mlp + expand_view_mod(view_gate_mlp)
 
         # Self-attention
-        normed_x = self.layer_norm_self_attn(x) * (1 + scale_self) + shift_self
-        attn_out = self.self_attn(
-            normed_x,
-            rope_freqs=rope_freqs,
-            kv_cache=cache.self_attn,
-        ).reshape_as(normed_x)
-        x = x + gate_self * attn_out
+        with nvtx.annotate("omnidreams.dit.self_attention"):
+            normed_x = self.layer_norm_self_attn(x) * (1 + scale_self) + shift_self
+            attn_out = self.self_attn(
+                normed_x,
+                rope_freqs=rope_freqs,
+                kv_cache=cache.self_attn,
+            ).reshape_as(normed_x)
+            x = x + gate_self * attn_out
 
         # Cross-view attention: dense
         if self.enable_cross_view_attn:
-            assert T is not None and HW is not None, (
-                "T and HW must be available (x should be a 5D tensor) when cross-view attention is enabled"
-            )
-            normed_x_cv = self.layer_norm_cross_view_attn(x)
-            x_cv = rearrange(normed_x_cv, "b v (t hw) d -> b t v hw d", t=T, hw=HW)
-            if self.cross_view_attn.is_context_parallel_enabled():
-                # CP-enabled: views are split across GPUs in rank order
-                # (e.g. 4 views on 2 GPUs -> [0,1] and [2,3]).
-                if V == 1:
-                    # CP size == num views: ring attention gathers all K/V,
-                    # so local context stays unexpanded.
-                    x_context = x_cv
+            with nvtx.annotate("omnidreams.dit.cross_view_attention"):
+                assert T is not None and HW is not None, (
+                    "T and HW must be available (x should be a 5D tensor) when cross-view attention is enabled"
+                )
+                normed_x_cv = self.layer_norm_cross_view_attn(x)
+                x_cv = rearrange(normed_x_cv, "b v (t hw) d -> b t v hw d", t=T, hw=HW)
+                if self.cross_view_attn.is_context_parallel_enabled():
+                    # CP-enabled: views are split across GPUs in rank order
+                    # (e.g. 4 views on 2 GPUs -> [0,1] and [2,3]).
+                    if V == 1:
+                        # CP size == num views: ring attention gathers all K/V,
+                        # so local context stays unexpanded.
+                        x_context = x_cv
+                    else:
+                        # CP size < num views: gather each GPU's local views first.
+                        x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
                 else:
-                    # CP size < num views: gather each GPU's local views first.
+                    # Without CP, repeat context so each view attends over all views.
                     x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
-            else:
-                # Without CP, repeat context so each view attends over all views.
-                x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
-            cross_view_attn_kv_cache = self.cross_view_attn.compute_kv(x_context)
-            cv_out = self.cross_view_attn(x_cv, kv_cache=cross_view_attn_kv_cache)
-            cv_out = rearrange(cv_out, "b t v hw d -> b v (t hw) d")
-            x = x + cv_out
+                cross_view_attn_kv_cache = self.cross_view_attn.compute_kv(x_context)
+                cv_out = self.cross_view_attn(x_cv, kv_cache=cross_view_attn_kv_cache)
+                cv_out = rearrange(cv_out, "b t v hw d -> b v (t hw) d")
+                x = x + cv_out
 
         # Cross-attention
-        normed_x = self.layer_norm_cross_attn(x) * (1 + scale_cross) + shift_cross
-        cross_out = self.cross_attn(
-            normed_x,
-            kv_cache=cache.cross_attn,
-        ).reshape_as(normed_x)
-        x = x + gate_cross * cross_out
+        with nvtx.annotate("omnidreams.dit.cross_attention"):
+            normed_x = self.layer_norm_cross_attn(x) * (1 + scale_cross) + shift_cross
+            cross_out = self.cross_attn(
+                normed_x,
+                kv_cache=cache.cross_attn,
+            ).reshape_as(normed_x)
+            x = x + gate_cross * cross_out
 
         # MLP
-        normed_x = self.layer_norm_mlp(x) * (1 + scale_mlp) + shift_mlp
-        mlp_out = self.mlp(normed_x)
-        x = x + gate_mlp * mlp_out
+        with nvtx.annotate("omnidreams.dit.mlp"):
+            normed_x = self.layer_norm_mlp(x) * (1 + scale_mlp) + shift_mlp
+            mlp_out = self.mlp(normed_x)
+            x = x + gate_mlp * mlp_out
 
         # reshape back to 5D if needed
         if T is not None and HW is not None:

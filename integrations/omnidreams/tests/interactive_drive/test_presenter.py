@@ -989,6 +989,27 @@ def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> 
 def test_hud_auto_sizes_window_to_native_model_frame_resolution() -> None:
     presenter = _hud_presenter_without_window()
     resize_calls: list[tuple[int, int]] = []
+    presenter._native_model_auto_resize_enabled = True
+    presenter._auto_sized_camera_src_size = None
+    presenter._pending_resize = None
+    presenter._window = SimpleNamespace(
+        size=SimpleNamespace(x=1920, y=1080),
+        resize=lambda width, height: resize_calls.append((width, height)),
+    )
+
+    resized = presenter._resize_window_for_native_model_frame(
+        np.zeros((1200, 1600, 3), dtype=np.uint8)
+    )
+
+    assert resized is True
+    assert resize_calls == [(2100, 1200)]
+    assert presenter._pending_resize == (2100, 1200)
+
+
+def test_hud_does_not_grow_window_clamped_during_initialization() -> None:
+    presenter = _hud_presenter_without_window()
+    resize_calls: list[tuple[int, int]] = []
+    presenter._native_model_auto_resize_enabled = True
     presenter._auto_sized_camera_src_size = None
     presenter._pending_resize = None
     presenter._window = SimpleNamespace(
@@ -1000,9 +1021,10 @@ def test_hud_auto_sizes_window_to_native_model_frame_resolution() -> None:
         np.zeros((704, 1280, 3), dtype=np.uint8)
     )
 
-    assert resized is True
-    assert resize_calls == [(1780, 704)]
-    assert presenter._pending_resize == (1780, 704)
+    assert resized is False
+    assert resize_calls == []
+    assert presenter._pending_resize is None
+    assert presenter._auto_sized_camera_src_size == (1280, 704)
 
 
 def test_hud_keeps_larger_canvas_when_model_resolution_shrinks() -> None:
@@ -1180,6 +1202,60 @@ def test_hud_model_rgb_falls_back_to_host_when_cuda_path_raises() -> None:
     assert presented == [lazy]
     assert presenter._cuda_hud_interop is None
     assert close_calls == 1
+
+
+def test_hud_close_releases_slangpy_resources_in_dependency_order() -> None:
+    presenter = _hud_presenter_without_window()
+    events: list[str] = []
+
+    class _Interop:
+        def close(self) -> None:
+            events.append("interop.close")
+
+    class _Device:
+        def wait_for_idle(self) -> None:
+            events.append("device.wait_for_idle")
+
+        def close(self) -> None:
+            events.append("device.close")
+
+    class _Surface:
+        def unconfigure(self) -> None:
+            events.append("surface.unconfigure")
+
+    class _Window:
+        def close(self) -> None:
+            events.append("window.close")
+
+    presenter._bev_panel_exec = None
+    presenter._cuda_hud_interop = _Interop()
+    presenter._retired_cuda_hud_interops = [_Interop()]
+    presenter._wheel = None
+    presenter._device = _Device()
+    presenter._surface = _Surface()
+    presenter._camera_texture = object()
+    presenter._camera_fit_texture = object()
+    presenter._display_texture = object()
+    presenter._window = _Window()
+
+    presenter.close()
+    presenter.close()
+
+    assert events == [
+        "interop.close",
+        "interop.close",
+        "device.wait_for_idle",
+        "surface.unconfigure",
+        "device.close",
+        "window.close",
+    ]
+    assert presenter._retired_cuda_hud_interops == []
+    assert presenter._camera_texture is None
+    assert presenter._camera_fit_texture is None
+    assert presenter._display_texture is None
+    assert presenter._surface is None
+    assert presenter._device is None
+    assert presenter._window is None
 
 
 class _ExitSceneKeyboard:
