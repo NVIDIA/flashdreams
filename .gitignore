@@ -4,6 +4,9 @@ compile_commands.json
 # Visual Studio Code configs.
 .vscode/
 
+# Neovim configs.
+.nvim.lua
+
 .pytest-tmp*
 
 # Byte-compiled / optimized / DLL files
