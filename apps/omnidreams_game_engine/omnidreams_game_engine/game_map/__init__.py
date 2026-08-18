@@ -15,18 +15,28 @@ from omnidreams_game_engine.game_map.loader import (
 )
 from omnidreams_game_engine.game_map.preview import write_game_map_preview
 from omnidreams_game_engine.game_map.types import (
+    GameMapDirectLink,
     GameMapLane,
     GameMapLineMarking,
+    GameMapNode,
+    GameMapRoad,
+    GameMapRoadAttachment,
     GameMapSpawn,
+    GameMapTopology,
     ResolvedGameMap,
 )
 
 __all__ = [
     "CompiledGameMap",
     "GameMapError",
+    "GameMapDirectLink",
     "GameMapLane",
     "GameMapLineMarking",
+    "GameMapNode",
+    "GameMapRoad",
+    "GameMapRoadAttachment",
     "GameMapSpawn",
+    "GameMapTopology",
     "ResolvedGameMap",
     "compile_game_map",
     "load_game_map",

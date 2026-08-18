@@ -13,6 +13,7 @@ dependencies = [
     "flashdreams[serving]",
     "flashdreams-omnidreams",
     "pyyaml>=6",
+    "shapely>=2.0",
 ]
 
 [tool.uv.sources]

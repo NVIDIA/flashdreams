@@ -42,668 +42,138 @@ profiles:
     divider_markings:
       - {style: VIRTUAL, color: WHITE}
 
-elements:
-  - id: west_boulevard
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 80}
-    pose: {x_m: -120, y_m: 0, heading_deg: 0}
-
-  - id: central_crossing
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: four_way
-      port_profiles: {north: neighborhood, south: neighborhood}
-    attach: {port: west, to: west_boulevard.end}
-
-  - id: central_boulevard
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 75}
-    attach: {port: start, to: central_crossing.east}
-
-  - id: east_crossing
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: four_way
-      port_profiles: {north: neighborhood, south: neighborhood}
-    attach: {port: west, to: central_boulevard.end}
-
-  - id: east_boulevard
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 80}
-    attach: {port: start, to: east_crossing.east}
-
-  - id: central_north_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 45}
-    attach: {port: start, to: central_crossing.north}
-
-  - id: east_north_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 45}
-    attach: {port: start, to: east_crossing.north}
-
-  - id: central_north_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: south, to: central_north_street.end}
-
-  - id: north_cross_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 75}
-    attach: {port: start, to: central_north_junction.east}
-
-  - id: east_north_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: west, to: north_cross_street.end}
-
-  - id: central_upper_north_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 45}
-    attach: {port: start, to: central_north_junction.north}
-
-  - id: central_upper_north_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: north, to: central_upper_north_street.end}
-
-  - id: upper_north_cross_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 75}
-    attach: {port: start, to: central_upper_north_junction.west}
-
-  - id: east_upper_north_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 45}
-    attach: {port: start, to: east_north_junction.north}
-
-  - id: east_upper_north_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: west, to: east_upper_north_street.end}
-
-  - id: east_upper_north_extension
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 35}
-    attach: {port: start, to: east_upper_north_junction.east}
-
-  - id: east_upper_north_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: east_upper_north_extension.end}
-
-  - id: central_south_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 39.2}
-    attach: {port: start, to: central_crossing.south}
-
-  - id: central_south_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: west, to: central_south_street.end}
-
-  - id: central_south_tail
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 30}
-    attach: {port: start, to: central_south_junction.east}
-
-  - id: south_cross_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 75}
-    attach: {port: start, to: central_south_junction.north}
-
-  - id: east_south_street
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 39.2}
-    attach: {port: start, to: east_crossing.south}
-
-  - id: east_south_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: north, to: east_south_street.end}
-
-  - id: east_south_spur
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 15.8}
-    attach: {port: start, to: east_south_junction.east}
-
-  - id: east_lot_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: west, to: east_south_spur.end}
-
-  - id: east_south_spur_tail
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 15.8}
-    attach: {port: start, to: east_lot_junction.east}
-
-  - id: east_south_tail
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 30}
-    attach: {port: start, to: east_south_junction.south}
-
-  - id: central_lower_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: north, to: central_south_tail.end}
-
-  - id: lower_cross_west
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 33.3}
-    attach: {port: start, to: central_lower_junction.east}
-
-  - id: lower_lot_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: east, to: lower_cross_west.end}
-
-  - id: lower_cross_east
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 33.3}
-    attach: {port: start, to: lower_lot_junction.west}
-
-  - id: east_lower_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: west, to: lower_cross_east.end}
-
-  - id: central_lot_opening
-    type: parking_lot_opening
-    profile: parking_access
-    geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: lower_lot_junction.north}
-
-  - id: central_lot_driveway
-    type: driveway
-    profile: parking_access
-    geometry: {kind: straight, length_m: 8}
-    attach: {port: start, to: central_lot_opening.access}
-
-  - id: central_parking_lot
-    type: parking_lot
-    profile: parking_access
-    geometry: {width_m: 26, depth_m: 32}
-    attach: {port: entrance, to: central_lot_driveway.end}
-
-  - id: east_lot_opening
-    type: parking_lot_opening
-    profile: parking_access
-    geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: east_lot_junction.north}
-
-  - id: east_lot_driveway
-    type: driveway
-    profile: parking_access
-    geometry: {kind: straight, length_m: 8}
-    attach: {port: start, to: east_lot_opening.access}
-
-  - id: east_parking_lot
-    type: parking_lot
-    profile: parking_access
-    geometry: {width_m: 24, depth_m: 24}
-    attach: {port: entrance, to: east_lot_driveway.end}
+nodes:
+  - {id: west_boulevard_end, type: cul_de_sac, pose: {x_m: -120, y_m: 0, rotation_deg: 0}, geometry: {radius_m: 18}}
+  - {id: central_crossing, type: intersection, pose: {x_m: -35.8, y_m: 0, rotation_deg: 0}, geometry: {}}
+  - {id: east_crossing, type: intersection, pose: {x_m: 47.6, y_m: 0, rotation_deg: 0}, geometry: {}}
+  - {id: central_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 57, rotation_deg: 0}, geometry: {}}
+  - {id: east_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 57, rotation_deg: 0}, geometry: {}}
+  - {id: central_upper_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 110.4, rotation_deg: 180}, geometry: {}}
+  - {id: east_upper_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 110.4, rotation_deg: 90}, geometry: {}}
+  - {id: east_upper_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 47.6, y_m: 149.6, rotation_deg: 90}, geometry: {radius_m: 10}}
+  - {id: central_south_junction, type: intersection, pose: {x_m: -35.8, y_m: -51.2, rotation_deg: 270}, geometry: {}}
+  - {id: east_south_junction, type: intersection, pose: {x_m: 47.6, y_m: -51.2, rotation_deg: 0}, geometry: {}}
+  - {id: east_lot_junction, type: intersection, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}, geometry: {}}
+  - {id: east_south_spur_end, type: cul_de_sac, pose: {x_m: 96, y_m: -51.2, rotation_deg: 0}, geometry: {radius_m: 10}}
+  - {id: central_lower_junction, type: intersection, pose: {x_m: -35.8, y_m: -89.6, rotation_deg: 0}, geometry: {}}
+  - {id: lower_lot_junction, type: intersection, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}, geometry: {}}
+  - {id: east_lower_junction, type: intersection, pose: {x_m: 47.6, y_m: -89.6, rotation_deg: 0}, geometry: {}}
+  - {id: central_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 5.9, y_m: -101.8, rotation_deg: 270}, geometry: {width_m: 6.4}}
+  - {id: central_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 5.9, y_m: -125.8, rotation_deg: 270}, geometry: {width_m: 26, depth_m: 32}}
+  - {id: east_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 71.8, y_m: -39, rotation_deg: 90}, geometry: {width_m: 6.4}}
+  - {id: east_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 71.8, y_m: -19, rotation_deg: 90}, geometry: {width_m: 24, depth_m: 24}}
 
   - id: eastern_gateway
     type: intersection
-    profile: boulevard
-    geometry:
-      kind: freeform
-      surface:
-        - {x_m: 0, y_m: -13}
-        - {x_m: 2, y_m: -13.3}
-        - {x_m: 13, y_m: -14.7}
-        - {x_m: 30, y_m: -4}
-        - {x_m: 30, y_m: 8}
-        - {x_m: 16.5, y_m: 13.3}
-        - {x_m: 5.5, y_m: 14.7}
-        - {x_m: 0, y_m: 14}
-      connector_center: {x_m: 12, y_m: 0}
-      ports:
-        west: {x_m: 0, y_m: 0, heading_deg: 180, profile: boulevard}
-        north:
-          {x_m: 11, y_m: 14, heading_deg: 82.746805, profile: neighborhood}
-        south:
-          {x_m: 7.5, y_m: -14, heading_deg: 262.746805, profile: neighborhood}
-        southeast:
-          {x_m: 22, y_m: -9.035294, heading_deg: -57.813206, profile: boulevard}
-    attach: {port: west, to: east_boulevard.end}
+    pose: {x_m: 131.8, y_m: 0, rotation_deg: 0}
+    geometry: {width_m: 30, depth_m: 28}
+  - {id: eastern_north_junction, type: intersection, pose: {x_m: 149.365, y_m: 65.584, rotation_deg: 352.747}, geometry: {}}
+  - {id: eastern_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 157.662, y_m: 114.931, rotation_deg: 82.747}, geometry: {radius_m: 10}}
+  - {id: eastern_lot_junction, type: intersection, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}, geometry: {}}
+  - {id: eastern_side_cul_de_sac, type: cul_de_sac, pose: {x_m: 206.513, y_m: 67.887, rotation_deg: 352.747}, geometry: {radius_m: 10}}
+  - {id: eastern_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 184.048, y_m: 83.045, rotation_deg: 82.747}, geometry: {width_m: 6.4}}
+  - {id: eastern_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 186.573, y_m: 102.885, rotation_deg: 82.747}, geometry: {width_m: 24, depth_m: 24}}
+  - {id: eastern_south_cul_de_sac, type: cul_de_sac, pose: {x_m: 130.462, y_m: -83.44, rotation_deg: 262.747}, geometry: {radius_m: 10}}
 
-  - id: eastern_north_approach
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 52}
-    attach: {port: start, to: eastern_gateway.north}
+  - {id: east_spine_crossing_1, type: intersection, pose: {x_m: 283.135, y_m: -64.184, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_spine_crossing_2, type: intersection, pose: {x_m: 361.535, y_m: -64.236, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_spine_crossing_3, type: intersection, pose: {x_m: 439.935, y_m: -64.288, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_spine_crossing_4, type: intersection, pose: {x_m: 518.335, y_m: -64.339, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_spine_cul_de_sac, type: cul_de_sac, pose: {x_m: 577.535, y_m: -64.378, rotation_deg: 359.962}, geometry: {radius_m: 18}}
+  - {id: east_lower_junction_1, type: intersection, pose: {x_m: 283.091, y_m: -131.184, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_lower_junction_2, type: intersection, pose: {x_m: 361.491, y_m: -131.236, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_lower_junction_3, type: intersection, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}, geometry: {}}
+  - {id: east_lower_junction_4, type: intersection, pose: {x_m: 518.291, y_m: -131.339, rotation_deg: 359.962}, geometry: {}}
+  - {id: east_lower_west_cul_de_sac, type: cul_de_sac, pose: {x_m: 253.891, y_m: -131.165, rotation_deg: 179.962}, geometry: {radius_m: 10}}
+  - {id: east_lower_south_cul_de_sac_1, type: cul_de_sac, pose: {x_m: 283.065, y_m: -170.384, rotation_deg: 269.962}, geometry: {radius_m: 10}}
+  - {id: east_commercial_lot_driveway_1, type: driveway, profile: parking_access, pose: {x_m: 361.484, y_m: -143.436, rotation_deg: 269.962}, geometry: {width_m: 6.4}}
+  - {id: east_commercial_parking_lot_1, type: parking_lot, profile: parking_access, pose: {x_m: 361.474, y_m: -166.436, rotation_deg: 269.962}, geometry: {width_m: 28, depth_m: 30}}
+  - {id: east_commercial_lot_driveway_2, type: driveway, profile: parking_access, pose: {x_m: 439.884, y_m: -143.488, rotation_deg: 269.962}, geometry: {width_m: 6.4}}
+  - {id: east_commercial_parking_lot_2, type: parking_lot, profile: parking_access, pose: {x_m: 439.875, y_m: -164.488, rotation_deg: 269.962}, geometry: {width_m: 30, depth_m: 26}}
+  - {id: east_lower_south_cul_de_sac_4, type: cul_de_sac, pose: {x_m: 518.258, y_m: -180.539, rotation_deg: 269.962}, geometry: {radius_m: 10}}
+  - {id: east_lower_east_cul_de_sac, type: cul_de_sac, pose: {x_m: 547.491, y_m: -131.359, rotation_deg: 359.962}, geometry: {radius_m: 10}}
 
-  - id: eastern_north_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: freeform
-      surface:
-        - {x_m: -6, y_m: 0}
-        - {x_m: 6, y_m: 0}
-        - {x_m: 10, y_m: 5}
-        - {x_m: 10, y_m: 14}
-        - {x_m: 8, y_m: 18}
-        - {x_m: -4, y_m: 18}
-        - {x_m: -6, y_m: 14}
-      connector_center: {x_m: 1, y_m: 9}
-      ports:
-        south: {x_m: 0, y_m: 0, heading_deg: 270, profile: neighborhood}
-        north: {x_m: 2, y_m: 18, heading_deg: 90, profile: neighborhood}
-        east: {x_m: 10, y_m: 9.5, heading_deg: 0, profile: neighborhood}
-    attach: {port: south, to: eastern_north_approach.end}
+roads:
+  - {id: west_boulevard, from: west_boulevard_end, to: central_crossing, profile: boulevard}
+  - {id: central_boulevard, from: central_crossing, to: east_crossing, profile: boulevard}
+  - {id: east_boulevard, from: east_crossing, to: eastern_gateway, profile: boulevard}
+  - {id: central_north_street, from: central_crossing, to: central_north_junction, profile: neighborhood}
+  - {id: east_north_street, from: east_crossing, to: east_north_junction, profile: neighborhood}
+  - {id: north_cross_street, from: central_north_junction, to: east_north_junction, profile: neighborhood}
+  - {id: central_upper_north_street, from: central_north_junction, to: central_upper_north_junction, profile: neighborhood}
+  - {id: upper_north_cross_street, from: central_upper_north_junction, to: east_upper_north_junction, profile: neighborhood}
+  - {id: east_upper_north_street, from: east_north_junction, to: east_upper_north_junction, profile: neighborhood}
+  - {id: east_upper_north_extension, from: east_upper_north_junction, to: east_upper_north_cul_de_sac, profile: neighborhood}
+  - {id: central_south_street, from: central_crossing, to: central_south_junction, profile: neighborhood}
+  - {id: east_south_street, from: east_crossing, to: east_south_junction, profile: neighborhood}
+  - {id: south_cross_street, from: central_south_junction, to: east_south_junction, profile: neighborhood}
+  - {id: east_south_spur, from: east_south_junction, to: east_lot_junction, profile: neighborhood}
+  - {id: east_south_spur_tail, from: east_lot_junction, to: east_south_spur_end, profile: neighborhood}
+  - {id: central_south_tail, from: central_south_junction, to: central_lower_junction, profile: neighborhood}
+  - {id: lower_cross_west, from: central_lower_junction, to: lower_lot_junction, profile: neighborhood}
+  - {id: lower_cross_east, from: lower_lot_junction, to: east_lower_junction, profile: neighborhood}
+  - {id: east_south_tail, from: east_south_junction, to: east_lower_junction, profile: neighborhood}
 
-  - id: eastern_north_continuation
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 32}
-    attach: {port: start, to: eastern_north_junction.north}
-
-  - id: eastern_north_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: eastern_north_continuation.end}
-
-  - id: eastern_side_road
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 18}
-    attach: {port: start, to: eastern_north_junction.east}
-
-  - id: eastern_lot_junction
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: west, to: eastern_side_road.end}
-
-  - id: eastern_side_tail
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 20}
-    attach: {port: start, to: eastern_lot_junction.east}
-
-  - id: eastern_side_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: eastern_side_tail.end}
-
-  - id: eastern_lot_opening
-    type: parking_lot_opening
-    profile: parking_access
-    geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: eastern_lot_junction.north}
-
-  - id: eastern_lot_driveway
-    type: driveway
-    profile: parking_access
-    geometry: {kind: straight, length_m: 8}
-    attach: {port: start, to: eastern_lot_opening.access}
-
-  - id: eastern_parking_lot
-    type: parking_lot
-    profile: parking_access
-    geometry: {width_m: 24, depth_m: 24}
-    attach: {port: entrance, to: eastern_lot_driveway.end}
-
-  - id: eastern_south_approach
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: eastern_gateway.south}
-
-  - id: eastern_south_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: eastern_south_approach.end}
-
+  - {id: eastern_north_approach, from: eastern_gateway, to: eastern_north_junction, profile: neighborhood}
+  - {id: eastern_north_continuation, from: eastern_north_junction, to: eastern_north_cul_de_sac, profile: neighborhood}
+  - {id: eastern_side_road, from: eastern_north_junction, to: eastern_lot_junction, profile: neighborhood}
+  - {id: eastern_side_tail, from: eastern_lot_junction, to: eastern_side_cul_de_sac, profile: neighborhood}
+  - {id: eastern_south_approach, from: eastern_gateway, to: eastern_south_cul_de_sac, profile: neighborhood}
   - id: eastern_sweep
-    type: boulevard
+    from: eastern_gateway
+    to: east_spine_crossing_1
     profile: boulevard
-    geometry:
-      kind: cubic_bezier
-      control_points:
-        - {x_m: 30, y_m: 0}
-        - {x_m: 70.7, y_m: 8.9}
-        - {x_m: 84, y_m: 30}
-    attach: {port: start, to: eastern_gateway.southeast}
-
-  - id: eastern_eastbound_boulevard
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 55}
-    attach: {port: start, to: eastern_sweep.end}
-
-  - id: east_spine_crossing_1
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: four_way
-      port_profiles: {north: neighborhood, south: neighborhood}
-    attach: {port: west, to: eastern_eastbound_boulevard.end}
-
-  - id: east_spine_1
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_spine_crossing_1.east}
-
-  - id: east_spine_crossing_2
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: four_way
-      port_profiles: {north: neighborhood, south: neighborhood}
-    attach: {port: west, to: east_spine_1.end}
-
-  - id: east_spine_2
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_spine_crossing_2.east}
-
-  - id: east_spine_crossing_3
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: t
-      port_profiles: {north: neighborhood}
-    attach: {port: west, to: east_spine_2.end}
-
-  - id: east_spine_3
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_spine_crossing_3.east}
-
-  - id: east_spine_crossing_4
-    type: intersection
-    profile: boulevard
-    geometry:
-      kind: four_way
-      port_profiles: {north: neighborhood, south: neighborhood}
-    attach: {port: west, to: east_spine_3.end}
-
-  - id: east_spine_final
-    type: boulevard
-    profile: boulevard
-    geometry: {kind: straight, length_m: 55}
-    attach: {port: start, to: east_spine_crossing_4.east}
-
-  - id: east_spine_cul_de_sac
-    type: cul_de_sac
-    profile: boulevard
-    geometry: {radius_m: 18, neck_length_m: 18}
-    attach: {port: entrance, to: east_spine_final.end}
-
-  - id: east_north_loop_west_leg
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 20}
-    attach: {port: start, to: east_spine_crossing_1.north}
-
+    path:
+      - control_points: [{x_m: 160, y_m: -15}, {x_m: 200, y_m: -55}]
+        end: {x_m: 223.935, y_m: -64.145}
+      - control_points: [{x_m: 245, y_m: -64.16}, {x_m: 270, y_m: -64.175}]
+        end: {x_m: 283.135, y_m: -64.184}
+  - {id: east_spine_1, from: east_spine_crossing_1, to: east_spine_crossing_2, profile: boulevard}
+  - {id: east_spine_2, from: east_spine_crossing_2, to: east_spine_crossing_3, profile: boulevard}
+  - {id: east_spine_3, from: east_spine_crossing_3, to: east_spine_crossing_4, profile: boulevard}
+  - {id: east_spine_final, from: east_spine_crossing_4, to: east_spine_cul_de_sac, profile: boulevard}
   - id: east_north_loop_west
-    type: road_segment
+    from: east_spine_crossing_1
+    to: east_spine_crossing_2
     profile: neighborhood
-    geometry:
-      kind: cubic_bezier
-      control_points:
-        - {x_m: 30, y_m: 0}
-        - {x_m: 30, y_m: -78.4}
-        - {x_m: 0, y_m: -78.4}
-    attach: {port: start, to: east_north_loop_west_leg.end}
-
-  - id: east_north_loop_west_return
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 20}
-    attach: {port: start, to: east_spine_crossing_2.north}
-
-  - id: east_north_loop_east_leg
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 20}
-    attach: {port: start, to: east_spine_crossing_3.north}
-
+    path:
+      - control_points: [{x_m: 283.14, y_m: -20}, {x_m: 361.54, y_m: -20}]
+        end: {x_m: 361.535, y_m: -64.236}
   - id: east_north_loop_east
-    type: road_segment
+    from: east_spine_crossing_3
+    to: east_spine_crossing_4
     profile: neighborhood
-    geometry:
-      kind: cubic_bezier
-      control_points:
-        - {x_m: 45, y_m: 0}
-        - {x_m: 45, y_m: -78.4}
-        - {x_m: 0, y_m: -78.4}
-    attach: {port: start, to: east_north_loop_east_leg.end}
+    path:
+      - control_points: [{x_m: 439.94, y_m: -20}, {x_m: 518.34, y_m: -20}]
+        end: {x_m: 518.335, y_m: -64.339}
+  - {id: east_lower_approach_1, from: east_spine_crossing_1, to: east_lower_junction_1, profile: neighborhood}
+  - {id: east_lower_approach_2, from: east_spine_crossing_2, to: east_lower_junction_2, profile: neighborhood}
+  - {id: east_lower_approach_4, from: east_spine_crossing_4, to: east_lower_junction_4, profile: neighborhood}
+  - {id: east_lower_cross_1, from: east_lower_junction_1, to: east_lower_junction_2, profile: neighborhood}
+  - {id: east_lower_cross_2, from: east_lower_junction_2, to: east_lower_junction_3, profile: neighborhood}
+  - {id: east_lower_cross_3, from: east_lower_junction_3, to: east_lower_junction_4, profile: neighborhood}
+  - {id: east_lower_west_stub, from: east_lower_junction_1, to: east_lower_west_cul_de_sac, profile: neighborhood}
+  - {id: east_lower_south_stub_1, from: east_lower_junction_1, to: east_lower_south_cul_de_sac_1, profile: neighborhood}
+  - {id: east_lower_south_stub_4, from: east_lower_junction_4, to: east_lower_south_cul_de_sac_4, profile: neighborhood}
+  - {id: east_lower_east_stub, from: east_lower_junction_4, to: east_lower_east_cul_de_sac, profile: neighborhood}
 
-  - id: east_north_loop_east_return
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 20}
-    attach: {port: start, to: east_spine_crossing_4.north}
+links:
+  - {id: central_lot_access, a: lower_lot_junction, b: central_lot_driveway}
+  - {id: central_lot_entrance, a: central_lot_driveway, b: central_parking_lot}
+  - {id: east_lot_access, a: east_lot_junction, b: east_lot_driveway}
+  - {id: east_lot_entrance, a: east_lot_driveway, b: east_parking_lot}
+  - {id: eastern_lot_access, a: eastern_lot_junction, b: eastern_lot_driveway}
+  - {id: eastern_lot_entrance, a: eastern_lot_driveway, b: eastern_parking_lot}
+  - {id: east_commercial_access_1, a: east_lower_junction_2, b: east_commercial_lot_driveway_1}
+  - {id: east_commercial_entrance_1, a: east_commercial_lot_driveway_1, b: east_commercial_parking_lot_1}
+  - {id: east_commercial_access_2, a: east_lower_junction_3, b: east_commercial_lot_driveway_2}
+  - {id: east_commercial_entrance_2, a: east_commercial_lot_driveway_2, b: east_commercial_parking_lot_2}
 
-  - id: east_lower_approach_1
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 55}
-    attach: {port: start, to: east_spine_crossing_1.south}
-
-  - id: east_lower_junction_1
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: north, to: east_lower_approach_1.end}
-
-  - id: east_lower_approach_2
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 55}
-    attach: {port: start, to: east_spine_crossing_2.south}
-
-  - id: east_lower_junction_2
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: north, to: east_lower_approach_2.end}
-
-  - id: east_lower_junction_3
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: t
-      port_profiles: {}
-    attach: {port: east, to: east_lower_cross_2.end}
-
-  - id: east_lower_approach_4
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 55}
-    attach: {port: start, to: east_spine_crossing_4.south}
-
-  - id: east_lower_junction_4
-    type: intersection
-    profile: neighborhood
-    geometry:
-      kind: four_way
-      port_profiles: {}
-    attach: {port: north, to: east_lower_approach_4.end}
-
-  - id: east_lower_cross_1
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_lower_junction_1.east}
-
-  - id: east_lower_cross_2
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_lower_junction_2.east}
-
-  - id: east_lower_cross_3
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 70}
-    attach: {port: start, to: east_lower_junction_3.west}
-
-  - id: east_lower_west_stub
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 25}
-    attach: {port: start, to: east_lower_junction_1.west}
-
-  - id: east_lower_west_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: east_lower_west_stub.end}
-
-  - id: east_lower_south_stub_1
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 35}
-    attach: {port: start, to: east_lower_junction_1.south}
-
-  - id: east_lower_south_cul_de_sac_1
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: east_lower_south_stub_1.end}
-
-  - id: east_commercial_lot_opening_1
-    type: parking_lot_opening
-    profile: parking_access
-    geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: east_lower_junction_2.south}
-
-  - id: east_commercial_lot_driveway_1
-    type: driveway
-    profile: parking_access
-    geometry: {kind: straight, length_m: 8}
-    attach: {port: start, to: east_commercial_lot_opening_1.access}
-
-  - id: east_commercial_parking_lot_1
-    type: parking_lot
-    profile: parking_access
-    geometry: {width_m: 28, depth_m: 30}
-    attach: {port: entrance, to: east_commercial_lot_driveway_1.end}
-
-  - id: east_commercial_lot_opening_2
-    type: parking_lot_opening
-    profile: parking_access
-    geometry: {length_m: 5, road_profile: neighborhood}
-    attach: {port: road, to: east_lower_junction_3.north}
-
-  - id: east_commercial_lot_driveway_2
-    type: driveway
-    profile: parking_access
-    geometry: {kind: straight, length_m: 8}
-    attach: {port: start, to: east_commercial_lot_opening_2.access}
-
-  - id: east_commercial_parking_lot_2
-    type: parking_lot
-    profile: parking_access
-    geometry: {width_m: 30, depth_m: 26}
-    attach: {port: entrance, to: east_commercial_lot_driveway_2.end}
-
-  - id: east_lower_south_stub_4
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 45}
-    attach: {port: start, to: east_lower_junction_4.south}
-
-  - id: east_lower_south_cul_de_sac_4
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: east_lower_south_stub_4.end}
-
-  - id: east_lower_east_stub
-    type: road_segment
-    profile: neighborhood
-    geometry: {kind: straight, length_m: 25}
-    attach: {port: start, to: east_lower_junction_4.east}
-
-  - id: east_lower_east_cul_de_sac
-    type: cul_de_sac
-    profile: neighborhood
-    geometry: {radius_m: 10, neck_length_m: 10}
-    attach: {port: entrance, to: east_lower_east_stub.end}
-
-connections:
-  - {a: upper_north_cross_street.end, b: east_upper_north_junction.north}
-  - {a: east_north_junction.south, b: east_north_street.end}
-  - {a: south_cross_street.end, b: east_south_junction.west}
-  - {a: east_lower_junction.north, b: east_south_tail.end}
-  - {a: east_north_loop_west.end, b: east_north_loop_west_return.end}
-  - {a: east_north_loop_east.end, b: east_north_loop_east_return.end}
-  - {a: east_lower_cross_1.end, b: east_lower_junction_2.west}
-  - {a: east_lower_cross_3.end, b: east_lower_junction_4.west}
+road_attachments: []
 
 spawns:
   - id: original_area_start
-    element: central_boulevard
+    road: central_boulevard
     lane: 2
     distance_m: 30
     variants:

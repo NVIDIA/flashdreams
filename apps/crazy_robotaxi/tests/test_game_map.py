@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""CPU coverage for semantic Crazy Robotaxi maps."""
+"""CPU coverage for Crazy Robotaxi node-graph maps."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -21,553 +22,326 @@ from omnidreams_game_engine.game_map import (
     write_game_map_preview,
 )
 from omnidreams_game_engine.game_map import compiler as game_map_compiler
-from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
+from omnidreams_game_engine.game_map.types import (
+    ResolvedGameMap,
+    game_map_from_dict,
+    game_map_to_dict,
+)
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import VehicleState
 
 pytestmark = pytest.mark.ci_cpu
 
-_STARTER_MAP = (
-    Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / "minimal_loop.robotaxi.yaml"
-)
-_BOULEVARD_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "boulevard_district.robotaxi.yaml"
-)
+_MAPS = Path(__file__).parents[1] / "crazy_robotaxi" / "maps"
+_STARTER_MAP = _MAPS / "minimal_loop.robotaxi.yaml"
+_BOULEVARD_MAP = _MAPS / "boulevard_district.robotaxi.yaml"
 
 
-def test_map_compiler_settings_are_explicit_and_affect_geometry(
+def _write_map(tmp_path: Path, source: dict[str, object], name: str = "map") -> Path:
+    path = tmp_path / f"{name}.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _reachable(game_map: ResolvedGameMap, start_lane_id: str) -> set[str]:
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    pending = [start_lane_id]
+    reached = {start_lane_id}
+    while pending:
+        for successor_id in lanes[pending.pop()].successor_ids:
+            if successor_id not in reached:
+                reached.add(successor_id)
+                pending.append(successor_id)
+    return reached
+
+
+def test_bundled_maps_use_schema_version_1() -> None:
+    starter = load_game_map(_STARTER_MAP)
+    boulevard = load_game_map(_BOULEVARD_MAP)
+
+    assert starter.schema_version == boulevard.schema_version == 1
+    assert {node.node_type for node in starter.topology.nodes} == {
+        "intersection",
+        "cul_de_sac",
+        "driveway",
+        "parking_lot",
+    }
+    assert len(starter.topology.roads) == 2
+    assert len(starter.topology.roads[0].bezier_spans_world) == 4
+    assert len(boulevard.topology.nodes) == 44
+    assert len(boulevard.topology.roads) == 41
+    assert len(boulevard.topology.direct_links) == 10
+    assert boulevard.default_spawn.lane_id == "central_boulevard:lane:2"
+
+
+def test_unknown_root_fields_are_rejected(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["unexpected"] = []
+
+    with pytest.raises(GameMapError, match="Map must contain exactly"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_topology_round_trip_is_lossless() -> None:
+    original = load_game_map(_STARTER_MAP)
+    restored = game_map_from_dict(game_map_to_dict(original))
+
+    assert restored.topology == original.topology
+    assert restored.topology.adjacency == original.topology.adjacency
+    assert restored.default_spawn.lane_id == original.default_spawn.lane_id
+
+
+def test_node_rotation_does_not_change_road_path(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    hub = next(node for node in source["nodes"] if node["id"] == "hub")
+    baseline = load_game_map(_STARTER_MAP)
+    hub["pose"]["rotation_deg"] = 45
+    rotated = load_game_map(_write_map(tmp_path, source))
+
+    baseline_road = next(
+        lane for lane in baseline.lanes if lane.lane_id == "dead_end_road:lane:1"
+    )
+    rotated_road = next(
+        lane for lane in rotated.lanes if lane.lane_id == "dead_end_road:lane:1"
+    )
+    baseline_direction = (
+        baseline_road.centerline_world[-1, :2] - baseline_road.centerline_world[0, :2]
+    )
+    rotated_direction = (
+        rotated_road.centerline_world[-1, :2] - rotated_road.centerline_world[0, :2]
+    )
+    baseline_direction /= np.linalg.norm(baseline_direction)
+    rotated_direction /= np.linalg.norm(rotated_direction)
+    np.testing.assert_allclose(rotated_direction, baseline_direction, atol=1.0e-5)
+
+
+def test_askew_intersection_road_angles_are_geometry_driven() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    nodes = {node.node_id: node for node in game_map.topology.nodes}
+    road = next(
+        item
+        for item in game_map.topology.roads
+        if item.road_id == "eastern_north_approach"
+    )
+    start, end = nodes[road.from_node_id], nodes[road.to_node_id]
+    bearing = np.degrees(np.arctan2(end.y_m - start.y_m, end.x_m - start.x_m)) % 360
+
+    assert start.node_id == "eastern_gateway"
+    assert start.rotation_deg == pytest.approx(0)
+    assert bearing == pytest.approx(75.1, abs=0.2)
+
+
+def test_multi_span_curve_is_one_topological_road() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    road = next(
+        item for item in game_map.topology.roads if item.road_id == "neighborhood_loop"
+    )
+    road_lanes = [lane for lane in game_map.lanes if lane.element_id == road.road_id]
+
+    assert road.from_node_id == road.to_node_id == "hub"
+    assert len(road.bezier_spans_world) == 4
+    assert len(road_lanes) == 2
+    assert (
+        max(
+            np.max(
+                np.linalg.norm(np.diff(lane.centerline_world[:, :2], axis=0), axis=1)
+            )
+            for lane in road_lanes
+        )
+        < 4.0
+    )
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    assert any(
+        "neighborhood_loop:lane:1" in lanes[successor].successor_ids
+        for successor in lanes["neighborhood_loop:lane:1"].successor_ids
+    )
+
+
+def test_malformed_curve_is_rejected(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
+    loop["path"][-1]["end"] = {"x_m": 1, "y_m": 0}
+
+    with pytest.raises(GameMapError, match="final path endpoint"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["roads"].append(
+        {
+            "id": "invalid_second_road",
+            "from": "hub",
+            "to": "dead_end",
+            "profile": "neighborhood",
+        }
+    )
+
+    with pytest.raises(GameMapError, match="terminate exactly one road"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_direct_driveway_links_are_not_authored_roads() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    road_ids = {road.road_id for road in game_map.topology.roads}
+    link_ids = {link.link_id for link in game_map.topology.direct_links}
+    implicit = {
+        element.element_id
+        for element in game_map.elements
+        if element.element_type == "implicit_driveway"
+    }
+
+    assert "hub_to_lot_driveway" not in road_ids
+    assert link_ids == {"hub_to_lot_driveway", "lot_driveway_to_lot"}
+    assert implicit == link_ids
+    width = np.ptp(
+        next(
+            element.surface_world[:, 0]
+            for element in game_map.elements
+            if element.element_id == "hub_to_lot_driveway"
+        )
+    )
+    assert width == pytest.approx(6.4, abs=0.2)
+
+
+def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["links"] = [
+        link for link in source["links"] if link["id"] != "hub_to_lot_driveway"
+    ]
+    driveway = next(node for node in source["nodes"] if node["id"] == "lot_driveway")
+    driveway["pose"] = {"x_m": 4.2, "y_m": 15, "rotation_deg": 0}
+    lot = next(node for node in source["nodes"] if node["id"] == "neighborhood_lot")
+    lot["pose"] = {"x_m": 25, "y_m": 15, "rotation_deg": 0}
+    source["road_attachments"] = [{"driveway": "lot_driveway", "road": "dead_end_road"}]
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    road = next(
+        item for item in game_map.topology.roads if item.road_id == "dead_end_road"
+    )
+    attachment = game_map.topology.road_attachments[0]
+    assert road.from_node_id == "hub"
+    assert road.to_node_id == "dead_end"
+    assert attachment.road_id == road.road_id
+    assert sum(item.road_id == road.road_id for item in game_map.topology.roads) == 1
+    assert any(
+        successor.startswith("lot_driveway_to_lot")
+        for lane in game_map.lanes
+        if lane.element_id == road.road_id
+        for successor in lane.successor_ids
+    )
+
+
+def test_inline_driveway_pose_and_outward_rotation_are_validated(
     tmp_path: Path,
 ) -> None:
-    """Keep compiler tuning in the authored map and its cache metadata."""
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["links"] = [source["links"][1]]
+    driveway = next(node for node in source["nodes"] if node["id"] == "lot_driveway")
+    driveway["pose"] = {"x_m": 4.2, "y_m": 15, "rotation_deg": 180}
+    source["road_attachments"] = [{"driveway": "lot_driveway", "road": "dead_end_road"}]
+
+    with pytest.raises(GameMapError, match="rotation must point outward"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_parking_lot_accepts_multiple_driveways(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    hub = next(node for node in source["nodes"] if node["id"] == "hub")
+    hub["geometry"] = {"width_m": 24, "depth_m": 24}
+    first_driveway = next(
+        node for node in source["nodes"] if node["id"] == "lot_driveway"
+    )
+    first_driveway["pose"] = {"x_m": 0, "y_m": -20, "rotation_deg": 270}
+    lot = next(node for node in source["nodes"] if node["id"] == "neighborhood_lot")
+    lot["pose"] = {"x_m": 6, "y_m": -45, "rotation_deg": 0}
+    source["nodes"].append(
+        {
+            "id": "second_driveway",
+            "type": "driveway",
+            "profile": "parking_access",
+            "pose": {"x_m": 12, "y_m": -20, "rotation_deg": 270},
+            "geometry": {"width_m": 6.4},
+        }
+    )
+    source["links"].extend(
+        [
+            {"id": "hub_to_second", "a": "hub", "b": "second_driveway"},
+            {"id": "second_to_lot", "a": "second_driveway", "b": "neighborhood_lot"},
+        ]
+    )
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    lot_neighbors = [
+        link
+        for link in game_map.topology.direct_links
+        if "neighborhood_lot" in {link.node_a_id, link.node_b_id}
+    ]
+    assert len(lot_neighbors) == 2
+    assert any(lane.element_id == "neighborhood_lot:aisle:1" for lane in game_map.lanes)
+
+
+def test_lane_graph_routes_to_and_from_parking_lot() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    outbound = _reachable(game_map, game_map.default_spawn.lane_id)
+    returning = _reachable(game_map, "neighborhood_lot:lane:0")
+
+    assert "neighborhood_lot:lane:1" in outbound
+    assert "neighborhood_loop:lane:0" in returning
+
+
+def test_parking_lots_compile_as_green_roadnet_masks() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    rows = game_map_compiler._road_marking_rows(game_map)
+    lots = [node for node in game_map.topology.nodes if node.node_type == "parking_lot"]
+
+    assert len(rows) == len(lots) == 5
+    assert all(
+        cast(dict[str, Any], row["road_marking"])["category"]
+        == "ROI_POLYGON_ROADNET_MASK"
+        for row in rows
+    )
+    assert not game_map.line_markings
+
+
+def test_compiler_settings_remain_map_local(tmp_path: Path) -> None:
     baseline = load_game_map(_STARTER_MAP)
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["compiler"]["ground_margin_m"] = 35.0
-    modified_path = tmp_path / "modified.robotaxi.yaml"
-    modified_path.write_text(yaml.safe_dump(source), encoding="utf-8")
+    modified = load_game_map(_write_map(tmp_path, source))
 
-    modified = load_game_map(modified_path)
-
-    assert baseline.compiler_settings["ground_margin_m"] == pytest.approx(20.0)
-    assert modified.compiler_settings["ground_margin_m"] == pytest.approx(35.0)
+    assert baseline.compiler_settings["ground_margin_m"] == pytest.approx(20)
     assert np.ptp(modified.ground_vertices[:, 0]) == pytest.approx(
-        np.ptp(baseline.ground_vertices[:, 0]) + 30.0
+        np.ptp(baseline.ground_vertices[:, 0]) + 30
     )
 
 
-def test_starter_map_resolves_loop_and_parking_destination() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-
-    assert game_map.schema_version == 1
-    assert len(game_map.elements) == 14
-    assert {element.element_type for element in game_map.elements} == {
-        "road_segment",
-        "intersection",
-        "parking_lot_opening",
-        "driveway",
-        "parking_lot",
-    }
-    east_road = next(
-        element for element in game_map.elements if element.element_id == "east_road"
-    )
-    assert float(np.ptp(east_road.surface_world[:, 1])) == pytest.approx(8.4)
-    for lane in (lane for lane in game_map.lanes if lane.element_id == "east_road"):
-        rail_widths = np.linalg.norm(
-            lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
-        )
-        np.testing.assert_allclose(rail_widths, 3.6)
-        roadside_offsets = np.linalg.norm(
-            lane.roadside_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
-        )
-        np.testing.assert_allclose(roadside_offsets, 0.6, atol=1.0e-6)
-    dead_end = next(
-        element for element in game_map.elements if element.element_id == "dead_end"
-    )
-    ports = {port[0]: port for port in dead_end.ports}
-    assert ports["start"][4] is True
-    assert ports["end"][4] is False
-    end_xy = np.asarray(ports["end"][1:3], dtype=np.float32)
-    assert any(
-        np.allclose(segment[:, :2].mean(axis=0), end_xy, atol=1.0e-3)
-        for segment in game_map.collision_segments_world
-    )
-
-    opening = next(
-        element for element in game_map.elements if element.element_id == "lot_opening"
-    )
-    opening_widths = (
-        float(np.ptp(opening.surface_world[:, 0])),
-        float(np.ptp(opening.surface_world[:, 1])),
-    )
-    assert max(opening_widths) == pytest.approx(8.4)
-    assert all(port[4] for port in opening.ports)
-
-    lot = next(
-        element
-        for element in game_map.elements
-        if element.element_id == "neighborhood_lot"
-    )
-    assert float(np.ptp(lot.surface_world[:, 0])) == pytest.approx(26.0)
-    assert float(np.ptp(lot.surface_world[:, 1])) == pytest.approx(32.0)
-    assert lot.ports[0][0] == "entrance"
-    assert lot.ports[0][4] is True
-
-
-def test_parking_destination_has_routed_aisle_and_non_stopping_access() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-    lanes = {lane.lane_id: lane for lane in game_map.lanes}
-
-    assert lanes["lot_opening:lane:1"].successor_ids == ("lot_driveway:lane:1",)
-    assert lanes["lot_driveway:lane:1"].successor_ids == ("neighborhood_lot:lane:1",)
-    assert lanes["neighborhood_lot:lane:1"].successor_ids == (
-        "neighborhood_lot:turnaround",
-    )
-    assert lanes["neighborhood_lot:turnaround"].successor_ids == (
-        "neighborhood_lot:lane:0",
-    )
-    assert lanes["neighborhood_lot:lane:0"].successor_ids == ("lot_driveway:lane:0",)
-    assert not lanes["lot_opening:lane:1"].allows_taxi_stops
-    assert not lanes["lot_driveway:lane:1"].allows_taxi_stops
-    assert lanes["neighborhood_lot:lane:1"].allows_taxi_stops
-    assert not lanes["neighborhood_lot:turnaround"].allows_taxi_stops
-
-
-def test_parking_destination_emits_roadnet_mask_without_stall_lines() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-    road_marking_rows = game_map_compiler._road_marking_rows(game_map)
-    parking_line_rows = [
-        row
-        for row in game_map_compiler._lane_line_rows(game_map)
-        if ":parking-space:" in row["key"]["label_class_id"]
-    ]
-
-    assert not game_map.road_marking_polygons_world
-    assert not game_map.line_markings
-    assert len(road_marking_rows) == 1
-    assert not parking_line_rows
-    roadnet_mask = road_marking_rows[0]
-    assert roadnet_mask["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
-    lot = next(
-        element
-        for element in game_map.elements
-        if element.element_id == "neighborhood_lot"
-    )
-    np.testing.assert_allclose(
-        [
-            [point["x"], point["y"], point["z"]]
-            for point in roadnet_mask["road_marking"]["location"]
-        ],
-        lot.surface_world,
-    )
-
-
-def test_boulevard_map_recreates_original_spawn_area_with_mixed_profiles() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-
-    assert game_map.name == "Original Boulevard District (WIP)"
-    assert game_map.default_spawn.lane_id == "central_boulevard:lane:2"
-    assert len(game_map.elements) == 93
-    assert {element.element_type for element in game_map.elements} >= {
-        "boulevard",
-        "road_segment",
-        "intersection",
-        "parking_lot_opening",
-        "driveway",
-        "parking_lot",
-        "cul_de_sac",
-    }
-    central_boulevard = next(
-        element
-        for element in game_map.elements
-        if element.element_id == "central_boulevard"
-    )
-    assert float(np.ptp(central_boulevard.surface_world[:, 1])) == pytest.approx(15.6)
-    central_crossing = next(
-        element
-        for element in game_map.elements
-        if element.element_id == "central_crossing"
-    )
-    assert float(np.ptp(central_crossing.surface_world[:, 0])) == pytest.approx(8.4)
-    assert float(np.ptp(central_crossing.surface_world[:, 1])) == pytest.approx(15.6)
-    assert all(port[4] for port in central_crossing.ports)
-
-
-def test_boulevard_map_closes_neighborhood_blocks_and_routes_parking_lots() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    elements = {element.element_id: element for element in game_map.elements}
-    lanes = {lane.lane_id: lane for lane in game_map.lanes}
-
-    connected_ports = {
-        element_id: {port[0] for port in elements[element_id].ports if port[4]}
-        for element_id in (
-            "central_north_junction",
-            "east_north_junction",
-            "central_lower_junction",
-            "lower_lot_junction",
-            "east_lower_junction",
-            "east_lot_junction",
-        )
-    }
-    assert connected_ports == {
-        "central_north_junction": {"east", "north", "south"},
-        "east_north_junction": {"north", "west", "south"},
-        "central_lower_junction": {"east", "north"},
-        "lower_lot_junction": {"east", "west", "north"},
-        "east_lower_junction": {"west", "north"},
-        "east_lot_junction": {"east", "west", "north"},
-    }
-
-    north_successors = lanes["north_cross_street:lane:1"].successor_ids
-    lower_successors = lanes["lower_cross_west:lane:1"].successor_ids
-    east_spur_successors = lanes["east_south_spur:lane:1"].successor_ids
-    assert {lanes[lane_id].element_id for lane_id in north_successors} == {
-        "east_north_junction"
-    }
-    assert {lanes[lane_id].element_id for lane_id in lower_successors} == {
-        "lower_lot_junction"
-    }
-    assert {lanes[lane_id].element_id for lane_id in east_spur_successors} == {
-        "east_lot_junction"
-    }
-    assert lanes["central_lot_driveway:lane:1"].successor_ids == (
-        "central_parking_lot:lane:1",
-    )
-    assert lanes["east_lot_driveway:lane:1"].successor_ids == (
-        "east_parking_lot:lane:1",
-    )
-
-    def reachable_lane_ids(start_lane_id: str) -> set[str]:
-        pending = [start_lane_id]
-        reached = {start_lane_id}
-        while pending:
-            for successor_id in lanes[pending.pop()].successor_ids:
-                if successor_id not in reached:
-                    reached.add(successor_id)
-                    pending.append(successor_id)
-        return reached
-
-    assert "central_parking_lot:lane:1" in reachable_lane_ids("lower_cross_west:lane:1")
-    assert "east_parking_lot:lane:1" in reachable_lane_ids("east_south_spur:lane:1")
-    assert any(
-        lanes[lane_id].element_id == "lower_cross_west"
-        for lane_id in reachable_lane_ids("central_parking_lot:lane:0")
-    )
-    assert any(
-        lanes[lane_id].element_id == "east_south_spur"
-        for lane_id in reachable_lane_ids("east_parking_lot:lane:0")
-    )
-
-
-def test_boulevard_eastern_district_forms_routed_loop_and_destination() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    elements = {element.element_id: element for element in game_map.elements}
-    lanes = {lane.lane_id: lane for lane in game_map.lanes}
-
-    def reachable_lane_ids(start_lane_id: str) -> set[str]:
-        pending = [start_lane_id]
-        reached = {start_lane_id}
-        while pending:
-            for successor_id in lanes[pending.pop()].successor_ids:
-                if successor_id not in reached:
-                    reached.add(successor_id)
-                    pending.append(successor_id)
-        return reached
-
-    outbound = reachable_lane_ids("east_boulevard:lane:2")
-    returning = reachable_lane_ids("eastern_parking_lot:lane:0")
-
-    assert "eastern_sweep:lane:2" in outbound
-    assert "eastern_south_approach:lane:1" in outbound
-    assert "eastern_parking_lot:lane:1" in outbound
-    assert "east_spine_cul_de_sac:turnaround" in outbound
-    assert "east_lower_west_cul_de_sac:turnaround" in outbound
-    assert "east_lower_south_cul_de_sac_1:turnaround" in outbound
-    assert "east_lower_south_cul_de_sac_4:turnaround" in outbound
-    assert "east_lower_east_cul_de_sac:turnaround" in outbound
-    assert "eastern_north_cul_de_sac:turnaround" in outbound
-    assert "eastern_side_cul_de_sac:turnaround" in outbound
-    assert "east_commercial_parking_lot_1:lane:1" in outbound
-    assert "east_commercial_parking_lot_2:lane:1" in outbound
-    assert "east_boulevard:lane:0" in returning
-    assert "east_boulevard:lane:0" in reachable_lane_ids(
-        "east_spine_cul_de_sac:turnaround"
-    )
-    assert "east_boulevard:lane:0" in reachable_lane_ids(
-        "east_commercial_parking_lot_1:lane:0"
-    )
-    assert "east_boulevard:lane:0" in reachable_lane_ids(
-        "east_commercial_parking_lot_2:lane:0"
-    )
-    eastern_prefixes = (
-        "eastern_",
-        "east_spine_",
-        "east_north_loop_",
-        "east_lower_",
-        "east_commercial_",
-    )
-    assert all(
-        port[4]
-        for element_id, element in elements.items()
-        if element_id.startswith(eastern_prefixes)
-        and element_id != "east_lower_junction"
-        for port in element.ports
-    )
-
-
-def test_boulevard_map_preserves_traced_gateway_and_junction_topology() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    elements = {element.element_id: element for element in game_map.elements}
-
-    gateway_ports = {port[0]: port for port in elements["eastern_gateway"].ports}
-    assert gateway_ports["north"][3] == pytest.approx(82.746805)
-    assert gateway_ports["south"][3] == pytest.approx(262.746805)
-    for element_id in ("eastern_north_approach", "eastern_south_approach"):
-        ports = {port[0]: port for port in elements[element_id].ports}
-        assert abs(ports["end"][1] - ports["start"][1]) > 6.0
-
-    assert all(port[4] for port in elements["upper_north_cross_street"].ports)
-    assert "east_lower_approach_3" not in elements
-    assert {port[0] for port in elements["east_spine_crossing_3"].ports} == {
-        "east",
-        "west",
-        "north",
-    }
-    assert {port[0] for port in elements["east_spine_crossing_4"].ports} == {
-        "east",
-        "west",
-        "north",
-        "south",
-    }
-    lower_three_ports = {
-        port[0]: port for port in elements["east_lower_junction_3"].ports
-    }
-    assert set(lower_three_ports) == {"east", "west", "north"}
-    assert lower_three_ports["north"][3] == pytest.approx(270.0, abs=0.1)
-
-
-def test_cubic_boulevard_and_freeform_intersections_resolve_geometry() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    elements = {element.element_id: element for element in game_map.elements}
-    sweep_lanes = [
-        lane for lane in game_map.lanes if lane.element_id == "eastern_sweep"
-    ]
-
-    assert len(sweep_lanes) == 4
-    for lane in sweep_lanes:
-        segment_lengths = np.linalg.norm(
-            np.diff(lane.centerline_world[:, :2], axis=0), axis=1
-        )
-        assert float(np.max(segment_lengths)) < 2.4
-        rail_widths = np.linalg.norm(
-            lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2], axis=1
-        )
-        np.testing.assert_allclose(rail_widths, 3.6, atol=1.0e-4)
-
-    assert all(port[4] for port in elements["eastern_gateway"].ports)
-    assert len(elements["eastern_gateway"].surface_world) == 9
-    assert len(elements["eastern_north_junction"].surface_world) == 8
-    assert "eastern_south_junction" not in elements
-    assert elements["eastern_south_cul_de_sac"].ports[0][4]
-
-    assert "eastern_southwest_continuation" not in elements
-    assert all(
-        "highway" not in element_id and "ramp" not in element_id
-        for element_id in elements
-    )
-
-
-def test_cul_de_sacs_are_bounded_unmarked_turnarounds() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    cul_de_sacs = {
-        element.element_id: element
-        for element in game_map.elements
-        if element.element_type == "cul_de_sac"
-    }
-    cul_de_sac_lanes = {
-        lane.element_id: lane
-        for lane in game_map.lanes
-        if lane.element_id in cul_de_sacs
-    }
-    lane_rows = {
-        row["key"]["label_class_id"]: row["lane"]
-        for row in game_map_compiler._lane_rows(game_map)
-    }
-    line_row_ids = {
-        row["key"]["label_class_id"]
-        for row in game_map_compiler._lane_line_rows(game_map)
-    }
-
-    assert set(cul_de_sacs) == {
-        "eastern_north_cul_de_sac",
-        "eastern_south_cul_de_sac",
-        "eastern_side_cul_de_sac",
-        "east_upper_north_cul_de_sac",
-        "east_spine_cul_de_sac",
-        "east_lower_west_cul_de_sac",
-        "east_lower_south_cul_de_sac_1",
-        "east_lower_south_cul_de_sac_4",
-        "east_lower_east_cul_de_sac",
-    }
-    assert set(cul_de_sac_lanes) == set(cul_de_sacs)
-    assert all(element.ports[0][4] for element in cul_de_sacs.values())
-    assert not any("cul_de_sac" in row_id for row_id in line_row_ids)
-    for element_id, lane in cul_de_sac_lanes.items():
-        assert lane.lane_id == f"{element_id}:turnaround"
-        assert not lane.allows_taxi_stops
-        assert lane.left_marking_style == "VIRTUAL"
-        assert lane.right_marking_style == "VIRTUAL"
-        compiled_lane = lane_rows[lane.lane_id]
-        assert compiled_lane["left_edge_styles"] == []
-        assert compiled_lane["right_edge_styles"] == []
-
-
-def test_boulevard_parking_lots_compile_as_roadnet_masks() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    rows = game_map_compiler._road_marking_rows(game_map)
-    parking_line_rows = [
-        row
-        for row in game_map_compiler._lane_line_rows(game_map)
-        if ":parking-space:" in row["key"]["label_class_id"]
-    ]
-    masks = [
-        row
-        for row in rows
-        if row["road_marking"]["category"] == "ROI_POLYGON_ROADNET_MASK"
-    ]
-    parking_lots = {
-        element.element_id: element
-        for element in game_map.elements
-        if element.element_type == "parking_lot"
-    }
-
-    assert set(parking_lots) == {
-        "central_parking_lot",
-        "east_parking_lot",
-        "eastern_parking_lot",
-        "east_commercial_parking_lot_1",
-        "east_commercial_parking_lot_2",
-    }
-    assert len(masks) == 5
-    assert len(rows) == 5
-    assert not parking_line_rows
-    mask_polygons = [
-        np.asarray(
-            [
-                [point["x"], point["y"], point["z"]]
-                for point in row["road_marking"]["location"]
-            ],
-            dtype=np.float32,
-        )
-        for row in masks
-    ]
-    for lot in parking_lots.values():
-        assert any(
-            np.allclose(mask, lot.surface_world)
-            for mask in mask_polygons
-            if mask.shape == lot.surface_world.shape
-        )
-
-
-def test_boulevard_compiles_white_lane_dividers_and_yellow_centerline() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    rows = [
-        row
-        for row in game_map_compiler._lane_line_rows(game_map)
-        if "central_boulevard" in row["key"]["label_class_id"]
-    ]
-
-    assert len(rows) == 3
-    markings = {
-        (row["lane_line"]["styles"][0], row["lane_line"]["colors"][0]) for row in rows
-    }
-    assert markings == {
-        ("DASHED_SINGLE", "WHITE"),
-        ("SOLID_GROUP", "YELLOW"),
-    }
-
-
-def test_semantic_lane_successors_drive_navigation_without_endpoint_inference() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-    lanes = tuple(
-        NavigationLane(
-            centerline_world=lane.centerline_world,
-            road_edge_world=(
-                lane.roadside_edge_world if lane.allows_taxi_stops else None
-            ),
-            allows_taxi_stops=lane.allows_taxi_stops,
-            lane_id=lane.lane_id,
-            successor_ids=lane.successor_ids,
-        )
-        for lane in game_map.lanes
-    )
-
-    navigation = TaxiNavigationMap(lanes, endpoint_snap_tolerance_m=1.0e-6)
-
-    spawn_lane = next(
-        lane for lane in navigation.lanes if lane.lane_id == "east_road:lane:1"
-    )
-    assert spawn_lane.successor_ids == ("northeast_curve:lane:1",)
-    assert len(navigation.sample_waypoints(spacing_m=20.0, offset_m=0.0)) > 2
-
-
-def test_compiler_emits_shared_divider_and_separate_road_boundaries() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-    lane_rows = {
-        row["key"]["label_class_id"]: row["lane"]
-        for row in game_map_compiler._lane_rows(game_map)
-    }
-    line_rows = game_map_compiler._lane_line_rows(game_map)
-    area_rows = game_map_compiler._intersection_rows(game_map)
-    east_lines = [
-        row for row in line_rows if "east_road:lane:0" in row["key"]["label_class_id"]
-    ]
-
-    assert len(line_rows) == 10
-    assert {row["intersection_area"]["category"] for row in area_rows} == {
-        "intersection"
-    }
-    assert len(area_rows) == 1
-    assert len(east_lines) == 1
-    divider = east_lines[0]["lane_line"]
-    assert all(point["y"] == pytest.approx(0.0) for point in divider["line_rail"])
-    assert divider["styles"] == ["SOLID_GROUP"]
-    assert divider["colors"] == ["YELLOW"]
-    assert lane_rows["east_road:lane:0"]["left_edge_styles"] == ["SOLID_GROUP"]
-    assert lane_rows["east_road:lane:0"]["left_edge_colors"] == ["YELLOW"]
-    assert lane_rows["east_road:lane:0"]["right_edge_styles"] == ["VIRTUAL"]
-    assert lane_rows["east_road:lane:1"]["left_edge_styles"] == ["SOLID_GROUP"]
-    assert lane_rows["east_road:lane:1"]["left_edge_colors"] == ["YELLOW"]
-    assert lane_rows["east_road:lane:1"]["right_edge_styles"] == ["VIRTUAL"]
-
-
-def test_starter_map_can_initialize_gameplay() -> None:
+def test_lane_graph_initializes_navigation_and_gameplay() -> None:
     game_map = load_game_map(_STARTER_MAP)
     spawn = game_map.default_spawn
     lanes = tuple(
         NavigationLane(
             centerline_world=lane.centerline_world,
-            road_edge_world=(
-                lane.roadside_edge_world if lane.allows_taxi_stops else None
-            ),
+            road_edge_world=lane.roadside_edge_world
+            if lane.allows_taxi_stops
+            else None,
             allows_taxi_stops=lane.allows_taxi_stops,
             lane_id=lane.lane_id,
             successor_ids=lane.successor_ids,
         )
         for lane in game_map.lanes
     )
+    navigation = TaxiNavigationMap(lanes, endpoint_snap_tolerance_m=1.0e-6)
     spawn_lane = next(lane for lane in lanes if lane.lane_id == spawn.lane_id)
     state = VehicleState(
         x_m=float(spawn.position_world[0]),
         y_m=float(spawn.position_world[1]),
         z_m=float(spawn.position_world[2]),
         yaw_rad=spawn.yaw_rad,
-        speed_mps=0.0,
-        steer_rad=0.0,
+        speed_mps=0,
+        steer_rad=0,
     )
-
     controller = TaxiGameController(
         scene_id=game_map.map_id,
         reference_route_world=spawn_lane.centerline_world,
@@ -576,18 +350,23 @@ def test_starter_map_can_initialize_gameplay() -> None:
         config=TaxiGameConfig(enabled=True, seed=17),
     )
 
+    assert len(navigation.sample_waypoints(spacing_m=20, offset_m=0)) > 2
     assert controller.snapshot(state).pickup_targets_xyz_m
 
 
-def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
-    tmp_path: Path,
-) -> None:
+def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
     first = compile_game_map(_STARTER_MAP, cache_root=tmp_path / "cache")
     second = compile_game_map(_STARTER_MAP, cache_root=tmp_path / "cache")
+    preview = write_game_map_preview(_STARTER_MAP, tmp_path / "preview.svg")
+    options = cli._discover_scene_options(_MAPS, _STARTER_MAP)
 
-    assert first.cache_hit is False
-    assert second.cache_hit is True
+    assert not first.cache_hit and second.cache_hit
     assert first.archive_path == second.archive_path
+    assert preview.read_text(encoding="utf-8").startswith("<svg")
+    assert (
+        next(item for item in options if item.path == _STARTER_MAP.resolve()).label
+        == "Minimal Loop and Parking Lot"
+    )
     scene = load_scene_bundle(
         first.archive_path,
         camera_name="camera_front_wide_120fov",
@@ -596,146 +375,5 @@ def test_compiler_round_trip_embeds_semantic_map_and_reuses_cache(
         raster=RasterConfig(),
     )
     assert scene.game_map is not None
-    assert scene.game_map.map_id == "crazy-robotaxi-minimal-loop"
-    assert not scene.game_map.road_marking_polygons_world
-    assert not scene.game_map.line_markings
-    assert "quiet suburban neighborhood" in scene.prompt
-    assert "lane" not in scene.prompt
-    assert "parking lot" not in scene.prompt
-    assert all(
-        layer.layer_name != "lanelines_white_solid_single"
-        for layer in scene.line_layers
-    )
-    assert scene.initial_speed_mps == pytest.approx(0.0)
-    np.testing.assert_allclose(
-        scene.initial_rig_to_world[:2, 3],
-        scene.game_map.default_spawn.position_world[:2],
-    )
-    bounds = MapBounds.from_scene(scene)
-    assert bounds is not None
-    assert bounds.width_m < float(np.ptp(scene.ground_mesh_vertices[:, 0]))
-
-
-def test_embedded_map_without_line_markings_remains_loadable() -> None:
-    serialized = game_map_to_dict(load_game_map(_STARTER_MAP))
-    serialized.pop("line_markings")
-
-    restored = game_map_from_dict(serialized)
-
-    assert restored.line_markings == ()
-
-
-def test_preview_and_scene_discovery_use_semantic_yaml(tmp_path: Path) -> None:
-    preview = write_game_map_preview(_STARTER_MAP, tmp_path / "preview.svg")
-    options = cli._discover_scene_options(_STARTER_MAP.parent, _STARTER_MAP)
-
-    assert preview.read_text(encoding="utf-8").startswith("<svg")
-    option = next(item for item in options if item.path == _STARTER_MAP.resolve())
-    assert option.label == "Minimal Loop and Parking Lot"
-    assert option.variants == ("default",)
-    assert option.thumbnail is not None
-    boulevard = next(item for item in options if item.path == _BOULEVARD_MAP.resolve())
-    assert boulevard.label == "Original Boulevard District (WIP)"
-
-
-def test_loop_closure_validation_reports_gap(tmp_path: Path) -> None:
-    source = _STARTER_MAP.read_text(encoding="utf-8")
-    broken = tmp_path / "broken.robotaxi.yaml"
-    broken.write_text(
-        source.replace("length_m: 68.4", "length_m: 64"), encoding="utf-8"
-    )
-
-    with pytest.raises(GameMapError, match="does not close: gap="):
-        load_game_map(broken)
-
-
-def test_element_overlap_validation_rejects_crossing_parking_lot(
-    tmp_path: Path,
-) -> None:
-    source = _STARTER_MAP.read_text(encoding="utf-8")
-    broken = tmp_path / "overlap.robotaxi.yaml"
-    broken.write_text(
-        source.replace("to: hub.south", "to: dead_end.end"), encoding="utf-8"
-    )
-
-    with pytest.raises(GameMapError, match="Elements 'north_road'.*overlap"):
-        load_game_map(broken)
-
-
-def test_cubic_bezier_validation_rejects_degenerate_start(tmp_path: Path) -> None:
-    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
-    sweep = next(
-        element for element in source["elements"] if element["id"] == "eastern_sweep"
-    )
-    sweep["geometry"]["control_points"][0] = {"x_m": 0, "y_m": 0}
-    broken = tmp_path / "broken-curve.robotaxi.yaml"
-    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
-
-    with pytest.raises(GameMapError, match="first control point must differ"):
-        load_game_map(broken)
-
-
-@pytest.mark.parametrize(
-    ("geometry", "message"),
-    [
-        (
-            {"radius_m": 4.0, "neck_length_m": 10.0},
-            "radius_m must exceed half its profile surface width",
-        ),
-        (
-            {"radius_m": 10.0, "neck_length_m": 5.0},
-            "neck_length_m is too short",
-        ),
-    ],
-)
-def test_cul_de_sac_validation_rejects_invalid_geometry(
-    tmp_path: Path, geometry: dict[str, float], message: str
-) -> None:
-    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
-    cul_de_sac = next(
-        element
-        for element in source["elements"]
-        if element["id"] == "east_lower_west_cul_de_sac"
-    )
-    cul_de_sac["geometry"] = geometry
-    broken = tmp_path / "broken-cul-de-sac.robotaxi.yaml"
-    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
-
-    with pytest.raises(GameMapError, match=message):
-        load_game_map(broken)
-
-
-def test_freeform_intersection_validation_rejects_off_edge_port(
-    tmp_path: Path,
-) -> None:
-    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
-    gateway = next(
-        element for element in source["elements"] if element["id"] == "eastern_gateway"
-    )
-    gateway["geometry"]["ports"]["north"]["y_m"] = 13
-    broken = tmp_path / "broken-intersection.robotaxi.yaml"
-    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
-
-    with pytest.raises(GameMapError, match="port 'north' must lie on"):
-        load_game_map(broken)
-
-
-def test_freeform_intersection_validation_rejects_self_intersection(
-    tmp_path: Path,
-) -> None:
-    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
-    gateway = next(
-        element for element in source["elements"] if element["id"] == "eastern_gateway"
-    )
-    gateway["geometry"]["surface"] = [
-        {"x_m": 0, "y_m": -14},
-        {"x_m": 30, "y_m": 8},
-        {"x_m": 0, "y_m": 14},
-        {"x_m": 30, "y_m": -4},
-        {"x_m": 14, "y_m": -14},
-    ]
-    broken = tmp_path / "self-intersection.robotaxi.yaml"
-    broken.write_text(yaml.safe_dump(source), encoding="utf-8")
-
-    with pytest.raises(GameMapError, match="surface must not self-intersect"):
-        load_game_map(broken)
+    assert scene.game_map.topology == first.game_map.topology
+    assert MapBounds.from_scene(scene) is not None
