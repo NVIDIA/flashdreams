@@ -49,7 +49,7 @@ Then open `http://localhost:8080/request_session`.
 ## Public surface
 
 - `PIPELINE_WAN22_TI2V_5B` — the assembled pipeline literal.
-- `WAN22_TI2V_5B_DIT_DIFFUSERS_PATH` — diffusers safetensors URL.
+- `WAN22_TI2V_5B_DIT_DIFFUSERS_PATH` — diffusers sharded-safetensors index URL.
 - `wan22_ti2v_5b_dit_state_dict_transform` — diffusers → flashdreams
   DiT key remap.
 - `WAN_CONFIGS` — `{name: pipeline_config}` registry dict.

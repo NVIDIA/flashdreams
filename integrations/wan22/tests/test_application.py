@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 import tomli as tomllib
 import torch
+from wan22.config import WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
 from wan22.ti2v import app as app_module
 from wan22.ti2v.app import Wan22TI2VApplication, create_app
 
@@ -93,6 +94,16 @@ def test_factory_exposes_static_ti2v_application_defaults() -> None:
     assert application.defaults.pixel_width == 1280
     assert application.defaults.fps == 16
     assert not application.input_schema.modalities
+
+
+def test_transformer_uses_the_published_sharded_checkpoint_index() -> None:
+    application = Wan22TI2VApplication()
+    transformer = application.defaults.pipeline_config.diffusion_model.transformer
+
+    assert transformer.checkpoint_path == WAN22_TI2V_5B_DIT_DIFFUSERS_PATH
+    assert WAN22_TI2V_5B_DIT_DIFFUSERS_PATH.endswith(
+        "transformer/diffusion_pytorch_model.safetensors.index.json"
+    )
 
 
 def test_application_requires_prompt_and_existing_first_frame(tmp_path: Path) -> None:

@@ -56,9 +56,9 @@ DEFAULT_VIDEO_FPS = 16
 
 WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
     "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers/resolve/main/"
-    "transformer/diffusion_pytorch_model.safetensors"
+    "transformer/diffusion_pytorch_model.safetensors.index.json"
 )
-"""HF diffusers checkpoint for the Wan 2.2 TI2V-5B DiT (``transformer/`` subfolder)."""
+"""HF sharded-checkpoint index for the Wan 2.2 TI2V-5B DiT."""
 
 
 # Diffusers ``WanTransformer3DModel`` -> ``WanDiTNetwork`` key remap:
