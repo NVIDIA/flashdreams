@@ -5,13 +5,46 @@ SPDX-License-Identifier: Apache-2.0
 
 # `wan22`
 
-Wan 2.2 TI2V-5B inference recipe config — the pre-rolled
-`WanInferencePipelineConfig` literal and the diffusers `state_dict`
-remap for the Wan-AI `Wan2.2-TI2V-5B-Diffusers` checkpoint.
+Wan 2.2 TI2V-5B inference recipe and standalone application. The package
+provides the pre-rolled `WanInferencePipelineConfig` literal, the diffusers
+`state_dict` remap for the Wan-AI `Wan2.2-TI2V-5B-Diffusers` checkpoint, and
+the `ti2v-wan22` application entry point.
 
-Config-only package; downstream runners
-(`integrations/hy_worldplay`, `flashdreams-run` slugs) layer the I/O
-wrapper on top.
+The application accepts a prompt and first-frame image, then generates the
+model's standard single-block 81-frame, 640x1280 rollout through the shared
+null, MP4, local-window, or WebRTC application host. HY-WorldPlay also reuses
+the pipeline config as its base recipe.
+
+## Application
+
+MP4 output:
+
+```bash
+uv run --package flashdreams-wan22 flashdreams-run ti2v-wan22 \
+  --output mp4 --output-path artifacts/ti2v-wan22.mp4 \
+  --prompt "A cinematic ocean wave at sunset." \
+  --image-path /path/to/first-frame.png
+```
+
+Null output:
+
+```bash
+uv run --package flashdreams-wan22 flashdreams-run ti2v-wan22 \
+  --output null \
+  --prompt "A cinematic ocean wave at sunset." \
+  --image-path /path/to/first-frame.png
+```
+
+WebRTC output:
+
+```bash
+uv run --package flashdreams-wan22 flashdreams-run ti2v-wan22 \
+  --output webrtc --host 0.0.0.0 --port 8080 \
+  --prompt "A cinematic ocean wave at sunset." \
+  --image-path /path/to/first-frame.png
+```
+
+Then open `http://localhost:8080/request_session`.
 
 ## Public surface
 

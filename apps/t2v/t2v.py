@@ -176,6 +176,12 @@ class T2VApplication(IFlashDreamsApplication):
             },
         )
 
+    def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Add integration-specific application arguments to ``parser``."""
+
+    def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
+        """Capture validated integration-specific application arguments."""
+
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse session overrides and retain the required initial prompt."""
         parser = argparse.ArgumentParser(prog="flashdreams-run <t2v-slug>")
@@ -196,6 +202,7 @@ class T2VApplication(IFlashDreamsApplication):
             action=argparse.BooleanOptionalAction,
             default=None,
         )
+        self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
         prompt = (args.prompt or "").strip()
@@ -208,6 +215,7 @@ class T2VApplication(IFlashDreamsApplication):
             )
         if args.fps <= 0:
             raise ValueError("--fps must be greater than zero.")
+        self._apply_parsed_arguments(args)
 
         pipeline_config = self.defaults.pipeline_config
         if args.compile is not None:
