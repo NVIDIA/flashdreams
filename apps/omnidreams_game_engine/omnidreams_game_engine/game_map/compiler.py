@@ -69,7 +69,11 @@ def _cache_root() -> Path:
 def _digest(game_map: ResolvedGameMap) -> str:
     hasher = hashlib.sha256()
     hasher.update(_COMPILER_VERSION.encode())
+    hasher.update(Path(__file__).read_bytes())
     hasher.update(game_map.source_path.read_bytes())
+    resolved = game_map_to_dict(game_map)
+    resolved.pop("source_path", None)
+    hasher.update(json.dumps(resolved, sort_keys=True, separators=(",", ":")).encode())
     for spawn in game_map.spawns:
         for variant in spawn.variants:
             asset = resolve_seed_asset(game_map.source_path, variant.image)
@@ -111,7 +115,7 @@ def _lane_edge_groups(
     """Group coincident road-lane edges within each authored element."""
     groups: list[list[tuple[GameMapLane, str, np.ndarray]]] = []
     for lane in game_map.lanes:
-        if not lane.allows_taxi_stops:
+        if not lane.allows_taxi_stops or not lane.conditioning_visible:
             continue
         for side, points in (
             ("left", lane.left_edge_world),
@@ -150,6 +154,8 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     }
     rows: list[dict[str, object]] = []
     for lane in game_map.lanes:
+        if not lane.conditioning_visible:
+            continue
         left_shared = (lane.lane_id, "left") in shared_edges
         right_shared = (lane.lane_id, "right") in shared_edges
         left_style, left_color = _edge_marking(lane, "left")

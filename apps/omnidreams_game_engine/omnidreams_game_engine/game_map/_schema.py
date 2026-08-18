@@ -79,14 +79,15 @@ class _LaneBuild:
     speed_limit_mps: float
     marking_style: str
     marking_color: str
-    start_port: str
-    end_port: str
+    start_endpoint: str
+    end_endpoint: str
     successors: list[str]
     allows_taxi_stops: bool
     left_marking_style: str | None = None
     left_marking_color: str | None = None
     right_marking_style: str | None = None
     right_marking_color: str | None = None
+    conditioning_visible: bool = True
 
 
 def _mapping(value: object, context: str) -> dict[str, Any]:

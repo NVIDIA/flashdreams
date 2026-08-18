@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from shapely.geometry import LineString, MultiPoint, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from omnidreams_game_engine.game_map._schema import (
     _SCHEMA_VERSION,
@@ -438,10 +439,16 @@ def _line_parts(geometry: BaseGeometry) -> list[np.ndarray]:
 
 
 def _trim_line(
-    points: np.ndarray, start: Polygon, end: Polygon, context: str
+    points: np.ndarray,
+    start: Polygon | None,
+    end: Polygon | None,
+    context: str,
 ) -> np.ndarray:
-    remaining: BaseGeometry = LineString(points).difference(start.buffer(1.0e-5))
-    remaining = remaining.difference(end.buffer(1.0e-5))
+    remaining: BaseGeometry = LineString(points)
+    if start is not None:
+        remaining = remaining.difference(start.buffer(1.0e-5))
+    if end is not None:
+        remaining = remaining.difference(end.buffer(1.0e-5))
     parts = _line_parts(remaining)
     if not parts:
         raise GameMapError(
@@ -485,29 +492,47 @@ def _node_polygons(
     for node in topology.nodes:
         center = np.asarray([node.x_m, node.y_m])
         if node.node_type == "intersection":
-            max_width = max(
-                (width for _vector, width in incidences[node.node_id]), default=8.0
-            )
-            fit_multiplier = 1.5 if len(incidences[node.node_id]) >= 4 else 1.35
+            incident = incidences[node.node_id]
+            max_width = max((width for _vector, width in incident), default=8.0)
+            fit_multiplier = 1.5 if len(incident) >= 4 else 1.35
             width = node.geometry.get("width_m", max(8.0, max_width * fit_multiplier))
             depth = node.geometry.get("depth_m", max(8.0, max_width * fit_multiplier))
-            points = list(_rectangle(node, width, depth))
             reach = max(width, depth) * 0.55
-            for vector, opening_width in incidences[node.node_id]:
+            if "width_m" in node.geometry:
+                core: BaseGeometry = Polygon(_rectangle(node, width, depth))
+            else:
+                core = Point(center).buffer(max_width * 0.5, quad_segs=12)
+            arms: list[BaseGeometry] = [core]
+            for vector, opening_width in incident:
                 length = float(np.linalg.norm(vector))
                 if length <= _POSITION_TOLERANCE_M:
                     continue
                 direction = vector / length
-                normal = np.asarray([-direction[1], direction[0]])
-                points.extend(
-                    (
-                        center + direction * reach + normal * opening_width * 0.55,
-                        center + direction * reach - normal * opening_width * 0.55,
+                arms.append(
+                    LineString((center, center + direction * reach)).buffer(
+                        opening_width * 0.5,
+                        cap_style=2,
+                        join_style=2,
                     )
                 )
-            polygon = MultiPoint(points).convex_hull
+            polygon = unary_union(arms).buffer(0)
         elif node.node_type == "cul_de_sac":
-            polygon = Point(center).buffer(node.geometry["radius_m"], quad_segs=24)
+            radius = node.geometry["radius_m"]
+            circle = Point(center).buffer(radius, quad_segs=32)
+            vector, opening_width = incidences[node.node_id][0]
+            direction = vector / max(float(np.linalg.norm(vector)), 1.0e-9)
+            normal = np.asarray([-direction[1], direction[0]])
+            chord_distance = math.sqrt(radius**2 - (opening_width * 0.5) ** 2)
+            extent = radius * 4.0
+            clip = Polygon(
+                (
+                    center - direction * extent + normal * extent,
+                    center + direction * chord_distance + normal * extent,
+                    center + direction * chord_distance - normal * extent,
+                    center - direction * extent - normal * extent,
+                )
+            )
+            polygon = circle.intersection(clip)
         elif node.node_type == "parking_lot":
             polygon = Polygon(
                 _rectangle(node, node.geometry["width_m"], node.geometry["depth_m"])
@@ -542,10 +567,10 @@ def _build_linear_lanes(
             len(profile.directions) - 1
         ) * profile.lane_width_m * 0.5 - index * profile.lane_width_m
         center = _offset_polyline(points, offset)
-        start_port, end_port = "from", "to"
+        start_endpoint, end_endpoint = "from", "to"
         if direction == "backward":
             center = center[::-1]
-            start_port, end_port = end_port, start_port
+            start_endpoint, end_endpoint = end_endpoint, start_endpoint
         left = _offset_polyline(center, profile.lane_width_m * 0.5)
         right = _offset_polyline(center, -profile.lane_width_m * 0.5)
         roadside = _offset_polyline(
@@ -562,8 +587,8 @@ def _build_linear_lanes(
                 speed_limit_mps=profile.speed_limit_mps,
                 marking_style=profile.marking_style,
                 marking_color=profile.marking_color,
-                start_port=start_port,
-                end_port=end_port,
+                start_endpoint=start_endpoint,
+                end_endpoint=end_endpoint,
                 successors=[],
                 allows_taxi_stops=allows_taxi_stops,
                 left_marking_style=left_marking[0],
@@ -580,7 +605,7 @@ def _incidences_for_lanes(
 ) -> list[_LaneIncidence]:
     result: list[_LaneIncidence] = []
     for lane in lanes:
-        if lane.start_port == "from":
+        if lane.start_endpoint == "from":
             result.extend(
                 (
                     _LaneIncidence(lane, a, "start", f"{edge_ref}:a"),
@@ -637,10 +662,11 @@ def _wire_node(
                 speed_limit_mps=source.lane.speed_limit_mps,
                 marking_style="VIRTUAL",
                 marking_color="WHITE",
-                start_port="",
-                end_port="",
+                start_endpoint="",
+                end_endpoint="",
                 successors=[target.lane.lane_id],
                 allows_taxi_stops=False,
+                conditioning_visible=False,
             )
             lanes.append(connector)
             source.lane.successors.append(connector_id)
@@ -815,17 +841,30 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 "road",
                 road.profile_id,
                 surface,
-                (
-                    ("from", float(points[0, 0]), float(points[0, 1]), 0.0, True),
-                    ("to", float(points[-1, 0]), float(points[-1, 1]), 0.0, True),
-                ),
             )
         )
         if profile.curb:
+            curb_points = {
+                side: _offset_polyline(points, side * profile.surface_width_m * 0.5)
+                for side in (-1.0, 1.0)
+            }
+            attachment_sides = {
+                attachment.driveway_node_id: min(
+                    curb_points,
+                    key=lambda side: LineString(curb_points[side]).distance(
+                        Point(
+                            nodes[attachment.driveway_node_id].x_m,
+                            nodes[attachment.driveway_node_id].y_m,
+                        )
+                    ),
+                )
+                for attachment in attachments_by_road.get(road.road_id, ())
+            }
             for side in (-1.0, 1.0):
-                curb = _offset_polyline(points, side * profile.surface_width_m * 0.5)
-                geometry: BaseGeometry = LineString(curb)
+                geometry: BaseGeometry = LineString(curb_points[side])
                 for attachment in attachments_by_road.get(road.road_id, ()):
+                    if attachment_sides[attachment.driveway_node_id] != side:
+                        continue
                     driveway = nodes[attachment.driveway_node_id]
                     geometry = geometry.difference(
                         Point(driveway.x_m, driveway.y_m).buffer(
@@ -843,8 +882,8 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         centerline = np.linspace([node_a.x_m, node_a.y_m], [node_b.x_m, node_b.y_m], 8)
         points = _trim_line(
             centerline,
-            polygons[node_a.node_id],
-            polygons[node_b.node_id],
+            None if node_a.node_type == "driveway" else polygons[node_a.node_id],
+            None if node_b.node_type == "driveway" else polygons[node_b.node_id],
             f"Link {link.link_id!r}",
         )
         built = _build_linear_lanes(link.link_id, points, profile, False)
@@ -859,10 +898,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 "implicit_driveway",
                 profile.profile_id,
                 _surface_for_road(points, driveway.geometry["width_m"]),
-                (
-                    ("a", float(points[0, 0]), float(points[0, 1]), 0.0, True),
-                    ("b", float(points[-1, 0]), float(points[-1, 1]), 0.0, True),
-                ),
             )
         )
         if profile.curb:
@@ -884,7 +919,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         )
 
     for node in node_values:
-        if node.node_type not in {"intersection", "parking_lot"}:
+        if node.node_type != "parking_lot":
             continue
         openings = opening_by_node[node.node_id]
         for first_index, (first_point, first_width) in enumerate(openings):
@@ -899,6 +934,8 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                     )
 
     for node in node_values:
+        if node.node_type == "driveway":
+            continue
         polygon = polygons[node.node_id]
         coords = np.asarray(polygon.exterior.coords, dtype=np.float64)
         incident_profile_ids = [
@@ -915,26 +952,11 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 node.node_type,
                 profile_id,
                 _xyz(coords),
-                tuple(
-                    (
-                        reference,
-                        float(point[0]),
-                        float(point[1]),
-                        0.0,
-                        True,
-                    )
-                    for reference, (point, _width) in zip(
-                        adjacency[node.node_id],
-                        opening_by_node[node.node_id],
-                        strict=False,
-                    )
-                ),
             )
         )
-        if node.node_type != "driveway":
-            collision_groups.extend(
-                _curbs_with_openings(polygon, opening_by_node[node.node_id])
-            )
+        collision_groups.extend(
+            _curbs_with_openings(polygon, opening_by_node[node.node_id])
+        )
 
     # Parking-lot interior aisles are derived access geometry, not authored roads.
     for node in node_values:
@@ -981,7 +1003,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                     _LaneIncidence(
                         lane=lane,
                         node_id=node.node_id,
-                        kind="start" if lane.start_port == "from" else "end",
+                        kind="start" if lane.start_endpoint == "from" else "end",
                         edge_ref=f"lot:{element_id}",
                     )
                 )
@@ -1010,10 +1032,11 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 speed_limit_mps=profile.speed_limit_mps,
                 marking_style="VIRTUAL",
                 marking_color="WHITE",
-                start_port="",
-                end_port="",
+                start_endpoint="",
+                end_endpoint="",
                 successors=[backward.lane_id],
                 allows_taxi_stops=False,
+                conditioning_visible=False,
             )
             turnaround.left_edge = _xyz(
                 _offset_polyline(
@@ -1073,6 +1096,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             right_marking_color=lane.right_marking_color or lane.marking_color,
             successor_ids=tuple(dict.fromkeys(lane.successors)),
             allows_taxi_stops=lane.allows_taxi_stops,
+            conditioning_visible=lane.conditioning_visible,
         )
         for lane in lanes
     )

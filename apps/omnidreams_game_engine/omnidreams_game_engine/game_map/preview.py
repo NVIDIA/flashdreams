@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
-import html
 from pathlib import Path
 
 import numpy as np
 
+from omnidreams_game_engine.game_map.compiler import (
+    _edge_marking,
+    _lane_edge_groups,
+)
 from omnidreams_game_engine.game_map.loader import load_game_map
 
 
@@ -45,22 +48,8 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
         fill = "#14a878" if element.element_type == "parking_lot" else "#4b4f55"
         lines.append(
             f'<polygon points="{_points(element.surface_world[:, :2], convert)}" '
-            f'fill="{fill}" stroke="#222" stroke-width="1"/>'
+            f'fill="{fill}" stroke="none"/>'
         )
-        center = np.mean(element.surface_world[:-1, :2], axis=0)
-        x, y = convert(center)
-        lines.append(
-            f'<text x="{x:.2f}" y="{y:.2f}" fill="white" font-size="11" '
-            f'text-anchor="middle">{html.escape(element.element_id)}</text>'
-        )
-        for name, port_x, port_y, _heading, connected in element.ports:
-            x, y = convert(np.asarray([port_x, port_y]))
-            color = "#25d366" if connected else "#ff3b30"
-            lines.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4" fill="{color}"/>')
-            lines.append(
-                f'<text x="{x + 5:.2f}" y="{y - 5:.2f}" fill="#111" '
-                f'font-size="9">{html.escape(name)}</text>'
-            )
     for polygon in game_map.road_marking_polygons_world:
         lines.append(
             f'<polygon points="{_points(polygon[:, :2], convert)}" '
@@ -72,10 +61,16 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
             f'<polyline points="{_points(marking.polyline_world[:, :2], convert)}" '
             f'fill="none" stroke="{color}" stroke-width="1.5"/>'
         )
-    for lane in game_map.lanes:
-        color = "#ffd60a" if lane.allows_taxi_stops else "#64d2ff"
+    for members in _lane_edge_groups(game_map):
+        if len(members) < 2:
+            continue
+        lane, side, points = members[0]
+        style, marking_color = _edge_marking(lane, side)
+        if style == "VIRTUAL":
+            continue
+        color = "#ffd60a" if marking_color == "YELLOW" else "#f4f4f4"
         lines.append(
-            f'<polyline points="{_points(lane.centerline_world[:, :2], convert)}" '
+            f'<polyline points="{_points(points[:, :2], convert)}" '
             f'fill="none" stroke="{color}" stroke-width="1.5"/>'
         )
     for segment in game_map.collision_segments_world:

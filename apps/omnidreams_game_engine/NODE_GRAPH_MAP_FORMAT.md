@@ -1,8 +1,8 @@
 # Node-Graph Map Format
 
-Schema version 1 is the authoring format for standalone OmniDreams games. It models
-the road network directly: structural places are nodes, public roads are graph
-edges, and parking access uses special driveway relationships.
+Schema version 1 is the authoring format for standalone OmniDreams games. It
+models the road network directly: structural places are nodes, public roads
+are graph edges, and parking access uses special driveway relationships.
 
 ## Coordinate and topology model
 
@@ -27,8 +27,10 @@ retains its independently authored geometry.
 
 The persisted `GameMapTopology` contains typed nodes, roads, direct links,
 inline road attachments, and adjacency. The compiler separately derives a
-directed lane graph for fare routing and future NPC traffic. The player remains
-physics-controlled and may drive in any physically reachable lane or surface.
+directed lane graph for fare routing and future NPC traffic. Turn connectors
+in that routing graph are not emitted into ClipGT map conditioning. The player
+remains physics-controlled and may drive in any physically reachable lane or
+surface.
 
 ## Document shape
 
@@ -67,9 +69,11 @@ Intersection footprints auto-fit their incident road and driveway widths:
   geometry: {}
 ```
 
-An intersection may override both auto-fit dimensions. The rotated base
-footprint is blended toward each actual incident bearing, and openings are cut
-for the connected profiles.
+By default, the surface is the union of a central paved core and one
+road-width arm along each actual incident bearing. Consequently, adjacent road
+edges form the intersection corners directly. An intersection may override
+both auto-fit dimensions to use a larger rotated rectangular core; its
+incident arms still retain their independently authored bearings.
 
 ```yaml
 geometry: {width_m: 24, depth_m: 16}
@@ -81,9 +85,10 @@ override.
 
 ### Cul-de-sacs
 
-A cul-de-sac terminates exactly one authored road. Its circular road surface is
-curb bounded, has no visible centerline or lane divisions, and derives a
-turnaround route for navigation.
+A cul-de-sac terminates exactly one authored road. Its circular road surface
+has a flat curb opening whose chord exactly matches the incident road width,
+so the road surface meets it without a gap. The circle has no visible
+centerline or lane divisions and derives a routing-only turnaround.
 
 ```yaml
 - id: oak_court_end
@@ -123,7 +128,9 @@ profile supplies lanes, paint, curb policy, and speed.
 ```
 
 Every driveway serves exactly one parking lot and has exactly one public-road
-source: either an intersection direct link or an inline road attachment.
+source: either an intersection direct link or an inline road attachment. It is
+a topological connection point rather than a separately paved rectangle; the
+access surface and lanes continue through its center without a gap.
 
 ## Roads and curves
 
@@ -217,8 +224,9 @@ spawns:
 ```
 
 Every spawn requires a `default` variant. Images may be map-relative paths or
-`package://package/resource` references. Seed and prompt edits participate in
-the compiled-map cache key.
+`package://package/resource` references. The resolved geometry, compiler
+implementation, seed images, and prompts participate in the compiled-map
+cache key.
 
 ## Validation summary
 

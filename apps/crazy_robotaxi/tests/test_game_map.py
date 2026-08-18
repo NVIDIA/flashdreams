@@ -30,6 +30,7 @@ from omnidreams_game_engine.game_map.types import (
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import VehicleState
+from shapely.geometry import LineString, Point, Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -54,6 +55,11 @@ def _reachable(game_map: ResolvedGameMap, start_lane_id: str) -> set[str]:
                 reached.add(successor_id)
                 pending.append(successor_id)
     return reached
+
+
+def _surface(game_map: ResolvedGameMap, element_id: str) -> Polygon:
+    element = next(item for item in game_map.elements if item.element_id == element_id)
+    return Polygon(element.surface_world[:, :2])
 
 
 def test_bundled_maps_use_schema_version_1() -> None:
@@ -182,6 +188,25 @@ def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, source))
 
 
+def test_intersection_surface_follows_incident_road_edges() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    surface = _surface(game_map, "hub")
+
+    assert surface.convex_hull.area - surface.area > 10.0
+    assert not surface.contains(Point(6.0, 6.0))
+
+
+def test_cul_de_sac_has_full_width_flat_road_connection() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    cul_de_sac = _surface(game_map, "dead_end")
+    road = _surface(game_map, "dead_end_road")
+    boundary = np.asarray(cul_de_sac.exterior.coords)
+    segment_lengths = np.linalg.norm(np.diff(boundary, axis=0), axis=1)
+
+    assert cul_de_sac.distance(road) < 1.0e-3
+    assert float(segment_lengths.max()) == pytest.approx(8.4, abs=0.05)
+
+
 def test_direct_driveway_links_are_not_authored_roads() -> None:
     game_map = load_game_map(_STARTER_MAP)
     road_ids = {road.road_id for road in game_map.topology.roads}
@@ -203,6 +228,13 @@ def test_direct_driveway_links_are_not_authored_roads() -> None:
         )
     )
     assert width == pytest.approx(6.4, abs=0.2)
+    first = _surface(game_map, "hub_to_lot_driveway")
+    second = _surface(game_map, "lot_driveway_to_lot")
+    assert first.distance(second) == pytest.approx(0.0)
+    assert first.boundary.intersection(second.boundary).length == pytest.approx(
+        6.4, abs=0.05
+    )
+    assert not any(element.element_type == "driveway" for element in game_map.elements)
 
 
 def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
@@ -231,6 +263,11 @@ def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
         if lane.element_id == road.road_id
         for successor in lane.successor_ids
     )
+    barriers = [
+        LineString(segment[:, :2]) for segment in game_map.collision_segments_world
+    ]
+    assert min(barrier.distance(Point(-4.2, 15.0)) for barrier in barriers) < 0.05
+    assert min(barrier.distance(Point(4.2, 15.0)) for barrier in barriers) > 2.5
 
 
 def test_inline_driveway_pose_and_outward_rotation_are_validated(
@@ -305,6 +342,19 @@ def test_parking_lots_compile_as_green_roadnet_masks() -> None:
     assert not game_map.line_markings
 
 
+def test_routing_connectors_are_not_world_model_conditioning() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+    connectors = [lane for lane in game_map.lanes if ":connector:" in lane.lane_id]
+    compiled_lane_ids = {
+        cast(dict[str, str], row["key"])["label_class_id"]
+        for row in game_map_compiler._lane_rows(game_map)
+    }
+
+    assert connectors
+    assert all(not lane.conditioning_visible for lane in connectors)
+    assert compiled_lane_ids.isdisjoint(lane.lane_id for lane in connectors)
+
+
 def test_compiler_settings_remain_map_local(tmp_path: Path) -> None:
     baseline = load_game_map(_STARTER_MAP)
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
@@ -362,7 +412,10 @@ def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
 
     assert not first.cache_hit and second.cache_hit
     assert first.archive_path == second.archive_path
-    assert preview.read_text(encoding="utf-8").startswith("<svg")
+    preview_text = preview.read_text(encoding="utf-8")
+    assert preview_text.startswith("<svg")
+    assert "<circle" not in preview_text
+    assert "<text" not in preview_text
     assert (
         next(item for item in options if item.path == _STARTER_MAP.resolve()).label
         == "Minimal Loop and Parking Lot"

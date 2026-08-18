@@ -212,6 +212,9 @@ class GameMapLane:
     allows_taxi_stops: bool = True
     """Whether taxi targets may be sampled from this lane."""
 
+    conditioning_visible: bool = True
+    """Whether the lane is emitted into world-model map conditioning."""
+
 
 @dataclass(frozen=True)
 class GameMapElement:
@@ -228,9 +231,6 @@ class GameMapElement:
 
     surface_world: FloatArray
     """Closed surface polygon with shape ``[N, 3]``."""
-
-    ports: tuple[tuple[str, float, float, float, bool], ...]
-    """Port name, world position, heading, and connected state tuples."""
 
 
 @dataclass(frozen=True)
@@ -276,7 +276,7 @@ class ResolvedGameMap:
     """Directed road and intersection lanes."""
 
     elements: tuple[GameMapElement, ...]
-    """Resolved element surfaces and ports."""
+    """Resolved element surfaces used by conditioning and previews."""
 
     collision_segments_world: FloatArray
     """Explicit curb colliders with shape ``[N, 2, 3]``."""
@@ -378,6 +378,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "right_marking_color": lane.right_marking_color,
                 "successor_ids": list(lane.successor_ids),
                 "allows_taxi_stops": lane.allows_taxi_stops,
+                "conditioning_visible": lane.conditioning_visible,
             }
             for lane in game_map.lanes
         ],
@@ -387,7 +388,6 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "element_type": element.element_type,
                 "profile_id": element.profile_id,
                 "surface_world": element.surface_world.tolist(),
-                "ports": [list(port) for port in element.ports],
             }
             for element in game_map.elements
         ],
@@ -504,6 +504,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             ),
             successor_ids=tuple(str(item) for item in raw["successor_ids"]),
             allows_taxi_stops=bool(raw["allows_taxi_stops"]),
+            conditioning_visible=bool(raw.get("conditioning_visible", True)),
         )
         for raw in value["lanes"]
     )
@@ -513,16 +514,6 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             element_type=str(raw["element_type"]),
             profile_id=str(raw["profile_id"]),
             surface_world=np.asarray(raw["surface_world"], dtype=np.float32),
-            ports=tuple(
-                (
-                    str(port[0]),
-                    float(port[1]),
-                    float(port[2]),
-                    float(port[3]),
-                    bool(port[4]),
-                )
-                for port in raw["ports"]
-            ),
         )
         for raw in value["elements"]
     )

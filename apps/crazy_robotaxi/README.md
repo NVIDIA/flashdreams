@@ -148,10 +148,10 @@ renderer, or game. All three YAML formats reject missing and unknown fields.
 
 ## Node-graph game maps
 
-Crazy Robotaxi maps use schema version 1 of the engine's node-graph format. Roads are
-topological edges; intersections, cul-de-sacs, parking lots, and driveways are
-explicitly posed graph nodes. A node's footprint rotation is independent of
-the bearings and Bézier tangents of roads connected to it.
+Crazy Robotaxi maps use schema version 1 of the engine's node-graph format.
+Roads are topological edges; intersections, cul-de-sacs, parking lots, and
+driveways are explicitly posed graph nodes. A node's footprint rotation is
+independent of the bearings and Bézier tangents of roads connected to it.
 
 The complete, authoritative format is documented in
 [`../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md`](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
@@ -181,8 +181,9 @@ which lane the player's taxi may physically enter.
 
 The private ClipGT archive is cached under
 `$FLASHDREAMS_CACHE_DIR/crazy-robotaxi/maps/`. The cache key includes the YAML,
-referenced seed assets, and compiler version, so map edits rebuild it at the
-next load. The archive is runtime output, not an authoring format.
+resolved geometry, compiler implementation, and referenced seed assets, so
+map or compiler edits rebuild it at the next load. The archive is runtime
+output, not an authoring format.
 
 Parking-lot surfaces are emitted as green `ROI_POLYGON_ROADNET_MASK` regions.
 Parking-space dividers remain intentionally omitted because ClipGT would encode
