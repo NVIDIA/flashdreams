@@ -71,9 +71,7 @@ let heldKeySequence = 0
 let postprocessAvailable = false
 let liveVideoStream = null
 let lastGamepadState = null
-let lastGamepadSentAt = 0
-const gamepadSendIntervalMs = 50
-const gamepadKeepaliveMs = 250
+let gamepadEnabled = false
 
 const metrics = {
   fps: null,
@@ -279,27 +277,22 @@ function gamepadButtonValue(gamepad, index) {
   return Math.max(0, Math.min(1, Number(button.value) || (button.pressed ? 1 : 0)))
 }
 
+function neutralGamepadState() {
+  return {
+    connected: false,
+    steer: 0,
+    throttle: 0,
+    brake: 0,
+  }
+}
+
 function readGamepadState() {
   if (!document.hasFocus() || typeof navigator.getGamepads !== "function") {
-    return {
-      connected: false,
-      steer: 0,
-      throttle: 0,
-      brake: 0,
-      reverse: false,
-      stop: false,
-    }
+    return neutralGamepadState()
   }
   const gamepad = Array.from(navigator.getGamepads()).find(Boolean)
   if (!gamepad) {
-    return {
-      connected: false,
-      steer: 0,
-      throttle: 0,
-      brake: 0,
-      reverse: false,
-      stop: false,
-    }
+    return neutralGamepadState()
   }
   let steer = -(Number(gamepad.axes[0]) || 0)
   if (gamepadButtonValue(gamepad, 14) > 0.5) steer = 1
@@ -315,26 +308,25 @@ function readGamepadState() {
       gamepadButtonValue(gamepad, 6),
       gamepadButtonValue(gamepad, 13)
     ),
-    reverse: gamepadButtonValue(gamepad, 1) > 0.5,
-    stop: gamepadButtonValue(gamepad, 0) > 0.5,
   }
 }
 
+function sameGamepadState(left, right) {
+  return left
+    && right
+    && left.connected === right.connected
+    && Math.abs(left.steer - right.steer) < 0.01
+    && Math.abs(left.throttle - right.throttle) < 0.01
+    && Math.abs(left.brake - right.brake) < 0.01
+}
+
 function sendGamepadState(state, {force = false} = {}) {
-  const serialized = JSON.stringify(state)
-  const now = performance.now()
-  const changed = serialized !== lastGamepadState
-  if (!force && !changed && now - lastGamepadSentAt < gamepadKeepaliveMs) {
-    return false
-  }
-  if (!force && changed && now - lastGamepadSentAt < gamepadSendIntervalMs) {
-    return false
-  }
+  if (!gamepadEnabled) return false
+  if (!force && sameGamepadState(state, lastGamepadState)) return false
   if (!sendModelMessage({type: "gamepad_state", gamepad: state})) {
     return false
   }
-  lastGamepadState = serialized
-  lastGamepadSentAt = now
+  lastGamepadState = state
   return true
 }
 
@@ -376,6 +368,7 @@ async function loadModelAdapter() {
     const response = await fetch("/api/ui/config")
     if (response.ok) {
       const config = await response.json()
+      gamepadEnabled = config.gamepad_enabled === true
       if (typeof config.model_stylesheet === "string" && config.model_stylesheet) {
         stylesheetHrefs.add(config.model_stylesheet)
       }
@@ -1250,7 +1243,7 @@ async function initialize() {
   renderMetrics()
   await loadModelAdapter()
   attachPointerControls()
-  window.requestAnimationFrame(pollGamepad)
+  if (gamepadEnabled) window.requestAnimationFrame(pollGamepad)
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
   await connectSession({ attemptsRemaining: autoConnectMaxAttempts })

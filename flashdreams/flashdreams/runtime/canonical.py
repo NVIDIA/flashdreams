@@ -238,33 +238,17 @@ class KeyboardToDriverCommand:
         user_inputs: UserInputs,
         window: TimeWindow,
     ) -> Mapping[str, Any] | None:
-        segments: list[tuple[float, float, Mapping[str, Any]]] = []
-        segment_start = window.start_s
-        command = self._command()
+        del window
         for event in user_inputs.events:
             if event.event_type not in {"key_down", "key_up"}:
                 continue
             key = event.payload.get("key")
             if not isinstance(key, str):
                 continue
-            event_time = min(
-                max(float(event.timestamp_s), window.start_s),
-                window.end_s,
-            )
-            if event_time > segment_start:
-                segments.append((segment_start, event_time, command))
-                segment_start = event_time
             self._state.apply_event(
                 event="keydown" if event.event_type == "key_down" else "keyup",
                 key=key,
             )
-            command = self._command()
-        if window.end_s > segment_start or not segments:
-            segments.append((segment_start, window.end_s, command))
-        return DRIVER_COMMAND.value({**command, "segments": tuple(segments)})
-
-    def _command(self) -> Mapping[str, Any]:
-        """Return the current keyboard driving level."""
 
         pressed = {normalize_key(key) for key in self._state.snapshot()}
 
@@ -276,13 +260,15 @@ class KeyboardToDriverCommand:
             steer += 1.0
         if held("steer_right"):
             steer -= 1.0
-        return {
-            "throttle": 1.0 if held("throttle") else 0.0,
-            "brake": 1.0 if held("brake") else 0.0,
-            "steer": steer,
-            "stop": held("stop"),
-            "reverse": held("reverse"),
-        }
+        return DRIVER_COMMAND.value(
+            {
+                "throttle": 1.0 if held("throttle") else 0.0,
+                "brake": 1.0 if held("brake") else 0.0,
+                "steer": steer,
+                "stop": held("stop"),
+                "reverse": held("reverse"),
+            }
+        )
 
 
 class KeyboardToCameraCommand:

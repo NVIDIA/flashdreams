@@ -201,12 +201,11 @@ class CameraPoseIntegrator:
         if bool(command["stop"]):
             return
         throttle = float(command["throttle"])
-        if bool(command["reverse"]):
-            throttle = -throttle
+        direction = -1.0 if bool(command["reverse"]) else 1.0
         self._advance_motion(
             yaw=float(command["steer"]),
             pitch=0.0,
-            forward=throttle - float(command["brake"]),
+            forward=direction * max(0.0, throttle - float(command["brake"])),
             right=0.0,
             duration=duration,
         )

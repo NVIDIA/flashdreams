@@ -193,7 +193,8 @@ def test_lingbot_converter_advertises_camera_keys() -> None:
             "q",
             "s",
             "w",
-        ]
+        ],
+        "gamepad_enabled": False,
     }
     assert manager._effective_supported_control_keys() == DEFAULT_SUPPORTED_KEYS
     assert manager._supports_key_payload({"key": "q"})

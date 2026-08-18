@@ -89,18 +89,22 @@ def test_local_input_handler_tracks_keyboard_levels() -> None:
     assert released.window.end_s > released.window.start_s
     assert held.values["driver_command"]["throttle"] == 1.0
     assert released.values["driver_command"]["throttle"] == 0.0
-    assert released.metadata["canonical_sources"] == {"driver_command": "keyboard"}
+    assert released.metadata["canonical_sources"] == {"driver_command": "driving-input"}
 
 
 def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:
+    clock = _Clock()
     handler = SlangPyLocalInputHandler(
-        CanonicalInputSchema(modalities=(DRIVER_COMMAND,))
+        CanonicalInputSchema(modalities=(DRIVER_COMMAND,)),
+        clock=clock,
     )
     handler.open(SessionInfo())
 
+    clock.value += 0.1
     handler.on_gamepad_state(
         SimpleNamespace(left_x=0.25, left_trigger=0.4, right_trigger=0.75)
     )
+    clock.value += 0.1
     inputs = handler.current_inputs()
 
     command = inputs.values["driver_command"]
@@ -111,8 +115,12 @@ def test_local_input_handler_uses_active_sdl_gamepad_axes() -> None:
         "stop": False,
         "reverse": False,
     }
-    assert command["segments"]
-    assert inputs.metadata["canonical_sources"] == {"driver_command": "gamepad"}
+    segments = command["segments"]
+    assert len(segments) == 2
+    assert segments[0][:2] == pytest.approx((0.0, 0.1))
+    assert segments[1][:2] == pytest.approx((0.1, 0.2))
+    assert [level["throttle"] for _start, _end, level in segments] == [0.0, 0.75]
+    assert inputs.metadata["canonical_sources"] == {"driver_command": "driving-input"}
 
 
 class _Presenter:

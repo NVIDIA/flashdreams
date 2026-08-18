@@ -50,6 +50,7 @@ from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
     CAMERA_COMMAND,
     DRIVER_COMMAND,
+    GAMEPAD_STATE_EVENT,
     CanonicalInputSchema,
     CanonicalInputWindow,
     CanonicalModality,
@@ -612,7 +613,7 @@ def test_failed_step_closes_resources_and_returns_artifacts() -> None:
     assert sink.events[-1] == "output.close"
 
 
-def test_application_scenario_selects_converters_only_for_raw_realtime_input() -> None:
+def test_application_scenario_converts_realtime_gamepad_input() -> None:
     interactive = _RecordingApplication(
         input_schema=CanonicalInputSchema(modalities=(DRIVER_COMMAND, CAMERA_COMMAND))
     )
@@ -624,9 +625,25 @@ def test_application_scenario_selects_converters_only_for_raw_realtime_input() -
 
     assert batch.source_schema == UserInputSchema()
     assert batch.canonicalizer.converters == ()
-    canonical_schema = realtime.canonicalizer.canonical_schema(realtime.source_schema)
-    assert canonical_schema.supports(DRIVER_COMMAND)
-    assert canonical_schema.supports(CAMERA_COMMAND)
+    canonical = realtime.canonicalizer.canonicalize(
+        UserInputs(
+            events=(
+                UserInputEvent(
+                    timestamp_s=0.0,
+                    event_type=GAMEPAD_STATE_EVENT,
+                    payload={
+                        "connected": True,
+                        "steer": -0.25,
+                        "throttle": 0.75,
+                        "brake": 0.0,
+                    },
+                ),
+            )
+        ),
+        window=TimeWindow(start_s=0.0, end_s=1.0),
+        source_schema=realtime.source_schema,
+    )
+    assert canonical.values[DRIVER_COMMAND.name]["throttle"] == 0.75
     assert empty_realtime.canonicalizer.converters == ()
 
 

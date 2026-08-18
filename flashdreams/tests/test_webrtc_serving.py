@@ -313,10 +313,6 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     assert 'label: "Controls"' in javascript
     assert "Array.isArray(adapter.controls)" in javascript
     assert "renderControls(modelControls)" in javascript
-    assert "navigator.getGamepads()" in javascript
-    assert 'type: "gamepad_state"' in javascript
-    assert "gamepadSendIntervalMs = 50" in javascript
-    assert "gamepadKeepaliveMs = 250" in javascript
     assert "/api/session/initial_scene" not in javascript
 
 

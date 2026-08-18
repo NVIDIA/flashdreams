@@ -33,7 +33,10 @@ from omnidreams.demo import (
     PrecomputedHDMapProvider,
 )
 from omnidreams.demo.app import _replay_spec, _webrtc_spec, parse_args
-from omnidreams.demo.controls import SPARSE_KEY_SEGMENTS_METADATA_KEY
+from omnidreams.demo.controls import (
+    SPARSE_KEY_SEGMENTS_METADATA_KEY,
+    CameraPoseIntegrator,
+)
 from omnidreams.demo.replay import (
     OmnidreamsReplayRuntime,
     OmnidreamsReplayRuntimeOptions,
@@ -691,8 +694,6 @@ def test_omnidreams_webrtc_provider_consumes_canonical_gamepad_input(
                             "steer": 0.25,
                             "throttle": 0.5,
                             "brake": 0.0,
-                            "reverse": False,
-                            "stop": False,
                         },
                     ),
                 )
@@ -701,12 +702,36 @@ def test_omnidreams_webrtc_provider_consumes_canonical_gamepad_input(
     )
 
     assert step.inference_input is not None
-    assert step.inference_input.metadata["keyboard_segments"] == (
-        (0.0, 2 / 30, ("a", "w")),
-    )
+    driver_segments = step.inference_input.metadata["driver_segments"]
+    assert [(start, end) for start, end, _level in driver_segments] == [(0.0, 2 / 30)]
+    assert driver_segments[0][2]["throttle"] == 0.5
+    assert driver_segments[0][2]["steer"] == 0.25
     poses = rasterizers[0].calls[0]["rig_poses_world"]
     assert poses[-1, 0, 3] > 0.0
     assert not np.allclose(poses[-1, :3, :3], np.eye(3))
+
+
+def test_canonical_brake_does_not_move_camera_backward() -> None:
+    integrator = CameraPoseIntegrator(coordinate_system="FLU")
+
+    poses = integrator.integrate_chunk(
+        segments=[
+            (
+                0.0,
+                1.0,
+                {
+                    "throttle": 0.0,
+                    "brake": 1.0,
+                    "steer": 0.0,
+                    "stop": False,
+                    "reverse": False,
+                },
+            )
+        ],
+        frame_times=[1.0],
+    )
+
+    np.testing.assert_allclose(poses[-1, :3, 3], np.zeros(3))
 
 
 def test_omnidreams_replay_run_mode_uses_precomputed_provider(

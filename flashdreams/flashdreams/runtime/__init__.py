@@ -23,8 +23,8 @@ from flashdreams.runtime.config import ExecutionBackend, InferenceConfig, Precis
 from flashdreams.runtime.gamepad import (
     GAMEPAD_STATE_CAPABILITY,
     GAMEPAD_STATE_EVENT,
+    DrivingInputConverter,
     GamepadState,
-    GamepadToDriverCommand,
     gamepad_state_payload,
     parse_gamepad_state,
 )
@@ -110,8 +110,8 @@ __all__ = [
     "ExecutionBackend",
     "GAMEPAD_STATE_CAPABILITY",
     "GAMEPAD_STATE_EVENT",
+    "DrivingInputConverter",
     "GamepadState",
-    "GamepadToDriverCommand",
     "gamepad_state_payload",
     "IdentityInputMapping",
     "InferenceConfig",

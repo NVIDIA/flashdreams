@@ -275,7 +275,7 @@ class LudusSceneConditioningProvider:
                 step={"hdmap": hdmap},
                 metadata={
                     "frame_timestamps_us": tuple(int(t) for t in timestamps_us),
-                    "keyboard_segments": _segments_metadata(segments),
+                    **_control_metadata(segments),
                     "camera_name": scenario.camera_name,
                     "scene_uuid": scenario.scene_uuid,
                 },
@@ -760,26 +760,25 @@ def _to_model_range(
     return tensor.to(device=device, dtype=dtype) / 127.5 - 1.0
 
 
-def _segments_metadata(
+def _control_metadata(
     segments: Sequence[ControlSegment],
-) -> tuple[tuple[float, float, tuple[str, ...]], ...]:
-    result: list[tuple[float, float, tuple[str, ...]]] = []
-    for start, end, state in segments:
-        if isinstance(state, frozenset):
-            keys = tuple(sorted(state))
-        else:
-            pressed: list[str] = []
-            if float(state["throttle"]) > 0.0:
-                pressed.append("w")
-            if float(state["brake"]) > 0.0:
-                pressed.append("s")
-            if float(state["steer"]) > 0.0:
-                pressed.append("a")
-            elif float(state["steer"]) < 0.0:
-                pressed.append("d")
-            keys = tuple(sorted(pressed))
-        result.append((float(start), float(end), keys))
-    return tuple(result)
+) -> dict[str, object]:
+    """Return truthful metadata for the active control representation."""
+    if isinstance(segments[0][2], dict):
+        return {
+            "driver_segments": tuple(
+                (float(start), float(end), dict(state))
+                for start, end, state in segments
+                if isinstance(state, dict)
+            )
+        }
+    return {
+        "keyboard_segments": tuple(
+            (float(start), float(end), tuple(sorted(state)))
+            for start, end, state in segments
+            if isinstance(state, frozenset)
+        )
+    }
 
 
 def _close_rasterizer(rasterizer: Any | None) -> None:

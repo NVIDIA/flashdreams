@@ -17,9 +17,8 @@ from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
-    GamepadToDriverCommand,
+    DrivingInputConverter,
     InputCanonicalizer,
-    KeyboardToDriverCommand,
     UserInputSchema,
 )
 from flashdreams.runtime.demo import (
@@ -225,9 +224,7 @@ class OmnidreamsDemoAdapter:
                 global_conditioning={"scenario": scenario},
             ),
             source_schema=WEBRTC_USER_INPUT_SCHEMA,
-            canonicalizer=InputCanonicalizer(
-                (GamepadToDriverCommand(), KeyboardToDriverCommand())
-            ),
+            canonicalizer=InputCanonicalizer((DrivingInputConverter(),)),
             mapping=self._mapping,
             metadata={
                 "conditioning_mode": OMNIDREAMS_CONDITIONING_LUDUS,

@@ -28,13 +28,12 @@ from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime.canonical import (
     DRIVER_COMMAND,
     InputCanonicalizer,
-    KeyboardToDriverCommand,
 )
 from flashdreams.runtime.gamepad import (
     GAMEPAD_STATE_CAPABILITY,
     GAMEPAD_STATE_EVENT,
+    DrivingInputConverter,
     GamepadState,
-    GamepadToDriverCommand,
     gamepad_state_payload,
 )
 from flashdreams.runtime.inputs import (
@@ -96,12 +95,7 @@ class SlangPyLocalInputHandler(InputHandler):
                 unsupported.append(modality.name)
                 continue
             if not converters:
-                converters.extend(
-                    (
-                        GamepadToDriverCommand(),
-                        KeyboardToDriverCommand(),
-                    )
-                )
+                converters.append(DrivingInputConverter())
         if unsupported:
             raise ValueError(
                 "Local-window input cannot provide canonical modalities: "
@@ -201,7 +195,7 @@ class SlangPyLocalInputHandler(InputHandler):
         if not self._opened:
             return
         if _event_flag(event, "is_disconnect"):
-            self._record_gamepad_state(GamepadState(False, 0.0, 0.0, 0.0, False, False))
+            self._record_gamepad_state(GamepadState(False, 0.0, 0.0, 0.0))
 
     def on_gamepad_state(self, state: Any) -> None:
         """Record the latest SDL gamepad driving state."""
@@ -221,8 +215,6 @@ class SlangPyLocalInputHandler(InputHandler):
                     0.0,
                     1.0,
                 ),
-                reverse=False,
-                stop=False,
             )
         )
 

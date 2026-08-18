@@ -11,18 +11,23 @@ from dataclasses import dataclass
 from typing import Any
 
 from flashdreams.infra.time import TimeWindow
-from flashdreams.runtime.canonical import DRIVER_COMMAND, DeviceConverterSchema
+from flashdreams.runtime.canonical import (
+    DRIVER_COMMAND,
+    DeviceConverterSchema,
+    KeyboardToDriverCommand,
+)
 from flashdreams.runtime.inputs import UserInputCapability, UserInputs
 
 GAMEPAD_STATE_EVENT = "gamepad_state"
 """Event type shared by local and browser gamepad sources."""
 
+_GAMEPAD_DEADZONE = 0.05
+"""Deadzone shared by generation activation and canonical conversion."""
+
 GAMEPAD_STATE_CAPABILITY = UserInputCapability(
     event_type=GAMEPAD_STATE_EVENT,
     input_modality="gamepad",
-    payload_fields=frozenset(
-        {"connected", "steer", "throttle", "brake", "reverse", "stop"}
-    ),
+    payload_fields=frozenset({"connected", "steer", "throttle", "brake"}),
     description="Normalized gamepad driving state.",
 )
 
@@ -43,21 +48,12 @@ class GamepadState:
     brake: float
     """Brake engagement in ``[0, 1]``."""
 
-    reverse: bool
-    """Whether reverse driving is selected."""
-
-    stop: bool
-    """Whether immediate stopping is requested."""
-
-    @property
-    def active(self) -> bool:
-        """Return whether the gamepad currently contributes driving input."""
+    def is_active(self) -> bool:
+        """Return whether input exceeds the gamepad deadzone."""
         return self.connected and (
-            self.throttle > 0.0
-            or self.brake > 0.0
-            or abs(self.steer) > 0.0
-            or self.reverse
-            or self.stop
+            self.throttle > _GAMEPAD_DEADZONE
+            or self.brake > _GAMEPAD_DEADZONE
+            or abs(self.steer) > _GAMEPAD_DEADZONE
         )
 
 
@@ -75,14 +71,8 @@ def parse_gamepad_state(payload: Mapping[str, Any]) -> GamepadState:
         ValueError: A numeric field is non-finite or outside its range.
     """
     connected = payload["connected"]
-    reverse = payload["reverse"]
-    stop = payload["stop"]
     if not isinstance(connected, bool):
         raise TypeError("Gamepad field 'connected' must be boolean.")
-    if not isinstance(reverse, bool):
-        raise TypeError("Gamepad field 'reverse' must be boolean.")
-    if not isinstance(stop, bool):
-        raise TypeError("Gamepad field 'stop' must be boolean.")
     steer = _number(payload["steer"], name="steer", minimum=-1.0)
     throttle = _number(payload["throttle"], name="throttle", minimum=0.0)
     brake = _number(payload["brake"], name="brake", minimum=0.0)
@@ -92,16 +82,12 @@ def parse_gamepad_state(payload: Mapping[str, Any]) -> GamepadState:
             steer=0.0,
             throttle=0.0,
             brake=0.0,
-            reverse=False,
-            stop=False,
         )
     return GamepadState(
         connected=True,
         steer=steer,
         throttle=throttle,
         brake=brake,
-        reverse=reverse,
-        stop=stop,
     )
 
 
@@ -119,35 +105,32 @@ def gamepad_state_payload(state: GamepadState) -> dict[str, bool | float]:
         "steer": state.steer,
         "throttle": state.throttle,
         "brake": state.brake,
-        "reverse": state.reverse,
-        "stop": state.stop,
     }
 
 
-class GamepadToDriverCommand:
-    """Convert gamepad state snapshots into canonical driving commands."""
+class DrivingInputConverter:
+    """Merge keyboard and gamepad timelines into one driving command."""
 
-    def __init__(self, *, deadzone: float = 0.05, priority: int = 10) -> None:
-        """Configure gamepad conversion.
-
-        Args:
-            deadzone: Inclusive magnitude treated as neutral.
-            priority: Selection priority over converters producing
-                :data:`DRIVER_COMMAND`.
-
-        Raises:
-            ValueError: ``deadzone`` is outside ``[0, 1)``.
-        """
-        if not 0.0 <= deadzone < 1.0:
-            raise ValueError("deadzone must be in [0, 1).")
-        self._deadzone = deadzone
-        self._state = GamepadState(False, 0.0, 0.0, 0.0, False, False)
+    def __init__(self) -> None:
+        """Configure live driving input conversion."""
+        self._gamepad_state = GamepadState(False, 0.0, 0.0, 0.0)
+        self._keyboard = KeyboardToDriverCommand()
         self._schema = DeviceConverterSchema(
-            name="gamepad-to-driver-command",
+            name="live-driving-input",
             produces=DRIVER_COMMAND,
-            consumes=(GAMEPAD_STATE_CAPABILITY,),
-            device_kind="gamepad",
-            priority=priority,
+            consumes=(
+                UserInputCapability(
+                    event_type="key_down",
+                    payload_fields=frozenset({"key"}),
+                ),
+                UserInputCapability(
+                    event_type="key_up",
+                    payload_fields=frozenset({"key"}),
+                ),
+                GAMEPAD_STATE_CAPABILITY,
+            ),
+            device_kind="driving-input",
+            accepted_keys=self._keyboard.schema.accepted_keys,
         )
 
     @property
@@ -156,69 +139,92 @@ class GamepadToDriverCommand:
         return self._schema
 
     def reset(self) -> None:
-        """Clear held gamepad state."""
-        self._state = GamepadState(False, 0.0, 0.0, 0.0, False, False)
+        """Clear held keyboard and gamepad state."""
+        self._gamepad_state = GamepadState(False, 0.0, 0.0, 0.0)
+        self._keyboard.reset()
 
     def convert(
         self,
         user_inputs: UserInputs,
         window: TimeWindow,
-    ) -> Mapping[str, Any] | None:
-        """Convert gamepad snapshots inside ``window``.
+    ) -> Mapping[str, Any]:
+        """Merge keyboard and gamepad state at every timeline boundary.
 
         Args:
-            user_inputs: Raw inputs containing complete gamepad snapshots.
-            window: Half-open interval represented by the resulting command.
+            user_inputs: Raw keyboard edges and gamepad snapshots.
+            window: Half-open interval represented by the command.
 
         Returns:
-            Canonical driving state with piecewise segments, or ``None`` when
-            the gamepad is neutral or disconnected.
+            Canonical driving state with a complete merged segment timeline.
         """
+        keyboard = self._keyboard.convert(UserInputs(), window)
+        if keyboard is None:
+            raise RuntimeError("Keyboard conversion did not produce a command.")
+
         segment_start = window.start_s
-        command = self._level()
+        level = self._gamepad_level() if self._gamepad_state.is_active() else keyboard
         segments: list[tuple[float, float, Mapping[str, Any]]] = []
         for event in user_inputs.events:
-            if event.event_type != GAMEPAD_STATE_EVENT:
+            if event.event_type not in {
+                "key_down",
+                "key_up",
+                GAMEPAD_STATE_EVENT,
+            }:
                 continue
             event_time = min(
                 max(float(event.timestamp_s), window.start_s),
                 window.end_s,
             )
             if event_time > segment_start:
-                segments.append((segment_start, event_time, command))
-            self._state = parse_gamepad_state(event.payload)
-            command = self._level()
+                segments.append((segment_start, event_time, level))
+            if event.event_type == GAMEPAD_STATE_EVENT:
+                self._gamepad_state = parse_gamepad_state(event.payload)
+            else:
+                keyboard = self._keyboard.convert(
+                    UserInputs(events=(event,)),
+                    window,
+                )
+                if keyboard is None:
+                    raise RuntimeError("Keyboard conversion did not produce a command.")
+            level = (
+                self._gamepad_level() if self._gamepad_state.is_active() else keyboard
+            )
             segment_start = event_time
-        if not self._active():
-            return None
         if window.end_s > segment_start or not segments:
-            segments.append((segment_start, window.end_s, command))
-        return DRIVER_COMMAND.value({**command, "segments": tuple(segments)})
+            segments.append((segment_start, window.end_s, level))
 
-    def _level(self) -> Mapping[str, Any]:
-        """Return the current canonical level."""
-        state = self._state
-        steer = 0.0 if abs(state.steer) <= self._deadzone else state.steer
-        throttle = 0.0 if state.throttle <= self._deadzone else state.throttle
-        brake = 0.0 if state.brake <= self._deadzone else state.brake
+        merged: list[tuple[float, float, Mapping[str, Any]]] = []
+        for start, end, segment_level in segments:
+            if merged and merged[-1][2] == segment_level:
+                previous_start, _previous_end, previous_level = merged[-1]
+                merged[-1] = (previous_start, end, previous_level)
+            else:
+                merged.append((start, end, segment_level))
+        final_level = merged[-1][2]
+        return DRIVER_COMMAND.value({**final_level, "segments": tuple(merged)})
+
+    def _gamepad_level(self) -> Mapping[str, Any]:
+        """Return the current post-deadzone gamepad level."""
+        state = self._gamepad_state
         return {
-            "throttle": throttle if state.connected else 0.0,
-            "brake": brake if state.connected else 0.0,
-            "steer": steer if state.connected else 0.0,
-            "stop": state.stop if state.connected else False,
-            "reverse": state.reverse if state.connected else False,
+            "throttle": (
+                state.throttle
+                if state.connected and state.throttle > _GAMEPAD_DEADZONE
+                else 0.0
+            ),
+            "brake": (
+                state.brake
+                if state.connected and state.brake > _GAMEPAD_DEADZONE
+                else 0.0
+            ),
+            "steer": (
+                state.steer
+                if state.connected and abs(state.steer) > _GAMEPAD_DEADZONE
+                else 0.0
+            ),
+            "stop": False,
+            "reverse": False,
         }
-
-    def _active(self) -> bool:
-        """Return whether the current post-deadzone level is active."""
-        level = self._level()
-        return bool(
-            level["throttle"]
-            or level["brake"]
-            or level["steer"]
-            or level["stop"]
-            or level["reverse"]
-        )
 
 
 def _number(
@@ -240,8 +246,8 @@ def _number(
 __all__ = [
     "GAMEPAD_STATE_CAPABILITY",
     "GAMEPAD_STATE_EVENT",
+    "DrivingInputConverter",
     "GamepadState",
-    "GamepadToDriverCommand",
     "gamepad_state_payload",
     "parse_gamepad_state",
 ]

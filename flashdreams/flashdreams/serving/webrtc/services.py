@@ -81,7 +81,6 @@ from .messages import (
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
-    MESSAGE_TYPE_GAMEPAD,
     MESSAGE_TYPE_HEARTBEAT,
 )
 from .server import SessionBusyError
@@ -542,7 +541,7 @@ class WebRTCInputSource:
             return WebRTCMessageResult(kind="disconnect")
         if message_type == MESSAGE_TYPE_EVENT:
             return self._record_text_event(payload, timestamp_s=timestamp_s)
-        if message_type == MESSAGE_TYPE_GAMEPAD:
+        if message_type == GAMEPAD_STATE_EVENT:
             return self._record_gamepad(payload, timestamp_s=timestamp_s)
         if message_type == MESSAGE_TYPE_ACTION:
             action_payload = payload.get("action", payload)
@@ -696,15 +695,24 @@ class WebRTCInputSource:
             state = parse_gamepad_state(
                 {str(key): value for key, value in raw_state.items()}
             )
+            if not self._activation_signal.is_set():
+                self._events = deque(
+                    event
+                    for event in self._events
+                    if event.event_type != GAMEPAD_STATE_EVENT
+                )
             self.record_user_event(
                 timestamp_s=timestamp_s,
                 event_type=GAMEPAD_STATE_EVENT,
                 payload=gamepad_state_payload(state),
-                activate=state.active,
+                activate=state.is_active(),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return WebRTCMessageResult(kind="error", error=str(exc))
-        return WebRTCMessageResult(kind="gamepad", activated=state.active)
+        return WebRTCMessageResult(
+            kind="gamepad",
+            activated=state.is_active(),
+        )
 
     def _record_text_event(
         self,

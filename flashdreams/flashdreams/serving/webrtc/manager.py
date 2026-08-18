@@ -46,6 +46,7 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
     run_demo_session_async,
 )
+from flashdreams.runtime.gamepad import GAMEPAD_STATE_EVENT
 from flashdreams.runtime.inputs import (
     CanonicalInputSchema,
     InferenceInput,
@@ -777,8 +778,9 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._lifecycle = WebRTCManagerLifecycle(
             busy_message=busy_message,
             client_liveness_timeout_s=client_liveness_timeout_s,
-            health_check=lambda: self._shared_host is None
-            or self._shared_host.is_healthy,
+            health_check=lambda: (
+                self._shared_host is None or self._shared_host.is_healthy
+            ),
         )
 
     @property
@@ -806,7 +808,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def browser_ui_config(self) -> dict[str, object]:
         """Return accepted control keys for the generic browser UI."""
         accepted_keys = self._effective_supported_control_keys() or ()
-        return {"accepted_keys": sorted(accepted_keys)}
+        return {
+            "accepted_keys": sorted(accepted_keys),
+            "gamepad_enabled": self._supports_gamepad_input(),
+        }
 
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""
@@ -873,6 +878,14 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             for key in schema.accepted_keys
         )
         return accepted_keys or None
+
+    def _supports_gamepad_input(self) -> bool:
+        """Return whether the prepared converter stack consumes gamepad state."""
+        return any(
+            capability.event_type == GAMEPAD_STATE_EVENT
+            for schema in self._feedable_converter_schemas()
+            for capability in schema.consumes
+        )
 
     @staticmethod
     def _positive_int_runtime_value(value: Any, *, label: str) -> int:
@@ -1914,6 +1927,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
             if handled:
                 managed_session.first_action_received.set()
+            return
+        if message_type == GAMEPAD_STATE_EVENT and not self._supports_gamepad_input():
+            self._send_json(
+                channel,
+                make_error_payload("This application does not accept gamepad input."),
+            )
             return
         result = input_source.handle_browser_payload(
             payload,
