@@ -33,10 +33,9 @@ from collections.abc import Callable
 
 import pytest
 import torch
-from torch import Tensor
-
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
+from torch import Tensor
 
 
 def _load_te_apply_rope() -> Callable[..., Tensor] | None:
@@ -189,6 +188,44 @@ def test_zero_freqs_is_identity(cuda_device):
             x.clone(), zero_freqs, interleaved=interleaved, inplace=False
         )
         torch.testing.assert_close(out, x)
+
+
+@pytest.mark.parametrize("x_dtype", _DTYPES)
+def test_partial_prefix_view_matches_torch(
+    cuda_device: torch.device,
+    x_dtype: torch.dtype,
+) -> None:
+    """A sliced head prefix rotates in place without touching trailing channels."""
+    B, S, H, D = 2, 67, 7, 128
+    rotary_dim = 96
+    x = torch.randn(
+        B,
+        S,
+        H,
+        D,
+        device=cuda_device,
+        dtype=x_dtype,
+    )
+    frequencies = _expanded_freqs(
+        S, rotary_dim, interleaved=False, device=cuda_device, seed=7
+    )
+    cos = frequencies[:, 0, 0].cos().to(x_dtype)[None, :, None, :]
+    sin = frequencies[:, 0, 0].sin().to(x_dtype)[None, :, None, :]
+
+    rotary = x[..., :rotary_dim]
+    first, second = rotary.chunk(2, dim=-1)
+    rotated = torch.cat((-second, first), dim=-1)
+    expected = x.clone()
+    expected[..., :rotary_dim] = rotary * cos + rotated * sin
+
+    actual = x.clone()
+    prefix = actual[..., :rotary_dim]
+    returned = apply_rope_freqs(prefix, frequencies)
+
+    atol, rtol = _parity_tol(x_dtype)
+    assert returned.data_ptr() == prefix.data_ptr()
+    torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+    assert torch.equal(actual[..., rotary_dim:], x[..., rotary_dim:])
 
 
 @_requires_te

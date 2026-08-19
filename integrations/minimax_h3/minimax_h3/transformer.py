@@ -10,15 +10,14 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 import torch
-from torch import Tensor, nn
-
-from flashdreams.core.attention import NativeAttention
+from flashdreams.core.attention import NativeAttention, apply_rope_freqs
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
     TransformerConfig,
 )
+from torch import Tensor, nn
 
 H3_TRANSFORMER_CHECKPOINT = (
     "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/"
@@ -145,25 +144,21 @@ class _RotaryEmbedding(nn.Module):
         )
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, position_ids: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, position_ids: Tensor) -> Tensor:
         inv_freq = cast(Tensor, self.inv_freq)
         frequencies = position_ids.float().unsqueeze(-1) * inv_freq.view(1, 1, -1)
         frequencies = torch.cat(frequencies.unbind(dim=1), dim=-1)
-        frequencies = torch.cat((frequencies, frequencies), dim=-1)
-        return frequencies.cos(), frequencies.sin()
+        return torch.cat((frequencies, frequencies), dim=-1)
 
 
-def _apply_rotary(hidden_states: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-    rotary_dim = cos.shape[-1]
-    rotary, passthrough = (
+def _apply_rotary(hidden_states: Tensor, frequencies: Tensor) -> Tensor:
+    """Apply H3's partial RoPE in place with FlashDreams' CUDA kernel."""
+    rotary_dim = frequencies.shape[-1]
+    apply_rope_freqs(
         hidden_states[..., :rotary_dim],
-        hidden_states[..., rotary_dim:],
+        frequencies[:, None, None, :],
     )
-    cos = cos.to(hidden_states.dtype)[None, :, None, :]
-    sin = sin.to(hidden_states.dtype)[None, :, None, :]
-    first, second = rotary.chunk(2, dim=-1)
-    rotated = torch.cat((-second, first), dim=-1)
-    return torch.cat((rotary * cos + rotated * sin, passthrough), dim=-1).contiguous()
+    return hidden_states
 
 
 class _Attention(nn.Module):
@@ -189,15 +184,13 @@ class _Attention(nn.Module):
         )
         self.attn_op = NativeAttention(qkv_format="bshd", backend=backend)
 
-    def forward(
-        self, hidden_states: Tensor, rotary: tuple[Tensor, Tensor] | None = None
-    ) -> Tensor:
+    def forward(self, hidden_states: Tensor, rotary: Tensor | None = None) -> Tensor:
         query = self.norm_q(self.to_q(hidden_states).unflatten(-1, (self.heads, -1)))
         key = self.norm_k(self.to_k(hidden_states).unflatten(-1, (self.heads, -1)))
         value = self.to_v(hidden_states).unflatten(-1, (self.heads, -1))
         if rotary is not None:
-            query = _apply_rotary(query, *rotary)
-            key = _apply_rotary(key, *rotary)
+            query = _apply_rotary(query, rotary)
+            key = _apply_rotary(key, rotary)
         output = self.attn_op(query, key, value).flatten(2, 3).type_as(query)
         return self.to_out[1](self.to_out[0](output))
 
@@ -274,7 +267,7 @@ class _TransformerBlock(nn.Module):
         hidden_states: Tensor,
         temb: Tensor,
         adaln_indices: Tensor,
-        rotary: tuple[Tensor, Tensor],
+        rotary: Tensor,
     ) -> Tensor:
         shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = self.adaln_proj(temb)
         normalized = self.norm1(hidden_states)

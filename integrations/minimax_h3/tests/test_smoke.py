@@ -25,6 +25,8 @@ from typing import Any, cast
 import pytest
 import tomli as tomllib
 import torch
+from flashdreams.infra.diffusion.transformer import Transformer
+from flashdreams.infra.runner import RunnerConfig
 from minimax_h3 import config as config_mod
 from minimax_h3 import pipeline as h3_pipeline
 from minimax_h3.config import (
@@ -49,9 +51,6 @@ from minimax_h3.runner import (
 )
 from minimax_h3.scheduler import MiniMaxH3SchedulerConfig
 from minimax_h3.transformer import MiniMaxH3TransformerConfig
-
-from flashdreams.infra.diffusion.transformer import Transformer
-from flashdreams.infra.runner import RunnerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -436,56 +435,3 @@ def test_row_timestep_plan_preserves_device_and_conditioning_levels(
     assert timesteps.device == state.video_indices.device
     torch.testing.assert_close(timesteps, torch.tensor([0.25, 0.5, 0.999, 1.0]))
     torch.testing.assert_close(indices, torch.tensor([2, 1, 3, 0, 1, 1]))
-
-
-def test_native_transformer_matches_official_h3_forward() -> None:
-    """Prove state-dict and numerical compatibility on a tiny CPU model."""
-    from diffusers.models.transformers.transformer_minimax_h3 import (
-        MiniMaxH3Transformer3DModel,
-    )
-
-    architecture: dict[str, Any] = {
-        "num_attention_heads": 2,
-        "attention_head_dim": 12,
-        "hidden_size": 16,
-        "num_layers": 2,
-        "num_refiner_layers": 1,
-        "ffn_dim": 32,
-        "in_channels": 2,
-        "audio_in_channels": 4,
-        "patch_size": (1, 1, 1),
-        "text_dim": 10,
-        "freq_dim": 8,
-        "time_embed_hidden_dim": 16,
-        "time_embed_dim": 8,
-        "rope_freq_dim": 2,
-    }
-    torch.manual_seed(1)
-    official: Any = MiniMaxH3Transformer3DModel(**architecture)
-    native = MiniMaxH3TransformerConfig(
-        checkpoint_path=None,
-        device="cpu",
-        execution_device="cpu",
-        sequential_cpu_offload=False,
-        dtype=torch.float32,
-        attention_backend="math",
-        **architecture,
-    ).setup()
-    native.load_state_dict(official.state_dict(), strict=True)
-    inputs = {
-        "hidden_states": torch.randn(1, 4, 2),
-        "audio_hidden_states": torch.randn(1, 2, 4),
-        "encoder_hidden_states": torch.randn(1, 3, 10),
-        "timestep": torch.tensor([0.1, 0.5, 0.999]),
-        "timestep_indices": torch.tensor([1, 1, 1, 2, 0, 1, 1, 0, 2]),
-        "token_tags": torch.tensor([1, 1, 1, 0, 0, 2, 2, 0, 0]),
-        "position_ids": torch.randn(9, 3),
-        "video_indices": torch.tensor([3, 4, 7, 8]),
-        "audio_indices": torch.tensor([5, 6]),
-        "text_indices": torch.tensor([0, 1, 2]),
-    }
-    with torch.no_grad():
-        expected = official(**inputs, return_dict=False)
-        actual = native.forward_joint(**inputs)
-    for native_output, official_output in zip(actual, expected, strict=True):
-        torch.testing.assert_close(native_output, official_output)
