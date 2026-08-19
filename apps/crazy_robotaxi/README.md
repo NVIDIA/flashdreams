@@ -171,10 +171,12 @@ crazy-robotaxi-map validate /path/to/city.robotaxi.yaml
 crazy-robotaxi-map preview /path/to/city.robotaxi.yaml --output city.svg
 ```
 
-The engine validates the topology, compiles road and implicit driveway
+The engine validates the topology, compiles roads and inferred parking-access
 geometry, creates curb colliders, and derives directed navigation lanes. That
 lane graph powers fare reachability and future NPC routing; it does not limit
-which lane the player's taxi may physically enter.
+where the player's taxi may physically drive. Parking-lot fare points are
+sampled anywhere inside the authored polygon, while their route distance stops
+at the connected driveway or intersection.
 
 The engine's private ClipGT archive is cached under
 `$FLASHDREAMS_CACHE_DIR/omnidreams-game-engine/game-maps/`. The cache key includes the YAML,
@@ -185,7 +187,7 @@ output, not an authoring format.
 Parking-lot surfaces are emitted as green `ROI_POLYGON_ROADNET_MASK` regions.
 Parking-space dividers remain intentionally omitted because ClipGT would encode
 them as ordinary lane lines, which can condition the model to produce bike or
-turn lanes.
+turn lanes. Lots do not contain inferred navigation aisles or turnarounds.
 
 The bundled maps reuse the existing OmniDreams seed image. Their authored
 geometry is not expected to match that image exactly, so the first generated

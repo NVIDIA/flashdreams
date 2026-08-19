@@ -105,12 +105,13 @@ def write_game_map_preview(
                     "#17233d",
                 )
             )
-        for link in game_map.topology.direct_links:
-            lane = lane_by_element[link.link_id]
+        for access in game_map.topology.parking_accesses:
+            lane = lane_by_element[access.access_id]
             point = lane.centerline_world[len(lane.centerline_world) // 2, :2]
             lines.append(
                 _label(
-                    f"{link.link_id} [access; {link.node_a_id}→{link.node_b_id}]",
+                    f"{access.access_id} [parking access; "
+                    f"{access.source_node_id}→{access.parking_lot_node_id}]",
                     point,
                     convert,
                     "#064e3b",

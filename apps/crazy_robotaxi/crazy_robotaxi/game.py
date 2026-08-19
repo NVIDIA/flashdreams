@@ -37,6 +37,7 @@ from crazy_robotaxi.high_scores import (
 )
 from crazy_robotaxi.navigation import (
     LanePosition,
+    NavigationFareRegion,
     NavigationLane,
     NavigationWaypoint,
     RoutePlan,
@@ -513,6 +514,7 @@ class TaxiGameController:
         reference_route_world: npt.NDArray[np.float32],
         navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         navigation_lanes: tuple[NavigationLane, ...] = (),
+        fare_regions: tuple[NavigationFareRegion, ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
@@ -532,6 +534,8 @@ class TaxiGameController:
             )
         self._waypoints = self._navigation.sample_waypoints(
             config.waypoint_spacing_m, offset
+        ) + self._navigation.sample_fare_regions(
+            fare_regions, config.waypoint_spacing_m, self._rng
         )
         self._eligible_waypoint_indices = tuple(range(len(self._waypoints)))
         self._pickup_point_indices = self._sample_pickup_point_indices()
@@ -957,15 +961,22 @@ class TaxiGameController:
             vehicle_state.yaw_rad,
         )
         pickup = self._waypoints[pickup_index]
-        fallback_source = LanePosition(
-            lane_index=pickup.lane_index,
-            distance_along_lane_m=pickup.distance_along_lane_m,
-            lateral_distance_m=0.0,
-            heading_error_rad=0.0,
+        fallback_sources = pickup.departure_anchors or (
+            LanePosition(
+                lane_index=pickup.lane_index,
+                distance_along_lane_m=pickup.distance_along_lane_m,
+                lateral_distance_m=0.0,
+                heading_error_rad=0.0,
+            ),
         )
-        source_candidates = tuple(
-            source for source in sources if source.lateral_distance_m <= 12.0
-        ) or (fallback_source,)
+        source_candidates = (
+            fallback_sources
+            if pickup.departure_anchors
+            else tuple(
+                source for source in sources if source.lateral_distance_m <= 12.0
+            )
+            or fallback_sources
+        )
 
         for source in source_candidates:
             route_distances = self._navigation.route_distances(source, self._waypoints)

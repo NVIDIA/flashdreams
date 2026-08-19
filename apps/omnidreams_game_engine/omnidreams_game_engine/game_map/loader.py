@@ -39,14 +39,13 @@ from omnidreams_game_engine.game_map._schema import (
 from omnidreams_game_engine.game_map.types import (
     GameMapBoundaryAttributes,
     GameMapCurb,
-    GameMapDirectLink,
     GameMapElement,
     GameMapLane,
     GameMapLaneDivider,
     GameMapLinearAttributes,
     GameMapNode,
+    GameMapParkingAccess,
     GameMapRoad,
-    GameMapRoadAttachment,
     GameMapRoadBoundary,
     GameMapSpawn,
     GameMapTopology,
@@ -73,14 +72,8 @@ _NODE_ATTRIBUTE_FIELDS = {
     "intersection": frozenset({"curb"}),
     "road_joint": frozenset(),
     "cul_de_sac": frozenset({"curb", "culdesac_radius_m"}),
-    "parking_lot": frozenset(
-        {
-            *_LINEAR_ATTRIBUTE_FIELDS,
-            "parking_lot_width_m",
-            "parking_lot_depth_m",
-        }
-    ),
-    "driveway": _LINEAR_ATTRIBUTE_FIELDS,
+    "parking_lot": frozenset(),
+    "driveway": frozenset(),
 }
 
 
@@ -199,8 +192,6 @@ def _parse_nodes(
     ids: set[str] = set()
     for index, value in enumerate(_sequence(doc.get("nodes"), "nodes")):
         raw = _mapping(value, f"nodes[{index}]")
-        if not {"id", "type", "pose"} <= set(raw):
-            raise GameMapError(f"nodes[{index}] requires id, type, and pose")
         node_type = str(raw.get("type", ""))
         if node_type not in _NODE_ATTRIBUTE_FIELDS:
             raise GameMapError(f"nodes[{index}] has unsupported type {node_type!r}")
@@ -208,14 +199,54 @@ def _parse_nodes(
         if not node_id or node_id in ids:
             raise GameMapError(f"Node id {node_id!r} is empty or duplicated")
         ids.add(node_id)
+        context = f"node {node_id!r}"
+        if node_type == "parking_lot":
+            if set(raw) != {"id", "type", "vertices"}:
+                raise GameMapError(f"{context} requires exactly id, type, and vertices")
+            vertices = tuple(
+                tuple(
+                    float(item)
+                    for item in _point(value, f"{context}.vertices[{vertex_index}]")
+                )
+                for vertex_index, value in enumerate(
+                    _sequence(raw["vertices"], f"{context}.vertices")
+                )
+            )
+            if len(vertices) < 3:
+                raise GameMapError(f"{context}.vertices requires at least three points")
+            polygon = Polygon(vertices)
+            if not polygon.is_valid or polygon.area <= _AREA_TOLERANCE_M2:
+                raise GameMapError(f"{context}.vertices must form a simple polygon")
+            if polygon.exterior.is_ccw:
+                raise GameMapError(f"{context}.vertices must be clockwise")
+            if len(set(vertices)) != len(vertices):
+                raise GameMapError(f"{context}.vertices contains duplicate points")
+            centroid = polygon.centroid
+            nodes.append(
+                GameMapNode(
+                    node_id=node_id,
+                    node_type=node_type,
+                    x_m=float(centroid.x),
+                    y_m=float(centroid.y),
+                    rotation_deg=0.0,
+                    profile_id=None,
+                    attributes=GameMapBoundaryAttributes(curb=True),
+                    geometry={},
+                    polygon_vertices_xy=vertices,
+                )
+            )
+            continue
+        if not {"id", "type", "pose"} <= set(raw):
+            raise GameMapError(f"nodes[{index}] requires id, type, and pose")
         pose = _mapping(raw["pose"], f"node {node_id!r}.pose")
         if set(pose) != {"x_m", "y_m", "rotation_deg"}:
             raise GameMapError(
                 f"Node {node_id!r}.pose requires x_m, y_m, and rotation_deg"
             )
-        context = f"node {node_id!r}"
-        if node_type == "road_joint":
-            expected = {"id", "type", "pose", "curve_length_m"}
+        if node_type in {"road_joint", "driveway"}:
+            expected = {"id", "type", "pose"}
+            if node_type == "road_joint":
+                expected.add("curve_length_m")
             missing = expected - set(raw)
             unknown = set(raw) - expected
             if missing:
@@ -225,11 +256,15 @@ def _parse_nodes(
                     f"{context} has unknown attributes {sorted(unknown)}"
                 )
             profile_id = None
-            geometry = {
-                "curve_length_m": _nonnegative_float(
-                    raw["curve_length_m"], f"{context}.curve_length_m"
-                )
-            }
+            geometry = (
+                {
+                    "curve_length_m": _nonnegative_float(
+                        raw["curve_length_m"], f"{context}.curve_length_m"
+                    )
+                }
+                if node_type == "road_joint"
+                else {}
+            )
             attributes: GameMapBoundaryAttributes | GameMapLinearAttributes
             attributes = GameMapBoundaryAttributes(curb=False)
         else:
@@ -237,14 +272,6 @@ def _parse_nodes(
             required = {
                 "intersection": frozenset({"curb"}),
                 "cul_de_sac": frozenset({"curb", "culdesac_radius_m"}),
-                "parking_lot": frozenset(
-                    {
-                        *_LINEAR_ATTRIBUTE_FIELDS,
-                        "parking_lot_width_m",
-                        "parking_lot_depth_m",
-                    }
-                ),
-                "driveway": _LINEAR_ATTRIBUTE_FIELDS,
             }[node_type]
             profile_id, values = _resolve_attribute_values(
                 raw,
@@ -257,18 +284,9 @@ def _parse_nodes(
             geometry = {
                 key: float(item)
                 for key, item in values.items()
-                if key
-                in {
-                    "culdesac_radius_m",
-                    "parking_lot_width_m",
-                    "parking_lot_depth_m",
-                }
+                if key in {"culdesac_radius_m"}
             }
-            attributes = (
-                _linear_attributes(values, context)
-                if node_type in {"parking_lot", "driveway"}
-                else GameMapBoundaryAttributes(curb=bool(values["curb"]))
-            )
+            attributes = GameMapBoundaryAttributes(curb=bool(values["curb"]))
         nodes.append(
             GameMapNode(
                 node_id=node_id,
@@ -421,11 +439,12 @@ def _parse_roads(
             if nodes[endpoint].node_type not in {
                 "intersection",
                 "road_joint",
+                "driveway",
                 "cul_de_sac",
             }:
                 raise GameMapError(
                     f"Road {road_id!r} may connect only intersections, road joints, "
-                    "and cul-de-sacs"
+                    "driveways, and cul-de-sacs"
                 )
         context = f"road {road_id!r}"
         profile_id, values = _resolve_attribute_values(
@@ -499,11 +518,11 @@ def _oriented_joint_attributes(
     )
 
 
-def _resolve_road_joint_nodes(
+def _resolve_linear_joint_nodes(
     nodes: tuple[GameMapNode, ...],
     road_specs: tuple[_RoadSpec, ...],
 ) -> tuple[GameMapNode, ...]:
-    """Infer linear attributes for every degree-two road joint."""
+    """Infer linear attributes for every degree-two road joint and driveway."""
     incident: dict[str, list[GameMapRoad]] = {node.node_id: [] for node in nodes}
     for spec in road_specs:
         incident[spec.road.from_node_id].append(spec.road)
@@ -511,7 +530,7 @@ def _resolve_road_joint_nodes(
 
     resolved: list[GameMapNode] = []
     for node in nodes:
-        if node.node_type != "road_joint":
+        if node.node_type not in {"road_joint", "driveway"}:
             resolved.append(node)
             continue
         roads = sorted(incident[node.node_id], key=lambda road: road.road_id)
@@ -519,7 +538,8 @@ def _resolve_road_joint_nodes(
             road.from_node_id == road.to_node_id for road in roads
         ):
             raise GameMapError(
-                f"Road joint {node.node_id!r} must connect exactly two distinct roads"
+                f"{node.node_type.replace('_', ' ').title()} {node.node_id!r} "
+                "must connect exactly two distinct roads"
             )
         first = _oriented_joint_attributes(
             roads[0], reverse=roads[0].from_node_id == node.node_id
@@ -538,7 +558,7 @@ def _resolve_road_joint_nodes(
         )
         if not compatible:
             raise GameMapError(
-                f"Road joint {node.node_id!r} requires compatible road "
+                f"{node.node_type.replace('_', ' ').title()} {node.node_id!r} requires compatible road "
                 "cross-sections, markings, and curb modes"
             )
         resolved.append(
@@ -553,58 +573,62 @@ def _resolve_road_joint_nodes(
     return tuple(resolved)
 
 
-def _parse_links(
+def _parse_parking_accesses(
     doc: dict[str, Any], nodes: dict[str, GameMapNode]
-) -> tuple[GameMapDirectLink, ...]:
-    links: list[GameMapDirectLink] = []
+) -> tuple[GameMapParkingAccess, ...]:
+    accesses: list[GameMapParkingAccess] = []
     ids: set[str] = set()
-    for index, value in enumerate(_sequence(doc.get("links"), "links")):
-        raw = _mapping(value, f"links[{index}]")
-        if set(raw) != {"id", "a", "b"}:
-            raise GameMapError(f"links[{index}] requires exactly id, a, and b")
-        link_id = str(raw["id"]).strip()
-        a, b = str(raw["a"]), str(raw["b"])
-        if not link_id or link_id in ids:
-            raise GameMapError(f"Link id {link_id!r} is empty or duplicated")
-        ids.add(link_id)
-        if a not in nodes or b not in nodes or a == b:
-            raise GameMapError(
-                f"Link {link_id!r} must reference two distinct existing nodes"
-            )
-        pair = {nodes[a].node_type, nodes[b].node_type}
-        if pair not in ({"intersection", "driveway"}, {"driveway", "parking_lot"}):
-            raise GameMapError(
-                f"Link {link_id!r} must connect intersection-driveway or driveway-parking_lot"
-            )
-        links.append(GameMapDirectLink(link_id, a, b))
-    return tuple(links)
-
-
-def _parse_attachments(
-    doc: dict[str, Any], nodes: dict[str, GameMapNode], roads: set[str]
-) -> tuple[GameMapRoadAttachment, ...]:
-    attachments: list[GameMapRoadAttachment] = []
-    driveways: set[str] = set()
+    openings: set[tuple[str, int]] = set()
     for index, value in enumerate(
-        _sequence(doc.get("road_attachments"), "road_attachments")
+        _sequence(doc.get("parking_accesses"), "parking_accesses")
     ):
-        raw = _mapping(value, f"road_attachments[{index}]")
-        if set(raw) != {"driveway", "road"}:
-            raise GameMapError(f"road_attachments[{index}] requires driveway and road")
-        driveway, road = str(raw["driveway"]), str(raw["road"])
-        if (
-            driveway not in nodes
-            or nodes[driveway].node_type != "driveway"
-            or driveway in driveways
-        ):
+        raw = _mapping(value, f"parking_accesses[{index}]")
+        expected = {"id", "source", "parking_lot", "opening_vertex"}
+        if set(raw) != expected:
             raise GameMapError(
-                f"Road attachment driveway {driveway!r} is invalid or duplicated"
+                f"parking_accesses[{index}] requires exactly "
+                "id, source, parking_lot, and opening_vertex"
             )
-        if road not in roads:
-            raise GameMapError(f"Road attachment references unknown road {road!r}")
-        driveways.add(driveway)
-        attachments.append(GameMapRoadAttachment(driveway, road))
-    return tuple(attachments)
+        access_id = str(raw["id"]).strip()
+        source_id = str(raw["source"])
+        lot_id = str(raw["parking_lot"])
+        opening_value = raw["opening_vertex"]
+        if not access_id or access_id in ids:
+            raise GameMapError(
+                f"Parking access id {access_id!r} is empty or duplicated"
+            )
+        ids.add(access_id)
+        if source_id not in nodes or nodes[source_id].node_type not in {
+            "intersection",
+            "driveway",
+        }:
+            raise GameMapError(
+                f"Parking access {access_id!r} source must be an intersection or driveway"
+            )
+        if lot_id not in nodes or nodes[lot_id].node_type != "parking_lot":
+            raise GameMapError(
+                f"Parking access {access_id!r} parking_lot must reference a parking lot"
+            )
+        if type(opening_value) is not int:
+            raise GameMapError(
+                f"Parking access {access_id!r} opening_vertex must be an integer"
+            )
+        opening_index = opening_value - 1
+        vertex_count = len(nodes[lot_id].polygon_vertices_xy)
+        if opening_index < 0 or opening_index >= vertex_count:
+            raise GameMapError(
+                f"Parking access {access_id!r} opening_vertex must be between 1 and {vertex_count}"
+            )
+        opening = (lot_id, opening_index)
+        if opening in openings:
+            raise GameMapError(
+                f"Parking lot {lot_id!r} opening edge {opening_value} is used more than once"
+            )
+        openings.add(opening)
+        accesses.append(
+            GameMapParkingAccess(access_id, source_id, lot_id, opening_index)
+        )
+    return tuple(accesses)
 
 
 def _validate_element_ids(topology: GameMapTopology) -> None:
@@ -612,7 +636,7 @@ def _validate_element_ids(topology: GameMapTopology) -> None:
     identifiers = (
         *((node.node_id, "node") for node in topology.nodes),
         *((road.road_id, "road") for road in topology.roads),
-        *((link.link_id, "link") for link in topology.direct_links),
+        *((access.access_id, "parking access") for access in topology.parking_accesses),
     )
     for identifier, kind in identifiers:
         previous = owners.setdefault(identifier, kind)
@@ -629,23 +653,27 @@ def _validate_topology(topology: GameMapTopology) -> None:
     for road in topology.roads:
         road_degree[road.from_node_id] += 1
         road_degree[road.to_node_id] += 1
-    link_neighbors: dict[str, list[str]] = {node_id: [] for node_id in nodes}
-    for link in topology.direct_links:
-        link_neighbors[link.node_a_id].append(link.node_b_id)
-        link_neighbors[link.node_b_id].append(link.node_a_id)
-    attached = {item.driveway_node_id for item in topology.road_attachments}
+    source_accesses: dict[str, list[GameMapParkingAccess]] = {
+        node_id: [] for node_id in nodes
+    }
+    lot_accesses: dict[str, list[GameMapParkingAccess]] = {
+        node_id: [] for node_id in nodes
+    }
+    for access in topology.parking_accesses:
+        source_accesses[access.source_node_id].append(access)
+        lot_accesses[access.parking_lot_node_id].append(access)
     for node in topology.nodes:
         if node.node_type == "cul_de_sac" and road_degree[node.node_id] != 1:
             raise GameMapError(
                 f"Cul-de-sac {node.node_id!r} must terminate exactly one road"
             )
-        if node.node_type in {"parking_lot", "driveway"} and road_degree[node.node_id]:
+        if node.node_type == "parking_lot" and road_degree[node.node_id]:
             raise GameMapError(
-                f"{node.node_type} {node.node_id!r} cannot be an authored road endpoint"
+                f"Parking lot {node.node_id!r} cannot be an authored road endpoint"
             )
-        if node.node_type == "parking_lot" and not link_neighbors[node.node_id]:
+        if node.node_type == "parking_lot" and not lot_accesses[node.node_id]:
             raise GameMapError(
-                f"Parking lot {node.node_id!r} must have at least one driveway"
+                f"Parking lot {node.node_id!r} must have at least one parking access"
             )
         if node.node_type == "cul_de_sac" and road_degree[node.node_id] == 1:
             road = next(
@@ -660,40 +688,14 @@ def _validate_topology(topology: GameMapTopology) -> None:
                     f"half the incident road width ({minimum_radius:.2f} m)"
                 )
         if node.node_type == "driveway":
-            neighbors = link_neighbors[node.node_id]
-            lots = [
-                item for item in neighbors if nodes[item].node_type == "parking_lot"
-            ]
-            sources = [
-                item for item in neighbors if nodes[item].node_type == "intersection"
-            ]
-            if len(lots) != 1:
+            if road_degree[node.node_id] != 2:
                 raise GameMapError(
-                    f"Driveway {node.node_id!r} must serve exactly one parking lot"
+                    f"Driveway {node.node_id!r} must connect exactly two roads"
                 )
-            if len(sources) + int(node.node_id in attached) != 1:
+            if len(source_accesses[node.node_id]) != 1:
                 raise GameMapError(
-                    f"Driveway {node.node_id!r} needs exactly one intersection link or road attachment"
+                    f"Driveway {node.node_id!r} must have exactly one parking access"
                 )
-
-
-def _rotation(node: GameMapNode) -> np.ndarray:
-    angle = math.radians(node.rotation_deg)
-    return np.asarray(
-        [[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]]
-    )
-
-
-def _rectangle(node: GameMapNode, width: float, depth: float) -> np.ndarray:
-    local = np.asarray(
-        [
-            [-width * 0.5, -depth * 0.5],
-            [width * 0.5, -depth * 0.5],
-            [width * 0.5, depth * 0.5],
-            [-width * 0.5, depth * 0.5],
-        ]
-    )
-    return local @ _rotation(node).T + np.asarray([node.x_m, node.y_m])
 
 
 def _sample_road(spec: _RoadSpec, spacing_m: float) -> np.ndarray:
@@ -744,16 +746,28 @@ def _trimmed_road_paths_and_joints(
         line = LineString(raw_roads[road.road_id])
         start_node = nodes[road.from_node_id]
         end_node = nodes[road.to_node_id]
-        start_trim = (
-            start_node.geometry["curve_length_m"]
-            if start_node.node_type == "road_joint"
-            else 0.0
-        )
-        end_trim = (
-            end_node.geometry["curve_length_m"]
-            if end_node.node_type == "road_joint"
-            else 0.0
-        )
+
+        def trim_for(node: GameMapNode) -> float:
+            if node.node_type == "road_joint":
+                return node.geometry["curve_length_m"]
+            if node.node_type == "driveway":
+                access = next(
+                    item
+                    for item in topology.parking_accesses
+                    if item.source_node_id == node.node_id
+                )
+                lot = nodes[access.parking_lot_node_id]
+                vertices = np.asarray(lot.polygon_vertices_xy)
+                return 0.5 * float(
+                    np.linalg.norm(
+                        vertices[(access.opening_vertex_index + 1) % len(vertices)]
+                        - vertices[access.opening_vertex_index]
+                    )
+                )
+            return 0.0
+
+        start_trim = trim_for(start_node)
+        end_trim = trim_for(end_node)
         if start_trim + end_trim >= line.length - _POSITION_TOLERANCE_M:
             raise GameMapError(
                 f"Road {road.road_id!r} is too short for road-joint trims "
@@ -769,9 +783,24 @@ def _trimmed_road_paths_and_joints(
 
     joints: dict[str, np.ndarray] = {}
     for node in topology.nodes:
-        if node.node_type != "road_joint":
+        if node.node_type not in {"road_joint", "driveway"}:
             continue
-        length = node.geometry["curve_length_m"]
+        if node.node_type == "driveway":
+            access = next(
+                item
+                for item in topology.parking_accesses
+                if item.source_node_id == node.node_id
+            )
+            lot = nodes[access.parking_lot_node_id]
+            vertices = np.asarray(lot.polygon_vertices_xy)
+            length = 0.5 * float(
+                np.linalg.norm(
+                    vertices[(access.opening_vertex_index + 1) % len(vertices)]
+                    - vertices[access.opening_vertex_index]
+                )
+            )
+        else:
+            length = node.geometry["curve_length_m"]
         if length == 0.0:
             continue
         first_road, second_road = sorted(
@@ -793,6 +822,16 @@ def _trimmed_road_paths_and_joints(
             tangent = prefix[-1] - prefix[-2]
             tangent /= max(float(np.linalg.norm(tangent)), 1.0e-9)
             outward_tangents.append(tangent)
+        if node.node_type == "driveway":
+            centerline = np.asarray(
+                [cuts[0], [node.x_m, node.y_m], cuts[1]], dtype=np.float64
+            )
+            if not LineString(centerline).is_simple:
+                raise GameMapError(
+                    f"Driveway {node.node_id!r} produces a self-intersecting join"
+                )
+            joints[node.node_id] = centerline
+            continue
         controls = [
             cuts[0] - outward_tangents[0] * length,
             cuts[1] - outward_tangents[1] * length,
@@ -950,10 +989,64 @@ def _inferred_intersection_arm_reaches(
     return reaches
 
 
+def _parking_access_path(
+    access: GameMapParkingAccess,
+    nodes: dict[str, GameMapNode],
+    spacing_m: float,
+) -> tuple[np.ndarray, float]:
+    """Infer a tangent cubic from a road node to one authored lot edge."""
+    source = nodes[access.source_node_id]
+    lot = nodes[access.parking_lot_node_id]
+    vertices = np.asarray(lot.polygon_vertices_xy, dtype=np.float64)
+    first = vertices[access.opening_vertex_index]
+    second = vertices[(access.opening_vertex_index + 1) % len(vertices)]
+    edge = second - first
+    width = float(np.linalg.norm(edge))
+    if width <= _POSITION_TOLERANCE_M:
+        raise GameMapError(
+            f"Parking access {access.access_id!r} has a degenerate opening edge"
+        )
+    edge_direction = edge / width
+    outward = np.asarray([-edge_direction[1], edge_direction[0]])
+    end = 0.5 * (first + second)
+    start = np.asarray([source.x_m, source.y_m], dtype=np.float64)
+    chord = end - start
+    chord_length = float(np.linalg.norm(chord))
+    if chord_length <= _POSITION_TOLERANCE_M:
+        raise GameMapError(f"Parking access {access.access_id!r} is degenerate")
+    if float(np.dot(start - end, outward)) <= _POSITION_TOLERANCE_M:
+        raise GameMapError(
+            f"Parking access {access.access_id!r} source must be outside the lot "
+            "on the opening edge's exterior side"
+        )
+    handle = chord_length / 3.0
+    control_1 = start + chord / chord_length * handle
+    inward = -outward
+    control_2 = end - inward * handle
+    span = np.asarray([start, control_1, control_2, end])
+    estimate = sum(
+        float(np.linalg.norm(span[index + 1] - span[index])) for index in range(3)
+    )
+    samples = max(8, int(math.ceil(estimate / spacing_m)) + 1)
+    t = np.linspace(0.0, 1.0, samples)[:, None]
+    path = (
+        (1.0 - t) ** 3 * span[0]
+        + 3.0 * (1.0 - t) ** 2 * t * span[1]
+        + 3.0 * (1.0 - t) * t**2 * span[2]
+        + t**3 * span[3]
+    )
+    if not LineString(path).is_simple:
+        raise GameMapError(
+            f"Parking access {access.access_id!r} produces a self-intersecting curve"
+        )
+    return path, width
+
+
 def _node_polygons(
     topology: GameMapTopology,
     raw_roads: dict[str, np.ndarray],
     road_joint_centerlines: dict[str, np.ndarray],
+    parking_access_paths: dict[str, tuple[np.ndarray, float]],
 ) -> dict[str, Polygon]:
     incidences: dict[str, list[tuple[np.ndarray, float]]] = {
         node.node_id: [] for node in topology.nodes
@@ -963,53 +1056,30 @@ def _node_polygons(
         width = road.attributes.surface_width_m
         incidences[road.from_node_id].append((points, width))
         incidences[road.to_node_id].append((points[::-1], width))
-    nodes = {node.node_id: node for node in topology.nodes}
-    for link in topology.direct_links:
-        a, b = nodes[link.node_a_id], nodes[link.node_b_id]
-        path = np.asarray([[a.x_m, a.y_m], [b.x_m, b.y_m]])
-        driveway = a if a.node_type == "driveway" else b
-        assert isinstance(driveway.attributes, GameMapLinearAttributes)
-        width = driveway.attributes.surface_width_m
-        incidences[a.node_id].append((path, width))
-        incidences[b.node_id].append((path[::-1], width))
-    attached_roads = {
-        attachment.driveway_node_id: attachment.road_id
-        for attachment in topology.road_attachments
-    }
-    roads = {road.road_id: road for road in topology.roads}
+    for access in topology.parking_accesses:
+        path, width = parking_access_paths[access.access_id]
+        incidences[access.source_node_id].append((path, width))
     polygons: dict[str, Polygon] = {}
     for node in topology.nodes:
         center = np.asarray([node.x_m, node.y_m])
         if node.node_type == "driveway":
-            arms = []
-            for path, opening_width in incidences[node.node_id]:
-                arm_path = _polyline_prefix(path, opening_width * 0.25)
-                direction = arm_path[1] - arm_path[0]
-                direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
-                arm_path = np.vstack(
-                    (arm_path[0] - direction * opening_width * 0.25, arm_path)
-                )
-                arms.append(
-                    LineString(arm_path).buffer(
-                        opening_width * 0.5,
-                        cap_style=2,
-                        join_style=2,
-                    )
-                )
-            if not arms:
-                raise GameMapError(
-                    f"Driveway {node.node_id!r} must have an access link"
-                )
-            polygon = unary_union(arms).buffer(0)
-            attached_road_id = attached_roads.get(node.node_id)
-            if attached_road_id is not None:
-                road = roads[attached_road_id]
-                road_surface = LineString(raw_roads[attached_road_id]).buffer(
-                    road.attributes.surface_width_m * 0.5,
-                    cap_style=2,
-                    join_style=2,
-                )
-                polygon = polygon.difference(road_surface)
+            assert isinstance(node.attributes, GameMapLinearAttributes)
+            through = LineString(road_joint_centerlines[node.node_id]).buffer(
+                node.attributes.surface_width_m * 0.5,
+                cap_style=2,
+                join_style=2,
+            )
+            access_path, access_width = next(
+                parking_access_paths[access.access_id]
+                for access in topology.parking_accesses
+                if access.source_node_id == node.node_id
+            )
+            arm = LineString(_polyline_prefix(access_path, access_width)).buffer(
+                access_width * 0.5,
+                cap_style=2,
+                join_style=2,
+            )
+            polygon = unary_union((through, arm)).buffer(0)
         elif node.node_type in {"intersection", "road_joint"} and (
             node.node_type == "intersection" or node.geometry["curve_length_m"] == 0.0
         ):
@@ -1062,13 +1132,7 @@ def _node_polygons(
             )
             polygon = circle.intersection(clip)
         elif node.node_type == "parking_lot":
-            polygon = Polygon(
-                _rectangle(
-                    node,
-                    node.geometry["parking_lot_width_m"],
-                    node.geometry["parking_lot_depth_m"],
-                )
-            )
+            polygon = Polygon(node.polygon_vertices_xy)
         else:
             raise AssertionError(f"Unsupported footprint node {node.node_type!r}")
         if polygon.geom_type == "MultiPolygon":
@@ -1149,6 +1213,7 @@ def _boundary_window(
 def _boundaries_for_elements(
     elements: list[GameMapElement],
     connections: list[_Connection],
+    permitted_boundary_contacts: set[tuple[str, str]] | None = None,
 ) -> list[GameMapElement]:
     """Validate contacts and attach semantic boundaries and physical curbs."""
     polygons = {
@@ -1181,7 +1246,7 @@ def _boundaries_for_elements(
                     raise GameMapError(
                         f"Unrelated elements {first_id!r} and {second_id!r} overlap"
                     )
-                if (
+                if pair not in (permitted_boundary_contacts or set()) and (
                     first.boundary.intersection(second.boundary).length
                     > _LINE_TOLERANCE_M
                 ):
@@ -1376,15 +1441,21 @@ def _wire_node(
     incidences: list[_LaneIncidence],
     lanes: list[_LaneBuild],
     connector_samples: int,
+    *,
+    access_turns_only: bool = False,
 ) -> None:
     incoming = [item for item in incidences if item.kind == "end"]
     outgoing = [item for item in incidences if item.kind == "start"]
     connector_count = 0
     for source in incoming:
         for target in outgoing:
+            source_is_access = source.edge_ref.startswith("parking_access:")
+            target_is_access = target.edge_ref.startswith("parking_access:")
+            if access_turns_only and source_is_access == target_is_access:
+                continue
             if source.edge_ref == target.edge_ref and node.node_type != "cul_de_sac":
                 continue
-            if node.node_type in {"driveway", "parking_lot"}:
+            if node.node_type == "parking_lot":
                 source.lane.successors.append(target.lane.lane_id)
                 continue
             center = np.asarray([node.x_m, node.y_m, 0.0], dtype=np.float32)
@@ -1526,28 +1597,21 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     node_values = _parse_nodes(doc, profiles)
     nodes = {node.node_id: node for node in node_values}
     road_specs = _parse_roads(doc, nodes, profiles)
-    node_values = _resolve_road_joint_nodes(node_values, road_specs)
+    node_values = _resolve_linear_joint_nodes(node_values, road_specs)
     nodes = {node.node_id: node for node in node_values}
-    links = _parse_links(doc, nodes)
-    attachments = _parse_attachments(
-        doc, nodes, {spec.road.road_id for spec in road_specs}
-    )
+    parking_accesses = _parse_parking_accesses(doc, nodes)
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes}
     for spec in road_specs:
         adjacency[spec.road.from_node_id].append(f"road:{spec.road.road_id}")
         adjacency[spec.road.to_node_id].append(f"road:{spec.road.road_id}")
-    for link in links:
-        adjacency[link.node_a_id].append(f"link:{link.link_id}")
-        adjacency[link.node_b_id].append(f"link:{link.link_id}")
-    for attachment in attachments:
-        adjacency[attachment.driveway_node_id].append(
-            f"road_attachment:{attachment.road_id}"
-        )
+    for access in parking_accesses:
+        reference = f"parking_access:{access.access_id}"
+        adjacency[access.source_node_id].append(reference)
+        adjacency[access.parking_lot_node_id].append(reference)
     topology = GameMapTopology(
         nodes=node_values,
         roads=tuple(spec.road for spec in road_specs),
-        direct_links=links,
-        road_attachments=attachments,
+        parking_accesses=parking_accesses,
         adjacency=tuple(
             (node_id, tuple(sorted(references)))
             for node_id, references in adjacency.items()
@@ -1567,45 +1631,25 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             raw_roads[spec.road.road_id] = np.linspace(
                 [start.x_m, start.y_m], [end.x_m, end.y_m], samples
             )
+    parking_access_paths = {
+        access.access_id: _parking_access_path(access, nodes, settings.sample_spacing_m)
+        for access in parking_accesses
+    }
     raw_roads, road_joint_centerlines = _trimmed_road_paths_and_joints(
         topology, raw_roads, settings.sample_spacing_m
     )
-    polygons = _node_polygons(topology, raw_roads, road_joint_centerlines)
-    roads_by_id = {spec.road.road_id: spec.road for spec in road_specs}
-    for attachment in attachments:
-        driveway = nodes[attachment.driveway_node_id]
-        road = roads_by_id[attachment.road_id]
-        point = Point(driveway.x_m, driveway.y_m)
-        centerline = LineString(raw_roads[road.road_id])
-        distance = point.distance(centerline)
-        expected = road.attributes.surface_width_m * 0.5
-        if abs(distance - expected) > 0.75:
-            raise GameMapError(
-                f"Driveway {driveway.node_id!r} pose must be at the curb-opening "
-                f"center of road {road.road_id!r}; distance={distance:.2f} m, "
-                f"expected={expected:.2f} m"
-            )
-        nearest_distance = centerline.project(point)
-        nearest = np.asarray(centerline.interpolate(nearest_distance).coords[0])
-        outward = np.asarray([driveway.x_m, driveway.y_m]) - nearest
-        outward /= max(float(np.linalg.norm(outward)), 1.0e-9)
-        angle = math.radians(driveway.rotation_deg)
-        facing = np.asarray([math.cos(angle), math.sin(angle)])
-        if float(np.dot(outward, facing)) < math.cos(math.radians(30.0)):
-            raise GameMapError(
-                f"Driveway {driveway.node_id!r} rotation must point outward from "
-                f"road {road.road_id!r}"
-            )
+    polygons = _node_polygons(
+        topology, raw_roads, road_joint_centerlines, parking_access_paths
+    )
     elements: list[GameMapElement] = []
     connections: list[_Connection] = []
     lanes: list[_LaneBuild] = []
     lane_dividers: list[GameMapLaneDivider] = []
     incidences: dict[str, list[_LaneIncidence]] = {node_id: [] for node_id in nodes}
     road_joint_openings: dict[str, dict[str, np.ndarray]] = {
-        node.node_id: {} for node in node_values if node.node_type == "road_joint"
-    }
-    parking_openings: dict[str, list[tuple[np.ndarray, float]]] = {
-        node.node_id: [] for node in node_values if node.node_type == "parking_lot"
+        node.node_id: {}
+        for node in node_values
+        if node.node_type in {"road_joint", "driveway"}
     }
 
     for spec in road_specs:
@@ -1667,94 +1711,73 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             if node_id in road_joint_openings:
                 road_joint_openings[node_id][road.road_id] = center
 
-    links_by_driveway: dict[str, list[str]] = {}
-    for link in links:
-        node_a, node_b = nodes[link.node_a_id], nodes[link.node_b_id]
-        driveway = node_a if node_a.node_type == "driveway" else node_b
-        assert isinstance(driveway.attributes, GameMapLinearAttributes)
-        attributes = driveway.attributes
-        links_by_driveway.setdefault(driveway.node_id, []).append(link.link_id)
-        centerline = np.linspace([node_a.x_m, node_a.y_m], [node_b.x_m, node_b.y_m], 8)
+    for access in parking_accesses:
+        source = nodes[access.source_node_id]
+        lot = nodes[access.parking_lot_node_id]
+        centerline, opening_width = parking_access_paths[access.access_id]
+        attributes = GameMapLinearAttributes(
+            curb=True,
+            lane_width_m=opening_width * 0.5,
+            curb_offset_m=0.0,
+            directions=("forward", "backward"),
+            speed_limit_mps=5.5,
+            marking_style="VIRTUAL",
+            marking_color="WHITE",
+            divider_markings=(("VIRTUAL", "WHITE"),),
+        )
         points = _trim_line(
             centerline,
-            polygons[node_a.node_id],
-            polygons[node_b.node_id],
-            f"Link {link.link_id!r}",
+            polygons[source.node_id],
+            polygons[lot.node_id],
+            f"Parking access {access.access_id!r}",
         )
-        built = _build_linear_lanes(link.link_id, points, attributes, False)
+        built = _build_linear_lanes(access.access_id, points, attributes, False)
         lanes.extend(built)
+        lane_dividers.extend(_build_lane_dividers(built, attributes))
         for incidence in _incidences_for_lanes(
-            built, node_a.node_id, node_b.node_id, f"link:{link.link_id}"
+            built,
+            source.node_id,
+            lot.node_id,
+            f"parking_access:{access.access_id}",
         ):
-            incidences[incidence.node_id].append(incidence)
-        excluded = tuple(polygons[node.node_id] for node in (node_a, node_b))
+            if incidence.node_id == source.node_id:
+                incidences[incidence.node_id].append(incidence)
+        excluded = (polygons[source.node_id], polygons[lot.node_id])
         surface = _corridor_polygon(
             centerline,
-            attributes.surface_width_m,
+            opening_width,
             excluded,
-            f"Link {link.link_id!r}",
+            f"Parking access {access.access_id!r}",
         )
         elements.append(
             GameMapElement(
-                element_id=link.link_id,
-                element_type="implicit_driveway",
-                profile_id=driveway.profile_id,
+                element_id=access.access_id,
+                element_type="parking_access",
+                profile_id=None,
                 attributes=attributes,
                 surface_world=_surface_array(surface),
                 road_boundaries=(),
                 curbs=(),
             )
         )
-        for endpoint in (node_a, node_b):
-            connections.append(
+        connections.extend(
+            (
                 _Connection(
-                    connection_id=f"link:{link.link_id}:{endpoint.node_id}",
-                    first_element_id=link.link_id,
-                    second_element_id=endpoint.node_id,
-                    width_m=attributes.surface_width_m,
-                    center_xy=(
-                        points[0] if endpoint.node_id == node_a.node_id else points[-1]
-                    ),
-                )
-            )
-        for endpoint, point in ((node_a, points[0]), (node_b, points[-1])):
-            if endpoint.node_id in parking_openings:
-                parking_openings[endpoint.node_id].append(
-                    (point, attributes.surface_width_m)
-                )
-
-    attachments_by_driveway = {
-        attachment.driveway_node_id: attachment for attachment in attachments
-    }
-    for driveway_id in links_by_driveway:
-        driveway = nodes[driveway_id]
-        assert isinstance(driveway.attributes, GameMapLinearAttributes)
-        if driveway_id in attachments_by_driveway:
-            attachment = attachments_by_driveway[driveway_id]
-            connections.append(
+                    connection_id=f"parking_access:{access.access_id}:source",
+                    first_element_id=access.access_id,
+                    second_element_id=source.node_id,
+                    width_m=opening_width,
+                    center_xy=points[0],
+                ),
                 _Connection(
-                    connection_id=f"road_attachment:{driveway_id}",
-                    first_element_id=attachment.road_id,
-                    second_element_id=driveway_id,
-                    width_m=driveway.attributes.surface_width_m,
-                    center_xy=np.asarray([driveway.x_m, driveway.y_m]),
-                )
+                    connection_id=f"parking_access:{access.access_id}:lot",
+                    first_element_id=access.access_id,
+                    second_element_id=lot.node_id,
+                    width_m=opening_width,
+                    center_xy=points[-1],
+                ),
             )
-
-    for node in node_values:
-        if node.node_type != "parking_lot":
-            continue
-        openings = parking_openings[node.node_id]
-        for first_index, (first_point, first_width) in enumerate(openings):
-            for second_point, second_width in openings[first_index + 1 :]:
-                required_separation = 0.45 * (first_width + second_width)
-                if (
-                    float(np.linalg.norm(first_point - second_point))
-                    < required_separation
-                ):
-                    raise GameMapError(
-                        f"Node {node.node_id!r} has overlapping incident openings"
-                    )
+        )
 
     for node in node_values:
         polygon = polygons[node.node_id]
@@ -1770,122 +1793,13 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             )
         )
 
-    # Parking-lot interior aisles are derived access geometry, not authored roads.
     for node in node_values:
-        if node.node_type != "parking_lot":
-            continue
-        assert isinstance(node.attributes, GameMapLinearAttributes)
-        attributes = node.attributes
-        linked_driveways = [
-            nodes[link.node_b_id if link.node_a_id == node.node_id else link.node_a_id]
-            for link in links
-            if node.node_id in {link.node_a_id, link.node_b_id}
-        ]
-        for index, driveway in enumerate(linked_driveways):
-            center = np.asarray([node.x_m, node.y_m])
-            driveway_position = np.asarray([driveway.x_m, driveway.y_m])
-            direction = center - driveway_position
-            direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
-            boundary_crossing = polygons[node.node_id].boundary.intersection(
-                LineString((driveway_position, center))
-            )
-            boundary_points = (
-                [np.asarray(boundary_crossing.coords[0])]
-                if boundary_crossing.geom_type == "Point"
-                else [
-                    np.asarray(item.coords[0])
-                    for item in getattr(boundary_crossing, "geoms", ())
-                    if item.geom_type == "Point"
-                ]
-            )
-            if not boundary_points:
-                raise GameMapError(
-                    f"Could not place parking aisle for lot {node.node_id!r}"
-                )
-            start = min(
-                boundary_points,
-                key=lambda point: float(np.linalg.norm(point - driveway_position)),
-            )
-            end = center + direction * min(
-                node.geometry["parking_lot_depth_m"] * 0.2, 5.0
-            )
-            points = np.linspace(start, end, 8)
-            element_id = node.node_id if index == 0 else f"{node.node_id}:aisle:{index}"
-            built = _build_linear_lanes(element_id, points, attributes, True)
-            lanes.extend(built)
-            for lane in built:
-                incidences[node.node_id].append(
-                    _LaneIncidence(
-                        lane=lane,
-                        node_id=node.node_id,
-                        kind="start" if lane.start_endpoint == "from" else "end",
-                        edge_ref=f"lot:{element_id}",
-                    )
-                )
-            forward = next(
-                lane
-                for lane, direction_name in zip(
-                    built, attributes.directions, strict=True
-                )
-                if direction_name == "forward"
-            )
-            backward = next(
-                lane
-                for lane, direction_name in zip(
-                    built, attributes.directions, strict=True
-                )
-                if direction_name == "backward"
-            )
-            turnaround = _LaneBuild(
-                lane_id=f"{element_id}:turnaround",
-                element_id=node.node_id,
-                centerline=_bezier(
-                    forward.centerline[-1],
-                    np.asarray([node.x_m, node.y_m, 0.0], dtype=np.float32),
-                    backward.centerline[0],
-                    settings.intersection_connector_samples,
-                ),
-                left_edge=np.empty((0, 3), dtype=np.float32),
-                right_edge=np.empty((0, 3), dtype=np.float32),
-                roadside_edge=np.empty((0, 3), dtype=np.float32),
-                speed_limit_mps=attributes.speed_limit_mps,
-                marking_style="VIRTUAL",
-                marking_color="WHITE",
-                start_endpoint="",
-                end_endpoint="",
-                successors=[backward.lane_id],
-                allows_taxi_stops=False,
-                conditioning_visible=False,
-            )
-            turnaround.left_edge = _xyz(
-                _offset_polyline(
-                    turnaround.centerline[:, :2], attributes.lane_width_m * 0.5
-                )
-            )
-            turnaround.right_edge = _xyz(
-                _offset_polyline(
-                    turnaround.centerline[:, :2], -attributes.lane_width_m * 0.5
-                )
-            )
-            turnaround.roadside_edge = turnaround.right_edge
-            forward.successors.append(turnaround.lane_id)
-            lanes.append(turnaround)
-
-    for attachment in attachments:
-        driveway = nodes[attachment.driveway_node_id]
-        road_lanes = [lane for lane in lanes if lane.element_id == attachment.road_id]
-        driveway_incidence = incidences[driveway.node_id]
-        incoming_access = [item for item in driveway_incidence if item.kind == "end"]
-        outgoing_access = [item for item in driveway_incidence if item.kind == "start"]
-        for road_lane in road_lanes:
-            road_lane.successors.extend(item.lane.lane_id for item in outgoing_access)
-        for item in incoming_access:
-            item.lane.successors.extend(lane.lane_id for lane in road_lanes)
-
-    for node in node_values:
-        if node.node_type == "road_joint":
+        if node.node_type in {"road_joint", "driveway"}:
             road_ids = sorted(road_joint_openings[node.node_id])
-            if node.geometry["curve_length_m"] == 0.0:
+            if (
+                node.node_type == "road_joint"
+                and node.geometry["curve_length_m"] == 0.0
+            ):
                 centerline = np.asarray(
                     [
                         road_joint_openings[node.node_id][road_ids[0]],
@@ -1898,11 +1812,23 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 centerline = road_joint_centerlines[node.node_id]
             _wire_road_joint(
                 node,
-                incidences[node.node_id],
+                [
+                    incidence
+                    for incidence in incidences[node.node_id]
+                    if incidence.edge_ref.startswith("road:")
+                ],
                 centerline,
                 lanes,
                 lane_dividers,
             )
+            if node.node_type == "driveway":
+                _wire_node(
+                    node,
+                    incidences[node.node_id],
+                    lanes,
+                    settings.intersection_connector_samples,
+                    access_turns_only=True,
+                )
         else:
             _wire_node(
                 node,
@@ -1943,7 +1869,15 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         )
         for lane in lanes
     )
-    elements = _boundaries_for_elements(elements, connections)
+    permitted_boundary_contacts = {
+        tuple(sorted((access.access_id, road.road_id)))
+        for access in parking_accesses
+        for road in topology.roads
+        if access.source_node_id in {road.from_node_id, road.to_node_id}
+    }
+    elements = _boundaries_for_elements(
+        elements, connections, permitted_boundary_contacts
+    )
     elements = [
         replace(
             element,

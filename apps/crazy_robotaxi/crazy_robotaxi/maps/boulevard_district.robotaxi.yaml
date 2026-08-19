@@ -28,16 +28,6 @@ profiles:
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
     divider_markings:
       - {style: SOLID_GROUP, color: YELLOW}
-  parking_access:
-    lane_width_m: 3.2
-    curb_offset_m: 0.4
-    lanes: [backward, forward]
-    speed_limit_mps: 5.5
-    curb: true
-    lane_marking: {style: VIRTUAL, color: WHITE}
-    divider_markings:
-      - {style: VIRTUAL, color: WHITE}
-
 nodes:
   - {id: west_boulevard_end, type: cul_de_sac, pose: {x_m: -120, y_m: 0, rotation_deg: 0}, culdesac_radius_m: 18, curb: true}
   - {id: central_crossing, type: intersection, pose: {x_m: -35.8, y_m: 0, rotation_deg: 0}, curb: true}
@@ -49,15 +39,29 @@ nodes:
   - {id: east_upper_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 47.6, y_m: 149.6, rotation_deg: 90}, culdesac_radius_m: 10, curb: true}
   - {id: central_south_junction, type: intersection, pose: {x_m: -35.8, y_m: -51.2, rotation_deg: 270}, curb: true}
   - {id: east_south_junction, type: intersection, pose: {x_m: 47.6, y_m: -51.2, rotation_deg: 0}, curb: true}
-  - {id: east_lot_junction, type: intersection, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}, curb: true}
+  - {id: east_lot_junction, type: driveway, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}}
   - {id: east_south_spur_end, type: cul_de_sac, pose: {x_m: 96, y_m: -51.2, rotation_deg: 0}, culdesac_radius_m: 10, curb: true}
   - {id: central_lower_junction, type: intersection, pose: {x_m: -35.8, y_m: -89.6, rotation_deg: 0}, curb: true}
-  - {id: lower_lot_junction, type: intersection, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}, curb: true}
+  - {id: lower_lot_junction, type: driveway, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}}
   - {id: east_lower_junction, type: intersection, pose: {x_m: 47.6, y_m: -89.6, rotation_deg: 0}, curb: true}
-  - {id: central_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 5.9, y_m: -101.8, rotation_deg: 270}}
-  - {id: central_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 5.9, y_m: -125.8, rotation_deg: 270}, parking_lot_width_m: 26, parking_lot_depth_m: 32}
-  - {id: east_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 71.8, y_m: -39, rotation_deg: 90}}
-  - {id: east_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 71.8, y_m: -20, rotation_deg: 90}, parking_lot_width_m: 24, parking_lot_depth_m: 24}
+  - id: central_parking_lot
+    type: parking_lot
+    vertices:
+      - {x_m: -10.100, y_m: -112.800}
+      - {x_m: 2.300, y_m: -112.800}
+      - {x_m: 9.500, y_m: -112.800}
+      - {x_m: 21.900, y_m: -112.800}
+      - {x_m: 21.900, y_m: -138.800}
+      - {x_m: -10.100, y_m: -138.800}
+  - id: east_parking_lot
+    type: parking_lot
+    vertices:
+      - {x_m: 83.800, y_m: -32.000}
+      - {x_m: 75.400, y_m: -32.000}
+      - {x_m: 68.200, y_m: -32.000}
+      - {x_m: 59.800, y_m: -32.000}
+      - {x_m: 59.800, y_m: -8.000}
+      - {x_m: 83.800, y_m: -8.000}
 
   - id: eastern_gateway
     type: intersection
@@ -65,10 +69,17 @@ nodes:
     curb: true
   - {id: eastern_north_junction, type: intersection, pose: {x_m: 149.365, y_m: 65.584, rotation_deg: 352.747}, curb: true}
   - {id: eastern_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 157.662, y_m: 114.931, rotation_deg: 82.747}, culdesac_radius_m: 10, curb: true}
-  - {id: eastern_lot_junction, type: intersection, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}, curb: true}
+  - {id: eastern_lot_junction, type: driveway, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}}
   - {id: eastern_side_cul_de_sac, type: cul_de_sac, pose: {x_m: 206.513, y_m: 67.887, rotation_deg: 352.747}, culdesac_radius_m: 10, curb: true}
-  - {id: eastern_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 184.048, y_m: 83.045, rotation_deg: 82.747}}
-  - {id: eastern_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 186.573, y_m: 102.885, rotation_deg: 82.747}, parking_lot_width_m: 24, parking_lot_depth_m: 24}
+  - id: eastern_parking_lot
+    type: parking_lot
+    vertices:
+      - {x_m: 196.962, y_m: 89.466}
+      - {x_m: 188.629, y_m: 90.527}
+      - {x_m: 181.487, y_m: 91.436}
+      - {x_m: 173.154, y_m: 92.496}
+      - {x_m: 176.184, y_m: 116.304}
+      - {x_m: 199.992, y_m: 113.274}
   - {id: eastern_south_cul_de_sac, type: cul_de_sac, pose: {x_m: 130.462, y_m: -83.44, rotation_deg: 262.747}, culdesac_radius_m: 10, curb: true}
 
   - {id: east_spine_crossing_1, type: intersection, pose: {x_m: 283.135, y_m: -64.184, rotation_deg: 359.962}, curb: true}
@@ -78,14 +89,28 @@ nodes:
   - {id: east_spine_cul_de_sac, type: cul_de_sac, pose: {x_m: 577.535, y_m: -64.378, rotation_deg: 359.962}, culdesac_radius_m: 18, curb: true}
   - {id: east_lower_junction_1, type: intersection, pose: {x_m: 283.091, y_m: -131.184, rotation_deg: 359.962}, curb: true}
   - {id: east_lower_junction_2, type: intersection, pose: {x_m: 361.491, y_m: -131.236, rotation_deg: 359.962}, curb: true}
-  - {id: east_lower_junction_3, type: intersection, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}, curb: true}
+  - {id: east_lower_junction_3, type: driveway, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}}
   - {id: east_lower_junction_4, type: intersection, pose: {x_m: 518.291, y_m: -131.339, rotation_deg: 359.962}, curb: true}
   - {id: east_lower_west_cul_de_sac, type: cul_de_sac, pose: {x_m: 253.891, y_m: -131.165, rotation_deg: 179.962}, culdesac_radius_m: 10, curb: true}
   - {id: east_lower_south_cul_de_sac_1, type: cul_de_sac, pose: {x_m: 283.065, y_m: -170.384, rotation_deg: 269.962}, culdesac_radius_m: 10, curb: true}
-  - {id: east_commercial_lot_driveway_1, type: driveway, profile: parking_access, pose: {x_m: 361.484, y_m: -143.436, rotation_deg: 269.962}}
-  - {id: east_commercial_parking_lot_1, type: parking_lot, profile: parking_access, pose: {x_m: 361.474, y_m: -166.436, rotation_deg: 269.962}, parking_lot_width_m: 28, parking_lot_depth_m: 30}
-  - {id: east_commercial_lot_driveway_2, type: driveway, profile: parking_access, pose: {x_m: 439.884, y_m: -143.488, rotation_deg: 269.962}}
-  - {id: east_commercial_parking_lot_2, type: parking_lot, profile: parking_access, pose: {x_m: 439.875, y_m: -164.488, rotation_deg: 269.962}, parking_lot_width_m: 30, parking_lot_depth_m: 26}
+  - id: east_commercial_parking_lot_1
+    type: parking_lot
+    vertices:
+      - {x_m: 346.483, y_m: -152.426}
+      - {x_m: 357.883, y_m: -152.434}
+      - {x_m: 365.083, y_m: -152.438}
+      - {x_m: 376.483, y_m: -152.446}
+      - {x_m: 376.465, y_m: -180.446}
+      - {x_m: 346.465, y_m: -180.426}
+  - id: east_commercial_parking_lot_2
+    type: parking_lot
+    vertices:
+      - {x_m: 426.885, y_m: -149.479}
+      - {x_m: 436.285, y_m: -149.486}
+      - {x_m: 443.485, y_m: -149.490}
+      - {x_m: 452.885, y_m: -149.497}
+      - {x_m: 452.865, y_m: -179.497}
+      - {x_m: 426.865, y_m: -179.479}
   - {id: east_lower_south_cul_de_sac_4, type: cul_de_sac, pose: {x_m: 518.258, y_m: -180.539, rotation_deg: 269.962}, culdesac_radius_m: 10, curb: true}
   - {id: east_lower_east_cul_de_sac, type: cul_de_sac, pose: {x_m: 547.491, y_m: -131.359, rotation_deg: 359.962}, culdesac_radius_m: 10, curb: true}
 
@@ -153,19 +178,12 @@ roads:
   - {id: east_lower_south_stub_4, from: east_lower_junction_4, to: east_lower_south_cul_de_sac_4, profile: neighborhood}
   - {id: east_lower_east_stub, from: east_lower_junction_4, to: east_lower_east_cul_de_sac, profile: neighborhood}
 
-links:
-  - {id: central_lot_access, a: lower_lot_junction, b: central_lot_driveway}
-  - {id: central_lot_entrance, a: central_lot_driveway, b: central_parking_lot}
-  - {id: east_lot_access, a: east_lot_junction, b: east_lot_driveway}
-  - {id: east_lot_entrance, a: east_lot_driveway, b: east_parking_lot}
-  - {id: eastern_lot_access, a: eastern_lot_junction, b: eastern_lot_driveway}
-  - {id: eastern_lot_entrance, a: eastern_lot_driveway, b: eastern_parking_lot}
-  - {id: east_commercial_access_1, a: east_lower_junction_2, b: east_commercial_lot_driveway_1}
-  - {id: east_commercial_entrance_1, a: east_commercial_lot_driveway_1, b: east_commercial_parking_lot_1}
-  - {id: east_commercial_access_2, a: east_lower_junction_3, b: east_commercial_lot_driveway_2}
-  - {id: east_commercial_entrance_2, a: east_commercial_lot_driveway_2, b: east_commercial_parking_lot_2}
-
-road_attachments: []
+parking_accesses:
+  - {id: central_lot_access, source: lower_lot_junction, parking_lot: central_parking_lot, opening_vertex: 2}
+  - {id: east_lot_access, source: east_lot_junction, parking_lot: east_parking_lot, opening_vertex: 2}
+  - {id: eastern_lot_access, source: eastern_lot_junction, parking_lot: eastern_parking_lot, opening_vertex: 2}
+  - {id: east_commercial_access_1, source: east_lower_junction_2, parking_lot: east_commercial_parking_lot_1, opening_vertex: 2}
+  - {id: east_commercial_access_2, source: east_lower_junction_3, parking_lot: east_commercial_parking_lot_2, opening_vertex: 2}
 
 spawns:
   - id: original_area_start

@@ -17,16 +17,6 @@ profiles:
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
     divider_markings:
       - {style: SOLID_GROUP, color: YELLOW}
-  parking_access:
-    lane_width_m: 3.2
-    curb_offset_m: 0.4
-    lanes: [backward, forward]
-    speed_limit_mps: 5.5
-    curb: true
-    lane_marking: {style: VIRTUAL, color: WHITE}
-    divider_markings:
-      - {style: VIRTUAL, color: WHITE}
-
 nodes:
   - id: hub
     type: intersection
@@ -39,17 +29,15 @@ nodes:
     culdesac_radius_m: 10
     curb: true
 
-  - id: lot_driveway
-    type: driveway
-    profile: parking_access
-    pose: {x_m: 0, y_m: -10, rotation_deg: 0}
-
   - id: neighborhood_lot
     type: parking_lot
-    profile: parking_access
-    pose: {x_m: 0, y_m: -35, rotation_deg: 0}
-    parking_lot_width_m: 26
-    parking_lot_depth_m: 32
+    vertices:
+      - {x_m: -13, y_m: -51}
+      - {x_m: -13, y_m: -19}
+      - {x_m: -3.6, y_m: -19}
+      - {x_m: 3.6, y_m: -19}
+      - {x_m: 13, y_m: -19}
+      - {x_m: 13, y_m: -51}
 
 roads:
   - id: neighborhood_loop
@@ -67,11 +55,8 @@ roads:
     to: dead_end
     profile: neighborhood
 
-links:
-  - {id: hub_to_lot_driveway, a: hub, b: lot_driveway}
-  - {id: lot_driveway_to_lot, a: lot_driveway, b: neighborhood_lot}
-
-road_attachments: []
+parking_accesses:
+  - {id: hub_to_lot, source: hub, parking_lot: neighborhood_lot, opening_vertex: 3}
 
 spawns:
   - id: taxi_start

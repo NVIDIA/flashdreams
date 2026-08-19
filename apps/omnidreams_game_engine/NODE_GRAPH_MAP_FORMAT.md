@@ -17,8 +17,7 @@ compiler:
 profiles: {}
 nodes: []
 roads: []
-links: []
-road_attachments: []
+parking_accesses: []
 spawns: []
 ```
 
@@ -72,7 +71,7 @@ For example, a road can inherit most values while overriding its width:
 
 ## Coordinates and topology
 
-Every node has an explicit map-space pose:
+Every node except a parking lot has an explicit map-space pose:
 
 ```yaml
 pose: {x_m: 12, y_m: -4, rotation_deg: 30}
@@ -81,8 +80,8 @@ pose: {x_m: 12, y_m: -4, rotation_deg: 30}
 `x_m` and `y_m` use metres. `rotation_deg` rotates the node's own footprint
 counterclockwise from map +x. It does not rotate or snap incident roads.
 
-The persisted `GameMapTopology` retains typed nodes, roads, direct links,
-inline road attachments, and adjacency. The compiler separately derives a
+The persisted `GameMapTopology` retains typed nodes, roads, parking accesses,
+and adjacency. The compiler separately derives a
 directed lane graph for routing. Routing-only turn connectors are not emitted
 into ClipGT map conditioning.
 
@@ -94,8 +93,8 @@ over one another to repair topology.
 
 ## Nodes
 
-All nodes require `id`, `type`, and `pose`. Their remaining required attributes
-may be supplied directly or by profile.
+All non-parking nodes require `id`, `type`, and `pose`. Their remaining required
+attributes may be supplied directly or by profile.
 
 ### Intersections
 
@@ -165,43 +164,48 @@ turnaround.
 
 ### Parking lots
 
-A parking lot uses the linear attributes plus `parking_lot_width_m` and
-`parking_lot_depth_m`:
+A parking lot is an absolute map-space polygon. It has no pose, profile, or
+linear attributes:
 
 ```yaml
 - id: market_lot
   type: parking_lot
-  profile: parking_access
-  pose: {x_m: 30, y_m: -20, rotation_deg: 15}
-  parking_lot_width_m: 28
-  parking_lot_depth_m: 34
+  vertices:
+    - {x_m: 10, y_m: -30}
+    - {x_m: 10, y_m: -10}
+    - {x_m: 18, y_m: -10}
+    - {x_m: 26, y_m: -10}
+    - {x_m: 40, y_m: -10}
+    - {x_m: 40, y_m: -30}
 ```
 
-Its pose is the footprint center, and multiple driveways may serve it. The
-compiler derives an aisle and turnaround for each entrance. The lot surface
-becomes a green ClipGT roadnet mask; parking-stall lines are not generated.
+Vertices must describe a simple clockwise polygon. Concave polygons are
+supported; holes, self-intersections, duplicate vertices, and degenerate edges
+are not. Multiple parking accesses may serve one lot. The lot has physical
+curbs and semantic boundaries on every edge except selected access openings.
+It has no inferred aisle or turnaround lanes. Its surface becomes a green
+ClipGT roadnet mask; parking-stall lines are not generated.
 
 ### Driveways
 
-A driveway uses the linear attributes. Its access width is derived from its
-lane count, `lane_width_m`, and `curb_offset_m`; it has no separate width field.
+A driveway is a degree-two road node with one parking access:
 
 ```yaml
 - id: market_west_driveway
   type: driveway
-  profile: parking_access
   pose: {x_m: 17, y_m: -7, rotation_deg: 270}
 ```
 
-Every driveway serves exactly one parking lot and has exactly one public-road
-source: either an intersection link or an inline road attachment. The compiler
-gives the driveway node a small junction surface so access edges meet it at
-separate, non-overlapping openings.
+Its two roads must have compatible cross-sections, markings, and curb modes.
+The compiler infers a minimal through-road surface large enough to contain the
+curb opening, preserves conditioning-visible through lanes, and adds hidden
+turn connectors to the access. A driveway is not emitted as an intersection.
+Its entrance width comes from the selected parking-lot polygon edge.
 
 ## Road geometry
 
 An authored road is one topological edge between intersections, road joints,
-and/or cul-de-sacs:
+driveways, and/or cul-de-sacs:
 
 ```yaml
 - id: oak_street
@@ -263,31 +267,28 @@ curve override a simpler editable `path` without conflating the two formats.
 
 ## Parking access
 
-Direct links generate boundary-to-boundary access spans using the driveway's
-effective linear attributes. They are not authored roads.
-
-An intersection entrance uses two links:
+`parking_accesses` generate boundary-to-boundary access spans. They are not
+authored roads:
 
 ```yaml
-links:
-  - {id: market_public_access, a: market_junction, b: market_driveway}
-  - {id: market_lot_access, a: market_driveway, b: market_lot}
-road_attachments: []
+parking_accesses:
+  - id: market_lot_access
+    source: market_driveway
+    parking_lot: market_lot
+    opening_vertex: 3
 ```
 
-An inline driveway attaches to one uninterrupted road edge:
+`source` must be an intersection or driveway. `opening_vertex` is one-based and
+selects the complete polygon edge from that vertex to the next, wrapping from
+the last vertex to the first. Authors insert vertices around a narrower
+opening. One edge may be selected only once.
 
-```yaml
-links:
-  - {id: market_lot_access, a: market_driveway, b: market_lot}
-road_attachments:
-  - {driveway: market_driveway, road: oak_street}
-```
-
-For an inline attachment, the driveway pose is the road curb-opening center and
-its rotation points outward from the road. The attachment cuts the road curb
-and adds access routing without splitting the road or changing its through
-lanes.
+The compiler infers a tangent cubic to the opening midpoint and validates that
+the source is outside the lot on the edge's exterior side. The exact opening
+width becomes two equal opposing lanes with no shoulder, virtual white
+markings, physical curbs, and a 5.5m/s speed limit. Intersection sources include
+the access as an inferred footprint arm. Access lanes end at the lot boundary;
+parking lots contain no internal routing lanes.
 
 ## Spawns and visual variants
 
@@ -315,6 +316,6 @@ images, and prompts participate in the compiled-map cache key.
 Compilation rejects unknown fields and references, missing effective
 attributes, duplicate element identifiers, invalid endpoint types, malformed
 or discontinuous road paths, invalid node degrees, invalid driveway
-relationships, overlapping or edge-sharing unrelated surfaces, overlapping
-connected surfaces, mismatched connection openings, and incorrectly placed or
-oriented inline driveways.
+relationships, invalid parking polygons or openings, overlapping or
+edge-sharing unrelated surfaces, overlapping connected surfaces, mismatched
+connection openings, and parking accesses placed on an opening's interior side.

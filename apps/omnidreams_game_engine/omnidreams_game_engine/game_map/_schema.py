@@ -31,8 +31,7 @@ _REQUIRED_ROOT_FIELDS = frozenset(
         "compiler",
         "nodes",
         "roads",
-        "links",
-        "road_attachments",
+        "parking_accesses",
         "spawns",
     }
 )
@@ -48,8 +47,6 @@ _PROFILE_ATTRIBUTE_FIELDS = frozenset(
         "lane_marking",
         "divider_markings",
         "culdesac_radius_m",
-        "parking_lot_width_m",
-        "parking_lot_depth_m",
     }
 )
 
@@ -257,8 +254,6 @@ def _parse_attribute_values(raw: dict[str, Any], context: str) -> dict[str, obje
         "lane_width_m",
         "speed_limit_mps",
         "culdesac_radius_m",
-        "parking_lot_width_m",
-        "parking_lot_depth_m",
     ):
         if key in raw:
             result[key] = _positive_float(raw[key], f"{context}.{key}")

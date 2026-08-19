@@ -87,6 +87,9 @@ class GameMapNode:
     geometry: dict[str, float]
     """Validated node-type-specific geometry parameters."""
 
+    polygon_vertices_xy: tuple[tuple[float, float], ...] = ()
+    """Authored map-space polygon vertices for a parking-lot node."""
+
 
 @dataclass(frozen=True, eq=False)
 class GameMapRoad:
@@ -133,28 +136,20 @@ class GameMapRoad:
 
 
 @dataclass(frozen=True)
-class GameMapDirectLink:
-    """A non-road link that compiles into an implicit driveway span."""
+class GameMapParkingAccess:
+    """An inferred access corridor from a road node to a parking lot."""
 
-    link_id: str
-    """Stable author-defined link identifier."""
+    access_id: str
+    """Stable author-defined access identifier."""
 
-    node_a_id: str
-    """First linked node identifier."""
+    source_node_id: str
+    """Intersection or driveway node at the road end of the access."""
 
-    node_b_id: str
-    """Second linked node identifier."""
+    parking_lot_node_id: str
+    """Parking-lot node reached by the access."""
 
-
-@dataclass(frozen=True)
-class GameMapRoadAttachment:
-    """An inline driveway opening attached to an uninterrupted road edge."""
-
-    driveway_node_id: str
-    """Driveway node whose pose is the curb-opening center."""
-
-    road_id: str
-    """Unsplit authored road receiving the curb opening."""
+    opening_vertex_index: int
+    """Zero-based runtime index of the first vertex in the opening edge."""
 
 
 @dataclass(frozen=True)
@@ -167,11 +162,8 @@ class GameMapTopology:
     roads: tuple[GameMapRoad, ...]
     """Authored topological road edges."""
 
-    direct_links: tuple[GameMapDirectLink, ...]
-    """Intersection/driveway/parking links that are not ordinary roads."""
-
-    road_attachments: tuple[GameMapRoadAttachment, ...]
-    """Inline driveway attachments that do not split road edges."""
+    parking_accesses: tuple[GameMapParkingAccess, ...]
+    """Inferred access corridors from intersections/driveways to parking lots."""
 
     adjacency: tuple[tuple[str, tuple[str, ...]], ...]
     """Node identifiers paired with stable incident edge/link references."""
@@ -429,6 +421,9 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "profile_id": node.profile_id,
                     "attributes": _attributes_to_dict(node.attributes),
                     "geometry": node.geometry,
+                    "polygon_vertices_xy": [
+                        list(point) for point in node.polygon_vertices_xy
+                    ],
                 }
                 for node in game_map.topology.nodes
             ],
@@ -445,20 +440,14 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 }
                 for road in game_map.topology.roads
             ],
-            "direct_links": [
+            "parking_accesses": [
                 {
-                    "link_id": link.link_id,
-                    "node_a_id": link.node_a_id,
-                    "node_b_id": link.node_b_id,
+                    "access_id": access.access_id,
+                    "source_node_id": access.source_node_id,
+                    "parking_lot_node_id": access.parking_lot_node_id,
+                    "opening_vertex_index": access.opening_vertex_index,
                 }
-                for link in game_map.topology.direct_links
-            ],
-            "road_attachments": [
-                {
-                    "driveway_node_id": attachment.driveway_node_id,
-                    "road_id": attachment.road_id,
-                }
-                for attachment in game_map.topology.road_attachments
+                for access in game_map.topology.parking_accesses
             ],
             "adjacency": [
                 [node_id, list(references)]
@@ -629,12 +618,15 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 ),
                 attributes=_attributes_from_dict(
                     dict(raw["attributes"]),
-                    linear=str(raw["node_type"])
-                    in {"driveway", "parking_lot", "road_joint"},
+                    linear=str(raw["node_type"]) in {"driveway", "road_joint"},
                 ),
                 geometry={
                     str(key): float(item) for key, item in raw["geometry"].items()
                 },
+                polygon_vertices_xy=tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in raw.get("polygon_vertices_xy", ())
+                ),
             )
             for raw in raw_topology["nodes"]
         ),
@@ -654,20 +646,14 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             )
             for raw in raw_topology["roads"]
         ),
-        direct_links=tuple(
-            GameMapDirectLink(
-                link_id=str(raw["link_id"]),
-                node_a_id=str(raw["node_a_id"]),
-                node_b_id=str(raw["node_b_id"]),
+        parking_accesses=tuple(
+            GameMapParkingAccess(
+                access_id=str(raw["access_id"]),
+                source_node_id=str(raw["source_node_id"]),
+                parking_lot_node_id=str(raw["parking_lot_node_id"]),
+                opening_vertex_index=int(raw["opening_vertex_index"]),
             )
-            for raw in raw_topology["direct_links"]
-        ),
-        road_attachments=tuple(
-            GameMapRoadAttachment(
-                driveway_node_id=str(raw["driveway_node_id"]),
-                road_id=str(raw["road_id"]),
-            )
-            for raw in raw_topology["road_attachments"]
+            for raw in raw_topology["parking_accesses"]
         ),
         adjacency=tuple(
             (str(raw[0]), tuple(str(reference) for reference in raw[1]))
@@ -715,9 +701,8 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 in {
                     "road",
                     "road_joint",
-                    "implicit_driveway",
                     "driveway",
-                    "parking_lot",
+                    "parking_access",
                 },
             ),
             surface_world=np.asarray(raw["surface_world"], dtype=np.float32),
