@@ -126,6 +126,7 @@ class RecordingClientWindow(IClientWindow):
         scripted_events: list[UserInputEvents] | None = None,
         *,
         fail_to_open: bool = False,
+        fail_to_close: bool = False,
         hold_writes: threading.Event | None = None,
     ) -> None:
         """
@@ -134,12 +135,15 @@ class RecordingClientWindow(IClientWindow):
             scripted_events: Events to report, one entry per poll. Polls past the
                 end of the script report nothing.
             fail_to_open: Whether :meth:`open` raises.
+            fail_to_close: Whether :meth:`close` raises, as a sink that cannot
+                finish the writes it was holding does.
             hold_writes: Event that has to be set before a write completes, for
                 holding this window behind generation on purpose.
         """
         self._log = log
         self._scripted = list(scripted_events or [])
         self._fail_to_open = fail_to_open
+        self._fail_to_close = fail_to_close
         self._hold_writes = hold_writes
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
@@ -166,6 +170,8 @@ class RecordingClientWindow(IClientWindow):
 
     def close(self) -> None:
         self._log.record("window.close")
+        if self._fail_to_close:
+            raise RuntimeError("close failed")
 
 
 def _session_desc() -> SessionDesc:
@@ -431,6 +437,20 @@ def test_run_session_closes_both_when_a_step_raises() -> None:
     # presented as a result.
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [0]
+
+
+def test_run_session_reports_a_window_that_fails_to_close() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+    window = RecordingClientWindow(log, fail_to_close=True)
+
+    # Closing is when a sink finishes what it was holding, so a run whose output
+    # never landed must not look like it succeeded.
+    with pytest.raises(RuntimeError, match="close failed"):
+        run_session(session, window, steps=2)
+
+    assert [result.step_index for result in window.results] == [0, 1]
+    assert log.calls[-2:] == ["window.close", "session.close"]
 
 
 def test_run_session_reports_a_window_that_fails_to_open() -> None:

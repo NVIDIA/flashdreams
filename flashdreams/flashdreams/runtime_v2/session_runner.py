@@ -185,7 +185,13 @@ def run_session(
             io_failure.append(error)
         finally:
             opened.set()
-            window.close()
+            try:
+                window.close()
+            except Exception as error:
+                # Closing is where a sink finishes the writes it was holding, so
+                # swallowing this would report a run as complete when the output
+                # never landed.
+                io_failure.append(error)
 
     def take_collected_events() -> UserInputEvents:
         with collected_events_lock:
