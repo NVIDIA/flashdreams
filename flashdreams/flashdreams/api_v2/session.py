@@ -35,11 +35,10 @@ class ISession(ABC):
     @property
     @abstractmethod
     def session_desc(self) -> SessionDesc:
-        """Return the description this session resolved to.
+        """Return the description used to create this session.
 
-        Matches what :meth:`IApplication.create_session` was given unless the
-        application changed it to something it can produce, and does not change
-        after that.
+        The runtime reads it before :meth:`init` runs, since it opens the client
+        window with it.
         """
         ...
 
