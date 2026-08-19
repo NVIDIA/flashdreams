@@ -7,10 +7,11 @@ from abc import ABC, abstractmethod
 
 
 class UserInputEventData(ABC):
-    """Base class for data stored in `UserInputEvent`.
+    """Base class for data stored in ``UserInputEvent``.
 
-    Implementations provide `type_name` and may add fields for their event data
-    when implementing.
+    Implementations provide :meth:`get_type_name` and may add fields for their
+    event data when implementing. The runtime owns the set of concrete types,
+    which covers the input modalities supported today.
     """
 
     @classmethod

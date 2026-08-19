@@ -3,24 +3,24 @@
 
 """Client window abstract interface."""
 
-from abc import ABC, abstractmethod
-
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from abc import ABC
 
 from .input_source import InputSource
 from .output_sink import OutputSink
 
 
 class IClientWindow(InputSource, OutputSink, ABC):
-    """Handle input and output for one client window.
+    """Handle application input and output for one client window.
 
-    Use is generally: calls `open` at application start (when outputs are ready to be written),
-    reads input, generates, then writes results. Finally we call `close` when outputs are no longer
-    accepted (generally, application closed or is resetting).
+    The runtime opens the window with the session's description, then reads input
+    and writes results until the run ends, and closes it then. A window stays open
+    across a session reset.
+
+    A window does not describe the output shape. The session does, and the window
+    is given that description in :meth:`OutputSink.open`.
+
+    One thread makes every call on a window, so an implementation needs no
+    locking of its own.
+
+    Created by the runtime, never by an application.
     """
-
-    @property
-    @abstractmethod
-    def session_desc(self) -> SessionDesc:
-        """Return the session description for this window."""
-        ...

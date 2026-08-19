@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Step result implementation."""
+"""Output of one generation step."""
 
 from dataclasses import dataclass, field
 
@@ -15,12 +15,12 @@ class StepResult:
     """Generated output returned by one inference step."""
 
     step_index: int
-    """Number of the step."""
+    """Zero-based index of the step that produced this result."""
     output: Tensor
-    """Output tensor."""
+    """Generated frames, laid out as ``output_layout`` says."""
     frame_count: int
-    """Chunk size in frames."""
+    """Number of frames in ``output``."""
     output_layout: VideoTensorLayout
-    """Output tensor layout."""
-    metrics: dict[str, float | int]
-    """Metrics."""
+    """Layout of ``output``."""
+    metrics: dict[str, float | int] = field(default_factory=dict)
+    """Measurements for this step, such as timings, keyed by name."""

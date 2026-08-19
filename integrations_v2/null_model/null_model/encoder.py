@@ -29,7 +29,7 @@ class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
         """Return an empty cache for a stateless encoder.
 
         The pipeline calls this once when it initializes a rollout. Real
-        control encoders can consume `_context` and return a cache subclass
+        control encoders can consume ``_context`` and return a cache subclass
         carrying state between AR steps.
         """
         return StreamingEncoderCache()
@@ -40,10 +40,10 @@ class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
         autoregressive_index: int = 0,
         cache: StreamingEncoderCache | None = None,
     ) -> Tensor:
-        """Add 100 to a validated `[1, 1]` input tensor.
+        """Add 100 to a validated ``[1, 1]`` input tensor.
 
         Args:
-            input: Tensor with shape `[1, 1]`.
+            input: Tensor with shape ``[1, 1]``.
             autoregressive_index: Unused because
                 this encoder has no step-dependent behavior.
             cache: Unused.
@@ -52,7 +52,7 @@ class NullInputEncoder(StreamingEncoder[StreamingEncoderCache]):
             Obfuscated input tensor.
 
         Raises:
-            AssertionError: `input` is not a tensor with shape ``[1, 1]``.
+            AssertionError: ``input`` is not a tensor with shape ``[1, 1]``.
         """
         del autoregressive_index, cache
 

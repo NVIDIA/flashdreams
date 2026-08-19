@@ -1,11 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""User input event API.
-
-`UserInputEvent` contains a timestamp and an UserInputEventData structure.
-The UserInputEventData structure contains event data for the event.
-"""
+"""User input events, each a timestamp plus the data for one input modality."""
 
 from dataclasses import dataclass
 from typing import ClassVar
@@ -28,7 +24,6 @@ class NumeralKeypadUserInputEventData(UserInputEventData):
     """The number pressed."""
 
 
-# Below are stubbed input event data implementations for the sake of future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class KeyboardUserInputEventData(UserInputEventData):
     """User input event data for keyboard."""
@@ -38,7 +33,41 @@ class KeyboardUserInputEventData(UserInputEventData):
         """Return the event type name."""
         return "keyboard"
 
+    key: str = ""
+    """Identifier of the key this event refers to, e.g. ``"r"``."""
+    pressed: bool = False
+    """Whether the key is down; ``False`` marks a key-up edge."""
 
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CloseUserInputEventData(UserInputEventData):
+    """The client asked to end the run, or went away.
+
+    A window reports this for its X button, a quit shortcut, or a client that
+    disconnected. ``run_session`` stops the run when it sees one.
+    """
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "close"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class ResetUserInputEventData(UserInputEventData):
+    """The client asked to start the run over.
+
+    ``run_session`` calls :meth:`ISession.reset` when it sees one, and the step
+    index starts again from zero. The window stays open.
+    """
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "reset"
+
+
+# Below are stubbed input event data implementations for the sake of future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class MouseUserInputEventData(UserInputEventData):
     """User input event data for mouse."""

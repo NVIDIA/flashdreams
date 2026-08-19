@@ -29,7 +29,7 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
         """Return an empty cache for a stateless decoder.
 
         The pipeline calls this once per rollout. A stateful video decoder would
-        use `_context` to allocate temporal buffers instead.
+        use ``_context`` to allocate temporal buffers instead.
         """
         return StreamingDecoderCache()
 
@@ -42,11 +42,11 @@ class NullDecoder(StreamingDecoder[StreamingDecoderCache]):
         """Subtract 100 from the generated RGB chunk.
 
         Args:
-            input: Obfuscated `[B, C, T, H, W]` diffusion output.
+            input: Obfuscated ``[B, C, T, H, W]`` diffusion output.
             autoregressive_index: Current zero-based AR step; unused because
                 decoding is stateless.
             cache: Empty per-rollout cache. Typed optional to match the
-                `flashdreams.infra.decoder.StreamingDecoder` call shape;
+                :class:`~flashdreams.infra.decoder.StreamingDecoder` call shape;
                 this implementation does not read or mutate it.
 
         Returns:

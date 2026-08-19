@@ -20,15 +20,15 @@ from flashdreams.infra.diffusion.transformer import (
 
 @dataclass(kw_only=True)
 class NullTransformerCache(TransformerAutoregressiveCache):
-    """Minimal per-rollout state demonstrating minimal transformer cache lifecycle without `finalize`."""
+    """Minimal per-rollout state demonstrating minimal transformer cache lifecycle without ``finalize``."""
 
     autoregressive_index: int = -1
-    """Current AR step; `-1` before the first `start` call."""
+    """Current AR step; ``-1`` before the first :meth:`start` call."""
 
     def start(self, autoregressive_index: int) -> None:
         """Record the AR step that determines the output value.
 
-        The diffusion model calls this before `NullTransformer.predict_flow`,
+        The diffusion model calls this before :meth:`NullTransformer.predict_flow`,
         so every denoising invocation observes the correct step.
 
         Args:
@@ -51,7 +51,7 @@ class NullTransformer(Transformer[NullTransformerCache]):
         """
         Args:
             config: Transformer instantiation config supplied by the inherited
-                `setup()` mechanism.
+                ``setup()`` mechanism.
         """
         super().__init__(config)
 
@@ -64,7 +64,7 @@ class NullTransformer(Transformer[NullTransformerCache]):
     def latent_shape(self) -> tuple[int, ...]:
         """Return the fixed one-pixel RGB chunk shape ``[B, C, T, H, W]``.
 
-        The NULL model uses `[1, 3, 1, 1, 1]` as both its diffusion latent and
+        The NULL model uses ``[1, 3, 1, 1, 1]`` as both its diffusion latent and
         final output shape.
         """
         return (1, 3, 1, 1, 1)
@@ -72,8 +72,8 @@ class NullTransformer(Transformer[NullTransformerCache]):
     def initialize_autoregressive_cache(self) -> NullTransformerCache:
         """Return a fresh step-index cache for one rollout.
 
-        The pipeline calls this method once from `initialize_cache` and sends the
-        result through every `generate` / `finalize` pair to keep track of the autoregressive step.
+        The pipeline calls this method once from ``initialize_cache`` and sends the
+        result through every ``generate`` / ``finalize`` pair to keep track of the autoregressive step.
         """
         return NullTransformerCache()
 
@@ -85,7 +85,7 @@ class NullTransformer(Transformer[NullTransformerCache]):
         cache: NullTransformerCache,
         input: Any = None,
     ) -> Tensor:
-        """Return a deterministic starting latent so that the scheduler does not have any 'noise' to 'denoise' from the `predict_flow` method result.
+        """Return a deterministic starting latent so that the scheduler does not have any 'noise' to 'denoise' from the :meth:`predict_flow` method result.
 
         Args:
             latent_shape: Shape requested by the diffusion model.
@@ -115,11 +115,11 @@ class NullTransformer(Transformer[NullTransformerCache]):
         Args:
             noisy_latent: Current noisy RGB output tensor.
             timestep: Ignored
-            cache: Tracks AR step via `cache.autoregressive_index`.
+            cache: Tracks AR step via ``cache.autoregressive_index``.
             input: Encoded-input with shape ``[1, 1]``.
 
         Returns:
-            Flow that produces a tensor filled with `input + cache.autoregressive_index`.
+            Flow that produces a tensor filled with ``input + cache.autoregressive_index``.
         """
         del timestep
         assert isinstance(input, Tensor), (

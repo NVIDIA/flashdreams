@@ -17,7 +17,7 @@ class UserInputEventsData:
 
 
 class UserInputEvents:
-    """Frozen collection of user input events."""
+    """One batch of user input events, sorted by timestamp and not modifiable."""
 
     _data: UserInputEventsData
     """Immutable event collection data."""
@@ -28,5 +28,5 @@ class UserInputEvents:
         )
 
     def get_events(self) -> list[UserInputEvent]:
-        """Return the user input events."""
+        """Return a copy of the events, oldest first."""
         return list(self._data.events)

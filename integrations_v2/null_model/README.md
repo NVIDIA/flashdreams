@@ -81,5 +81,5 @@ This is why one scheduler step is sufficient and why every output tensor is exac
 minor obfuscation by subtracting 100 from the transformer's output.
 
 ```bash
-uv run python -m pytest integrations_v2/null_model/null_model/tests/smoke.py
+uv run --no-sync pytest integrations_v2/null_model
 ```

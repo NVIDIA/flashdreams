@@ -25,8 +25,8 @@ pytestmark = pytest.mark.ci_cpu
 class FakeClientWindow(IClientWindow):
     """Provide fake client input and output for one session."""
 
-    def __init__(self, session_desc: SessionDesc) -> None:
-        self._session_desc = session_desc
+    def __init__(self) -> None:
+        self.session_desc: SessionDesc | None = None
         self._input = UserInputEvents([])
         self.results: list[StepResult] = []
 
@@ -34,14 +34,11 @@ class FakeClientWindow(IClientWindow):
         # results if closed, it does not imply the InputSource contains invalid data.
         self._is_open = False
 
-    @property
-    def session_desc(self) -> SessionDesc:
-        return self._session_desc
-
     def get_user_input_events(self) -> UserInputEvents:
         return self._input
 
-    def open(self) -> None:
+    def open(self, session_desc: SessionDesc) -> None:
+        self.session_desc = session_desc
         self._is_open = True
 
     def write(self, result: StepResult) -> None:
@@ -56,8 +53,13 @@ class FakeClientWindow(IClientWindow):
 
 
 def test_client_window_for_null_model() -> None:
-    # Session layout desc + Factory + InputSource + OutputSink setup
-    client_window = FakeClientWindow(
+    # InputSource + OutputSink setup; the session layout desc arrives on open.
+    client_window = FakeClientWindow()
+    assert isinstance(client_window, IClientWindow)
+    assert isinstance(client_window, InputSource)
+    assert isinstance(client_window, OutputSink)
+    ## Assume the sink takes time to open due to startup time for backend
+    client_window.open(
         SessionDesc(
             output_layout=NULL_MODEL_CONFIG.output_layout,
             frames_per_second_for_ui=1,
@@ -66,11 +68,6 @@ def test_client_window_for_null_model() -> None:
             video_height=1,
         )
     )
-    assert isinstance(client_window, IClientWindow)
-    assert isinstance(client_window, InputSource)
-    assert isinstance(client_window, OutputSink)
-    ## Assume the sink takes time to open due to startup time for backend
-    client_window.open()
 
     # Pipeline setup
     pipeline = NULL_MODEL_CONFIG.setup().to("cpu")
@@ -89,7 +86,7 @@ def test_client_window_for_null_model() -> None:
         # InputSource.
         client_window.update_input_events(UserInputEvents([numeral_keypad_input]))
 
-        # This is the InputSource getting the user-inputs to send to our `step`/`ui_step` loops
+        # This is the InputSource getting the user-inputs to send to our step/step_ui loops
         get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
         event_data = get_user_input_events.get_events()[0].get_event_data()
