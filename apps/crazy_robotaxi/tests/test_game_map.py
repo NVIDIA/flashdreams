@@ -351,19 +351,19 @@ def test_multi_span_curve_is_one_topological_road() -> None:
 def test_malformed_curve_is_rejected(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
-    loop["path"][-1]["end"] = {"x_m": 1, "y_m": 0}
+    loop["bezier_spans"][-1]["endpoint"] = {"x_m": 1, "y_m": 0}
 
-    with pytest.raises(GameMapError, match="final path endpoint"):
+    with pytest.raises(GameMapError, match="final Bézier endpoint"):
         load_game_map(_write_map(tmp_path, source))
 
 
 def test_roads_cannot_cross_without_a_connection_node(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
-    road["path"] = [
+    road["bezier_spans"] = [
         {
             "control_points": [{"x_m": 45, "y_m": 0}, {"x_m": 45, "y_m": 30}],
-            "end": {"x_m": 0, "y_m": 30},
+            "endpoint": {"x_m": 0, "y_m": 30},
         }
     ]
 
@@ -578,6 +578,36 @@ def test_every_authored_join_has_exact_non_overlapping_surfaces(
         first, second = surfaces[first_id], surfaces[second_id]
         assert first.intersection(second).area <= 1.0e-4, (first_id, second_id)
         assert first.distance(second) <= 1.0e-4, (first_id, second_id)
+
+
+@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+def test_connected_surface_seams_do_not_emit_curbs(source_path: Path) -> None:
+    game_map = load_game_map(source_path)
+    elements = {element.element_id: element for element in game_map.elements}
+    surfaces = {
+        element.element_id: Polygon(element.surface_world[:, :2]).buffer(0)
+        for element in game_map.elements
+    }
+    pairs: list[tuple[str, str]] = []
+    for road in game_map.topology.roads:
+        for node_id in (road.from_node_id, road.to_node_id):
+            pairs.append((road.road_id, node_id))
+    for link in game_map.topology.direct_links:
+        for node_id in (link.node_a_id, link.node_b_id):
+            pairs.append((link.link_id, node_id))
+    pairs.extend(
+        (attachment.road_id, attachment.driveway_node_id)
+        for attachment in game_map.topology.road_attachments
+    )
+
+    for first_id, second_id in pairs:
+        seam = surfaces[first_id].boundary.intersection(surfaces[second_id].boundary)
+        seam_curbs = sum(
+            LineString(curb.polyline_world[:, :2]).intersection(seam).length
+            for element_id in (first_id, second_id)
+            for curb in elements[element_id].curbs
+        )
+        assert seam_curbs <= 1.0e-4, (first_id, second_id, seam_curbs)
 
 
 @pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])

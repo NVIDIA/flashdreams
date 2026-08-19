@@ -116,7 +116,7 @@ intersection_depth_m: 16
 intersection_arm_length_m: 13.2
 ```
 
-There are no inferred core dimensions or default arm lengths. Road paths
+There are no inferred core dimensions or default arm lengths. Road Bézier spans
 determine their endpoint tangents independently of node rotation.
 
 ### Cul-de-sacs
@@ -183,23 +183,24 @@ cul-de-sacs:
   profile: neighborhood
 ```
 
-It uses the linear attributes. Without `path`, its centerline is the straight
-segment between node poses. A self-loop therefore requires a path.
+It uses the linear attributes. Without `bezier_spans`, its centerline is the
+straight segment between node poses. A self-loop therefore requires Bézier
+spans.
 
-A path is one or more map-space cubic Bézier spans. Each span starts at the
-previous endpoint, has exactly two controls, and has an explicit endpoint. The
-final endpoint must equal the `to` node pose.
+`bezier_spans` is one or more map-space cubic Bézier spans. Each span starts at
+the previous endpoint, has exactly two controls, and has an explicit endpoint.
+The final endpoint must equal the `to` node pose.
 
 ```yaml
 - id: river_road
   from: west_junction
   to: east_junction
   profile: neighborhood
-  path:
+  bezier_spans:
     - control_points: [{x_m: 20, y_m: 0}, {x_m: 35, y_m: 12}]
-      end: {x_m: 45, y_m: 15}
+      endpoint: {x_m: 45, y_m: 15}
     - control_points: [{x_m: 55, y_m: 18}, {x_m: 70, y_m: 5}]
-      end: {x_m: 80, y_m: 5}
+      endpoint: {x_m: 80, y_m: 5}
 ```
 
 Intermediate anchors and controls are geometry only; they do not become graph

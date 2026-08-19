@@ -316,7 +316,7 @@ def _parse_roads(
         profile_id, values = _resolve_attribute_values(
             raw,
             profiles,
-            structural_fields={"id", "from", "to", "path"},
+            structural_fields={"id", "from", "to", "bezier_spans"},
             allowed_fields=_LINEAR_ATTRIBUTE_FIELDS,
             required_fields=_LINEAR_ATTRIBUTE_FIELDS,
             context=context,
@@ -326,51 +326,55 @@ def _parse_roads(
         end = np.asarray([nodes[to_id].x_m, nodes[to_id].y_m])
         spans: list[np.ndarray] = []
         cursor = start
-        if "path" in raw:
-            path = _sequence(raw["path"], f"road {road_id!r}.path")
-            if not path:
-                raise GameMapError(f"Road {road_id!r}.path must not be empty")
-            for span_index, span_value in enumerate(path):
-                span = _mapping(span_value, f"road {road_id!r}.path[{span_index}]")
-                if set(span) != {"control_points", "end"}:
+        if "bezier_spans" in raw:
+            span_values = _sequence(
+                raw["bezier_spans"], f"road {road_id!r}.bezier_spans"
+            )
+            if not span_values:
+                raise GameMapError(f"Road {road_id!r}.bezier_spans must not be empty")
+            for span_index, span_value in enumerate(span_values):
+                span_context = f"road {road_id!r}.bezier_spans[{span_index}]"
+                span = _mapping(span_value, span_context)
+                if set(span) != {"control_points", "endpoint"}:
                     raise GameMapError(
-                        f"Road {road_id!r} path spans require control_points and end"
+                        f"Road {road_id!r} Bézier spans require control_points "
+                        "and endpoint"
                     )
                 controls = _sequence(
                     span["control_points"],
-                    f"road {road_id!r}.path[{span_index}].control_points",
+                    f"{span_context}.control_points",
                 )
                 if len(controls) != 2:
                     raise GameMapError(
-                        f"Road {road_id!r} path spans require exactly two control points"
+                        f"Road {road_id!r} Bézier spans require exactly two "
+                        "control points"
                     )
                 control_1 = _point(
                     controls[0],
-                    f"road {road_id!r}.path[{span_index}].control_points[0]",
+                    f"{span_context}.control_points[0]",
                 )
                 control_2 = _point(
                     controls[1],
-                    f"road {road_id!r}.path[{span_index}].control_points[1]",
+                    f"{span_context}.control_points[1]",
                 )
-                span_end = _point(
-                    span["end"], f"road {road_id!r}.path[{span_index}].end"
-                )
+                endpoint = _point(span["endpoint"], f"{span_context}.endpoint")
                 if np.linalg.norm(control_1 - cursor) <= _POSITION_TOLERANCE_M:
                     raise GameMapError(
                         f"Road {road_id!r} span {span_index} has a degenerate start tangent"
                     )
-                if np.linalg.norm(span_end - control_2) <= _POSITION_TOLERANCE_M:
+                if np.linalg.norm(endpoint - control_2) <= _POSITION_TOLERANCE_M:
                     raise GameMapError(
                         f"Road {road_id!r} span {span_index} has a degenerate end tangent"
                     )
-                spans.append(np.vstack((cursor, control_1, control_2, span_end)))
-                cursor = span_end
+                spans.append(np.vstack((cursor, control_1, control_2, endpoint)))
+                cursor = endpoint
             if np.linalg.norm(cursor - end) > _POSITION_TOLERANCE_M:
                 raise GameMapError(
-                    f"Road {road_id!r} final path endpoint must equal its to-node pose"
+                    f"Road {road_id!r} final Bézier endpoint must equal its "
+                    "to-node pose"
                 )
         elif np.linalg.norm(start - end) <= _POSITION_TOLERANCE_M:
-            raise GameMapError(f"Self-loop road {road_id!r} requires a path")
+            raise GameMapError(f"Self-loop road {road_id!r} requires bezier_spans")
         runtime_spans = tuple(
             np.column_stack((span, np.zeros(4))).astype(np.float32) for span in spans
         )
@@ -863,8 +867,12 @@ def _curbs_for_elements(
                         f"{first_id!r} and {second_id!r} has mismatched openings "
                         f"({separation:.3f} m apart)"
                     )
-                openings[first_id].append(first_opening)
-                openings[second_id].append(second_opening)
+            openings[first_id].append(
+                first.boundary.intersection(second.boundary.buffer(_LINE_TOLERANCE_M))
+            )
+            openings[second_id].append(
+                second.boundary.intersection(first.boundary.buffer(_LINE_TOLERANCE_M))
+            )
 
     resolved: list[GameMapElement] = []
     for element in elements:
@@ -873,7 +881,13 @@ def _curbs_for_elements(
             continue
         boundary: BaseGeometry = polygons[element.element_id].boundary
         for opening in openings[element.element_id]:
-            boundary = boundary.difference(opening)
+            boundary = boundary.difference(
+                opening.buffer(
+                    _LINE_TOLERANCE_M,
+                    cap_style=2,
+                    join_style=2,
+                )
+            )
         parts = sorted(
             _line_parts(boundary),
             key=lambda points: (

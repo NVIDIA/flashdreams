@@ -122,11 +122,11 @@ roads:
     from: eastern_gateway
     to: east_spine_crossing_1
     profile: boulevard
-    path:
+    bezier_spans:
       - control_points: [{x_m: 160, y_m: -15}, {x_m: 200, y_m: -55}]
-        end: {x_m: 223.935, y_m: -64.145}
+        endpoint: {x_m: 223.935, y_m: -64.145}
       - control_points: [{x_m: 245, y_m: -64.16}, {x_m: 270, y_m: -64.175}]
-        end: {x_m: 283.135, y_m: -64.184}
+        endpoint: {x_m: 283.135, y_m: -64.184}
   - {id: east_spine_1, from: east_spine_crossing_1, to: east_spine_crossing_2, profile: boulevard}
   - {id: east_spine_2, from: east_spine_crossing_2, to: east_spine_crossing_3, profile: boulevard}
   - {id: east_spine_3, from: east_spine_crossing_3, to: east_spine_crossing_4, profile: boulevard}
@@ -135,16 +135,16 @@ roads:
     from: east_spine_crossing_1
     to: east_spine_crossing_2
     profile: neighborhood
-    path:
+    bezier_spans:
       - control_points: [{x_m: 283.14, y_m: -20}, {x_m: 361.54, y_m: -20}]
-        end: {x_m: 361.535, y_m: -64.236}
+        endpoint: {x_m: 361.535, y_m: -64.236}
   - id: east_north_loop_east
     from: east_spine_crossing_3
     to: east_spine_crossing_4
     profile: neighborhood
-    path:
+    bezier_spans:
       - control_points: [{x_m: 439.94, y_m: -20}, {x_m: 518.34, y_m: -20}]
-        end: {x_m: 518.335, y_m: -64.339}
+        endpoint: {x_m: 518.335, y_m: -64.339}
   - {id: east_lower_approach_1, from: east_spine_crossing_1, to: east_lower_junction_1, profile: neighborhood}
   - {id: east_lower_approach_2, from: east_spine_crossing_2, to: east_lower_junction_2, profile: neighborhood}
   - {id: east_lower_approach_4, from: east_spine_crossing_4, to: east_lower_junction_4, profile: neighborhood}
