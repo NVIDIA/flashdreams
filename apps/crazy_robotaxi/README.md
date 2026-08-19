@@ -1,8 +1,7 @@
 # Crazy Robotaxi
 
 Crazy Robotaxi is a standalone game built on `omnidreams-game-engine` and the
-legacy OmniDreams inference session. It does not import or modify the
-Interactive Drive demo.
+OmniDreams inference session.
 
 Launch the native game:
 
@@ -10,7 +9,7 @@ Launch the native game:
 flashdreams-run crazy-robotaxi
 ```
 
-Select the bundled performance manifest and load the scene immediately:
+Select the bundled performance manifest and load the map immediately:
 
 ```bash
 flashdreams-run crazy-robotaxi \
@@ -19,11 +18,11 @@ flashdreams-run crazy-robotaxi \
 ```
 
 `flashdreams-run` reserves `--manifest` for its launch-manifest format. Use
-`--world-model-manifest` for the legacy OmniDreams model manifest. Runner
+`--world-model-manifest` for the OmniDreams model manifest. Runner
 booleans use explicit `True` / `False` values because the shared FlashDreams
 CLI disables implicit boolean flag conversion.
 
-The dedicated entry point exposes the complete legacy option surface:
+The dedicated entry point exposes the application options:
 
 ```bash
 crazy-robotaxi --help
@@ -163,7 +162,7 @@ Select a map with either entry point:
 
 ```bash
 flashdreams-run crazy-robotaxi \
-  --scene /path/to/city.robotaxi.yaml \
+  --map /path/to/city.robotaxi.yaml \
   --auto-start True
 ```
 
@@ -179,8 +178,8 @@ geometry, creates curb colliders, and derives directed navigation lanes. That
 lane graph powers fare reachability and future NPC routing; it does not limit
 which lane the player's taxi may physically enter.
 
-The private ClipGT archive is cached under
-`$FLASHDREAMS_CACHE_DIR/crazy-robotaxi/maps/`. The cache key includes the YAML,
+The engine's private ClipGT archive is cached under
+`$FLASHDREAMS_CACHE_DIR/omnidreams-game-engine/game-maps/`. The cache key includes the YAML,
 resolved geometry, compiler implementation, and referenced seed assets, so
 map or compiler edits rebuild it at the next load. The archive is runtime
 output, not an authoring format.

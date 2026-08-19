@@ -62,7 +62,6 @@ from PIL import Image, ImageDraw, ImageFont
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
-    project_segment_pose_to_bev,
     project_target_pose_to_bev,
     project_taxi_markers_to_camera,
 )
@@ -434,7 +433,6 @@ class SlangPyHudPresenter:
         self._wheel = wheel
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
-        self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._taxi_name_buffer = ""
         self._last_taxi_session_state: str | None = None
         # Composition-root key extensions (e.g. live-edit abilities): keysym
@@ -2528,7 +2526,6 @@ class SlangPyHudPresenter:
             inner[1] + offset_y + scaled_h,
         )
         marker_size = max(10, min(inner_w, inner_h) // 14)
-        self._draw_bev_taxi_enclosure(draw, content_rect)
         self._draw_bev_taxi_target(draw, content_rect, marker_size)
 
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
@@ -2539,43 +2536,6 @@ class SlangPyHudPresenter:
         if ego_dimensions is None:
             ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
         self._draw_bev_ego_footprint(draw, content_rect, ego_dimensions, bev)
-
-    def _draw_bev_taxi_enclosure(
-        self,
-        draw: ImageDraw.ImageDraw,
-        content_rect: tuple[int, int, int, int],
-    ) -> None:
-        frame = getattr(self, "_latest_presented_frame", None)
-        bev = self._bev_config
-        if (
-            frame is None
-            or frame.bev_rig_to_world is None
-            or bev is None
-            or not bev.enabled
-        ):
-            return
-        left, top, right, bottom = content_rect
-        content_w = right - left
-        content_h = bottom - top
-        if content_w <= 0 or content_h <= 0:
-            return
-        for segment in self._taxi_enclosure_segments_world:
-            projected = project_segment_pose_to_bev(
-                segment, frame.bev_rig_to_world, bev
-            )
-            if projected is None:
-                continue
-            start, end = projected
-            draw.line(
-                (
-                    round(left + start[0] * content_w),
-                    round(top + start[1] * content_h),
-                    round(left + end[0] * content_w),
-                    round(top + end[1] * content_h),
-                ),
-                fill=(235, 50, 50, 255),
-                width=2,
-            )
 
     def _draw_bev_taxi_target(
         self,
@@ -3404,13 +3364,6 @@ class SlangPyHudPresenter:
         """Configure camera projection for world-anchored taxi markers."""
         self._taxi_camera_calibration = calibration
         self._taxi_camera_models.clear()
-
-    def configure_taxi_enclosure(self, segments_world: np.ndarray) -> None:
-        """Configure static Taxi-only closure lines drawn over the BEV."""
-        segments = np.asarray(segments_world, dtype=np.float32)
-        if segments.ndim != 3 or segments.shape[1:] != (2, 3):
-            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
-        self._taxi_enclosure_segments_world = segments.copy()
 
 
 # -- Module-level helpers ---------------------------------------------

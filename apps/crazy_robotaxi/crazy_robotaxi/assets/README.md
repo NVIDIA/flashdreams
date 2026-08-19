@@ -1,7 +1,6 @@
 # Assets
 
-This directory holds the unpacked-scene-bundle loader
-(`scene_bundle.py`) plus the bundled HUD control sprites under
+This directory holds the bundled HUD control sprites under
 `wheel_and_pedals/`.
 
 ## `wheel_and_pedals/`
@@ -20,10 +19,7 @@ the brake PNGs are also accepted under AlpaSim's `break_*.png`
 spelling. When a sprite is missing, the HUD falls back to a
 CPU-rendered vector wheel / fill-bar pedals.
 
-## Scenes
+## Maps
 
-Scene USDZs themselves are staged into the shared `omnidreams` scene
-cache under `$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`, **not** here.
-See `omnidreams.scenes` and `omnidreams-prepare` for how staging
-works; both the desktop demo and the WebRTC server consume from the
-same cache root.
+Crazy Robotaxi's `.robotaxi.yaml` maps live under `crazy_robotaxi/maps/`.
+Seed images referenced by a map may be map-relative files or packaged assets.

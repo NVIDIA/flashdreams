@@ -5,15 +5,19 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import pyarrow.parquet as pq
 import pytest
 import yaml
 from crazy_robotaxi import cli
 from crazy_robotaxi.game import TaxiGameConfig, TaxiGameController
 from crazy_robotaxi.navigation import NavigationLane, TaxiNavigationMap
+from crazy_robotaxi.scene import load_scene_data
 from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.game_map import (
     GameMapError,
@@ -62,6 +66,14 @@ def _surface(game_map: ResolvedGameMap, element_id: str) -> Polygon:
     return Polygon(element.surface_world[:, :2])
 
 
+def _curb_lines(game_map: ResolvedGameMap) -> list[LineString]:
+    return [
+        LineString(curb.polyline_world[:, :2])
+        for element in game_map.elements
+        for curb in element.curbs
+    ]
+
+
 def test_bundled_maps_use_schema_version_1() -> None:
     starter = load_game_map(_STARTER_MAP)
     boulevard = load_game_map(_BOULEVARD_MAP)
@@ -79,13 +91,159 @@ def test_bundled_maps_use_schema_version_1() -> None:
     assert len(boulevard.topology.roads) == 41
     assert len(boulevard.topology.direct_links) == 10
     assert boulevard.default_spawn.lane_id == "central_boulevard:lane:2"
+    for game_map in (starter, boulevard):
+        for node in game_map.topology.nodes:
+            if node.node_type != "intersection":
+                continue
+            assert set(node.geometry) in (
+                {"intersection_arm_length_m"},
+                {
+                    "intersection_width_m",
+                    "intersection_depth_m",
+                    "intersection_arm_length_m",
+                },
+            ), node.node_id
+
+
+def test_intersection_geometry_is_never_inferred(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    hub = next(node for node in source["nodes"] if node["id"] == "hub")
+    del hub["intersection_arm_length_m"]
+
+    with pytest.raises(GameMapError, match="missing attributes"):
+        load_game_map(_write_map(tmp_path, source))
 
 
 def test_unknown_root_fields_are_rejected(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["unexpected"] = []
 
-    with pytest.raises(GameMapError, match="Map must contain exactly"):
+    with pytest.raises(GameMapError, match="Map has unknown fields"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_boolean_is_not_accepted_as_a_numeric_setting(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["compiler"]["sample_spacing_m"] = True
+
+    with pytest.raises(GameMapError, match="sample_spacing_m must be a number"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_element_ids_are_unique_across_kinds(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["roads"][1]["id"] = "hub"
+
+    with pytest.raises(GameMapError, match="shared by a node and road"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    for profile in source["profiles"].values():
+        profile["curb"] = False
+    for node in source["nodes"]:
+        if "curb" in node:
+            node["curb"] = False
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    assert not any(element.curbs for element in game_map.elements)
+
+
+def test_profile_is_optional_when_attributes_are_direct(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    profile = source["profiles"]["neighborhood"]
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    del road["profile"]
+    road.update(profile)
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved = next(
+        item for item in game_map.topology.roads if item.road_id == road["id"]
+    )
+
+    assert resolved.profile_id is None
+    assert resolved.attributes.lane_width_m == pytest.approx(3.6)
+
+
+def test_direct_attributes_override_partial_profile_defaults(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    profile = dict(source["profiles"]["neighborhood"])
+    del profile["lane_width_m"]
+    source["profiles"]["partial"] = profile
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["profile"] = "partial"
+    road["lane_width_m"] = 4.1
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved = next(
+        item for item in game_map.topology.roads if item.road_id == road["id"]
+    )
+
+    assert resolved.profile_id == "partial"
+    assert resolved.attributes.lane_width_m == pytest.approx(4.1)
+    assert resolved.attributes.speed_limit_mps == pytest.approx(13.4)
+
+
+def test_direct_attributes_override_values_present_in_profile(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["lane_width_m"] = 4.1
+    hub = next(item for item in source["nodes"] if item["id"] == "hub")
+    source["profiles"]["intersection_defaults"] = {
+        "intersection_arm_length_m": 20,
+        "curb": False,
+    }
+    hub["profile"] = "intersection_defaults"
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved_road = next(
+        item for item in game_map.topology.roads if item.road_id == road["id"]
+    )
+    resolved_hub = next(
+        item for item in game_map.topology.nodes if item.node_id == hub["id"]
+    )
+
+    assert resolved_road.attributes.lane_width_m == pytest.approx(4.1)
+    assert resolved_hub.geometry["intersection_arm_length_m"] == pytest.approx(6.93)
+    assert resolved_hub.attributes.curb is True
+
+
+def test_profiles_root_is_optional_when_all_attributes_are_direct(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    profiles = source.pop("profiles")
+    for road in source["roads"]:
+        road.update(profiles[road.pop("profile")])
+    for node in source["nodes"]:
+        if "profile" in node:
+            node.update(profiles[node.pop("profile")])
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    assert all(road.profile_id is None for road in game_map.topology.roads)
+    assert all(node.profile_id is None for node in game_map.topology.nodes)
+
+
+def test_profile_may_contain_attributes_irrelevant_to_consumer(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["profiles"]["neighborhood"]["culdesac_radius_m"] = 50
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    road = next(
+        item for item in game_map.topology.roads if item.profile_id == "neighborhood"
+    )
+    assert road.attributes.lane_width_m == pytest.approx(3.6)
+
+
+def test_missing_effective_attribute_is_rejected(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    del source["profiles"]["neighborhood"]["speed_limit_mps"]
+
+    with pytest.raises(GameMapError, match="missing attributes.*speed_limit_mps"):
         load_game_map(_write_map(tmp_path, source))
 
 
@@ -95,7 +253,34 @@ def test_topology_round_trip_is_lossless() -> None:
 
     assert restored.topology == original.topology
     assert restored.topology.adjacency == original.topology.adjacency
+    assert len(restored.lane_dividers) == len(original.lane_dividers)
+    for restored_divider, original_divider in zip(
+        restored.lane_dividers, original.lane_dividers, strict=True
+    ):
+        assert restored_divider.divider_id == original_divider.divider_id
+        assert restored_divider.lane_edges == original_divider.lane_edges
+        np.testing.assert_array_equal(
+            restored_divider.polyline_world, original_divider.polyline_world
+        )
     assert restored.default_spawn.lane_id == original.default_spawn.lane_id
+    assert [element.attributes for element in restored.elements] == [
+        element.attributes for element in original.elements
+    ]
+    for restored_element, original_element in zip(
+        restored.elements, original.elements, strict=True
+    ):
+        np.testing.assert_array_equal(
+            restored_element.surface_world, original_element.surface_world
+        )
+        assert [curb.curb_id for curb in restored_element.curbs] == [
+            curb.curb_id for curb in original_element.curbs
+        ]
+        for restored_curb, original_curb in zip(
+            restored_element.curbs, original_element.curbs, strict=True
+        ):
+            np.testing.assert_array_equal(
+                restored_curb.polyline_world, original_curb.polyline_world
+            )
 
 
 def test_node_rotation_does_not_change_road_path(tmp_path: Path) -> None:
@@ -173,6 +358,20 @@ def test_malformed_curve_is_rejected(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, source))
 
 
+def test_roads_cannot_cross_without_a_connection_node(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["path"] = [
+        {
+            "control_points": [{"x_m": 45, "y_m": 0}, {"x_m": 45, "y_m": 30}],
+            "end": {"x_m": 0, "y_m": 30},
+        }
+    ]
+
+    with pytest.raises(GameMapError, match="Unrelated elements.*overlap"):
+        load_game_map(_write_map(tmp_path, source))
+
+
 def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["roads"].append(
@@ -227,14 +426,14 @@ def test_direct_driveway_links_are_not_authored_roads() -> None:
             if element.element_id == "hub_to_lot_driveway"
         )
     )
-    assert width == pytest.approx(6.4, abs=0.2)
+    assert width == pytest.approx(7.2, abs=0.2)
     first = _surface(game_map, "hub_to_lot_driveway")
     second = _surface(game_map, "lot_driveway_to_lot")
-    assert first.distance(second) == pytest.approx(0.0)
-    assert first.boundary.intersection(second.boundary).length == pytest.approx(
-        6.4, abs=0.05
-    )
-    assert not any(element.element_type == "driveway" for element in game_map.elements)
+    driveway = _surface(game_map, "lot_driveway")
+    assert first.intersection(second).area == pytest.approx(0.0, abs=1.0e-6)
+    assert first.distance(driveway) == pytest.approx(0.0, abs=1.0e-6)
+    assert second.distance(driveway) == pytest.approx(0.0, abs=1.0e-6)
+    assert any(element.element_type == "driveway" for element in game_map.elements)
 
 
 def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
@@ -245,7 +444,9 @@ def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
     driveway = next(node for node in source["nodes"] if node["id"] == "lot_driveway")
     driveway["pose"] = {"x_m": 4.2, "y_m": 15, "rotation_deg": 0}
     lot = next(node for node in source["nodes"] if node["id"] == "neighborhood_lot")
-    lot["pose"] = {"x_m": 25, "y_m": 15, "rotation_deg": 0}
+    lot["pose"] = {"x_m": 15, "y_m": 15, "rotation_deg": 0}
+    lot["parking_lot_width_m"] = 10
+    lot["parking_lot_depth_m"] = 10
     source["road_attachments"] = [{"driveway": "lot_driveway", "road": "dead_end_road"}]
     game_map = load_game_map(_write_map(tmp_path, source))
 
@@ -263,9 +464,7 @@ def test_inline_driveway_does_not_split_road(tmp_path: Path) -> None:
         if lane.element_id == road.road_id
         for successor in lane.successor_ids
     )
-    barriers = [
-        LineString(segment[:, :2]) for segment in game_map.collision_segments_world
-    ]
+    barriers = _curb_lines(game_map)
     assert min(barrier.distance(Point(-4.2, 15.0)) for barrier in barriers) < 0.05
     assert min(barrier.distance(Point(4.2, 15.0)) for barrier in barriers) > 2.5
 
@@ -286,7 +485,9 @@ def test_inline_driveway_pose_and_outward_rotation_are_validated(
 def test_parking_lot_accepts_multiple_driveways(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     hub = next(node for node in source["nodes"] if node["id"] == "hub")
-    hub["geometry"] = {"width_m": 24, "depth_m": 24}
+    hub["intersection_width_m"] = 24
+    hub["intersection_depth_m"] = 24
+    hub["intersection_arm_length_m"] = 13.2
     first_driveway = next(
         node for node in source["nodes"] if node["id"] == "lot_driveway"
     )
@@ -299,7 +500,6 @@ def test_parking_lot_accepts_multiple_driveways(tmp_path: Path) -> None:
             "type": "driveway",
             "profile": "parking_access",
             "pose": {"x_m": 12, "y_m": -20, "rotation_deg": 270},
-            "geometry": {"width_m": 6.4},
         }
     )
     source["links"].extend(
@@ -353,6 +553,99 @@ def test_routing_connectors_are_not_world_model_conditioning() -> None:
     assert connectors
     assert all(not lane.conditioning_visible for lane in connectors)
     assert compiled_lane_ids.isdisjoint(lane.lane_id for lane in connectors)
+
+
+@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+def test_every_authored_join_has_exact_non_overlapping_surfaces(
+    source_path: Path,
+) -> None:
+    game_map = load_game_map(source_path)
+    surfaces = {
+        element.element_id: Polygon(element.surface_world[:, :2]).buffer(0)
+        for element in game_map.elements
+    }
+    pairs: list[tuple[str, str]] = []
+    for road in game_map.topology.roads:
+        for node_id in (road.from_node_id, road.to_node_id):
+            pairs.append((road.road_id, node_id))
+    for link in game_map.topology.direct_links:
+        for node_id in (link.node_a_id, link.node_b_id):
+            pairs.append((link.link_id, node_id))
+    pairs.extend(
+        (attachment.road_id, attachment.driveway_node_id)
+        for attachment in game_map.topology.road_attachments
+    )
+    for first_id, second_id in pairs:
+        first, second = surfaces[first_id], surfaces[second_id]
+        assert first.intersection(second).area <= 1.0e-4, (first_id, second_id)
+        assert first.distance(second) <= 1.0e-4, (first_id, second_id)
+
+
+@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+def test_compiled_curbs_belong_to_their_elements(source_path: Path) -> None:
+    game_map = load_game_map(source_path)
+    for element in game_map.elements:
+        surface_boundary = Polygon(element.surface_world[:, :2]).boundary
+        for curb in element.curbs:
+            line = LineString(curb.polyline_world[:, :2])
+            assert line.difference(surface_boundary.buffer(1.0e-4)).length < 1.0e-4
+        if element.attributes.curb:
+            assert element.curbs
+            assert sum(curb.polyline_world.shape[0] for curb in element.curbs) > 2
+        else:
+            assert not element.curbs
+
+
+@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+def test_every_authored_road_emits_every_profile_divider(source_path: Path) -> None:
+    document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    game_map = load_game_map(source_path)
+    actual: dict[str, int] = {}
+    lane_elements = {lane.lane_id: lane.element_id for lane in game_map.lanes}
+    for divider in game_map.lane_dividers:
+        element_ids = {lane_elements[lane_id] for lane_id, _side in divider.lane_edges}
+        assert len(element_ids) == 1
+        element_id = element_ids.pop()
+        actual[element_id] = actual.get(element_id, 0) + 1
+
+    for road in document["roads"]:
+        markings = document["profiles"][road["profile"]]["divider_markings"]
+        expected = sum(marking["style"].upper() != "VIRTUAL" for marking in markings)
+        assert actual.get(road["id"], 0) == expected, road["id"]
+
+
+@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+def test_final_clipgt_archive_contains_all_authored_map_geometry(
+    source_path: Path, tmp_path: Path
+) -> None:
+    document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
+
+    with zipfile.ZipFile(compiled.archive_path) as archive:
+        lane_lines = pq.read_table(
+            io.BytesIO(archive.read("clipgt/lane_line.parquet"))
+        ).to_pylist()
+        boundaries = pq.read_table(
+            io.BytesIO(archive.read("clipgt/road_boundary.parquet"))
+        )
+        intersections = pq.read_table(
+            io.BytesIO(archive.read("clipgt/intersection_area.parquet"))
+        )
+
+    labels = [row["key"]["label_class_id"] for row in lane_lines]
+    for road in document["roads"]:
+        markings = document["profiles"][road["profile"]]["divider_markings"]
+        expected = sum(marking["style"].upper() != "VIRTUAL" for marking in markings)
+        actual = sum(
+            label.startswith(f"lane_line:{road['id']}:lane:") for label in labels
+        )
+        assert actual == expected, road["id"]
+    assert boundaries.num_rows == sum(
+        len(element.curbs) for element in compiled.game_map.elements
+    )
+    assert intersections.num_rows == sum(
+        node.node_type == "intersection" for node in compiled.game_map.topology.nodes
+    )
 
 
 def test_compiler_settings_remain_map_local(tmp_path: Path) -> None:
@@ -414,8 +707,20 @@ def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
     assert first.archive_path == second.archive_path
     preview_text = preview.read_text(encoding="utf-8")
     assert preview_text.startswith("<svg")
-    assert "<circle" not in preview_text
-    assert "<text" not in preview_text
+    assert "#ff453a" not in preview_text
+    assert "#5f6673" in preview_text
+    assert preview_text.count("<circle") == len(first.game_map.topology.nodes)
+    assert preview_text.count("<text") == (
+        len(first.game_map.topology.nodes)
+        + len(first.game_map.topology.roads)
+        + len(first.game_map.topology.direct_links)
+    )
+    for node in first.game_map.topology.nodes:
+        assert f"{node.node_id} [node:{node.node_type}]" in preview_text
+    for road in first.game_map.topology.roads:
+        assert f"{road.road_id} [road:{road.profile_id};" in preview_text
+    for link in first.game_map.topology.direct_links:
+        assert f"{link.link_id} [access;" in preview_text
     assert (
         next(item for item in options if item.path == _STARTER_MAP.resolve()).label
         == "Minimal Loop and Parking Lot"
@@ -430,3 +735,10 @@ def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
     assert scene.game_map is not None
     assert scene.game_map.topology == first.game_map.topology
     assert MapBounds.from_scene(scene) is not None
+    taxi_scene = load_scene_data(scene)
+    assert taxi_scene.navigation_lanes
+    assert len(taxi_scene.curb_segments_world) == sum(
+        len(curb.polyline_world) - 1
+        for element in first.game_map.elements
+        for curb in element.curbs
+    )

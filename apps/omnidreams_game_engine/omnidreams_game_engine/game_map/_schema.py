@@ -14,9 +14,47 @@ from typing import Any
 import numpy as np
 import yaml
 
-from omnidreams_game_engine.game_map.types import GameMapVisualVariant
+from omnidreams_game_engine.game_map.types import (
+    GameMapLinearAttributes,
+    GameMapVisualVariant,
+)
+
+GAME_MAP_SUFFIX = ".robotaxi.yaml"
+"""Filename suffix for authored node-graph game maps."""
 
 _SCHEMA_VERSION = 1
+_REQUIRED_ROOT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "id",
+        "name",
+        "compiler",
+        "nodes",
+        "roads",
+        "links",
+        "road_attachments",
+        "spawns",
+    }
+)
+_OPTIONAL_ROOT_FIELDS = frozenset({"profiles"})
+
+_PROFILE_ATTRIBUTE_FIELDS = frozenset(
+    {
+        "lane_width_m",
+        "curb_offset_m",
+        "lanes",
+        "speed_limit_mps",
+        "curb",
+        "lane_marking",
+        "divider_markings",
+        "intersection_arm_length_m",
+        "intersection_width_m",
+        "intersection_depth_m",
+        "culdesac_radius_m",
+        "parking_lot_width_m",
+        "parking_lot_depth_m",
+    }
+)
 
 
 class GameMapError(ValueError):
@@ -38,9 +76,6 @@ class _CompilerSettings:
     sample_spacing_m: float
     ground_margin_m: float
     intersection_connector_samples: int
-    parking_turnaround_width_multiplier: float
-    parking_turnaround_min_depth_m: float
-    parking_turnaround_control_inset_m: float
 
     def as_dict(self) -> dict[str, object]:
         """Return settings as stable cache metadata."""
@@ -49,23 +84,13 @@ class _CompilerSettings:
 
 @dataclass(frozen=True)
 class _Profile:
+    """Partial reusable defaults for resolved element attributes."""
+
     profile_id: str
-    lane_width_m: float
-    curb_offset_m: float
-    directions: tuple[str, ...]
-    speed_limit_mps: float
-    curb: bool
-    marking_style: str
-    marking_color: str
-    divider_markings: tuple[tuple[str, str], ...]
+    """Stable author-defined profile identifier."""
 
-    @property
-    def width_m(self) -> float:
-        return self.lane_width_m * len(self.directions)
-
-    @property
-    def surface_width_m(self) -> float:
-        return self.width_m + 2.0 * self.curb_offset_m
+    values: dict[str, object]
+    """Validated partial attribute values."""
 
 
 @dataclass
@@ -93,7 +118,9 @@ class _LaneBuild:
 def _mapping(value: object, context: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise GameMapError(f"{context} must be a mapping")
-    return {str(key): item for key, item in value.items()}
+    if any(not isinstance(key, str) for key in value):
+        raise GameMapError(f"{context} keys must be strings")
+    return dict(value)
 
 
 def _sequence(value: object, context: str) -> list[Any]:
@@ -117,6 +144,8 @@ def _nonnegative_float(value: object, context: str) -> float:
 
 
 def _finite_float(value: object, context: str) -> float:
+    if isinstance(value, bool):
+        raise GameMapError(f"{context} must be a number")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
@@ -130,13 +159,35 @@ def _read_document(path: Path) -> dict[str, Any]:
     path = Path(path).expanduser().resolve()
     if not path.is_file():
         raise GameMapError(f"Game-map path does not exist or is not a file: {path}")
-    if not path.name.endswith(".robotaxi.yaml"):
-        raise GameMapError("Crazy Robotaxi maps must use the .robotaxi.yaml suffix")
+    if not path.name.endswith(GAME_MAP_SUFFIX):
+        raise GameMapError(f"Game maps must use the {GAME_MAP_SUFFIX} suffix")
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise GameMapError(f"Could not parse {path}: {exc}") from exc
     return _mapping(raw, "map document")
+
+
+def _parse_map_identity(doc: dict[str, Any]) -> tuple[str, str]:
+    version = doc.get("schema_version")
+    if version != _SCHEMA_VERSION:
+        raise GameMapError(
+            f"Unsupported schema_version {version!r}; expected {_SCHEMA_VERSION}"
+        )
+    fields = set(doc)
+    missing = _REQUIRED_ROOT_FIELDS - fields
+    if missing:
+        raise GameMapError(f"Map is missing required fields {sorted(missing)}")
+    unknown = fields - (_REQUIRED_ROOT_FIELDS | _OPTIONAL_ROOT_FIELDS)
+    if unknown:
+        raise GameMapError(f"Map has unknown fields {sorted(unknown)}")
+    map_id = str(doc["id"]).strip()
+    name = str(doc["name"]).strip()
+    if not map_id:
+        raise GameMapError("Map id must not be empty")
+    if not name:
+        raise GameMapError("Map name must not be empty")
+    return map_id, name
 
 
 def _parse_variants(
@@ -164,18 +215,14 @@ def load_game_map_header(path: Path) -> GameMapHeader:
     """Load map name and default-spawn variants without resolving geometry."""
     source_path = Path(path).expanduser().resolve()
     doc = _read_document(source_path)
-    version = doc.get("schema_version")
-    if version != _SCHEMA_VERSION:
-        raise GameMapError(
-            f"Unsupported schema_version {version!r}; expected {_SCHEMA_VERSION}"
-        )
+    map_id, name = _parse_map_identity(doc)
     spawns = _sequence(doc.get("spawns"), "spawns")
     if not spawns:
         raise GameMapError("Map must define at least one spawn")
     first_spawn = _mapping(spawns[0], "spawns[0]")
     return GameMapHeader(
-        map_id=str(doc.get("id", "")).strip(),
-        name=str(doc.get("name", doc.get("id", source_path.stem))).strip(),
+        map_id=map_id,
+        name=name,
         variants=_parse_variants(first_spawn, source_path),
         source_path=source_path,
     )
@@ -203,79 +250,78 @@ def resolve_seed_asset(source_path: Path, reference: str) -> Path:
     return path
 
 
-def _parse_profiles(doc: dict[str, Any]) -> dict[str, _Profile]:
-    raw_profiles = _mapping(doc.get("profiles"), "profiles")
-    profiles: dict[str, _Profile] = {}
-    for profile_id, raw_value in raw_profiles.items():
-        raw = _mapping(raw_value, f"profile {profile_id!r}")
-        required = {
-            "lane_width_m",
-            "curb_offset_m",
-            "lanes",
-            "speed_limit_mps",
-            "curb",
-            "lane_marking",
-            "divider_markings",
-        }
-        if set(raw) != required:
-            raise GameMapError(
-                f"Profile {profile_id!r} must contain exactly {sorted(required)}"
-            )
-        marking = _mapping(raw["lane_marking"], f"profile {profile_id!r}.lane_marking")
-        if set(marking) != {"style", "color"}:
-            raise GameMapError(
-                f"Profile {profile_id!r}.lane_marking requires style and color"
-            )
+def _parse_attribute_values(raw: dict[str, Any], context: str) -> dict[str, object]:
+    """Validate and normalize partial profile-compatible attributes."""
+    unknown = set(raw) - _PROFILE_ATTRIBUTE_FIELDS
+    if unknown:
+        raise GameMapError(f"{context} has unknown attributes {sorted(unknown)}")
+    result: dict[str, object] = {}
+    for key in (
+        "lane_width_m",
+        "speed_limit_mps",
+        "intersection_arm_length_m",
+        "intersection_width_m",
+        "intersection_depth_m",
+        "culdesac_radius_m",
+        "parking_lot_width_m",
+        "parking_lot_depth_m",
+    ):
+        if key in raw:
+            result[key] = _positive_float(raw[key], f"{context}.{key}")
+    if "curb_offset_m" in raw:
+        result["curb_offset_m"] = _nonnegative_float(
+            raw["curb_offset_m"], f"{context}.curb_offset_m"
+        )
+    if "curb" in raw:
+        if type(raw["curb"]) is not bool:
+            raise GameMapError(f"{context}.curb must be a boolean")
+        result["curb"] = raw["curb"]
+    if "lanes" in raw:
         directions = tuple(
-            str(value).lower()
-            for value in _sequence(raw["lanes"], f"profile {profile_id!r}.lanes")
+            str(value).lower() for value in _sequence(raw["lanes"], f"{context}.lanes")
         )
         if not directions or any(
             value not in {"forward", "backward"} for value in directions
         ):
-            raise GameMapError(
-                f"Profile {profile_id!r} lanes must contain forward/backward values"
-            )
-        divider_values = _sequence(
-            raw["divider_markings"], f"profile {profile_id!r}.divider_markings"
+            raise GameMapError(f"{context}.lanes must contain forward/backward values")
+        result["lanes"] = directions
+    if "lane_marking" in raw:
+        marking = _mapping(raw["lane_marking"], f"{context}.lane_marking")
+        if set(marking) != {"style", "color"}:
+            raise GameMapError(f"{context}.lane_marking requires style and color")
+        result["lane_marking"] = (
+            str(marking["style"]).upper(),
+            str(marking["color"]).upper(),
         )
-        if len(divider_values) != len(directions) - 1:
-            raise GameMapError(
-                f"Profile {profile_id!r}.divider_markings must contain one entry per adjacent lane pair"
-            )
+    if "divider_markings" in raw:
         dividers: list[tuple[str, str]] = []
-        for index, value in enumerate(divider_values):
-            divider = _mapping(
-                value, f"profile {profile_id!r}.divider_markings[{index}]"
-            )
+        for index, value in enumerate(
+            _sequence(raw["divider_markings"], f"{context}.divider_markings")
+        ):
+            divider = _mapping(value, f"{context}.divider_markings[{index}]")
             if set(divider) != {"style", "color"}:
                 raise GameMapError(
-                    f"Profile {profile_id!r}.divider_markings[{index}] requires style and color"
+                    f"{context}.divider_markings[{index}] requires style and color"
                 )
             dividers.append(
                 (str(divider["style"]).upper(), str(divider["color"]).upper())
             )
-        if type(raw["curb"]) is not bool:
-            raise GameMapError(f"Profile {profile_id!r}.curb must be a boolean")
+        result["divider_markings"] = tuple(dividers)
+    return result
+
+
+def _parse_profiles(doc: dict[str, Any]) -> dict[str, _Profile]:
+    """Parse optional partial profile defaults."""
+    raw_profiles = _mapping(doc.get("profiles", {}), "profiles")
+    profiles: dict[str, _Profile] = {}
+    for profile_id, raw_value in raw_profiles.items():
+        if not profile_id:
+            raise GameMapError("Profile ids must not be empty")
+        raw = _mapping(raw_value, f"profile {profile_id!r}")
         profiles[profile_id] = _Profile(
             profile_id=profile_id,
-            lane_width_m=_positive_float(
-                raw["lane_width_m"], f"profile {profile_id!r}.lane_width_m"
-            ),
-            curb_offset_m=_nonnegative_float(
-                raw["curb_offset_m"], f"profile {profile_id!r}.curb_offset_m"
-            ),
-            directions=directions,
-            speed_limit_mps=_positive_float(
-                raw["speed_limit_mps"], f"profile {profile_id!r}.speed_limit_mps"
-            ),
-            curb=raw["curb"],
-            marking_style=str(marking["style"]).upper(),
-            marking_color=str(marking["color"]).upper(),
-            divider_markings=tuple(dividers),
+            values=_parse_attribute_values(raw, f"profile {profile_id!r}"),
         )
-    if not profiles:
-        raise GameMapError("Map must define at least one road profile")
     return profiles
 
 
@@ -285,20 +331,9 @@ def _parse_compiler_settings(doc: dict[str, Any]) -> _CompilerSettings:
         "sample_spacing_m",
         "ground_margin_m",
         "intersection_connector_samples",
-        "parking_lot",
     }
     if set(raw) != expected:
         raise GameMapError(f"compiler must contain exactly {sorted(expected)}")
-    parking = _mapping(raw["parking_lot"], "compiler.parking_lot")
-    parking_expected = {
-        "turnaround_width_multiplier",
-        "turnaround_min_depth_m",
-        "turnaround_control_inset_m",
-    }
-    if set(parking) != parking_expected:
-        raise GameMapError(
-            f"compiler.parking_lot must contain exactly {sorted(parking_expected)}"
-        )
     samples = raw["intersection_connector_samples"]
     if type(samples) is not int or samples < 2:
         raise GameMapError(
@@ -312,18 +347,6 @@ def _parse_compiler_settings(doc: dict[str, Any]) -> _CompilerSettings:
             raw["ground_margin_m"], "compiler.ground_margin_m"
         ),
         intersection_connector_samples=samples,
-        parking_turnaround_width_multiplier=_positive_float(
-            parking["turnaround_width_multiplier"],
-            "compiler.parking_lot.turnaround_width_multiplier",
-        ),
-        parking_turnaround_min_depth_m=_positive_float(
-            parking["turnaround_min_depth_m"],
-            "compiler.parking_lot.turnaround_min_depth_m",
-        ),
-        parking_turnaround_control_inset_m=_nonnegative_float(
-            parking["turnaround_control_inset_m"],
-            "compiler.parking_lot.turnaround_control_inset_m",
-        ),
     )
 
 
@@ -352,13 +375,13 @@ def _segments(points: np.ndarray) -> np.ndarray:
 
 
 def _lane_edge_markings(
-    profile: _Profile, index: int, direction: str
+    attributes: GameMapLinearAttributes, index: int, direction: str
 ) -> tuple[tuple[str, str], tuple[str, str]]:
     virtual = ("VIRTUAL", "WHITE")
-    above = profile.divider_markings[index - 1] if index > 0 else virtual
+    above = attributes.divider_markings[index - 1] if index > 0 else virtual
     below = (
-        profile.divider_markings[index]
-        if index < len(profile.directions) - 1
+        attributes.divider_markings[index]
+        if index < len(attributes.directions) - 1
         else virtual
     )
     return (below, above) if direction == "backward" else (above, below)

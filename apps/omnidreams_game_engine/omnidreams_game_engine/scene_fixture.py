@@ -551,7 +551,7 @@ def _obstacle_rows(
 
 def _calibration_row() -> list[dict[str, object]]:
     # Pinned to the production `camera:front:wide:120fov` calibration extracted
-    # from the clipgt sample scene so synthetic-scene renders exercise the same
+    # from the ClipGT sample scene so fixture renders exercise the same
     # ftheta polynomial and mounting pose as real CI data.
     rig = {
         "rig": {
@@ -733,9 +733,6 @@ def build_synthetic_scene_usdz(
 
     The geometry (trajectory, lane lines, road boundary, intersection,
     crosswalk, poles, signs, lights, obstacles) is fixed and deterministic.
-    Three optional overrides exist for the runtime "synthetic-scene" mode
-    where we want a real-looking demo without shipping any HD-map data:
-
     Args:
         path: Destination USDZ file.
         initial_rgb: ``(H, W, 3)`` ``uint8`` RGB image to embed as
@@ -749,8 +746,7 @@ def build_synthetic_scene_usdz(
             Lane lines, road boundaries, and obstacle tracks are all spec'd
             along this trajectory, so larger values produce more drivable
             road. Default 180 (~6 s, 60 m at the default 10 m/s) keeps the
-            test fixture small; runtime callers typically pass 18 000
-            (~10 minutes, ~6 km) so a demo never runs out of road. The
+            test fixture small. The
             single intersection / crosswalk / road-island stay anchored at
             their original near-start coordinates regardless of length.
     """

@@ -10,7 +10,6 @@ from pathlib import Path
 from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
-from omnidreams.scenes import local_scene_archive_path
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.backends.base import RenderBackend
 from omnidreams_game_engine.backends.raster import RasterRenderBackend
@@ -25,7 +24,6 @@ from omnidreams_game_engine.renderer_settings import (
     RendererSettings,
     load_renderer_settings,
 )
-from omnidreams_game_engine.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams_game_engine.world_model.manifest import (
     load_world_model_manifest,
     resolve_world_model_manifest_path,
@@ -35,20 +33,10 @@ from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.serving.realtime.timing import TraceSink
 
-# Package root (from this file's location) so packaged-asset defaults below
-# resolve relative to the install, not the user's cwd. Bundled configs live at
-# ``interactive_drive/configs/``; scene USDZs are staged into
-# ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` (shared with the webrtc server).
+# Package root (from this file's location) so packaged config paths resolve
+# relative to the install, not the user's cwd.
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
-
-# Default scene UUID staged by ``omnidreams-prepare`` (clear-weather base
-# archive in nvidia/omni-dreams-scenes).
-DEFAULT_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-
-# Default scene path under the shared ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``
-# cache, so a scene staged by the desktop demo or webrtc server is visible to both.
-DEFAULT_SCENE = local_scene_archive_path(DEFAULT_SCENE_UUID)
 
 
 def resolve_manifest_path(path: str | Path) -> Path:
@@ -78,49 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Standalone Crazy Robotaxi game"
     )
     parser.add_argument(
-        "--scene",
-        type=Path,
-        default=DEFAULT_SCENE,
-        help=(
-            "Path to the input USDZ scene. Defaults to the scene staged by "
-            f"prepare.py at {DEFAULT_SCENE}; any UUID from "
-            "nvidia/omni-dreams-scenes/scenes/ works once staged."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-scene",
-        action="store_true",
-        help=(
-            "Skip the USDZ download / staging and build a procedural,"
-            " HD-map-data-free scene at startup instead. Useful for"
-            " demos in territories where the real-world scenes can't be"
-            " distributed. The generated scene is a wavy 2-lane road"
-            " with a single intersection; pair with --synthetic-initial-rgb"
-            " to supply a natural-looking starting camera frame."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-initial-rgb",
+        "--map",
+        dest="scene",
         type=Path,
         default=None,
-        help=(
-            "Path to a JPG / PNG used as the initial camera frame when"
-            " --synthetic-scene is set. The world model is trained on"
-            " natural driving frames, so a real photo (any forward-facing"
-            " roadway) gives noticeably better generation than the"
-            " default debug gradient. Resized to the raster resolution"
-            " automatically."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-prompt",
-        default=None,
-        help=(
-            "Optional text prompt embedded in the synthetic scene."
-            " Mutually overridable by --prompt at run time. When omitted,"
-            " the synthetic-scene builder uses a generic forward-driving"
-            " caption."
-        ),
+        metavar="PATH",
+        help="Path to a .robotaxi.yaml game map.",
     )
     # ``--backend`` exists primarily for the test suite, which exercises
     # the raster path (~30s warmup) instead of the full omnidreams pipeline
@@ -141,10 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         default="default",
-        help=(
-            "Scene variant to load: weather siblings (default, rain, snow) or "
-            "legacy in-archive numbered variants (1, 2, 3)."
-        ),
+        help="Visual variant defined by the game map.",
     )
     parser.add_argument("--prompt", default=None, help="Optional prompt override")
     parser.add_argument(
@@ -228,8 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="ORG",
         help=(
-            "Hugging Face org that hosts the omni-dreams repos (models /"
-            f" samples / scenes). Defaults to {DEFAULT_HF_ORG!r}."
+            "Hugging Face org that hosts the omni-dreams model and sample"
+            f" repos. Defaults to {DEFAULT_HF_ORG!r}."
             f" Equivalent to setting {_HF_ORG_ENV_VAR}; the flag wins when"
             " both are present. Stamped into the env var early in main()"
             " so every downstream HF lookup -- including URLs read from"
@@ -566,8 +514,7 @@ def prepare_config_and_backend(
     hand it to a long-lived :class:`InteractiveDriveApp` that switches scenes in
     place (keeping the warmed model resident).
     """
-    # Stamp the resolved HF org into the env var before anything fetches
-    # (manifest, scene staging, model build read it lazily).
+    # Stamp the resolved HF org before manifest and model artifact resolution.
     resolved_org = apply_cli_to_env(args.hf_org)
     if resolved_org != DEFAULT_HF_ORG:
         logger.info(
@@ -575,21 +522,8 @@ def prepare_config_and_backend(
         )
 
     scene_path = args.scene
-    if args.synthetic_scene:
-        # Materialise a procedural USDZ to a temp dir for this process.
-        # The scene loader treats it like any other USDZ; downstream code
-        # paths (rasterizer, world model, presenter) need no changes.
-        scene_path = build_synthetic_scene_to_temp(
-            initial_rgb_path=args.synthetic_initial_rgb,
-            prompt=args.synthetic_prompt,
-        )
-        logger.info(
-            f"[interactive-drive] synthetic scene materialised at {scene_path}",
-        )
-    elif args.synthetic_initial_rgb is not None or args.synthetic_prompt is not None:
-        raise SystemExit(
-            "--synthetic-initial-rgb / --synthetic-prompt require --synthetic-scene"
-        )
+    if scene_path is None:
+        raise SystemExit("--map is required")
 
     renderer_settings = renderer_settings_from_args(args)
     bev_config = renderer_settings.bev

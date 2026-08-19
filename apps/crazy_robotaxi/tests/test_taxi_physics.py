@@ -86,9 +86,9 @@ def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
     )
 
 
-def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
+def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:
     scene = _scene()
-    enclosure = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
+    curbs = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
     config = TaxiVehicleConfig()
 
     with patch.object(GamePhysicsWorld, "__init__", return_value=None) as initialize:
@@ -96,22 +96,17 @@ def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
             scene,
             config,
             traffic_density=1.0,
-            enclosure_segments_world=enclosure,
+            curb_segments_world=curbs,
         )
 
         physics_scene = initialize.call_args.args[0]
         assert scene.line_layers == ()
-        assert len(physics_scene.line_layers) == 1
-        assert (
-            physics_scene.line_layers[0].layer_name == "crazy_robotaxi_enclosure_walls"
-        )
+        assert physics_scene.line_layers == ()
         np.testing.assert_array_equal(
-            initialize.call_args.kwargs["static_barrier_segments_world"], enclosure
+            initialize.call_args.kwargs["static_barrier_segments_world"], curbs
         )
         assert initialize.call_args.kwargs["static_barrier_restitution"] == 0.45
         assert config.collision_restitution == VehicleConfig().collision_restitution
-    np.testing.assert_allclose(physics_scene.line_layers[0].segments_world, enclosure)
-    assert len(GamePhysicsWorld._build_barriers(physics_scene)) == 1
 
 
 def test_taxi_physics_keeps_app_heading_after_contact_resolution() -> None:
@@ -304,7 +299,7 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
         _scene(line_layers=(boundary,)),
         config,
         traffic_density=1.0,
-        enclosure_segments_world=boundary.segments_world,
+        curb_segments_world=boundary.segments_world,
     )
     initial_yaw = math.radians(30.0)
     state = VehicleState(

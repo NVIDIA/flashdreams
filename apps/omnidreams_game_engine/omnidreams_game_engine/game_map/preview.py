@@ -5,14 +5,11 @@
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 import numpy as np
 
-from omnidreams_game_engine.game_map.compiler import (
-    _edge_marking,
-    _lane_edge_groups,
-)
 from omnidreams_game_engine.game_map.loader import load_game_map
 
 
@@ -21,7 +18,19 @@ def _points(points: np.ndarray, transform: object) -> str:
     return " ".join(f"{x:.2f},{y:.2f}" for x, y in (convert(point) for point in points))
 
 
-def write_game_map_preview(source: Path, destination: Path) -> Path:
+def _label(text: str, point: np.ndarray, transform: object, color: str) -> str:
+    x, y = transform(point)
+    return (
+        f'<text x="{x + 3.0:.2f}" y="{y - 3.0:.2f}" fill="{color}" '
+        'font-family="monospace" font-size="4" font-weight="600" '
+        'stroke="#f8f4ea" stroke-width="0.25" paint-order="stroke" '
+        f'stroke-linejoin="round">{html.escape(text)}</text>'
+    )
+
+
+def write_game_map_preview(
+    source: Path, destination: Path, *, include_annotations: bool = True
+) -> Path:
     """Render a top-down semantic-map preview as SVG."""
     game_map = load_game_map(source)
     points = np.concatenate(
@@ -61,23 +70,69 @@ def write_game_map_preview(source: Path, destination: Path) -> Path:
             f'<polyline points="{_points(marking.polyline_world[:, :2], convert)}" '
             f'fill="none" stroke="{color}" stroke-width="1.5"/>'
         )
-    for members in _lane_edge_groups(game_map):
-        if len(members) < 2:
-            continue
-        lane, side, points = members[0]
-        style, marking_color = _edge_marking(lane, side)
-        if style == "VIRTUAL":
-            continue
-        color = "#ffd60a" if marking_color == "YELLOW" else "#f4f4f4"
+    for divider in game_map.lane_dividers:
+        color = "#ffd60a" if divider.color == "YELLOW" else "#f4f4f4"
         lines.append(
-            f'<polyline points="{_points(points[:, :2], convert)}" '
+            f'<polyline points="{_points(divider.polyline_world[:, :2], convert)}" '
             f'fill="none" stroke="{color}" stroke-width="1.5"/>'
         )
-    for segment in game_map.collision_segments_world:
-        lines.append(
-            f'<polyline points="{_points(segment[:, :2], convert)}" '
-            'fill="none" stroke="#ff453a" stroke-width="2.5"/>'
-        )
+    for element in game_map.elements:
+        for curb in element.curbs:
+            lines.append(
+                f'<polyline points="{_points(curb.polyline_world[:, :2], convert)}" '
+                'fill="none" stroke="#5f6673" stroke-width="2.5"/>'
+            )
+    if include_annotations:
+        lane_by_element = {
+            lane.element_id: lane
+            for lane in game_map.lanes
+            if lane.conditioning_visible and ":connector:" not in lane.lane_id
+        }
+        for road in game_map.topology.roads:
+            lane = lane_by_element[road.road_id]
+            point = lane.centerline_world[len(lane.centerline_world) // 2, :2]
+            lines.append(
+                _label(
+                    f"{road.road_id} [road:{road.profile_id}; "
+                    f"{road.from_node_id}→{road.to_node_id}]",
+                    point,
+                    convert,
+                    "#17233d",
+                )
+            )
+        for link in game_map.topology.direct_links:
+            lane = lane_by_element[link.link_id]
+            point = lane.centerline_world[len(lane.centerline_world) // 2, :2]
+            lines.append(
+                _label(
+                    f"{link.link_id} [access; {link.node_a_id}→{link.node_b_id}]",
+                    point,
+                    convert,
+                    "#064e3b",
+                )
+            )
+        node_colors = {
+            "intersection": "#2d6cdf",
+            "cul_de_sac": "#8b5cf6",
+            "driveway": "#f59e0b",
+            "parking_lot": "#059669",
+        }
+        for node in game_map.topology.nodes:
+            point = np.asarray([node.x_m, node.y_m])
+            x, y = convert(point)
+            lines.append(
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2" '
+                f'fill="{node_colors[node.node_type]}" stroke="#ffffff" '
+                'stroke-width="1"/>'
+            )
+            lines.append(
+                _label(
+                    f"{node.node_id} [node:{node.node_type}]",
+                    point,
+                    convert,
+                    "#111827",
+                )
+            )
     lines.append("</svg>")
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)

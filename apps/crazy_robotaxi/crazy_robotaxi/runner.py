@@ -31,12 +31,12 @@ _CRAZY_ROBOTAXI_PIPELINE = derive_config(
     SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
     name="crazy-robotaxi",
 )
-"""Registry metadata for the legacy manifest-owned model session."""
+"""Registry metadata for the Crazy Robotaxi model session."""
 
 
 @dataclass(kw_only=True)
 class CrazyRobotaxiRunnerConfig(RunnerConfig):
-    """Launch configuration for the standalone legacy game host."""
+    """Launch configuration for the standalone game host."""
 
     _target: type["CrazyRobotaxiRunner"] = field(
         default_factory=lambda: CrazyRobotaxiRunner
@@ -46,11 +46,11 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
         default_factory=lambda: _CRAZY_ROBOTAXI_PIPELINE
     )
 
-    scene: Path | None = None
-    """Scene archive override; ``None`` uses the staged default scene."""
+    map: Path | None = None
+    """Game-map override; ``None`` uses the packaged default map."""
 
     world_model_manifest: Path | None = None
-    """Legacy world-model manifest; named to avoid the global ``--manifest``."""
+    """World-model manifest; named to avoid the global ``--manifest``."""
 
     renderer_config: Path | None = None
     """Renderer YAML override; ``None`` uses the packaged default."""
@@ -62,7 +62,7 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     """Camera name override for the selected scene."""
 
     variant: str | None = None
-    """Weather or numbered scene variant override."""
+    """Visual variant override."""
 
     prompt: str | None = None
     """Text-conditioning prompt override."""
@@ -75,9 +75,6 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
 
     auto_start: bool = False
     """Start loading the selected scene immediately after launch."""
-
-    synthetic_scene: bool = False
-    """Use the procedural CPU-safe scene fixture."""
 
     synthetic_model: bool | None = None
     """Override synthetic model construction when set."""
@@ -92,11 +89,11 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     """Optional alignment artifact output directory."""
 
     app_args: tuple[str, ...] = ()
-    """Additional legacy application arguments parsed before typed overrides."""
+    """Additional application arguments parsed before typed overrides."""
 
 
 class CrazyRobotaxiRunner(Runner):
-    """Runner adapter that preserves the legacy application lifecycle."""
+    """Runner adapter for the standalone application lifecycle."""
 
     def __init__(self, config: CrazyRobotaxiRunnerConfig) -> None:
         self.config = config
@@ -106,7 +103,7 @@ class CrazyRobotaxiRunner(Runner):
         from crazy_robotaxi.cli import main
 
         argv = list(self.config.app_args)
-        _append_value(argv, "--scene", self.config.scene)
+        _append_value(argv, "--map", self.config.map)
         _append_value(argv, "--manifest", self.config.world_model_manifest)
         _append_value(argv, "--renderer-config", self.config.renderer_config)
         _append_value(argv, "--game-config", self.config.game_config)
@@ -122,8 +119,6 @@ class CrazyRobotaxiRunner(Runner):
             "--taxi-alignment-diagnostics",
             self.config.taxi_alignment_diagnostics,
         )
-        if self.config.synthetic_scene:
-            argv.append("--synthetic-scene")
         if self.config.auto_start:
             argv.append("--auto-start")
         if self.config.synthetic_model is not None:
@@ -142,7 +137,7 @@ def _append_value(argv: list[str], flag: str, value: object | None) -> None:
 
 CRAZY_ROBOTAXI_RUNNER = CrazyRobotaxiRunnerConfig(
     runner_name="crazy-robotaxi",
-    description="Standalone Crazy Robotaxi game using the legacy OmniDreams runtime.",
+    description="Standalone Crazy Robotaxi game using the OmniDreams runtime.",
     pipeline=_CRAZY_ROBOTAXI_PIPELINE,
 )
 """Runner config discovered by the ``flashdreams.runner_configs`` entry point."""

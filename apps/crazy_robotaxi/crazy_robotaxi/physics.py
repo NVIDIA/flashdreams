@@ -19,7 +19,6 @@ from omnidreams_game_engine.types import (
     PhysicsDebugFrame,
     SceneBundle,
     VehicleState,
-    WorldLineSegments,
 )
 
 from crazy_robotaxi.driving import TaxiVehicleConfig
@@ -86,42 +85,30 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         vehicle: TaxiVehicleConfig,
         *,
         traffic_density: float,
-        enclosure_segments_world: np.ndarray | None = None,
+        curb_segments_world: np.ndarray | None = None,
     ) -> None:
         selected_tracks = select_traffic_tracks(
             tuple(scene.vehicle_bbox_tracks), traffic_density, scene.scene_id
         )
-        enclosure_segments = np.asarray(
-            enclosure_segments_world
-            if enclosure_segments_world is not None
+        curb_segments = np.asarray(
+            curb_segments_world
+            if curb_segments_world is not None
             else np.empty((0, 2, 3), dtype=np.float32),
             dtype=np.float32,
         )
-        if enclosure_segments.ndim != 3 or enclosure_segments.shape[1:] != (2, 3):
-            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
-        line_layers = scene.line_layers
-        if len(enclosure_segments):
-            line_layers = line_layers + (
-                WorldLineSegments(
-                    segments_world=enclosure_segments,
-                    color_rgba=(1.0, 0.0, 0.0, 1.0),
-                    width_px=3.0,
-                    layer_name="crazy_robotaxi_enclosure_walls",
-                ),
-            )
+        if curb_segments.ndim != 3 or curb_segments.shape[1:] != (2, 3):
+            raise ValueError("Taxi curb segments must have shape (N, 2, 3).")
         taxi_scene = replace(
             scene,
             vehicle_bbox_tracks=selected_tracks,
-            line_layers=line_layers,
         )
         super().__init__(
             taxi_scene,
             vehicle,
             model_adapter=inset_vehicle_chassis,
             static_barrier_segments_world=(
-                enclosure_segments
-                if getattr(scene, "game_map", None) is not None
-                or len(enclosure_segments)
+                curb_segments
+                if getattr(scene, "game_map", None) is not None or len(curb_segments)
                 else None
             ),
             static_barrier_restitution=vehicle.curb_collision_restitution,
@@ -129,9 +116,9 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         self._taxi_vehicle = vehicle
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
-            "arcade handbrake, inset chassis, traffic_density={:.2f}, enclosure_segments={}",
+            "arcade handbrake, inset chassis, traffic_density={:.2f}, curb_segments={}",
             traffic_density,
-            len(enclosure_segments),
+            len(curb_segments),
         )
         self._last_contact_resolved_state: VehicleState | None = None
 

@@ -1,46 +1,19 @@
 # Node-Graph Map Format
 
 Schema version 1 is the authoring format for standalone OmniDreams games. It
-models the road network directly: structural places are nodes, public roads
-are graph edges, and parking access uses special driveway relationships.
-
-## Coordinate and topology model
-
-Every node has an explicit map-space pose:
-
-```yaml
-pose: {x_m: 12, y_m: -4, rotation_deg: 30}
-```
-
-`x_m` and `y_m` use metres. `rotation_deg` rotates the node's own footprint
-counterclockwise from map +x. It does not rotate, snap, or constrain incident
-roads. A four-way intersection has graph degree four, and every incident road
-retains its independently authored geometry.
-
-```text
-              road C (independent tangent)
-                       /
- road A ───── [ rotated intersection ] ───── road B
-                    /
-              road D
-```
-
-The persisted `GameMapTopology` contains typed nodes, roads, direct links,
-inline road attachments, and adjacency. The compiler separately derives a
-directed lane graph for fare routing and future NPC traffic. Turn connectors
-in that routing graph are not emitted into ClipGT map conditioning. The player
-remains physics-controlled and may drive in any physically reachable lane or
-surface.
+models structural places as nodes, public roads as graph edges, and parking
+access through driveway relationships.
 
 ## Document shape
-
-A document contains exactly these root keys:
 
 ```yaml
 schema_version: 1
 id: example-map
 name: Example Map
-compiler: {}
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 20.0
+  intersection_connector_samples: 8
 profiles: {}
 nodes: []
 roads: []
@@ -49,92 +22,158 @@ road_attachments: []
 spawns: []
 ```
 
-Unknown or missing fields are errors. See either bundled Crazy Robotaxi map for
-complete `compiler` and `profiles` blocks. A profile defines lane width,
-roadside curb offset, ordered lane directions, speed, curbs, and divider paint.
-Its paved surface width is all lane widths plus both curb offsets.
+`profiles` is optional. All other root fields are required, and unknown root
+fields are errors.
+
+The compiler settings control road sampling, ground extent, and routing-only
+turn-connector resolution. They do not configure the renderer archive.
+
+## Attributes and profiles
+
+Profiles are optional, partial sets of defaults. An element may provide any
+applicable attribute directly at its top level, reference a profile, or do
+both. A directly supplied value wins over the profile value. Profile fields
+that do not apply to an element are ignored.
+
+After combining direct values and profile defaults, every required attribute
+must have a value or compilation fails. Identity, pose, topology, and road
+paths are not profile attributes.
+
+Linear elements use these attributes:
+
+```yaml
+lane_width_m: 3.6
+curb_offset_m: 0.6
+lanes: [backward, forward]
+speed_limit_mps: 13.4
+curb: true
+lane_marking: {style: SOLID_GROUP, color: YELLOW}
+divider_markings:
+  - {style: SOLID_GROUP, color: YELLOW}
+```
+
+There must be one divider marking for every adjacent lane pair. The paved
+surface width is `lane_width_m * len(lanes) + 2 * curb_offset_m`.
+
+`curb: true` generates physical curb boundaries for the element, excluding its
+declared connections. `curb: false` leaves those boundaries non-colliding.
+
+For example, a road can inherit most values while overriding its width:
+
+```yaml
+- id: oak_street
+  from: west_junction
+  to: east_junction
+  profile: neighborhood
+  lane_width_m: 4.0
+```
+
+## Coordinates and topology
+
+Every node has an explicit map-space pose:
+
+```yaml
+pose: {x_m: 12, y_m: -4, rotation_deg: 30}
+```
+
+`x_m` and `y_m` use metres. `rotation_deg` rotates the node's own footprint
+counterclockwise from map +x. It does not rotate or snap incident roads.
+
+The persisted `GameMapTopology` retains typed nodes, roads, direct links,
+inline road attachments, and adjacency. The compiler separately derives a
+directed lane graph for routing. Routing-only turn connectors are not emitted
+into ClipGT map conditioning.
+
+Each node and edge owns its surface and curb geometry. Connected elements meet
+at equal-width openings without overlapping. Unrelated elements may not have
+positive-area overlap or share a boundary edge; isolated point tangency is
+allowed. Roads, parking lots, and other surfaces therefore cannot be layered
+over one another to repair topology.
 
 ## Nodes
 
-All nodes require `id`, `type`, `pose`, and `geometry`.
+All nodes require `id`, `type`, and `pose`. Their remaining required attributes
+may be supplied directly or by profile.
 
 ### Intersections
 
-Intersection footprints auto-fit their incident road and driveway widths:
+An intersection requires `curb` and `intersection_arm_length_m`:
 
 ```yaml
 - id: askew_junction
   type: intersection
   pose: {x_m: 0, y_m: 0, rotation_deg: 45}
-  geometry: {}
+  intersection_arm_length_m: 9
+  curb: true
 ```
 
-By default, the surface is the union of a central paved core and one
-road-width arm along each actual incident bearing. Consequently, adjacent road
-edges form the intersection corners directly. An intersection may override
-both auto-fit dimensions to use a larger rotated rectangular core; its
-incident arms still retain their independently authored bearings.
+Each arm follows its incident road or access path. An oversized intersection
+may add a rotated rectangular core by providing both optional dimensions:
 
 ```yaml
-geometry: {width_m: 24, depth_m: 16}
+intersection_width_m: 24
+intersection_depth_m: 16
+intersection_arm_length_m: 13.2
 ```
 
-Road paths still determine their own endpoint tangents. A road may therefore
-enter a 45-degree rotated intersection at 63 degrees without any per-arm angle
-override.
+There are no inferred core dimensions or default arm lengths. Road paths
+determine their endpoint tangents independently of node rotation.
 
 ### Cul-de-sacs
 
-A cul-de-sac terminates exactly one authored road. Its circular road surface
-has a flat curb opening whose chord exactly matches the incident road width,
-so the road surface meets it without a gap. The circle has no visible
-centerline or lane divisions and derives a routing-only turnaround.
+A cul-de-sac requires `curb` and `culdesac_radius_m` and must terminate exactly
+one road:
 
 ```yaml
 - id: oak_court_end
   type: cul_de_sac
   pose: {x_m: 80, y_m: 20, rotation_deg: 0}
-  geometry: {radius_m: 10}
+  culdesac_radius_m: 10
+  curb: true
 ```
+
+Its circular surface has a flat opening matching the incident road width. The
+circle has no visible centerline or lane divisions and derives a routing-only
+turnaround.
 
 ### Parking lots
 
-A parking lot requires an access profile and rectangular dimensions. Its pose
-is the footprint center, and it may be served by multiple driveway nodes.
+A parking lot uses the linear attributes plus `parking_lot_width_m` and
+`parking_lot_depth_m`:
 
 ```yaml
 - id: market_lot
   type: parking_lot
   profile: parking_access
   pose: {x_m: 30, y_m: -20, rotation_deg: 15}
-  geometry: {width_m: 28, depth_m: 34}
+  parking_lot_width_m: 28
+  parking_lot_depth_m: 34
 ```
 
-The compiler derives an aisle and turnaround for each entrance. The full lot
-surface becomes a green ClipGT roadnet mask; parking stall lines are not
-generated.
+Its pose is the footprint center, and multiple driveways may serve it. The
+compiler derives an aisle and turnaround for each entrance. The lot surface
+becomes a green ClipGT roadnet mask; parking-stall lines are not generated.
 
 ### Driveways
 
-A driveway is a special access node with an explicit opening width. Its access
-profile supplies lanes, paint, curb policy, and speed.
+A driveway uses the linear attributes. Its access width is derived from its
+lane count, `lane_width_m`, and `curb_offset_m`; it has no separate width field.
 
 ```yaml
 - id: market_west_driveway
   type: driveway
   profile: parking_access
   pose: {x_m: 17, y_m: -7, rotation_deg: 270}
-  geometry: {width_m: 6.4}
 ```
 
 Every driveway serves exactly one parking lot and has exactly one public-road
-source: either an intersection direct link or an inline road attachment. It is
-a topological connection point rather than a separately paved rectangle; the
-access surface and lanes continue through its center without a gap.
+source: either an intersection link or an inline road attachment. The compiler
+gives the driveway node a small junction surface so access edges meet it at
+separate, non-overlapping openings.
 
 ## Roads and curves
 
-An authored road is one topological edge between two intersections and/or
+An authored road is one topological edge between intersections and/or
 cul-de-sacs:
 
 ```yaml
@@ -144,13 +183,12 @@ cul-de-sacs:
   profile: neighborhood
 ```
 
-With no `path`, its centerline is the straight segment between node poses. A
-self-loop therefore requires a path.
+It uses the linear attributes. Without `path`, its centerline is the straight
+segment between node poses. A self-loop therefore requires a path.
 
 A path is one or more map-space cubic Bézier spans. Each span starts at the
-previous endpoint (the first starts at the `from` node), has exactly two
-controls, and has an explicit endpoint. The final endpoint must equal the `to`
-node pose.
+previous endpoint, has exactly two controls, and has an explicit endpoint. The
+final endpoint must equal the `to` node pose.
 
 ```yaml
 - id: river_road
@@ -164,20 +202,15 @@ node pose.
       end: {x_m: 80, y_m: 5}
 ```
 
-Intermediate span anchors and controls are geometry only; they do not become
-graph nodes. Endpoint tangents come from the Bézier controls and remain
-independent from both endpoint node rotations.
+Intermediate anchors and controls are geometry only; they do not become graph
+nodes.
 
 ## Parking access
 
-Direct links are not authored roads. They generate boundary-to-boundary paved
-driveway spans using the driveway node's explicit width.
+Direct links generate boundary-to-boundary access spans using the driveway's
+effective linear attributes. They are not authored roads.
 
-An explicit intersection entrance uses two links:
-
-```text
-intersection ══ driveway node ══ parking-lot node
-```
+An intersection entrance uses two links:
 
 ```yaml
 links:
@@ -188,17 +221,6 @@ road_attachments: []
 
 An inline driveway attaches to one uninterrupted road edge:
 
-```text
-intersection A ───────── one authored road ───────── intersection B
-                                ║
-                         driveway ══ parking lot
-```
-
-The driveway pose is the curb-opening center. Its rotation points outward from
-the road toward the lot. The attachment cuts the curb and adds access routing,
-but does not split the road, change its through lanes, or create an
-intersection.
-
 ```yaml
 links:
   - {id: market_lot_access, a: market_driveway, b: market_lot}
@@ -206,10 +228,15 @@ road_attachments:
   - {driveway: market_driveway, road: oak_street}
 ```
 
+For an inline attachment, the driveway pose is the road curb-opening center and
+its rotation points outward from the road. The attachment cuts the road curb
+and adds access routing without splitting the road or changing its through
+lanes.
+
 ## Spawns and visual variants
 
 A spawn names an authored road lane and a distance along its directed
-centerline. Lane indices follow the profile's authored `lanes` order.
+centerline. Lane indices follow the effective `lanes` order.
 
 ```yaml
 spawns:
@@ -224,15 +251,14 @@ spawns:
 ```
 
 Every spawn requires a `default` variant. Images may be map-relative paths or
-`package://package/resource` references. The resolved geometry, compiler
-implementation, seed images, and prompts participate in the compiled-map
-cache key.
+`package://package/resource` references. Resolved geometry, compiler code, seed
+images, and prompts participate in the compiled-map cache key.
 
 ## Validation summary
 
-The loader rejects unknown fields and references, duplicate identifiers,
-unsupported endpoint node types, zero-length straight roads, malformed or
-discontinuous final Bézier endpoints, cul-de-sacs with the wrong degree,
-parking lots without driveways, driveways serving zero or multiple lots,
-driveways with multiple public-road sources, and inline driveway poses that are
-not on the selected curb or do not face outward.
+Compilation rejects unknown fields and references, missing effective
+attributes, duplicate element identifiers, invalid endpoint types, malformed
+or discontinuous road paths, invalid node degrees, invalid driveway
+relationships, overlapping or edge-sharing unrelated surfaces, overlapping
+connected surfaces, mismatched connection openings, and incorrectly placed or
+oriented inline driveways.

@@ -50,7 +50,15 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_kwargs: object())
 
     config, _backend = cli.prepare_config_and_backend(
-        args := build_parser().parse_args(["--taxi-game", "--traffic-density", "0.25"])
+        args := build_parser().parse_args(
+            [
+                "--map",
+                "city.robotaxi.yaml",
+                "--taxi-game",
+                "--traffic-density",
+                "0.25",
+            ]
+        )
     )
     taxi_config = taxi_config_from_args(args)
 

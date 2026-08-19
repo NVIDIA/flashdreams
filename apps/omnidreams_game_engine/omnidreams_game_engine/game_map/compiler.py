@@ -21,9 +21,9 @@ import yaml
 from filelock import FileLock
 from PIL import Image
 
-from omnidreams_game_engine.game_map.loader import load_game_map, resolve_seed_asset
+from omnidreams_game_engine.game_map._schema import resolve_seed_asset
+from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.types import (
-    GameMapLane,
     ResolvedGameMap,
     game_map_to_dict,
 )
@@ -31,10 +31,9 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "1"
+_COMPILER_VERSION = "2"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 _CAMERA_NAME = "camera_front_wide_120fov"
-_SHARED_EDGE_TOLERANCE_M = 0.01
 
 
 @dataclass(frozen=True)
@@ -61,8 +60,8 @@ def _cache_root() -> Path:
                 os.environ.get("FLASHDREAMS_CACHE_DIR", "~/.cache/flashdreams")
             )
         )
-        / "crazy-robotaxi"
-        / "maps"
+        / "omnidreams-game-engine"
+        / "game-maps"
     )
 
 
@@ -96,61 +95,11 @@ def _key(game_map: ResolvedGameMap, label: str) -> dict[str, str]:
     }
 
 
-def _aligned_polyline(
-    reference: np.ndarray, candidate: np.ndarray
-) -> np.ndarray | None:
-    """Align a coincident candidate to a reference edge, or return ``None``."""
-    if reference.shape != candidate.shape:
-        return None
-    direct_error = float(np.linalg.norm(reference - candidate, axis=1).max())
-    reverse_error = float(np.linalg.norm(reference - candidate[::-1], axis=1).max())
-    if min(direct_error, reverse_error) > _SHARED_EDGE_TOLERANCE_M:
-        return None
-    return candidate if direct_error <= reverse_error else candidate[::-1]
-
-
-def _lane_edge_groups(
-    game_map: ResolvedGameMap,
-) -> list[list[tuple[GameMapLane, str, np.ndarray]]]:
-    """Group coincident road-lane edges within each authored element."""
-    groups: list[list[tuple[GameMapLane, str, np.ndarray]]] = []
-    for lane in game_map.lanes:
-        if not lane.allows_taxi_stops or not lane.conditioning_visible:
-            continue
-        for side, points in (
-            ("left", lane.left_edge_world),
-            ("right", lane.right_edge_world),
-        ):
-            if _edge_marking(lane, side)[0] == "VIRTUAL":
-                continue
-            group = next(
-                (
-                    members
-                    for members in groups
-                    if members[0][0].element_id == lane.element_id
-                    and _aligned_polyline(members[0][2], points) is not None
-                ),
-                None,
-            )
-            if group is None:
-                groups.append([(lane, side, points)])
-            else:
-                group.append((lane, side, points))
-    return groups
-
-
-def _edge_marking(lane: GameMapLane, side: str) -> tuple[str, str]:
-    if side == "left":
-        return lane.left_marking_style, lane.left_marking_color
-    return lane.right_marking_style, lane.right_marking_color
-
-
 def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     shared_edges = {
-        (lane.lane_id, side)
-        for members in _lane_edge_groups(game_map)
-        if len(members) > 1
-        for lane, side, _points in members
+        lane_edge
+        for divider in game_map.lane_dividers
+        for lane_edge in divider.lane_edges
     }
     rows: list[dict[str, object]] = []
     for lane in game_map.lanes:
@@ -158,8 +107,8 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
             continue
         left_shared = (lane.lane_id, "left") in shared_edges
         right_shared = (lane.lane_id, "right") in shared_edges
-        left_style, left_color = _edge_marking(lane, "left")
-        right_style, right_color = _edge_marking(lane, "right")
+        left_style, left_color = lane.left_marking_style, lane.left_marking_color
+        right_style, right_color = lane.right_marking_style, lane.right_marking_color
         rows.append(
             {
                 "key": _key(game_map, lane.lane_id),
@@ -191,27 +140,14 @@ def _lane_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
 
 def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for members in _lane_edge_groups(game_map):
-        if len(members) < 2:
-            continue
-        lane, side, reference = members[0]
-        marking_style, marking_color = _edge_marking(lane, side)
-        aligned_points = [reference]
-        for _member_lane, _member_side, points in members[1:]:
-            aligned = _aligned_polyline(reference, points)
-            assert aligned is not None
-            aligned_points.append(aligned)
-        divider = np.mean(aligned_points, axis=0)
-        member_ids = ":".join(
-            sorted(member.lane_id for member, _side, _points in members)
-        )
+    for divider in game_map.lane_dividers:
         rows.append(
             {
-                "key": _key(game_map, f"lane_line:{member_ids}"),
+                "key": _key(game_map, f"lane_line:{divider.divider_id}"),
                 "lane_line": {
-                    "line_rail": [_point(point) for point in divider],
-                    "styles": [marking_style],
-                    "colors": [marking_color],
+                    "line_rail": [_point(point) for point in divider.polyline_world],
+                    "styles": [divider.style],
+                    "colors": [divider.color],
                     "left_driving_direction": ["FORWARD"],
                     "right_driving_direction": ["FORWARD"],
                     "is_first_point_physical_end": "false",
@@ -244,15 +180,16 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
 def _boundary_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     return [
         {
-            "key": _key(game_map, f"curb:{index}"),
+            "key": _key(game_map, curb.curb_id),
             "road_boundary": {
-                "location": [_point(segment[0]), _point(segment[1])],
+                "location": [_point(point) for point in curb.polyline_world],
                 "category": "curb",
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
-        for index, segment in enumerate(game_map.collision_segments_world)
+        for element in game_map.elements
+        for curb in element.curbs
     ]
 
 
@@ -328,7 +265,7 @@ def _metadata(game_map: ResolvedGameMap) -> dict[str, object]:
             "start": _START_TIMESTAMP_US,
             "end": _START_TIMESTAMP_US + 33_333,
         },
-        "version_string": f"robotaxi-map-{_COMPILER_VERSION}",
+        "version_string": f"omnidreams-game-map-{_COMPILER_VERSION}",
     }
 
 

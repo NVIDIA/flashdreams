@@ -44,7 +44,7 @@ def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
     assert "'/taxi/name'" in _INDEX_HTML
     assert 'id="score-rows"' in _INDEX_HTML
     assert 'id="new-game"' in _INDEX_HTML
-    assert 'id="taxi-boundaries"' in _INDEX_HTML
+    assert 'id="taxi-boundaries"' not in _INDEX_HTML
 
 
 def test_streaming_presenter_materializes_lazy_rgba_frames() -> None:
@@ -158,9 +158,6 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     presenter._keyboard = keyboard
     presenter._taxi_enabled = True
     presenter._bev_config = BevConfig(tilt_deg=0.0)
-    presenter._taxi_enclosure_segments_world = np.asarray(
-        [[[10.0, -100.0, 0.0], [10.0, 100.0, 0.0]]], dtype=np.float32
-    )
     presenter._latest_presented_frame = PresentedFrame(
         timestamp_us=0,
         rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
@@ -180,11 +177,7 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert snapshot["taxi"]["global_remaining_time_s"] == 0.0
     assert len(snapshot["taxi"]["bev_targets"]) == 4
     assert all(target["visible"] for target in snapshot["taxi"]["bev_targets"])
-    assert len(snapshot["taxi"]["bev_enclosure_segments"]) == 1
-    assert all(
-        0.0 <= coordinate <= 1.0
-        for coordinate in snapshot["taxi"]["bev_enclosure_segments"][0].values()
-    )
+    assert "bev_enclosure_segments" not in snapshot["taxi"]
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:

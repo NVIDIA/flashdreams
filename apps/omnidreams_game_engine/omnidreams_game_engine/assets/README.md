@@ -1,8 +1,6 @@
 # Assets
 
-This directory holds the unpacked-scene-bundle loader
-(`scene_bundle.py`) plus the bundled HUD control sprites under
-`wheel_and_pedals/`.
+This directory holds packaged assets used by the game engine.
 
 ## `wheel_and_pedals/`
 
@@ -20,10 +18,8 @@ the brake PNGs are also accepted under AlpaSim's `break_*.png`
 spelling. When a sprite is missing, the HUD falls back to a
 CPU-rendered vector wheel / fill-bar pedals.
 
-## Scenes
+## Game-map seed images
 
-Scene USDZs themselves are staged into the shared `omnidreams` scene
-cache under `$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`, **not** here.
-See `omnidreams.scenes` and `omnidreams-prepare` for how staging
-works; both the desktop demo and the WebRTC server consume from the
-same cache root.
+Authored maps can reference packaged images with
+`package://omnidreams_game_engine/path/to/image`. The compiler embeds the
+selected images and prompts in its private runtime archive.

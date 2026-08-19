@@ -16,6 +16,50 @@ FloatArray = npt.NDArray[np.float32]
 
 
 @dataclass(frozen=True)
+class GameMapBoundaryAttributes:
+    """Resolved attributes for a structural map element."""
+
+    curb: bool
+    """Whether the element emits physical curb boundaries."""
+
+
+@dataclass(frozen=True)
+class GameMapLinearAttributes(GameMapBoundaryAttributes):
+    """Resolved lane, surface, and marking attributes."""
+
+    lane_width_m: float
+    """Width of one directed lane in metres."""
+
+    curb_offset_m: float
+    """Paved offset between the outer lane edge and curb."""
+
+    directions: tuple[str, ...]
+    """Ordered lane directions across the element."""
+
+    speed_limit_mps: float
+    """Lane speed limit in metres per second."""
+
+    marking_style: str
+    """ClipGT-compatible outer lane-marking style."""
+
+    marking_color: str
+    """ClipGT-compatible outer lane-marking color."""
+
+    divider_markings: tuple[tuple[str, str], ...]
+    """Style and color for each adjacent lane pair."""
+
+    @property
+    def lane_width_total_m(self) -> float:
+        """Return the total width occupied by lanes."""
+        return self.lane_width_m * len(self.directions)
+
+    @property
+    def surface_width_m(self) -> float:
+        """Return the curb-to-curb paved width."""
+        return self.lane_width_total_m + 2.0 * self.curb_offset_m
+
+
+@dataclass(frozen=True)
 class GameMapNode:
     """One explicitly posed node in the authored road network."""
 
@@ -35,7 +79,10 @@ class GameMapNode:
     """Counterclockwise footprint rotation from map +x, independent of roads."""
 
     profile_id: str | None
-    """Access profile for nodes that own drivable access geometry."""
+    """Optional source profile used to resolve node attributes."""
+
+    attributes: GameMapBoundaryAttributes | GameMapLinearAttributes
+    """Effective node attributes after applying profile defaults."""
 
     geometry: dict[str, float]
     """Validated node-type-specific footprint dimensions."""
@@ -54,8 +101,11 @@ class GameMapRoad:
     to_node_id: str
     """Node at the end of the authored road geometry."""
 
-    profile_id: str
-    """Road profile controlling lanes, markings, curbs, and speed."""
+    profile_id: str | None
+    """Optional source profile used to resolve road attributes."""
+
+    attributes: GameMapLinearAttributes
+    """Effective road attributes after applying profile defaults."""
 
     bezier_spans_world: tuple[FloatArray, ...]
     """Map-space cubic spans with shape ``[4, 3]``; empty means straight."""
@@ -69,6 +119,7 @@ class GameMapRoad:
             and self.from_node_id == other.from_node_id
             and self.to_node_id == other.to_node_id
             and self.profile_id == other.profile_id
+            and self.attributes == other.attributes
             and len(self.bezier_spans_world) == len(other.bezier_spans_world)
             and all(
                 np.array_equal(first, second)
@@ -224,13 +275,30 @@ class GameMapElement:
     """Stable author-defined identifier."""
 
     element_type: str
-    """Schema discriminator such as ``road_segment`` or ``intersection``."""
+    """Schema discriminator such as ``road`` or ``intersection``."""
 
-    profile_id: str
-    """Primary road or access profile used by this element."""
+    profile_id: str | None
+    """Optional source profile used to resolve element attributes."""
+
+    attributes: GameMapBoundaryAttributes | GameMapLinearAttributes
+    """Effective attributes controlling this element."""
 
     surface_world: FloatArray
     """Closed surface polygon with shape ``[N, 3]``."""
+
+    curbs: tuple[GameMapCurb, ...]
+    """Element-owned curb polylines excluding declared openings."""
+
+
+@dataclass(frozen=True)
+class GameMapCurb:
+    """One stable curb polyline owned by a resolved map element."""
+
+    curb_id: str
+    """Stable compiler-generated identifier scoped to the owning element."""
+
+    polyline_world: FloatArray
+    """World-space curb points with shape ``[N, 3]``."""
 
 
 @dataclass(frozen=True)
@@ -242,6 +310,26 @@ class GameMapLineMarking:
 
     polyline_world: FloatArray
     """World-space marking centerline with shape ``[N, 3]``."""
+
+    style: str
+    """ClipGT-compatible lane-line style."""
+
+    color: str
+    """ClipGT-compatible lane-line color."""
+
+
+@dataclass(frozen=True)
+class GameMapLaneDivider:
+    """One resolved divider shared by two adjacent authored lanes."""
+
+    divider_id: str
+    """Stable compiler-generated divider identifier."""
+
+    lane_edges: tuple[tuple[str, str], tuple[str, str]]
+    """Adjacent ``(lane_id, side)`` pairs represented by the divider."""
+
+    polyline_world: FloatArray
+    """World-space divider centerline with shape ``[N, 3]``."""
 
     style: str
     """ClipGT-compatible lane-line style."""
@@ -278,11 +366,11 @@ class ResolvedGameMap:
     elements: tuple[GameMapElement, ...]
     """Resolved element surfaces used by conditioning and previews."""
 
-    collision_segments_world: FloatArray
-    """Explicit curb colliders with shape ``[N, 2, 3]``."""
-
     road_marking_polygons_world: tuple[FloatArray, ...]
     """Closed road-marking polygons used by conditioning and previews."""
+
+    lane_dividers: tuple[GameMapLaneDivider, ...]
+    """Resolved non-virtual dividers between adjacent authored lanes."""
 
     line_markings: tuple[GameMapLineMarking, ...]
     """Standalone painted lines used by conditioning and previews."""
@@ -325,6 +413,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "y_m": node.y_m,
                     "rotation_deg": node.rotation_deg,
                     "profile_id": node.profile_id,
+                    "attributes": _attributes_to_dict(node.attributes),
                     "geometry": node.geometry,
                 }
                 for node in game_map.topology.nodes
@@ -335,6 +424,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "from_node_id": road.from_node_id,
                     "to_node_id": road.to_node_id,
                     "profile_id": road.profile_id,
+                    "attributes": _attributes_to_dict(road.attributes),
                     "bezier_spans_world": [
                         span.tolist() for span in road.bezier_spans_world
                     ],
@@ -387,13 +477,30 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "element_id": element.element_id,
                 "element_type": element.element_type,
                 "profile_id": element.profile_id,
+                "attributes": _attributes_to_dict(element.attributes),
                 "surface_world": element.surface_world.tolist(),
+                "curbs": [
+                    {
+                        "curb_id": curb.curb_id,
+                        "polyline_world": curb.polyline_world.tolist(),
+                    }
+                    for curb in element.curbs
+                ],
             }
             for element in game_map.elements
         ],
-        "collision_segments_world": game_map.collision_segments_world.tolist(),
         "road_marking_polygons_world": [
             polygon.tolist() for polygon in game_map.road_marking_polygons_world
+        ],
+        "lane_dividers": [
+            {
+                "divider_id": divider.divider_id,
+                "lane_edges": [list(edge) for edge in divider.lane_edges],
+                "polyline_world": divider.polyline_world.tolist(),
+                "style": divider.style,
+                "color": divider.color,
+            }
+            for divider in game_map.lane_dividers
         ],
         "line_markings": [
             {
@@ -427,6 +534,64 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
     }
 
 
+def _attributes_to_dict(
+    attributes: GameMapBoundaryAttributes | GameMapLinearAttributes,
+) -> dict[str, Any]:
+    """Serialize resolved element attributes."""
+    result: dict[str, Any] = {"curb": attributes.curb}
+    if isinstance(attributes, GameMapLinearAttributes):
+        result.update(
+            {
+                "lane_width_m": attributes.lane_width_m,
+                "curb_offset_m": attributes.curb_offset_m,
+                "directions": list(attributes.directions),
+                "speed_limit_mps": attributes.speed_limit_mps,
+                "marking_style": attributes.marking_style,
+                "marking_color": attributes.marking_color,
+                "divider_markings": [
+                    list(marking) for marking in attributes.divider_markings
+                ],
+            }
+        )
+    return result
+
+
+def _attributes_from_dict(
+    raw: dict[str, Any], *, linear: bool
+) -> GameMapBoundaryAttributes | GameMapLinearAttributes:
+    """Deserialize resolved attributes for one map element."""
+    if not linear:
+        return GameMapBoundaryAttributes(curb=bool(raw["curb"]))
+    return GameMapLinearAttributes(
+        curb=bool(raw["curb"]),
+        lane_width_m=float(raw["lane_width_m"]),
+        curb_offset_m=float(raw["curb_offset_m"]),
+        directions=tuple(str(value) for value in raw["directions"]),
+        speed_limit_mps=float(raw["speed_limit_mps"]),
+        marking_style=str(raw["marking_style"]),
+        marking_color=str(raw["marking_color"]),
+        divider_markings=tuple(
+            (str(value[0]), str(value[1])) for value in raw["divider_markings"]
+        ),
+    )
+
+
+def _lane_divider_from_dict(raw: dict[str, Any]) -> GameMapLaneDivider:
+    edges = list(raw["lane_edges"])
+    if len(edges) != 2 or any(len(edge) != 2 for edge in edges):
+        raise ValueError("lane_dividers[].lane_edges must contain exactly two pairs")
+    return GameMapLaneDivider(
+        divider_id=str(raw["divider_id"]),
+        lane_edges=(
+            (str(edges[0][0]), str(edges[0][1])),
+            (str(edges[1][0]), str(edges[1][1])),
+        ),
+        polyline_world=np.asarray(raw["polyline_world"], dtype=np.float32),
+        style=str(raw["style"]),
+        color=str(raw["color"]),
+    )
+
+
 def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
     """Deserialize embedded semantic-map metadata."""
     raw_topology = dict(value["topology"])
@@ -441,6 +606,10 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 profile_id=(
                     None if raw.get("profile_id") is None else str(raw["profile_id"])
                 ),
+                attributes=_attributes_from_dict(
+                    dict(raw["attributes"]),
+                    linear=str(raw["node_type"]) in {"driveway", "parking_lot"},
+                ),
                 geometry={
                     str(key): float(item) for key, item in raw["geometry"].items()
                 },
@@ -452,7 +621,10 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 road_id=str(raw["road_id"]),
                 from_node_id=str(raw["from_node_id"]),
                 to_node_id=str(raw["to_node_id"]),
-                profile_id=str(raw["profile_id"]),
+                profile_id=(
+                    None if raw.get("profile_id") is None else str(raw["profile_id"])
+                ),
+                attributes=_attributes_from_dict(dict(raw["attributes"]), linear=True),
                 bezier_spans_world=tuple(
                     np.asarray(span, dtype=np.float32)
                     for span in raw["bezier_spans_world"]
@@ -512,8 +684,22 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         GameMapElement(
             element_id=str(raw["element_id"]),
             element_type=str(raw["element_type"]),
-            profile_id=str(raw["profile_id"]),
+            profile_id=(
+                None if raw.get("profile_id") is None else str(raw["profile_id"])
+            ),
+            attributes=_attributes_from_dict(
+                dict(raw["attributes"]),
+                linear=str(raw["element_type"])
+                in {"road", "implicit_driveway", "driveway", "parking_lot"},
+            ),
             surface_world=np.asarray(raw["surface_world"], dtype=np.float32),
+            curbs=tuple(
+                GameMapCurb(
+                    curb_id=str(curb["curb_id"]),
+                    polyline_world=np.asarray(curb["polyline_world"], dtype=np.float32),
+                )
+                for curb in raw["curbs"]
+            ),
         )
         for raw in value["elements"]
     )
@@ -544,12 +730,12 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         topology=topology,
         lanes=lanes,
         elements=elements,
-        collision_segments_world=np.asarray(
-            value["collision_segments_world"], dtype=np.float32
-        ).reshape(-1, 2, 3),
         road_marking_polygons_world=tuple(
             np.asarray(polygon, dtype=np.float32)
             for polygon in value.get("road_marking_polygons_world", [])
+        ),
+        lane_dividers=tuple(
+            _lane_divider_from_dict(raw) for raw in value.get("lane_dividers", [])
         ),
         line_markings=tuple(
             GameMapLineMarking(

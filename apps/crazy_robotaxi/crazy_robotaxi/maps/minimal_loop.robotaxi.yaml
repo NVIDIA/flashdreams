@@ -6,10 +6,6 @@ compiler:
   sample_spacing_m: 2.0
   ground_margin_m: 20.0
   intersection_connector_samples: 8
-  parking_lot:
-    turnaround_width_multiplier: 0.75
-    turnaround_min_depth_m: 5.0
-    turnaround_control_inset_m: 0.75
 
 profiles:
   neighborhood:
@@ -35,24 +31,26 @@ nodes:
   - id: hub
     type: intersection
     pose: {x_m: 0, y_m: 0, rotation_deg: 0}
-    geometry: {}
+    intersection_arm_length_m: 6.93
+    curb: true
 
   - id: dead_end
     type: cul_de_sac
     pose: {x_m: 0, y_m: 30, rotation_deg: 0}
-    geometry: {radius_m: 10}
+    culdesac_radius_m: 10
+    curb: true
 
   - id: lot_driveway
     type: driveway
     profile: parking_access
     pose: {x_m: 0, y_m: -10, rotation_deg: 0}
-    geometry: {width_m: 6.4}
 
   - id: neighborhood_lot
     type: parking_lot
     profile: parking_access
     pose: {x_m: 0, y_m: -35, rotation_deg: 0}
-    geometry: {width_m: 26, depth_m: 32}
+    parking_lot_width_m: 26
+    parking_lot_depth_m: 32
 
 roads:
   - id: neighborhood_loop

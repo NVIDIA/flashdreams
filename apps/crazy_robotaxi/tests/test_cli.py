@@ -1,14 +1,40 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from crazy_robotaxi import runtime_cli as cli
 from crazy_robotaxi.runtime_cli import build_parser
+from omnidreams_game_engine.cli import build_parser as build_engine_parser
 from omnidreams_game_engine.cli_args import arg_was_explicit
 
 pytestmark = pytest.mark.ci_cpu
+
+_MAP_ARGS = ["--map", "city.robotaxi.yaml"]
+
+
+@pytest.mark.parametrize("parser_factory", [build_parser, build_engine_parser])
+def test_map_flag_sets_internal_scene_path(
+    parser_factory: Callable[[], argparse.ArgumentParser],
+) -> None:
+    args = parser_factory().parse_args(_MAP_ARGS)
+
+    assert args.scene == Path("city.robotaxi.yaml")
+
+
+@pytest.mark.parametrize(
+    "removed_flag",
+    ["--scene", "--synthetic-scene", "--synthetic-initial-rgb", "--synthetic-prompt"],
+)
+@pytest.mark.parametrize("parser_factory", [build_parser, build_engine_parser])
+def test_removed_map_input_flags_are_not_accepted(
+    removed_flag: str, parser_factory: Callable[[], argparse.ArgumentParser]
+) -> None:
+    with pytest.raises(SystemExit):
+        parser_factory().parse_args([removed_flag])
 
 
 def test_offload_text_encoder_flag_defaults_disabled() -> None:
@@ -52,7 +78,9 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
 ) -> None:
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_k: object())
 
-    config, _backend = cli.prepare_config_and_backend(build_parser().parse_args(argv))
+    config, _backend = cli.prepare_config_and_backend(
+        build_parser().parse_args([*_MAP_ARGS, *argv])
+    )
 
     assert config.vehicle.speed_limit_enabled is game_mode_enabled
     assert config.vehicle.actor_collision_enabled is game_mode_enabled
@@ -77,7 +105,7 @@ def test_taxi_game_selects_frame_synchronous_bev(
 
     monkeypatch.setattr(cli, "RasterRenderBackend", build_backend)
 
-    cli.prepare_config_and_backend(build_parser().parse_args(argv))
+    cli.prepare_config_and_backend(build_parser().parse_args([*_MAP_ARGS, *argv]))
 
     assert backend_kwargs["synchronize_bev_with_rgb"] is expected_synchronization
 

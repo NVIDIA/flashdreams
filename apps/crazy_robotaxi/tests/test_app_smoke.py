@@ -14,8 +14,6 @@ from typing import IO
 
 import pytest
 from omnidreams_game_engine import _sample_assets
-from omnidreams_game_engine._sample_assets import SAMPLE_SCENE
-from omnidreams_game_engine.scene_fixture import build_synthetic_scene_usdz
 from pyvirtualdisplay.display import Display
 
 _WARMUP_SENTINEL = "[chunk-pipeline] warmup done"
@@ -24,6 +22,9 @@ _WARMUP_TIMEOUT_S = 90.0
 _WORLD_MODEL_TIMEOUT_S = 600.0
 _LIVE_DURATION_S = 3.0
 _SHUTDOWN_TIMEOUT_S = 15.0
+_GAME_MAP = (
+    Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / "minimal_loop.robotaxi.yaml"
+)
 
 
 def _pump_stream(
@@ -78,8 +79,8 @@ def _wait_for_sentinel(
     )
 
 
-def _run_raster_ui_smoke(scene_path: Path) -> None:
-    """Drive the full interactive_drive app subprocess under Xvfb against ``scene_path``
+def _run_raster_ui_smoke(map_path: Path) -> None:
+    """Drive the full interactive_drive app subprocess under Xvfb against ``map_path``
     and assert it warms up, stays alive, and shuts down cleanly on SIGTERM.
 
     Does NOT validate raster output correctness - see
@@ -105,14 +106,14 @@ def _run_raster_ui_smoke(scene_path: Path) -> None:
                 # HUD; the raster backend then prints the warmup
                 # sentinel directly to this process's stdout.
                 "--no-hud",
-                "--scene",
-                str(scene_path),
+                "--map",
+                str(map_path),
                 "--backend",
                 "raster",
                 "--camera",
                 "camera_front_wide_120fov",
                 "--variant",
-                "1",
+                "default",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -169,7 +170,7 @@ def _run_raster_ui_smoke(scene_path: Path) -> None:
         display.stop()
 
 
-def _run_synthetic_world_model_latency_smoke(scene_path: Path) -> None:
+def _run_synthetic_world_model_latency_smoke(map_path: Path) -> None:
     """Run the synthetic world model through the interactive-drive latency path."""
     display = Display(backend="xvfb", size=(1280, 720), visible=False)
     display.start()
@@ -187,8 +188,8 @@ def _run_synthetic_world_model_latency_smoke(scene_path: Path) -> None:
                 "-m",
                 "omnidreams_game_engine",
                 "--no-hud",
-                "--scene",
-                str(scene_path),
+                "--map",
+                str(map_path),
                 "--backend",
                 "omnidreams",
                 "--manifest",
@@ -200,7 +201,7 @@ def _run_synthetic_world_model_latency_smoke(scene_path: Path) -> None:
                 "--camera",
                 "camera_front_wide_120fov",
                 "--variant",
-                "1",
+                "default",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -250,24 +251,8 @@ def _run_synthetic_world_model_latency_smoke(scene_path: Path) -> None:
 
 @pytest.mark.gpu
 @pytest.mark.xvfb
-# Opportunistic: runs opportunistically when the production USDZ has been
-# fetched via ``prepare.py``. The synthetic-scene variant below exercises the
-# same rendering path on every run, so silently skipping this one on
-# workstations without the asset is safe.
-@pytest.mark.skipif(
-    not SAMPLE_SCENE.exists(),
-    reason="sample scene is not available on this workstation",
-)
-def test_interactive_drive_raster_ui_smoke_real_scene() -> None:
-    _run_raster_ui_smoke(SAMPLE_SCENE)
-
-
-@pytest.mark.gpu
-@pytest.mark.xvfb
-def test_interactive_drive_raster_ui_smoke_synthetic_scene(tmp_path: Path) -> None:
-    """Smoke test against a USDZ built in-process by ``build_synthetic_scene_usdz``."""
-    scene_path = build_synthetic_scene_usdz(tmp_path / "synthetic_scene.usdz")
-    _run_raster_ui_smoke(scene_path)
+def test_interactive_drive_raster_ui_smoke() -> None:
+    _run_raster_ui_smoke(_GAME_MAP)
 
 
 # gpu + xvfb -> routed to ``manual`` by conftest (see pytest_collection_modifyitems):
@@ -276,6 +261,5 @@ def test_interactive_drive_raster_ui_smoke_synthetic_scene(tmp_path: Path) -> No
 # under ``xvfb-run`` in the benchmark job.
 @pytest.mark.gpu
 @pytest.mark.xvfb
-def test_interactive_drive_synthetic_world_model_latency_smoke(tmp_path: Path) -> None:
-    scene_path = build_synthetic_scene_usdz(tmp_path / "synthetic_scene.usdz")
-    _run_synthetic_world_model_latency_smoke(scene_path)
+def test_interactive_drive_synthetic_world_model_latency_smoke() -> None:
+    _run_synthetic_world_model_latency_smoke(_GAME_MAP)

@@ -331,11 +331,7 @@ class InteractiveDriveApp:
         Later variants: re-seed the cached bundle (frame + prompt only).
         """
         source_path = Path(str(scene_path))
-        renderer_path = (
-            compile_game_map(source_path).archive_path
-            if source_path.name.endswith(".robotaxi.yaml")
-            else source_path
-        )
+        renderer_path = compile_game_map(source_path).archive_path
         geometry = self._cached_geometry(scene_path)
         if geometry is not None:
             base_scene, map_bounds, ground_snapper = geometry
