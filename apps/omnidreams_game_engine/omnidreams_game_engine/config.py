@@ -139,17 +139,6 @@ class AppConfig:
         default_factory=VideoPostprocessChainConfig
     )
     bev: BevConfig = BevConfig()
-    # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
-    # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0
-    # against the AABB-distance proximity.
-    oob_warn_proximity: float = 0.6
-    oob_respawn_proximity: float = 2.0
-    oob_respawn_debounce_chunks: int = 1
-    # OOB AABB geometry: oob_margin_m (50 m, matching alpasim) expands the
-    # scene's spatial-content AABB before any in-bounds check;
-    # oob_warning_zone_m is the depth of the linear warning ramp inside it.
-    oob_margin_m: float = 50.0
-    oob_warning_zone_m: float = 100.0
     # When set ("HOST:PORT" or bare ":PORT"), swap the Vulkan presenter for
     # the MJPEG streaming presenter (HTTP frames + keyboard) -- needed on
     # compute-only boxes with no Vulkan-capable GPU.

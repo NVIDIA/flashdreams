@@ -33,7 +33,6 @@ from omnidreams_game_engine.application import (
 from omnidreams_game_engine.backends.base import RenderBackend
 from omnidreams_game_engine.config import AppConfig
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     SceneBundle,
     TrajectoryChunk,
@@ -213,14 +212,13 @@ class CrazyRobotaxiApplication:
         if callable(configure):
             configure(self._presenter_config, self._config.vehicle)
 
-    def load_scene(self, scene: SceneBundle, map_bounds: MapBounds | None) -> None:
+    def load_scene(self, scene: SceneBundle) -> None:
         """Accept scene data already loaded by Interactive Drive."""
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
         self._curb_segments_world = scene_data.curb_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene, self._config)
-        del map_bounds
         if self._live_edit.coins.enabled or self._live_edit.items.enabled:
             # Lay coins/items along the driving-lane graph; legacy scenes
             # without mapped lanes fall back to the recorded ego route.

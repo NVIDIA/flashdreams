@@ -32,7 +32,6 @@ from omnidreams_game_engine.game_map.types import (
     game_map_to_dict,
 )
 from omnidreams_game_engine.scene_loader import load_scene_bundle
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import VehicleState
 from shapely.geometry import LineString, Point, Polygon
 
@@ -734,7 +733,6 @@ def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
     )
     assert scene.game_map is not None
     assert scene.game_map.topology == first.game_map.topology
-    assert MapBounds.from_scene(scene) is not None
     taxi_scene = load_scene_data(scene)
     assert taxi_scene.navigation_lanes
     assert len(taxi_scene.curb_segments_world) == sum(

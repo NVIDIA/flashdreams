@@ -32,14 +32,12 @@ from omnidreams_game_engine.scene_loader import (
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     build_ground_snapper,
-    build_map_bounds,
     integrate_vehicle,
     state_from_initial_pose,
     step_physics_world,
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.streaming_presenter import (
     MJPEGStreamingPresenter,
     parse_bind,
@@ -124,7 +122,6 @@ class InteractiveDriveApp:
         )
         self._pipeline = ChunkPipeline(self._adapter, trace_context=self._trace_context)
         self._scene: SceneBundle | None = None
-        self._map_bounds: MapBounds | None = None
         # Ground snapper for the current scene. Built once per scene (its
         # spatial grid is invariant across rollouts) and reused, so a reset
         # doesn't rebuild it -- that pure-Python grid build can take seconds
@@ -141,14 +138,12 @@ class InteractiveDriveApp:
         self._cache_scenes = False
         self._scene_cache: dict[
             tuple[str, str, str | None],
-            tuple[SceneBundle, MapBounds | None, GroundSnapper | None],
+            tuple[SceneBundle, GroundSnapper | None],
         ] = {}
         # Parsed geometry per base scene path. Weather variants share all
         # geometry and differ only in seed frame + prompt, so we parse once and
         # re-seed per variant rather than re-parsing the USDZ each switch.
-        self._geometry_cache: dict[
-            str, tuple[SceneBundle, MapBounds | None, GroundSnapper | None]
-        ] = {}
+        self._geometry_cache: dict[str, tuple[SceneBundle, GroundSnapper | None]] = {}
         self._scene_cache_lock = threading.Lock()
         # Set while --preload-scenes is still parsing scenes in the
         # background; the presenter locks scene selection until it clears so
@@ -204,9 +199,9 @@ class InteractiveDriveApp:
         # indicator still covers that part.
         cached = self._cached_scene(scene_path, variant, prompt_override)
         if cached is not None:
-            self._scene, self._map_bounds, self._ground_snapper = cached
+            self._scene, self._ground_snapper = cached
             if self._application is not None:
-                self._application.load_scene(self._scene, self._map_bounds)
+                self._application.load_scene(self._scene)
             self._pipeline.request_scene(self._scene)
             return True
 
@@ -216,9 +211,8 @@ class InteractiveDriveApp:
 
         def _parse() -> None:
             try:
-                # Map bounds + ground snapper are geometry-derived; built here
-                # on the background thread and cached so resets and variant
-                # switches don't rebuild them.
+                # The ground snapper is geometry-derived; build it on the
+                # background thread and cache it across resets and variants.
                 loaded.extend(
                     self._resolve_scene_assets(scene_path, variant, prompt_override)
                 )
@@ -241,17 +235,15 @@ class InteractiveDriveApp:
             # one rollout from the previous selection before the outer loop sees
             # ``pending_scene_change``.
             return False
-        self._scene, self._map_bounds, self._ground_snapper = (  # type: ignore[assignment]
+        self._scene, self._ground_snapper = (  # type: ignore[assignment]
             loaded[0],
             loaded[1],
-            loaded[2],
         )
         self._store_scene(
             scene_path,
             variant,
             prompt_override,
             self._scene,
-            self._map_bounds,
             self._ground_snapper,
         )
         if self._presenter.should_close:
@@ -260,7 +252,7 @@ class InteractiveDriveApp:
             # close/requested state for the outer loop to consume.
             return False
         if self._application is not None:
-            self._application.load_scene(self._scene, self._map_bounds)
+            self._application.load_scene(self._scene)
         self._pipeline.request_scene(self._scene)
         return True
 
@@ -305,7 +297,7 @@ class InteractiveDriveApp:
             try:
                 # Reuses cached geometry, so only the first variant of each
                 # scene pays the full parse; the rest are cheap re-seeds.
-                scene, bounds, snapper = self._resolve_scene_assets(
+                scene, snapper = self._resolve_scene_assets(
                     scene_path, variant, prompt_override
                 )
             except BaseException as exc:  # noqa: BLE001 - log & skip one scene
@@ -315,7 +307,7 @@ class InteractiveDriveApp:
                 )
                 continue
             with self._scene_cache_lock:
-                self._scene_cache[key] = (scene, bounds, snapper)
+                self._scene_cache[key] = (scene, snapper)
             logger.info(
                 f"[interactive-drive] preloaded scene "
                 f"{Path(str(scene_path)).name} variant={variant!r}",
@@ -323,17 +315,17 @@ class InteractiveDriveApp:
 
     def _resolve_scene_assets(
         self, scene_path: object, variant: str, prompt_override: str | None
-    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None]:
-        """Resolve ``(scene, map_bounds, ground_snapper)``, caching geometry per scene.
+    ) -> tuple[SceneBundle, GroundSnapper | None]:
+        """Resolve ``(scene, ground_snapper)``, caching geometry per scene.
 
-        First variant of a scene: full parse + build bounds/snapper, then cache.
+        First variant of a scene: full parse + build snapper, then cache.
         Later variants: re-seed the cached bundle (frame + prompt only).
         """
         source_path = Path(str(scene_path))
         renderer_path = compile_game_map(source_path).archive_path
         geometry = self._cached_geometry(scene_path)
         if geometry is not None:
-            base_scene, map_bounds, ground_snapper = geometry
+            base_scene, ground_snapper = geometry
             scene = reseed_scene_bundle(
                 base_scene,
                 renderer_path,
@@ -342,7 +334,7 @@ class InteractiveDriveApp:
                 prompt_override,
                 self._config.raster,
             )
-            return scene, map_bounds, ground_snapper
+            return scene, ground_snapper
 
         scene = load_scene_bundle(
             scene_path=renderer_path,
@@ -351,10 +343,9 @@ class InteractiveDriveApp:
             prompt_override=prompt_override,
             raster=self._config.raster,
         )
-        map_bounds = build_map_bounds(scene)
         ground_snapper = build_ground_snapper(scene)
-        self._store_geometry(scene_path, scene, map_bounds, ground_snapper)
-        return scene, map_bounds, ground_snapper
+        self._store_geometry(scene_path, scene, ground_snapper)
+        return scene, ground_snapper
 
     @staticmethod
     def _scene_cache_key(
@@ -364,7 +355,7 @@ class InteractiveDriveApp:
 
     def _cached_scene(
         self, scene_path: object, variant: str, prompt_override: str | None
-    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None] | None:
+    ) -> tuple[SceneBundle, GroundSnapper | None] | None:
         if not self._cache_scenes:
             return None
         with self._scene_cache_lock:
@@ -378,7 +369,6 @@ class InteractiveDriveApp:
         variant: str,
         prompt_override: str | None,
         scene: SceneBundle,
-        map_bounds: MapBounds | None,
         ground_snapper: GroundSnapper | None,
     ) -> None:
         if not self._cache_scenes:
@@ -386,11 +376,11 @@ class InteractiveDriveApp:
         with self._scene_cache_lock:
             self._scene_cache[
                 self._scene_cache_key(scene_path, variant, prompt_override)
-            ] = (scene, map_bounds, ground_snapper)
+            ] = (scene, ground_snapper)
 
     def _cached_geometry(
         self, scene_path: object
-    ) -> tuple[SceneBundle, MapBounds | None, GroundSnapper | None] | None:
+    ) -> tuple[SceneBundle, GroundSnapper | None] | None:
         # Always on, unlike the --preload-scenes-gated ``_scene_cache``: one
         # bundle per scene lets a live variant switch re-seed, not re-parse.
         with self._scene_cache_lock:
@@ -400,14 +390,11 @@ class InteractiveDriveApp:
         self,
         scene_path: object,
         scene: SceneBundle,
-        map_bounds: MapBounds | None,
         ground_snapper: GroundSnapper | None,
     ) -> None:
         # First parse of a scene wins; later variants re-seed off it.
         with self._scene_cache_lock:
-            self._geometry_cache.setdefault(
-                str(scene_path), (scene, map_bounds, ground_snapper)
-            )
+            self._geometry_cache.setdefault(str(scene_path), (scene, ground_snapper))
 
     def _pump_presenter_until(self, done: threading.Event) -> None:
         """Pump events + a loading overlay until ``done`` is set or we close.
@@ -444,10 +431,10 @@ class InteractiveDriveApp:
         ``run_main_loop`` reports the presenter wants to close -- which the
         slangpy HUD also uses to signal a scene change -- so the caller
         inspects ``presenter.pending_scene_change`` to tell the two apart.
-        A manual reset / OOB respawn keeps the loop going with a fresh
-        simulation and ``pipeline.reset`` (the warmed model is kept).
+        A manual reset keeps the loop going with a fresh simulation and
+        ``pipeline.reset`` (the warmed model is kept).
         """
-        if self._scene is None or self._map_bounds is None:
+        if self._scene is None:
             raise RuntimeError("load_scene() must be called before run_scene()")
         if self._application is not None:
             self._application.configure_scene_presenter(self._presenter, self._scene)
@@ -462,8 +449,7 @@ class InteractiveDriveApp:
             depth_host_f32=None,
         )
         # First rollout is the scene load ("Loading scene..." / "Loading
-        # world model..."); subsequent rollouts come from a manual reset or
-        # OOB respawn, so switch the indicator to "Resetting..." for those.
+        # world model..."); subsequent rollouts come from a manual reset.
         loading_status = self._loading_status_message
         while not self._presenter.should_close:
             if self._application is None:
@@ -502,9 +488,6 @@ class InteractiveDriveApp:
                 vehicle_config=vehicle_config,
                 ground_snapper=ground_snapper,
                 initial_timestamp_us=self._scene.initial_timestamp_us,
-                map_bounds=self._map_bounds,
-                oob_margin_m=self._config.oob_margin_m,
-                oob_warning_zone_m=self._config.oob_warning_zone_m,
                 scene=self._scene,
                 integrate_fn=integrate_fn,
                 physics_world_factory=physics_world_factory,
@@ -520,7 +503,7 @@ class InteractiveDriveApp:
             )
             # Publish the freshly-built initial state up front so read-side
             # speed readouts (the HUD speed digit, the browser ``/state``
-            # endpoint) reflect a reset / respawn immediately. Without this
+            # endpoint) reflect a reset immediately. Without this
             # the last telemetry from the previous rollout would linger on
             # screen through the "Resetting..." window until the new rollout
             # requested its first chunk -- the "reset doesn't reset the
@@ -542,11 +525,6 @@ class InteractiveDriveApp:
                         initial_chunk_size=self._config.chunk.initial_chunk_frames,
                         chunk_size=self._config.chunk.chunk_frames,
                         frame_interval_s=self._config.chunk.frame_interval_s,
-                        oob_warn_proximity=self._config.oob_warn_proximity,
-                        oob_respawn_proximity=self._config.oob_respawn_proximity,
-                        oob_respawn_debounce_chunks=(
-                            self._config.oob_respawn_debounce_chunks
-                        ),
                         stop_after_consumed_chunks=(
                             self._config.stop_after_consumed_chunks
                         ),
@@ -598,7 +576,7 @@ class InteractiveDriveApp:
         return "Loading scene..."
 
     def _resetting_status_message(self) -> str:
-        """Phase text shown while a reset / respawn re-primes the rollout."""
+        """Phase text shown while a reset re-primes the rollout."""
         return "Resetting..."
 
     def run(self) -> None:

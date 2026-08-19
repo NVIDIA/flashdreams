@@ -249,74 +249,6 @@ def build_parser() -> argparse.ArgumentParser:
             " below ``bev-fov-deg / 2``."
         ),
     )
-    parser.add_argument(
-        "--oob-warn-proximity",
-        type=float,
-        default=None,
-        metavar="FLOAT",
-        help=(
-            "Proximity at which the loop overlays "
-            "'Approaching map edge, turn back to avoid respawn' on the "
-            "frame. Mirrors alpasim's ``oob_proximity``: 0.0 is solidly "
-            "inside the navigable AABB+margin, 1.0 is at the AABB+margin "
-            "edge (the warning band ramps linearly across a 100 m zone "
-            "inside the edge), 2.0 is the off-map sentinel. Default 0.6, "
-            "matching alpasim's 'approaching' threshold."
-        ),
-    )
-    parser.add_argument(
-        "--oob-respawn-proximity",
-        type=float,
-        default=None,
-        metavar="FLOAT",
-        help=(
-            "Proximity above which the loop fires the auto-respawn (after "
-            "``--oob-respawn-debounce-chunks`` consecutive chunks at this "
-            "level). Default 2.0, matching alpasim: a hard binary trigger "
-            "that only fires when the ego has actually crossed the "
-            "AABB+margin boundary. Set to 2.5 (or any value > 2.0) to "
-            "disable auto-respawn entirely while keeping the warning "
-            "overlay."
-        ),
-    )
-    parser.add_argument(
-        "--oob-respawn-debounce-chunks",
-        type=int,
-        default=None,
-        metavar="N",
-        help=(
-            "Number of consecutive chunks the proximity must stay at or "
-            "above ``--oob-respawn-proximity`` before the auto-respawn "
-            "fires. Default 1, matching alpasim's immediate-on-step "
-            "behaviour. Raise this for an added buffer; useful mainly "
-            "if you've lowered the respawn threshold below 2.0."
-        ),
-    )
-    parser.add_argument(
-        "--oob-margin-m",
-        type=float,
-        default=None,
-        metavar="METERS",
-        help=(
-            "Margin (in metres) added around the scene's spatial-content "
-            "AABB before any in-bounds check. The respawn fires only "
-            "once the ego is past AABB+margin, so larger values give "
-            "more room to leave the explicitly mapped area. Default 50, "
-            "matching alpasim. Bump to 200+ on scenes whose geometry "
-            "layers don't cover the full driveable area."
-        ),
-    )
-    parser.add_argument(
-        "--oob-warning-zone-m",
-        type=float,
-        default=None,
-        metavar="METERS",
-        help=(
-            "Depth of the linear warning-ramp band inside the AABB+margin "
-            "edge. Default 100, matching alpasim. Set to 0 to disable the "
-            "ramp and only ever show the binary on/off respawn signal."
-        ),
-    )
     return parser
 
 
@@ -333,28 +265,6 @@ def _parse_resolution(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise SystemExit(f"--bev-resolution must be positive: {value!r}")
     return width, height
-
-
-def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
-    """Forward only the OOB flags the user actually passed.
-
-    Each ``--oob-*`` flag defaults to ``None`` so the
-    :class:`AppConfig` field defaults stay authoritative; we only add
-    a kwarg to the ``AppConfig(**kwargs)`` call when the user passed
-    an explicit value.
-    """
-    overrides: dict[str, float | int] = {}
-    if args.oob_warn_proximity is not None:
-        overrides["oob_warn_proximity"] = float(args.oob_warn_proximity)
-    if args.oob_respawn_proximity is not None:
-        overrides["oob_respawn_proximity"] = float(args.oob_respawn_proximity)
-    if args.oob_respawn_debounce_chunks is not None:
-        overrides["oob_respawn_debounce_chunks"] = int(args.oob_respawn_debounce_chunks)
-    if args.oob_margin_m is not None:
-        overrides["oob_margin_m"] = float(args.oob_margin_m)
-    if args.oob_warning_zone_m is not None:
-        overrides["oob_warning_zone_m"] = float(args.oob_warning_zone_m)
-    return overrides
 
 
 def main() -> None:
@@ -421,7 +331,6 @@ def prepare_config_and_backend(
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         visual_flare_enabled=False if args.disable_visual_flare else None,
-        **_oob_kwargs(args),
     )
 
     backend: RenderBackend

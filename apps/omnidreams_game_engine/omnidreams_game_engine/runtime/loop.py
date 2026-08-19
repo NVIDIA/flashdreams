@@ -121,12 +121,6 @@ class MainLoopState:
     frame_count: int
     chunks_outstanding: int
     last_consumed_chunk_index: int | None
-    # Out-of-bounds overlay text, refreshed each tick from
-    # ``simulation.last_proximity``. ``None`` when solidly in-bounds.
-    oob_message: str | None
-    # Consecutive chunks at/above ``LoopConfig.oob_respawn_proximity``; the
-    # auto-respawn fires once it reaches ``oob_respawn_debounce_chunks``.
-    oob_respawn_streak: int
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -134,8 +128,6 @@ class MainLoopState:
         self.frame_count = 0
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
-        self.oob_message = None
-        self.oob_respawn_streak = 0
 
 
 @dataclass(frozen=True)
@@ -145,17 +137,6 @@ class LoopConfig:
     frame_interval_s: float
     poll_timeout_s: float = 0.001
     history_capacity: int = 16
-    # OOB thresholds applied to ``simulation.last_proximity`` (see
-    # :meth:`MapBounds.proximity` for the 0.0 / (0,1] / 2.0 semantics).
-    # Defaults match the alpasim driver: warn at the "approaching" 0.6,
-    # respawn at the 2.0 off-map sentinel. Both no-op when the scene has no
-    # geometry (proximity reads 0.0).
-    oob_warn_proximity: float = 0.6
-    oob_respawn_proximity: float = 2.0
-    # Consecutive chunks at/above ``oob_respawn_proximity`` before the
-    # auto-respawn fires. Default 1 matches alpasim (immediate respawn);
-    # raise it to debounce measurement noise.
-    oob_respawn_debounce_chunks: int = 1
     # When set, the loop exits cleanly once chunk index N has been consumed
     # off the present queue. Chunk 0 is warmup and excluded from the trace,
     # so consuming chunks 0..N yields N traced chunks (1..N).
@@ -163,11 +144,6 @@ class LoopConfig:
     visual_flare_enabled: bool = True
     capture_physics_debug: bool = False
     """Whether to capture PhysX geometry independently of the selected view."""
-
-
-# OOB overlay strings, module-level so the HUD can match on them for styling.
-OOB_WARN_MESSAGE = "Approaching map edge, turn back to avoid respawn"
-OOB_RESPAWN_MESSAGE = "Respawning..."
 
 
 def should_request_chunk(state: MainLoopState) -> bool:
@@ -264,24 +240,14 @@ def present_queued_frame(
     queued_frame: QueuedFrame,
     presenter: PresenterBackend,
     view_mode: str,
-    oob_message: str | None = None,
     trace_context: TraceContext | None = None,
     trace_dependencies: list[int] | None = None,
 ) -> float:
-    """Hand a freshly-dequeued frame to the presenter.
-
-    ``oob_message`` is merged into the frame's ``status_message`` only for
-    the duration of this present call (via :func:`dataclasses.replace`),
-    so the original ``QueuedFrame`` keeps whatever message the backend
-    attached -- e.g. the world-model's "Optimizing world model..."
-    transition text on the first chunk's last frame stays intact across
-    re-presents that intersperse the warmup window with an OOB warning.
-    """
+    """Hand a freshly-dequeued frame to the presenter."""
     frame_times = queued_frame.chunk_times.frames[queued_frame.frame_index]
     frame_times.sample_display_pose_time = time.perf_counter()
-    display_frame = _frame_with_overlay(queued_frame.frame, oob_message)
     present_call_begin_time = time.perf_counter()
-    presenter.present_frame(display_frame, view_mode=view_mode)
+    presenter.present_frame(queued_frame.frame, view_mode=view_mode)
     present_time = time.perf_counter()
     frame_times.present_time = present_time
     if trace_context is not None:
@@ -309,108 +275,6 @@ def present_queued_frame(
             frame_interval_s=_chunk_frame_interval_s(queued_frame.chunk_times),
         )
     return present_time
-
-
-def _frame_with_overlay(
-    frame: PresentedFrame, oob_message: str | None
-) -> PresentedFrame:
-    """Return ``frame`` with ``oob_message`` merged into ``status_message``.
-
-    The OOB message wins over an existing ``status_message`` because it's
-    a more time-sensitive affordance (the user is about to be teleported);
-    returns the frame unchanged when there's no OOB message to merge in.
-    """
-    if oob_message is None:
-        return frame
-    return replace(frame, status_message=oob_message)
-
-
-def update_oob_state(
-    state: MainLoopState, simulation: SimulationBackend, config: LoopConfig
-) -> bool:
-    """Refresh ``state.oob_message`` from the simulation's OOB proximity.
-
-    Reads ``simulation.last_proximity`` defensively (defaults to ``0.0`` for
-    backends that don't track OOB). Returns ``True`` only on the chunk that
-    fires the auto-respawn, which requires proximity to stay at/above
-    :attr:`LoopConfig.oob_respawn_proximity` for
-    :attr:`LoopConfig.oob_respawn_debounce_chunks` consecutive chunks
-    (debouncing single-chunk spikes from a corner ray missing the mesh).
-    """
-    proximity = float(getattr(simulation, "last_proximity", 0.0))
-    previous_message = state.oob_message
-
-    if proximity >= config.oob_respawn_proximity:
-        state.oob_respawn_streak += 1
-        state.oob_message = OOB_RESPAWN_MESSAGE
-        if state.oob_respawn_streak >= max(1, config.oob_respawn_debounce_chunks):
-            _log_oob_transition(
-                previous_message,
-                OOB_RESPAWN_MESSAGE,
-                proximity,
-                streak=state.oob_respawn_streak,
-                action="firing respawn",
-            )
-            return True
-        if previous_message != OOB_RESPAWN_MESSAGE:
-            _log_oob_transition(
-                previous_message,
-                OOB_RESPAWN_MESSAGE,
-                proximity,
-                streak=state.oob_respawn_streak,
-                action="respawn pending",
-            )
-        return False
-
-    # Below respawn threshold; reset the debounce streak so a brief dip
-    # back into the warning band can't accumulate toward a respawn.
-    state.oob_respawn_streak = 0
-
-    if proximity >= config.oob_warn_proximity:
-        state.oob_message = OOB_WARN_MESSAGE
-        if previous_message != OOB_WARN_MESSAGE:
-            _log_oob_transition(
-                previous_message,
-                OOB_WARN_MESSAGE,
-                proximity,
-                streak=0,
-                action="warning",
-            )
-        return False
-
-    state.oob_message = None
-    if previous_message is not None:
-        _log_oob_transition(
-            previous_message,
-            None,
-            proximity,
-            streak=0,
-            action="cleared",
-        )
-    return False
-
-
-def _log_oob_transition(
-    previous: str | None,
-    current: str | None,
-    proximity: float,
-    *,
-    streak: int,
-    action: str,
-) -> None:
-    """Log OOB state transitions to stderr, once per state edge."""
-    prev_label = "in-bounds" if previous is None else _truncate(previous, 32)
-    curr_label = "in-bounds" if current is None else _truncate(current, 32)
-    logger.info(
-        f"[loop] oob {prev_label!r} -> {curr_label!r}"
-        f" proximity={proximity:.3f} streak={streak} action={action}",
-    )
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "\u2026"
 
 
 def push_telemetry(
@@ -476,12 +340,10 @@ def run_main_loop(
     request, so sim cadence is gated by display-driven requests, not the poll
     rate. ``initial_presented_frame`` seeds the re-present path used while the
     pipeline warms up; ``loading_status`` (if given) supplies the loading-phase
-    overlay text until the first real frame, with the OOB warning taking
-    precedence.
+    overlay text until the first real frame.
 
-    Returns ``True`` when the user requested a reset or the OOB auto-respawn
-    fired (caller rebuilds the simulation and re-runs), ``False`` when the
-    presenter requested close.
+    Returns ``True`` when the user requested a reset (the caller rebuilds the
+    simulation and re-runs), or ``False`` when the presenter requested close.
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
@@ -565,13 +427,6 @@ def run_main_loop(
                     ),
                 )
             pipeline.request_pose_chunk(chunk_request)
-            # The pose chunk just advanced authoritative state, so refresh the
-            # OOB overlay from the new boundary frame and auto-respawn (same
-            # ``return True`` as a manual reset) when far enough off-map.
-            if (
-                runtime_application is None or runtime_application.is_running
-            ) and update_oob_state(state, simulation, config):
-                return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
             if runtime_application is None:
@@ -626,7 +481,6 @@ def run_main_loop(
                 queued_frame,
                 presenter,
                 view_mode=view_mode,
-                oob_message=state.oob_message,
                 trace_context=present_trace,
                 trace_dependencies=event_dependencies(
                     queued_frame.worker_ready_event_id,
@@ -648,18 +502,15 @@ def run_main_loop(
             # present, so drop it instead of carrying it forward as a
             # dependency of some later, unrelated present.
             last_present_wait_event = None
-            # Re-present the last frame with the current overlay: OOB warning
-            # wins, else the loading-phase status until the first real frame.
-            # The merged frame is local so ``last_presented_frame`` is unchanged.
-            overlay = state.oob_message
-            if (
-                overlay is None
-                and loading_status is not None
-                and state.frame_count == 0
-            ):
-                overlay = loading_status()
+            display_frame = last_presented_frame
+            if loading_status is not None and state.frame_count == 0:
+                status_message = loading_status()
+                if status_message is not None:
+                    display_frame = replace(
+                        last_presented_frame, status_message=status_message
+                    )
             presenter.present_frame(
-                _frame_with_overlay(last_presented_frame, overlay),
+                display_frame,
                 view_mode=view_mode,
             )
 
