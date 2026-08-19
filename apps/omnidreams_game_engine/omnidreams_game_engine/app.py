@@ -59,8 +59,7 @@ class InteractiveDriveApp:
 
     The backend, video-model adapter and :class:`ChunkPipeline` are built
     once in :meth:`__init__`; the pipeline worker starts warming the
-    scene-independent model immediately, overlapping the model load with
-    any scene-selection wait. Each scene the user picks is bound via
+    scene-independent model immediately. Each scene is bound via
     :meth:`load_scene` and driven by :meth:`run_scene`. The warmed model
     stays resident across scene changes, so switching scenes never re-pays
     the warmup/compile cost (only the per-scene geometry upload).

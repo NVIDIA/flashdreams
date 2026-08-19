@@ -529,7 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=_BUNDLED_MAPS_DIR,
         metavar="DIRECTORY",
         help=(
-            "Directory of .robotaxi.yaml maps shown in the scene selector. "
+            "Directory of .robotaxi.yaml maps available for scene switching. "
             "Defaults to the maps bundled with Crazy Robotaxi."
         ),
     )
@@ -657,11 +657,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         args._game_settings = load_game_settings(args.game_config)
     _validate_presenter_mode(args)
     # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
-    # MJPEG presenter (HTTP server, browser session) survives across
-    # scene-change requests posted by the in-page picker. ``--no-hud``
-    # without MJPEG drops straight through to the bare CLI's Vulkan
-    # window, which has no scene picker UI of its own. The default path
-    # is the slangpy HUD with full chrome.
+    # MJPEG presenter survives scene changes. ``--no-hud`` without MJPEG
+    # drops straight through to the bare CLI's Vulkan window.
     if args.stream_mjpeg is not None:
         _run_streaming(args)
         return
@@ -686,11 +683,11 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     """Run the engine with the slangpy + PIL HUD presenter in one process.
 
     Builds one ``SlangPyHudPresenter`` and one long-lived
-    :class:`InteractiveDriveApp` at startup (model warmup overlaps the
-    scene-selection wait), then loops over scene-change requests calling
-    ``app.load_scene`` / ``app.run_scene`` per scene. The warmed model and the
-    window stay alive across switches (``close_presenter_on_exit=False``); the
-    wheel binds once to the app's single ``KeyboardState``.
+    :class:`InteractiveDriveApp` at startup, then loops over scene-change
+    requests calling ``app.load_scene`` / ``app.run_scene`` per scene. The
+    warmed model and the window stay alive across switches
+    (``close_presenter_on_exit=False``); the wheel binds once to the app's
+    single ``KeyboardState``.
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
 
@@ -732,14 +729,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     control_assets = _load_control_assets(args.control_assets_dir)
     wheel_selection = None if args.no_wheel else _select_wheel(args)
 
-    # Construct the presenter UPFRONT, before any backend, so the demo
-    # can open the HUD window in "Load Scene" mode and wait for the
-    # user to pick a scene from the dropdown when ``--auto-start``
-    # is off. The placeholder ``KeyboardState`` is rebound to each
-    # successive ``InteractiveDriveApp``'s real keyboard via
-    # ``presenter.bind_keyboard`` in the factory below; no engine is
-    # listening to the placeholder, so events are harmlessly dropped
-    # during the initial wait.
+    # Construct the presenter before the backend. The placeholder
+    # ``KeyboardState`` is rebound to the app's real keyboard via
+    # ``presenter.bind_keyboard`` in the factory below.
     placeholder_keyboard = KeyboardState()
     app: InteractiveDriveApp | None = None
     presenter = SlangPyHudPresenter(
@@ -756,13 +748,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         ),
     )
 
-    # Build the backend + engine ONCE, up front. Constructing the app
-    # starts the (scene-independent) model warmup on the pipeline worker
-    # thread immediately, so the long weight-load + compile overlaps with
-    # the user's scene-selection wait below instead of starting only after
-    # the first pick. The app owns one long-lived KeyboardState and rebinds
-    # the presenter to it; scenes are switched in place via
-    # ``app.load_scene`` so the warmed model is never rebuilt.
+    # Build the backend + engine once. The app owns one long-lived
+    # KeyboardState and rebinds the presenter to it; scenes are switched in
+    # place via ``app.load_scene`` so the warmed model is never rebuilt.
     config, backend = _cli.prepare_config_and_backend(args)
     app = _build_application(
         args,
@@ -779,11 +767,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         callback=app.set_postprocess_enabled,
     )
 
-    # Attach the wheel up front, bound to the app's long-lived keyboard, so
-    # the HUD's steering / pedal chrome reacts to the physical device during
-    # the initial scene-selection wait -- not only once a scene is running.
-    # The evdev reader thread starts now and runs for the process lifetime;
-    # the single keyboard means it never needs rebinding across scenes.
+    # Attach the wheel up front, bound to the app's long-lived keyboard. The
+    # evdev reader thread starts now and runs for the process lifetime; the
+    # single keyboard means it never needs rebinding across scenes.
     wheel: Any = None
     if wheel_selection is not None:
         profile, device_paths = wheel_selection
@@ -801,38 +787,19 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             for opt in scene_options
             for variant in (opt.variants or ("default",))
         )
-        # Lock scene selection until every scene is cached so the user only
+        # Lock scene changes until every scene is cached so the user only
         # ever hits the instant (cache-hit) switch path.
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
-    # A dropdown selection can override the configured map below.
     scene_path: Any = config.scene_path
     variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
-    presenter.acknowledge_scene_change(scene_path, variant)
     try:
-        # ``need_selection`` drives the scene-selection wait: True on first
-        # launch (unless ``--auto-start``) and again every time the user
-        # exits a scene back to the selector. While waiting the engine is
-        # idle, so the video model stops generating -- the whole point of the
-        # exit-scene affordance for long-running demos -- without closing the
-        # window or dropping the warmed model.
-        need_selection = not args.auto_start
-        # --auto-start + --preload-scenes: wait for the preloader to finish
-        # before the auto-load below so it hits the cache instead of racing
-        # the background thread with a second parse of the same USDZ.
-        if args.auto_start and app.preload_in_progress():
+        if app.preload_in_progress():
             presenter.wait_while_preloading(app.preload_in_progress)
+        presenter.acknowledge_scene_change(scene_path, variant)
         while True:
-            if need_selection:
-                request = presenter.wait_for_scene_selection()
-                if request is None:
-                    break  # window closed before any scene was loaded
-                scene_path, variant = request
-                presenter.acknowledge_scene_change(scene_path, variant)
-                need_selection = False
-
             presenter.set_engine_active(True)
-            # load_scene parses the USDZ on a background thread while keeping
+            # load_scene compiles the map on a background thread while keeping
             # the window responsive; it returns False if the window closed
             # (or a new scene was requested) before the parse finished, so
             # we skip run_scene and let the pending checks below decide
@@ -841,11 +808,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
                 app.run_scene()
             presenter.set_engine_active(False)
             if presenter.pending_exit_scene:
-                # ``x`` / bound exit button: tear down the rollout and go
-                # back to the selector over the same presenter.
                 presenter.acknowledge_exit_scene()
-                need_selection = True
-                continue
+                break
             requested = presenter.pending_scene_change
             if requested is None:
                 # Window closed (X / ESC) during load or run; we're done.
@@ -862,8 +826,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     Like :func:`_run_slangpy_hud` but with a long-lived
     :class:`MJPEGStreamingPresenter`: the HTTP server / browser sessions stay
-    alive across scene swaps while only the scene is rebuilt. Scene options are
-    serialised to JSON for the in-browser ``/scenes`` dropdown.
+    alive across scene swaps while only the scene is rebuilt.
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
 
@@ -961,11 +924,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
         **({"stream_token": stream_token} if stream_token is not None else {}),
     )
 
-    # Build the backend + engine once so the model warms up (on the
-    # pipeline worker thread) while the browser is still choosing the first
-    # scene. The app rebinds the presenter to its long-lived keyboard and
-    # switches scenes in place via ``app.load_scene``, keeping the warmed
-    # model resident across scene changes.
+    # Build the backend + engine once. The app rebinds the presenter to its
+    # long-lived keyboard and switches scenes in place via ``app.load_scene``,
+    # keeping the warmed model resident across scene changes.
     config, backend = _cli.prepare_config_and_backend(args)
     app = _build_application(
         args,
@@ -988,39 +949,14 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        if args.auto_start:
-            # Headless / scriptable start: skip the browser scene picker and
-            # load the resolved ``--map`` (or the first discovered map)
-            # immediately. This lets the demo run with no GUI/browser.
-            # --auto-start + --preload-scenes: let the preloader finish first
-            # so the auto-load hits the cache instead of racing a second parse.
-            if app.preload_in_progress():
-                presenter.wait_while_preloading(app.preload_in_progress)
-            scene_path = config.scene_path
-            variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
-            presenter.acknowledge_scene_change(scene_path, variant)
-            logger.info(
-                f"[demo] streaming auto-start scene -> {scene_path.name} "
-                f"variant={variant!r}",
-            )
-        else:
-            # Don't auto-load: always wait for the browser to pick the first
-            # scene. There's no Vulkan window to show progress in, so the
-            # presenter publishes an idle overlay frame ("Loading world
-            # model..." while warmup runs in the background, then "Select a
-            # scene to begin") so connected browsers have something to render
-            # while the wait spins.
-            logger.info(
-                "[demo] streaming presenter waiting for first scene selection...",
-            )
-            request = presenter.wait_for_scene_selection()
-            if request is None:
-                return  # presenter closed before any selection (Ctrl-C)
-            scene_path, variant = request
-            presenter.acknowledge_scene_change(scene_path, variant)
-            logger.info(
-                f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-            )
+        if app.preload_in_progress():
+            presenter.wait_while_preloading(app.preload_in_progress)
+        scene_path = config.scene_path
+        variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
+        presenter.acknowledge_scene_change(scene_path, variant)
+        logger.info(
+            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
+        )
 
         while True:
             # load_scene parses the USDZ on a background thread while the
@@ -1147,7 +1083,7 @@ def _discover_scene_options(
 
 
 def _scene_option_for_game_map(path: Path) -> SceneOption:
-    """Build a scene-picker option from semantic YAML metadata."""
+    """Build scene metadata from the authored game map."""
     header = load_game_map_header(path)
     variants = tuple(variant.name for variant in header.variants)
     thumbnails: dict[str, Image.Image] = {}

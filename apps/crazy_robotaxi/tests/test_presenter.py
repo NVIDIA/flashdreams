@@ -1105,7 +1105,6 @@ def test_hud_postprocess_control_toggles_configured_preset() -> None:
     presenter._postprocess_rect = (10, 20, 110, 52)
     presenter._panel_chrome_cache_key = object()
     presenter._panel_chrome_cache = object()
-    presenter._scene_dropdown_open = False
     presenter._variant_dropdown_open = False
     presenter.set_postprocess_control(
         preset="rtx-super-resolution",
@@ -1128,32 +1127,12 @@ def test_hud_postprocess_control_ignores_click_without_configured_preset() -> No
     presenter._postprocess_preset = ""
     presenter._postprocess_enabled = False
     presenter._postprocess_callback = calls.append
-    presenter._scene_dropdown_open = False
     presenter._variant_dropdown_open = False
 
     presenter._handle_click((20, 30))
 
     assert calls == []
     assert presenter._postprocess_enabled is False
-
-
-def test_hud_scene_dropdown_blocks_underlying_upsample_toggle() -> None:
-    presenter = _hud_presenter_without_window()
-    calls: list[bool] = []
-    presenter._postprocess_rect = (10, 20, 110, 52)
-    presenter._postprocess_preset = "rtx-super-resolution-ultra"
-    presenter._postprocess_enabled = True
-    presenter._postprocess_callback = calls.append
-    presenter._scene_dropdown_open = True
-    presenter._variant_dropdown_open = False
-    presenter._scene_item_rects = []
-    presenter._scene_header_rect = None
-    presenter._scene_selection_locked_probe = lambda: False
-
-    presenter._handle_click((20, 30))
-
-    assert calls == []
-    assert presenter._postprocess_enabled is True
 
 
 def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> None:
@@ -1390,7 +1369,6 @@ def _hud_presenter_for_exit(selected_variant: str) -> SlangPyHudPresenter:
     presenter._should_close_flag = True
     presenter._keyboard = _ExitSceneKeyboard()
     # State cleared by _reset_scene_view_state.
-    presenter._scene_dropdown_open = True
     presenter._variant_dropdown_open = True
     presenter._camera_resize_cache_key = object()
     presenter._camera_resize_cache = object()

@@ -45,6 +45,8 @@ def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
     assert 'id="score-rows"' in _INDEX_HTML
     assert 'id="new-game"' in _INDEX_HTML
     assert 'id="taxi-boundaries"' not in _INDEX_HTML
+    assert 'id="scene-picker"' not in _INDEX_HTML
+    assert "fetchScenes" not in _INDEX_HTML
 
 
 def test_streaming_presenter_materializes_lazy_rgba_frames() -> None:

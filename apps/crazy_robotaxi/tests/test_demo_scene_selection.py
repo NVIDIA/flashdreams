@@ -100,7 +100,7 @@ def test_resolve_scene_variant_falls_back_to_first_authored_variant(
 
 
 class _FakePresenter:
-    """Records the scene-selection calls ``_run_streaming`` makes."""
+    """Records the scene lifecycle calls ``_run_streaming`` makes."""
 
     def __init__(self, **_kwargs: object) -> None:
         self.wait_for_scene_selection_calls = 0
@@ -121,8 +121,6 @@ class _FakePresenter:
         self.calls.append("wait_while_preloading")
 
     def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        # The whole point of --auto-start is that this never runs; record any
-        # call so the test can assert the picker was skipped.
         self.wait_for_scene_selection_calls += 1
         return None
 
@@ -146,8 +144,7 @@ class _FakeApp:
     ) -> None:
         self.loaded: list[tuple[Path, str]] = []
         self.ran = 0
-        # Successive return values for preload_in_progress(); the auto-start
-        # path checks it once before deciding to wait on the preloader.
+        # Successive return values for preload_in_progress().
         self._preload_states = list(preload_states)
 
     def model_ready(self) -> bool:
@@ -169,16 +166,19 @@ class _FakeApp:
 
 
 @pytest.mark.parametrize("preloading", [False, True])
-def test_run_streaming_auto_start_skips_scene_picker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preloading: bool
+@pytest.mark.parametrize("auto_start", [False, True])
+def test_run_streaming_starts_command_line_map(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preloading: bool,
+    auto_start: bool,
 ) -> None:
     scene = tmp_path / "scene.robotaxi.yaml"
     scene.write_bytes(b"")
     option = SceneOption(label="scene", path=scene, variants=("default",))
 
     presenter = _FakePresenter()
-    # When preloading, preload_in_progress() reports True on the first check so
-    # the auto-start path must wait for the preloader, then False afterwards.
+    # When preloading, preload_in_progress() reports True on the first check.
     app = _FakeApp(preload_states=(True, False) if preloading else (False,))
 
     monkeypatch.setattr(
@@ -212,7 +212,7 @@ def test_run_streaming_auto_start_skips_scene_picker(
         stream_mjpeg="8080",
         preload_scenes=False,
         prompt=None,
-        auto_start=True,
+        auto_start=auto_start,
     )
 
     demo_mod._run_streaming(args)

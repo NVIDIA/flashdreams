@@ -182,7 +182,7 @@ class GameMapVisualVariant:
     """Seed image and prompt for one visual variant."""
 
     name: str
-    """Variant slug exposed by the scene selector."""
+    """Variant slug used to select this visual conditioning."""
 
     image: str
     """Map-relative path or ``package://package/resource`` asset reference."""

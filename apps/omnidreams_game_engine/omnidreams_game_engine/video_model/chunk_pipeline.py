@@ -102,8 +102,7 @@ class ChunkPipeline:
         self._worker_error_lock = threading.Lock()
         self._worker_error: BaseException | None = None
         # Set once ``warmup_model`` finishes on the worker thread (or fails).
-        # Lets callers overlap the scene-selection wait with the model load
-        # and show a "ready" affordance once the model is resident.
+        # Lets callers detect when the model is resident.
         self._model_ready = threading.Event()
         # Set once the worker queues its first generated chunk -- i.e. the
         # one-time first-chunk optimization is done. Never cleared; the model

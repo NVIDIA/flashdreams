@@ -9,12 +9,11 @@ Launch the native game:
 flashdreams-run crazy-robotaxi
 ```
 
-Select the bundled performance manifest and load the map immediately:
+Select the bundled performance manifest:
 
 ```bash
 flashdreams-run crazy-robotaxi \
-  --world-model-manifest example_world_model_perf.yaml \
-  --auto-start True
+  --world-model-manifest example_world_model_perf.yaml
 ```
 
 `flashdreams-run` reserves `--manifest` for its launch-manifest format. Use
@@ -137,8 +136,7 @@ edited copies independently:
 ```bash
 flashdreams-run crazy-robotaxi \
   --renderer-config /path/to/renderer.yaml \
-  --game-config /path/to/game.yaml \
-  --auto-start True
+  --game-config /path/to/game.yaml
 ```
 
 Existing explicit CLI tuning flags override YAML values. The world-model
@@ -162,8 +160,7 @@ Select a map with either entry point:
 
 ```bash
 flashdreams-run crazy-robotaxi \
-  --map /path/to/city.robotaxi.yaml \
-  --auto-start True
+  --map /path/to/city.robotaxi.yaml
 ```
 
 Validate a map or produce a top-down SVG without loading a model:

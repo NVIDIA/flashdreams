@@ -30,9 +30,8 @@ class RenderBackend(ABC):
     def can_prewarm(self) -> bool:
         """Whether :meth:`warmup_model` does its heavy build without a scene.
 
-        ``True`` lets the demo start loading the model immediately at
-        launch, overlapping warmup with the scene-selection wait. ``False``
-        means the build is deferred until the first :meth:`load_scene`
+        ``True`` lets the demo start loading the model immediately at launch.
+        ``False`` means the build is deferred until the first :meth:`load_scene`
         (e.g. the world model under ``--offload-text-encoder``, which must
         precompute per-scene embeddings and free the one-shot encoders
         before allocating the diffusion pipeline to keep peak VRAM low).

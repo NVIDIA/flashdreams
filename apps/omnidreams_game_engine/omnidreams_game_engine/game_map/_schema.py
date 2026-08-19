@@ -63,7 +63,7 @@ class GameMapError(ValueError):
 
 @dataclass(frozen=True)
 class GameMapHeader:
-    """Cheap scene-picker metadata read without compiling geometry."""
+    """Game-map metadata read without compiling geometry."""
 
     map_id: str
     name: str
