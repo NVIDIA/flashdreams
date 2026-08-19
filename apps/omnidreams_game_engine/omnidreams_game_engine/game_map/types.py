@@ -67,7 +67,7 @@ class GameMapNode:
     """Stable author-defined node identifier."""
 
     node_type: str
-    """Node discriminator: intersection, cul-de-sac, parking lot, or driveway."""
+    """Node discriminator such as intersection, road joint, or parking lot."""
 
     x_m: float
     """Map-space x coordinate of the node origin."""
@@ -85,7 +85,7 @@ class GameMapNode:
     """Effective node attributes after applying profile defaults."""
 
     geometry: dict[str, float]
-    """Validated node-type-specific footprint dimensions."""
+    """Validated node-type-specific geometry parameters."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -629,7 +629,8 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 ),
                 attributes=_attributes_from_dict(
                     dict(raw["attributes"]),
-                    linear=str(raw["node_type"]) in {"driveway", "parking_lot"},
+                    linear=str(raw["node_type"])
+                    in {"driveway", "parking_lot", "road_joint"},
                 ),
                 geometry={
                     str(key): float(item) for key, item in raw["geometry"].items()
@@ -711,7 +712,13 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             attributes=_attributes_from_dict(
                 dict(raw["attributes"]),
                 linear=str(raw["element_type"])
-                in {"road", "implicit_driveway", "driveway", "parking_lot"},
+                in {
+                    "road",
+                    "road_joint",
+                    "implicit_driveway",
+                    "driveway",
+                    "parking_lot",
+                },
             ),
             surface_world=np.asarray(raw["surface_world"], dtype=np.float32),
             road_boundaries=tuple(

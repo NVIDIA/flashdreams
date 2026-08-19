@@ -118,6 +118,7 @@ def write_game_map_preview(
             )
         node_colors = {
             "intersection": "#2d6cdf",
+            "road_joint": "#0891b2",
             "cul_de_sac": "#8b5cf6",
             "driveway": "#f59e0b",
             "parking_lot": "#059669",

@@ -116,6 +116,36 @@ enough to meet without gaps. Intersection dimensions and arm lengths are not
 authored. Road centerlines determine their endpoint tangents independently of
 node rotation.
 
+### Road joints
+
+A road joint connects exactly two compatible authored roads without creating an
+intersection. It requires `curve_length_m`:
+
+```yaml
+- id: diagonal_bend
+  type: road_joint
+  pose: {x_m: 40, y_m: 20, rotation_deg: 0}
+  curve_length_m: 12
+```
+
+The compiler measures `curve_length_m` independently along each incident road,
+trims those portions, and replaces them with one tangent-continuous cubic
+Bézier. Each control point is one `curve_length_m` from its cut point along the
+trimmed road's local tangent. For straight approaches, both controls coincide
+with the joint pose. Curved `path` and `bezier` approaches are supported, and a
+trim may cross multiple curve spans.
+
+`curve_length_m: 0` keeps a sharp change in direction at the joint pose. A
+positive-length curve does not necessarily pass through the pose; the pose is
+the original sharp-corner vertex. Node rotation does not affect the join.
+
+Both roads must resolve to compatible lane directions, widths, curb offsets,
+markings, divider markings, and curb modes when oriented through the joint.
+Their speed limits may differ. The joint emits conditioning-visible lanes and
+markings, and each directed joint lane inherits its incoming road's speed.
+Requested trims that consume an entire road or produce invalid or overlapping
+geometry are errors.
+
 ### Cul-de-sacs
 
 A cul-de-sac requires `curb` and `culdesac_radius_m` and must terminate exactly
@@ -170,8 +200,8 @@ separate, non-overlapping openings.
 
 ## Road geometry
 
-An authored road is one topological edge between intersections and/or
-cul-de-sacs:
+An authored road is one topological edge between intersections, road joints,
+and/or cul-de-sacs:
 
 ```yaml
 - id: oak_street

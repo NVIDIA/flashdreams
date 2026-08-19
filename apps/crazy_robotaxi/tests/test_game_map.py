@@ -48,6 +48,91 @@ def _write_map(tmp_path: Path, source: dict[str, object], name: str = "map") -> 
     return path
 
 
+def _road_joint_map(
+    curve_length_m: float,
+    *,
+    curved_approach: bool = False,
+) -> dict[str, object]:
+    """Build a compact two-road map around one road joint."""
+    approach: dict[str, object] = {
+        "id": "approach",
+        "from": "west_end",
+        "to": "bend",
+        "profile": "street",
+    }
+    if curved_approach:
+        approach["path"] = [{"x_m": -22, "y_m": -7}]
+    return {
+        "schema_version": 1,
+        "id": "road-joint-test",
+        "name": "Road Joint Test",
+        "compiler": {
+            "sample_spacing_m": 0.5,
+            "ground_margin_m": 5,
+            "intersection_connector_samples": 8,
+        },
+        "profiles": {
+            "street": {
+                "lane_width_m": 3.6,
+                "curb_offset_m": 0.6,
+                "lanes": ["backward", "forward"],
+                "speed_limit_mps": 13.4,
+                "curb": True,
+                "lane_marking": {"style": "SOLID_GROUP", "color": "YELLOW"},
+                "divider_markings": [{"style": "SOLID_GROUP", "color": "YELLOW"}],
+            }
+        },
+        "nodes": [
+            {
+                "id": "west_end",
+                "type": "cul_de_sac",
+                "pose": {"x_m": -45, "y_m": 0, "rotation_deg": 0},
+                "culdesac_radius_m": 8,
+                "curb": True,
+            },
+            {
+                "id": "bend",
+                "type": "road_joint",
+                "pose": {"x_m": 0, "y_m": 0, "rotation_deg": 0},
+                "curve_length_m": curve_length_m,
+            },
+            {
+                "id": "east_end",
+                "type": "cul_de_sac",
+                "pose": {"x_m": 35, "y_m": 35, "rotation_deg": 0},
+                "culdesac_radius_m": 8,
+                "curb": True,
+            },
+        ],
+        "roads": [
+            approach,
+            {
+                "id": "exit",
+                "from": "bend",
+                "to": "east_end",
+                "profile": "street",
+                "speed_limit_mps": 8,
+            },
+        ],
+        "links": [],
+        "road_attachments": [],
+        "spawns": [
+            {
+                "id": "taxi_start",
+                "road": "approach",
+                "lane": 1,
+                "distance_m": 5,
+                "variants": {
+                    "default": {
+                        "image": "package://omnidreams_game_engine/screenshot.jpg",
+                        "prompt": "A road bending through a quiet neighborhood.",
+                    }
+                },
+            }
+        ],
+    }
+
+
 def _reachable(game_map: ResolvedGameMap, start_lane_id: str) -> set[str]:
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
     pending = [start_lane_id]
@@ -371,6 +456,196 @@ def test_askew_intersection_road_angles_are_geometry_driven() -> None:
     assert start.node_id == "eastern_gateway"
     assert start.rotation_deg == pytest.approx(0)
     assert bearing == pytest.approx(75.1, abs=0.2)
+
+
+def test_road_joint_trims_roads_and_emits_visible_curve(tmp_path: Path) -> None:
+    source_path = _write_map(tmp_path, _road_joint_map(10))
+    game_map = load_game_map(source_path)
+    node = next(node for node in game_map.topology.nodes if node.node_id == "bend")
+    joint_lanes = [lane for lane in game_map.lanes if lane.element_id == "bend"]
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+
+    assert node.node_type == "road_joint"
+    assert node.geometry == {"curve_length_m": 10}
+    assert node.attributes.speed_limit_mps == pytest.approx(8)
+    assert len(joint_lanes) == 2
+    assert all(lane.conditioning_visible for lane in joint_lanes)
+    assert all(not lane.allows_taxi_stops for lane in joint_lanes)
+    assert lanes["approach:lane:1"].successor_ids == ("bend:lane:1",)
+    assert lanes["bend:lane:1"].successor_ids == ("exit:lane:1",)
+    assert lanes["bend:lane:1"].speed_limit_mps == pytest.approx(13.4)
+    assert lanes["bend:lane:0"].speed_limit_mps == pytest.approx(8)
+    assert lanes["approach:lane:1"].centerline_world[-1, 0] == pytest.approx(
+        -10, abs=0.1
+    )
+
+    joint = _surface(game_map, "bend")
+    approach = _surface(game_map, "approach")
+    exit_road = _surface(game_map, "exit")
+    assert joint.is_valid
+    assert joint.intersection(approach).area < 1.0e-4
+    assert joint.intersection(exit_road).area < 1.0e-4
+    assert joint.boundary.intersection(approach.boundary).length > 7
+    assert joint.boundary.intersection(exit_road.boundary).length > 7
+    element = next(item for item in game_map.elements if item.element_id == "bend")
+    assert element.road_boundaries
+    assert element.curbs
+    assert any(
+        divider.divider_id.startswith("bend:") for divider in game_map.lane_dividers
+    )
+
+    restored = game_map_from_dict(game_map_to_dict(game_map))
+    restored_node = next(
+        node for node in restored.topology.nodes if node.node_id == "bend"
+    )
+    assert restored_node.attributes == node.attributes
+    assert restored_node.geometry == node.geometry
+
+    preview_path = write_game_map_preview(
+        source_path, tmp_path / "road-joint-preview.svg"
+    )
+    assert "bend [node:road_joint]" in preview_path.read_text(encoding="utf-8")
+    compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    with zipfile.ZipFile(compiled.archive_path) as archive:
+        lane_rows = pq.read_table(io.BytesIO(archive.read("clipgt/lane.parquet")))
+        divider_rows = pq.read_table(
+            io.BytesIO(archive.read("clipgt/lane_line.parquet"))
+        )
+    assert lane_rows.num_rows == sum(
+        lane.conditioning_visible for lane in game_map.lanes
+    )
+    assert divider_rows.num_rows == len(game_map.lane_dividers)
+
+
+def test_zero_length_road_joint_turns_abruptly_at_node(tmp_path: Path) -> None:
+    game_map = load_game_map(_write_map(tmp_path, _road_joint_map(0)))
+    lane = next(lane for lane in game_map.lanes if lane.lane_id == "bend:lane:1")
+
+    assert len(lane.centerline_world) == 3
+    first = lane.centerline_world[1, :2] - lane.centerline_world[0, :2]
+    second = lane.centerline_world[2, :2] - lane.centerline_world[1, :2]
+    turn_deg = np.degrees(
+        np.arccos(
+            np.clip(
+                np.dot(first, second)
+                / (np.linalg.norm(first) * np.linalg.norm(second)),
+                -1,
+                1,
+            )
+        )
+    )
+    assert turn_deg == pytest.approx(45, abs=3)
+
+
+def test_road_joint_without_curbs_keeps_semantic_boundaries(tmp_path: Path) -> None:
+    source = _road_joint_map(8)
+    profiles = cast(dict[str, dict[str, Any]], source["profiles"])
+    profiles["street"]["curb"] = False
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    joint = next(
+        element for element in game_map.elements if element.element_id == "bend"
+    )
+
+    assert joint.road_boundaries
+    assert not joint.curbs
+
+
+def test_road_joint_trims_curved_approach_tangentially(tmp_path: Path) -> None:
+    game_map = load_game_map(
+        _write_map(tmp_path, _road_joint_map(8, curved_approach=True))
+    )
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    approach = lanes["approach:lane:1"].centerline_world
+    joint = lanes["bend:lane:1"].centerline_world
+    approach_tangent = approach[-1, :2] - approach[-2, :2]
+    joint_tangent = joint[1, :2] - joint[0, :2]
+    approach_tangent /= np.linalg.norm(approach_tangent)
+    joint_tangent /= np.linalg.norm(joint_tangent)
+
+    np.testing.assert_allclose(joint_tangent, approach_tangent, atol=0.08)
+
+
+def test_road_joint_trim_may_cross_curved_path_spans(tmp_path: Path) -> None:
+    source = _road_joint_map(14)
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[0]["path"] = [
+        {"x_m": -24, "y_m": -8},
+        {"x_m": -5, "y_m": -2},
+    ]
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    assert any(lane.element_id == "bend" for lane in game_map.lanes)
+
+
+def test_road_joint_normalizes_reversed_authored_road_direction(tmp_path: Path) -> None:
+    source = _road_joint_map(8)
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[1]["from"] = "east_end"
+    roads[1]["to"] = "bend"
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+
+    assert lanes["approach:lane:1"].successor_ids == ("bend:lane:1",)
+    assert lanes["bend:lane:1"].successor_ids == ("exit:lane:0",)
+
+
+def test_road_joint_rejects_incompatible_cross_sections(tmp_path: Path) -> None:
+    source = _road_joint_map(8)
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[1]["lane_width_m"] = 4.2
+
+    with pytest.raises(GameMapError, match="requires compatible road"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_road_joint_rejects_excessive_trim(tmp_path: Path) -> None:
+    with pytest.raises(GameMapError, match="too short for road-joint trims"):
+        load_game_map(_write_map(tmp_path, _road_joint_map(60)))
+
+
+def test_road_joint_requires_exactly_two_roads(tmp_path: Path) -> None:
+    source = _road_joint_map(8)
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads.pop()
+
+    with pytest.raises(GameMapError, match="must connect exactly two distinct roads"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_road_rejects_combined_trims_from_both_endpoint_joints(
+    tmp_path: Path,
+) -> None:
+    source = _road_joint_map(25)
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    east = next(node for node in nodes if node["id"] == "east_end")
+    east["type"] = "road_joint"
+    east.pop("culdesac_radius_m")
+    east.pop("curb")
+    east["curve_length_m"] = 25
+    nodes.append(
+        {
+            "id": "far_end",
+            "type": "cul_de_sac",
+            "pose": {"x_m": 75, "y_m": 35, "rotation_deg": 0},
+            "culdesac_radius_m": 8,
+            "curb": True,
+        }
+    )
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads.append(
+        {
+            "id": "tail",
+            "from": "east_end",
+            "to": "far_end",
+            "profile": "street",
+        }
+    )
+
+    with pytest.raises(GameMapError, match="trims 25 m and 25 m"):
+        load_game_map(_write_map(tmp_path, source))
 
 
 def test_path_road_is_one_topological_road() -> None:
