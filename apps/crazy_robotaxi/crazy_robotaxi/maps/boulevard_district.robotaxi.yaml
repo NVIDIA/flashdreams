@@ -40,20 +40,20 @@ profiles:
 
 nodes:
   - {id: west_boulevard_end, type: cul_de_sac, pose: {x_m: -120, y_m: 0, rotation_deg: 0}, culdesac_radius_m: 18, curb: true}
-  - {id: central_crossing, type: intersection, pose: {x_m: -35.8, y_m: 0, rotation_deg: 0}, intersection_arm_length_m: 12.87, curb: true}
-  - {id: east_crossing, type: intersection, pose: {x_m: 47.6, y_m: 0, rotation_deg: 0}, intersection_arm_length_m: 12.87, curb: true}
-  - {id: central_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 57, rotation_deg: 0}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: east_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 57, rotation_deg: 0}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: central_upper_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 110.4, rotation_deg: 180}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: east_upper_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 110.4, rotation_deg: 90}, intersection_arm_length_m: 6.237, curb: true}
+  - {id: central_crossing, type: intersection, pose: {x_m: -35.8, y_m: 0, rotation_deg: 0}, curb: true}
+  - {id: east_crossing, type: intersection, pose: {x_m: 47.6, y_m: 0, rotation_deg: 0}, curb: true}
+  - {id: central_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 57, rotation_deg: 0}, curb: true}
+  - {id: east_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 57, rotation_deg: 0}, curb: true}
+  - {id: central_upper_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 110.4, rotation_deg: 180}, curb: true}
+  - {id: east_upper_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 110.4, rotation_deg: 90}, curb: true}
   - {id: east_upper_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 47.6, y_m: 149.6, rotation_deg: 90}, culdesac_radius_m: 10, curb: true}
-  - {id: central_south_junction, type: intersection, pose: {x_m: -35.8, y_m: -51.2, rotation_deg: 270}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: east_south_junction, type: intersection, pose: {x_m: 47.6, y_m: -51.2, rotation_deg: 0}, intersection_arm_length_m: 6.93, curb: true}
-  - {id: east_lot_junction, type: intersection, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}, intersection_arm_length_m: 6.237, curb: true}
+  - {id: central_south_junction, type: intersection, pose: {x_m: -35.8, y_m: -51.2, rotation_deg: 270}, curb: true}
+  - {id: east_south_junction, type: intersection, pose: {x_m: 47.6, y_m: -51.2, rotation_deg: 0}, curb: true}
+  - {id: east_lot_junction, type: intersection, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}, curb: true}
   - {id: east_south_spur_end, type: cul_de_sac, pose: {x_m: 96, y_m: -51.2, rotation_deg: 0}, culdesac_radius_m: 10, curb: true}
-  - {id: central_lower_junction, type: intersection, pose: {x_m: -35.8, y_m: -89.6, rotation_deg: 0}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: lower_lot_junction, type: intersection, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: east_lower_junction, type: intersection, pose: {x_m: 47.6, y_m: -89.6, rotation_deg: 0}, intersection_arm_length_m: 6.237, curb: true}
+  - {id: central_lower_junction, type: intersection, pose: {x_m: -35.8, y_m: -89.6, rotation_deg: 0}, curb: true}
+  - {id: lower_lot_junction, type: intersection, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}, curb: true}
+  - {id: east_lower_junction, type: intersection, pose: {x_m: 47.6, y_m: -89.6, rotation_deg: 0}, curb: true}
   - {id: central_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 5.9, y_m: -101.8, rotation_deg: 270}}
   - {id: central_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 5.9, y_m: -125.8, rotation_deg: 270}, parking_lot_width_m: 26, parking_lot_depth_m: 32}
   - {id: east_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 71.8, y_m: -39, rotation_deg: 90}}
@@ -62,27 +62,24 @@ nodes:
   - id: eastern_gateway
     type: intersection
     pose: {x_m: 131.8, y_m: 0, rotation_deg: 0}
-    intersection_width_m: 30
-    intersection_depth_m: 28
-    intersection_arm_length_m: 16.5
     curb: true
-  - {id: eastern_north_junction, type: intersection, pose: {x_m: 149.365, y_m: 65.584, rotation_deg: 352.747}, intersection_arm_length_m: 6.237, curb: true}
+  - {id: eastern_north_junction, type: intersection, pose: {x_m: 149.365, y_m: 65.584, rotation_deg: 352.747}, curb: true}
   - {id: eastern_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 157.662, y_m: 114.931, rotation_deg: 82.747}, culdesac_radius_m: 10, curb: true}
-  - {id: eastern_lot_junction, type: intersection, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}, intersection_arm_length_m: 6.237, curb: true}
+  - {id: eastern_lot_junction, type: intersection, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}, curb: true}
   - {id: eastern_side_cul_de_sac, type: cul_de_sac, pose: {x_m: 206.513, y_m: 67.887, rotation_deg: 352.747}, culdesac_radius_m: 10, curb: true}
   - {id: eastern_lot_driveway, type: driveway, profile: parking_access, pose: {x_m: 184.048, y_m: 83.045, rotation_deg: 82.747}}
   - {id: eastern_parking_lot, type: parking_lot, profile: parking_access, pose: {x_m: 186.573, y_m: 102.885, rotation_deg: 82.747}, parking_lot_width_m: 24, parking_lot_depth_m: 24}
   - {id: eastern_south_cul_de_sac, type: cul_de_sac, pose: {x_m: 130.462, y_m: -83.44, rotation_deg: 262.747}, culdesac_radius_m: 10, curb: true}
 
-  - {id: east_spine_crossing_1, type: intersection, pose: {x_m: 283.135, y_m: -64.184, rotation_deg: 359.962}, intersection_arm_length_m: 12.87, curb: true}
-  - {id: east_spine_crossing_2, type: intersection, pose: {x_m: 361.535, y_m: -64.236, rotation_deg: 359.962}, intersection_arm_length_m: 12.87, curb: true}
-  - {id: east_spine_crossing_3, type: intersection, pose: {x_m: 439.935, y_m: -64.288, rotation_deg: 359.962}, intersection_arm_length_m: 11.583, curb: true}
-  - {id: east_spine_crossing_4, type: intersection, pose: {x_m: 518.335, y_m: -64.339, rotation_deg: 359.962}, intersection_arm_length_m: 12.87, curb: true}
+  - {id: east_spine_crossing_1, type: intersection, pose: {x_m: 283.135, y_m: -64.184, rotation_deg: 359.962}, curb: true}
+  - {id: east_spine_crossing_2, type: intersection, pose: {x_m: 361.535, y_m: -64.236, rotation_deg: 359.962}, curb: true}
+  - {id: east_spine_crossing_3, type: intersection, pose: {x_m: 439.935, y_m: -64.288, rotation_deg: 359.962}, curb: true}
+  - {id: east_spine_crossing_4, type: intersection, pose: {x_m: 518.335, y_m: -64.339, rotation_deg: 359.962}, curb: true}
   - {id: east_spine_cul_de_sac, type: cul_de_sac, pose: {x_m: 577.535, y_m: -64.378, rotation_deg: 359.962}, culdesac_radius_m: 18, curb: true}
-  - {id: east_lower_junction_1, type: intersection, pose: {x_m: 283.091, y_m: -131.184, rotation_deg: 359.962}, intersection_arm_length_m: 6.93, curb: true}
-  - {id: east_lower_junction_2, type: intersection, pose: {x_m: 361.491, y_m: -131.236, rotation_deg: 359.962}, intersection_arm_length_m: 6.93, curb: true}
-  - {id: east_lower_junction_3, type: intersection, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}, intersection_arm_length_m: 6.237, curb: true}
-  - {id: east_lower_junction_4, type: intersection, pose: {x_m: 518.291, y_m: -131.339, rotation_deg: 359.962}, intersection_arm_length_m: 6.93, curb: true}
+  - {id: east_lower_junction_1, type: intersection, pose: {x_m: 283.091, y_m: -131.184, rotation_deg: 359.962}, curb: true}
+  - {id: east_lower_junction_2, type: intersection, pose: {x_m: 361.491, y_m: -131.236, rotation_deg: 359.962}, curb: true}
+  - {id: east_lower_junction_3, type: intersection, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}, curb: true}
+  - {id: east_lower_junction_4, type: intersection, pose: {x_m: 518.291, y_m: -131.339, rotation_deg: 359.962}, curb: true}
   - {id: east_lower_west_cul_de_sac, type: cul_de_sac, pose: {x_m: 253.891, y_m: -131.165, rotation_deg: 179.962}, culdesac_radius_m: 10, curb: true}
   - {id: east_lower_south_cul_de_sac_1, type: cul_de_sac, pose: {x_m: 283.065, y_m: -170.384, rotation_deg: 269.962}, culdesac_radius_m: 10, curb: true}
   - {id: east_commercial_lot_driveway_1, type: driveway, profile: parking_access, pose: {x_m: 361.484, y_m: -143.436, rotation_deg: 269.962}}

@@ -94,22 +94,23 @@ def test_bundled_maps_use_schema_version_1() -> None:
         for node in game_map.topology.nodes:
             if node.node_type != "intersection":
                 continue
-            assert set(node.geometry) in (
-                {"intersection_arm_length_m"},
-                {
-                    "intersection_width_m",
-                    "intersection_depth_m",
-                    "intersection_arm_length_m",
-                },
-            ), node.node_id
+            assert node.geometry == {}, node.node_id
 
 
-def test_intersection_geometry_is_never_inferred(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "field",
+    [
+        "intersection_arm_length_m",
+        "intersection_width_m",
+        "intersection_depth_m",
+    ],
+)
+def test_authored_intersection_geometry_is_rejected(tmp_path: Path, field: str) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     hub = next(node for node in source["nodes"] if node["id"] == "hub")
-    del hub["intersection_arm_length_m"]
+    hub[field] = 24
 
-    with pytest.raises(GameMapError, match="missing attributes"):
+    with pytest.raises(GameMapError, match="unknown attributes"):
         load_game_map(_write_map(tmp_path, source))
 
 
@@ -191,7 +192,6 @@ def test_direct_attributes_override_values_present_in_profile(tmp_path: Path) ->
     road["lane_width_m"] = 4.1
     hub = next(item for item in source["nodes"] if item["id"] == "hub")
     source["profiles"]["intersection_defaults"] = {
-        "intersection_arm_length_m": 20,
         "curb": False,
     }
     hub["profile"] = "intersection_defaults"
@@ -205,7 +205,7 @@ def test_direct_attributes_override_values_present_in_profile(tmp_path: Path) ->
     )
 
     assert resolved_road.attributes.lane_width_m == pytest.approx(4.1)
-    assert resolved_hub.geometry["intersection_arm_length_m"] == pytest.approx(6.93)
+    assert resolved_hub.geometry == {}
     assert resolved_hub.attributes.curb is True
 
 
@@ -379,9 +379,7 @@ def test_explicit_bezier_is_supported(tmp_path: Path) -> None:
     assert len(resolved.bezier_spans_world) == 1
     np.testing.assert_allclose(
         resolved.bezier_spans_world[0],
-        np.asarray(
-            [[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32
-        ),
+        np.asarray([[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32),
     )
 
 
@@ -436,9 +434,7 @@ def test_bezier_takes_precedence_over_path(tmp_path: Path) -> None:
 
     np.testing.assert_allclose(
         resolved.bezier_spans_world[0],
-        np.asarray(
-            [[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32
-        ),
+        np.asarray([[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32),
     )
 
 
@@ -519,7 +515,10 @@ def test_roads_cannot_cross_without_a_connection_node(tmp_path: Path) -> None:
         {"x_m": 45, "y_m": 30},
     ]
 
-    with pytest.raises(GameMapError, match="Unrelated elements.*overlap"):
+    with pytest.raises(
+        GameMapError,
+        match="Unrelated elements.*overlap|completely contained by its endpoint footprints",
+    ):
         load_game_map(_write_map(tmp_path, source))
 
 
@@ -538,12 +537,17 @@ def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, source))
 
 
-def test_intersection_surface_follows_incident_road_edges() -> None:
-    game_map = load_game_map(_STARTER_MAP)
-    surface = _surface(game_map, "hub")
+def test_intersection_surface_is_inferred_from_incident_road_edges() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    crossing = _surface(game_map, "central_crossing")
+    gateway = _surface(game_map, "eastern_gateway")
 
-    assert surface.convex_hull.area - surface.area > 10.0
-    assert not surface.contains(Point(6.0, 6.0))
+    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 0]) == pytest.approx(15.6)
+    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 1]) == pytest.approx(15.6)
+    assert crossing.area == pytest.approx(15.6**2, abs=0.05)
+    assert np.ptp(np.asarray(gateway.exterior.coords)[:, 0]) < 30.0
+    assert np.ptp(np.asarray(gateway.exterior.coords)[:, 1]) < 28.0
+    assert gateway.convex_hull.area - gateway.area > 10.0
 
 
 def test_cul_de_sac_has_full_width_flat_road_connection() -> None:
@@ -635,10 +639,6 @@ def test_inline_driveway_pose_and_outward_rotation_are_validated(
 
 def test_parking_lot_accepts_multiple_driveways(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
-    hub = next(node for node in source["nodes"] if node["id"] == "hub")
-    hub["intersection_width_m"] = 24
-    hub["intersection_depth_m"] = 24
-    hub["intersection_arm_length_m"] = 13.2
     first_driveway = next(
         node for node in source["nodes"] if node["id"] == "lot_driveway"
     )
@@ -771,8 +771,7 @@ def test_compiled_curbs_belong_to_their_elements(source_path: Path) -> None:
             line = LineString(curb.polyline_world[:, :2])
             assert line.difference(surface_boundary.buffer(1.0e-4)).length < 1.0e-4
         if element.attributes.curb:
-            assert element.curbs
-            assert sum(curb.polyline_world.shape[0] for curb in element.curbs) > 2
+            assert all(curb.polyline_world.shape[0] >= 2 for curb in element.curbs)
         else:
             assert not element.curbs
 

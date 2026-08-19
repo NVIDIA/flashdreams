@@ -31,7 +31,6 @@ nodes:
   - id: hub
     type: intersection
     pose: {x_m: 0, y_m: 0, rotation_deg: 0}
-    intersection_arm_length_m: 6.93
     curb: true
 
   - id: dead_end

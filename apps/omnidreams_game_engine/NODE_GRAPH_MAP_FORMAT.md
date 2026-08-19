@@ -97,27 +97,22 @@ may be supplied directly or by profile.
 
 ### Intersections
 
-An intersection requires `curb` and `intersection_arm_length_m`:
+An intersection requires `curb`:
 
 ```yaml
 - id: askew_junction
   type: intersection
   pose: {x_m: 0, y_m: 0, rotation_deg: 45}
-  intersection_arm_length_m: 9
   curb: true
 ```
 
-Each arm follows its incident road or access path. An oversized intersection
-may add a rotated rectangular core by providing both optional dimensions:
-
-```yaml
-intersection_width_m: 24
-intersection_depth_m: 16
-intersection_arm_length_m: 13.2
-```
-
-There are no inferred core dimensions or default arm lengths. Road centerlines
-determine their endpoint tangents independently of node rotation.
+The compiler infers the intersection footprint from its incident roads and
+access paths. Each opening uses that element's paved width and endpoint tangent.
+Adjacent road-edge lines determine how far each arm must reach, so orthogonal
+roads form a compact rectangular junction while acute approaches extend far
+enough to meet without gaps. Intersection dimensions and arm lengths are not
+authored. Road centerlines determine their endpoint tangents independently of
+node rotation.
 
 ### Cul-de-sacs
 

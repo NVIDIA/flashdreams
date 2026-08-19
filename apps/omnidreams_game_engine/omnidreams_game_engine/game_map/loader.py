@@ -68,14 +68,7 @@ _LINEAR_ATTRIBUTE_FIELDS = frozenset(
 )
 
 _NODE_ATTRIBUTE_FIELDS = {
-    "intersection": frozenset(
-        {
-            "curb",
-            "intersection_arm_length_m",
-            "intersection_width_m",
-            "intersection_depth_m",
-        }
-    ),
+    "intersection": frozenset({"curb"}),
     "cul_de_sac": frozenset({"curb", "culdesac_radius_m"}),
     "parking_lot": frozenset(
         {
@@ -220,7 +213,7 @@ def _parse_nodes(
         context = f"node {node_id!r}"
         allowed = _NODE_ATTRIBUTE_FIELDS[node_type]
         required = {
-            "intersection": frozenset({"curb", "intersection_arm_length_m"}),
+            "intersection": frozenset({"curb"}),
             "cul_de_sac": frozenset({"curb", "culdesac_radius_m"}),
             "parking_lot": frozenset(
                 {
@@ -239,25 +232,11 @@ def _parse_nodes(
             required_fields=required,
             context=context,
         )
-        if node_type == "intersection":
-            core = {
-                key
-                for key in ("intersection_width_m", "intersection_depth_m")
-                if key in values
-            }
-            if core not in (set(), {"intersection_width_m", "intersection_depth_m"}):
-                raise GameMapError(
-                    f"Intersection {node_id!r} must provide both "
-                    "intersection_width_m and intersection_depth_m"
-                )
         geometry = {
             key: float(item)
             for key, item in values.items()
             if key
             in {
-                "intersection_arm_length_m",
-                "intersection_width_m",
-                "intersection_depth_m",
                 "culdesac_radius_m",
                 "parking_lot_width_m",
                 "parking_lot_depth_m",
@@ -362,9 +341,7 @@ def _bezier_spans(
             controls[1],
             f"road {road_id!r}.bezier[{span_index}].control_points[1]",
         )
-        span_end = _point(
-            span["end"], f"road {road_id!r}.bezier[{span_index}].end"
-        )
+        span_end = _point(span["end"], f"road {road_id!r}.bezier[{span_index}].end")
         if np.linalg.norm(control_1 - cursor) <= _POSITION_TOLERANCE_M:
             raise GameMapError(
                 f"Road {road_id!r} span {span_index} has a degenerate start tangent"
@@ -684,6 +661,76 @@ def _polyline_prefix(points: np.ndarray, length_m: float) -> np.ndarray:
     return np.asarray(prefix.coords, dtype=np.float64)
 
 
+def _inferred_intersection_arm_reaches(
+    incident: list[tuple[np.ndarray, float]],
+) -> list[float]:
+    """Infer compact arm reaches from incident widths and approach geometry."""
+    directions: list[np.ndarray] = []
+    left_normals: list[np.ndarray] = []
+    for path, _width in incident:
+        direction = path[1] - path[0]
+        direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
+        directions.append(direction)
+        left_normals.append(np.asarray([-direction[1], direction[0]]))
+
+    reaches = [width * 0.5 for _path, width in incident]
+    order = sorted(
+        range(len(incident)),
+        key=lambda index: math.atan2(directions[index][1], directions[index][0]),
+    )
+    for order_index, first_index in enumerate(order):
+        second_index = order[(order_index + 1) % len(order)]
+        first_direction = directions[first_index]
+        second_direction = directions[second_index]
+        matrix = np.column_stack((first_direction, -second_direction))
+        if abs(float(np.linalg.det(matrix))) <= 1.0e-9:
+            continue
+        first_width = incident[first_index][1]
+        second_width = incident[second_index][1]
+        first_edge = left_normals[first_index] * first_width * 0.5
+        second_edge = -left_normals[second_index] * second_width * 0.5
+        first_reach, second_reach = np.linalg.solve(matrix, second_edge - first_edge)
+        if first_reach > 0.0:
+            reaches[first_index] = max(reaches[first_index], float(first_reach))
+        if second_reach > 0.0:
+            reaches[second_index] = max(reaches[second_index], float(second_reach))
+
+    center = Point(incident[0][0][0])
+    maximum_width = max(width for _path, width in incident)
+    local_paths = [
+        _polyline_prefix(path, max(reach * 2.0, reach + maximum_width))
+        for (path, _width), reach in zip(incident, reaches, strict=True)
+    ]
+    centerlines = [LineString(path) for path in local_paths]
+    surfaces = [
+        centerline.buffer(width * 0.5, cap_style=2, join_style=2)
+        for centerline, (_path, width) in zip(centerlines, incident, strict=True)
+    ]
+    for first_index, first_surface in enumerate(surfaces):
+        for second_index in range(first_index + 1, len(surfaces)):
+            overlap = first_surface.intersection(surfaces[second_index])
+            polygon_parts = (
+                [overlap]
+                if overlap.geom_type == "Polygon"
+                else [
+                    part
+                    for part in getattr(overlap, "geoms", ())
+                    if part.geom_type == "Polygon"
+                ]
+            )
+            for part in polygon_parts:
+                if part.area <= _AREA_TOLERANCE_M2 or part.distance(center) > 1.0e-6:
+                    continue
+                coordinates = np.asarray(part.exterior.coords, dtype=np.float64)
+                for index in (first_index, second_index):
+                    reach = max(
+                        centerlines[index].project(Point(coordinate))
+                        for coordinate in coordinates
+                    )
+                    reaches[index] = max(reaches[index], float(reach))
+    return reaches
+
+
 def _node_polygons(
     topology: GameMapTopology,
     raw_roads: dict[str, np.ndarray],
@@ -745,21 +792,14 @@ def _node_polygons(
                 polygon = polygon.difference(road_surface)
         elif node.node_type == "intersection":
             incident = incidences[node.node_id]
-            if "intersection_width_m" in node.geometry:
-                core: BaseGeometry = Polygon(
-                    _rectangle(
-                        node,
-                        node.geometry["intersection_width_m"],
-                        node.geometry["intersection_depth_m"],
-                    )
+            if not incident:
+                raise GameMapError(
+                    f"Intersection {node.node_id!r} must have at least one incidence"
                 )
-                arms: list[BaseGeometry] = [core]
-            else:
-                arms = []
-            for path, opening_width in incident:
-                arm_path = _polyline_prefix(
-                    path, node.geometry["intersection_arm_length_m"]
-                )
+            arms: list[BaseGeometry] = []
+            reaches = _inferred_intersection_arm_reaches(incident)
+            for (path, opening_width), reach in zip(incident, reaches, strict=True):
+                arm_path = _polyline_prefix(path, reach)
                 direction = arm_path[1] - arm_path[0]
                 direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
                 arm_path = np.vstack(
@@ -771,10 +811,6 @@ def _node_polygons(
                         cap_style=2,
                         join_style=2,
                     )
-                )
-            if not arms:
-                raise GameMapError(
-                    f"Intersection {node.node_id!r} must have at least one incidence"
                 )
             polygon = unary_union(arms).buffer(0)
         elif node.node_type == "cul_de_sac":
