@@ -108,7 +108,7 @@ class GameMapRoad:
     """Effective road attributes after applying profile defaults."""
 
     bezier_spans_world: tuple[FloatArray, ...]
-    """Map-space cubic spans with shape ``[4, 3]``; empty means straight."""
+    """Compiler-generated map-space cubic spans shaped ``[4, 3]``; empty is straight."""
 
     def __eq__(self, other: object) -> bool:
         """Compare road metadata and cubic span values."""

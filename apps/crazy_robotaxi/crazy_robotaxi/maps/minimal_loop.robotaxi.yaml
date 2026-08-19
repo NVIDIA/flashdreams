@@ -57,15 +57,11 @@ roads:
     from: hub
     to: hub
     profile: neighborhood
-    bezier_spans:
-      - control_points: [{x_m: 30, y_m: 0}, {x_m: 45, y_m: 0}]
-        endpoint: {x_m: 45, y_m: 15}
-      - control_points: [{x_m: 45, y_m: 35}, {x_m: 45, y_m: 50}]
-        endpoint: {x_m: 30, y_m: 50}
-      - control_points: [{x_m: -30, y_m: 50}, {x_m: -45, y_m: 35}]
-        endpoint: {x_m: -45, y_m: 15}
-      - control_points: [{x_m: -45, y_m: 0}, {x_m: -30, y_m: 0}]
-        endpoint: {x_m: 0, y_m: 0}
+    path:
+      - {x_m: 45, y_m: 15}
+      - {x_m: 45, y_m: 50}
+      - {x_m: -45, y_m: 50}
+      - {x_m: -45, y_m: 15}
 
   - id: dead_end_road
     from: hub

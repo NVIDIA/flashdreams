@@ -37,7 +37,7 @@ that do not apply to an element are ignored.
 
 After combining direct values and profile defaults, every required attribute
 must have a value or compilation fails. Identity, pose, topology, and road
-paths are not profile attributes.
+geometry are not profile attributes.
 
 Linear elements use these attributes:
 
@@ -116,7 +116,7 @@ intersection_depth_m: 16
 intersection_arm_length_m: 13.2
 ```
 
-There are no inferred core dimensions or default arm lengths. Road Bézier spans
+There are no inferred core dimensions or default arm lengths. Road centerlines
 determine their endpoint tangents independently of node rotation.
 
 ### Cul-de-sacs
@@ -171,7 +171,7 @@ source: either an intersection link or an inline road attachment. The compiler
 gives the driveway node a small junction surface so access edges meet it at
 separate, non-overlapping openings.
 
-## Roads and curves
+## Road geometry
 
 An authored road is one topological edge between intersections and/or
 cul-de-sacs:
@@ -183,28 +183,56 @@ cul-de-sacs:
   profile: neighborhood
 ```
 
-It uses the linear attributes. Without `bezier_spans`, its centerline is the
-straight segment between node poses. A self-loop therefore requires Bézier
-spans.
+It uses the linear attributes. Without `path` or `bezier`, its centerline is
+the straight segment between node poses. A self-loop therefore requires one of
+those fields.
 
-`bezier_spans` is one or more map-space cubic Bézier spans. Each span starts at
-the previous endpoint, has exactly two controls, and has an explicit endpoint.
-The final endpoint must equal the `to` node pose.
+For normal hand-authored maps, `path` is a list of map-space points the road
+centerline passes through. The `from` node pose is the implicit first point and
+the `to` node pose is the implicit final point. The compiler derives smooth
+cubic spans through the authored points.
 
 ```yaml
 - id: river_road
   from: west_junction
   to: east_junction
   profile: neighborhood
-  bezier_spans:
-    - control_points: [{x_m: 20, y_m: 0}, {x_m: 35, y_m: 12}]
-      endpoint: {x_m: 45, y_m: 15}
-    - control_points: [{x_m: 55, y_m: 18}, {x_m: 70, y_m: 5}]
-      endpoint: {x_m: 80, y_m: 5}
+  path:
+    - {x_m: 45, y_m: 15}
+    - {x_m: 70, y_m: 5}
 ```
 
-Intermediate anchors and controls are geometry only; they do not become graph
-nodes.
+The resulting centerline is:
+
+```text
+west_junction pose -> (45, 15) -> (70, 5) -> east_junction pose
+```
+
+Intermediate path points are geometry only; they do not become graph nodes.
+
+For imported or precision-authored geometry, `bezier` supplies exact cubic
+Bézier spans. Each span starts at the previous endpoint and has exactly two
+control points plus an endpoint:
+
+```yaml
+- id: imported_curve
+  from: west_junction
+  to: east_junction
+  profile: neighborhood
+  bezier:
+    - control_points: [{x_m: 20, y_m: 0}, {x_m: 35, y_m: 12}]
+      end: {x_m: 45, y_m: 15}
+    - control_points: [{x_m: 55, y_m: 18}, {x_m: 70, y_m: 5}]
+      end: {x_m: 80, y_m: 5}
+```
+
+An `end` closes its span and becomes the next span's implicit start. The final
+`end` must match the `to` node pose within 0.05m. Control points pull the curve
+toward themselves; the centerline does not generally pass through them.
+
+A road may include both fields. Both must be valid, and `bezier` determines the
+compiled geometry when present. This lets a generated or precision-authored
+curve override a simpler editable `path` without conflating the two formats.
 
 ## Parking access
 

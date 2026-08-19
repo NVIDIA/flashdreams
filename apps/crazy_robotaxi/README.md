@@ -148,13 +148,13 @@ renderer, or game. All three YAML formats reject missing and unknown fields.
 Crazy Robotaxi maps use schema version 1 of the engine's node-graph format.
 Roads are topological edges; intersections, cul-de-sacs, parking lots, and
 driveways are explicitly posed graph nodes. A node's footprint rotation is
-independent of the bearings and Bézier tangents of roads connected to it.
+independent of the bearings and centerline tangents of roads connected to it.
 
 The complete, authoritative format is documented in
 [`../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md`](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
 The bundled `minimal_loop.robotaxi.yaml` is a compact working example, while
 `boulevard_district.robotaxi.yaml` demonstrates arbitrary-angle intersections,
-multi-span curves, mixed road profiles, cul-de-sacs, and several parking lots.
+smooth road paths, mixed road profiles, cul-de-sacs, and several parking lots.
 
 Select a map with either entry point:
 

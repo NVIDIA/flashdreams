@@ -85,7 +85,7 @@ def test_bundled_maps_use_schema_version_1() -> None:
         "parking_lot",
     }
     assert len(starter.topology.roads) == 2
-    assert len(starter.topology.roads[0].bezier_spans_world) == 4
+    assert len(starter.topology.roads[0].bezier_spans_world) == 5
     assert len(boulevard.topology.nodes) == 44
     assert len(boulevard.topology.roads) == 41
     assert len(boulevard.topology.direct_links) == 10
@@ -322,7 +322,7 @@ def test_askew_intersection_road_angles_are_geometry_driven() -> None:
     assert bearing == pytest.approx(75.1, abs=0.2)
 
 
-def test_multi_span_curve_is_one_topological_road() -> None:
+def test_path_road_is_one_topological_road() -> None:
     game_map = load_game_map(_STARTER_MAP)
     road = next(
         item for item in game_map.topology.roads if item.road_id == "neighborhood_loop"
@@ -330,7 +330,11 @@ def test_multi_span_curve_is_one_topological_road() -> None:
     road_lanes = [lane for lane in game_map.lanes if lane.element_id == road.road_id]
 
     assert road.from_node_id == road.to_node_id == "hub"
-    assert len(road.bezier_spans_world) == 4
+    assert len(road.bezier_spans_world) == 5
+    np.testing.assert_allclose(
+        road.bezier_spans_world[0][3],
+        np.asarray([45, 15, 0], dtype=np.float32),
+    )
     assert len(road_lanes) == 2
     assert (
         max(
@@ -348,23 +352,171 @@ def test_multi_span_curve_is_one_topological_road() -> None:
     )
 
 
-def test_malformed_curve_is_rejected(tmp_path: Path) -> None:
+def test_malformed_path_points_are_rejected(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
-    loop["bezier_spans"][-1]["endpoint"] = {"x_m": 1, "y_m": 0}
+    loop["path"][0] = {"x_m": 0, "y_m": 0}
 
-    with pytest.raises(GameMapError, match="final Bézier endpoint"):
+    with pytest.raises(GameMapError, match="degenerate segment"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_explicit_bezier_is_supported(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["bezier"] = [
+        {
+            "control_points": [{"x_m": 0, "y_m": 10}, {"x_m": 0, "y_m": 20}],
+            "end": {"x_m": 0, "y_m": 30},
+        }
+    ]
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved = next(
+        item for item in game_map.topology.roads if item.road_id == "dead_end_road"
+    )
+
+    assert len(resolved.bezier_spans_world) == 1
+    np.testing.assert_allclose(
+        resolved.bezier_spans_world[0],
+        np.asarray(
+            [[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32
+        ),
+    )
+
+
+@pytest.mark.parametrize("field", ["path", "bezier"])
+def test_road_geometry_fields_must_not_be_empty(tmp_path: Path, field: str) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road[field] = []
+
+    with pytest.raises(GameMapError, match=rf"\.{field} must not be empty"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_path_rejects_bezier_spans(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["path"] = [
+        {
+            "control_points": [{"x_m": 0, "y_m": 15}, {"x_m": 0, "y_m": 20}],
+            "end": {"x_m": 0, "y_m": 30},
+        }
+    ]
+
+    with pytest.raises(GameMapError, match="put explicit spans under bezier"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_bezier_rejects_path_points(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["bezier"] = [{"x_m": 0, "y_m": 15}]
+
+    with pytest.raises(GameMapError, match="Bezier spans require"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_bezier_takes_precedence_over_path(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["path"] = [{"x_m": 10, "y_m": 15}]
+    road["bezier"] = [
+        {
+            "control_points": [{"x_m": 0, "y_m": 10}, {"x_m": 0, "y_m": 20}],
+            "end": {"x_m": 0, "y_m": 30},
+        }
+    ]
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved = next(
+        item for item in game_map.topology.roads if item.road_id == "dead_end_road"
+    )
+
+    np.testing.assert_allclose(
+        resolved.bezier_spans_world[0],
+        np.asarray(
+            [[0, 0, 0], [0, 10, 0], [0, 20, 0], [0, 30, 0]], dtype=np.float32
+        ),
+    )
+
+
+def test_path_is_validated_when_bezier_is_present(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["path"] = [{"x_m": 10}]
+    road["bezier"] = [
+        {
+            "control_points": [{"x_m": 0, "y_m": 10}, {"x_m": 0, "y_m": 20}],
+            "end": {"x_m": 0, "y_m": 30},
+        }
+    ]
+
+    with pytest.raises(GameMapError, match="requires exactly x_m and y_m"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_bezier_final_endpoint_must_match_to_node(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
+    road["bezier"] = [
+        {
+            "control_points": [{"x_m": 0, "y_m": 10}, {"x_m": 0, "y_m": 20}],
+            "end": {"x_m": 1, "y_m": 30},
+        }
+    ]
+
+    with pytest.raises(GameMapError, match="final Bezier endpoint"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_self_loop_supports_explicit_bezier(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
+    del loop["path"]
+    loop["bezier"] = [
+        {
+            "control_points": [{"x_m": 30, "y_m": 0}, {"x_m": 45, "y_m": 0}],
+            "end": {"x_m": 45, "y_m": 15},
+        },
+        {
+            "control_points": [{"x_m": 45, "y_m": 35}, {"x_m": 45, "y_m": 50}],
+            "end": {"x_m": 30, "y_m": 50},
+        },
+        {
+            "control_points": [{"x_m": -30, "y_m": 50}, {"x_m": -45, "y_m": 35}],
+            "end": {"x_m": -45, "y_m": 15},
+        },
+        {
+            "control_points": [{"x_m": -45, "y_m": 0}, {"x_m": -30, "y_m": 0}],
+            "end": {"x_m": 0, "y_m": 0},
+        },
+    ]
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    resolved = next(
+        item for item in game_map.topology.roads if item.road_id == "neighborhood_loop"
+    )
+
+    assert len(resolved.bezier_spans_world) == 4
+
+
+def test_self_loop_requires_path_or_bezier(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
+    del loop["path"]
+
+    with pytest.raises(GameMapError, match="requires path or bezier"):
         load_game_map(_write_map(tmp_path, source))
 
 
 def test_roads_cannot_cross_without_a_connection_node(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     road = next(item for item in source["roads"] if item["id"] == "dead_end_road")
-    road["bezier_spans"] = [
-        {
-            "control_points": [{"x_m": 45, "y_m": 0}, {"x_m": 45, "y_m": 30}],
-            "endpoint": {"x_m": 0, "y_m": 30},
-        }
+    road["path"] = [
+        {"x_m": 45, "y_m": 0},
+        {"x_m": 45, "y_m": 30},
     ]
 
     with pytest.raises(GameMapError, match="Unrelated elements.*overlap"):
