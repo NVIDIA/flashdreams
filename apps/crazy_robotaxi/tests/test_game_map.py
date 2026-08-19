@@ -146,9 +146,25 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
         if "curb" in node:
             node["curb"] = False
 
-    game_map = load_game_map(_write_map(tmp_path, source))
+    source_path = _write_map(tmp_path, source)
+    game_map = load_game_map(source_path)
 
     assert not any(element.curbs for element in game_map.elements)
+    assert any(element.road_boundaries for element in game_map.elements)
+    rows = game_map_compiler._boundary_rows(game_map)
+    assert len(rows) == sum(
+        len(element.road_boundaries) for element in game_map.elements
+    )
+    assert all(row["road_boundary"]["category"] == "road_boundary" for row in rows)
+    compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    with zipfile.ZipFile(compiled.archive_path) as archive:
+        archived_rows = pq.read_table(
+            io.BytesIO(archive.read("clipgt/road_boundary.parquet"))
+        ).to_pylist()
+    assert len(archived_rows) == len(rows)
+    assert all(
+        row["road_boundary"]["category"] == "road_boundary" for row in archived_rows
+    )
 
 
 def test_profile_is_optional_when_attributes_are_direct(tmp_path: Path) -> None:
@@ -271,6 +287,17 @@ def test_topology_round_trip_is_lossless() -> None:
         np.testing.assert_array_equal(
             restored_element.surface_world, original_element.surface_world
         )
+        assert [
+            boundary.boundary_id for boundary in restored_element.road_boundaries
+        ] == [boundary.boundary_id for boundary in original_element.road_boundaries]
+        for restored_boundary, original_boundary in zip(
+            restored_element.road_boundaries,
+            original_element.road_boundaries,
+            strict=True,
+        ):
+            np.testing.assert_array_equal(
+                restored_boundary.polyline_world, original_boundary.polyline_world
+            )
         assert [curb.curb_id for curb in restored_element.curbs] == [
             curb.curb_id for curb in original_element.curbs
         ]
@@ -280,6 +307,30 @@ def test_topology_round_trip_is_lossless() -> None:
             np.testing.assert_array_equal(
                 restored_curb.polyline_world, original_curb.polyline_world
             )
+
+
+def test_legacy_serialized_curbs_supply_missing_road_boundaries() -> None:
+    serialized = game_map_to_dict(load_game_map(_STARTER_MAP))
+    for element in serialized["elements"]:
+        element.pop("road_boundaries")
+
+    restored = game_map_from_dict(serialized)
+
+    for element in restored.elements:
+        assert len(element.road_boundaries) == len(element.curbs)
+        for boundary, curb in zip(element.road_boundaries, element.curbs, strict=True):
+            np.testing.assert_array_equal(boundary.polyline_world, curb.polyline_world)
+
+
+def test_serialized_road_boundaries_do_not_require_physical_curbs() -> None:
+    serialized = game_map_to_dict(load_game_map(_STARTER_MAP))
+    for element in serialized["elements"]:
+        element.pop("curbs")
+
+    restored = game_map_from_dict(serialized)
+
+    assert any(element.road_boundaries for element in restored.elements)
+    assert not any(element.curbs for element in restored.elements)
 
 
 def test_node_rotation_does_not_change_road_path(tmp_path: Path) -> None:
@@ -733,7 +784,7 @@ def test_every_authored_join_has_exact_non_overlapping_surfaces(
 
 
 @pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
-def test_connected_surface_seams_do_not_emit_curbs(source_path: Path) -> None:
+def test_connected_surface_seams_do_not_emit_boundaries(source_path: Path) -> None:
     game_map = load_game_map(source_path)
     elements = {element.element_id: element for element in game_map.elements}
     surfaces = {
@@ -754,19 +805,22 @@ def test_connected_surface_seams_do_not_emit_curbs(source_path: Path) -> None:
 
     for first_id, second_id in pairs:
         seam = surfaces[first_id].boundary.intersection(surfaces[second_id].boundary)
-        seam_curbs = sum(
-            LineString(curb.polyline_world[:, :2]).intersection(seam).length
+        seam_boundaries = sum(
+            LineString(boundary.polyline_world[:, :2]).intersection(seam).length
             for element_id in (first_id, second_id)
-            for curb in elements[element_id].curbs
+            for boundary in elements[element_id].road_boundaries
         )
-        assert seam_curbs <= 1.0e-4, (first_id, second_id, seam_curbs)
+        assert seam_boundaries <= 1.0e-4, (first_id, second_id, seam_boundaries)
 
 
 @pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
-def test_compiled_curbs_belong_to_their_elements(source_path: Path) -> None:
+def test_compiled_boundaries_belong_to_their_elements(source_path: Path) -> None:
     game_map = load_game_map(source_path)
     for element in game_map.elements:
         surface_boundary = Polygon(element.surface_world[:, :2]).boundary
+        for boundary in element.road_boundaries:
+            line = LineString(boundary.polyline_world[:, :2])
+            assert line.difference(surface_boundary.buffer(1.0e-4)).length < 1.0e-4
         for curb in element.curbs:
             line = LineString(curb.polyline_world[:, :2])
             assert line.difference(surface_boundary.buffer(1.0e-4)).length < 1.0e-4
@@ -821,7 +875,7 @@ def test_final_clipgt_archive_contains_all_authored_map_geometry(
         )
         assert actual == expected, road["id"]
     assert boundaries.num_rows == sum(
-        len(element.curbs) for element in compiled.game_map.elements
+        len(element.road_boundaries) for element in compiled.game_map.elements
     )
     assert intersections.num_rows == sum(
         node.node_type == "intersection" for node in compiled.game_map.topology.nodes

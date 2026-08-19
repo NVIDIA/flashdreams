@@ -46,6 +46,7 @@ from omnidreams_game_engine.game_map.types import (
     GameMapNode,
     GameMapRoad,
     GameMapRoadAttachment,
+    GameMapRoadBoundary,
     GameMapSpawn,
     GameMapTopology,
     ResolvedGameMap,
@@ -916,11 +917,11 @@ def _boundary_window(
     return lines[0] if len(lines) == 1 else unary_union(lines)
 
 
-def _curbs_for_elements(
+def _boundaries_for_elements(
     elements: list[GameMapElement],
     connections: list[_Connection],
 ) -> list[GameMapElement]:
-    """Validate element contacts and attach connection-aware curb polylines."""
+    """Validate contacts and attach semantic boundaries and physical curbs."""
     polygons = {
         element.element_id: Polygon(element.surface_world[:, :2])
         for element in elements
@@ -989,9 +990,6 @@ def _curbs_for_elements(
 
     resolved: list[GameMapElement] = []
     for element in elements:
-        if not element.attributes.curb:
-            resolved.append(element)
-            continue
         boundary: BaseGeometry = polygons[element.element_id].boundary
         for opening in openings[element.element_id]:
             boundary = boundary.difference(
@@ -1010,15 +1008,26 @@ def _curbs_for_elements(
                 round(float(np.max(points[:, 1])), 6),
             ),
         )
-        curbs = tuple(
-            GameMapCurb(
-                curb_id=f"{element.element_id}:curb:{index}",
+        road_boundaries = tuple(
+            GameMapRoadBoundary(
+                boundary_id=f"{element.element_id}:road_boundary:{index}",
                 polyline_world=_xyz(points),
             )
             for index, points in enumerate(parts)
             if len(points) >= 2
         )
-        resolved.append(replace(element, curbs=curbs))
+        curbs = (
+            tuple(
+                GameMapCurb(
+                    curb_id=f"{element.element_id}:curb:{index}",
+                    polyline_world=road_boundary.polyline_world,
+                )
+                for index, road_boundary in enumerate(road_boundaries)
+            )
+            if element.attributes.curb
+            else ()
+        )
+        resolved.append(replace(element, road_boundaries=road_boundaries, curbs=curbs))
     return resolved
 
 
@@ -1346,6 +1355,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 profile_id=road.profile_id,
                 attributes=attributes,
                 surface_world=_surface_array(surface),
+                road_boundaries=(),
                 curbs=(),
             )
         )
@@ -1397,6 +1407,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 profile_id=driveway.profile_id,
                 attributes=attributes,
                 surface_world=_surface_array(surface),
+                road_boundaries=(),
                 curbs=(),
             )
         )
@@ -1460,6 +1471,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 profile_id=node.profile_id,
                 attributes=node.attributes,
                 surface_world=_surface_array(polygon),
+                road_boundaries=(),
                 curbs=(),
             )
         )
@@ -1616,7 +1628,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         )
         for lane in lanes
     )
-    elements = _curbs_for_elements(elements, connections)
+    elements = _boundaries_for_elements(elements, connections)
     elements = [
         replace(
             element,

@@ -77,6 +77,11 @@ def write_game_map_preview(
             f'fill="none" stroke="{color}" stroke-width="1.5"/>'
         )
     for element in game_map.elements:
+        for boundary in element.road_boundaries:
+            lines.append(
+                f'<polyline points="{_points(boundary.polyline_world[:, :2], convert)}" '
+                'fill="none" stroke="#8b929c" stroke-width="1.5"/>'
+            )
         for curb in element.curbs:
             lines.append(
                 f'<polyline points="{_points(curb.polyline_world[:, :2], convert)}" '

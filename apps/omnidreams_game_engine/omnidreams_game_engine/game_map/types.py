@@ -286,8 +286,22 @@ class GameMapElement:
     surface_world: FloatArray
     """Closed surface polygon with shape ``[N, 3]``."""
 
+    road_boundaries: tuple[GameMapRoadBoundary, ...]
+    """Element-owned semantic boundary polylines excluding declared openings."""
+
     curbs: tuple[GameMapCurb, ...]
-    """Element-owned curb polylines excluding declared openings."""
+    """Physical curb polylines used as collision barriers."""
+
+
+@dataclass(frozen=True)
+class GameMapRoadBoundary:
+    """One semantic road-boundary polyline owned by a resolved map element."""
+
+    boundary_id: str
+    """Stable compiler-generated identifier scoped to the owning element."""
+
+    polyline_world: FloatArray
+    """World-space boundary points with shape ``[N, 3]``."""
 
 
 @dataclass(frozen=True)
@@ -479,6 +493,13 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "profile_id": element.profile_id,
                 "attributes": _attributes_to_dict(element.attributes),
                 "surface_world": element.surface_world.tolist(),
+                "road_boundaries": [
+                    {
+                        "boundary_id": boundary.boundary_id,
+                        "polyline_world": boundary.polyline_world.tolist(),
+                    }
+                    for boundary in element.road_boundaries
+                ],
                 "curbs": [
                     {
                         "curb_id": curb.curb_id,
@@ -693,12 +714,23 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 in {"road", "implicit_driveway", "driveway", "parking_lot"},
             ),
             surface_world=np.asarray(raw["surface_world"], dtype=np.float32),
+            road_boundaries=tuple(
+                GameMapRoadBoundary(
+                    boundary_id=str(
+                        boundary.get("boundary_id", boundary.get("curb_id"))
+                    ),
+                    polyline_world=np.asarray(
+                        boundary["polyline_world"], dtype=np.float32
+                    ),
+                )
+                for boundary in raw.get("road_boundaries", raw.get("curbs", []))
+            ),
             curbs=tuple(
                 GameMapCurb(
                     curb_id=str(curb["curb_id"]),
                     polyline_world=np.asarray(curb["polyline_world"], dtype=np.float32),
                 )
-                for curb in raw["curbs"]
+                for curb in raw.get("curbs", [])
             ),
         )
         for raw in value["elements"]

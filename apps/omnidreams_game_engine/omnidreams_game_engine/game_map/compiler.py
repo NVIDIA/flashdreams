@@ -180,16 +180,16 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
 def _boundary_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     return [
         {
-            "key": _key(game_map, curb.curb_id),
+            "key": _key(game_map, boundary.boundary_id),
             "road_boundary": {
-                "location": [_point(point) for point in curb.polyline_world],
-                "category": "curb",
+                "location": [_point(point) for point in boundary.polyline_world],
+                "category": "road_boundary",
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
         for element in game_map.elements
-        for curb in element.curbs
+        for boundary in element.road_boundaries
     ]
 
 

@@ -55,8 +55,10 @@ divider_markings:
 There must be one divider marking for every adjacent lane pair. The paved
 surface width is `lane_width_m * len(lanes) + 2 * curb_offset_m`.
 
-`curb: true` generates physical curb boundaries for the element, excluding its
-declared connections. `curb: false` leaves those boundaries non-colliding.
+Every element emits semantic road-boundary polylines around its surface,
+excluding declared connections. Those boundaries are always included in HD-map
+conditioning. `curb: true` also makes them physical collision barriers;
+`curb: false` leaves them non-colliding.
 
 For example, a road can inherit most values while overriding its width:
 
