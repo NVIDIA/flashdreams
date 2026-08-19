@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Matched microbenchmarks for Torch and Triton multi-head attention.
+"""Microbenchmarks for Triton multi-head attention.
 
-Both implementations use identical geometry and random weights.
+All cases use identical geometry and deterministic random weights.
 
 Run the manual GPU benchmarks with::
 
@@ -27,7 +27,6 @@ Run the manual GPU benchmarks with::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 
 import pytest
 import torch
@@ -35,7 +34,6 @@ from pytest_benchmark.fixture import BenchmarkFixture
 from torch import Tensor
 
 from flashdreams.accelerated.multi_head_attention import AttentionType, QKNormScope
-from flashdreams.accelerated.multi_head_attention_torch import TorchMultiHeadAttention
 from flashdreams.accelerated.multi_head_attention_triton import (
     QKVFusionOption,
     SDPABackend,
@@ -54,60 +52,42 @@ _WARMUP_ROUNDS = 5
 """Warmup calls used to absorb kernel compilation and autotuning."""
 
 _BENCHMARK_ROUNDS = 50
-"""Measured calls used for each implementation comparison."""
-
-
-class _Implementation(str, Enum):
-    """Multi-head attention implementations covered by the benchmark."""
-
-    REFERENCE_TORCH = "reference_torch"
-    TRITON = "triton"
+"""Measured calls used for each benchmark case."""
 
 
 @dataclass(frozen=True)
 class _ImplementationCase:
-    """One implementation-specific row within a shared benchmark group."""
+    """One Triton configuration within a shared benchmark group."""
 
-    implementation: _Implementation
-    """Attention implementation exercised by this row."""
+    sdpa_backend: SDPABackend
+    """Triton attention backend."""
 
-    sdpa_backend: SDPABackend | None = None
-    """Triton attention backend, or ``None`` for the Torch reference."""
+    qkv_fusion_option: QKVFusionOption
+    """Triton projection fusion policy."""
 
     use_fp8: bool = False
-    """Whether the Triton row enables FP8 projections and supported storage."""
-
-    qkv_fusion_option: QKVFusionOption | None = None
-    """Triton projection fusion policy, or ``None`` for the Torch reference."""
+    """Whether the case enables FP8 projections and supported storage."""
 
     @property
     def id(self) -> str:
         """Return a stable pytest identifier for this implementation row."""
-        if self.implementation is _Implementation.REFERENCE_TORCH:
-            return "reference-torch"
-        assert self.sdpa_backend is not None
-        assert self.qkv_fusion_option is not None
         backend = "fa2" if self.sdpa_backend is SDPABackend.TRITON else "cudnn"
         precision = "fp8" if self.use_fp8 else "bf16"
         fusion = self.qkv_fusion_option.value.replace("_", "-")
         return f"triton-{backend}-{precision}-{fusion}"
 
 
-_IMPLEMENTATION_CASES = (
-    _ImplementationCase(_Implementation.REFERENCE_TORCH),
-    *(
-        _ImplementationCase(
-            implementation=_Implementation.TRITON,
-            sdpa_backend=sdpa_backend,
-            use_fp8=use_fp8,
-            qkv_fusion_option=qkv_fusion_option,
-        )
-        for sdpa_backend in SDPABackend
-        for use_fp8 in (False, True)
-        for qkv_fusion_option in QKVFusionOption
-    ),
+_IMPLEMENTATION_CASES = tuple(
+    _ImplementationCase(
+        sdpa_backend=sdpa_backend,
+        qkv_fusion_option=qkv_fusion_option,
+        use_fp8=use_fp8,
+    )
+    for sdpa_backend in SDPABackend
+    for use_fp8 in (False, True)
+    for qkv_fusion_option in QKVFusionOption
 )
-"""Torch reference followed by every Triton backend, precision, and fusion row."""
+"""Every Triton backend, precision, and fusion row."""
 
 _SHARED_CONFIGS = tuple(
     pytest.param(
@@ -124,82 +104,7 @@ _SHARED_CONFIGS = tuple(
     for rope_interleaved in (False, True)
     for bias in (False, True)
 )
-"""Policies shared by Torch and Triton, each mapped to its own benchmark group."""
-
-
-class _TorchMultiHeadAttention(TorchMultiHeadAttention):
-    """Canonical Torch attention implementation used by benchmarks."""
-
-    @property
-    def query_projection(self) -> torch.nn.Linear:
-        """Return the canonical query projection."""
-        return self.q_proj
-
-    @property
-    def key_projection(self) -> torch.nn.Linear:
-        """Return the canonical key projection."""
-        return self.k_proj
-
-    @property
-    def value_projection(self) -> torch.nn.Linear:
-        """Return the canonical value projection."""
-        return self.v_proj
-
-    @property
-    def output_projection(self) -> torch.nn.Linear:
-        """Return the canonical output projection."""
-        return self.output_proj
-
-    @property
-    def query_norm(self) -> torch.nn.Module:
-        """Return the canonical query normalization."""
-        return self.q_norm
-
-    @property
-    def key_norm(self) -> torch.nn.Module:
-        """Return the canonical key normalization."""
-        return self.k_norm
-
-    def __init__(
-        self,
-        query_dim: int,
-        n_heads: int = 8,
-        head_dim: int = 64,
-        *,
-        context_dim: int | None = None,
-        attention_type: AttentionType = AttentionType.SELF_ATTENTION,
-        qkv_bias: bool = False,
-        output_bias: bool = False,
-        qk_norm_scope: QKNormScope = QKNormScope.HEAD,
-        rope_interleaved: bool = False,
-    ) -> None:
-        """Initialize canonical projections and normalization modules."""
-        super().__init__(
-            query_dim=query_dim,
-            n_heads=n_heads,
-            head_dim=head_dim,
-            context_dim=context_dim,
-            attention_type=attention_type,
-            qk_norm_scope=qk_norm_scope,
-            rope_interleaved=rope_interleaved,
-        )
-        self.q_proj = torch.nn.Linear(self.query_dim, self.inner_dim, bias=qkv_bias)
-        self.k_proj = torch.nn.Linear(self.context_dim, self.inner_dim, bias=qkv_bias)
-        self.v_proj = torch.nn.Linear(self.context_dim, self.inner_dim, bias=qkv_bias)
-        self.output_proj = torch.nn.Linear(
-            self.inner_dim, self.query_dim, bias=output_bias
-        )
-        if self.qk_norm_scope is QKNormScope.NONE:
-            self.q_norm = torch.nn.Identity()
-            self.k_norm = torch.nn.Identity()
-        else:
-            norm_dim = (
-                self.head_dim
-                if self.qk_norm_scope is QKNormScope.HEAD
-                else self.inner_dim
-            )
-            self.q_norm = torch.nn.RMSNorm(norm_dim, eps=self.qk_norm_eps)
-            self.k_norm = torch.nn.RMSNorm(norm_dim, eps=self.qk_norm_eps)
+"""Policies shared by every Triton case, each mapped to its own benchmark group."""
 
 
 class _TritonMultiHeadAttention(TritonMultiHeadAttention):
@@ -284,19 +189,16 @@ class _TritonMultiHeadAttention(TritonMultiHeadAttention):
         self._initialize_derived_weights()
 
 
-_Attention = _TorchMultiHeadAttention | _TritonMultiHeadAttention
-
 _BATCH_SIZE = 1
 _DTYPE = torch.bfloat16
 _SEED = 42
 _SINK_SIZE = 0
 
-
 _QUERY_DIM = 2048
-"""Input and output feature width shared by both implementations."""
+"""Input and output feature width shared by all cases."""
 
 _N_HEADS = 16
-"""Number of attention heads shared by both implementations."""
+"""Number of attention heads shared by all cases."""
 
 _HEAD_DIM = _QUERY_DIM // _N_HEADS
 
@@ -316,37 +218,9 @@ def _make_attention(
     qk_norm_scope: QKNormScope,
     rope_interleaved: bool,
     bias: bool,
-) -> _Attention:
-    """Build one weight-matched Torch reference or Triton implementation.
-
-    Args:
-        case: Implementation-specific backend, precision, and fusion settings.
-        attention_type: Whether to configure streaming self-attention or static
-            cross-attention.
-        qk_norm_scope: Shared Q/K normalization policy.
-        rope_interleaved: Shared rotary-pair layout.
-        bias: Whether every Q/K/V and output projection uses a bias.
-
-    Returns:
-        Configured attention module with deterministic random weights.
-    """
-    reference = _TorchMultiHeadAttention(
-        query_dim=_QUERY_DIM,
-        context_dim=_QUERY_DIM,
-        n_heads=_N_HEADS,
-        head_dim=_HEAD_DIM,
-        attention_type=attention_type,
-        qkv_bias=bias,
-        output_bias=bias,
-        qk_norm_scope=qk_norm_scope,
-        rope_interleaved=rope_interleaved,
-    )
-    if case.implementation is _Implementation.REFERENCE_TORCH:
-        return reference
-
-    assert case.sdpa_backend is not None
-    assert case.qkv_fusion_option is not None
-    triton_attention = _TritonMultiHeadAttention(
+) -> _TritonMultiHeadAttention:
+    """Build one deterministic Triton benchmark case."""
+    return _TritonMultiHeadAttention(
         query_dim=_QUERY_DIM,
         context_dim=_QUERY_DIM,
         n_heads=_N_HEADS,
@@ -360,8 +234,6 @@ def _make_attention(
         use_fp8=case.use_fp8,
         sdpa_backend=case.sdpa_backend,
     )
-    triton_attention.load_state_dict(reference.state_dict(), strict=True)
-    return triton_attention
 
 
 @torch.inference_mode()
@@ -392,8 +264,7 @@ def _benchmark_multi_head_attention(
         pytest.skip("Multi-head attention benchmark requires bfloat16 support.")
 
     device = torch.device("cuda")
-    is_triton = case.implementation is _Implementation.TRITON
-    if is_triton and torch.cuda.get_device_capability(device)[0] < 9:
+    if torch.cuda.get_device_capability(device)[0] < 9:
         pytest.skip(
             "Triton accelerated attention requires compute capability 9.0 or newer."
         )
@@ -451,22 +322,14 @@ def _benchmark_multi_head_attention(
         )
     )
 
-    sdpa_backend = (
-        case.sdpa_backend.value if case.sdpa_backend is not None else "torch_auto"
-    )
-    qkv_fusion_option = (
-        case.qkv_fusion_option.value
-        if case.qkv_fusion_option is not None
-        else "not_applicable"
-    )
     cache_dtype = (
         torch.float8_e4m3fn
-        if (is_triton and case.use_fp8 and case.sdpa_backend is SDPABackend.TRITON)
+        if case.use_fp8 and case.sdpa_backend is SDPABackend.TRITON
         else _DTYPE
     )
     benchmark.extra_info.update(
         {
-            "implementation": case.implementation.value,
+            "implementation": "triton",
             "implementation_case": case.id,
             "attention_type": attention_type.value,
             "timed_region": (
@@ -492,9 +355,9 @@ def _benchmark_multi_head_attention(
             "output_bias": bias,
             "qk_norm_scope": qk_norm_scope.value,
             "rope_interleaved": rope_interleaved,
-            "sdpa_backend": sdpa_backend,
-            "qkv_fusion_option": qkv_fusion_option,
-            "use_fp8": case.use_fp8 if is_triton else False,
+            "sdpa_backend": case.sdpa_backend.value,
+            "qkv_fusion_option": case.qkv_fusion_option.value,
+            "use_fp8": case.use_fp8,
             "cache_state": (
                 "full_rolling_window"
                 if attention_type is AttentionType.SELF_ATTENTION
@@ -586,11 +449,11 @@ def test_self_attention_benchmark(
     rope_interleaved: bool,
     bias: bool,
 ) -> None:
-    """Compare streaming self-attention within one shared-policy group.
+    """Benchmark streaming self-attention within one shared-policy group.
 
     Args:
         benchmark: Pytest benchmark fixture used to record synchronized timings.
-        case: Torch reference or one Triton backend, precision, and fusion row.
+        case: Triton backend, precision, and fusion row.
         qk_norm_scope: Shared Q/K normalization policy defining the group.
         rope_interleaved: Shared rotary-pair layout defining the group.
         bias: Shared projection-bias policy defining the group.
@@ -621,11 +484,11 @@ def test_cross_attention_benchmark(
     rope_interleaved: bool,
     bias: bool,
 ) -> None:
-    """Compare end-to-end cross-attention within one shared-policy group.
+    """Benchmark end-to-end cross-attention within one shared-policy group.
 
     Args:
         benchmark: Pytest benchmark fixture used to record synchronized timings.
-        case: Torch reference or one Triton backend, precision, and fusion row.
+        case: Triton backend, precision, and fusion row.
         qk_norm_scope: Shared Q/K normalization policy defining the group.
         rope_interleaved: Shared rotary-pair layout defining the group.
         bias: Shared projection-bias policy defining the group.
