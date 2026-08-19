@@ -100,8 +100,6 @@ understanding. Do not add annotations that force casts or repeat obvious types.
 - Private methods need concise docstrings when their purpose is not obvious.
 - Prefer plain language over architecture jargon.
 - Explain invariants and non-obvious constraints, not line-by-line mechanics.
-- Keep docs, examples, and launch commands synchronized with real entry points.
-- Use the repository SPDX header on new source files.
 
 ## Tests Prove Behavior
 
