@@ -61,9 +61,10 @@ def run_session(
 
     The window ends the run by reporting a :class:`CloseUserInputEventData`, and
     restarts it by reporting a :class:`ResetUserInputEventData`, which resets the
-    session and takes the step index back to zero. The window stays open. Results
-    still waiting when a reset arrives are discarded, since the client asked to
-    start over rather than to see the generation it abandoned.
+    session and takes the step index back to zero. The window stays open. Nothing
+    from the abandoned generation is presented: each result carries the generation
+    it was produced for, so results already waiting and a step that was still
+    running when the reset arrived are both dropped rather than written.
 
     Input is not split at a reset: the batch carrying it reaches the first step
     afterwards whole, earlier events included. Events are edges, so a key held
@@ -110,7 +111,12 @@ def run_session(
     # Backpressure is all here. Finished results wait here for the I/O thread to
     # write, and once max_pending of them are waiting, generation blocks in
     # add_pending_result, or drops the oldest result when asked to instead.
-    pending_results: queue.Queue[StepResult] = queue.Queue(maxsize=max_pending)
+    # Each result carries the generation it was produced for, so a reset can tell
+    # what belongs to the run the client abandoned from what belongs to the new one.
+    pending_results: queue.Queue[tuple[int, StepResult]] = queue.Queue(
+        maxsize=max_pending
+    )
+    generation = 0
     # Only the I/O thread may read the window, so input waits here for the next step.
     collected_events: list[UserInputEvent] = []
     collected_events_lock = threading.Lock()
@@ -121,41 +127,36 @@ def run_session(
     dropped_for_space = 0
     discarded_at_reset = 0
 
-    def discard_pending_results() -> int:
-        """Throw away every waiting result, returning how many were lost."""
-        count = 0
-        while True:
-            try:
-                pending_results.get_nowait()
-            except queue.Empty:
-                return count
-            count += 1
-
     def present_pending_results() -> None:
         """Write every waiting result to the window, oldest first.
 
         Because each tick writes all of them, results only pile up when writing
         itself is slower than generation, not merely because the UI rate is lower.
+        Results the client reset away from are dropped here rather than written,
+        which is also what frees the room they were holding.
         """
+        nonlocal discarded_at_reset
         while True:
             try:
-                result = pending_results.get_nowait()
+                result_generation, result = pending_results.get_nowait()
             except queue.Empty:
                 return
+            if result_generation != generation:
+                discarded_at_reset += 1
+                continue
             window.write(result)
 
     def tick() -> None:
-        nonlocal discarded_at_reset
+        nonlocal generation
         events = window.get_user_input_events()
         with collected_events_lock:
             collected_events.extend(events.get_events())
-            # Drop the abandoned generation from here, since this thread sees the
-            # reset first and is the one that would otherwise present it. It has to
-            # happen under the lock: the moment the reset is visible to the step
-            # loop, that loop can produce a result for the new generation, and
-            # discarding after releasing would throw that one away instead.
+            # Move on to the next generation from here, since this thread sees the
+            # reset first. Under the lock, so a step already picking up its input
+            # either belongs to the generation being abandoned or to the new one,
+            # never to neither.
             if _contains(events, ResetUserInputEventData):
-                discarded_at_reset += discard_pending_results()
+                generation += 1
         # Stop from here rather than waiting for the step loop to notice, so a
         # slow step does not delay a client that has gone away.
         if _contains(events, CloseUserInputEventData):
@@ -166,18 +167,14 @@ def run_session(
     def run_io() -> None:
         try:
             window.open(session.session_desc)
-        except Exception as error:
-            io_failure.append(error)
-            opened.set()
-            return
-
-        try:
             # Collect once before generation starts, so the first step sees input
             # the window already has.
             tick()
             opened.set()
-            while not stop.is_set():
-                stop.wait(tick_seconds)
+            # Stop as soon as the wait says to. Ticking once more would poll input
+            # the stopped run can no longer act on, and a reset in that poll would
+            # throw away the results it just finished.
+            while not stop.wait(tick_seconds):
                 tick()
             # Present anything the final step produced after the last tick.
             present_pending_results()
@@ -190,31 +187,38 @@ def run_session(
             except Exception as error:
                 # Closing is where a sink finishes the writes it was holding, so
                 # swallowing this would report a run as complete when the output
-                # never landed.
+                # never landed. An open that raised part way through gets closed
+                # here too, since it still holds whatever it had acquired.
                 io_failure.append(error)
 
-    def take_collected_events() -> UserInputEvents:
+    def take_collected_events() -> tuple[UserInputEvents, int]:
+        """Take the input waiting for the next step, and the generation it is for."""
         with collected_events_lock:
             events = UserInputEvents(list(collected_events))
             collected_events.clear()
-        return events
+            return events, generation
 
-    def add_pending_result(result: StepResult) -> int:
+    def add_pending_result(result_generation: int, result: StepResult) -> int:
         """Hand one result to the I/O thread, applying ``when_full``.
 
         This is where backpressure reaches generation, since no room for a result
         is the only thing that ever slows this thread down.
 
+        Args:
+            result_generation: Generation this result was produced for.
+            result: Finished result to hand over.
+
         Returns:
             How many waiting results were dropped to make room.
         """
+        pending = (result_generation, result)
         if when_full is WhenFull.DROP_OLDEST:
             # Keep the newest and lose the stale, so a client behind a slow window
             # sees the present rather than catching up through the backlog.
             dropped = 0
             while True:
                 try:
-                    pending_results.put_nowait(result)
+                    pending_results.put_nowait(pending)
                     return dropped
                 except queue.Full:
                     try:
@@ -228,7 +232,7 @@ def run_session(
         # the waiting results and a plain put would never return.
         while not (stop.is_set() or io_failure):
             try:
-                pending_results.put(result, timeout=tick_seconds)
+                pending_results.put(pending, timeout=tick_seconds)
                 break
             except queue.Full:
                 continue
@@ -247,11 +251,13 @@ def run_session(
         while steps is None or steps_run < steps:
             if io_failure or stop.is_set():
                 break
-            events = take_collected_events()
+            events, step_generation = take_collected_events()
             if _contains(events, ResetUserInputEventData):
                 session.reset()
                 step_index = 0
-            dropped_for_space += add_pending_result(session.step(step_index, events))
+            dropped_for_space += add_pending_result(
+                step_generation, session.step(step_index, events)
+            )
             step_index += 1
             steps_run += 1
     finally:

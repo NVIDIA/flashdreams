@@ -346,6 +346,57 @@ def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
     assert held_key in session.observed_events[0].get_events()
 
 
+def test_run_session_keeps_the_last_result_when_a_reset_arrives_too_late() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+    window = RecordingClientWindow(
+        log,
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+    )
+
+    run_session(session, window, steps=1)
+
+    # A reset the run never acts on cannot cost it the result it did finish, so
+    # the loop stops polling once the run has stopped.
+    assert [result.step_index for result in window.results] == [0]
+
+
+def test_run_session_drops_a_result_the_reset_interrupted() -> None:
+    log = CallLog()
+    reset_reported = threading.Event()
+
+    class SlowFirstStep(FakeSession):
+        """Stay inside the first step until the window has reported the reset."""
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            if step_index == 0 and not reset_reported.is_set():
+                reset_reported.wait()
+            return super().step(step_index, events)
+
+    class ResettingWindow(RecordingClientWindow):
+        """Announce the reset, which is the only input this window reports."""
+
+        def get_user_input_events(self) -> UserInputEvents:
+            events = super().get_user_input_events()
+            if events.get_events():
+                reset_reported.set()
+            return events
+
+    session = SlowFirstStep(_session_desc(), log)
+    window = ResettingWindow(
+        log,
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+    )
+
+    run_session(session, window, steps=2)
+
+    # The first step was still running when the client asked to start over, so
+    # what it produced belongs to a generation nobody is watching any more. Only
+    # the step from after the reset reaches the window.
+    assert log.calls.count("session.step(0)") == 2
+    assert [result.step_index for result in window.results] == [0]
+
+
 def test_run_session_presents_every_result_when_blocking() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
@@ -461,6 +512,7 @@ def test_run_session_reports_a_window_that_fails_to_open() -> None:
     with pytest.raises(RuntimeError, match="open failed"):
         run_session(session, window, steps=2)
 
-    # Generation never starts, but the session is still closed.
+    # Generation never starts, but an open that raised part way through still
+    # holds what it had acquired, so both halves are closed anyway.
     assert "session.step(0)" not in log.calls
-    assert log.calls[-1] == "session.close"
+    assert log.calls[-2:] == ["window.close", "session.close"]

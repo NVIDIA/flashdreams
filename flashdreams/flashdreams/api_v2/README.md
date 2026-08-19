@@ -36,8 +36,10 @@ Agreed design decisions. Change them by discussion.
   runtime creating a second session.
 - Application and session logic, including UI rendering, runs on the server side
   and is presented or streamed to a client window.
-- The `UserInputEventData` types cover the input modalities supported today, and
-  the runtime owns that set. Integrations consume them rather than adding more.
+- The `UserInputEventData` types in `flashdreams.runtime_v2` cover the input
+  modalities supported today, and integrations consume them. Nothing stops an
+  integration subclassing the base class, and whether it should be able to is not
+  settled, so this is a convention rather than something the code enforces.
 - Ending and restarting a run are events on that same stream, not separate calls:
   a window reports `CloseUserInputEventData` when its client closes or goes away,
   and `ResetUserInputEventData` to start over. This is how native windowing
@@ -71,8 +73,12 @@ results waiting. `run_session` bounds how many wait, with `max_pending`, and
 `when_full` decides the rest: `WhenFull.BLOCK` holds generation back so every
 result is presented, which is what a file output wants, and `WhenFull.DROP_OLDEST`
 skips frames to keep latency down, which is what a realtime one wants. The caller
-picks, since it is the caller that created the window. Results still waiting when
-a reset arrives are discarded either way.
+picks, since it is the caller that created the window.
+
+Each waiting result carries the generation it was produced for, and a reset moves
+on to the next one. Nothing from the generation the client abandoned is written,
+whether it was already waiting or was still being generated when the reset
+arrived, so what a client sees after restarting begins at the new step zero.
 
 Reading input and presenting frames belong to `IClientWindow`, not to `ISession`.
 `ISession.step_ui` is the second tick the I/O thread drives, so a session's UI work
@@ -88,10 +94,9 @@ Not built yet
   them.
 - Slowing generation before the window is saturated. The bounded queue only paces
   generation once results are already waiting.
-- Recognising a result as belonging to an abandoned generation. A reset throws away
-  what is already waiting, but a step that was running when the reset arrived
-  still has its result presented, because generation only learns about the reset
-  on its next step. Tagging results with a generation would close that.
+- Input that keeps up with generation. Input is polled at the UI rate, so a run of
+  fast steps can finish several of them between polls and hand them all the same
+  batch. Pacing generation is what would fix it.
 - `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
   the main loop. `run_session` is what exists today; it drives a session the
   caller already created.

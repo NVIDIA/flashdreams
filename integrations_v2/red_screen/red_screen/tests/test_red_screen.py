@@ -13,7 +13,7 @@ from red_screen import create_app
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import WhenFull, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEventData,
@@ -32,30 +32,31 @@ _FRAME_SIZE = 2
 
 
 class ScriptedClientWindow(IClientWindow):
-    """Report input once and record what is presented.
+    """Report one batch of input per poll and record what is presented.
 
-    The runner polls input on its own thread, so a window cannot line events up
-    with individual steps. It reports its events on the first poll, which the
-    runner makes before generation starts, and nothing after that. Behaviour that
-    depends on which step an event lands on is covered by stepping a session
-    directly instead.
+    The runner polls on its own thread, so a window cannot aim an event at a
+    chosen step. It can still deliver input part way through a run: the first poll
+    happens before generation starts, and a run that blocks on a full queue cannot
+    start another step until a later poll has happened.
     """
 
-    def __init__(self, initial_events: UserInputEvents | None = None) -> None:
+    def __init__(self, batches: list[UserInputEvents] | None = None) -> None:
         """
         Args:
-            initial_events: Events to report on the first poll.
+            batches: Events to report, one entry per poll. Polls past the end of
+                the script report nothing.
         """
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
-        self._pending = initial_events
+        self._batches = list(batches or [])
         self._lock = threading.Lock()
         self._is_open = False
 
     def get_user_input_events(self) -> UserInputEvents:
         with self._lock:
-            pending, self._pending = self._pending, None
-        return pending or UserInputEvents([])
+            if self._batches:
+                return self._batches.pop(0)
+        return UserInputEvents([])
 
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc
@@ -72,10 +73,14 @@ class ScriptedClientWindow(IClientWindow):
 ## Helpers
 
 
-def _session_desc(layout: VideoTensorLayout = VideoTensorLayout.bcthw) -> SessionDesc:
+def _session_desc(
+    layout: VideoTensorLayout = VideoTensorLayout.bcthw,
+    *,
+    frames_per_second_for_ui: int = 1,
+) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
-        frames_per_second_for_ui=1,
+        frames_per_second_for_ui=frames_per_second_for_ui,
         frames_per_second_for_step=1,
         video_width=_FRAME_SIZE,
         video_height=_FRAME_SIZE,
@@ -109,7 +114,7 @@ def _run(
     app = create_app()
     app.init([])
     session = app.create_session(_session_desc())
-    window = ScriptedClientWindow(initial_events)
+    window = ScriptedClientWindow([initial_events] if initial_events else None)
     try:
         run_session(session, window, steps=steps)
     finally:
@@ -163,6 +168,27 @@ def test_red_screen_turns_red_for_a_key_the_window_already_holds() -> None:
 
     assert len(window.results) == 3
     assert all(_is_red(result) for result in window.results)
+
+
+def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
+    # End to end through the runner: the key is not held at the start, so only
+    # input delivered while the run is going can turn the screen red.
+    app = create_app()
+    app.init([])
+    session = app.create_session(_session_desc(frames_per_second_for_ui=100))
+    window = ScriptedClientWindow([UserInputEvents([]), _key_event(pressed=True)])
+
+    # Room for one result, so a step cannot start until a tick has presented the
+    # previous one, and every tick polls input before it presents. That makes the
+    # key reach a step rather than depending on how the threads are scheduled.
+    try:
+        run_session(session, window, steps=3, max_pending=1, when_full=WhenFull.BLOCK)
+    finally:
+        app.close()
+
+    assert len(window.results) == 3
+    assert _is_black(window.results[0])
+    assert _is_red(window.results[-1])
 
 
 def test_red_screen_frames_match_the_session_desc() -> None:
