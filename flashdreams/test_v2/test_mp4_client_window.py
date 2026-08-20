@@ -1,13 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU test for the window a run writing a file is driven against.
+"""CPU tests for the client window that writes an MP4.
 
-What this window has to do is report no input and encode everything else, which
-is what lets one loop drive both an interactive run and a run whose output is a
-file. Driving that loop is covered in ``test_session_runner.py``; what a file
-ends up holding is covered in ``test_mp4_output_sink.py``. The test here that
-runs the loop is the seam between them.
+The window has two jobs: report no input, and encode every result. Encoding is
+covered in ``test_mp4_output_sink.py`` and the loop in ``test_session_runner.py``,
+so the run here checks that the two meet.
 """
 
 import shutil
@@ -39,7 +37,7 @@ _HEIGHT = 8
 """Frame height."""
 
 _FRAMES_PER_STEP = 2
-"""Frames a step generates. More than one, so a step is not a frame."""
+"""Frames each step generates, above one so a frame count is not a step count."""
 
 
 class FakeSession(ISession):
@@ -106,7 +104,7 @@ def _frame_count(path: Path) -> int:
 
 
 def test_there_is_never_any_input_to_report(tmp_path: Path) -> None:
-    """A file has no client, and a run polls anyway, on every tick."""
+    """A run polls on every tick, and a file has no client to answer."""
     window = Mp4ClientWindow(tmp_path / "clip.mp4")
 
     assert window.get_user_input_events().get_events() == []
@@ -115,11 +113,7 @@ def test_there_is_never_any_input_to_report(tmp_path: Path) -> None:
 
 @needs_ffmpeg
 def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
-    """The whole point of the window: one loop, and output nobody watches.
-
-    Every step reaches the file, and every step is handed no input, which is what
-    makes a run like this repeatable.
-    """
+    """Every step reaches the file, and no step is given any input."""
     session = FakeSession(_session_desc())
     path = tmp_path / "clip.mp4"
 

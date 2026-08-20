@@ -64,19 +64,6 @@ class ISession(ABC):
         same events reach :meth:`step` in its next batch, so a session can
         respond here and generate from them later.
 
-        What happens here must not change what :meth:`step` generates, and must
-        not wait for :meth:`step` either. Anything that should reach generation
-        goes through the events :meth:`step` is given, which is where these
-        events arrive anyway.
-
-        Both rules come from this being driven by a clock rather than by the
-        run. How many times this is called between two steps depends on how long
-        a step took, so a session that generated differently because of what it
-        did here would generate differently run to run — including a run writing
-        a file, which is meant to produce the same frames every time. And a step
-        that waited for this would hang once the run stops ticking, which is what
-        happens as soon as a run ends or a client closes.
-
         It cannot produce output yet, so today it can only update state. The
         default does nothing, and a session with nothing to do at this rate
         leaves it alone.

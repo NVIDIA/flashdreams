@@ -77,16 +77,14 @@ def run_session(
     results waiting. ``max_pending`` bounds how many wait, and ``when_full`` says
     what to do about the next one.
 
-    Output nobody is watching runs the same way. A run writing a file is given
-    :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which
-    reports no input, so it never reports a close either and ``steps`` is what
-    ends it. Every result reaches the window, in order, which is what a file
-    needs; what differs from an interactive run is only how often ``step_ui`` is
-    called, since that follows a wall clock.
+    A run whose output is a file works the same way, driven against
+    :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`. That
+    window reports no input, so it never reports a close and ``steps`` is what
+    ends the run.
 
-    A window that fails to close fails the run, since for a file that is the
-    encode not finishing. A window that fails while the run is already failing is
-    logged instead: what ended the run is what explains it.
+    A window that fails to close fails the run, because for a file that means the
+    encode did not finish. If the run was already failing, the close failure is
+    logged instead of replacing the error that ended it.
 
     Args:
         session: Uninitialized session to drive.
@@ -276,10 +274,8 @@ def run_session(
         stop.set()
         io_thread.join()
         if io_failure and sys.exc_info()[0] is not None:
-            # The run is already failing, and what failed it is what explains
-            # the run, so the window's failure is logged rather than replacing
-            # it. For a file that failure is the encode not finishing, which is
-            # worth knowing about even when it is not the headline.
+            # Whatever ended the run explains it better than a failure to close,
+            # so this is logged rather than raised over the top of it.
             _LOGGER.error(
                 "The window failed after the run had already failed: %r", io_failure[0]
             )
