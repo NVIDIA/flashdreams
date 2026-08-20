@@ -313,6 +313,76 @@ def test_session_uses_flashdreams_pipeline_for_rollout() -> None:
     assert fake_pipeline.finalize_calls == [(0, "cache"), (1, "cache")]
 
 
+class _FakeReplaceTextPipeline(_FakePipeline):
+    def __init__(self) -> None:
+        super().__init__()
+        self.replace_text_calls: list[dict[str, object]] = []
+
+    def replace_text(
+        self, cache: object, text: list[list[str]], **kwargs: object
+    ) -> None:
+        self.replace_text_calls.append({"cache": cache, "text": text, **kwargs})
+
+
+def test_replace_prompt_flushes_pending_finalize_then_swaps() -> None:
+    fake_pipeline = _FakeReplaceTextPipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    session.warmup_model()
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_conditions = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+    next_conditions = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(8)]
+    session.start(initial_rgb, first_conditions, "demo prompt")
+
+    session.replace_prompt("night city", guidance_scale=2.0, guidance_chunks=3)
+
+    # The deferred chunk-0 finalize must run under the OLD text, before the
+    # swap; deferring it into the next continue_generation would re-commit
+    # the chunk under the new prompt.
+    assert fake_pipeline.finalize_calls == [(0, "cache")]
+    assert fake_pipeline.replace_text_calls == [
+        {
+            "cache": "cache",
+            "text": [["night city"]],
+            "guidance_scale": 2.0,
+            "guidance_chunks": 3,
+        }
+    ]
+
+    session.continue_generation(next_conditions)
+    # The flushed finalize is not repeated by continue_generation.
+    assert fake_pipeline.finalize_calls == [(0, "cache")]
+    assert fake_pipeline.generate_calls[1]["autoregressive_index"] == 1
+
+
+def test_replace_prompt_before_start_raises() -> None:
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: _FakeReplaceTextPipeline(),
+    )
+    session.warmup_model()
+
+    with pytest.raises(RuntimeError, match="start\\(\\) must be called"):
+        session.replace_prompt("night city")
+
+
+def test_replace_prompt_requires_pipeline_replace_text() -> None:
+    fake_pipeline = _FakePipeline()
+    session = FlashdreamsWorldModelSession(
+        _manifest(),
+        pipeline_factory=lambda manifest, profile: fake_pipeline,
+    )
+    session.warmup_model()
+    initial_rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    first_conditions = [np.zeros((2, 3, 3), dtype=np.uint8) for _ in range(5)]
+    session.start(initial_rgb, first_conditions, "demo prompt")
+
+    with pytest.raises(RuntimeError, match="replace_text"):
+        session.replace_prompt("night city")
+
+
 def test_session_postprocesses_local_frames_and_supports_live_toggle(
     monkeypatch,
 ) -> None:

@@ -18,6 +18,10 @@ from crazy_robotaxi.hud_presenter import (
     SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
 )
 from crazy_robotaxi.hud_presenter import (
+    _RESERVED_HUD_KEYSYMS,
+    _validate_extra_key_handlers,
+)
+from crazy_robotaxi.hud_presenter import (
     _build_bev_panel_image as _build_taxi_bev_panel_image,
 )
 from crazy_robotaxi.input import (
@@ -1493,3 +1497,32 @@ def test_wait_while_preloading_stops_when_window_closes() -> None:
     presenter.wait_while_preloading(lambda: True)
 
     assert renders == 0
+
+
+def test_hud_extra_key_handler_fires_on_matching_key_only() -> None:
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    fired: list[str] = []
+    presenter._extra_key_handlers = {"k": lambda: fired.append("k")}
+    presenter._key_codes = {"k": 42}
+
+    presenter._dispatch_extra_key(42)
+    presenter._dispatch_extra_key(7)
+
+    assert fired == ["k"]
+
+
+def test_hud_build_key_codes_resolves_extra_handler_keysyms() -> None:
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._extra_key_handlers = {"k": lambda: None}
+    presenter._spy = SimpleNamespace(KeyCode=SimpleNamespace(k=101))
+
+    key_codes = presenter._build_key_codes()
+
+    assert key_codes["k"] == 101
+
+
+def test_hud_extra_key_handlers_reject_reserved_keys() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        _validate_extra_key_handlers(
+            {"r": lambda: None}, reserved=_RESERVED_HUD_KEYSYMS
+        )
