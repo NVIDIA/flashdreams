@@ -4,6 +4,7 @@
 """Application fading a frame from red to green, for end-to-end file output."""
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
@@ -20,7 +21,8 @@ _DEFAULT_SECONDS = 10.0
 """How long the fade takes by default."""
 
 _DEFAULT_FRAMES_PER_STEP = 8
-"""Frames one step generates by default, as a real model generates a chunk."""
+"""Frames one step generates by default. More than one, because a model
+generates a chunk of frames per step rather than a single frame."""
 
 _RED_CHANNEL = 0
 """Channel the fade starts at full intensity."""
@@ -57,8 +59,8 @@ class ColorFadeSession(ISession):
     ``frames_per_second_for_step``. The fade therefore takes the same time
     whatever the chunk size.
 
-    A run longer than the fade keeps emitting green, and a run shorter than it
-    stops part way through the fade.
+    A run longer than the fade keeps emitting green; a shorter one stops part
+    way through the fade.
 
     Pixels are ``[-1, 1]`` floats, which is what FlashDreams models emit and
     what a client window expects of a floating point result.
@@ -83,7 +85,7 @@ class ColorFadeSession(ISession):
         self._session_desc = session_desc
 
     def init(self) -> None:
-        """Do nothing: this application holds no model and loads nothing."""
+        """Do nothing: there is no model here to load."""
         return
 
     @property
@@ -142,13 +144,13 @@ class ColorFadeSession(ISession):
 
 
 class ColorFadeApplication(IApplication):
-    """Application generating a fixed red-to-green fade, ignoring input."""
+    """Application generating a red-to-green fade, ignoring input."""
 
     def __init__(self) -> None:
         self._config: ColorFadeConfig | None = None
 
-    def init(self, commandline_args: list[str]) -> None:
-        """Parse the fade length and chunk size.
+    def init(self, commandline_args: Sequence[str]) -> None:
+        """Parse the fade length and how many frames a step generates.
 
         Args:
             commandline_args: Application-specific arguments.

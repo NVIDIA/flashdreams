@@ -15,10 +15,9 @@ from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_fra
 class Mp4ClientWindow(IClientWindow):
     """Encode results into an MP4 file, reporting no input.
 
-    An output-only window: there is no client here to press a key, so
-    :meth:`get_user_input_events` always reports nothing, and nothing here ever
-    reports a close. A run against this window is therefore bounded by whatever
-    drives it.
+    A file has no client to press a key or to close the window, so
+    :meth:`get_user_input_events` always reports nothing. A run against this
+    window is bounded by whatever drives it.
 
     Encoding belongs to :class:`Mp4Encoder`, which needs an ``ffmpeg``
     executable on ``PATH``. This class is the part that speaks the protocol.

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""MP4 encoding through the host ffmpeg executable."""
+"""MP4 encoding through the ffmpeg executable on ``PATH``."""
 
 import shutil
 import subprocess
@@ -29,10 +29,11 @@ class Mp4Encoder:
     """Encode RGB frames into one MP4 file, feeding ffmpeg as they arrive.
 
     Nothing is buffered here, so a long run costs no more memory than the frames
-    of one write. The process starts with the first write, so an encoder nothing
-    was written to leaves no file behind.
+    of one write. ffmpeg starts on the first write, so an encoder that was never
+    written to leaves no file behind.
 
-    One caller at a time: this holds a pipe and a subprocess, and does not lock.
+    Call this from one thread at a time: it holds a pipe and a subprocess, and
+    does no locking of its own.
     """
 
     def __init__(
@@ -117,8 +118,8 @@ class Mp4Encoder:
         process = subprocess.Popen(
             self._command(ffmpeg), stdin=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        # Read diagnostics as they arrive: ffmpeg blocks once that pipe fills,
-        # and they are what explains a failure, which is only read at the end.
+        # Drain the diagnostics on a thread of their own: ffmpeg blocks once
+        # that pipe fills, and only a failure reads them, at the end of the run.
         self._errors = []
         self._error_reader = threading.Thread(
             target=_read_errors,
@@ -175,10 +176,9 @@ def result_to_rgb24_frames(
 ) -> npt.NDArray[np.uint8]:
     """Convert one result to the ``[T, H, W, C]`` uint8 frames an encoder reads.
 
-    Pixel values are read the same way the WebRTC window reads them: a floating
-    point tensor holds ``[-1, 1]``, which is what FlashDreams models emit, and an
-    integer tensor holds raw ``0``-``255`` values. One channel is repeated to
-    three.
+    A pixel's value is read by dtype: a floating point tensor holds ``[-1, 1]``,
+    which is what FlashDreams models emit, and an integer tensor holds raw
+    ``0``-``255`` values. One channel is repeated to three.
 
     Args:
         result: Generated output for one step.

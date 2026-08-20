@@ -10,24 +10,25 @@ session emits solid frames fading from red to green over a fixed number of
 seconds, then stays green. It runs the whole batch path — `IApplication`,
 `ISession`, `run_batch`, `Mp4ClientWindow` — on CPU.
 
-Red screen is the interactive counterpart: it responds to keys and is driven by
-`run_session`. This one responds to nothing, which is what makes the file it
+`red_screen` is the interactive counterpart: it responds to keys and is driven
+by `run_session`. This one responds to nothing, which is what makes the file it
 writes the same on every run.
 
 ## What it demonstrates
 
 - The same `IApplication` and `ISession` an interactive application implements,
-  driven by a different loop. Nothing here names a client window or a runner.
+  driven by a different loop. Nothing here names a client window or the loop
+  that drives it.
 - Frames are `[-1, 1]` floats, which is what FlashDreams models emit and how a
   client window reads a floating point result.
 - A frame's colour comes from when it plays, not from which step produced it, so
   chunk size does not change the video.
-- A run longer than the fade keeps generating; the application does not decide
-  when to stop, the caller does.
+- A run longer than the fade keeps generating: the caller decides when to stop,
+  not the application.
 
 ## Usage
 
-Writes two seconds of video, one of them fading:
+Writes two seconds of video, the first of them fading:
 
 ```python
 from flashdreams.runtime_v2.batch_runner import run_batch
@@ -42,11 +43,12 @@ run_batch(
     SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
         frames_per_second_for_step=30,
-        video_width=256,
-        video_height=128,
+        video_width=854,
+        video_height=480,
     ),
-    steps=8,
-    commandline_args=["--seconds", "1", "--frames-per-step", "8"],
+    # Six steps of ten frames, at thirty frames a second.
+    steps=6,
+    commandline_args=["--seconds", "1", "--frames-per-step", "10"],
 )
 ```
 

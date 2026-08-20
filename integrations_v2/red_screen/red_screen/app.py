@@ -142,7 +142,7 @@ class RedScreenApplication(IApplication):
     def __init__(self) -> None:
         self._config: RedScreenConfig | None = None
 
-    def init(self, commandline_args: list[str]) -> None:
+    def init(self, commandline_args: Sequence[str]) -> None:
         """Parse the activation key.
 
         Neither frame geometry nor rollout length is an application argument: the

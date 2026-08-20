@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Batch loop running one application into one output-only client window."""
+"""Batch loop generating a fixed number of steps and writing each one out."""
 
 from collections.abc import Sequence
 
@@ -19,30 +19,32 @@ def run_batch(
     steps: int,
     commandline_args: Sequence[str] = (),
 ) -> None:
-    """Run an application for ``steps`` steps, writing what it generates.
+    """Generate ``steps`` results from an application and write each one out.
 
     The loop for output that is a file: generate a step, write it, repeat. One
-    thread, no input, and no pacing — a file has no client to take input from or
-    to keep up with, so frames are generated as fast as they can be and the file
-    plays back at the rate its session declared.
+    thread, no input, and no pacing. A file has no client to take input from or
+    to keep up with, so frames are generated as fast as they can be, and the
+    file plays back at the rate its session declared.
 
-    Each kind of output has its own loop. An interactive window is driven by one
-    shaped around what its platform expects, a WebRTC event loop or an OS
-    message pump; what those share with this one is the session they step, not
-    the loop that steps it.
+    Each kind of output has its own loop. An interactive window brings the loop
+    its platform expects, a WebRTC event loop or an OS message pump, and what
+    those have in common with this one is the session they step rather than the
+    way they step it.
     :func:`flashdreams.runtime_v2.session_runner.run_session` is the polling
     loop the interactive path uses today.
 
     The application, its session and the window are all closed before this
-    returns, whether the run finished or failed part way through.
+    returns, whether the run finished or failed part way through. One call is
+    therefore one load: a caller wanting several files out of one loaded
+    application needs a loop that keeps it, which nothing needs yet.
 
     Args:
         application: Application to run. Initialized here, not by the caller.
         window: Window to write results to. Its input is never read, since a
             batch run has nobody to take input from.
         session_desc: Session to ask the application for.
-        steps: Number of steps to generate. A batch run says how long it is up
-            front, because nothing here can report a close.
+        steps: Number of steps to generate. A batch run is bounded up front,
+            since a window that reports no input can never report a close.
         commandline_args: Application-specific arguments.
 
     Raises:

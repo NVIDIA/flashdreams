@@ -18,9 +18,9 @@ step rather than the loop that steps it:
 - `flashdreams.runtime_v2.session_runner.run_session` drives a session against a
   window on two threads, for a fixed number of steps or until the window reports
   a close. This is the interactive path.
-- `flashdreams.runtime_v2.batch_runner.run_batch` runs an application into an
-  output-only window on one thread, for a fixed number of steps. This is the
-  path for output that is a file, with `Mp4ClientWindow` as that window.
+- `flashdreams.runtime_v2.batch_runner.run_batch` generates a fixed number of
+  steps on one thread and writes each to a window that reports no input. This is
+  the path for output that is a file, and `Mp4ClientWindow` is that window.
 
 Ownership
 ---------
@@ -120,6 +120,9 @@ Not built yet
   exists, the caller wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
+- Several batch runs from one loaded application. `run_batch` initializes the
+  application it is given and closes it again, so rendering two files today
+  loads whatever the application holds twice.
 - Shared per-domain test entry points, so a model integration gets coverage from
   one call — for example `test_t2v_model_impl(model_config, expected_frame_stats)`
   returning a pass or fail result.

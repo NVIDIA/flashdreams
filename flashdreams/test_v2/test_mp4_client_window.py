@@ -243,7 +243,7 @@ def test_window_writes_every_frame_a_result_carries(tmp_path: Path) -> None:
 @needs_ffmpeg
 def test_a_floating_point_result_is_read_as_minus_one_to_one(tmp_path: Path) -> None:
     # Zero is the middle of that range, so a frame of zeros is mid grey rather
-    # than black. This is the same rule the WebRTC window applies.
+    # than black, and an application emitting [0, 1] would come out washed out.
     path = tmp_path / "out.mp4"
     window = Mp4ClientWindow(path)
 
