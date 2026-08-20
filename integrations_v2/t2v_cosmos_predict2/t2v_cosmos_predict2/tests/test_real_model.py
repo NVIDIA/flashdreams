@@ -19,7 +19,6 @@ The ``manual`` marker describes this test better and cannot be used: the
 marked that way never runs, here or on anybody's machine.
 """
 
-import importlib.util
 import os
 import shutil
 from pathlib import Path
@@ -49,17 +48,6 @@ Wan VAE decodes the first to one frame and each after it to four, so the clip is
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="the model needs a GPU")
 @pytest.mark.skipif(
     shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg"
-)
-@pytest.mark.skipif(
-    importlib.util.find_spec("torchvision") is None,
-    # Nothing declares torchvision as a dependency: it arrives with the cuda12
-    # or cuda13 group and is absent from a plain sync. Without this the model
-    # loads for a while and then raises out of transformers, which says nothing
-    # about what to install.
-    reason=(
-        "the Cosmos-Reason1 text encoder loads through a Qwen2-VL processor, "
-        "which needs torchvision; sync the cuda12 or cuda13 group"
-    ),
 )
 def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
     path = tmp_path / "clip.mp4"

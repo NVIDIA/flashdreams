@@ -30,6 +30,16 @@ window to select. Applications are found through the
 `flashdreams.applications_v2` entry point group, or by the name of the package
 an integration ships when it has registered nothing.
 
+`--stats-path` asks a run to record what it cost as well as what it generated.
+`BenchmarkStatsOutputSink` writes each step's measurements as the artifact
+`flashdreams-benchmark` reads, and `CompositeOutputSink` is how one run reaches
+both it and the MP4. The measurements are the model's own: a step reports what
+it measured and this writes it down, converting milliseconds to seconds because
+a report cannot compare two units. Nothing is measured unless a run asks, so an
+ordinary run pays nothing for this.
+[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
+is the suite that uses it, comparing every t2v model on one prompt and seed.
+
 `flashdreams.t2v_v2` is text-to-video on top of these protocols rather than part
 of them: one `T2VApplication` owns the command line every t2v model needs, an
 integration supplies only its own defaults, and `testing.check_t2v_model_impl`

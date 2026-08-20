@@ -328,21 +328,21 @@ def test_frames_that_are_not_a_whole_number_of_latents_are_refused(
 
 
 def test_an_integration_can_add_a_flag_of_its_own() -> None:
-    class WithSeed(T2VApplication):
+    class WithGuidance(T2VApplication):
         def __init__(self) -> None:
             super().__init__(defaults=_defaults())
-            self.seed: int | None = None
+            self.guidance_scale: float | None = None
 
         def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
-            parser.add_argument("--seed", type=int, default=0)
+            parser.add_argument("--guidance-scale", type=float, default=1.0)
 
         def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
-            self.seed = args.seed
+            self.guidance_scale = args.guidance_scale
 
-    app = WithSeed()
-    app.init(["--prompt", _PROMPT, "--seed", "11"])
+    app = WithGuidance()
+    app.init(["--prompt", _PROMPT, "--guidance-scale", "7.5"])
 
-    assert app.seed == 11
+    assert app.guidance_scale == 7.5
 
 
 def test_an_integration_can_refuse_a_rollout_length_its_model_cannot_generate() -> None:
@@ -393,3 +393,42 @@ def test_compilation_is_only_reconfigured_when_a_run_asks(
     app.init(["--prompt", _PROMPT, *args])
 
     assert app.asked_for is expected
+
+
+@pytest.mark.parametrize("args,expected", [([], None), (["--seed", "11"], 11)])
+def test_the_noise_is_only_seeded_when_a_run_asks(
+    args: list[str], expected: int | None
+) -> None:
+    """A benchmark comparing two clips seeds them; a model asked for something
+    to watch keeps whatever seed its own config chose."""
+
+    class RecordingSeed(T2VApplication):
+        def __init__(self) -> None:
+            super().__init__(defaults=_defaults())
+            self.asked_for: int | None = None
+
+        def _apply_seed_override(self, pipeline_config: Any, seed: int) -> Any:
+            self.asked_for = seed
+            return pipeline_config
+
+    app = RecordingSeed()
+    app.init(["--prompt", _PROMPT, *args])
+
+    assert app.asked_for == expected
+
+
+def test_a_seed_reaches_the_model_where_a_model_keeps_one() -> None:
+    """Straight onto the config the pipeline is built from, so a model that
+    draws its own noise draws the same noise twice."""
+    diffusion_model = SimpleNamespace(seed=42)
+    defaults = _defaults(
+        pipeline_config=SimpleNamespace(diffusion_model=diffusion_model)
+    )
+
+    app = T2VApplication(defaults=defaults)
+    app.init(["--prompt", _PROMPT, "--seed", "7"])
+
+    assert app.pipeline_config.diffusion_model.seed == 7
+    # Derived rather than edited: the config an integration ships is shared by
+    # every application built from it.
+    assert diffusion_model.seed == 42

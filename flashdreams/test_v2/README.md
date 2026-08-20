@@ -27,6 +27,12 @@ CPU-only tests for the v2 protocols themselves:
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
   the command line at `--`, and running one into a real MP4 with a stand-in for
   a model.
+- `test_benchmark_stats_sink.py` covers the sink that records what a run
+  measured, which is a file another tool reads: what a benchmark expects of it
+  is checked against the reader itself in
+  `flashdreams/tests/test_benchmark_harness.py`.
+- `test_composite_output_sink.py` covers writing one run to several sinks,
+  including what is closed when one of them fails to close.
 
 Application behaviour is tested by the application that owns it — see
 `integrations_v2/red_screen/red_screen/tests/` and

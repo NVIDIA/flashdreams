@@ -6,6 +6,9 @@
 ``flashdreams-run-v2`` is the v2 command line, and writes MP4. The interactive
 path has no window to offer yet: ``IClientWindow`` is a protocol that nothing
 outside the tests implements, so there is no ``--output local-window`` here yet.
+
+A run can also record what each step measured, for a benchmark to compare runs
+by speed as well as by how they look.
 """
 
 import argparse
@@ -14,11 +17,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.applications import (
     create_application,
     registered_application_slugs,
 )
 from flashdreams.runtime_v2.batch_runner import run_batch
+from flashdreams.runtime_v2.benchmark_stats_sink import BenchmarkStatsOutputSink
+from flashdreams.runtime_v2.composite_output_sink import CompositeOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.t2v_v2.application import T2VApplication
 
@@ -35,6 +41,7 @@ def run_application(
     *,
     output_path: str | Path,
     steps: int | None = None,
+    stats_path: str | Path | None = None,
     application_args: Sequence[str] = (),
 ) -> Path:
     """Initialize an application, generate from it, and write an MP4.
@@ -47,6 +54,9 @@ def run_application(
         output_path: File to write.
         steps: Steps to generate, or ``None`` to generate the rollout the
             application says it normally would.
+        stats_path: JSON file to record what each step measured in, or ``None``
+            to measure nothing. A benchmark comparing runs for speed asks for
+            one; a person watching the clip does not.
         application_args: Arguments for the application, such as a prompt.
 
     Returns:
@@ -67,7 +77,7 @@ def run_application(
         describes_itself = _as_t2v(application)
         run_batch(
             application.create_session(describes_itself.session_desc()),
-            Mp4OutputSink(output_path),
+            _sink(output_path, stats_path),
             steps=steps if steps is not None else describes_itself.total_blocks,
         )
     finally:
@@ -80,6 +90,7 @@ def run(
     *,
     output_path: str | Path,
     steps: int | None = None,
+    stats_path: str | Path | None = None,
     application_args: Sequence[str] = (),
 ) -> Path:
     """Find the application ``slug`` names and run it. See :func:`run_application`."""
@@ -87,6 +98,7 @@ def run(
         create_application(slug),
         output_path=output_path,
         steps=steps,
+        stats_path=stats_path,
         application_args=application_args,
     )
 
@@ -100,6 +112,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         parsed.slug,
         output_path=parsed.output_path,
         steps=parsed.steps,
+        stats_path=parsed.stats_path,
         application_args=application_args,
     )
     print(written)
@@ -144,7 +157,24 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Steps to generate. Defaults to the application's rollout length.",
     )
+    parser.add_argument(
+        "--stats-path",
+        type=Path,
+        default=None,
+        help=(
+            "JSON file to record what each step measured in, for a benchmark "
+            "to read. Nothing is measured unless this is asked for."
+        ),
+    )
     return parser
+
+
+def _sink(output_path: str | Path, stats_path: str | Path | None) -> OutputSink:
+    """Return what a run writes to: an MP4, and its measurements when asked."""
+    mp4 = Mp4OutputSink(output_path)
+    if stats_path is None:
+        return mp4
+    return CompositeOutputSink(mp4, BenchmarkStatsOutputSink(stats_path))
 
 
 def _as_t2v(application: IApplication) -> T2VApplication:

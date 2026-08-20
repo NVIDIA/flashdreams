@@ -150,6 +150,16 @@ class T2VApplication(IApplication):
                 "milliseconds a step. Default: whatever the model's config says."
             ),
         )
+        parser.add_argument(
+            "--seed",
+            type=int,
+            default=None,
+            help=(
+                "Seed the noise a run samples from, so the same command "
+                "generates the same clip. Default: whatever the model's config "
+                "says, which is usually a seed of its own."
+            ),
+        )
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
@@ -168,6 +178,10 @@ class T2VApplication(IApplication):
         if args.compile is not None:
             self._pipeline_config = self._apply_compile_override(
                 self._pipeline_config, args.compile
+            )
+        if args.seed is not None:
+            self._pipeline_config = self._apply_seed_override(
+                self._pipeline_config, args.seed
             )
         self._config = T2VSessionConfig(
             prompt=args.prompt,
@@ -254,6 +268,15 @@ class T2VApplication(IApplication):
             pipeline_config,
             diffusion_model={"transformer": {"compile_network": enabled}},
         )
+
+    def _apply_seed_override(self, pipeline_config: Any, seed: int) -> Any:
+        """Return ``pipeline_config`` sampling its noise from ``seed``.
+
+        Where the seed lives is the model's business, and every model built on
+        this framework keeps it on the diffusion model, so this is written once
+        here and overridden by an integration that keeps it elsewhere.
+        """
+        return derive_config(pipeline_config, diffusion_model={"seed": seed})
 
     ## Internals
 

@@ -91,19 +91,13 @@ text-to-video application behaves in general is covered once, in
 `flashdreams/test_v2`.
 
 The run that uses the real model needs a GPU, and skips unless its environment
-variable is set, so asking for it is deliberate. It also needs torchvision,
-which this model's text encoder loads through and which no package here
-declares, so sync a CUDA group as well as the test one:
+variable is set, so asking for it is deliberate:
 
 ```bash
-uv sync --package flashdreams-t2v-cosmos-predict2 --group test --group cuda13 --inexact
 T2V_COSMOS_PREDICT2_REAL_MODEL_RUN=1 uv run --no-sync pytest \
     integrations_v2/t2v_cosmos_predict2 -m ci_gpu -s --basetemp="$HOME/t2v-out"
 vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
-
-Without torchvision the run skips saying so, rather than loading the model for a
-while and then failing inside transformers.
 
 Both go through `flashdreams.t2v_v2.testing.check_t2v_model_impl`,
 the shared check a text-to-video integration runs to cover the batch path.

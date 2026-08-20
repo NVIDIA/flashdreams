@@ -1,0 +1,414 @@
+{
+  "schema_version": 1,
+  "description": "Model comparison scenarios on the v2 API, through flashdreams-run-v2. Every model runs the same prompt at the size it was trained for, so the clips can be put side by side. The quality scenarios are roughly 10-second seeded rollouts for looking at, and the one-minute scenarios are the longer clips PAI-Bench scores, collected with performance metrics and runtime stats. Models that generate their whole clip in one block cannot reach either length, so they have one scenario each at the length they do generate. PAI-Bench takes the scenario name as its prompt, so the dimensions it is run with here are the ones that do not read it. Only the text-to-video models are wired up so far; this file is where the rest go as they move onto the v2 API.",
+  "scenarios": [
+    {
+      "id": "t2v-self-forcing-quality-10s",
+      "name": "Self-Forcing Wan 2.1 T2V seeded quality clip",
+      "description": "Roughly 10-second Self-Forcing rollout with an explicit seed and strict PyTorch deterministic settings. 14 blocks decode 9 + 13 * 12 = 165 frames, which is 10.3 seconds at 16 frames per second.",
+      "report_group": {
+        "id": "t2v-self-forcing",
+        "name": "Self-Forcing Wan 2.1 T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "self-forcing",
+        "quality",
+        "seeded",
+        "quality-10s"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_self_forcing",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+        "--",
+        "t2v-self-forcing",
+        "--output-path",
+        "{output_dir}/t2v-self-forcing-quality-10s.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_self_forcing_quality_10s.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "14",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    },
+    {
+      "id": "t2v-self-forcing-one-minute",
+      "name": "Self-Forcing Wan 2.1 T2V one-minute rollout",
+      "description": "81 blocks decode 9 + 80 * 12 = 969 frames, which is 60.6 seconds at 16 frames per second. Run without strict deterministic algorithms, which cost time this is measuring, and seeded so the clip is still repeatable.",
+      "report_group": {
+        "id": "t2v-self-forcing",
+        "name": "Self-Forcing Wan 2.1 T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "self-forcing",
+        "one-minute",
+        "performance",
+        "review"
+      ],
+      "env": {
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_self_forcing",
+        "flashdreams-run-v2",
+        "t2v-self-forcing",
+        "--output-path",
+        "{output_dir}/t2v-self-forcing-one-minute.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_self_forcing_one_minute.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "81",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_baseline_compare": false,
+      "timeout_s": 21600
+    },
+    {
+      "id": "t2v-causal-forcing-quality-10s",
+      "name": "Causal-Forcing Wan 2.1 T2V seeded quality clip",
+      "description": "Roughly 10-second Causal-Forcing chunkwise rollout with an explicit seed and strict PyTorch deterministic settings. 14 blocks decode 9 + 13 * 12 = 165 frames, which is 10.3 seconds at 16 frames per second.",
+      "report_group": {
+        "id": "t2v-causal-forcing",
+        "name": "Causal-Forcing Wan 2.1 T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "causal-forcing",
+        "quality",
+        "seeded",
+        "quality-10s"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_causal_forcing",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+        "--",
+        "t2v-causal-forcing",
+        "--output-path",
+        "{output_dir}/t2v-causal-forcing-quality-10s.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_causal_forcing_quality_10s.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "14",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    },
+    {
+      "id": "t2v-causal-forcing-one-minute",
+      "name": "Causal-Forcing Wan 2.1 T2V one-minute rollout",
+      "description": "81 blocks decode 9 + 80 * 12 = 969 frames, which is 60.6 seconds at 16 frames per second. Run without strict deterministic algorithms, which cost time this is measuring, and seeded so the clip is still repeatable.",
+      "report_group": {
+        "id": "t2v-causal-forcing",
+        "name": "Causal-Forcing Wan 2.1 T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "causal-forcing",
+        "one-minute",
+        "performance",
+        "review"
+      ],
+      "env": {
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_causal_forcing",
+        "flashdreams-run-v2",
+        "t2v-causal-forcing",
+        "--output-path",
+        "{output_dir}/t2v-causal-forcing-one-minute.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_causal_forcing_one_minute.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "81",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_baseline_compare": false,
+      "timeout_s": 21600
+    },
+    {
+      "id": "t2v-fastvideo-causal-wan22-quality-10s",
+      "name": "FastVideo CausalWan 2.2 14B T2V seeded quality clip",
+      "description": "Roughly 10-second FastVideo CausalWan 2.2 rollout with an explicit seed and strict PyTorch deterministic settings. 14 blocks decode 9 + 13 * 12 = 165 frames, which is 10.3 seconds at 16 frames per second.",
+      "report_group": {
+        "id": "t2v-fastvideo-causal-wan22",
+        "name": "FastVideo CausalWan 2.2 14B T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "fastvideo-causal-wan22",
+        "quality",
+        "seeded",
+        "quality-10s"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_fastvideo_causal_wan22",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+        "--",
+        "t2v-fastvideo-causal-wan22",
+        "--output-path",
+        "{output_dir}/t2v-fastvideo-causal-wan22-quality-10s.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_fastvideo_causal_wan22_quality_10s.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "14",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    },
+    {
+      "id": "t2v-fastvideo-causal-wan22-one-minute",
+      "name": "FastVideo CausalWan 2.2 14B T2V one-minute rollout",
+      "description": "81 blocks decode 9 + 80 * 12 = 969 frames, which is 60.6 seconds at 16 frames per second. Run without strict deterministic algorithms, which cost time this is measuring, and seeded so the clip is still repeatable. The longest of these runs: two 14B transformers, one for high noise and one for low.",
+      "report_group": {
+        "id": "t2v-fastvideo-causal-wan22",
+        "name": "FastVideo CausalWan 2.2 14B T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "fastvideo-causal-wan22",
+        "one-minute",
+        "performance",
+        "review"
+      ],
+      "env": {
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_fastvideo_causal_wan22",
+        "flashdreams-run-v2",
+        "t2v-fastvideo-causal-wan22",
+        "--output-path",
+        "{output_dir}/t2v-fastvideo-causal-wan22-one-minute.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_fastvideo_causal_wan22_one_minute.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "81",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 1,
+      "requires_runtime_stats": true,
+      "quality_baseline_compare": false,
+      "timeout_s": 21600
+    },
+    {
+      "id": "t2v-wan21-native-clip",
+      "name": "Wan 2.1 T2V 1.3B seeded single-block clip",
+      "description": "Wan 2.1 generates its whole clip in one bidirectional block, so it reaches neither 10 seconds nor a minute: the one block decodes 81 frames, which is 5.1 seconds at 16 frames per second. Seeded, with strict PyTorch deterministic settings, for comparison against the streaming models at the length it does generate.",
+      "report_group": {
+        "id": "t2v-wan21",
+        "name": "Wan 2.1 T2V 1.3B"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "wan21",
+        "quality",
+        "seeded",
+        "single-block",
+        "pai-bench"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_wan21",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+        "--",
+        "t2v-wan21",
+        "--output-path",
+        "{output_dir}/t2v-wan21-native-clip.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_wan21_native_clip.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "1",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 0,
+      "requires_runtime_stats": true,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    },
+    {
+      "id": "t2v-cosmos-predict2-native-clip",
+      "name": "Cosmos Predict2 2B T2V seeded single-block clip",
+      "description": "Cosmos Predict2 generates its whole clip in one bidirectional block, so it reaches neither 10 seconds nor a minute: the one block decodes 93 frames, which is 5.8 seconds at 16 frames per second. Seeded, with strict PyTorch deterministic settings. The only one of these models generating at 720p.",
+      "report_group": {
+        "id": "t2v-cosmos-predict2",
+        "name": "Cosmos Predict2 2B T2V"
+      },
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "t2v",
+        "cosmos-predict2",
+        "quality",
+        "seeded",
+        "single-block",
+        "pai-bench"
+      ],
+      "env": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+      },
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/t2v_cosmos_predict2",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+        "--",
+        "t2v-cosmos-predict2",
+        "--output-path",
+        "{output_dir}/t2v-cosmos-predict2-native-clip.mp4",
+        "--stats-path",
+        "{output_dir}/stats_t2v_cosmos_predict2_native_clip.json",
+        "--",
+        "--prompt",
+        "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.",
+        "--total-blocks",
+        "1",
+        "--seed",
+        "1"
+      ],
+      "output_dir_arg": null,
+      "warmup_steps": 0,
+      "requires_runtime_stats": true,
+      "quality_compare_region": "full",
+      "timeout_s": 7200
+    }
+  ]
+}

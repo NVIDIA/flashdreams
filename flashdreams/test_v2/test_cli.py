@@ -10,6 +10,7 @@ checkpoint generates anything worth watching is a GPU question, asked in the
 integration that owns the checkpoint.
 """
 
+import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -102,8 +103,10 @@ class FakePipeline:
         )
 
     def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
-        del autoregressive_index, cache
-        return {}
+        del cache
+        # A measurement, as a real pipeline reports one, so a run asked what it
+        # cost has something to answer with.
+        return {"total_ms": 20.0 + autoregressive_index}
 
     def close(self) -> None:
         self.closed = True
@@ -303,6 +306,44 @@ def test_the_model_is_released_when_a_run_fails(tmp_path: Path) -> None:
     assert pipeline.closed
 
 
+@needs_ffmpeg
+def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
+    """A clip says nothing about what it took to generate, so a benchmark run
+    asks for both and the file it writes is the one the harness reads."""
+    stats_path = tmp_path / "stats_run.json"
+    clip_path = tmp_path / "clip.mp4"
+
+    cli.run_application(
+        StubT2VApplication(FakePipeline()),
+        output_path=clip_path,
+        stats_path=stats_path,
+        steps=2,
+        application_args=["--prompt", _PROMPT],
+    )
+
+    assert clip_path.stat().st_size > 0
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    assert payload["artifact_type"] == "flashdreams.runtime.demo.benchmark_stats"
+    assert [step["step_index"] for step in payload["steps"]] == [0, 1]
+    assert [step["frame_count"] for step in payload["steps"]] == [
+        _BLOCK_FRAMES,
+        _BLOCK_FRAMES,
+    ]
+    assert [sample["name"] for sample in payload["samples"]] == ["total_s", "total_s"]
+
+
+@needs_ffmpeg
+def test_nothing_is_measured_unless_a_run_asks(tmp_path: Path) -> None:
+    cli.run_application(
+        StubT2VApplication(FakePipeline()),
+        output_path=tmp_path / "clip.mp4",
+        steps=1,
+        application_args=["--prompt", _PROMPT],
+    )
+
+    assert list(tmp_path.glob("*.json")) == []
+
+
 def test_an_application_that_will_not_start_reports_why(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="--prompt is required"):
         cli.run_application(
@@ -352,6 +393,33 @@ def test_the_command_reports_the_file_it_wrote(
 
     assert capsys.readouterr().out.strip() == str(path)
     assert path.stat().st_size > 0
+
+
+@needs_ffmpeg
+def test_the_command_can_be_asked_to_measure_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli, "create_application", lambda slug: StubT2VApplication(FakePipeline())
+    )
+    stats_path = tmp_path / "stats_run.json"
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--output-path",
+            str(tmp_path / "clip.mp4"),
+            "--stats-path",
+            str(stats_path),
+            "--steps",
+            "1",
+            "--",
+            "--prompt",
+            _PROMPT,
+        ]
+    )
+
+    assert json.loads(stats_path.read_text(encoding="utf-8"))["steps"] != []
 
 
 def test_the_command_needs_somewhere_to_write() -> None:

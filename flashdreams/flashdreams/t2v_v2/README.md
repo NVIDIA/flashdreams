@@ -14,9 +14,9 @@ supplies only what differs.
   and `from_runner_config` reads it off the runner config the integration
   already has, so a model's frame size and rate are not written down twice.
 - `application.py`: `T2VApplication` declares `--prompt`, `--pixel-width`,
-  `--pixel-height`, `--fps`, `--total-blocks`, `--device`, and `--compile`,
-  defaulting each from those defaults. `_configure_argument_parser` and
-  `_apply_parsed_arguments` are where a model adds a flag of its own.
+  `--pixel-height`, `--fps`, `--total-blocks`, `--device`, `--compile`, and
+  `--seed`, defaulting each from those defaults. `_configure_argument_parser`
+  and `_apply_parsed_arguments` are where a model adds a flag of its own.
 - `session.py`: `T2VSession` is one rollout, encoding the prompt into a cache
   and generating one autoregressive block per step.
 - `testing.py`: test support, imported by an integration's tests and by nothing
@@ -75,3 +75,17 @@ this one.
 itself: a v2 session cannot declare that it has finished, so the runner is told
 how many steps to generate. The CLI uses this as that number when its caller
 did not give one.
+
+`--compile` and `--seed` are the two flags that change the model rather than the
+session, so both are applied by deriving a new pipeline config rather than by
+editing the one the integration ships. Unasked, neither is touched and the
+model's own config decides. `_apply_seed_override` puts the seed on the
+diffusion model, where every model built on this framework keeps it; a model
+that keeps it elsewhere overrides that, as CausalWan 2.2 already overrides
+`_apply_compile_override` for having two transformers.
+
+Comparing these models against each other is what
+[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
+is for: the same prompt and seed through every one of them, ten seconds for
+looking at and a minute for PAI-Bench to score. The two bidirectional models
+reach neither length, so they run at the length they do generate.

@@ -27,6 +27,11 @@ dependencies = [
     "flashdreams",
     "mediapy>=1.1",
     "flashdreams-t2v",
+    # No code here imports this. The Cosmos-Reason1 text encoder these configs
+    # select loads through a Qwen2.5-VL processor, which transformers will only
+    # build if torchvision is installed. Declared at the version torch>=2.9
+    # pairs with, matching the cuda12 and cuda13 groups.
+    "torchvision>=0.24",
 ]
 
 [tool.uv.sources]
