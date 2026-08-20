@@ -33,8 +33,8 @@ CPU-only tests for the v2 protocols themselves:
   integration runs the passing path against its own stand-in; what a check says
   about a run that fell short is only worth covering once.
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
-  the command line at `--`, and running one into a real MP4 with a stand-in for
-  a model.
+  the command line at `--`, choosing a window, and running one into a real MP4
+  with a stand-in for a model.
 - `test_metrics_output_sink.py` covers the sink that records what a run
   measured, which is a file another tool reads: what a benchmark expects of it
   is checked against the reader itself in

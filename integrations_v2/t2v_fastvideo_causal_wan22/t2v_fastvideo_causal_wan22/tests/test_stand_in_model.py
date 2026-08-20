@@ -56,7 +56,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     )
     assert desc.frames_per_second_for_step == RUNNER_WAN22_T2V_14B.fps
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert app.total_blocks == RUNNER_WAN22_T2V_14B.total_blocks
+    assert app.defaults.total_blocks == RUNNER_WAN22_T2V_14B.total_blocks
 
 
 def test_compilation_is_turned_off_for_both_noise_level_transformers() -> None:

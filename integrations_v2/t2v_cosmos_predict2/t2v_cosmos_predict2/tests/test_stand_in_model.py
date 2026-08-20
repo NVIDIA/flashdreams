@@ -52,7 +52,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     )
     assert desc.frames_per_second_for_step == RUNNER_COSMOS2_T2V_2B_720P.fps
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert app.total_blocks == RUNNER_COSMOS2_T2V_2B_720P.total_blocks == 1
+    assert app.defaults.total_blocks == RUNNER_COSMOS2_T2V_2B_720P.total_blocks == 1
 
 
 @pytest.mark.parametrize("total_blocks", [2, 60])

@@ -54,7 +54,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     )
     assert desc.frames_per_second_for_step == RUNNER_WAN21_T2V_1PT3B_480P.fps
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert app.total_blocks == 1
+    assert app.defaults.total_blocks == 1
 
 
 @pytest.mark.parametrize("total_blocks", [2, 60])

@@ -165,6 +165,31 @@ def test_resetting_starts_the_rollout_again_from_the_same_prompt() -> None:
     assert pipeline.caches[0] == pipeline.caches[1]
 
 
+def test_a_rollout_finishes_once_it_has_generated_its_blocks() -> None:
+    """How long a run lasts comes from here, so nobody counts steps for it."""
+    app, _ = _application()
+    session = app.create_session(_session_desc())
+    session.init()
+
+    for step_index in range(_TOTAL_BLOCKS):
+        assert not session.is_finished()
+        session.step(step_index, _NO_EVENTS)
+
+    assert session.is_finished()
+
+
+def test_a_reset_rollout_has_its_whole_length_again() -> None:
+    app, _ = _application()
+    session = app.create_session(_session_desc())
+    session.init()
+    for step_index in range(_TOTAL_BLOCKS):
+        session.step(step_index, _NO_EVENTS)
+
+    session.reset()
+
+    assert not session.is_finished()
+
+
 def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
     app, pipeline = _application()
     session = app.create_session(_session_desc())

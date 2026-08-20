@@ -43,7 +43,7 @@ class T2VSessionConfig:
     """Rate the generated frames are meant to play at."""
 
     total_blocks: int
-    """Steps a run generates when its caller did not say how many."""
+    """Blocks a rollout generates, which is what ends a run."""
 
 
 class T2VApplication(IApplication):
@@ -79,15 +79,6 @@ class T2VApplication(IApplication):
     def pipeline_config(self) -> Any:
         """Model this will load, including whatever the command line changed."""
         return self._pipeline_config
-
-    @property
-    def total_blocks(self) -> int:
-        """Steps a run generates when its caller did not say how many.
-
-        Raises:
-            RuntimeError: :meth:`init` has not run yet.
-        """
-        return self._resolved("total_blocks").total_blocks
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse what to generate, at what size, and where.
@@ -203,7 +194,11 @@ class T2VApplication(IApplication):
         Raises:
             RuntimeError: :meth:`init` has not run yet.
         """
-        config = self._resolved("session_desc()")
+        config = self._config
+        if config is None:
+            raise RuntimeError(
+                f"{type(self).__name__}.init() must run before session_desc()."
+            )
         return SessionDesc(
             output_layout=self.defaults.output_layout,
             frames_per_second_for_ui=_FRAMES_PER_SECOND_FOR_UI,
@@ -226,14 +221,20 @@ class T2VApplication(IApplication):
             RuntimeError: :meth:`init` has not run yet.
             ValueError: The description asks for output this cannot generate.
         """
-        config = self._resolved("create_session()")
+        config = self._config
+        if config is None:
+            raise RuntimeError(
+                f"{type(self).__name__}.init() must run before create_session()."
+            )
         # Before loading rather than after: a checkpoint of several gigabytes is
         # a long wait for a layout this was never going to accept.
         self._validate_layout(session_desc)
         if self._pipeline is None:
             self._pipeline = self._pipeline_config.setup().to(config.device).eval()
         self._validate_frame_size(session_desc, self._pipeline)
-        return self.session_type(self._pipeline, config.prompt, session_desc)
+        return self.session_type(
+            self._pipeline, config.prompt, session_desc, config.total_blocks
+        )
 
     def close(self) -> None:
         """Release the model, and whatever memory it was holding."""
@@ -279,21 +280,6 @@ class T2VApplication(IApplication):
         return derive_config(pipeline_config, diffusion_model={"seed": seed})
 
     ## Internals
-
-    def _resolved(self, called: str) -> T2VSessionConfig:
-        """Return what the command line resolved to.
-
-        Args:
-            called: What the caller was doing, for the error.
-
-        Raises:
-            RuntimeError: :meth:`init` has not run yet.
-        """
-        if self._config is None:
-            raise RuntimeError(
-                f"{type(self).__name__}.init() must run before {called}."
-            )
-        return self._config
 
     def _validate_layout(self, session_desc: SessionDesc) -> None:
         """Reject a layout this model does not emit.

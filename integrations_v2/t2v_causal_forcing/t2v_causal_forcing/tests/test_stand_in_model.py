@@ -57,7 +57,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     )
     assert desc.frames_per_second_for_step == RUNNER_WAN21_T2V_1PT3B_CHUNKWISE.fps
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert app.total_blocks == RUNNER_WAN21_T2V_1PT3B_CHUNKWISE.total_blocks
+    assert app.defaults.total_blocks == RUNNER_WAN21_T2V_1PT3B_CHUNKWISE.total_blocks
 
 
 @pytest.mark.skipif(

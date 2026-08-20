@@ -83,6 +83,22 @@ class FakePipelineConfig:
         return self.pipeline
 
 
+class RecordingRollout(T2VSession):
+    """Session remembering how long a rollout it was given."""
+
+    def __init__(
+        self, pipeline: Any, prompt: str, session_desc: SessionDesc, total_blocks: int
+    ) -> None:
+        super().__init__(pipeline, prompt, session_desc, total_blocks)
+        self.blocks_to_generate = total_blocks
+
+
+class ApplicationUnderTest(T2VApplication):
+    """The shared application, with a session that says what it was told."""
+
+    session_type = RecordingRollout
+
+
 ## Helpers
 
 
@@ -105,7 +121,7 @@ def _application(
     args: list[str] | None = None,
 ) -> T2VApplication:
     """Return an application told to generate ``_PROMPT``."""
-    app = T2VApplication(defaults=defaults or _defaults())
+    app = ApplicationUnderTest(defaults=defaults or _defaults())
     app.init(["--prompt", _PROMPT, *(args or [])])
     return app
 
@@ -114,6 +130,18 @@ def _pipeline_config(app: T2VApplication) -> FakePipelineConfig:
     config = app.pipeline_config
     assert isinstance(config, FakePipelineConfig)
     return config
+
+
+def _rollout_length(app: T2VApplication) -> int:
+    """Return the rollout length the sessions this creates were given.
+
+    An application answers no such question: what the command line resolved to
+    reaches a run through the session, which reports itself finished at the end
+    of it.
+    """
+    session = app.create_session(app.session_desc())
+    assert isinstance(session, RecordingRollout)
+    return session.blocks_to_generate
 
 
 def _session_desc(
@@ -204,7 +232,7 @@ def test_a_run_generates_what_the_model_was_trained_for_by_default() -> None:
     desc = app.session_desc()
 
     assert desc == _session_desc()
-    assert app.total_blocks == _TOTAL_BLOCKS
+    assert _rollout_length(app) == _TOTAL_BLOCKS
 
 
 def test_every_default_can_be_overridden() -> None:
@@ -225,7 +253,7 @@ def test_every_default_can_be_overridden() -> None:
 
     assert (desc.video_width, desc.video_height) == (256, 128)
     assert desc.frames_per_second_for_step == 24
-    assert app.total_blocks == 3
+    assert _rollout_length(app) == 3
 
 
 def test_a_run_needs_something_to_generate_from() -> None:
@@ -258,8 +286,6 @@ def test_nothing_can_be_asked_before_the_application_is_told_what_to_do() -> Non
 
     with pytest.raises(RuntimeError, match="init.. must run before session_desc"):
         app.session_desc()
-    with pytest.raises(RuntimeError, match="init.. must run before total_blocks"):
-        _ = app.total_blocks
     with pytest.raises(RuntimeError, match="init.. must run before create_session"):
         app.create_session(_session_desc())
 
@@ -285,7 +311,6 @@ def test_the_model_is_not_loaded_to_answer_questions_about_it() -> None:
     app = _application()
 
     app.session_desc()
-    _ = app.total_blocks
 
     assert _pipeline_config(app).setup_count == 0
 

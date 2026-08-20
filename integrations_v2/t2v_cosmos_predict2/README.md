@@ -17,16 +17,17 @@ checkpoint generates.
 ## Generate a clip
 
 ```bash
-flashdreams-run-v2 t2v-cosmos-predict2 --output-path clip.mp4 --steps 1 \
+flashdreams-run-v2 t2v-cosmos-predict2 --output-path clip.mp4 \
     -- --prompt "A cat surfing" --no-compile
 ```
 
 Arguments after `--` go to the application, and
 `flashdreams-run-v2 t2v-cosmos-predict2 -- --help` lists them.
 
-`--steps` has to be 1, and asking for more is refused rather than quietly
-generating a second clip: a second block would not continue the first. One block
-decodes 93 frames at 16 frames per second, so a clip is about six seconds.
+`--total-blocks` is 1 and has to be, and asking for more is refused rather than
+quietly generating a second clip: a second block would not continue the first.
+One block decodes 93 frames at 16 frames per second, so a clip is about six
+seconds.
 
 `--no-compile` is worth it for a single clip. Compilation is on in the model's
 own config; it costs minutes on the first run and saves milliseconds, which is
@@ -46,9 +47,7 @@ app = CosmosPredict2T2VApplication()
 app.init(["--prompt", "A cat surfing"])
 try:
     run_session(
-        app.create_session(app.session_desc()),
-        Mp4ClientWindow("clip.mp4"),
-        steps=1,
+        app.create_session(app.session_desc()), Mp4ClientWindow("clip.mp4")
     )
 finally:
     app.close()

@@ -13,17 +13,17 @@ package is the application around it and holds no model code of its own.
 ## Generate a clip
 
 ```bash
-flashdreams-run-v2 t2v-causal-forcing --output-path clip.mp4 --steps 7 \
-    -- --prompt "A cat surfing" --no-compile
+flashdreams-run-v2 t2v-causal-forcing --output-path clip.mp4 \
+    -- --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 
 Arguments after `--` go to the application, and
 `flashdreams-run-v2 t2v-causal-forcing -- --help` lists them.
 
-`--steps` is how many autoregressive blocks to generate, and defaults to the
-model's `--total-blocks`. The model streams, so a run is as long as it is asked
-for: the first block decodes 9 frames and every block after it 12, at 16 frames
-per second, so seven blocks is about four and a half seconds.
+`--total-blocks` is how many autoregressive blocks to generate, and the run ends
+when the session has generated them. The first block decodes 9 frames and every
+block after it 12, at 16 frames per second, so seven blocks is about four and a
+half seconds.
 
 `--no-compile` is worth it for a short clip. Compilation is on in the model's
 own config; it costs minutes on the first run and saves milliseconds a block.
@@ -36,12 +36,10 @@ from flashdreams.runtime_v2.session_runner import run_session
 from t2v_causal_forcing import CausalForcingT2VApplication
 
 app = CausalForcingT2VApplication()
-app.init(["--prompt", "A cat surfing"])
+app.init(["--prompt", "A cat surfing", "--total-blocks", "7"])
 try:
     run_session(
-        app.create_session(app.session_desc()),
-        Mp4ClientWindow("clip.mp4"),
-        steps=7,
+        app.create_session(app.session_desc()), Mp4ClientWindow("clip.mp4")
     )
 finally:
     app.close()

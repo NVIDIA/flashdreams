@@ -34,7 +34,7 @@ _DEFAULT_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 _DEFAULT_PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
 _ENTRYPOINT_MODULES = {
     "flashdreams-run": "flashdreams.scripts.cli",
-    "flashdreams-run-v2": "flashdreams.runtime_v2.cli",
+    "flashdreams-run-v2": "flashdreams.t2v_v2.cli",
 }
 
 

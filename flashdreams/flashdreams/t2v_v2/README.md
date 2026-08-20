@@ -18,7 +18,11 @@ supplies only what differs.
   `--seed`, defaulting each from those defaults. `_configure_argument_parser`
   and `_apply_parsed_arguments` are where a model adds a flag of its own.
 - `session.py`: `T2VSession` is one rollout, encoding the prompt into a cache
-  and generating one autoregressive block per step.
+  and generating one autoregressive block per step until it has generated the
+  whole rollout, which is when it reports itself finished.
+- `cli.py`: `flashdreams-run-v2` finds an application by slug, asks it what it
+  would generate, and drives one session of it against the window its arguments
+  chose — an MP4 file, or a client over WebRTC.
 - `testing.py`: test support, imported by an integration's tests and by the
   shared tests in `flashdreams/test_v2`, and by nothing that runs in production. `check_t2v_model_impl` runs an application, measures
   the frames on their way to the file, and reports which expectations they
@@ -64,17 +68,18 @@ in advance.
 
 `session_desc()` is the piece a runner needs and the protocol does not carry: a
 caller has to describe a session before one exists to describe it, and only the
-application knows what its model generates.
-`flashdreams.runtime_v2.cli` calls it and passes the result straight back to
-`create_session`, which is why `flashdreams-run-v2` needs no size flags of its
-own. It is a method here rather than on `IApplication` because what a session
-looks like before it exists is not settled for every kind of model, only for
-this one.
+application knows what its model generates. `cli.py` calls it and passes the
+result straight back to `create_session`, which is why `flashdreams-run-v2`
+needs no size flags of its own. It is a method here rather than on
+`IApplication` because what a session looks like before it exists is not settled
+for every kind of model, only for this one. That is also why the command line
+lives here: a command line for any v2 application needs this on the protocol
+first, and then it becomes an argument parser over it.
 
-`--total-blocks` says how long a rollout normally is, and bounds nothing by
-itself: a v2 session cannot declare that it has finished, so the runner is told
-how many steps to generate. The CLI uses this as that number when its caller
-did not give one.
+`--total-blocks` is how long a rollout is, and the session generates that many
+blocks and then reports itself finished. Nothing above it counts steps, so a run
+writing a file ends by itself and one serving a client ends when that client
+leaves.
 
 `--compile` and `--seed` are the two flags that change the model rather than the
 session, so both are applied by deriving a new pipeline config rather than by

@@ -23,7 +23,6 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
@@ -98,7 +97,7 @@ class T2VCheckResult:
 
 
 def check_t2v_model_impl(
-    application: IApplication,
+    application: T2VApplication,
     session_desc: SessionDesc | None = None,
     *,
     steps: int,
@@ -147,7 +146,7 @@ def check_t2v_model_impl(
     application.init(commandline_args)
     try:
         if session_desc is None:
-            session_desc = _described_by(application)
+            session_desc = application.session_desc()
         run_session(
             application.create_session(session_desc),
             _InspectingClientWindow(inspector),
@@ -275,20 +274,6 @@ class _FakeDecoder:
 
     def __init__(self, spatial_compression_ratio: int) -> None:
         self.spatial_compression_ratio = spatial_compression_ratio
-
-
-def _described_by(application: IApplication) -> SessionDesc:
-    """Ask an initialized application what session it would generate.
-
-    Raises:
-        TypeError: It has no way to say, so the caller has to describe one.
-    """
-    if not isinstance(application, T2VApplication):
-        raise TypeError(
-            f"{type(application).__name__} cannot describe the session it would "
-            "generate, so check_t2v_model_impl needs one passed in."
-        )
-    return application.session_desc()
 
 
 class _FrameInspector(OutputSink):
