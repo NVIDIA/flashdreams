@@ -99,7 +99,7 @@ declares, so sync a CUDA group as well as the test one:
 uv sync --package flashdreams-t2v-cosmos-predict2 --group test --group cuda13 --inexact
 T2V_COSMOS_PREDICT2_REAL_MODEL_RUN=1 uv run --no-sync pytest \
     integrations_v2/t2v_cosmos_predict2 -m ci_gpu -s --basetemp="$HOME/t2v-out"
-vlc "$HOME"/t2v-out/*/clip.mp4
+vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
 Without torchvision the run skips saying so, rather than loading the model for a

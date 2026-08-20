@@ -93,7 +93,7 @@ variable is set, so asking for it is deliberate:
 ```bash
 T2V_CAUSAL_FORCING_REAL_MODEL_RUN=1 uv run --no-sync pytest \
     integrations_v2/t2v_causal_forcing -m ci_gpu -s --basetemp="$HOME/t2v-out"
-vlc "$HOME"/t2v-out/*/clip.mp4
+vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
 Both go through `flashdreams.t2v_v2.testing.check_t2v_model_impl`,
