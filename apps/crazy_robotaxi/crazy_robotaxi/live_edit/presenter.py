@@ -270,13 +270,19 @@ class LiveEditPresenter:
         """Blend a soft elliptical shadow under one coin (light on purpose)."""
         shadow_w = max(2, round(sprite_w * _SHADOW_WIDTH_FRACTION))
         shadow_h = max(1, round(sprite_h * _SHADOW_HEIGHT_FRACTION))
-        shadow = Image.new("RGBA", (shadow_w + 4, shadow_h + 4), (0, 0, 0, 0))
+        blur = max(1, shadow_h // 3)
+        # Pad well past the blur radius so the falloff isn't clipped into a
+        # visible rectangle on flat road textures.
+        pad = 3 * blur + 2
+        shadow = Image.new(
+            "RGBA", (shadow_w + 2 * pad, shadow_h + 2 * pad), (0, 0, 0, 0)
+        )
         draw = ImageDraw.Draw(shadow)
         draw.ellipse(
-            [2, 2, shadow_w + 2, shadow_h + 2],
+            [pad, pad, shadow_w + pad, shadow_h + pad],
             fill=(0, 0, 0, round(_SHADOW_MAX_ALPHA * alpha)),
         )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(1, shadow_h // 3)))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=blur))
         _alpha_composite_clipped(
             canvas,
             shadow,
