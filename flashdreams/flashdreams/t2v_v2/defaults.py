@@ -16,21 +16,16 @@ _REQUIRED_RUNNER_FIELDS = ("pipeline", "pixel_height", "pixel_width")
 class T2VApplicationDefaults:
     """Defaults one integration supplies to the shared text-to-video application.
 
-    Every value here is a default rather than a fixed setting: the shared
-    application declares a command line flag for each, so a run can ask for
-    something else. What an integration is saying is what its model generates
-    when nobody asks for anything in particular.
+    What its model generates when nobody asks for anything in particular. Every
+    value can still be asked for, either on the application's command line or,
+    for the ones describing the session, on the runner's.
     """
 
     pipeline_config: Any
     """Model to load. Owned by the integration, which knows what it is."""
 
     total_blocks: int
-    """Steps one run generates unless it is asked for a different number.
-
-    The session does not stop itself, so this bounds nothing on its own. It is
-    what a runner uses when its caller did not say how long to generate for.
-    """
+    """Blocks one rollout generates unless a run asks for a different number."""
 
     pixel_width: int
     """Frame width the model was trained at."""
@@ -56,20 +51,17 @@ class T2VApplicationDefaults:
     ) -> "T2VApplicationDefaults":
         """Read an integration's defaults off the runner config it already has.
 
-        A model's frame size and rate are already written down in its runner
-        config, so an integration that has one says nothing twice.
+        A model's frame size and rate are already written down there, so an
+        integration that has one says nothing twice.
 
         Args:
             runner_config: Runner config owned by the integration.
             total_blocks: Rollout length, when it differs from the runner's.
 
-        Returns:
-            Defaults for the shared application.
-
         Raises:
             TypeError: The runner config does not carry what this reads. It is
-                duck-typed rather than a declared type, so this is where a
-                config that cannot drive a text-to-video application is caught.
+                duck-typed, so this is where a config that cannot drive a
+                text-to-video application is caught.
         """
         required = list(_REQUIRED_RUNNER_FIELDS)
         if total_blocks is None:
@@ -97,8 +89,7 @@ class T2VApplicationDefaults:
 def _layout_of(runner_config: Any) -> VideoTensorLayout:
     """Return the layout a runner config declares, as a v2 layout.
 
-    A v1 runner config spells its layout as a string, and this API uses an
-    enum, so the two have to be reconciled somewhere.
+    A v1 runner config spells it as a string, where this API uses an enum.
     """
     declared = getattr(runner_config, "postprocess_output_layout", None)
     if declared is None:

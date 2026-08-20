@@ -16,22 +16,15 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 class CosmosPredict2T2VApplication(T2VApplication):
     """Cosmos Predict2 2B at 720p, generating video from text in one rollout.
 
-    Everything about running a text-to-video model is
-    :class:`~flashdreams.t2v_v2.application.T2VApplication`; what belongs here
-    is which model, and that comes from the runner config this integration
-    already ships, so the frame size and rate are not written down twice.
-
-    Like Wan 2.1 and unlike the streaming models here, this one generates its
-    whole clip in a single block. Its runner config says so, with a block count
-    of one, and this refuses to be asked for more.
+    Bidirectional rather than streaming: it generates its whole clip in a
+    single block, which its runner config already says.
     """
 
     def __init__(self, pipeline_config: Any | None = None) -> None:
         """
         Args:
-            pipeline_config: Model to run, replacing the one the runner config
-                names. The default is the 2B 720p checkpoint; a test passes a
-                stand-in.
+            pipeline_config: Model to run, in place of the 2B 720p checkpoint.
+                A test passes a stand-in.
         """
         defaults = T2VApplicationDefaults.from_runner_config(RUNNER_COSMOS2_T2V_2B_720P)
         if pipeline_config is not None:
@@ -39,12 +32,10 @@ class CosmosPredict2T2VApplication(T2VApplication):
         super().__init__(defaults=defaults)
 
     def _validate_total_blocks(self, total_blocks: int) -> None:
-        """Reject a rollout, since this model generates its clip in one block.
+        """Reject a rollout: a second block would not continue the first.
 
         Raises:
-            ValueError: More than one block was asked for. A second block would
-                not continue the first, so generating one is not something this
-                model can be asked for a little more of.
+            ValueError: More than one block was asked for.
         """
         super()._validate_total_blocks(total_blocks)
         if total_blocks > 1:

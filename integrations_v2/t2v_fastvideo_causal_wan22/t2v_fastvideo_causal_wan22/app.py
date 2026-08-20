@@ -17,22 +17,15 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 class FastvideoCausalWan22T2VApplication(T2VApplication):
     """FastVideo CausalWan 2.2 14B, generating video from text.
 
-    Everything about running a text-to-video model is
-    :class:`~flashdreams.t2v_v2.application.T2VApplication`; what belongs here
-    is which model, and that comes from the runner config this integration
-    already ships, so the frame size and rate are not written down twice.
-
-    The one thing this model does differently is hold two transformers rather
-    than one, a high-noise branch and a low-noise branch, which is what the
-    compile override below is for.
+    Holds two transformers rather than one, a high-noise branch and a low-noise
+    branch, which is what the compile override below is for.
     """
 
     def __init__(self, pipeline_config: Any | None = None) -> None:
         """
         Args:
-            pipeline_config: Model to run, replacing the one the runner config
-                names. The default is the 14B checkpoint pair; a test passes a
-                stand-in.
+            pipeline_config: Model to run, in place of the 14B checkpoint
+                pair. A test passes a stand-in.
         """
         defaults = T2VApplicationDefaults.from_runner_config(RUNNER_WAN22_T2V_14B)
         if pipeline_config is not None:
@@ -42,8 +35,7 @@ class FastvideoCausalWan22T2VApplication(T2VApplication):
     def _apply_compile_override(self, pipeline_config: Any, enabled: bool) -> Any:
         """Turn compilation on or off for both noise-level transformers.
 
-        The shared override reaches one transformer, which would leave the other
-        branch compiling while its partner did not.
+        The shared override reaches one, leaving the other branch out of step.
         """
         return derive_config(
             pipeline_config,

@@ -3,11 +3,10 @@
 
 """CPU tests for the sink recording what a run measured.
 
-What matters here is that a benchmark can read what is written: the file says
-what artifact it is, every step is accounted for, and a measurement means the
-same thing whichever model reported it. The reader is
-``tools.benchmarks.metrics``, and what it expects of this file is tested there
-against the v1 sink as well.
+What matters is that a benchmark can read what is written: the file says what
+artifact it is, every step is accounted for, and a measurement means the same
+thing whichever model reported it. What the reader expects of the file is
+tested against ``tools.benchmarks.metrics`` itself.
 """
 
 import json
@@ -105,8 +104,8 @@ def test_every_step_is_recorded_with_the_video_it_generated(tmp_path: Path) -> N
 def test_what_was_being_generated_is_recorded_alongside_the_timings(
     tmp_path: Path,
 ) -> None:
-    # A step takes as long as the frames it generates are large, so a timing on
-    # its own says nothing.
+    # A step takes as long as its frames are large, so a timing alone says
+    # nothing.
     payload = _write_run(tmp_path / "stats_run.json", [_result()])
 
     assert payload["session"] == {
@@ -142,17 +141,15 @@ def test_a_measurement_in_milliseconds_is_recorded_in_seconds(tmp_path: Path) ->
     "name,unit,category",
     [
         ("generated_fps", "fps", "throughput"),
-        # A name saying nothing is still recorded, since a model measuring
-        # something this does not recognize measured it for a reason.
+        # An unrecognized name is still recorded: it was measured for a reason.
         ("guidance_scale", "value", "runtime"),
     ],
 )
 def test_a_measurement_is_labelled_with_what_its_name_says_it_is(
     tmp_path: Path, name: str, unit: str, category: str
 ) -> None:
-    """One suffix the reader knows and one it does not. The rest of the suffixes
-    are a lookup table, and what a report needs of them is that a run of either
-    API labels them the same, which the reader's own tests cover."""
+    """One suffix the reader knows and one it does not. The rest are a lookup
+    table, covered by the reader's own tests."""
     payload = _write_run(tmp_path / "stats_run.json", [_result(0, {name: 4.0})])
 
     sample = payload["samples"][0]

@@ -51,9 +51,8 @@ class Mp4ClientWindow(IClientWindow):
         Args:
             path: MP4 file to write. Parent directories are created.
             stats_path: JSON file to record what each step measured in, or
-                ``None`` to measure nothing. A benchmark comparing runs by speed
-                as well as by how they look asks for one, and gets both files
-                from the one run.
+                ``None`` to measure nothing. A benchmark asks for one and gets
+                both files from the one run.
         """
         self._sinks: tuple[OutputSink, ...] = (Mp4OutputSink(path),)
         if stats_path is not None:
@@ -80,9 +79,8 @@ class Mp4ClientWindow(IClientWindow):
     def close(self) -> None:
         """Finish every file, which is what makes the MP4 playable.
 
-        One file failing to finish does not stop the other being finished: that
-        is the difference between one unusable output and two. The first failure
-        is what this raises, being the one that explains the run.
+        One file failing to finish does not stop the other being finished, and
+        the first failure is the one raised.
         """
         failure: Exception | None = None
         for sink in self._sinks:

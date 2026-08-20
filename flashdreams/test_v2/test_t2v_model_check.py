@@ -3,12 +3,9 @@
 
 """CPU tests for the check an integration's tests run against their model.
 
-``check_t2v_model_impl`` runs an application and reports which expectations the
-generated frames missed, which is how a test says "that is a video" about a
-model that samples and so cannot be asked for a particular picture. Every
-integration exercises the passing path against its own stand-in, so what is
-covered here is the failing one: a check that says nothing useful about a run
-that fell short is worse than no check at all.
+Every integration exercises the passing path of ``check_t2v_model_impl``
+against its own stand-in, so what is covered here is the failing one: a check
+that says nothing useful about a run that fell short is worse than no check.
 """
 
 import pytest
@@ -69,7 +66,7 @@ def test_the_check_reports_what_a_run_failed_to_generate() -> None:
         steps=1,
         commandline_args=["--prompt", _PROMPT],
         # Nothing the stand-in generates meets any of these, so each one is a
-        # failure the check has to name rather than a single "did not pass".
+        # failure the check has to name.
         expected=ExpectedFrameStats(
             frame_count=_FIRST_BLOCK_FRAMES + 1,
             mean_luminance=(250.0, 255.0),

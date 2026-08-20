@@ -3,14 +3,9 @@
 
 """CPU tests for the CausalWan 2.2 application, against a stand-in model.
 
-What is specific to this integration is which model it runs and that the model
-denoises with two transformers rather than one, so that is what these cover. How
-such an application behaves, and how a run of one reaches a file, are covered in
-``flashdreams/test_v2`` and in the Self-Forcing integration on behalf of all of
-them.
-
-The one thing a stand-in cannot show is what the checkpoint generates, which is
-what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
+Only what is particular to this integration: which model it runs, and that the
+model denoises with two transformers. The checkpoint itself is
+``test_real_model.py``.
 """
 
 import pytest
@@ -27,12 +22,8 @@ _PROMPT = "A cat surfing"
 
 
 def test_the_model_says_what_it_generates_without_being_told() -> None:
-    """These numbers are the checkpoint's, and are only written down once.
-
-    They come from the runner config this integration ships, which is the point
-    of deriving the defaults from it: a caller wanting the clip the model was
-    trained to generate passes no size flags at all.
-    """
+    """The numbers are the checkpoint's, read off the runner config this
+    integration already ships rather than written down again."""
     app = FastvideoCausalWan22T2VApplication(pipeline_config=FakeT2VPipelineConfig())
 
     desc = app.session_desc()

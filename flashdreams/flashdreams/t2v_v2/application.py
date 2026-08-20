@@ -16,11 +16,7 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 from flashdreams.t2v_v2.session import T2VSession
 
 _FRAMES_PER_SECOND_FOR_UI = 60
-"""Rate an interactive window would read input and present results at.
-
-A run writing a file has no client to keep up with, so nothing reads it there,
-but a session has to declare one.
-"""
+"""Rate an interactive window would read input and present results at."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -43,13 +39,10 @@ class T2VApplication(IApplication):
     Every text-to-video model takes a prompt and generates blocks of frames at
     a size and rate it was trained for, so the command line for one is the
     command line for all of them. An integration supplies
-    :class:`T2VApplicationDefaults` and inherits the rest, and adds a flag of
-    its own through :meth:`_configure_argument_parser` when it has one.
+    :class:`T2VApplicationDefaults` and inherits the rest.
 
-    The model is loaded once, on the first session, and every session after
-    that shares it. Loading means reading a checkpoint of several gigabytes and
-    possibly compiling the network, so a caller wanting several clips of one
-    prompt should keep the application rather than build a second.
+    The model is loaded once, on the first session, and shared by every session
+    after it, since loading reads a checkpoint of several gigabytes.
     """
 
     session_type: type[T2VSession] = T2VSession
@@ -74,15 +67,8 @@ class T2VApplication(IApplication):
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse what to generate, how much of it, and where.
 
-        What size and rate to generate at is not asked here: that describes the
-        session, which the caller asks for and :meth:`session_desc` supplies a
-        default for.
-
-        The model itself is not loaded here. A caller can ask an application
-        what it wants before paying for a checkpoint.
-
-        Args:
-            commandline_args: Application-specific arguments.
+        Not what size or rate to generate at: that describes the session, which
+        the caller asks for. The model is not loaded here either.
 
         Raises:
             ValueError: No prompt was given, or the rollout length is not one
@@ -153,9 +139,8 @@ class T2VApplication(IApplication):
     def session_desc(self) -> SessionDesc:
         """Return the description of a session this application uses.
 
-        The integration's defaults, which is what a caller with no size of its
-        own in mind wants: a model generates its best video at the size and rate
-        it was trained at.
+        A model generates its best video at the size and rate it was trained
+        at, so that is what a caller with none of its own in mind gets.
         """
         return SessionDesc(
             output_layout=self.defaults.output_layout,
@@ -167,13 +152,6 @@ class T2VApplication(IApplication):
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized session, loading the model if needed.
-
-        Args:
-            session_desc: Session to generate. See :meth:`session_desc` for the
-                one this application would choose for itself.
-
-        Returns:
-            Session sharing this application's loaded model.
 
         Raises:
             RuntimeError: :meth:`init` has not run yet.
@@ -214,9 +192,11 @@ class T2VApplication(IApplication):
     def _validate_total_blocks(self, total_blocks: int) -> None:
         """Reject a rollout length this model cannot generate.
 
+        A model generating its whole clip at once overrides this to require
+        exactly one block.
+
         Raises:
-            ValueError: ``total_blocks`` is not positive. A model generating its
-                whole clip in one rollout overrides this to require exactly one.
+            ValueError: ``total_blocks`` is not positive.
         """
         if total_blocks <= 0:
             raise ValueError(f"--total-blocks must be > 0, got {total_blocks}.")
@@ -231,9 +211,8 @@ class T2VApplication(IApplication):
     def _apply_seed_override(self, pipeline_config: Any, seed: int) -> Any:
         """Return ``pipeline_config`` sampling its noise from ``seed``.
 
-        Where the seed lives is the model's business, and every model built on
-        this framework keeps it on the diffusion model, so this is written once
-        here and overridden by an integration that keeps it elsewhere.
+        Every model built on this framework keeps the seed on the diffusion
+        model; one that keeps it elsewhere overrides this.
         """
         return derive_config(pipeline_config, diffusion_model={"seed": seed})
 
@@ -244,9 +223,6 @@ class T2VApplication(IApplication):
 
         Rejecting rather than resolving: a caller that asked for one video and
         silently received another has no way to notice.
-
-        Raises:
-            ValueError: The layout is not the one this model emits.
         """
         layout = self.defaults.output_layout
         if session_desc.output_layout is not layout:
@@ -256,13 +232,7 @@ class T2VApplication(IApplication):
             )
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
-        """Reject a frame size this model cannot decode.
-
-        Raises:
-            ValueError: The frame size is not a whole number of latents.
-        """
-        # A frame is decoded from a latent grid, so its size has to be a whole
-        # number of latents across.
+        """Reject a frame size that is not a whole number of latents across."""
         ratio = pipeline.decoder.spatial_compression_ratio
         if session_desc.video_width % ratio or session_desc.video_height % ratio:
             raise ValueError(

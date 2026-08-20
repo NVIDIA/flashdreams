@@ -16,22 +16,16 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 class CausalForcingT2VApplication(T2VApplication):
     """Causal-Forcing Wan 2.1 1.3B, generating video from text.
 
-    Everything about running a text-to-video model is
-    :class:`~flashdreams.t2v_v2.application.T2VApplication`; what belongs here
-    is which model, and that comes from the runner config this integration
-    already ships, so the frame size and rate are not written down twice.
-
     The chunkwise variant rather than the framewise one: it generates three
-    latent frames a block instead of one, which is the same shape of rollout the
-    other streaming models here have.
+    latent frames a block instead of one, the same shape of rollout the other
+    streaming models here have.
     """
 
     def __init__(self, pipeline_config: Any | None = None) -> None:
         """
         Args:
-            pipeline_config: Model to run, replacing the one the runner config
-                names. The default is the chunkwise checkpoint; a test passes a
-                stand-in.
+            pipeline_config: Model to run, in place of the chunkwise
+                checkpoint. A test passes a stand-in.
         """
         defaults = T2VApplicationDefaults.from_runner_config(
             RUNNER_WAN21_T2V_1PT3B_CHUNKWISE

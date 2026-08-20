@@ -3,11 +3,9 @@
 
 """CPU tests for the command line that runs a v2 application.
 
-The end-to-end runs here use a stand-in for a model, so what they cover is the
-wiring: that the application is found, given its own arguments, asked what
-session it would generate, run against the window the arguments chose, and
-closed. Whether a real checkpoint generates anything worth watching is a GPU
-question, asked in the integration that owns the checkpoint.
+The runs here use a stand-in for a model, so what they cover is the wiring: the
+application found, given its arguments, asked what session it would generate,
+run against the window the arguments chose, and closed.
 """
 
 import json
@@ -57,11 +55,7 @@ _PROMPT = "A cat surfing"
 
 
 def _stand_in(*, fail_at: int | None = None) -> FakeT2VPipeline:
-    """Return the shared stand-in, generating small blocks of one size.
-
-    The same count for every block, since what a first block of its own size
-    covers belongs to the session's own tests.
-    """
+    """Return the shared stand-in, generating small blocks of one size."""
     return FakeT2VPipeline(
         first_block_frames=_BLOCK_FRAMES, block_frames=_BLOCK_FRAMES, fail_at=fail_at
     )
@@ -87,9 +81,8 @@ class StubT2VApplication(T2VApplication):
 class UndescribedApplication(IApplication):
     """An application that generates whatever it is asked for.
 
-    What everything that is not a model looks like to this command: it has no
-    clip of its own in mind, so the description it is handed is the one the
-    command line built.
+    Having no clip of its own in mind, the description it is handed is the one
+    the command line built.
     """
 
     def __init__(self) -> None:
@@ -160,8 +153,7 @@ def test_arguments_after_the_separator_belong_to_the_application() -> None:
         ["slug", "--mode", "mp4", "--", "--prompt", "a cat", "--mode", "fancy"]
     )
 
-    # --mode appears on both sides, which is the point: an application is free
-    # to declare a flag this command also has.
+    # --mode on both sides is the point: an application may declare it too.
     assert own == ["slug", "--mode", "mp4"]
     assert application == ["--prompt", "a cat", "--mode", "fancy"]
 
@@ -265,8 +257,8 @@ def _install(
 ) -> None:
     """Point the command at this application, and at this window when given one.
 
-    A window is only needed by a run that is not writing a file, since the file
-    window is the one the command builds itself.
+    Only a run that is not writing a file needs one; the command builds the
+    file window itself.
     """
     monkeypatch.setattr(cli, "create_application", lambda slug: application)
     if window is not None:
@@ -303,8 +295,7 @@ def test_a_run_writes_what_the_application_generated(
 def test_the_model_is_released_when_a_run_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A model holds most of a GPU, so a run that gave up part way through has
-    # to put it back whether or not it produced anything.
+    # A model holds most of a GPU, so a failed run still has to put it back.
     pipeline = _stand_in(fail_at=1)
     _install(monkeypatch, StubT2VApplication(pipeline), RecordingWindow())
 
@@ -339,8 +330,7 @@ def test_a_run_can_record_what_generating_the_clip_cost(
         ]
     )
 
-    # Both files, and every step in the one recording them. What a stats file
-    # says is the sink's own business, covered in test_metrics_output_sink.py.
+    # What a stats file says is the sink's business, covered in its own tests.
     assert clip_path.stat().st_size > 0
     payload = json.loads(stats_path.read_text(encoding="utf-8"))
     assert [step["step_index"] for step in payload["steps"]] == [0, 1]

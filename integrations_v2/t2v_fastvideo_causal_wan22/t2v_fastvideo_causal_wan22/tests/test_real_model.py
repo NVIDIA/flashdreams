@@ -3,17 +3,13 @@
 
 """The real model, generating a short clip somebody can watch.
 
-Too heavy for an automated run, so it skips unless asked for, and heavier here
-than anywhere else: two 14B checkpoints. Run it with a base temporary directory
-you can reach, then play the file::
+Skips unless asked for, and heavier here than anywhere else: two 14B
+checkpoints. Give it a base temporary directory you can reach, then play it::
 
     T2V_FASTVIDEO_CAUSAL_WAN22_REAL_MODEL_RUN=1 uv run --no-sync pytest \
         integrations_v2/t2v_fastvideo_causal_wan22 -m ci_gpu -s \
         --basetemp="$HOME/t2v-out"
     vlc "$HOME"/t2v-out/*current/clip.mp4
-
-What the run does, and why it skips, is
-:func:`flashdreams.t2v_v2.testing.check_real_model_generates_a_clip`.
 """
 
 from pathlib import Path
@@ -33,13 +29,10 @@ _SKIP = real_model_run_skip_reason("T2V_FASTVIDEO_CAUSAL_WAN22_REAL_MODEL_RUN")
 """Why this cannot run here, if it cannot."""
 
 _STEPS = 3
-"""Blocks to generate. Two seconds of video, and enough that the steady-state
-block size is covered as well as the first one."""
+"""Blocks to generate: enough to cover the steady-state size and the first."""
 
 _FIRST_BLOCK_FRAMES = 9
-"""Frames the first block decodes. The config generates three latent frames a
-block, and the Wan VAE decodes the first to one frame and each after it to four,
-so the first block is 1 + 2 * 4."""
+"""Frames the first block decodes: three latent frames, as 1 + 2 * 4."""
 
 _BLOCK_FRAMES = 12
 """Frames every block after it decodes, being 3 * 4."""

@@ -3,15 +3,12 @@
 
 """The real model, generating a short clip somebody can watch.
 
-Too heavy for an automated run, so it skips unless asked for. Run it with a base
+Skips unless asked for, being too heavy to run automatically. Give it a base
 temporary directory you can reach, then play the file::
 
     T2V_SELF_FORCING_REAL_MODEL_RUN=1 uv run --no-sync pytest \
         integrations_v2/t2v_self_forcing -m ci_gpu -s --basetemp="$HOME/t2v-out"
     vlc "$HOME"/t2v-out/*current/clip.mp4
-
-What the run does, and why it skips, is
-:func:`flashdreams.t2v_v2.testing.check_real_model_generates_a_clip`.
 """
 
 from pathlib import Path
@@ -31,8 +28,7 @@ _SKIP = real_model_run_skip_reason("T2V_SELF_FORCING_REAL_MODEL_RUN")
 """Why this cannot run here, if it cannot."""
 
 _STEPS = 3
-"""Blocks to generate. Two seconds of video, and enough that the steady-state
-block size is covered as well as the first one."""
+"""Blocks to generate: enough to cover the steady-state size and the first."""
 
 _FIRST_BLOCK_FRAMES = 9
 """Frames the first block decodes."""

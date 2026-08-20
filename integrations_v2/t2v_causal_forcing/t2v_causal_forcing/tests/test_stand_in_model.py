@@ -3,14 +3,9 @@
 
 """CPU tests for the Causal-Forcing application, against a stand-in model.
 
-All this integration does is point the shared text-to-video layer at its own
-runner config, so pointing at the right one is all there is to cover. How such
-an application behaves, and how a run of one reaches a file, are covered in
-``flashdreams/test_v2`` and in the Self-Forcing integration on behalf of all of
-them.
-
-The one thing a stand-in cannot show is what the checkpoint generates, which is
-what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
+All this integration does is point the shared layer at its own runner config,
+so pointing at the right one is all there is to cover here. The checkpoint
+itself is ``test_real_model.py``.
 """
 
 import pytest
@@ -27,12 +22,8 @@ _PROMPT = "A cat surfing"
 
 
 def test_the_model_says_what_it_generates_without_being_told() -> None:
-    """These numbers are the checkpoint's, and are only written down once.
-
-    They come from the runner config this integration ships, which is the point
-    of deriving the defaults from it: a caller wanting the clip the model was
-    trained to generate passes no size flags at all.
-    """
+    """The numbers are the checkpoint's, read off the runner config this
+    integration already ships rather than written down again."""
     app = CausalForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig())
 
     desc = app.session_desc()

@@ -3,15 +3,9 @@
 
 """Test support for text-to-video integrations, shipped for them to import.
 
-Nothing here runs in production: the application, the session, and the command
-line do not use it. It is the shared check an integration's own tests call to
-cover the batch path, named as ``numpy.testing`` and ``torch.testing`` are so
-that an importer can see what it is getting.
-
-It also holds the stand-in model those tests run on a CPU. The pipeline contract
-lives in :class:`~flashdreams.t2v_v2.session.T2VSession`, which every
-integration shares, so the stand-in for it belongs here rather than being
-written again by each of them.
+Nothing here runs in production. It is the shared check an integration's tests
+call, and the stand-in model they run it against, named as ``numpy.testing`` and
+``torch.testing`` are.
 """
 
 import os
@@ -38,8 +32,7 @@ from flashdreams.t2v_v2.application import T2VApplication
 _REAL_CLIP_LUMINANCE = (16.0, 240.0)
 """Mean pixel value a real clip has to land inside, from ``0`` to ``255``.
 
-Loose, because what a model samples is its own business. What it catches is a
-run that came back blank.
+Loose on purpose: what it catches is a run that came back blank.
 """
 
 _REAL_CLIP_FRAME_DIFFERENCE = 0.5
@@ -50,28 +43,19 @@ _REAL_CLIP_FRAME_DIFFERENCE = 0.5
 class ExpectedFrameStats:
     """What a caller expects a run to have generated.
 
-    Every field is optional, and one left out is not checked. They describe a
-    video loosely on purpose: a model that samples cannot be expected to
-    produce a particular picture, but it can be expected to produce a picture
-    at all.
+    Every field is optional, and one left out is not checked. A model that
+    samples cannot be expected to produce a particular picture, but it can be
+    expected to produce a picture at all.
     """
 
     frame_count: int | None = None
     """Frames the whole run should generate."""
 
     mean_luminance: tuple[float, float] | None = None
-    """Range the mean pixel value should land in, from ``0`` to ``255``.
-
-    A run that fell over usually leaves black or white frames, so a middle
-    range catches it without describing what was generated.
-    """
+    """Range the mean pixel value should land in, from ``0`` to ``255``."""
 
     min_frame_difference: float | None = None
-    """Smallest mean change from one frame to the next, from ``0`` to ``255``.
-
-    A model asked for video should produce frames that differ. A still picture
-    repeated is a failure this catches.
-    """
+    """Smallest mean change from one frame to the next, on that scale."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -119,37 +103,27 @@ def check_t2v_model_impl(
 ) -> T2VCheckResult:
     """Run a text-to-video application for ``steps`` steps and inspect the video.
 
-    The coverage a text-to-video integration gets from one call: the
-    application loads, resolves a session, generates, and what it generated is
-    a video rather than a run that merely finished. An integration supplies its
-    own application and the loosest expectations that would still catch a
-    broken model.
-
-    The application is initialized and closed here, so a caller gets one run
-    per call. Frames are read the way a sink reads them, so a result this
-    accepts is one an MP4 or a window could also present.
+    The coverage an integration gets from one call: the application loads,
+    resolves a session, generates, and what it generated is a video rather than
+    a run that merely finished. It is initialized and closed here, and frames
+    are read the way a sink reads them.
 
     Args:
         application: Uninitialized application to run.
-        session_desc: Session to ask the application for. What the session
-            resolves it to is what the frames are checked against. ``None`` asks
-            the application what it would generate, which is what a check of the
-            real model wants; a stand-in generating some other size says so here
-            instead.
+        session_desc: Session to ask for, or ``None`` to take the application's
+            own. A stand-in generating some other size says so here.
         steps: Steps to generate. Enough to reach steady state, since a model
             whose first chunk differs is only interesting from the second.
         expected: What the generated video should look like.
         commandline_args: Application arguments, such as a prompt.
-        mp4_path: File to write as well, for a person to watch. Frames are
-            checked either way.
+        mp4_path: File to write as well, for a person to watch.
 
     Returns:
         What the run generated, and which expectations it missed.
 
     Raises:
         Whatever the run raises. A model that fails to load or generate is a
-        failure of the integration rather than of an expectation, so it is not
-        collected into the result.
+        failure of the integration rather than of an expectation.
     """
     if steps <= 0:
         raise ValueError(f"steps must be > 0, got {steps}.")
@@ -173,20 +147,10 @@ def check_t2v_model_impl(
 def real_model_run_skip_reason(run_env: str) -> str | None:
     """Return why the real model cannot be run here, or ``None`` if it can.
 
-    A real-model run is too heavy to be an automated one: it needs a GPU, and on
-    a machine that has not run the model before it downloads tens of gigabytes
-    of checkpoint. So such a test carries the ``ci_gpu`` tier marker and skips
-    unless ``run_env`` is set, which costs the GPU job milliseconds and still
-    keeps the module imported and collected there. The ``manual`` marker
-    describes it better and cannot be used: the ``pytest-manual-marker`` plugin
-    xfails every ``manual`` test at setup, so a test marked that way never runs,
-    here or on anybody's machine.
-
-    Args:
-        run_env: Environment variable a caller sets to ask for the run.
-
-    Returns:
-        A reason to skip, or ``None`` when the run can go ahead.
+    Such a run needs a GPU and downloads tens of gigabytes of checkpoint, so it
+    is asked for rather than automatic. It carries ``ci_gpu`` and skips unless
+    ``run_env`` is set; the ``manual`` marker describes it better and cannot be
+    used, since ``pytest-manual-marker`` xfails those at setup.
     """
     if not os.environ.get(run_env):
         return f"set {run_env}=1 to download the checkpoints and generate a clip"
@@ -207,15 +171,10 @@ def check_real_model_generates_a_clip(
 ) -> T2VCheckResult:
     """Generate a clip with a real checkpoint and check that it is a video.
 
-    Every integration's real-model run is this one: load the checkpoint,
-    generate a few blocks with compilation off, write an MP4 somebody can watch,
-    and check the frames loosely. Only the numbers differ between models, and
-    they belong to the checkpoint. No session is described, because the clip
-    worth watching is the one the model was trained to generate, which it says
-    for itself.
-
-    Where the clip landed is printed, so a run made with ``-s`` says where to
-    look for it.
+    Every integration's real-model run is this one, and only the numbers differ.
+    No session is described, since the clip worth watching is the one the model
+    was trained for. Where it landed is printed, so a run made with ``-s`` says
+    where to look.
 
     Args:
         application: Uninitialized application over the real model.
@@ -223,9 +182,6 @@ def check_real_model_generates_a_clip(
         steps: Blocks to generate.
         frame_count: Frames those blocks should decode to.
         mp4_path: File to write.
-
-    Returns:
-        What the run generated, and which expectations it missed.
     """
     result = check_t2v_model_impl(
         application,
@@ -248,14 +204,9 @@ class FakeT2VPipeline:
     """A model's worth of behaviour, without a model.
 
     Generates frames of the shape and range a real text-to-video pipeline does,
-    on whatever device it is handed, so an integration's tests can cover the
-    seam a real checkpoint plugs into on a CPU runner. What it decodes is a
-    moving grey rather than a picture, which is enough for the frame checks
-    :func:`check_t2v_model_impl` makes.
-
-    Every call is recorded, so a test can assert the rollout was driven in
-    order: ``caches`` holds the arguments each rollout was initialized with, and
-    ``generated`` and ``finalized`` hold the autoregressive index of each step.
+    so an integration's tests can cover the seam a checkpoint plugs into on a
+    CPU. Every call is recorded, so a test can assert the rollout was driven in
+    order.
     """
 
     def __init__(
@@ -273,13 +224,12 @@ class FakeT2VPipeline:
             width: Frame width to generate. Not square by default, so a
                 transposed frame cannot pass unnoticed.
             height: Frame height to generate.
-            compression_ratio: Pixels one latent covers in each direction, as
-                the decoder this stands in for reports.
-            first_block_frames: Frames the first block decodes. A causal decoder
-                usually decodes fewer for its first block than the rest.
+            compression_ratio: Pixels one latent covers in each direction.
+            first_block_frames: Frames the first block decodes, which a causal
+                decoder usually has fewer of than the rest.
             block_frames: Frames every block after the first decodes.
-            fail_at: Step to fail generating at, for covering what a run that
-                gave up part way through leaves behind.
+            fail_at: Step to fail generating at, for covering a run that gave
+                up part way through.
         """
         self.decoder = _FakeDecoder(compression_ratio)
         self.width = width
@@ -334,18 +284,14 @@ class FakeT2VPipeline:
         """Return a grey frame whose shade moves with time.
 
         Mid grey rather than black or white, and moving rather than still, so
-        the checks a caller makes of a real video are meaningful here too.
+        the checks made of a real video are meaningful here too.
         """
         shade = -0.5 + (frame_index % 8) / 8.0
         return torch.full((3, self.height, self.width), shade, dtype=torch.float32)
 
 
 class FakeT2VPipelineConfig:
-    """A pipeline config that builds a stand-in rather than loading a model.
-
-    What an application takes in place of the config its runner names, so a
-    test can watch when the model is built as well as what it generates.
-    """
+    """A pipeline config that builds a stand-in rather than loading a model."""
 
     def __init__(self, pipeline: FakeT2VPipeline | None = None) -> None:
         """
@@ -418,34 +364,23 @@ class _FrameInspector(OutputSink):
 class _InspectingClientWindow(IClientWindow):
     """Drive a run against the inspector, reporting no input.
 
-    A run goes through ``run_session``, which drives a window rather than a
-    sink, and what a check wants driven is the inspector. This is what
-    :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow` is for a
-    run writing a file: the input half of a window nobody is on the other end
-    of.
+    What ``Mp4ClientWindow`` is for a run writing a file: the input half of a
+    window nobody is on the other end of.
     """
 
     def __init__(self, sink: OutputSink) -> None:
-        """
-        Args:
-            sink: Where every result goes.
-        """
         self._sink = sink
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Report nothing, since a check presses no keys."""
         return UserInputEvents([])
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Open the inspected sink for this session."""
         self._sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:
-        """Hand one step's result to the inspected sink."""
         self._sink.write(result)
 
     def close(self) -> None:
-        """Close the inspected sink."""
         self._sink.close()
 
 

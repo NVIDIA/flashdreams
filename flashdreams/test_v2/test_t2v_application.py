@@ -3,10 +3,8 @@
 
 """CPU tests for the text-to-video application every t2v integration configures.
 
-What is covered here is the part that is the same for every model: the flags,
-what they resolve to, what an application refuses to generate, and when the
-model is loaded. What one rollout generates is covered against a stand-in for a
-real pipeline, in the integration that owns it.
+The part that is the same for every model: the flags, what they resolve to,
+what an application refuses to generate, and when the model is loaded.
 """
 
 import argparse
@@ -135,9 +133,8 @@ def _pipeline_config(app: T2VApplication) -> FakePipelineConfig:
 def _rollout_length(app: T2VApplication) -> int:
     """Return the rollout length the sessions this creates were given.
 
-    An application answers no such question: what the command line resolved to
-    reaches a run through the session, which reports itself finished at the end
-    of it.
+    An application answers no such question: the length reaches a run through
+    the session, which reports itself finished at the end of it.
     """
     session = app.create_session(app.session_desc())
     assert isinstance(session, RecordingRollout)
@@ -419,6 +416,5 @@ def test_a_seed_reaches_the_model_where_a_model_keeps_one() -> None:
     app.init(["--prompt", _PROMPT, "--seed", "7"])
 
     assert app.pipeline_config.diffusion_model.seed == 7
-    # Derived rather than edited: the config an integration ships is shared by
-    # every application built from it.
+    # Derived rather than edited: an integration's config is shared.
     assert diffusion_model.seed == 42

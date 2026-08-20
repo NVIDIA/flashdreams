@@ -18,8 +18,8 @@
 This mirrors the subprocess setup used by the Omnidreams same-seed CI test: set
 CUDA/PyTorch determinism knobs before the first CUDA context, then invoke a
 FlashDreams runner entrypoint with the remaining arguments. Either API's
-entrypoint can be launched, since a quality scenario wants the same
-determinism whichever one generates the clip.
+entrypoint can be launched, a quality scenario wanting the same determinism
+whichever one generates the clip.
 """
 
 from __future__ import annotations
@@ -47,9 +47,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     original_argv = sys.argv
     try:
-        # Called in-process rather than spawned, so the determinism above is
-        # already set when the runner opens its first CUDA context. The runner
-        # reads its arguments from argv, so they are put where it looks.
+        # In-process rather than spawned, so the determinism above is already
+        # set when the runner opens its first CUDA context.
         sys.argv = [args.entrypoint, *args.runner_args]
         module = importlib.import_module(_ENTRYPOINT_MODULES[args.entrypoint])
         module.entrypoint()

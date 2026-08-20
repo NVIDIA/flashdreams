@@ -5,14 +5,9 @@
 
 ``flashdreams-run-v2`` finds an application by slug, gives it the arguments
 after ``--``, and hands it to :class:`ApplicationRunner` along with the window
-``--mode`` asked for: an MP4 file, or a client over WebRTC.
-
-The session it asks for is the one the application says it would generate, with
-whatever the frame arguments here override. An application that would generate
-nothing in particular is described by those arguments alone.
-
-A run can also record what each step measured, for a benchmark to compare runs
-by speed as well as by how they look.
+``--mode`` asked for: an MP4 file, or a client over WebRTC. The session it asks
+for is the one the application says it would generate, with whatever the frame
+arguments here override.
 """
 
 import argparse
@@ -38,8 +33,8 @@ from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 _ARGUMENT_SEPARATOR = "--"
 """What separates this command's arguments from the application's.
 
-An application declares whatever arguments it likes, including ones this command
-also has, so the split is stated rather than guessed.
+An application declares whatever arguments it likes, including ones this
+command also has, so the split is stated rather than guessed.
 """
 
 _MP4_MODE = "mp4"
@@ -64,9 +59,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     window = _client_window(parsed)
     if isinstance(window, WebRTCClientWindow):
         print(f"Open {window.server.url} in a browser.", flush=True)
-    # Nothing here says how long the run is. A session generates what it was
-    # configured to and reports itself finished, and a window with a client on
-    # the other end ends the run when that client goes away.
+    # Nothing here says how long the run is: a session reports itself finished,
+    # and a window ends the run when its client goes away.
     ApplicationRunner(application, window).run(session_desc, application_args)
     if parsed.mode == _MP4_MODE:
         print(parsed.output_path)
@@ -80,8 +74,7 @@ def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
 
     Returns:
         This command's arguments, then the application's. Everything belongs to
-        this command when there is no separator, so an application taking no
-        arguments needs no ``--``.
+        this command when there is no separator.
     """
     arguments = list(arguments)
     if _ARGUMENT_SEPARATOR not in arguments:
@@ -129,9 +122,8 @@ def _parser() -> argparse.ArgumentParser:
 def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the arguments describing the session to ask the application for.
 
-    Every one of them defaults to asking for nothing, so a run that says none of
-    them gets what the application generates, which for a model is the clip it
-    was trained for.
+    Each defaults to asking for nothing, so a run that names none of them gets
+    what the application generates.
     """
     parser.add_argument(
         "--pixel-width", type=int, default=None, help="Frame width to generate."
@@ -160,8 +152,8 @@ def _session_desc(
 ) -> SessionDesc:
     """Return the session to ask for: the application's, with the arguments on top.
 
-    An application that describes no session of its own is described by the
-    arguments alone, and by :class:`SessionDesc`'s own defaults for the rest.
+    An application describing no session of its own gets the arguments alone,
+    over :class:`SessionDesc`'s own defaults.
     """
     asked_for: dict[str, Any] = {
         field: value

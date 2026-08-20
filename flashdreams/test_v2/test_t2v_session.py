@@ -3,11 +3,9 @@
 
 """CPU tests for the rollout every text-to-video model generates through.
 
-``T2VSession`` is one rollout: it encodes the prompt into a cache once, then
-generates one autoregressive block per step. Driving it in the right order is
-the same job for every model, so it is covered here once, against the stand-in
-pipeline in ``flashdreams.t2v_v2.testing``. What a real checkpoint generates is
-covered in the integration that owns it.
+``T2VSession`` encodes the prompt into a cache once, then generates one
+autoregressive block per step. Driving it in order is the same job for every
+model, so it is covered here once against the shared stand-in pipeline.
 """
 
 import pytest
@@ -56,8 +54,7 @@ _NO_EVENTS = UserInputEvents([])
 def _stand_in() -> FakeT2VPipeline:
     """Return a stand-in generating what the constants above describe.
 
-    Passed rather than left to the stand-in's own defaults, because these tests
-    assert the exact shapes it emits.
+    Said rather than defaulted, since these tests assert the exact shapes.
     """
     return FakeT2VPipeline(
         width=_WIDTH,
@@ -130,8 +127,7 @@ def test_a_step_generates_a_block_and_advances_the_rollout() -> None:
     first = session.step(0, _NO_EVENTS)
     second = session.step(1, _NO_EVENTS)
 
-    # Generating a block and advancing past it are separate calls, and a step
-    # is only over once both have run.
+    # Generating a block and advancing past it are separate calls.
     assert pipeline.generated == [0, 1]
     assert pipeline.finalized == [0, 1]
     assert (first.step_index, second.step_index) == (0, 1)

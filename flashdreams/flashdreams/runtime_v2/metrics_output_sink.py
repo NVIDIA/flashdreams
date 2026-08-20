@@ -15,9 +15,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 _ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
 """What a stats file declares itself to be.
 
-``flashdreams-benchmark`` reads timings out of the files carrying this, and it is
-what the v1 sink, ``flashdreams.demo.outputs.BenchmarkStatsOutputSink``, writes,
-so a report can hold runs of both APIs.
+The same as the v1 sink writes, so one report can hold runs of both APIs.
 """
 
 _SCHEMA_VERSION = 1
@@ -27,16 +25,14 @@ _SCHEMA_VERSION = 1
 class MetricsOutputSink(OutputSink):
     """Write what a run measured, where a benchmark report reads it from.
 
-    A generated clip says nothing about what it cost to generate, so a run
-    being compared for speed as well as looks writes this alongside its video.
-    Each step's measurements are recorded against the step and the frames it
-    generated, which is what lets a report say how fast a model generated
-    video rather than only how long a step took.
+    A clip says nothing about what it cost, so a run compared for speed writes
+    this alongside its video. Each step's measurements are recorded against the
+    frames it generated, so a report can say how fast video was generated
+    rather than only how long a step took.
 
-    The measurements are the model's own: whatever the pipeline reported for a
-    step is what lands here. Names are normalized the way the v1 sink
-    normalizes them, so a metric in milliseconds is recorded in seconds. A
-    report comparing two runs cannot compare two units.
+    The measurements are the model's own, normalized the way the v1 sink
+    normalizes them: milliseconds become seconds, since a report cannot compare
+    two units.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -53,9 +49,8 @@ class MetricsOutputSink(OutputSink):
     def open(self, session_desc: SessionDesc) -> None:
         """Start recording a session's measurements.
 
-        Args:
-            session_desc: Output description declared by the session, recorded
-                so a report knows what was being generated while it was timed.
+        The description is recorded too, so a report knows what was being
+        generated while it was timed.
         """
         self._session_desc = session_desc
         self._steps = []
@@ -65,10 +60,8 @@ class MetricsOutputSink(OutputSink):
     def write(self, result: StepResult) -> None:
         """Record what ``result`` measured, and how much video it came with.
 
-        Args:
-            result: Generated output for the completed step. Its frames are
-                counted rather than kept: what a step generated is measured
-                here, and written out by whatever sink is writing the video.
+        Frames are counted rather than kept; writing them out belongs to
+        whatever sink is writing the video.
 
         Raises:
             RuntimeError: Called before :meth:`open`.
@@ -88,9 +81,8 @@ class MetricsOutputSink(OutputSink):
     def close(self) -> None:
         """Write the file.
 
-        Can be called on a sink that was never opened, or twice: a run that
-        generated nothing leaves no file behind, and one that generated
-        something writes it once.
+        A sink that was never opened leaves no file behind, and one closed
+        twice writes it once.
         """
         session_desc = self._session_desc
         self._session_desc = None
@@ -118,9 +110,8 @@ class MetricsOutputSink(OutputSink):
 def _samples_from(result: StepResult) -> list[dict[str, Any]]:
     """Return one record per measurement a step reported.
 
-    A measurement that cannot be compared is dropped rather than written: a
-    report reading this expects a finite number it can average, and a pipeline
-    reporting anything else is reporting something else.
+    A measurement that is not a finite number is dropped, since a report can
+    only average what it can compare.
     """
     samples: list[dict[str, Any]] = []
     for name, value in result.metrics.items():
@@ -149,12 +140,10 @@ def _normalized_sample(
 ) -> tuple[str, float | int, str, str]:
     """Return a measurement as a report reads it: name, value, unit, category.
 
-    Milliseconds become seconds, since a report cannot compare a run measured
-    in one against a run measured in the other. Everything else keeps its value
-    and is labelled with what its name says it is.
-
-    This is ``flashdreams.demo.outputs._normalize_metric_sample`` for v2
-    results, and the two agreeing is what lets one report hold runs of both.
+    Milliseconds become seconds; everything else keeps its value and is
+    labelled with what its name says it is. This is
+    ``flashdreams.demo.outputs._normalize_metric_sample`` for v2 results, and
+    the two agreeing is what lets one report hold runs of both.
     """
     if name.endswith("_ms"):
         return f"{name[:-3]}_s", float(value) / 1000.0, "s", "timing"

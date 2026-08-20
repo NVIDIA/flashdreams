@@ -3,18 +3,10 @@
 
 """CPU tests for the Self-Forcing application, against a stand-in model.
 
-What is specific to this integration is which model it runs, so that is what
-these cover. How a text-to-video application behaves in general, and how one
-rollout is driven, belong to the shared layer and are covered in
-``flashdreams/test_v2``, which is why there is so little here.
-
-This is also where the run through an integration to a real MP4 is covered, on
-behalf of all five of them: every t2v integration is the same forty-line factory
-over the same shared layer, so running each one to a file would cover the same
-path five times. The other four cover only what differs about them.
-
-The one thing a stand-in cannot show is what the checkpoint generates, which is
-what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
+Only what is particular to this integration: which model it runs, and turning
+compilation off. It also covers a run to a real MP4 on behalf of all five, each
+being the same factory over the same shared layer. The checkpoint itself is
+``test_real_model.py``.
 """
 
 import shutil
@@ -40,12 +32,8 @@ _PROMPT = "A cat surfing"
 
 
 def test_the_model_says_what_it_generates_without_being_told() -> None:
-    """These numbers are the checkpoint's, and are only written down once.
-
-    They come from the runner config this integration ships, which is the point
-    of deriving the defaults from it: a caller wanting the clip the model was
-    trained to generate passes no size flags at all.
-    """
+    """The numbers are the checkpoint's, read off the runner config this
+    integration already ships rather than written down again."""
     app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig())
 
     desc = app.session_desc()
@@ -60,12 +48,9 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
 
 
 def test_compilation_can_be_turned_off_for_a_run() -> None:
-    """The real config compiles by default, which costs minutes on first use.
-
-    Run against that config rather than a stand-in, since what this covers is
-    that the override the shared layer applies lands where this model keeps the
-    setting. No model is loaded to answer it.
-    """
+    """Run against the real config rather than a stand-in, since what this
+    covers is the override landing where this model keeps the setting. No model
+    is loaded to answer it."""
     app = SelfForcingT2VApplication()
 
     app.init(["--prompt", _PROMPT, "--no-compile"])

@@ -16,24 +16,17 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 class Wan21T2VApplication(T2VApplication):
     """Wan 2.1 1.3B at 480p, generating video from text in one rollout.
 
-    Everything about running a text-to-video model is
-    :class:`~flashdreams.t2v_v2.application.T2VApplication`; what belongs here
-    is which model, and that comes from the runner config this integration
-    already ships, so the frame size and rate are not written down twice.
-
-    This model is bidirectional rather than streaming: it attends over the whole
-    clip at once and generates it in a single block, so a run is one step and
-    the clip is however long the checkpoint generates. The runner config says
-    nothing about a rollout length because there is no rollout, which is why the
-    length is stated here instead.
+    Bidirectional rather than streaming: it attends over the whole clip and
+    generates it in a single block, so a run is one step. Its runner config
+    states no rollout length, there being no rollout, so the length is stated
+    here.
     """
 
     def __init__(self, pipeline_config: Any | None = None) -> None:
         """
         Args:
-            pipeline_config: Model to run, replacing the one the runner config
-                names. The default is the 480p checkpoint; a test passes a
-                stand-in.
+            pipeline_config: Model to run, in place of the 480p checkpoint. A
+                test passes a stand-in.
         """
         defaults = T2VApplicationDefaults.from_runner_config(
             RUNNER_WAN21_T2V_1PT3B_480P,
@@ -44,12 +37,10 @@ class Wan21T2VApplication(T2VApplication):
         super().__init__(defaults=defaults)
 
     def _validate_total_blocks(self, total_blocks: int) -> None:
-        """Reject a rollout, since this model generates its clip in one block.
+        """Reject a rollout: a second block would not continue the first.
 
         Raises:
-            ValueError: More than one block was asked for. A second block would
-                not continue the first, so generating one is not something this
-                model can be asked for a little more of.
+            ValueError: More than one block was asked for.
         """
         super()._validate_total_blocks(total_blocks)
         if total_blocks > 1:

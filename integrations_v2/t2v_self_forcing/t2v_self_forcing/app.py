@@ -14,20 +14,13 @@ from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 
 
 class SelfForcingT2VApplication(T2VApplication):
-    """Self-Forcing distilled Wan 2.1 1.3B, generating video from text.
-
-    Everything about running a text-to-video model is
-    :class:`~flashdreams.t2v_v2.application.T2VApplication`; what belongs here
-    is which model, and that comes from the runner config this integration
-    already ships, so the frame size and rate are not written down twice.
-    """
+    """Self-Forcing distilled Wan 2.1 1.3B, generating video from text."""
 
     def __init__(self, pipeline_config: Any | None = None) -> None:
         """
         Args:
-            pipeline_config: Model to run, replacing the one the runner config
-                names. The default is the distilled four-step checkpoint; a test
-                passes a stand-in.
+            pipeline_config: Model to run, in place of the distilled four-step
+                checkpoint. A test passes a stand-in.
         """
         defaults = T2VApplicationDefaults.from_runner_config(RUNNER_WAN21_T2V_1PT3B)
         if pipeline_config is not None:

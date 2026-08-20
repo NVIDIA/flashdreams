@@ -12,10 +12,8 @@ from flashdreams.api_v2.application import IApplication
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications_v2"
 """Entry-point group whose values expose a zero-argument ``create_app`` factory.
 
-Separate from the v1 ``flashdreams.applications`` group because the two hold
-different contracts: v1 resolves its group to ``IFlashDreamsApplication`` and
-rejects anything else, so a v2 :class:`IApplication` registered there would be
-refused rather than run.
+Separate from the v1 ``flashdreams.applications`` group, which resolves to
+``IFlashDreamsApplication`` and would refuse a v2 application registered there.
 """
 
 
@@ -38,9 +36,6 @@ def create_application(slug: str) -> IApplication:
     Args:
         slug: Registered application name, such as ``t2v-self-forcing``, or an
             importable module exposing ``create_app``.
-
-    Returns:
-        The application the factory built.
 
     Raises:
         ValueError: ``slug`` is empty.
@@ -73,9 +68,7 @@ def _from_entry_point(entry_point: EntryPoint) -> IApplication:
 def _validated(value: Any, *, origin: str) -> IApplication:
     """Return ``value`` if it is an application, and say what it was if not.
 
-    Raises:
-        TypeError: ``value`` does not implement the v2 application contract. An
-            integration still on the v1 contract lands here.
+    An integration still on the v1 contract lands here.
     """
     if not isinstance(value, IApplication):
         raise TypeError(
@@ -96,8 +89,7 @@ def _import_application_module(slug: str) -> Any:
         return importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
         # A module that exists but imports something missing is a broken
-        # install, not an unknown slug, and saying "no such application" would
-        # send the reader looking in the wrong place.
+        # install rather than an unknown slug.
         if exc.name != module_name:
             raise
 
