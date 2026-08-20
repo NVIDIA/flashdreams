@@ -14,7 +14,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class WebRTCClientWindow(IClientWindow):
-    """Adapt a standalone WebRTC server to the v2 client-window interface."""
+    """Implement ``IClientWindow`` with WebRTC input and presentation."""
 
     def __init__(
         self,
@@ -23,7 +23,11 @@ class WebRTCClientWindow(IClientWindow):
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
     ) -> None:
-        """
+        """Create the WebRTC backend.
+
+        Construction is specific to this implementation; it is not part of the
+        ``IClientWindow`` protocol.
+
         Args:
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
@@ -37,12 +41,13 @@ class WebRTCClientWindow(IClientWindow):
         )
 
         def handle_input(event: UserInputEvent) -> None:
+            """Buffer one backend event for the ``InputSource`` protocol."""
             self._input_events.put(event)
 
         self.server.register_input_callback(handle_input)
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Configure WebRTC output for the session.
+        """Implement ``OutputSink.open`` by configuring WebRTC output.
 
         Args:
             session_desc: Resolved dimensions, frame rate, and tensor layout.
@@ -50,7 +55,11 @@ class WebRTCClientWindow(IClientWindow):
         self.server.open(session_desc)
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Drain and return buffered browser events in timestamp order."""
+        """Implement ``InputSource.get_user_input_events`` for browser input.
+
+        Returns:
+            Buffered browser events in timestamp order, each returned once.
+        """
         events = []
         while True:
             try:
@@ -59,7 +68,7 @@ class WebRTCClientWindow(IClientWindow):
                 return UserInputEvents(events)
 
     def write(self, result: StepResult) -> None:
-        """Deliver one generated result to the browser.
+        """Implement ``OutputSink.write`` by delivering a result to the browser.
 
         Args:
             result: Generated frames matching the opened session.
@@ -67,5 +76,5 @@ class WebRTCClientWindow(IClientWindow):
         self.server.write(result)
 
     def close(self) -> None:
-        """Close the WebRTC connection and server."""
+        """Implement ``OutputSink.close`` by releasing WebRTC resources."""
         self.server.close()
