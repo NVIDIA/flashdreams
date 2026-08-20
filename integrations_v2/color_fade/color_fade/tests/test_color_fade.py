@@ -14,9 +14,9 @@ from color_fade import create_app
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -243,19 +243,12 @@ def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     frames_per_step = 5
     # Two seconds at ten frames a second: one second of fade, then green.
     steps = 4
-    app = create_app()
-    app.init(["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)])
 
-    try:
-        run_session(
-            app.create_session(
-                _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
-            ),
-            Mp4ClientWindow(path),
-            steps=steps,
-        )
-    finally:
-        app.close()
+    ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(
+        _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT),
+        ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)],
+        steps=steps,
+    )
 
     frames = _decode(path, width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
     assert len(frames) == steps * frames_per_step

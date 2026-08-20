@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 Smallest end-to-end application that writes a file. It holds no model: a session
 emits solid frames fading from red to green over a fixed number of seconds, then
 stays green. It runs the whole file path — `IApplication`, `ISession`,
-`run_session`, `Mp4ClientWindow`, `Mp4OutputSink` — on CPU.
+`ApplicationRunner`, `run_session`, `Mp4ClientWindow`, `Mp4OutputSink`, on CPU.
 
 `red_screen` is the interactive counterpart. This one responds to nothing, which
 is what makes the file it writes the same on every run.
