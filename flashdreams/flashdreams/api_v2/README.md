@@ -22,6 +22,12 @@ run whose output is a file goes the same way, against
 input and encodes every result. Since it never reports a close, such a run needs
 a session that finishes.
 
+An integration gets coverage of the batch path from one call:
+`flashdreams.testing_v2.t2v_conformance.check_t2v_model_impl` runs a
+text-to-video application, inspects the frames it generated, and reports which
+expectations they missed. `integrations_v2/t2v_self_forcing` is the first model
+behind it.
+
 Ownership
 ---------
 
@@ -120,6 +126,11 @@ Not built yet
   exists, the caller wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
-- Shared per-domain test entry points, so a model integration gets coverage from
-  one call — for example `test_t2v_model_impl(model_config, expected_frame_stats)`
-  returning a pass or fail result.
+- A way for a session to say a run is over. `run_batch` is told how many steps to
+  generate, so a model that knows its own length has nowhere to say so, and the
+  caller states it instead.
+- A way for an application to describe the session it generates before one
+  exists. A caller has to build a `SessionDesc` to ask for a session, but only
+  the application knows what its model generates, so `t2v_self_forcing` ships a
+  `default_session_desc()` of its own rather than the protocol carrying it.
+- Shared test entry points for domains other than text-to-video.

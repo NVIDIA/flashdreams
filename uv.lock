@@ -33,6 +33,7 @@ members = [
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-t2v",
+    "flashdreams-t2v-self-forcing",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1476,6 +1477,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-t2v-self-forcing"
+version = "0.1.0"
+source = { editable = "integrations_v2/t2v_self_forcing" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-self-forcing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-self-forcing", editable = "integrations/self_forcing" },
+]
 
 [[package]]
 name = "flashdreams-wan21"
