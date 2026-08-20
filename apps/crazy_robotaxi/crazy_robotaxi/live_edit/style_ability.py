@@ -44,10 +44,12 @@ _NO_PENDING = object()
 class StyleAbility:
     """Cycle world skins and weather states on a running flashdreams session.
 
-    One object owns the prompt state machine for both abilities so a single
-    ``replace_text`` per boundary carries the composed (skin, weather)
-    prompt; see :mod:`crazy_robotaxi.live_edit.weather_ability` for the
-    composition matrix.
+    One object owns the prompt state machine for both abilities so the
+    mutual-exclusion rule holds at one seam: weather is base-world-only,
+    the weather key is rejected while a skin is active, and activating a
+    skin clears any active weather. A single ``replace_text`` per boundary
+    carries the one active prompt; see
+    :mod:`crazy_robotaxi.live_edit.weather_ability` for the state matrix.
     """
 
     def __init__(
@@ -71,7 +73,7 @@ class StyleAbility:
         self._active_weather: int | None = None
         self._pending_weather: int | None | object = _NO_PENDING
         self._chunks_since_swap = 0
-        self._set_corrector_enabled: Callable[[bool], None] = lambda _: None
+        self._set_corrector_gain: Callable[[float], None] = lambda _: None
 
     @property
     def active_skin_name(self) -> str:
@@ -135,7 +137,12 @@ class StyleAbility:
         )
 
     def request_cycle(self) -> None:
-        """Queue base -> skin[0] -> skin[1] -> ... -> base for the next chunk."""
+        """Queue base -> skin[0] -> skin[1] -> ... -> base for the next chunk.
+
+        Weather is base-world-only, so activating any skin also queues the
+        weather back to clear (documented state-machine rule: K wins over an
+        active weather; V is rejected while a skin is active).
+        """
         if not self._config.enabled:
             return
         current = (
@@ -149,16 +156,28 @@ class StyleAbility:
             self._pending_index = current + 1
         else:
             self._pending_index = None
+        if self._pending_index is not None and self._weather_state() is not None:
+            self._pending_weather = None
+            logger.info(
+                "[live-edit] skin activation clears weather (base-only ability)"
+            )
 
     def request_weather_cycle(self) -> None:
-        """Queue clear -> rain -> snow -> clear for the next chunk."""
+        """Queue clear -> rain -> snow -> clear for the next chunk.
+
+        Ignored while a skin is active or queued: weather only runs over
+        the base world (skin+weather combo prompts were dropped 2026-08-20).
+        """
         if self._weather_config is None:
             return
-        current = (
-            self._active_weather
-            if self._pending_weather is _NO_PENDING
-            else self._pending_weather
-        )
+        skin_state = self._skin_state()
+        if skin_state is not None:
+            logger.info(
+                "[live-edit] weather is base-skin only; ignoring V "
+                f"(skin={self._config.skins[skin_state].name})"
+            )
+            return
+        current = self._weather_state()
         if current is None:
             self._pending_weather = 0
         elif current + 1 < len(self._weather_config.weathers):
@@ -166,28 +185,53 @@ class StyleAbility:
         else:
             self._pending_weather = None
 
+    def _skin_state(self) -> int | None:
+        """Effective skin index once any pending request lands."""
+        if self._pending_index is _NO_PENDING:
+            return self._active_index
+        return self._pending_index  # type: ignore[return-value]
+
+    def _weather_state(self) -> int | None:
+        """Effective weather index once any pending request lands."""
+        if self._pending_weather is _NO_PENDING:
+            return self._active_weather
+        return self._pending_weather  # type: ignore[return-value]
+
     def _attach_corrector(self, pipeline: Any, transformer: Any) -> None:
-        """Deploy the unfused corrector behind an on/off dispatch."""
+        """Deploy the unfused corrector behind a per-state gain dispatch.
+
+        The dispatch supports three regimes per (skin | weather) state:
+        the configured style gain rides the validated ``gated_pf`` wrapper
+        unchanged; gain 0 short-circuits to the bit-clean base forward; any
+        other gain (e.g. a reduced weather gain) re-derives the per-step
+        LoRA scale ``alpha*(t) * gain`` here before calling the base
+        forward — identical math to ``gated_pf`` at a different gain, since
+        the unfused _LoRALinear wrappers stay installed permanently and
+        only the scale changes.
+        """
         from types import SimpleNamespace
 
-        from omnidreams._drift_corrector import apply_drift_corrector
-
-        from omnidreams._drift_corrector import _set_scale
+        from omnidreams._drift_corrector import (
+            _nearest_alpha,
+            _set_scale,
+            apply_drift_corrector,
+        )
 
         base_predict_flow = transformer.predict_flow
+        style_gain = self._config.corrector_gain
         summary = apply_drift_corrector(
             SimpleNamespace(pipeline=pipeline),
             self._config.corrector_checkpoint,
-            self._config.corrector_gain,
+            style_gain,
             unfused=True,
         )
         corrected_predict_flow = transformer.predict_flow
-        enabled = [False]
+        active_gain = [0.0]
 
         # The unfused deployment installs _LoRALinear wrappers permanently;
         # only the predict_flow wrapper re-scales them per step. Dispatching
         # to the base predict_flow therefore leaves the LAST scale applied,
-        # so disabling must also zero the LoRA scale (scale == 0 is an exact
+        # so gain 0 must also zero the LoRA scale (scale == 0 is an exact
         # short-circuit in _LoRALinear.forward -> bit-clean base output).
         network = transformer.network
         if hasattr(network, "_orig_mod"):  # unwrap torch.compile
@@ -195,17 +239,24 @@ class StyleAbility:
         _set_scale(network, 0.0)
 
         def dispatched_predict_flow(*args: Any, **kwargs: Any) -> Any:
-            active = corrected_predict_flow if enabled[0] else base_predict_flow
-            return active(*args, **kwargs)
+            gain = active_gain[0]
+            if gain <= 0.0:
+                return base_predict_flow(*args, **kwargs)
+            if gain == style_gain:
+                return corrected_predict_flow(*args, **kwargs)
+            timestep = kwargs.get("timestep", args[1] if len(args) > 1 else None)
+            t = float(timestep.reshape(-1).max())
+            _set_scale(network, _nearest_alpha(t) * gain)
+            return base_predict_flow(*args, **kwargs)
 
-        def set_enabled(value: bool) -> None:
-            enabled[0] = bool(value)
-            if not enabled[0]:
+        def set_gain(value: float) -> None:
+            active_gain[0] = float(value)
+            if active_gain[0] <= 0.0:
                 _set_scale(network, 0.0)
 
         transformer.predict_flow = dispatched_predict_flow
-        self._set_corrector_enabled = set_enabled
-        logger.info(f"[live-edit] {summary} (dispatch-gated, off)")
+        self._set_corrector_gain = set_gain
+        logger.info(f"[live-edit] {summary} (dispatch-gated, gain 0)")
 
     def hook_session(self, session: Any) -> None:
         """Wrap the session's chunk boundaries (model-free; CPU-testable).
@@ -224,7 +275,7 @@ class StyleAbility:
             self._active_weather = None
             self._pending_weather = _NO_PENDING
             self._chunks_since_swap = 0
-            self._set_corrector_enabled(False)
+            self._set_corrector_gain(0.0)
             return original_start(initial_rgb, condition_frames, prompt)
 
         def continue_generation(condition_frames: Any) -> Any:
@@ -306,7 +357,7 @@ class StyleAbility:
         self._active_index = target_skin
         self._active_weather = target_weather
         self._chunks_since_swap = 0
-        self._set_corrector_enabled(target.corrector_enabled)
+        self._set_corrector_gain(target.corrector_gain)
         logger.info(
             f"[live-edit] {verb} skin={self.active_skin_name} "
             f"weather={self.active_weather_name}"

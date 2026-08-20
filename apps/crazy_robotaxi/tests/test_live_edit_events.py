@@ -92,8 +92,8 @@ _STYLE = LiveEditStyleConfig(
 _WEATHER = LiveEditWeatherConfig(
     enabled=True,
     weathers=(
-        WeatherPreset("rain", "rain prompt", "rain clause"),
-        WeatherPreset("snow", "snow prompt", "snow clause"),
+        WeatherPreset("rain", "rain prompt"),
+        WeatherPreset("snow", "snow prompt"),
     ),
 )
 
@@ -155,31 +155,55 @@ class TestWeatherCycle:
         assert session.pipeline.lora_present_during_call == [False]
         assert transformer._text_edit_lora is not None
 
-    def test_combo_issues_one_compositional_prompt_through_the_lora(self) -> None:
-        transformer = _FakeTransformer()
-        ability, session = _weather_ability(transformer=transformer, lora_attached=True)
-        ability.request_cycle()
-        session.continue_generation([])
-        ability.request_weather_cycle()
-        session.continue_generation([])
-
-        text, kwargs = session.pipeline.replace_text_calls[-1]
-        assert text == [["arcade prompt rain clause"]]
-        assert kwargs["guidance_scale"] == 2.5
-        # The skin needs the LoRA, so the combo window keeps it attached.
-        assert session.pipeline.lora_present_during_call[-1] is True
-
-    def test_corrector_gates_off_during_weather(self) -> None:
+    def test_weather_key_is_rejected_while_a_skin_is_active(self) -> None:
         ability, session = _weather_ability()
-        states: list[bool] = []
-        ability._set_corrector_enabled = states.append
-
         ability.request_cycle()
-        session.continue_generation([])  # skin only -> on
-        ability.request_weather_cycle()
-        session.continue_generation([])  # skin + weather -> off (uncalibrated)
+        session.continue_generation([])  # arcade skin active
+        ability.request_weather_cycle()  # base-only ability -> ignored
+        session.continue_generation([])
 
-        assert states == [True, False]
+        assert ability.active_skin_name == "arcade"
+        assert ability.active_weather_name == "clear"
+        assert len(session.pipeline.replace_text_calls) == 1
+
+    def test_weather_key_is_rejected_while_a_skin_is_pending(self) -> None:
+        ability, session = _weather_ability()
+        ability.request_cycle()  # skin queued but not yet applied
+        ability.request_weather_cycle()  # ignored against the pending skin
+        session.continue_generation([])
+
+        assert ability.active_skin_name == "arcade"
+        assert ability.active_weather_name == "clear"
+
+    def test_skin_activation_clears_an_active_weather(self) -> None:
+        ability, session = _weather_ability()
+        ability.request_weather_cycle()
+        session.continue_generation([])  # rain over the base world
+        ability.request_cycle()
+        session.continue_generation([])  # skin wins; weather -> clear
+
+        assert ability.active_skin_name == "arcade"
+        assert ability.active_weather_name == "clear"
+        text, _ = session.pipeline.replace_text_calls[-1]
+        assert text == [["arcade prompt"]]
+
+    def test_corrector_gain_follows_the_state(self) -> None:
+        weather_config = LiveEditWeatherConfig(
+            enabled=True, corrector_gain=0.1, weathers=_WEATHER.weathers
+        )
+        ability = StyleAbility(_STYLE, weather_config)
+        session = _FakeSession()
+        ability.hook_session(session)
+        session.start(None, [], "scene prompt")
+        gains: list[float] = []
+        ability._set_corrector_gain = gains.append
+
+        ability.request_weather_cycle()
+        session.continue_generation([])  # weather -> reduced gain
+        ability.request_cycle()
+        session.continue_generation([])  # skin -> full style gain
+
+        assert gains == [0.1, _STYLE.corrector_gain]
 
     def test_weather_works_without_the_style_ability(self) -> None:
         ability = StyleAbility(LiveEditStyleConfig(), _WEATHER)
@@ -224,36 +248,47 @@ class TestComposeSwapTarget:
         assert target.prompt == "base"
         assert target.guidance_scale == 1.0
         assert not target.use_lora
-        assert not target.corrector_enabled
+        assert target.corrector_gain == 0.0
 
     def test_weather_only_forces_the_two_prompt_path(self) -> None:
+        weather_config = LiveEditWeatherConfig(
+            enabled=True, corrector_gain=0.1, weathers=_WEATHER.weathers
+        )
         target = compose_swap_target(
             base_prompt="base",
             skin=None,
-            weather=_WEATHER.weathers[0],
-            style_config=_STYLE,
-            weather_config=_WEATHER,
-            lora_available=True,
-        )
-        assert target.prompt == "rain prompt"
-        assert not target.use_lora
-        assert not target.corrector_enabled
-
-    def test_combo_respects_allow_corrector(self) -> None:
-        weather_config = LiveEditWeatherConfig(
-            enabled=True, allow_corrector=True, weathers=_WEATHER.weathers
-        )
-        target = compose_swap_target(
-            base_prompt="base",
-            skin=_STYLE.skins[0],
-            weather=weather_config.weathers[1],
+            weather=weather_config.weathers[0],
             style_config=_STYLE,
             weather_config=weather_config,
             lora_available=True,
         )
-        assert target.prompt == "arcade prompt snow clause"
+        assert target.prompt == "rain prompt"
+        assert not target.use_lora
+        assert target.corrector_gain == 0.1
+
+    def test_skin_state_uses_the_full_style_gain(self) -> None:
+        target = compose_swap_target(
+            base_prompt="base",
+            skin=_STYLE.skins[0],
+            weather=None,
+            style_config=_STYLE,
+            weather_config=_WEATHER,
+            lora_available=True,
+        )
+        assert target.prompt == "arcade prompt"
         assert target.use_lora
-        assert target.corrector_enabled
+        assert target.corrector_gain == _STYLE.corrector_gain
+
+    def test_skin_plus_weather_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="base-world-only"):
+            compose_swap_target(
+                base_prompt="base",
+                skin=_STYLE.skins[0],
+                weather=_WEATHER.weathers[0],
+                style_config=_STYLE,
+                weather_config=_WEATHER,
+                lora_available=True,
+            )
 
 
 ## Obstacle ability
@@ -575,6 +610,10 @@ class TestRequestsAndConfig:
         args = parser.parse_args(
             [
                 "--live-edit-weather",
+                "--live-edit-weather-guidance",
+                "3.0",
+                "--live-edit-weather-corrector-gain",
+                "0.1",
                 "--live-edit-obstacle",
                 "--live-edit-obstacle-ahead-m",
                 "18",
@@ -585,7 +624,8 @@ class TestRequestsAndConfig:
         )
         config = live_edit_config_from_args(args)
         assert config.weather.enabled
-        assert not config.weather.allow_corrector
+        assert config.weather.guidance_scale == 3.0
+        assert config.weather.corrector_gain == 0.1
         assert config.obstacle.enabled
         assert config.obstacle.spawn_ahead_m == 18.0
         assert config.obstacle.guide_scale == 3.0

@@ -117,60 +117,56 @@ class LiveEditStyleConfig:
 
 @dataclass(frozen=True)
 class WeatherPreset:
-    """One selectable weather state driven by a prompt swap."""
+    """One selectable weather state driven by a prompt swap.
+
+    Weather is a base-world-only ability (design decision 2026-08-20): it
+    never composes with a skin prompt, so each preset carries exactly one
+    standalone scene prompt.
+    """
 
     name: str
     """Short HUD label, e.g. ``rain``."""
 
     prompt: str
-    """Full standalone scene prompt describing the weather (used when no
-    skin is active). Scene-native declarative phrasing lands much stronger
-    than instruction-style wording (calibration sweeps, 2026-08-08)."""
-
-    combo_clause: str
-    """Weather clause appended to an active skin's prompt so one
-    compositional prompt describes both (weather composes with skins in
-    principle; quality is validated per combo on GPU)."""
+    """Full standalone scene prompt describing the weather over the base
+    world. Scene-native declarative phrasing lands much stronger than
+    instruction-style wording (calibration sweeps, 2026-08-08)."""
 
 
 # Daytime-rain phrasing follows the validated RAIN_NIGHT_NATIVE structure
-# (sweep_text_edit.py) adapted to the daylight suburban scenes; snow reuses
-# the scene bundle's own snowstorm wording (the strongest known phrasing).
+# (sweep_text_edit.py) adapted to the daylight suburban scenes, with the
+# visible-precipitation cues front-loaded (streaks in the air, droplets on
+# the windshield/lens, tire spray) — the 2026-08-20 recapture showed wording
+# that leans on wet-road looks alone reads as "no rain" to viewers. Snow
+# reuses the scene bundle's own snowstorm wording (strongest known phrasing).
 _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
     WeatherPreset(
         name="rain",
         prompt=(
-            "A dashcam perspective of a suburban street in heavy daytime "
-            "rain under a dark overcast sky. Persistent visible rain "
-            "streaks fall everywhere; the asphalt road is completely "
-            "saturated with sheeting water, a glossy wet mirror breaking "
-            "up reflections, spray rising behind vehicles. The car's wet "
+            "A dashcam perspective of a suburban street in a heavy daytime "
+            "downpour under a dark gray overcast sky. Dense visible rain "
+            "streaks slice through the air across the whole frame, and "
+            "raindrops and water droplets bead and run down the windshield "
+            "and camera lens. The asphalt road is saturated with sheeting "
+            "water, a glossy wet mirror breaking up reflections, and mist "
+            "and spray kick up from the tires of vehicles. The car's wet "
             "hood is covered with rain droplets. Photorealistic dashcam "
-            "footage."
-        ),
-        combo_clause=(
-            "Heavy rain is falling from a dark overcast sky; the road is "
-            "soaked and glossy with sheeting water and reflections, rain "
-            "streaks fill the air, and the wet hood is covered in droplets."
+            "footage in pouring rain."
         ),
     ),
     WeatherPreset(
         name="snow",
         prompt=(
             "A dashcam perspective from inside a vehicle driving down a "
-            "wide suburban residential street during a snowstorm. The road "
-            "is heavily covered in white snow with visible parallel tire "
-            "tracks. Vehicles parked along the curb are coated in a layer "
-            "of snow. The surrounding houses, lawns, and large trees are "
-            "completely blanketed in winter snow. The sky is overcast and "
-            "gray with snowflakes visibly falling. In the foreground, the "
-            "bottom of the windshield and the car's hood are visible, with "
-            "snow accumulating around the windshield wipers."
-        ),
-        combo_clause=(
-            "A snowstorm covers the world: the road is blanketed in white "
-            "snow with tire tracks, snow coats every parked car, house, "
-            "and tree, and thick snowflakes fall from an overcast gray sky."
+            "wide suburban residential street during a snowstorm. Thick "
+            "snowflakes fall visibly through the air across the whole "
+            "frame. The road is heavily covered in white snow with visible "
+            "parallel tire tracks. Vehicles parked along the curb are "
+            "coated in a layer of snow. The surrounding houses, lawns, and "
+            "large trees are completely blanketed in winter snow. The sky "
+            "is overcast and gray. In the foreground, the bottom of the "
+            "windshield and the car's hood are visible, with snowflakes "
+            "and snow accumulating around the windshield wipers."
         ),
     ),
 )
@@ -178,23 +174,31 @@ _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
 
 @dataclass(frozen=True)
 class LiveEditWeatherConfig:
-    """Live weather events (plain guided prompt swaps, no LoRA needed)."""
+    """Live weather events (plain guided prompt swaps, no LoRA needed).
+
+    Weather is only available over the base world: the V key is ignored
+    while a skin is active, and activating a skin clears any active
+    weather (design decision 2026-08-20 — skin+weather combo prompts
+    produced unattributable rain and were dropped).
+    """
 
     enabled: bool = False
     """Whether the weather ability responds to the weather-cycle key."""
 
     guidance_scale: float = 2.5
     """Two-prompt edit-guidance strength for weather swaps (the PR #431
-    mechanism: flow pushed along the new-minus-old text direction). Uses
-    the same validated 2.5/20 deployment as the skins."""
+    mechanism: flow pushed along the new-minus-old text direction). 2.5/20
+    is the validated skin deployment; earlier sweeps needed 3.0 for snow,
+    so this is exposed as ``--live-edit-weather-guidance``."""
 
     guidance_chunks: int = 20
     """Number of chunks the two-prompt guidance window stays open."""
 
-    allow_corrector: bool = False
-    """Whether the style-drift corrector may stay on during weather. Its
-    gate profile was calibrated on style v6, not weather, so it defaults
-    off; flip only after a weather+corrector bring-up shows no artifacts."""
+    corrector_gain: float = 0.0
+    """Absolute style-drift-corrector gain while weather is active. ``0``
+    keeps the corrector off during weather (its gate profile was calibrated
+    on style v6, not weather, and base-world drift is mild); a small value
+    such as 0.10 trades a possible mild wash for less late-run drift."""
 
     weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
     """Selectable weathers, cycled clear -> rain -> snow -> clear."""
@@ -205,6 +209,8 @@ class LiveEditWeatherConfig:
             raise ValueError("weather guidance_scale must be at least 1.0")
         if self.guidance_chunks < 0:
             raise ValueError("weather guidance_chunks must be non-negative")
+        if not 0.0 <= self.corrector_gain <= 1.0:
+            raise ValueError("weather corrector_gain must be in [0, 1]")
         if self.enabled and not self.weathers:
             raise ValueError("live_edit.weather requires at least one preset")
 
@@ -410,12 +416,21 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Enable mid-run weather events (guided prompt swaps; V key).",
     )
     group.add_argument(
-        "--live-edit-weather-corrector",
-        action=argparse.BooleanOptionalAction,
-        default=False,
+        "--live-edit-weather-guidance",
+        type=float,
+        default=2.5,
         help=(
-            "Keep the style-drift corrector on during weather (its gate was "
-            "calibrated on style v6; default off)."
+            "Two-prompt guidance scale for weather swaps (2.5 = validated "
+            "default; snow needed 3.0 in earlier sweeps)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-weather-corrector-gain",
+        type=float,
+        default=0.0,
+        help=(
+            "Absolute drift-corrector gain while weather is active "
+            "(0 = corrector off during weather, the calibrated-safe default)."
         ),
     )
     group.add_argument(
@@ -482,7 +497,8 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         ),
         weather=LiveEditWeatherConfig(
             enabled=bool(args.live_edit_weather),
-            allow_corrector=bool(args.live_edit_weather_corrector),
+            guidance_scale=float(args.live_edit_weather_guidance),
+            corrector_gain=float(args.live_edit_weather_corrector_gain),
         ),
         obstacle=LiveEditObstacleConfig(
             enabled=bool(args.live_edit_obstacle),

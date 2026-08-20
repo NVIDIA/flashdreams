@@ -1,31 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Weather events: composing the prompt swap for skin/weather combinations.
+"""Weather events: composing the prompt swap for the (skin | weather) state.
 
 There is no weather LoRA. Weather uses the plain two-prompt edit-guidance
 mechanism (the PR #431 ``replace_text`` path: the old prompt anchors the
 scene, the flow is pushed along the new-minus-old text direction) with the
-same validated 2.5/20 kwargs as the skin deployment. Because the transformer
+2.5/20 kwargs validated for the skin deployment. Because the transformer
 routes any guided swap through the pre-merged text-edit LoRA when one is
-attached, weather-only swaps must *bypass* the LoRA (it was trained on the
-four style prompts, not weather); :class:`~.style_ability.StyleAbility`
-detaches it around the ``replace_text`` call when ``use_lora`` is False.
+attached, weather swaps must *bypass* the LoRA (it was trained on the four
+style prompts, not weather); :class:`~.style_ability.StyleAbility` detaches
+it around the ``replace_text`` call when ``use_lora`` is False.
 
-Composition matrix (single active prompt at any time):
+Weather is a **base-world-only** ability (design decision 2026-08-20):
+skin+weather combo prompts produced rain that was not attributable as rain
+under the neon skins, so :class:`~.style_ability.StyleAbility` rejects the
+weather key while a skin is active and clears weather when a skin is
+activated. Exactly one of (skin, weather) is active at any time:
 
 ===========  ==========  ==============================  ========  =========
 skin         weather     prompt                          LoRA      corrector
 ===========  ==========  ==============================  ========  =========
 none         none        base scene prompt (plain 1/0)   off       off
-active       none        skin prompt                     on        on
-none         active      weather standalone prompt       BYPASS    off*
-active       active      skin prompt + weather clause    on        off*
+active       none        skin prompt                     on        style gain
+none         active      weather standalone prompt       BYPASS    weather gain*
 ===========  ==========  ==============================  ========  =========
 
 ``*`` the corrector gate profile was calibrated on style v6, not weather;
-``LiveEditWeatherConfig.allow_corrector`` keeps it on only after a
-weather+corrector bring-up shows no artifacts.
+``LiveEditWeatherConfig.corrector_gain`` defaults to 0 (off) and can be
+raised to a small absolute gain (e.g. 0.10) if base-world drift under a
+long weather window proves worse than a mild corrector wash.
 """
 
 from __future__ import annotations
@@ -57,8 +61,9 @@ class SwapTarget:
     """Whether the pre-merged text-edit LoRA may realize the window. False
     forces the two-prompt KV-snapshot guidance (LoRA detached for the call)."""
 
-    corrector_enabled: bool
-    """Whether the style-drift corrector should run for this state."""
+    corrector_gain: float
+    """Absolute style-drift-corrector gain for this state (0 = corrector
+    off, an exact base-forward short-circuit)."""
 
 
 def compose_swap_target(
@@ -70,7 +75,15 @@ def compose_swap_target(
     weather_config: LiveEditWeatherConfig | None,
     lora_available: bool,
 ) -> SwapTarget:
-    """Resolve the single active prompt for a (skin, weather) state."""
+    """Resolve the single active prompt for a (skin | weather) state.
+
+    Raises:
+        ValueError: Both a skin and a weather are requested — weather is
+            base-world-only; the :class:`~.style_ability.StyleAbility`
+            state machine must never produce this combination.
+    """
+    if skin is not None and weather is not None:
+        raise ValueError("weather is base-world-only and cannot compose with a skin")
     if skin is None and weather is None:
         # Plain swap back to the base world; guidance 1.0/0 also deactivates
         # the pre-merged edit LoRA.
@@ -79,31 +92,21 @@ def compose_swap_target(
             guidance_scale=1.0,
             guidance_chunks=0,
             use_lora=False,
-            corrector_enabled=False,
+            corrector_gain=0.0,
         )
-    if skin is not None and weather is None:
+    if skin is not None:
         return SwapTarget(
             prompt=skin.prompt,
             guidance_scale=style_config.guidance_scale,
             guidance_chunks=style_config.guidance_chunks,
             use_lora=lora_available,
-            corrector_enabled=True,
+            corrector_gain=style_config.corrector_gain,
         )
     assert weather_config is not None, "weather state requires a weather config"
-    if skin is None:
-        return SwapTarget(
-            prompt=weather.prompt,
-            guidance_scale=weather_config.guidance_scale,
-            guidance_chunks=weather_config.guidance_chunks,
-            use_lora=False,
-            corrector_enabled=False,
-        )
-    # Combo: one compositional prompt describes both; the style LoRA (when
-    # present) realizes the window since the skin needs it.
     return SwapTarget(
-        prompt=f"{skin.prompt} {weather.combo_clause}",
-        guidance_scale=style_config.guidance_scale,
-        guidance_chunks=style_config.guidance_chunks,
-        use_lora=lora_available,
-        corrector_enabled=weather_config.allow_corrector,
+        prompt=weather.prompt,
+        guidance_scale=weather_config.guidance_scale,
+        guidance_chunks=weather_config.guidance_chunks,
+        use_lora=False,
+        corrector_gain=weather_config.corrector_gain,
     )
