@@ -14,8 +14,9 @@ CPU-only tests for the v2 protocols themselves:
   orderings and thread ownership the two-thread loop guarantees, not a particular
   interleaving.
 - `test_mp4_client_window.py` covers the window a run writing a file is driven
-  against: no input to report, and one run through the loop to show every step
-  reaches the file.
+  against: no input to report, one run through the loop to show every step
+  reaches the file, and the measurements it records beside the file when a run
+  asks for them.
 - `test_mp4_output_sink.py` covers the sink that writes an MP4, reading each file
   back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
   missing from `PATH`.
@@ -38,8 +39,6 @@ CPU-only tests for the v2 protocols themselves:
   measured, which is a file another tool reads: what a benchmark expects of it
   is checked against the reader itself in
   `flashdreams/tests/test_benchmark_harness.py`.
-- `test_composite_output_sink.py` covers writing one run to several sinks,
-  including what is closed when one of them fails to close.
 
 Application behaviour is tested by the application that owns it — see
 `integrations_v2/red_screen/red_screen/tests/` and

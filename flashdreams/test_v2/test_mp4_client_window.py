@@ -3,11 +3,13 @@
 
 """CPU tests for the client window that writes an MP4.
 
-The window has two jobs: report no input, and encode every result. Encoding is
-covered in ``test_mp4_output_sink.py`` and the loop in ``test_session_runner.py``,
-so the run here checks that the two meet.
+The window has two jobs: report no input, and write every result to the file or
+files a run asked for. Encoding is covered in ``test_mp4_output_sink.py``, what a
+stats file holds in ``test_metrics_output_sink.py``, and the loop in
+``test_session_runner.py``, so the runs here check that they meet.
 """
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -63,6 +65,7 @@ class FakeSession(ISession):
             ),
             frame_count=_FRAMES_PER_STEP,
             output_layout=self._session_desc.output_layout,
+            metrics={"total_ms": 1.5},
         )
 
     def reset(self) -> None:
@@ -121,3 +124,21 @@ def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
 
     assert _frame_count(path) == 3 * _FRAMES_PER_STEP
     assert [events.get_events() for events in session.observed_events] == [[], [], []]
+    assert not list(tmp_path.glob("*.json"))
+
+
+@needs_ffmpeg
+def test_a_run_can_be_asked_for_what_it_measured_as_well(tmp_path: Path) -> None:
+    """A benchmark asks for both files, and gets both from the one run."""
+    path = tmp_path / "clip.mp4"
+    stats_path = tmp_path / "stats.json"
+
+    run_session(
+        FakeSession(_session_desc()),
+        Mp4ClientWindow(path, stats_path=stats_path),
+        steps=3,
+    )
+
+    assert _frame_count(path) == 3 * _FRAMES_PER_STEP
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    assert len(payload["samples"]) == 3

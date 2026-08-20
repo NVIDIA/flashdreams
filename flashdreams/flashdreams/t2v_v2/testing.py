@@ -24,11 +24,13 @@ import numpy.typing as npt
 import torch
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
-from flashdreams.runtime_v2.batch_runner import run_batch
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
 from flashdreams.t2v_v2.application import T2VApplication
 
@@ -146,7 +148,11 @@ def check_t2v_model_impl(
     try:
         if session_desc is None:
             session_desc = _described_by(application)
-        run_batch(application.create_session(session_desc), inspector, steps=steps)
+        run_session(
+            application.create_session(session_desc),
+            _InspectingClientWindow(inspector),
+            steps=steps,
+        )
     finally:
         application.close()
 
@@ -330,6 +336,40 @@ class _FrameInspector(OutputSink):
     def close(self) -> None:
         if self._mp4 is not None:
             self._mp4.close()
+
+
+class _InspectingClientWindow(IClientWindow):
+    """Drive a run against the inspector, reporting no input.
+
+    A run goes through ``run_session``, which drives a window rather than a
+    sink, and what a check wants driven is the inspector. This is what
+    :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow` is for a
+    run writing a file: the input half of a window nobody is on the other end
+    of.
+    """
+
+    def __init__(self, sink: OutputSink) -> None:
+        """
+        Args:
+            sink: Where every result goes.
+        """
+        self._sink = sink
+
+    def get_user_input_events(self) -> UserInputEvents:
+        """Report nothing, since a check presses no keys."""
+        return UserInputEvents([])
+
+    def open(self, session_desc: SessionDesc) -> None:
+        """Open the inspected sink for this session."""
+        self._sink.open(session_desc)
+
+    def write(self, result: StepResult) -> None:
+        """Hand one step's result to the inspected sink."""
+        self._sink.write(result)
+
+    def close(self) -> None:
+        """Close the inspected sink."""
+        self._sink.close()
 
 
 def _compare(

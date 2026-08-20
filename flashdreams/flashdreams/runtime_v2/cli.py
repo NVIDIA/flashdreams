@@ -17,15 +17,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.applications import (
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.composite_output_sink import CompositeOutputSink
-from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.t2v_v2.application import T2VApplication
 
 _ARGUMENT_SEPARATOR = "--"
@@ -71,13 +68,13 @@ def run_application(
         raise ValueError(f"--steps must be > 0, got {steps}.")
 
     try:
-        # Inside, as the batch loop closes a session that failed to init: an
+        # Inside, as the loop closes a session that failed to init: an
         # application that got half way through holds whatever it acquired.
         application.init(list(application_args))
         describes_itself = _as_t2v(application)
-        run_batch(
+        run_session(
             application.create_session(describes_itself.session_desc()),
-            _sink(output_path, stats_path),
+            Mp4ClientWindow(output_path, stats_path=stats_path),
             steps=steps if steps is not None else describes_itself.total_blocks,
         )
     finally:
@@ -167,14 +164,6 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
-
-
-def _sink(output_path: str | Path, stats_path: str | Path | None) -> OutputSink:
-    """Return what a run writes to: an MP4, and its measurements when asked."""
-    mp4 = Mp4OutputSink(output_path)
-    if stats_path is None:
-        return mp4
-    return CompositeOutputSink(mp4, MetricsOutputSink(stats_path))
 
 
 def _as_t2v(application: IApplication) -> T2VApplication:

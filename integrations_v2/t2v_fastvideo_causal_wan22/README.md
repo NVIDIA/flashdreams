@@ -36,16 +36,16 @@ against milliseconds saved a block.
 ## What a run looks like in code
 
 ```python
-from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.session_runner import run_session
 from t2v_fastvideo_causal_wan22 import FastvideoCausalWan22T2VApplication
 
 app = FastvideoCausalWan22T2VApplication()
 app.init(["--prompt", "A cat surfing"])
 try:
-    run_batch(
+    run_session(
         app.create_session(app.session_desc()),
-        Mp4OutputSink("clip.mp4"),
+        Mp4ClientWindow("clip.mp4"),
         steps=7,
     )
 finally:

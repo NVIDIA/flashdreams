@@ -22,18 +22,17 @@ run whose output is a file goes the same way, against
 input and encodes every result. Since it never reports a close, such a run needs
 a session that finishes.
 
-`flashdreams-run-v2` is the batch path from a shell:
-`flashdreams.runtime_v2.cli` finds an application by slug, gives it the
-arguments after `--`, and runs it into an MP4. MP4 is the only output it offers,
-because `IClientWindow` has no implementation outside the tests, so there is no
-window to select. Applications are found through the
-`flashdreams.applications_v2` entry point group, or by the name of the package
-an integration ships when it has registered nothing.
+`flashdreams-run-v2` is that run from a shell: `flashdreams.runtime_v2.cli` finds
+an application by slug, gives it the arguments after `--`, and runs it into an
+MP4. MP4 is the only output it offers so far. A WebRTC window exists, but
+selecting a window from this command is not wired up yet. Applications are found
+through the `flashdreams.applications_v2` entry point group, or by the name of
+the package an integration ships when it has registered nothing.
 
 `--stats-path` asks a run to record what it cost as well as what it generated.
-`MetricsOutputSink` writes each step's measurements as the artifact
-`flashdreams-benchmark` reads, and `CompositeOutputSink` is how one run reaches
-both it and the MP4. The measurements are the model's own: a step reports what
+`Mp4ClientWindow` takes that path and adds a `MetricsOutputSink` beside the MP4
+writer, which records each step's measurements as the artifact
+`flashdreams-benchmark` reads. The measurements are the model's own: a step reports what
 it measured and this writes it down, converting milliseconds to seconds because
 a report cannot compare two units. Nothing is measured unless a run asks, so an
 ordinary run pays nothing for this.
@@ -144,13 +143,13 @@ Not built yet
   the session from it is what such a window wants. `run_session` polls instead,
   on a thread it starts itself.
 - An interactive output for `flashdreams-run-v2`. It writes an MP4 and nothing
-  else, so there is no `--output local-window` to select until a client window
-  exists to select it.
+  else, so there is no `--output webrtc` to select even though that window now
+  exists.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
-- A way for a session to say a run is over. `run_batch` is told how many steps to
-  generate, so a model that knows its own length has nowhere to say so, and the
-  caller states it instead.
+- A way for a session to say a run is over. A run writing a file is told how many
+  steps to generate, so a model that knows its own length has nowhere to say so,
+  and the caller states it instead.
 - A way for any application to describe the session it generates before one
   exists. A caller has to build a `SessionDesc` to ask for a session, but only
   the application knows what its model generates. `T2VApplication.session_desc`

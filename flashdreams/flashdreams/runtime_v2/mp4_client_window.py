@@ -6,6 +6,8 @@
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -42,12 +44,20 @@ class Mp4ClientWindow(IClientWindow):
     owns and delegates to.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self, path: str | Path, *, stats_path: str | Path | None = None
+    ) -> None:
         """
         Args:
             path: MP4 file to write. Parent directories are created.
+            stats_path: JSON file to record what each step measured in, or
+                ``None`` to measure nothing. A benchmark comparing runs by speed
+                as well as by how they look asks for one, and gets both files
+                from the one run.
         """
-        self._sink = Mp4OutputSink(path)
+        self._sinks: tuple[OutputSink, ...] = (Mp4OutputSink(path),)
+        if stats_path is not None:
+            self._sinks += (MetricsOutputSink(stats_path),)
 
     def get_user_input_events(self) -> UserInputEvents:
         """Report nothing, since there is no client to take input from.
@@ -58,13 +68,27 @@ class Mp4ClientWindow(IClientWindow):
         return UserInputEvents([])
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Prepare to encode a session's output."""
-        self._sink.open(session_desc)
+        """Prepare to write a session's output."""
+        for sink in self._sinks:
+            sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:
-        """Encode one step's frames."""
-        self._sink.write(result)
+        """Encode one step's frames, and record what the step measured."""
+        for sink in self._sinks:
+            sink.write(result)
 
     def close(self) -> None:
-        """Finish the file, which is what makes it playable."""
-        self._sink.close()
+        """Finish every file, which is what makes the MP4 playable.
+
+        One file failing to finish does not stop the other being finished: that
+        is the difference between one unusable output and two. The first failure
+        is what this raises, being the one that explains the run.
+        """
+        failure: Exception | None = None
+        for sink in self._sinks:
+            try:
+                sink.close()
+            except Exception as error:
+                failure = failure or error
+        if failure is not None:
+            raise failure
