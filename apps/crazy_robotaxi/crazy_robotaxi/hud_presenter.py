@@ -2844,6 +2844,8 @@ class SlangPyHudPresenter:
             "x": _lookup_key(spy.KeyCode, "x"),
             "k": _lookup_key(spy.KeyCode, "k"),
             "c": _lookup_key(spy.KeyCode, "c"),
+            "v": _lookup_key(spy.KeyCode, "v"),
+            "o": _lookup_key(spy.KeyCode, "o"),
             "space": _lookup_key(spy.KeyCode, "space"),
             "up": _lookup_key(spy.KeyCode, "up", "arrow_up"),
             "down": _lookup_key(spy.KeyCode, "down", "arrow_down"),
@@ -2970,6 +2972,10 @@ class SlangPyHudPresenter:
             self._request_live_edit("skin")
         elif self._key_matches(key, "c"):
             self._request_live_edit("coins")
+        elif self._key_matches(key, "v"):
+            self._request_live_edit("weather")
+        elif self._key_matches(key, "o"):
+            self._request_live_edit("obstacle")
 
     def _request_live_edit(self, ability: str) -> None:
         """Raise a live-edit key request; no-op when the flags are off."""
@@ -2978,6 +2984,10 @@ class SlangPyHudPresenter:
             return
         if ability == "skin":
             requests.request_skin_cycle()
+        elif ability == "weather":
+            requests.request_weather_cycle()
+        elif ability == "obstacle":
+            requests.request_obstacle_spawn()
         else:
             requests.request_coins_toggle()
 

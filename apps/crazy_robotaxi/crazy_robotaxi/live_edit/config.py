@@ -116,6 +116,164 @@ class LiveEditStyleConfig:
 
 
 @dataclass(frozen=True)
+class WeatherPreset:
+    """One selectable weather state driven by a prompt swap."""
+
+    name: str
+    """Short HUD label, e.g. ``rain``."""
+
+    prompt: str
+    """Full standalone scene prompt describing the weather (used when no
+    skin is active). Scene-native declarative phrasing lands much stronger
+    than instruction-style wording (calibration sweeps, 2026-08-08)."""
+
+    combo_clause: str
+    """Weather clause appended to an active skin's prompt so one
+    compositional prompt describes both (weather composes with skins in
+    principle; quality is validated per combo on GPU)."""
+
+
+# Daytime-rain phrasing follows the validated RAIN_NIGHT_NATIVE structure
+# (sweep_text_edit.py) adapted to the daylight suburban scenes; snow reuses
+# the scene bundle's own snowstorm wording (the strongest known phrasing).
+_DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
+    WeatherPreset(
+        name="rain",
+        prompt=(
+            "A dashcam perspective of a suburban street in heavy daytime "
+            "rain under a dark overcast sky. Persistent visible rain "
+            "streaks fall everywhere; the asphalt road is completely "
+            "saturated with sheeting water, a glossy wet mirror breaking "
+            "up reflections, spray rising behind vehicles. The car's wet "
+            "hood is covered with rain droplets. Photorealistic dashcam "
+            "footage."
+        ),
+        combo_clause=(
+            "Heavy rain is falling from a dark overcast sky; the road is "
+            "soaked and glossy with sheeting water and reflections, rain "
+            "streaks fill the air, and the wet hood is covered in droplets."
+        ),
+    ),
+    WeatherPreset(
+        name="snow",
+        prompt=(
+            "A dashcam perspective from inside a vehicle driving down a "
+            "wide suburban residential street during a snowstorm. The road "
+            "is heavily covered in white snow with visible parallel tire "
+            "tracks. Vehicles parked along the curb are coated in a layer "
+            "of snow. The surrounding houses, lawns, and large trees are "
+            "completely blanketed in winter snow. The sky is overcast and "
+            "gray with snowflakes visibly falling. In the foreground, the "
+            "bottom of the windshield and the car's hood are visible, with "
+            "snow accumulating around the windshield wipers."
+        ),
+        combo_clause=(
+            "A snowstorm covers the world: the road is blanketed in white "
+            "snow with tire tracks, snow coats every parked car, house, "
+            "and tree, and thick snowflakes fall from an overcast gray sky."
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class LiveEditWeatherConfig:
+    """Live weather events (plain guided prompt swaps, no LoRA needed)."""
+
+    enabled: bool = False
+    """Whether the weather ability responds to the weather-cycle key."""
+
+    guidance_scale: float = 2.5
+    """Two-prompt edit-guidance strength for weather swaps (the PR #431
+    mechanism: flow pushed along the new-minus-old text direction). Uses
+    the same validated 2.5/20 deployment as the skins."""
+
+    guidance_chunks: int = 20
+    """Number of chunks the two-prompt guidance window stays open."""
+
+    allow_corrector: bool = False
+    """Whether the style-drift corrector may stay on during weather. Its
+    gate profile was calibrated on style v6, not weather, so it defaults
+    off; flip only after a weather+corrector bring-up shows no artifacts."""
+
+    weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
+    """Selectable weathers, cycled clear -> rain -> snow -> clear."""
+
+    def __post_init__(self) -> None:
+        """Validate weather values at configuration time."""
+        if self.guidance_scale < 1.0:
+            raise ValueError("weather guidance_scale must be at least 1.0")
+        if self.guidance_chunks < 0:
+            raise ValueError("weather guidance_chunks must be non-negative")
+        if self.enabled and not self.weathers:
+            raise ValueError("live_edit.weather requires at least one preset")
+
+
+@dataclass(frozen=True)
+class LiveEditObstacleConfig:
+    """Obstacle events: a real scene actor track cloned into the lane ahead.
+
+    Synthetic boxes render correctly in the conditioning but never
+    materialize (mask-verified 2026-08-10); a bit-faithful clone of a real
+    perception track does, and MOVING clones materialize solidly
+    (probe_moving_clone.py, 2026-08-13). The event clones a moving vehicle
+    track from the scene bundle, retimes it to "now", and rigidly shifts it
+    to start ahead of the ego.
+    """
+
+    enabled: bool = False
+    """Whether the obstacle ability responds to the spawn key."""
+
+    spawn_ahead_m: float = 16.0
+    """Meters ahead of the ego (along its heading) where the clone starts."""
+
+    lateral_m: float = 0.0
+    """Meters to the left (+) / right (-) of the ego heading at spawn."""
+
+    active_chunks: int = 10
+    """Despawn after this many generated chunks (also capped by the
+    template track's own coverage)."""
+
+    min_drift_m: float = 15.0
+    """Minimum ground-plane travel for a track to count as moving."""
+
+    min_coverage_s: float = 4.0
+    """Minimum template track duration."""
+
+    length_range_m: tuple[float, float] = (3.4, 5.6)
+    """Car-sized bbox length filter for template tracks."""
+
+    collision_radius_m: float = 3.0
+    """Ego XY distance at which a hit is logged (visual/log only; the
+    clone is not registered with PhysX)."""
+
+    guide_scale: float = 0.0
+    """Box-axis guidance strength (flow extrapolated along the
+    with-box/without-box conditioning direction). ``0`` disables the
+    guidance hook entirely (clone renders at ghost strength); ``2.0`` is the
+    validated in-game operating point (solid vehicle, in-box |diff| ~18 vs
+    ~7 unguided, out-box clean; ``3.0`` breaks up at near range). Requires
+    ``use_cuda_graph=False`` on the transformer."""
+
+    annotate: bool = False
+    """Draw the clone's projected 3D box outline into presented frames
+    (evidence/demo aid)."""
+
+    def __post_init__(self) -> None:
+        """Validate obstacle values at configuration time."""
+        if self.spawn_ahead_m <= 0.0:
+            raise ValueError("spawn_ahead_m must be positive")
+        if self.active_chunks <= 0:
+            raise ValueError("active_chunks must be positive")
+        if self.min_drift_m < 0.0:
+            raise ValueError("min_drift_m must be non-negative")
+        if self.guide_scale < 0.0:
+            raise ValueError("guide_scale must be non-negative")
+        if not 0.0 < self.length_range_m[0] <= self.length_range_m[1]:
+            raise ValueError("length_range_m must be a positive (lo, hi) pair")
+
+
+@dataclass(frozen=True)
 class LiveEditCoinsConfig:
     """Collectible coin course composited into the presented frames."""
 
@@ -173,6 +331,12 @@ class LiveEditConfig:
     coins: LiveEditCoinsConfig = field(default_factory=LiveEditCoinsConfig)
     """Coin-pickup ability."""
 
+    weather: LiveEditWeatherConfig = field(default_factory=LiveEditWeatherConfig)
+    """Weather-event ability."""
+
+    obstacle: LiveEditObstacleConfig = field(default_factory=LiveEditObstacleConfig)
+    """Obstacle-event ability."""
+
     sharpen_amount: float = 0.8
     """Unsharp-mask strength applied to styled frames (0 disables)."""
 
@@ -182,7 +346,12 @@ class LiveEditConfig:
     @property
     def any_enabled(self) -> bool:
         """Return whether any ability needs the presenter wrapper."""
-        return self.style.enabled or self.coins.enabled
+        return (
+            self.style.enabled
+            or self.coins.enabled
+            or self.weather.enabled
+            or self.obstacle.enabled
+        )
 
     def __post_init__(self) -> None:
         """Validate presenter-filter values at configuration time."""
@@ -235,6 +404,54 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
+        "--live-edit-weather",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable mid-run weather events (guided prompt swaps; V key).",
+    )
+    group.add_argument(
+        "--live-edit-weather-corrector",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Keep the style-drift corrector on during weather (its gate was "
+            "calibrated on style v6; default off)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-obstacle",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable obstacle events (cloned moving scene vehicle; O key).",
+    )
+    group.add_argument(
+        "--live-edit-obstacle-ahead-m",
+        type=float,
+        default=16.0,
+        help="Meters ahead of the ego where the obstacle clone starts.",
+    )
+    group.add_argument(
+        "--live-edit-obstacle-chunks",
+        type=int,
+        default=10,
+        help="Chunks the obstacle event stays active before despawn.",
+    )
+    group.add_argument(
+        "--live-edit-obstacle-guide-scale",
+        type=float,
+        default=0.0,
+        help=(
+            "Box-axis guidance strength over the clone (0 disables; 3.0 was "
+            "the fully-opaque probe operating point)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-obstacle-annotate",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Draw the obstacle clone's projected box outline (evidence aid).",
+    )
+    group.add_argument(
         "--live-edit-coins",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -262,5 +479,16 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         coins=LiveEditCoinsConfig(
             enabled=bool(args.live_edit_coins),
             sprite_path=args.live_edit_coin_sprite,
+        ),
+        weather=LiveEditWeatherConfig(
+            enabled=bool(args.live_edit_weather),
+            allow_corrector=bool(args.live_edit_weather_corrector),
+        ),
+        obstacle=LiveEditObstacleConfig(
+            enabled=bool(args.live_edit_obstacle),
+            spawn_ahead_m=float(args.live_edit_obstacle_ahead_m),
+            active_chunks=int(args.live_edit_obstacle_chunks),
+            guide_scale=float(args.live_edit_obstacle_guide_scale),
+            annotate=bool(args.live_edit_obstacle_annotate),
         ),
     )

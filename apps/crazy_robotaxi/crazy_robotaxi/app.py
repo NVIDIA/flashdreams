@@ -81,11 +81,13 @@ class CrazyRobotaxiRuntime:
         *,
         style_ability: Any | None = None,
         coin_ability: CoinAbility | None = None,
+        obstacle_ability: Any | None = None,
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
         self._style_ability = style_ability
         self._coin_ability = coin_ability
+        self._obstacle_ability = obstacle_ability
 
     @property
     def is_running(self) -> bool:
@@ -111,6 +113,10 @@ class CrazyRobotaxiRuntime:
             return
         if requests.consume_skin_cycle() and self._style_ability is not None:
             self._style_ability.request_cycle()
+        if requests.consume_weather_cycle() and self._style_ability is not None:
+            self._style_ability.request_weather_cycle()
+        if requests.consume_obstacle_spawn() and self._obstacle_ability is not None:
+            self._obstacle_ability.request_spawn()
         if requests.consume_coins_toggle() and self._coin_ability is not None:
             enabled = self._coin_ability.toggle()
             logger.info(f"[live-edit] coins {'on' if enabled else 'off'}")
@@ -130,10 +136,13 @@ class CrazyRobotaxiRuntime:
         passengers = build_pickup_passenger_trajectories(
             snapshots, trajectory.timestamps_us
         )
+        obstacles: tuple[Any, ...] = ()
+        if self._obstacle_ability is not None:
+            obstacles = self._obstacle_ability.advance_frames(trajectory)
         return ApplicationChunkUpdate(
             trajectory=replace(
                 trajectory,
-                dynamic_actors=(*trajectory.dynamic_actors, *passengers),
+                dynamic_actors=(*trajectory.dynamic_actors, *passengers, *obstacles),
             ),
             frame_application_states=snapshots,
         )
@@ -260,13 +269,23 @@ class CrazyRobotaxiApplication:
             logger.info(
                 f"[live-edit] coin course laid out: {coin_ability.remaining_count} coins"
             )
+        obstacle_ability: Any | None = None
+        if self._live_edit.obstacle.enabled:
+            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
+
+            # Rebuilt per rollout so events/hits reset with the game.
+            obstacle_ability = ObstacleAbility.from_scene(
+                scene, self._live_edit.obstacle
+            )
         if self._live_edit_presenter is not None:
             self._live_edit_presenter.set_coin_ability(coin_ability)
+            self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
         return CrazyRobotaxiRuntime(
             controller,
             self._keyboard,
             style_ability=self._style_ability,
             coin_ability=coin_ability,
+            obstacle_ability=obstacle_ability,
         )
 
 
@@ -288,7 +307,15 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
         keyboard = CrazyRobotaxiKeyboardState()
         live_edit = live_edit_config or LiveEditConfig()
         style_ability = None
-        if live_edit.style.enabled:
+        if live_edit.obstacle.enabled and live_edit.obstacle.guide_scale > 0.0:
+            from crazy_robotaxi.live_edit.obstacle_ability import (
+                install_obstacle_guidance_on_backend,
+            )
+
+            # Before the style install so both share one CUDA-graph-free
+            # session swap (marker-coordinated) and one warmup wrap each.
+            install_obstacle_guidance_on_backend(backend, live_edit.obstacle)
+        if live_edit.style.enabled or live_edit.weather.enabled:
             from crazy_robotaxi.live_edit.style_ability import (
                 StyleAbility,
                 install_style_ability_on_backend,
@@ -297,7 +324,7 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             # Must run before super().__init__ starts model warmup on the
             # pipeline worker: the corrector needs a CUDA-graph-free session
             # and the LoRA attach is deferred to the end of warmup_model.
-            style_ability = StyleAbility(live_edit.style)
+            style_ability = StyleAbility(live_edit.style, live_edit.weather)
             install_style_ability_on_backend(backend, style_ability)
         if alignment_diagnostics_root is not None:
             from crazy_robotaxi.alignment_diagnostics import (

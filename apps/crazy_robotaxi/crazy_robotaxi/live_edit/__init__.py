@@ -15,6 +15,14 @@ abilities, each behind its own ``--live-edit-*`` flag:
   navigation lanes, projected per frame through the scene's FTheta camera,
   composited into the world-model frame before HUD/encode, collected by
   ego proximity.
+- **Weather events** (:mod:`crazy_robotaxi.live_edit.weather_ability`, key
+  ``v``): clear -> rain -> snow -> clear via plain two-prompt-guided swaps
+  (no LoRA; the style LoRA is bypassed for weather-only windows) issued
+  through the same :class:`StyleAbility` prompt state machine.
+- **Obstacle events** (:mod:`crazy_robotaxi.live_edit.obstacle_ability`,
+  key ``o``): a real moving scene-vehicle track cloned, retimed, and
+  shifted ahead of the ego through the ``advance_frames`` dynamic-actor
+  seam; optional box-axis guidance on the model side.
 
 Wiring map (composition-root seams, all live in ``crazy_robotaxi``):
 
@@ -42,7 +50,9 @@ Wiring map (composition-root seams, all live in ``crazy_robotaxi``):
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditObstacleConfig,
     LiveEditStyleConfig,
+    LiveEditWeatherConfig,
     add_live_edit_args,
     live_edit_config_from_args,
 )
@@ -50,7 +60,9 @@ from crazy_robotaxi.live_edit.config import (
 __all__ = [
     "LiveEditCoinsConfig",
     "LiveEditConfig",
+    "LiveEditObstacleConfig",
     "LiveEditStyleConfig",
+    "LiveEditWeatherConfig",
     "add_live_edit_args",
     "live_edit_config_from_args",
 ]

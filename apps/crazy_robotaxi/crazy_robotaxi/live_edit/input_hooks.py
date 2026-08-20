@@ -29,6 +29,8 @@ class LiveEditRequests:
         self._lock = threading.Lock()
         self._skin_cycle_requested = False
         self._coins_toggle_requested = False
+        self._weather_cycle_requested = False
+        self._obstacle_spawn_requested = False
 
     def request_skin_cycle(self) -> None:
         """Record a switch-skin keypress until the runtime consumes it."""
@@ -52,4 +54,28 @@ class LiveEditRequests:
         with self._lock:
             requested = self._coins_toggle_requested
             self._coins_toggle_requested = False
+            return requested
+
+    def request_weather_cycle(self) -> None:
+        """Record a cycle-weather keypress until the runtime consumes it."""
+        with self._lock:
+            self._weather_cycle_requested = True
+
+    def consume_weather_cycle(self) -> bool:
+        """Return and clear whether a weather cycle was requested."""
+        with self._lock:
+            requested = self._weather_cycle_requested
+            self._weather_cycle_requested = False
+            return requested
+
+    def request_obstacle_spawn(self) -> None:
+        """Record a spawn-obstacle keypress until the runtime consumes it."""
+        with self._lock:
+            self._obstacle_spawn_requested = True
+
+    def consume_obstacle_spawn(self) -> bool:
+        """Return and clear whether an obstacle spawn was requested."""
+        with self._lock:
+            requested = self._obstacle_spawn_requested
+            self._obstacle_spawn_requested = False
             return requested

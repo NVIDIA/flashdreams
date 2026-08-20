@@ -31,32 +31,61 @@ from typing import Any
 
 from loguru import logger
 
-from crazy_robotaxi.live_edit.config import LiveEditStyleConfig
+from crazy_robotaxi.live_edit.config import (
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+)
+from crazy_robotaxi.live_edit.weather_ability import compose_swap_target
 
 _NO_PENDING = object()
 """Sentinel distinguishing "no request" from "revert to base" (None)."""
 
 
 class StyleAbility:
-    """Cycle world skins on a running flashdreams session."""
+    """Cycle world skins and weather states on a running flashdreams session.
 
-    def __init__(self, config: LiveEditStyleConfig) -> None:
-        if not config.enabled:
-            raise ValueError("StyleAbility requires live_edit.style.enabled")
+    One object owns the prompt state machine for both abilities so a single
+    ``replace_text`` per boundary carries the composed (skin, weather)
+    prompt; see :mod:`crazy_robotaxi.live_edit.weather_ability` for the
+    composition matrix.
+    """
+
+    def __init__(
+        self,
+        config: LiveEditStyleConfig,
+        weather_config: LiveEditWeatherConfig | None = None,
+    ) -> None:
+        weather_enabled = weather_config is not None and weather_config.enabled
+        if not config.enabled and not weather_enabled:
+            raise ValueError(
+                "StyleAbility requires live_edit.style or live_edit.weather"
+            )
         self._config = config
+        self._weather_config = weather_config if weather_enabled else None
         self._session: Any | None = None
+        self._transformer: Any | None = None
+        self._lora_attached = False
         self._base_prompt: str | None = None
         self._active_index: int | None = None
         self._pending_index: int | None | object = _NO_PENDING
+        self._active_weather: int | None = None
+        self._pending_weather: int | None | object = _NO_PENDING
         self._chunks_since_swap = 0
         self._set_corrector_enabled: Callable[[bool], None] = lambda _: None
 
     @property
     def active_skin_name(self) -> str:
         """Return the HUD label of the active skin (``base`` when off)."""
-        if self._active_index is None:
+        if self._active_index is None or not self._config.enabled:
             return "base"
         return self._config.skins[self._active_index].name
+
+    @property
+    def active_weather_name(self) -> str:
+        """Return the HUD label of the active weather (``clear`` when off)."""
+        if self._active_weather is None or self._weather_config is None:
+            return "clear"
+        return self._weather_config.weathers[self._active_weather].name
 
     def attach(self, session: Any) -> None:
         """Attach the LoRA + corrector and hook the chunk boundaries.
@@ -78,23 +107,37 @@ class StyleAbility:
             # _drift_corrector reads GATE_ALPHA_JSON at import time.
             os.environ["GATE_ALPHA_JSON"] = str(self._config.gate_alpha_json)
 
-        from omnidreams._edit_lora import TextEditLoRA
+        self._transformer = transformer
+        if self._config.enabled and self._config.lora_checkpoint is not None:
+            from omnidreams._edit_lora import TextEditLoRA
 
-        edit_lora = TextEditLoRA(transformer.network, str(self._config.lora_checkpoint))
-        transformer.set_text_edit_lora(edit_lora)
-        logger.info(f"[live-edit] deployed {edit_lora.describe()}")
+            edit_lora = TextEditLoRA(
+                transformer.network, str(self._config.lora_checkpoint)
+            )
+            transformer.set_text_edit_lora(edit_lora)
+            self._lora_attached = True
+            logger.info(f"[live-edit] deployed {edit_lora.describe()}")
 
         if self._config.corrector_checkpoint is not None:
             self._attach_corrector(pipeline, transformer)
 
         self.hook_session(session)
+        skins = (
+            [skin.name for skin in self._config.skins] if self._config.enabled else []
+        )
+        weathers = (
+            [weather.name for weather in self._weather_config.weathers]
+            if self._weather_config is not None
+            else []
+        )
         logger.info(
-            "[live-edit] style ability attached "
-            f"skins={[skin.name for skin in self._config.skins]}"
+            f"[live-edit] style ability attached skins={skins} weathers={weathers}"
         )
 
     def request_cycle(self) -> None:
         """Queue base -> skin[0] -> skin[1] -> ... -> base for the next chunk."""
+        if not self._config.enabled:
+            return
         current = (
             self._active_index
             if self._pending_index is _NO_PENDING
@@ -106,6 +149,22 @@ class StyleAbility:
             self._pending_index = current + 1
         else:
             self._pending_index = None
+
+    def request_weather_cycle(self) -> None:
+        """Queue clear -> rain -> snow -> clear for the next chunk."""
+        if self._weather_config is None:
+            return
+        current = (
+            self._active_weather
+            if self._pending_weather is _NO_PENDING
+            else self._pending_weather
+        )
+        if current is None:
+            self._pending_weather = 0
+        elif current + 1 < len(self._weather_config.weathers):
+            self._pending_weather = current + 1
+        else:
+            self._pending_weather = None
 
     def _attach_corrector(self, pipeline: Any, transformer: Any) -> None:
         """Deploy the unfused corrector behind an on/off dispatch."""
@@ -162,13 +221,19 @@ class StyleAbility:
             self._base_prompt = prompt
             self._active_index = None
             self._pending_index = _NO_PENDING
+            self._active_weather = None
+            self._pending_weather = _NO_PENDING
             self._chunks_since_swap = 0
             self._set_corrector_enabled(False)
             return original_start(initial_rgb, condition_frames, prompt)
 
         def continue_generation(condition_frames: Any) -> Any:
             refresh_due = self._reswap_due()
-            if self._pending_index is not _NO_PENDING or refresh_due:
+            if (
+                self._pending_index is not _NO_PENDING
+                or self._pending_weather is not _NO_PENDING
+                or refresh_due
+            ):
                 # The adapter defers finalize of chunk N into the next
                 # continue_generation call; the validated swap semantics are
                 # finalize -> replace_text -> generate (otherwise finalize
@@ -184,7 +249,7 @@ class StyleAbility:
                     session._pending_finalization_index = None
                 self._apply_pending(refresh=refresh_due)
             result = original_continue(condition_frames)
-            if self._active_index is not None:
+            if self._active_index is not None or self._active_weather is not None:
                 self._chunks_since_swap += 1
             return result
 
@@ -192,58 +257,97 @@ class StyleAbility:
         session.continue_generation = continue_generation
 
     def _reswap_due(self) -> bool:
-        """Whether the active skin's edit window is due a duty-cycle refresh."""
+        """Whether the active edit window is due a duty-cycle refresh."""
         interval = self._config.reswap_interval_chunks
         return (
-            self._active_index is not None
+            (self._active_index is not None or self._active_weather is not None)
             and interval > 0
             and self._chunks_since_swap >= interval
         )
 
     def _apply_pending(self, *, refresh: bool = False) -> None:
         """Swap the prompt between chunks when a request or refresh is due."""
-        pending = self._pending_index
+        pending_skin = self._pending_index
+        pending_weather = self._pending_weather
         self._pending_index = _NO_PENDING
-        if pending is _NO_PENDING:
-            if not refresh or self._active_index is None:
-                return
-            # Duty-cycled re-swap: re-issue the SAME skin so the LoRA edit
-            # window reopens before long holds soften (~8-10 chunks).
-            pending = self._active_index
-        elif pending == self._active_index and not refresh:
+        self._pending_weather = _NO_PENDING
+        target_skin = (
+            self._active_index if pending_skin is _NO_PENDING else pending_skin
+        )
+        target_weather = (
+            self._active_weather if pending_weather is _NO_PENDING else pending_weather
+        )
+        changed = (
+            target_skin != self._active_index or target_weather != self._active_weather
+        )
+        if not changed and (
+            not refresh or (target_skin is None and target_weather is None)
+        ):
             return
         session = self._session
         if session is None or session._cache is None or self._base_prompt is None:
-            logger.warning("[live-edit] skin swap requested before first chunk")
+            logger.warning("[live-edit] prompt swap requested before first chunk")
             return
+
+        target = compose_swap_target(
+            base_prompt=self._base_prompt,
+            skin=None if target_skin is None else self._config.skins[target_skin],
+            weather=(
+                None
+                if target_weather is None or self._weather_config is None
+                else self._weather_config.weathers[target_weather]
+            ),
+            style_config=self._config,
+            weather_config=self._weather_config,
+            lora_available=self._lora_attached,
+        )
+        self._replace_text(session, target)
+        verb = "re-swap" if not changed else "state ->"
+        self._active_index = target_skin
+        self._active_weather = target_weather
+        self._chunks_since_swap = 0
+        self._set_corrector_enabled(target.corrector_enabled)
+        logger.info(
+            f"[live-edit] {verb} skin={self.active_skin_name} "
+            f"weather={self.active_weather_name}"
+        )
+
+    def _replace_text(self, session: Any, target: Any) -> None:
+        """Issue the swap, bypassing the edit LoRA for two-prompt windows.
+
+        A guided ``replace_text`` routes through the pre-merged text-edit
+        LoRA whenever one is attached; weather-only windows must instead run
+        the two-prompt KV-snapshot guidance (the LoRA was trained on the
+        style prompts), so the LoRA is detached around the call. Plain swaps
+        (scale 1.0) never open a LoRA window and need no bypass.
+        """
         import torch
 
-        if pending is None:
-            # Reverting to the base world is a plain swap: guidance 1.0/0
-            # also deactivates the pre-merged edit LoRA (the >1.0 path would
-            # instead open a LoRA window ON the base prompt).
-            prompt = self._base_prompt
-            guidance_scale = 1.0
-            guidance_chunks = 0
-        else:
-            prompt = self._config.skins[pending].prompt
-            guidance_scale = self._config.guidance_scale
-            guidance_chunks = self._config.guidance_chunks
-        # TODO(upstream): session._cache is private; ask for a public
-        # replace_text passthrough on FlashdreamsWorldModelSession.
-        with torch.no_grad():
-            session.pipeline.replace_text(
-                session._cache,
-                [[prompt]],
-                guidance_scale=guidance_scale,
-                guidance_chunks=guidance_chunks,
-                recache_last_chunk=False,
-            )
-        verb = "re-swap" if pending == self._active_index else "skin ->"
-        self._active_index = pending
-        self._chunks_since_swap = 0
-        self._set_corrector_enabled(pending is not None)
-        logger.info(f"[live-edit] {verb} {self.active_skin_name}")
+        transformer = self._transformer
+        bypass_lora = (
+            not target.use_lora
+            and target.guidance_scale != 1.0
+            and transformer is not None
+            and getattr(transformer, "_text_edit_lora", None) is not None
+        )
+        edit_lora = None
+        if bypass_lora:
+            edit_lora = transformer._text_edit_lora
+            transformer.set_text_edit_lora(None)
+        try:
+            # TODO(upstream): session._cache is private; ask for a public
+            # replace_text passthrough on FlashdreamsWorldModelSession.
+            with torch.no_grad():
+                session.pipeline.replace_text(
+                    session._cache,
+                    [[target.prompt]],
+                    guidance_scale=target.guidance_scale,
+                    guidance_chunks=target.guidance_chunks,
+                    recache_last_chunk=False,
+                )
+        finally:
+            if bypass_lora:
+                transformer.set_text_edit_lora(edit_lora)
 
     @staticmethod
     def _guard_manifest(manifest: Any) -> None:
@@ -311,7 +415,8 @@ def install_style_ability_on_backend(backend: Any, ability: StyleAbility) -> Non
             "--live-edit-style requires the omnidreams world-model backend "
             "(the raster backend has no flashdreams session)."
         )
-    if ability._config.corrector_checkpoint is not None:
+    needs_graph_free = ability._config.corrector_checkpoint is not None
+    if needs_graph_free and not getattr(session, "_live_edit_cuda_graph_free", False):
         session = _corrector_safe_session(session)
         backend._session = session
     original_warmup = session.warmup_model
@@ -346,10 +451,13 @@ def _corrector_safe_session(session: Any) -> Any:
         )
         return _setup_pipeline_from_config(config, manifest)
 
-    return FlashdreamsWorldModelSession(
+    rebuilt = FlashdreamsWorldModelSession(
         session.manifest,
         profile=session._profile_config,
         offload_text_encoder=session._offload_text_encoder,
         pipeline_factory=cuda_graph_free_factory,
         postprocess=session._postprocess,
     )
+    # Marker so cooperating installers (obstacle guidance) skip a re-swap.
+    rebuilt._live_edit_cuda_graph_free = True
+    return rebuilt

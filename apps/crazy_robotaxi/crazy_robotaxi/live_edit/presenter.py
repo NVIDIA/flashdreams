@@ -21,6 +21,7 @@ GPU-native torch compositing path is a follow-up (TODO below).
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from crazy_robotaxi.live_edit.coin_ability import CoinAbility, coin_squash
 from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 
 _COUNTER_MARGIN_PX = 12
@@ -123,6 +125,7 @@ class LiveEditPresenter:
         self._config = config
         self._coin_ability = coin_ability
         self._style_ability = style_ability
+        self._obstacle_ability: ObstacleAbility | None = None
         self._camera_model: FThetaCameraModel | None = None
         self._camera_calibration: CameraCalibration | None = None
         self._frame_index = 0
@@ -133,6 +136,10 @@ class LiveEditPresenter:
     def set_coin_ability(self, coin_ability: CoinAbility | None) -> None:
         """Bind the per-rollout coin ability (rebuilt on scene load / reset)."""
         self._coin_ability = coin_ability
+
+    def set_obstacle_ability(self, obstacle_ability: ObstacleAbility | None) -> None:
+        """Bind the per-rollout obstacle ability (chips + box annotation)."""
+        self._obstacle_ability = obstacle_ability
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Intercept the scene camera and forward it down the chain."""
@@ -176,6 +183,7 @@ class LiveEditPresenter:
         )
         rgb = self._apply_style_filter(rgb)
         rgb = self._composite_coins(rgb, frame)
+        rgb = self._annotate_obstacle(rgb, frame)
         rgb = self._draw_hud_chips(rgb)
         self._frame_index += 1
         processed = replace(frame, model_rgb_host_uint8=_HostRGBFrame(rgb))
@@ -185,11 +193,14 @@ class LiveEditPresenter:
 
     def _anything_active(self) -> bool:
         coins_active = self._coin_ability is not None and self._coin_ability.enabled
-        style_active = (
-            self._style_ability is not None
-            and self._style_ability.active_skin_name != "base"
+        style_active = self._style_ability is not None and (
+            self._style_ability.active_skin_name != "base"
+            or getattr(self._style_ability, "active_weather_name", "clear") != "clear"
         )
-        return coins_active or style_active
+        obstacle_active = (
+            self._obstacle_ability is not None and self._obstacle_ability.active
+        )
+        return coins_active or style_active or obstacle_active
 
     def _apply_style_filter(self, rgb: np.ndarray) -> np.ndarray:
         style = self._style_ability
@@ -240,6 +251,64 @@ class LiveEditPresenter:
             )
         return np.asarray(canvas.convert("RGB"))
 
+    def _annotate_obstacle(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
+        """Outline the obstacle clone's 3D box (evidence aid, flag-gated)."""
+        obstacle = self._obstacle_ability
+        if (
+            not self._config.obstacle.annotate
+            or obstacle is None
+            or obstacle.event is None
+            or frame.rig_to_world is None
+        ):
+            return rgb
+        event = obstacle.event
+        center = event.center_at(int(frame.timestamp_us))
+        if center is None:
+            return rgb
+        height, width = rgb.shape[:2]
+        camera_model = self._require_camera_model(width, height)
+        if camera_model is None:
+            return rgb
+        # Nearest-sample orientation is plenty for an annotation outline.
+        sample = int(
+            np.argmin(np.abs(event.timestamps_us - np.int64(frame.timestamp_us)))
+        )
+        rotation = _quat_to_matrix(event.orientations_xyzw[sample])
+        half = np.asarray(event.dimensions_lwh, dtype=np.float32) / 2.0
+        signs = np.array(
+            [[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
+            dtype=np.float32,
+        )
+        corners = center[None, :] + (signs * half[None, :]) @ rotation.T
+        uv, _depth, forward = camera_model.project_world(
+            corners, np.asarray(frame.rig_to_world, dtype=np.float32)
+        )
+        if not forward.all():
+            return rgb
+        canvas = Image.fromarray(rgb, mode="RGB")
+        draw = ImageDraw.Draw(canvas)
+        edges = (
+            (0, 1),
+            (0, 2),
+            (1, 3),
+            (2, 3),  # bottom/top faces per z pairing
+            (4, 5),
+            (4, 6),
+            (5, 7),
+            (6, 7),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
+        )
+        for a, b in edges:
+            draw.line(
+                [tuple(uv[a].tolist()), tuple(uv[b].tolist())],
+                fill=(255, 60, 60),
+                width=2,
+            )
+        return np.asarray(canvas)
+
     def _draw_hud_chips(self, rgb: np.ndarray) -> np.ndarray:
         """Draw the skin-name and coin-counter chips into the frame.
 
@@ -251,9 +320,17 @@ class LiveEditPresenter:
         style = self._style_ability
         if style is not None:
             labels.append(f"SKIN {style.active_skin_name.upper()}")
+            weather_name = getattr(style, "active_weather_name", "clear")
+            if weather_name != "clear":
+                labels.append(f"WEATHER {weather_name.upper()}")
         coins = self._coin_ability
         if coins is not None and coins.enabled:
             labels.append(f"COINS {coins.collected_count}")
+        obstacle = self._obstacle_ability
+        if obstacle is not None and obstacle.active:
+            labels.append("OBSTACLE!")
+        if obstacle is not None and obstacle.hit_count:
+            labels.append(f"HITS {obstacle.hit_count}")
         if not labels:
             return rgb
         canvas = Image.fromarray(rgb, mode="RGB").convert("RGBA")
@@ -301,3 +378,18 @@ class LiveEditPresenter:
             return procedural_coin_sprite()
         with Image.open(sprite_path) as image:
             return image.convert("RGBA")
+
+
+def _quat_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
+    """Rotation matrix from a normalized xyzw quaternion (numpy-only)."""
+    x, y, z, w = (float(v) for v in np.asarray(quat_xyzw, dtype=np.float64))
+    norm = math.sqrt(x * x + y * y + z * z + w * w) or 1.0
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ],
+        dtype=np.float32,
+    )

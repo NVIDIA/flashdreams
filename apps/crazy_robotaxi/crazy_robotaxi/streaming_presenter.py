@@ -1250,7 +1250,8 @@ class MJPEGStreamingPresenter:
                 self._keyboard.request_reset()
                 return
             # Live-edit abilities: ``k`` cycles the world skin, ``c``
-            # toggles coins. Rising-edge requests drained by the runtime;
+            # toggles coins, ``v`` cycles the weather, ``o`` spawns an
+            # obstacle event. Rising-edge requests drained by the runtime;
             # no-ops when the --live-edit-* flags are off.
             requests = getattr(self._keyboard, "live_edit", None)
             if requests is None:
@@ -1259,6 +1260,10 @@ class MJPEGStreamingPresenter:
                 requests.request_skin_cycle()
             elif key in ("c", "C"):
                 requests.request_coins_toggle()
+            elif key in ("v", "V"):
+                requests.request_weather_cycle()
+            elif key in ("o", "O"):
+                requests.request_obstacle_spawn()
 
     def _state_snapshot(self) -> dict[str, object]:
         """Return a JSON-serializable vehicle and taxi telemetry snapshot.
