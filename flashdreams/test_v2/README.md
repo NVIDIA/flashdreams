@@ -13,20 +13,26 @@ CPU-only tests for the v2 protocols themselves:
   window implementations, so it depends on no integration at all. It asserts the
   orderings and thread ownership the two-thread loop guarantees, not a particular
   interleaving.
+- `test_batch_runner.py` covers the `run_batch` loop the same way, including what
+  it closes when a run fails part way through.
+- `test_mp4_client_window.py` covers the window that writes an MP4, reading each
+  file back to check what was encoded. Its encoding tests are skipped when
+  `ffmpeg` is missing from `PATH`.
 
 Application behaviour is tested by the application that owns it — see
-`integrations_v2/red_screen/red_screen/tests/`.
+`integrations_v2/red_screen/red_screen/tests/` and
+`integrations_v2/color_fade/color_fade/tests/`.
 
 Run commands from the repository root.
 
 ## Set up the test environment
 
 ```bash
-uv sync --package flashdreams-red-screen --package flashdreams-null-model --group test --inexact
+uv sync --package flashdreams-color-fade --package flashdreams-red-screen --package flashdreams-null-model --group test --inexact
 ```
 
-`test_client_window.py` imports the NULL model integration, and naming both
-integrations leaves the environment ready for their tests too. `--inexact`
+`test_client_window.py` imports the NULL model integration, and naming every
+integration leaves the environment ready for their tests too. `--inexact`
 matters: without it, `uv` makes the environment exact for the packages it was
 given and uninstalls the rest. `pytest` comes from the `test` group; do not use
 `--extra dev`, which pulls `transformer-engine` and compiles CUDA extensions from

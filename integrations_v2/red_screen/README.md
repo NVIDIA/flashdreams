@@ -75,7 +75,7 @@ app.close()
 Run from the repository root.
 
 ```bash
-uv sync --package flashdreams-red-screen --package flashdreams-null-model --group test --inexact
+uv sync --package flashdreams-red-screen --package flashdreams-null-model --package flashdreams-color-fade --group test --inexact
 uv run --no-sync pytest integrations_v2/red_screen -m ci_cpu -v
 ```
 
@@ -97,6 +97,6 @@ it was not asked about, which the framework tests import.
 Frame geometry comes from the `SessionDesc`, and the step count from the caller
 that drives the session. Neither is a command-line argument.
 
-Output is a `[1, 3, 1, H, W]` float32 tensor in `bcthw` layout and the `[-1, 1]`
-range expected by WebRTC. Black is `-1.0` in every channel; full red uses `1.0`
-in channel 0 and `-1.0` in the other channels.
+Output is a `[1, 3, 1, H, W]` float32 tensor in `bcthw` layout, carrying the
+`[-1, 1]` values a client window expects: red is `1.0` on channel 0 and `-1.0`
+on the others, and black is `-1.0` everywhere.

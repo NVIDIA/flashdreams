@@ -59,7 +59,9 @@ extraPaths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations_v2/color_fade",
     "integrations_v2/null_model",
+    "integrations_v2/red_screen",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -85,7 +87,9 @@ extra-paths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations_v2/color_fade",
     "integrations_v2/null_model",
+    "integrations_v2/red_screen",
 ]
 
 [tool.ty.src]

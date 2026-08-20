@@ -99,6 +99,7 @@ def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
 
 
 def _is_red(result: StepResult) -> bool:
+    # Frames carry [-1, 1], so full red is 1.0 and the other channels are -1.0.
     return bool(
         torch.all(result.output[:, 0] == 1.0)
         and torch.all(result.output[:, 1:] == -1.0)

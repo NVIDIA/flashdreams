@@ -21,6 +21,7 @@ conflicts = [[
 members = [
     "flashdreams",
     "flashdreams-causal-forcing",
+    "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
@@ -1138,6 +1139,17 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-color-fade"
+version = "0.1.0"
+source = { editable = "integrations_v2/color_fade" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-cosmos-predict2"

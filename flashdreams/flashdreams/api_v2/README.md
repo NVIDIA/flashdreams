@@ -12,8 +12,15 @@ Protocols for the FlashDreams API.
   in `OutputSink.open`.
 - `user_input_event_data.py`: base type for event payloads.
 
-`flashdreams.runtime_v2.session_runner.run_session` drives a session against a
-window, for a fixed number of steps or until the window reports a close.
+Each kind of output has its own loop, and what they share is the session they
+step rather than the loop that steps it:
+
+- `flashdreams.runtime_v2.session_runner.run_session` drives a session against a
+  window on two threads, for a fixed number of steps or until the window reports
+  a close. This is the interactive path.
+- `flashdreams.runtime_v2.batch_runner.run_batch` runs an application into an
+  output-only window on one thread, for a fixed number of steps. This is the
+  path for output that is a file, with `Mp4ClientWindow` as that window.
 
 Ownership
 ---------
@@ -50,19 +57,27 @@ Agreed design decisions. Change them by discussion.
   the new generation whole, so a key held down when the client restarts is still
   held after, because it is the earlier edge that says so. A session that must
   not inherit that input ignores the older events itself.
+- A window reads `StepResult.output` by its dtype: a floating point tensor holds
+  `[-1, 1]`, which is what FlashDreams models emit, and an integer tensor holds
+  raw `0`-`255` values. `SessionDesc` does not carry a range, so this is the
+  convention every window follows rather than something a session declares.
 
 Threading
 ---------
 
-`run_session` uses two threads, and every window runs that way. Generation is on
-the calling thread; the window gets a thread of its own, ticking at
-`frames_per_second_for_ui` to read input, call `ISession.step_ui`, and write
-finished results. A slow step does not hold up input or output, which is why
-`SessionDesc` carries the two frame rates separately. Only the UI rate is read so
-far — generation currently runs as fast as it can.
+`run_session` uses two threads, and every interactive window runs that way. A
+batch run does not: `run_batch` generates a step and writes it on one thread,
+because a file has no client to take input from or to keep up with. The rest of
+this section is about `run_session`.
 
-A window with no input to report, such as one writing an MP4, returns no events
-and leaves `step_ui` at its default; the threading is unchanged.
+Generation is on the calling thread; the window gets a thread of its own,
+ticking at `frames_per_second_for_ui` to read input, call `ISession.step_ui`,
+and write finished results. A slow step does not hold up input or output, which
+is why `SessionDesc` carries the two frame rates separately. Only the UI rate is
+read so far — generation currently runs as fast as it can.
+
+A window with no input to report returns no events and leaves `step_ui` at its
+default; the threading is unchanged.
 
 Only the I/O thread touches the window, `open` and `close` included. That is what
 a native window needs, and it keeps `IClientWindow` implementations free of
@@ -97,11 +112,11 @@ Not built yet
 - Input that keeps up with generation. Input is polled at the UI rate, so a run of
   fast steps can finish several of them between polls and hand them all the same
   batch. Pacing generation is what would fix it.
-- `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
-  the main loop. `run_session` is what exists today; it drives a session the
-  caller already created.
+- The loops an interactive window needs. A WebRTC or native window owns an event
+  loop of its own, an asyncio one or an OS message pump, and would drive the
+  session from it. `run_session` polls instead, on a thread it starts itself.
 - `flashdreams-run`: a CLI that creates the requested kind of client window,
-  loads an application module, and hands both to `ApplicationRunner`. Until it
+  loads an application module, and runs the loop that window needs. Until it
   exists, the caller wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.

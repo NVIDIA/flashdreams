@@ -27,6 +27,12 @@ _DEFAULT_ACTIVATION_KEY = "r"
 _RED_CHANNEL = 0
 """Channel index set to full intensity while the activation key is held."""
 
+_FULL = 1.0
+"""Full intensity for a channel, in the ``[-1, 1]`` range a model emits."""
+
+_NONE = -1.0
+"""No intensity for a channel, which is black across all three."""
+
 
 @dataclass(frozen=True, slots=True)
 class RedScreenConfig:
@@ -40,7 +46,11 @@ class RedScreenConfig:
 
 
 class RedScreenSession(ISession):
-    """Emit red frames controlled by activation and intensity keys."""
+    """Emit red frames controlled by activation and intensity keys.
+
+    Pixels are ``[-1, 1]`` floats, which is what FlashDreams models emit and
+    what a client window expects of a floating point result.
+    """
 
     def __init__(self, config: RedScreenConfig, session_desc: SessionDesc) -> None:
         """
@@ -114,11 +124,11 @@ class RedScreenSession(ISession):
     def _frame(self) -> Tensor:
         frame = torch.full(
             (1, 3, 1, self._session_desc.video_height, self._session_desc.video_width),
-            -1.0,
+            _NONE,
             dtype=torch.float32,
         )
         frame[:, _RED_CHANNEL] = (
-            1.0 if self._key_held else 2.0 * self._color_intensity - 1.0
+            _FULL if self._key_held else 2.0 * self._color_intensity - 1.0
         )
         return frame
 
