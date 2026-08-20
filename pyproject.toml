@@ -62,7 +62,11 @@ extraPaths = [
     "integrations_v2/color_fade",
     "integrations_v2/null_model",
     "integrations_v2/red_screen",
+    "integrations_v2/t2v_causal_forcing",
+    "integrations_v2/t2v_cosmos_predict2",
+    "integrations_v2/t2v_fastvideo_causal_wan22",
     "integrations_v2/t2v_self_forcing",
+    "integrations_v2/t2v_wan21",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -91,7 +95,11 @@ extra-paths = [
     "integrations_v2/color_fade",
     "integrations_v2/null_model",
     "integrations_v2/red_screen",
+    "integrations_v2/t2v_causal_forcing",
+    "integrations_v2/t2v_cosmos_predict2",
+    "integrations_v2/t2v_fastvideo_causal_wan22",
     "integrations_v2/t2v_self_forcing",
+    "integrations_v2/t2v_wan21",
 ]
 
 [tool.ty.src]

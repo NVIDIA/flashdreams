@@ -33,7 +33,11 @@ members = [
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-t2v",
+    "flashdreams-t2v-causal-forcing",
+    "flashdreams-t2v-cosmos-predict2",
+    "flashdreams-t2v-fastvideo-causal-wan22",
     "flashdreams-t2v-self-forcing",
+    "flashdreams-t2v-wan21",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1479,6 +1483,51 @@ dependencies = [
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
+name = "flashdreams-t2v-causal-forcing"
+version = "0.1.0"
+source = { editable = "integrations_v2/t2v_causal_forcing" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-causal-forcing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-causal-forcing", editable = "integrations/causal_forcing" },
+]
+
+[[package]]
+name = "flashdreams-t2v-cosmos-predict2"
+version = "0.1.0"
+source = { editable = "integrations_v2/t2v_cosmos_predict2" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-cosmos-predict2" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-cosmos-predict2", editable = "integrations/cosmos_predict2" },
+]
+
+[[package]]
+name = "flashdreams-t2v-fastvideo-causal-wan22"
+version = "0.1.0"
+source = { editable = "integrations_v2/t2v_fastvideo_causal_wan22" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-fastvideo-causal-wan22" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-fastvideo-causal-wan22", editable = "integrations/fastvideo_causal_wan22" },
+]
+
+[[package]]
 name = "flashdreams-t2v-self-forcing"
 version = "0.1.0"
 source = { editable = "integrations_v2/t2v_self_forcing" }
@@ -1491,6 +1540,21 @@ dependencies = [
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "flashdreams-self-forcing", editable = "integrations/self_forcing" },
+]
+
+[[package]]
+name = "flashdreams-t2v-wan21"
+version = "0.1.0"
+source = { editable = "integrations_v2/t2v_wan21" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-wan21" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-wan21", editable = "integrations/wan21" },
 ]
 
 [[package]]

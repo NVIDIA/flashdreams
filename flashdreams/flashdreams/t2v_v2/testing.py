@@ -7,14 +7,21 @@ Nothing here runs in production: the application, the session, and the command
 line do not use it. It is the shared check an integration's own tests call to
 cover the batch path, named as ``numpy.testing`` and ``torch.testing`` are so
 that an importer can see what it is getting.
+
+It also holds the stand-in model those tests run on a CPU. The pipeline contract
+lives in :class:`~flashdreams.t2v_v2.session.T2VSession`, which every
+integration shares, so the stand-in for it belongs here rather than being
+written again by each of them.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import torch
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.output_sink import OutputSink
@@ -144,6 +151,124 @@ def check_t2v_model_impl(
         application.close()
 
     return _compare(inspector, expected, Path(mp4_path) if mp4_path else None)
+
+
+class FakeT2VPipeline:
+    """A model's worth of behaviour, without a model.
+
+    Generates frames of the shape and range a real text-to-video pipeline does,
+    on whatever device it is handed, so an integration's tests can cover the
+    seam a real checkpoint plugs into on a CPU runner. What it decodes is a
+    moving grey rather than a picture, which is enough for the frame checks
+    :func:`check_t2v_model_impl` makes.
+
+    Every call is recorded, so a test can assert the rollout was driven in
+    order: ``caches`` holds the arguments each rollout was initialized with, and
+    ``generated`` and ``finalized`` hold the autoregressive index of each step.
+    """
+
+    def __init__(
+        self,
+        *,
+        width: int = 128,
+        height: int = 64,
+        compression_ratio: int = 8,
+        first_block_frames: int = 9,
+        block_frames: int = 12,
+    ) -> None:
+        """
+        Args:
+            width: Frame width to generate. Not square by default, so a
+                transposed frame cannot pass unnoticed.
+            height: Frame height to generate.
+            compression_ratio: Pixels one latent covers in each direction, as
+                the decoder this stands in for reports.
+            first_block_frames: Frames the first block decodes. A causal decoder
+                usually decodes fewer for its first block than the rest.
+            block_frames: Frames every block after the first decodes.
+        """
+        self.decoder = _FakeDecoder(compression_ratio)
+        self.width = width
+        self.height = height
+        self.first_block_frames = first_block_frames
+        self.block_frames = block_frames
+        self.device: str | None = None
+        self.eval_count = 0
+        self.caches: list[dict[str, Any]] = []
+        self.generated: list[int] = []
+        self.finalized: list[int] = []
+        self.closed = False
+        self._frames_generated = 0
+
+    def to(self, device: str) -> "FakeT2VPipeline":
+        self.device = device
+        return self
+
+    def eval(self) -> "FakeT2VPipeline":
+        self.eval_count += 1
+        return self
+
+    def initialize_cache(self, **kwargs: Any) -> object:
+        self.caches.append(kwargs)
+        self._frames_generated = 0
+        return object()
+
+    def generate(self, *, autoregressive_index: int, cache: object) -> torch.Tensor:
+        del cache
+        self.generated.append(autoregressive_index)
+        count = (
+            self.first_block_frames if autoregressive_index == 0 else self.block_frames
+        )
+        frames = torch.stack(
+            [self._frame(self._frames_generated + index) for index in range(count)]
+        )
+        self._frames_generated += count
+        return frames
+
+    def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
+        del cache
+        self.finalized.append(autoregressive_index)
+        return {"total_ms": 1.5}
+
+    def close(self) -> None:
+        self.closed = True
+
+    def _frame(self, frame_index: int) -> torch.Tensor:
+        """Return a grey frame whose shade moves with time.
+
+        Mid grey rather than black or white, and moving rather than still, so
+        the checks a caller makes of a real video are meaningful here too.
+        """
+        shade = -0.5 + (frame_index % 8) / 8.0
+        return torch.full((3, self.height, self.width), shade, dtype=torch.float32)
+
+
+class FakeT2VPipelineConfig:
+    """A pipeline config that builds a stand-in rather than loading a model.
+
+    What an application takes in place of the config its runner names, so a
+    test can watch when the model is built as well as what it generates.
+    """
+
+    def __init__(self, pipeline: FakeT2VPipeline | None = None) -> None:
+        """
+        Args:
+            pipeline: Stand-in to build. A default one is made when none is
+                given, for a test that only cares that something was built.
+        """
+        self.pipeline = pipeline if pipeline is not None else FakeT2VPipeline()
+        self.setup_count = 0
+
+    def setup(self) -> FakeT2VPipeline:
+        self.setup_count += 1
+        return self.pipeline
+
+
+class _FakeDecoder:
+    """The one thing a session asks a decoder for."""
+
+    def __init__(self, spatial_compression_ratio: int) -> None:
+        self.spatial_compression_ratio = spatial_compression_ratio
 
 
 def _described_by(application: IApplication) -> SessionDesc:

@@ -21,8 +21,9 @@ CPU-only tests for the v2 protocols themselves:
   missing from `PATH`.
 - `test_t2v_application.py` covers the shared text-to-video application: its
   flags, what they resolve to, what it refuses to generate, and when the model is
-  loaded. What one rollout generates is covered where a stand-in for a real
-  pipeline is, in `integrations_v2/t2v_self_forcing`.
+  loaded. Covering it here is what lets each `integrations_v2/t2v_*` package test
+  only what is particular to its own model, over the stand-in pipeline
+  `flashdreams.t2v_v2.testing` ships.
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
   the command line at `--`, and running one into a real MP4 with a stand-in for
   a model.

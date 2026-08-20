@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""The real model, generating a short clip somebody can watch.
+
+Too heavy for any automated run: it needs a GPU, and on a machine that has not
+run this model before it downloads tens of gigabytes of checkpoint. So it
+carries the ``ci_gpu`` tier marker but skips unless
+``T2V_WAN21_REAL_MODEL_RUN`` is set, which costs the GPU job milliseconds and
+still keeps the module imported and collected there. Run it with a base
+temporary directory you can reach, then play the file::
+
+    T2V_WAN21_REAL_MODEL_RUN=1 uv run --no-sync pytest \
+        integrations_v2/t2v_wan21 -m ci_gpu -s --basetemp="$HOME/t2v-out"
+    vlc "$HOME"/t2v-out/*current/clip.mp4
+
+The ``manual`` marker describes this test better and cannot be used: the
+``pytest-manual-marker`` plugin xfails every ``manual`` test at setup, so a test
+marked that way never runs, here or on anybody's machine.
+"""
+
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+import torch
+from t2v_wan21 import Wan21T2VApplication
+from wan21.runner import DEFAULT_PROMPT
+
+from flashdreams.t2v_v2.testing import ExpectedFrameStats, check_t2v_model_impl
+
+pytestmark = pytest.mark.ci_gpu
+
+_RUN_ENV = "T2V_WAN21_REAL_MODEL_RUN"
+"""Set this to run the model rather than skip it."""
+
+_CLIP_FRAMES = 81
+"""Frames the one block decodes. The config generates 21 latent frames, and the
+Wan VAE decodes the first to one frame and each after it to four, so the clip is
+1 + 20 * 4. At 16 frames per second that is about five seconds."""
+
+
+@pytest.mark.skipif(
+    not os.environ.get(_RUN_ENV),
+    reason=f"set {_RUN_ENV}=1 to download the checkpoints and generate a clip",
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="the model needs a GPU")
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg"
+)
+def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
+    path = tmp_path / "clip.mp4"
+
+    result = check_t2v_model_impl(
+        # No session described here: the clip worth watching is the one the
+        # model was trained to generate, which it says for itself.
+        Wan21T2VApplication(),
+        # One step, because this model generates its whole clip in one block.
+        steps=1,
+        # Compilation costs minutes and buys back milliseconds, which is the
+        # wrong trade for a single block.
+        commandline_args=["--prompt", DEFAULT_PROMPT, "--no-compile"],
+        expected=ExpectedFrameStats(
+            frame_count=_CLIP_FRAMES,
+            # A picture rather than a blank frame. Loose, because what a model
+            # samples is its own business.
+            mean_luminance=(16.0, 240.0),
+            min_frame_difference=0.5,
+        ),
+        mp4_path=path,
+    )
+
+    print(f"\nwrote {path}\n{result}")
+    assert result.passed, result.failures

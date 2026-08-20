@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-t2v-cosmos-predict2"
+version = "0.1.0"
+description = "Cosmos Predict2 text-to-video application for the FlashDreams v2 API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Integration packages depend on the public framework, never the reverse.
+    "flashdreams",
+    # The model itself, whose pipeline config this application drives.
+    "flashdreams-cosmos-predict2",
+]
+
+[tool.uv.sources]
+# Resolve both from this repository while developing the workspace.
+flashdreams = { workspace = true }
+flashdreams-cosmos-predict2 = { workspace = true }
+
+# What ``flashdreams-run-v2 t2v-cosmos-predict2`` resolves to. A separate group
+# from the v1 ``flashdreams.applications``, which holds the older contract; the
+# slug is the same because it is the same model.
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-cosmos-predict2" = "t2v_cosmos_predict2.app:create_app"
+
+[tool.setuptools.packages.find]
+# Keep the distribution limited to the integration-owned Python package.
+include = ["t2v_cosmos_predict2*"]
+
+[tool.uv]
+managed = true

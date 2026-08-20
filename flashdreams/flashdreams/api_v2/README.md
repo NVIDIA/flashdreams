@@ -34,8 +34,8 @@ an integration ships when it has registered nothing.
 of them: one `T2VApplication` owns the command line every t2v model needs, an
 integration supplies only its own defaults, and `testing.check_t2v_model_impl`
 is the check its tests run to cover the batch path in one call. See
-[its README](../t2v_v2/README.md). `integrations_v2/t2v_self_forcing` is the
-first model behind it.
+[its README](../t2v_v2/README.md). The five `integrations_v2/t2v_*` packages are
+the models behind it, and each is a factory of about forty lines.
 
 Ownership
 ---------

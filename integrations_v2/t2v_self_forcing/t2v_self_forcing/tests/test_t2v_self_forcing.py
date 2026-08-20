@@ -13,17 +13,20 @@ is the one the real model plugs into.
 
 import shutil
 from pathlib import Path
-from typing import Any
 
 import pytest
-import torch
 from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
 from t2v_self_forcing import SelfForcingT2VApplication
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.testing import ExpectedFrameStats, check_t2v_model_impl
+from flashdreams.t2v_v2.testing import (
+    ExpectedFrameStats,
+    FakeT2VPipeline,
+    FakeT2VPipelineConfig,
+    check_t2v_model_impl,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -55,78 +58,22 @@ _NO_EVENTS = UserInputEvents([])
 """What a text-to-video session is given every step."""
 
 
-## Stand-in model
-
-
-class _FakeDecoder:
-    spatial_compression_ratio = _COMPRESSION_RATIO
-
-
-class _FakePipeline:
-    """Generate frames of the shape and range the real pipeline generates."""
-
-    def __init__(self) -> None:
-        self.decoder = _FakeDecoder()
-        self.device: str | None = None
-        self.eval_count = 0
-        self.caches: list[dict[str, Any]] = []
-        self.generated: list[int] = []
-        self.finalized: list[int] = []
-        self.closed = False
-        self._frames_generated = 0
-
-    def to(self, device: str) -> "_FakePipeline":
-        self.device = device
-        return self
-
-    def eval(self) -> "_FakePipeline":
-        self.eval_count += 1
-        return self
-
-    def initialize_cache(self, **kwargs: Any) -> object:
-        self.caches.append(kwargs)
-        self._frames_generated = 0
-        return object()
-
-    def generate(self, *, autoregressive_index: int, cache: object) -> torch.Tensor:
-        del cache
-        self.generated.append(autoregressive_index)
-        count = _FIRST_BLOCK_FRAMES if autoregressive_index == 0 else _BLOCK_FRAMES
-        frames = torch.stack(
-            [self._frame(self._frames_generated + index) for index in range(count)]
-        )
-        self._frames_generated += count
-        return frames
-
-    def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
-        del cache
-        self.finalized.append(autoregressive_index)
-        return {"total_ms": 1.5}
-
-    def close(self) -> None:
-        self.closed = True
-
-    def _frame(self, frame_index: int) -> torch.Tensor:
-        """Return a grey frame whose shade moves with time.
-
-        Mid grey rather than black or white, and moving rather than still, so
-        the checks a caller makes of a real video are meaningful here too.
-        """
-        shade = -0.5 + (frame_index % 8) / 8.0
-        return torch.full((3, _HEIGHT, _WIDTH), shade, dtype=torch.float32)
-
-
-class _FakePipelineConfig:
-    def __init__(self, pipeline: _FakePipeline) -> None:
-        self.pipeline = pipeline
-        self.setup_count = 0
-
-    def setup(self) -> _FakePipeline:
-        self.setup_count += 1
-        return self.pipeline
-
-
 ## Helpers
+
+
+def _stand_in() -> FakeT2VPipeline:
+    """Return a stand-in generating what the constants above describe.
+
+    Passed rather than left to the stand-in's own defaults, because these tests
+    assert the exact shapes it emits.
+    """
+    return FakeT2VPipeline(
+        width=_WIDTH,
+        height=_HEIGHT,
+        compression_ratio=_COMPRESSION_RATIO,
+        first_block_frames=_FIRST_BLOCK_FRAMES,
+        block_frames=_BLOCK_FRAMES,
+    )
 
 
 def _session_desc(
@@ -145,11 +92,11 @@ def _session_desc(
 
 
 def _application(
-    pipeline: _FakePipeline | None = None,
-) -> tuple[SelfForcingT2VApplication, _FakePipeline]:
+    pipeline: FakeT2VPipeline | None = None,
+) -> tuple[SelfForcingT2VApplication, FakeT2VPipeline]:
     """Return an initialized application and the model it will load."""
-    pipeline = pipeline or _FakePipeline()
-    app = SelfForcingT2VApplication(pipeline_config=_FakePipelineConfig(pipeline))
+    pipeline = pipeline or _stand_in()
+    app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(pipeline))
     app.init(["--prompt", _PROMPT, "--device", "cpu"])
     return app, pipeline
 
@@ -158,9 +105,7 @@ def _application(
 
 
 def test_a_run_needs_something_to_generate_from() -> None:
-    app = SelfForcingT2VApplication(
-        pipeline_config=_FakePipelineConfig(_FakePipeline())
-    )
+    app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(_stand_in()))
     with pytest.raises(ValueError, match="--prompt is required"):
         app.init([])
     with pytest.raises(ValueError, match="--prompt is required"):
@@ -170,9 +115,7 @@ def test_a_run_needs_something_to_generate_from() -> None:
 def test_a_session_cannot_be_created_before_the_application_is_told_what_to_do() -> (
     None
 ):
-    app = SelfForcingT2VApplication(
-        pipeline_config=_FakePipelineConfig(_FakePipeline())
-    )
+    app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(_stand_in()))
     with pytest.raises(RuntimeError, match="init.. must run before create_session"):
         app.create_session(_session_desc())
 
@@ -180,7 +123,7 @@ def test_a_session_cannot_be_created_before_the_application_is_told_what_to_do()
 def test_the_model_loads_once_and_every_session_shares_it() -> None:
     app, pipeline = _application()
     config = app.pipeline_config
-    assert isinstance(config, _FakePipelineConfig)
+    assert isinstance(config, FakeT2VPipelineConfig)
 
     app.create_session(_session_desc())
     app.create_session(_session_desc())
@@ -193,7 +136,7 @@ def test_the_model_loads_once_and_every_session_shares_it() -> None:
 def test_the_model_is_not_loaded_until_a_session_wants_it() -> None:
     app, _ = _application()
     config = app.pipeline_config
-    assert isinstance(config, _FakePipelineConfig)
+    assert isinstance(config, FakeT2VPipelineConfig)
     assert config.setup_count == 0
 
 
@@ -341,7 +284,7 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
     path = tmp_path / "clip.mp4"
 
     result = check_t2v_model_impl(
-        SelfForcingT2VApplication(pipeline_config=_FakePipelineConfig(_FakePipeline())),
+        SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(_stand_in())),
         _session_desc(),
         steps=steps,
         commandline_args=["--prompt", _PROMPT, "--device", "cpu"],
@@ -361,7 +304,7 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
 
 def test_the_check_reports_what_a_run_failed_to_generate() -> None:
     result = check_t2v_model_impl(
-        SelfForcingT2VApplication(pipeline_config=_FakePipelineConfig(_FakePipeline())),
+        SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(_stand_in())),
         _session_desc(),
         steps=1,
         commandline_args=["--prompt", _PROMPT, "--device", "cpu"],
